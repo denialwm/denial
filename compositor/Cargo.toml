@@ -23,6 +23,7 @@ flutter = [
     "wire",
 ]
 control = [
+    "dep:rustix",
     "dep:serde",
     "dep:serde_json",
 ]
@@ -41,6 +42,7 @@ nested = [
     "smithay/renderer_gl",
 ]
 kms = [
+    "dep:rustix",
     "dep:calloop",
     "dep:drm-ffi",
     "dep:libc",
@@ -77,6 +79,7 @@ libloading = { version = "0.9", optional = true }
 wayland-scanner = "0.31.10"
 wayland-server = "0.31.13"
 png = { version = "=0.18.1", optional = true }
+rustix = { version = "=1.1.4", features = ["thread"], optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }
 sha2 = { version = "=0.10.9", optional = true }

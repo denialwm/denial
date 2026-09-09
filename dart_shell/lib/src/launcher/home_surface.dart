@@ -31,6 +31,7 @@ class HomeSurface extends ConsumerStatefulWidget {
     super.key,
     this.active = true,
     this.interactive = true,
+    this.contentOpacity,
     this.useShellLaunchTransition = false,
   });
 
@@ -42,6 +43,10 @@ class HomeSurface extends ConsumerStatefulWidget {
   /// Whether pointer events may reach launcher content. The launcher can stay
   /// visible behind shell-owned transitions without accepting accidental taps.
   final bool interactive;
+
+  /// Fades icons, widgets and page indicators independently of the backdrop.
+  /// The animation updates composited opacity without rebuilding the grid.
+  final Animation<double>? contentOpacity;
 
   /// Coordinates launches with the integrated shell's placeholder and window
   /// matching. The standalone launcher leaves this off and starts apps
@@ -1000,11 +1005,22 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
 
   @override
   Widget build(BuildContext context) {
+    // Page changes happen midway through a swipe. Only the dots need that
+    // signal; rebuilding both visible icon grids here disrupts the gesture.
+    final contents = ref.watch(
+      homeGridControllerProvider.select(
+        (value) => (
+          slots: value.asData?.value.slots,
+          draggingSourceIndex: value.asData?.value.draggingSourceIndex,
+          hasError: value.hasError,
+        ),
+      ),
+    );
     return _HomeSurfaceView(
       owner: this,
       active: widget.active,
       interactive: widget.interactive,
-      gridAsync: ref.watch(homeGridControllerProvider),
+      contents: contents,
     );
   }
 }

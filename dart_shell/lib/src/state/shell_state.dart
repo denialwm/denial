@@ -24,6 +24,9 @@ class ShellState {
     required AppLaunchRequest? launchRequest,
     required bool homeTransitionActive,
   }) {
+    final openAppWindows = List<DenialWindow>.unmodifiable(
+      windows.where((window) => window.isUserApp),
+    );
     return ShellState._(
       windows: windows,
       windowsByObjectId: Map<int, DenialWindow>.unmodifiable(
@@ -31,9 +34,8 @@ class ShellState {
           for (final window in windows) window.objectId: window,
         },
       ),
-      openAppWindows: List<DenialWindow>.unmodifiable(
-        windows.where((window) => window.isUserApp),
-      ),
+      openAppWindows: openAppWindows,
+      openAppWindowIndices: _indexOpenAppWindows(openAppWindows),
       windowSnapshotSequence: windowSnapshotSequence,
       overviewVisible: overviewVisible,
       gestureDrag: gestureDrag,
@@ -57,6 +59,7 @@ class ShellState {
     required this.windows,
     required this._windowsByObjectId,
     required this.openAppWindows,
+    required this._openAppWindowIndices,
     required this.windowSnapshotSequence,
     required this.overviewVisible,
     required this.gestureDrag,
@@ -100,6 +103,7 @@ class ShellState {
   final List<DenialWindow> windows;
   final Map<int, DenialWindow> _windowsByObjectId;
   final List<DenialWindow> openAppWindows;
+  final Map<int, int> _openAppWindowIndices;
   final int windowSnapshotSequence;
   final bool overviewVisible;
   final Offset gestureDrag;
@@ -172,6 +176,11 @@ class ShellState {
   }) {
     final nextWindows = windows ?? this.windows;
     final windowsUnchanged = identical(nextWindows, this.windows);
+    final nextOpenAppWindows = windowsUnchanged
+        ? openAppWindows
+        : List<DenialWindow>.unmodifiable(
+            nextWindows.where((window) => window.isUserApp),
+          );
     return ShellState._(
       windows: nextWindows,
       windowsByObjectId: windowsUnchanged
@@ -179,11 +188,10 @@ class ShellState {
           : Map<int, DenialWindow>.unmodifiable(<int, DenialWindow>{
               for (final window in nextWindows) window.objectId: window,
             }),
-      openAppWindows: windowsUnchanged
-          ? openAppWindows
-          : List<DenialWindow>.unmodifiable(
-              nextWindows.where((window) => window.isUserApp),
-            ),
+      openAppWindows: nextOpenAppWindows,
+      openAppWindowIndices: windowsUnchanged
+          ? _openAppWindowIndices
+          : _indexOpenAppWindows(nextOpenAppWindows),
       windowSnapshotSequence:
           windowSnapshotSequence ?? this.windowSnapshotSequence,
       overviewVisible: overviewVisible ?? this.overviewVisible,
@@ -259,43 +267,18 @@ class ShellState {
   }
 
   DenialWindow? adjacentOpenAppWindow(int direction) {
-    if (direction == 0) {
+    if (direction == 0 || openAppWindows.length < 2) {
       return null;
     }
 
-    final currentObjectId = foregroundObjectId ?? primaryWindow?.objectId;
-    var currentIndex = -1;
-    var lastUserIndex = -1;
-    var userWindowCount = 0;
-    for (var index = 0; index < windows.length; index += 1) {
-      final window = windows[index];
-      if (!window.isUserApp) {
-        continue;
-      }
-      userWindowCount += 1;
-      lastUserIndex = index;
-      if (window.objectId == currentObjectId) {
-        currentIndex = index;
-      }
-    }
-    if (userWindowCount < 2) {
-      return null;
-    }
-    if (currentIndex < 0) {
-      currentIndex = lastUserIndex;
-    }
-
-    for (
-      var targetIndex = currentIndex + direction;
-      targetIndex >= 0 && targetIndex < windows.length;
-      targetIndex += direction
-    ) {
-      final target = windows[targetIndex];
-      if (target.isUserApp) {
-        return target;
-      }
-    }
-    return null;
+    // This lookup runs in provider selectors on every gesture update. Index
+    // only when the window snapshot changes; dragging must not scan all apps.
+    final currentIndex =
+        _openAppWindowIndices[foregroundObjectId] ?? openAppWindows.length - 1;
+    final targetIndex = currentIndex + direction.sign;
+    return targetIndex >= 0 && targetIndex < openAppWindows.length
+        ? openAppWindows[targetIndex]
+        : null;
   }
 
   DenialWindow? windowByObjectId(int? objectId) {
@@ -315,3 +298,9 @@ class ShellState {
     return null;
   }
 }
+
+Map<int, int> _indexOpenAppWindows(List<DenialWindow> windows) =>
+    Map<int, int>.unmodifiable({
+      for (var index = 0; index < windows.length; index++)
+        windows[index].objectId: index,
+    });

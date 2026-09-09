@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
+import '../retained_translation.dart';
 import 'overview_geometry.dart';
 import 'overview_window_card.dart';
 
@@ -145,21 +146,19 @@ class _OverviewGridEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delay = 0.06 + delayRank * 0.035;
-    return AnimatedBuilder(
-      animation: progress,
+    return RetainedTranslation(
+      translation: Tween<Offset>(begin: originOffset, end: Offset.zero)
+          .chain(
+            CurveTween(
+              curve: Interval(
+                delay,
+                math.min(0.86, delay + 0.68),
+                curve: Motion.md3EmphasizedDecelerate,
+              ),
+            ),
+          )
+          .animate(progress),
       child: child,
-      builder: (context, child) {
-        final rawEntry = interval(
-          unit(progress.value),
-          delay,
-          math.min(0.86, delay + 0.68),
-        );
-        final entry = Motion.md3EmphasizedDecelerate.transform(rawEntry);
-        return Transform.translate(
-          offset: Offset.lerp(originOffset, Offset.zero, entry)!,
-          child: child,
-        );
-      },
     );
   }
 }

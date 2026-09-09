@@ -1,10 +1,9 @@
-import 'dart:ui';
-
 import 'package:flutter/widgets.dart';
 
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../localization/denial_localizations.dart';
+import '../retained_translation.dart';
 
 class OverviewScrim extends StatelessWidget {
   const OverviewScrim({
@@ -42,16 +41,20 @@ class OverviewScrim extends StatelessWidget {
 class EmptyOverviewState extends StatelessWidget {
   const EmptyOverviewState({super.key, required this.progress});
 
-  final double progress;
+  final Animation<double> progress;
 
   @override
   Widget build(BuildContext context) {
-    final intro = Motion.standard.transform(progress);
     return Center(
-      child: Transform.translate(
-        offset: Offset(0, lerpDouble(28.0, 0.0, intro)!),
-        child: Opacity(
-          opacity: unit(progress * 1.3),
+      child: RetainedTranslation(
+        translation: Tween<Offset>(
+          begin: const Offset(0, 28),
+          end: Offset.zero,
+        ).chain(CurveTween(curve: Motion.standard)).animate(progress),
+        child: FadeTransition(
+          opacity: progress.drive(
+            CurveTween(curve: const Interval(0, 1 / 1.3)),
+          ),
           child: Text(
             context.l10n.overviewNoWindows,
             textAlign: TextAlign.center,

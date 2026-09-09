@@ -1,0 +1,62 @@
+{
+  "system_denial": {
+    "status": 0,
+    "stdout": "Id=denial-moto70.service\nRequires=moto70-hardware.service system.slice -.mount sysinit.target\nWants=\nPartOf=\nTriggeredBy=\nActiveState=active\nSubState=running\nFragmentPath=/etc/systemd/system/denial-moto70.service\nDropInPaths=/etc/systemd/system/denial-moto70.service.d/40-mesa-kgsl.conf /etc/systemd/system/denial-moto70.service.d/80-moto70-denial-cpu.conf /etc/systemd/system/denial-moto70.service.d/96-moto70-power-settings.conf /etc/systemd/system/denial-moto70.service.d/99-moto70-mobile-ui.conf /etc/systemd/system/denial-moto70.service.d/99-moto70-recents.conf /etc/systemd/system/denial-moto70.service.d/99-moto70-z-profile.conf /etc/systemd/system/denial-moto70.service.d/99-moto70-zz-render-audit.conf /etc/systemd/system/denial-moto70.service.d/99-moto70-zzz-feedback-audit.conf\nMainPID=1095\nExecStart={ path=/var/lib/moto70-denial/feedback-audit-897ea11dab8c/deniald ; argv[]=/var/lib/moto70-denial/feedback-audit-897ea11dab8c/deniald --device /dev/dri/card0 --render-device /dev/dri/renderD128 --output-config /opt/denial/outputs.conf --wayland --flutter-bundle /var/lib/moto70-denial/feedback-audit-897ea11dab8c/bundle --flutter-renderer impeller ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:49:16 UTC] ; stop_time=[n/a] ; pid=1095 ; code=(null) ; status=0/0 }\nControlGroup=/system.slice/denial-moto70.service\nPAMName=login\n",
+    "stderr": ""
+  },
+  "user_dependencies": {
+    "status": 0,
+    "stdout": "denial-session.target\n  graphical-session.target\n  at-spi-dbus-bus.service\n  dbus.socket\n  app.slice\n  -.slice\n  session.slice\n  basic.target\n  paths.target\n  sockets.target\n  dirmngr.socket\n  gpg-agent-browser.socket\n  gpg-agent-extra.socket\n  gpg-agent-ssh.socket\n  gpg-agent.socket\n  keyboxd.socket\n  p11-kit-server.socket\n  pipewire-pulse.socket\n  pipewire.socket\n  systemd-ask-password.socket\n  systemd-importd.socket\n  systemd-journalctl.socket\n  systemd-machined.socket\n  systemd-storage-fs.socket\n  timers.target\n  droidloom.service\n  droidloom-applications.service\n  xdg-desktop-portal-gtk.service\n  xdg-desktop-portal.service\n  dbus-broker.service\n  xdg-document-portal.service\n  xdg-permission-store.service\n  xdg-desktop-autostart.target\n",
+    "stderr": ""
+  },
+  "user_units": {
+    "denial-session.target": {
+      "status": 0,
+      "stdout": "Id=denial-session.target\nRequires=\nWants=xdg-desktop-autostart.target\nPartOf=\nTriggeredBy=\nActiveState=active\nSubState=active\nFragmentPath=/usr/lib/systemd/user/denial-session.target\nDropInPaths=\n",
+      "stderr": ""
+    },
+    "droidloom-wayland.service": {
+      "status": 0,
+      "stdout": "Id=droidloom-wayland.service\nRequires=\nWants=\nPartOf=\nTriggeredBy=\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nMainPID=0\nControlGroup=\nPAMName=\n",
+      "stderr": ""
+    },
+    "droidloom-applications.service": {
+      "status": 0,
+      "stdout": "Id=droidloom-applications.service\nRequires=basic.target app.slice\nWants=\nPartOf=droidloom.service\nTriggeredBy=\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/droidloom-applications.service\nDropInPaths=\nMainPID=1361\nExecStart={ path=/usr/bin/droidloom-applications ; argv[]=/usr/bin/droidloom-applications ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:49:29 UTC] ; stop_time=[n/a] ; pid=1361 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/app.slice/droidloom-applications.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "pipewire.service": {
+      "status": 0,
+      "stdout": "Id=pipewire.service\nRequires=pipewire.socket basic.target session.slice dbus-broker.service\nWants=wireplumber.service\nPartOf=\nTriggeredBy=pipewire.socket\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/pipewire.service\nDropInPaths=/root/.config/systemd/user/pipewire.service.d/70-moto70-root-session.conf\nMainPID=3723\nExecStart={ path=/usr/bin/pipewire ; argv[]=/usr/bin/pipewire ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:50:32 UTC] ; stop_time=[n/a] ; pid=3723 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/session.slice/pipewire.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "pipewire-pulse.service": {
+      "status": 0,
+      "stdout": "Id=pipewire-pulse.service\nRequires=pipewire-pulse.socket session.slice basic.target\nWants=pipewire.service wireplumber.service\nPartOf=\nTriggeredBy=pipewire-pulse.socket\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/pipewire-pulse.service\nDropInPaths=/root/.config/systemd/user/pipewire-pulse.service.d/70-moto70-root-session.conf\nMainPID=3725\nExecStart={ path=/usr/bin/pipewire-pulse ; argv[]=/usr/bin/pipewire-pulse ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:50:32 UTC] ; stop_time=[n/a] ; pid=3725 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/session.slice/pipewire-pulse.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "wireplumber.service": {
+      "status": 0,
+      "stdout": "Id=wireplumber.service\nRequires=basic.target session.slice\nWants=\nPartOf=\nTriggeredBy=\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/wireplumber.service\nDropInPaths=\nMainPID=3724\nExecStart={ path=/usr/bin/wireplumber ; argv[]=/usr/bin/wireplumber ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:50:32 UTC] ; stop_time=[n/a] ; pid=3724 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/session.slice/wireplumber.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "xdg-desktop-portal.service": {
+      "status": 0,
+      "stdout": "Id=xdg-desktop-portal.service\nRequires=session.slice basic.target dbus-broker.service dbus.socket\nWants=\nPartOf=graphical-session.target\nTriggeredBy=\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/xdg-desktop-portal.service\nDropInPaths=\nMainPID=3812\nExecStart={ path=/usr/lib/xdg-desktop-portal ; argv[]=/usr/lib/xdg-desktop-portal ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:50:36 UTC] ; stop_time=[n/a] ; pid=3812 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/session.slice/xdg-desktop-portal.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "xdg-desktop-portal-gtk.service": {
+      "status": 0,
+      "stdout": "Id=xdg-desktop-portal-gtk.service\nRequires=basic.target app.slice dbus.socket\nWants=\nPartOf=graphical-session.target\nTriggeredBy=\nActiveState=active\nSubState=running\nFragmentPath=/usr/lib/systemd/user/xdg-desktop-portal-gtk.service\nDropInPaths=\nMainPID=3856\nExecStart={ path=/usr/lib/xdg-desktop-portal-gtk ; argv[]=/usr/lib/xdg-desktop-portal-gtk ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:50:36 UTC] ; stop_time=[n/a] ; pid=3856 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/app.slice/xdg-desktop-portal-gtk.service\nPAMName=\n",
+      "stderr": ""
+    },
+    "xdg-desktop-portal-denial.service": {
+      "status": 0,
+      "stdout": "Id=xdg-desktop-portal-denial.service\nRequires=\nWants=\nPartOf=\nTriggeredBy=\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nMainPID=0\nControlGroup=\nPAMName=\n",
+      "stderr": ""
+    }
+  },
+  "denial_related_unit_files": {
+    "/usr/lib/systemd/user/denial-session.target": "[Unit]\nDescription=Denial graphical session\nDocumentation=https://github.com/denialwm/denial\nBindsTo=graphical-session.target\nBefore=graphical-session.target\nWants=xdg-desktop-autostart.target\nBefore=xdg-desktop-autostart.target\n"
+  }
+}

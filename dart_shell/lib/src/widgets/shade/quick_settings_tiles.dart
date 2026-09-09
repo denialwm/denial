@@ -8,6 +8,7 @@ import '../../localization/denial_localizations.dart';
 import '../../services/power_profile_service.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
+import '../../theme/shell_color_scheme.dart';
 import '../../theme/tokens.dart';
 
 /// The grid of quick-settings tiles. Purely presentational: every value and
@@ -59,86 +60,88 @@ class QuickSettingsTiles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Column(
-      children: [
-        SizedBox(
-          height: 124,
-          child: Row(
-            children: [
-              Expanded(
-                child: QuickTile(
-                  icon: Icons.wifi_rounded,
-                  title: l10n.commonWifi,
-                  subtitle: wifiSubtitle,
-                  active: wifi,
-                  enabled: wifiEnabled,
-                  busy: wifiBusy,
-                  onTap: onToggleWifi,
-                  onDetails: onOpenWifi,
-                  wide: true,
+    return _ShadeButtonTheme(
+      child: Column(
+        children: [
+          SizedBox(
+            height: 124,
+            child: Row(
+              children: [
+                Expanded(
+                  child: QuickTile(
+                    icon: Icons.wifi_rounded,
+                    title: l10n.commonWifi,
+                    subtitle: wifiSubtitle,
+                    active: wifi,
+                    enabled: wifiEnabled,
+                    busy: wifiBusy,
+                    onTap: onToggleWifi,
+                    onDetails: onOpenWifi,
+                    wide: true,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: QuickTile(
-                  icon: Icons.bluetooth_rounded,
-                  title: l10n.commonBluetooth,
-                  subtitle: bluetoothSubtitle,
-                  active: bluetooth,
-                  enabled: bluetoothEnabled,
-                  busy: bluetoothBusy,
-                  onTap: onToggleBluetooth,
-                  onDetails: onOpenBluetooth,
-                  wide: true,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: QuickTile(
+                    icon: Icons.bluetooth_rounded,
+                    title: l10n.commonBluetooth,
+                    subtitle: bluetoothSubtitle,
+                    active: bluetooth,
+                    enabled: bluetoothEnabled,
+                    busy: bluetoothBusy,
+                    onTap: onToggleBluetooth,
+                    onDetails: onOpenBluetooth,
+                    wide: true,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 88,
-          child: Row(
-            children: [
-              Expanded(
-                child: QuickTile(
-                  icon: _profileIcon(profile),
-                  title: _profileLabel(profile, l10n),
-                  active: profile != PowerProfile.balanced,
-                  onTap: onCycleProfile,
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 88,
+            child: Row(
+              children: [
+                Expanded(
+                  child: QuickTile(
+                    icon: _profileIcon(profile),
+                    title: _profileLabel(profile, l10n),
+                    active: profile != PowerProfile.balanced,
+                    onTap: onCycleProfile,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: QuickTile(
-                  icon: Icons.notifications_off_rounded,
-                  title: l10n.quickSettingsSilent,
-                  subtitle: dndReady
-                      ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
-                      : l10n.commonLoading,
-                  active: dnd,
-                  enabled: dndReady,
-                  onTap: onToggleDnd,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: QuickTile(
+                    icon: Icons.notifications_off_rounded,
+                    title: l10n.quickSettingsSilent,
+                    subtitle: dndReady
+                        ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
+                        : l10n.commonLoading,
+                    active: dnd,
+                    enabled: dndReady,
+                    onTap: onToggleDnd,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: QuickTile(
-                  icon: rotationLock
-                      ? Icons.screen_lock_rotation_rounded
-                      : Icons.screen_rotation_rounded,
-                  title: l10n.quickSettingsRotation,
-                  subtitle: rotationLock
-                      ? l10n.quickSettingsLocked
-                      : l10n.quickSettingsAutomatic,
-                  active: !rotationLock,
-                  onTap: onToggleRotation,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: QuickTile(
+                    icon: rotationLock
+                        ? Icons.screen_lock_rotation_rounded
+                        : Icons.screen_rotation_rounded,
+                    title: l10n.quickSettingsRotation,
+                    subtitle: rotationLock
+                        ? l10n.quickSettingsLocked
+                        : l10n.quickSettingsAutomatic,
+                    active: !rotationLock,
+                    onTap: onToggleRotation,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -180,9 +183,9 @@ class _QuickTileState extends State<QuickTile> {
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
     final accent = theme.accentPalette;
-    final background = theme.cardColor(
-      widget.active ? accent.primary : context.shellColors.tileOff,
-    );
+    final background =
+        (widget.active ? accent.primary : context.shellColors.tileOff)
+            .withValues(alpha: 1);
     final foreground = widget.active
         ? accent.onPrimary
         : context.shellColors.panelText;
@@ -451,21 +454,23 @@ class ShadeActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
-          icon: Icons.settings_rounded,
-        ),
-        const SizedBox(width: 12),
-        _RoundButton(
-          label: context.l10n.desktopOpenPowerControls,
-          icon: Icons.power_settings_new_rounded,
-          onPressed: onOpenPower,
-        ),
-      ],
+    return _ShadeButtonTheme(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          _RoundButton(
+            label: context.l10n.quickSettingsSettingsUnavailable,
+            icon: Icons.settings_rounded,
+          ),
+          const SizedBox(width: 12),
+          _RoundButton(
+            label: context.l10n.desktopOpenPowerControls,
+            icon: Icons.power_settings_new_rounded,
+            onPressed: onOpenPower,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -556,3 +561,21 @@ String _profileLabel(String profile, AppLocalizations l10n) =>
       PowerProfile.performance => l10n.quickSettingsHighPerformance,
       _ => l10n.quickSettingsBalanced,
     };
+
+/// Quick-setting buttons retain their original colors in either appearance.
+/// Material choice, glass opacity, roundness and accent seed remain inherited.
+class _ShadeButtonTheme extends StatelessWidget {
+  const _ShadeButtonTheme({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
+    if (theme.colors == ShellColorScheme.dark) return child;
+    return ShellTheme(
+      data: theme.copyWith(colors: ShellColorScheme.dark),
+      child: child,
+    );
+  }
+}

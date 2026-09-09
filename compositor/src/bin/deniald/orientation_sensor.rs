@@ -59,7 +59,10 @@ impl OrientationSensor {
         let (events, source) = channel();
         let worker = thread::Builder::new()
             .name("denial-orientation".to_owned())
-            .spawn(move || monitor(events))?;
+            .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("orientation");
+                monitor(events);
+            })?;
         Ok((Self { _worker: worker }, source))
     }
 }

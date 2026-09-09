@@ -83,6 +83,9 @@ class DesktopNotification {
   final int progress;
   final bool hasProgress;
   final int expireTimeoutMs;
+
+  /// Ongoing notifications belong in history, without a heads-up banner.
+  bool get historyOnly => resident || expireTimeoutMs == 0;
 }
 
 class DesktopNotificationEvent {

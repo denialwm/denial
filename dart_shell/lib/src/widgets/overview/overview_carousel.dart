@@ -219,9 +219,18 @@ class _OverviewCarouselState extends State<OverviewCarousel>
           constraints.biggest,
           cardSize,
         );
+        // With the foreground in its own hero, only the older card's exposed
+        // edge needs to enter. Starting a full screen away hides it until the
+        // very end of the gesture. Start just beyond the left edge instead,
+        // so the neighbor follows the shrinking app from the first drag frame.
+        final entryTravel = widget.foregroundObjectId != null
+            ? ((constraints.maxWidth - cardSize.width) / 2 -
+                      overviewPageSpacing)
+                  .clamp(0.0, constraints.maxWidth)
+            : constraints.maxWidth;
         return RetainedTranslation(
           translation: widget.progress.drive(
-            Tween(begin: Offset(-constraints.maxWidth, 0), end: Offset.zero),
+            Tween(begin: Offset(-entryTravel, 0), end: Offset.zero),
           ),
           child: ClipRect(
             child: OverflowBox(

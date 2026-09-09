@@ -41,6 +41,7 @@ class OverviewLayer extends StatefulWidget {
     required this.onFocusWindow,
     required this.onHomeSettled,
     this.onPresentationChanged,
+    this.onProgressChanged,
   });
 
   final List<DenialWindow> windows;
@@ -56,6 +57,9 @@ class OverviewLayer extends StatefulWidget {
   final ValueChanged<DenialWindow> onFocusWindow;
   final VoidCallback onHomeSettled;
   final ValueChanged<bool>? onPresentationChanged;
+
+  /// Visual progress shared with the launcher during dragging and settling.
+  final ValueChanged<double>? onProgressChanged;
 
   @override
   State<OverviewLayer> createState() => _OverviewLayerState();
@@ -89,7 +93,13 @@ class _OverviewLayerState extends State<OverviewLayer>
       vsync: this,
       value: widget.visible ? 1.0 : 0.0,
     )..addListener(_updatePhase);
+    widget.onProgressChanged?.call(_controller.value);
     _shown = widget.visible;
+    if (_shown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _shown) widget.onPresentationChanged?.call(true);
+      });
+    }
     _syncWindows(resetOrder: true);
     widget.swipeDy.addListener(_handleDrag);
     _focusController = AnimationController(
@@ -131,6 +141,9 @@ class _OverviewLayerState extends State<OverviewLayer>
   @override
   void didUpdateWidget(covariant OverviewLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.onProgressChanged != oldWidget.onProgressChanged) {
+      widget.onProgressChanged?.call(_controller.value);
+    }
     if (widget.swipeDy != oldWidget.swipeDy) {
       oldWidget.swipeDy.removeListener(_handleDrag);
       widget.swipeDy.addListener(_handleDrag);
@@ -213,6 +226,7 @@ class _OverviewLayerState extends State<OverviewLayer>
   }
 
   void _updatePhase() {
+    widget.onProgressChanged?.call(_controller.value);
     // Keep the final frame mounted until the entire carousel is off-screen.
     final shown = _controller.value > 0;
     final hero = shown && (_controller.value < 1 || _heroPressed);
@@ -248,11 +262,7 @@ class _OverviewLayerState extends State<OverviewLayer>
         ? null
         : _foregroundHeroWindow(_controller.value);
     final overviewContent = _windows.isEmpty
-        ? AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) =>
-                EmptyOverviewState(progress: unit(_controller.value)),
-          )
+        ? EmptyOverviewState(progress: _controller)
         : viewSize.width > viewSize.height
         ? OverviewGrid(
             windows: _windows,

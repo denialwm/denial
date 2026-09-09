@@ -139,6 +139,51 @@ void main() {
     expect(focused, 1);
   });
 
+  testWidgets('older previews enter from the first part of the upward drag', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final drag = ValueNotifier(0.0);
+    addTearDown(drag.dispose);
+    await tester.pumpWidget(_overview(drag: drag, visible: false));
+
+    drag.value = -12;
+    await tester.pump();
+    final preview = _preview(2);
+    final element = preview.evaluate().single;
+    final first = tester.getRect(preview);
+    expect(first.right, greaterThan(0));
+    expect(first.right, lessThan(10));
+    final size = tester.widget<OverviewWindowPreview>(preview).size;
+    final builds = <String>[];
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, _) =>
+        builds.add(element.widget.runtimeType.toString());
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+    var right = first.right;
+    for (var travel = 16; travel <= 100; travel += 4) {
+      drag.value = -travel.toDouble();
+      await tester.pump();
+      final rect = tester.getRect(preview);
+      expect(rect.right, greaterThan(right));
+      expect(rect.size, size);
+      expect(preview.evaluate().single, same(element));
+      right = rect.right;
+    }
+    expect(builds, isEmpty);
+    debugOnRebuildDirtyWidget = previous;
+
+    // Releasing into recents must continue from this position, including when
+    // almost all of the gesture happened before the first settling frame.
+    drag.value = 0;
+    await tester.pumpWidget(_overview(drag: drag, visible: true));
+    expect(tester.getRect(preview).right, closeTo(right, 0.01));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(preview).right, greaterThan(right));
+    expect(tester.getRect(preview).right, lessThan(60));
+  });
+
   testWidgets('closing during focus cancels the stale activation', (
     tester,
   ) async {

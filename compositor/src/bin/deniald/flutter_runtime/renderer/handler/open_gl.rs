@@ -280,12 +280,33 @@ impl OpenGlHandler for FlutterGlHandler {
             // thread, where issuing GL/EGL destruction calls is forbidden. A
             // raster present owns the render context, so reclaim those queued
             // resources even when no further external texture is populated.
-            self.destroy_retired_external_bindings();
+            {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentRetire,
+                );
+                self.destroy_retired_external_bindings();
+            }
             if let Some(gpu_timing) = &self.gpu_timing {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentGpuMarkers,
+                );
                 lock(gpu_timing).mark_flutter_complete(framebuffer);
             }
-            if !self.blit_to_scanout(framebuffer) {
+            let blit_ok = {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentBlit,
+                );
+                self.blit_to_scanout(framebuffer)
+            };
+            if !blit_ok {
                 if let Some(gpu_timing) = &self.gpu_timing {
+                    let _stage = RenderAuditCallbackTimer::new(
+                        self.render_audit.as_ref(),
+                        RenderAuditStage::PresentGpuMarkers,
+                    );
                     lock(gpu_timing).finish(framebuffer);
                 }
                 let sampled = self.seal_sampled_buffers();
@@ -298,17 +319,41 @@ impl OpenGlHandler for FlutterGlHandler {
                 return false;
             }
             if let Some(gpu_timing) = &self.gpu_timing {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentGpuMarkers,
+                );
                 lock(gpu_timing).finish(framebuffer);
             }
             let context = lock(&self.render_context);
-            let fence = match EGLFence::create(context.context.display()) {
+            let created_fence = {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentFenceCreate,
+                );
+                EGLFence::create(context.context.display())
+            };
+            let fence = match created_fence {
                 Ok(fence) => {
                     // The fence follows Flutter's render commands. Flushing
                     // publishes the native sync_file without waiting for GPU
                     // completion on the raster thread.
                     // SAFETY: present runs with the raster context current.
-                    unsafe { (self.gl.flush)() };
-                    match fence.export() {
+                    {
+                        let _stage = RenderAuditCallbackTimer::new(
+                            self.render_audit.as_ref(),
+                            RenderAuditStage::PresentFlush,
+                        );
+                        unsafe { (self.gl.flush)() };
+                    }
+                    let exported_fence = {
+                        let _stage = RenderAuditCallbackTimer::new(
+                            self.render_audit.as_ref(),
+                            RenderAuditStage::PresentFenceExport,
+                        );
+                        fence.export()
+                    };
+                    match exported_fence {
                         Ok(fence) => Some(fence),
                         Err(error) => {
                             let reason = format!(
@@ -348,6 +393,10 @@ impl OpenGlHandler for FlutterGlHandler {
                     return false;
                 }
             };
+            let _publish_stage = RenderAuditCallbackTimer::new(
+                self.render_audit.as_ref(),
+                RenderAuditStage::PresentPublish,
+            );
             if let Some(fence) = fence.as_ref()
                 && let Err(error) = self
                     .gpu_deadline_hints

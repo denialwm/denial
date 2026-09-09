@@ -40,6 +40,10 @@ const CANCEL_SCREENSHOT: u8 = 5;
 // to applications. WAYLAND_DISPLAY is installed explicitly below; all other
 // compositor/GPU bootstrap choices belong only to deniald.
 const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
+    "DENIAL_CPU_PLACEMENT",
+    "DENIAL_BIG_CPUS",
+    "DENIAL_LITTLE_CPUS",
+    denial_core::cpu_affinity::APPLICATION_CPUS_ENV,
     "AQ_DRM_DEVICES",
     "__EGL_VENDOR_LIBRARY_FILENAMES",
     "WLR_DRM_DEVICES",
@@ -705,6 +709,8 @@ fn application_command(
     // an explicit null can remove DISPLAY or another default deliberately.
     // Per-launch activation metadata below remains compositor-owned.
     application_environment.apply(&mut command, desktop_file_id);
+    // Internal tool metadata must never replace an application's restored mask.
+    command.env_remove(denial_core::cpu_affinity::APPLICATION_CPUS_ENV);
     // calloop's signalfd intentionally blocks the shutdown signals in every
     // compositor thread. A fork inherits that mask, so undo it in the child
     // between fork and exec; otherwise ordinary applications cannot receive

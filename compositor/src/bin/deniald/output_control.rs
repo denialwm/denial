@@ -958,6 +958,7 @@ fn serve(
                 let spawn = thread::Builder::new()
                     .name("denial-control-client".into())
                     .spawn(move || {
+                        crate::cpu_scheduling::normalize_current_worker("control-client");
                         let _client_slot = client_slot;
                         let result = handle_connection(
                             stream,

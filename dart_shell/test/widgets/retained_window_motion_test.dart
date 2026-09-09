@@ -1,9 +1,113 @@
 import 'package:denial_dart_shell/src/widgets/retained_window_motion.dart';
-import 'package:flutter/rendering.dart';
+import 'package:denial_dart_shell/src/widgets/retained_scale.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'retained scale keeps build, layout and paint and rebinds its listener',
+    (tester) async {
+      final scale = ValueNotifier(1.0);
+      final replacement = ValueNotifier(0.8);
+      addTearDown(scale.dispose);
+      addTearDown(replacement.dispose);
+      final probe = _Probe();
+      Widget scene(ValueNotifier<double> source) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox.square(
+            dimension: 100,
+            child: RetainedScale(
+              scale: source,
+              child: RepaintBoundary(child: probe),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(scene(scale));
+      final render = tester.renderObject<_RenderProbe>(find.byType(_Probe));
+      final initial = (render.layouts, render.paints);
+      final original = tester.getRect(find.byType(_Probe));
+      for (var frame = 1; frame <= 60; frame++) {
+        scale.value = 1 - frame / 100;
+        await tester.pump();
+        final visual = MatrixUtils.transformRect(
+          render.getTransformTo(null),
+          Offset.zero & render.size,
+        );
+        expect(
+          visual,
+          rectMoreOrLessEquals(
+            Rect.fromCenter(
+              center: original.center,
+              width: 100 * scale.value,
+              height: 100 * scale.value,
+            ),
+          ),
+        );
+      }
+      expect((render.layouts, render.paints), initial);
+      await tester.pumpWidget(scene(replacement));
+      final before = render.getTransformTo(null);
+      scale.value = 0.1;
+      await tester.pump();
+      expect(render.getTransformTo(null), before);
+      await tester.pumpWidget(const SizedBox.shrink());
+      replacement.value = 0.6;
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('unscaled motion keeps overlay geometry and clips hit testing', (
+    tester,
+  ) async {
+    final progress = AnimationController(vsync: tester);
+    addTearDown(progress.dispose);
+    final probe = _Probe();
+    var taps = 0;
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox.square(
+            dimension: 200,
+            child: RetainedWindowMotion(
+              progress: progress,
+              begin: const Rect.fromLTWH(50, 50, 100, 100),
+              end: const Rect.fromLTWH(0, 0, 200, 200),
+              beginRadius: 20,
+              transformChild: false,
+              child: RepaintBoundary(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => taps++,
+                  child: probe,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final render = tester.renderObject<_RenderProbe>(find.byType(_Probe));
+    final initial = (render.layouts, render.paints);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.tapAt(const Offset(51, 51));
+    expect(taps, 0);
+    await tester.tapAt(const Offset(100, 100));
+    expect(taps, 1);
+    for (var frame = 1; frame <= 60; frame++) {
+      progress.value = frame / 60;
+      await tester.pump();
+      expect(render.getTransformTo(null), Matrix4.identity());
+    }
+    expect((render.layouts, render.paints), initial);
+    await tester.tapAt(const Offset(10, 10));
+    expect(taps, 2);
+  });
+
   testWidgets('60 motion frames retain app build, layout and paint', (
     tester,
   ) async {

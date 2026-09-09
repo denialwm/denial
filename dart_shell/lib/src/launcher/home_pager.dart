@@ -1,14 +1,19 @@
 part of 'home_surface.dart';
 
+typedef _HomePageContents = ({
+  List<HomeGridItem?>? slots,
+  int? draggingSourceIndex,
+  bool hasError,
+});
+
 class _HomePager extends StatelessWidget {
-  const _HomePager({required this.owner, required this.gridAsync});
+  const _HomePager({required this.owner, required this.contents});
 
   final _HomeSurfaceState owner;
-  final AsyncValue<HomeGridState> gridAsync;
+  final _HomePageContents contents;
 
   @override
   Widget build(BuildContext context) {
-    final gridState = gridAsync.asData?.value;
     return LayoutBuilder(
       builder: (context, constraints) {
         final gridWidth =
@@ -54,15 +59,16 @@ class _HomePager extends StatelessWidget {
         owner._currentTileHeight = tileHeight;
         owner._currentRows = rows;
 
-        final slots = gridState?.slots ?? const <HomeGridItem?>[];
+        final slots = contents.slots ?? const <HomeGridItem?>[];
         final pageCount = HomeGridLayout.pageCountForSlots(slots, pageSize);
         owner._currentPageCount = pageCount;
-        final currentPage = gridState?.page ?? 0;
+        final currentPage =
+            owner.ref.read(homeGridControllerProvider).asData?.value.page ?? 0;
         final safePage = currentPage.clamp(0, pageCount - 1).toInt();
         owner._syncSafePage(currentPage, safePage);
 
-        final content = gridState == null
-            ? gridAsync.hasError
+        final content = contents.slots == null
+            ? contents.hasError
                   ? HomeEmptyState(label: context.l10n.commonError)
                   : HomeEmptyState(label: context.l10n.commonLoading)
             : PageView.builder(
@@ -84,7 +90,7 @@ class _HomePager extends StatelessWidget {
                       gap: HomeGridLayout.gridGap,
                       tileWidth: tileWidth,
                       tileHeight: tileHeight,
-                      draggingSourceIndex: gridState.draggingSourceIndex,
+                      draggingSourceIndex: contents.draggingSourceIndex,
                       resizeModeIndex: owner._resizeModeIndex,
                       onLaunch: owner._launchApp,
                       onDragStart: owner._handleItemDragStart,
@@ -120,11 +126,27 @@ class _HomePager extends StatelessWidget {
               top: pageDotsTop,
               left: 0,
               right: 0,
-              child: PageDots(count: pageCount, active: safePage),
+              child: _HomePageDots(count: pageCount),
             ),
           ],
         );
       },
     );
+  }
+}
+
+class _HomePageDots extends ConsumerWidget {
+  const _HomePageDots({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final page = ref.watch(
+      homeGridControllerProvider.select(
+        (value) => value.asData?.value.page ?? 0,
+      ),
+    );
+    return PageDots(count: count, active: page.clamp(0, count - 1));
   }
 }

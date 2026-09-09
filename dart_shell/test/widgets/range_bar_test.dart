@@ -1,10 +1,73 @@
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
+import 'package:denial_dart_shell/src/theme/glass_configuration.dart';
 import 'package:denial_dart_shell/src/widgets/shade/range_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'glass track keeps foreground and full geometry in one clipped layer',
+    (tester) async {
+      Widget view(double y) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: ShellTheme(
+          data: const ShellThemeData(
+            transparencyMode: ShellTransparencyMode.glass,
+          ),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 300,
+              height: 100,
+              child: ClipRect(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Transform.translate(
+                    offset: Offset(0, y),
+                    child: RangeBar(
+                      icon: Icons.volume_up_rounded,
+                      value: 0.25,
+                      activeColor: const Color(0xff80cbc4),
+                      inactiveColor: const Color(0xff263238),
+                      translucentTrack: true,
+                      showValueMarker: false,
+                      height: 56,
+                      onChanged: (_) {},
+                      onChangeEnd: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      for (final y in [0.0, -20.0, -50.0, -20.0, 0.0]) {
+        await tester.pumpWidget(view(y));
+        final filter = find.byType(BackdropFilter);
+        expect(filter, findsOneWidget);
+        expect(tester.getSize(filter), const Size(300, 56));
+        expect(
+          find.descendant(
+            of: filter,
+            matching: find.byIcon(Icons.volume_up_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: filter,
+            matching: find.byType(FractionallySizedBox),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('trackpad pan changes the range without snapping to the cursor', (
     tester,
   ) async {

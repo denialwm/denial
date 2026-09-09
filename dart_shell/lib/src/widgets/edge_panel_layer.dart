@@ -8,6 +8,7 @@ import '../state/shell_controller.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import 'osk/shell_osk_panel.dart';
+import 'retained_translation.dart';
 import 'shell_backdrop_blur.dart';
 
 /// Keeps the mobile software keyboard above applications and shell surfaces,
@@ -22,7 +23,10 @@ class MobileSystemKeyboardLayer extends ConsumerWidget {
     );
     return Offstage(
       offstage: !enabled,
-      child: IgnorePointer(ignoring: !enabled, child: const EdgePanelLayer()),
+      child: TickerMode(
+        enabled: enabled,
+        child: IgnorePointer(ignoring: !enabled, child: const EdgePanelLayer()),
+      ),
     );
   }
 }
@@ -32,32 +36,55 @@ class MobileSystemKeyboardLayer extends ConsumerWidget {
 /// The keyboard and its right-edge scroll strip must remain stationary, so
 /// every full-screen surface that should follow the user's viewport pan wraps
 /// itself in this boundary instead of duplicating the translation.
-class MobileKeyboardViewport extends ConsumerWidget {
+class MobileKeyboardViewport extends ConsumerStatefulWidget {
   const MobileKeyboardViewport({required this.child, super.key});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final position = ref.watch(
+  ConsumerState<MobileKeyboardViewport> createState() =>
+      _MobileKeyboardViewportState();
+}
+
+class _MobileKeyboardViewportState
+    extends ConsumerState<MobileKeyboardViewport> {
+  final _translation = ValueNotifier(Offset.zero);
+  double _panelHeight = 0;
+
+  void _updateTranslation(({double progress, double scroll}) position) {
+    final keyboardOffset = _panelHeight * position.progress;
+    final scroll = position.scroll.clamp(0.0, keyboardOffset);
+    _translation.value = Offset(0, -(keyboardOffset - scroll));
+  }
+
+  @override
+  void dispose() {
+    _translation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(
       shellControllerProvider.select(
         (state) => (
           progress: state.edgePanelDragProgress,
           scroll: state.edgePanelViewportScroll,
         ),
       ),
+      (_, next) => _updateTranslation(next),
     );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final keyboardOffset =
-            ShellMetrics.edgePanelHeight(constraints.biggest) *
-            position.progress;
-        final viewportScroll = position.scroll
-            .clamp(0.0, keyboardOffset)
-            .toDouble();
-        return Transform.translate(
-          offset: Offset(0.0, -(keyboardOffset - viewportScroll)),
-          child: child,
+        _panelHeight = ShellMetrics.edgePanelHeight(constraints.biggest);
+        final state = ref.read(shellControllerProvider);
+        _updateTranslation((
+          progress: state.edgePanelDragProgress,
+          scroll: state.edgePanelViewportScroll,
+        ));
+        return RetainedTranslation(
+          translation: _translation,
+          child: RepaintBoundary(child: widget.child),
         );
       },
     );
@@ -74,6 +101,10 @@ class EdgePanelLayer extends ConsumerStatefulWidget {
 class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  final _translation = ValueNotifier(Offset.zero);
+  double _panelHeight = 0;
+  bool _shown = false;
+  bool _scrollReady = false;
 
   @override
   void initState() {
@@ -82,14 +113,36 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
     _controller = AnimationController.unbounded(
       vsync: this,
       value: state.edgePanelVisible ? 1.0 : state.edgePanelDragProgress,
-    );
+    )..addListener(_updatePresentation);
+    _shown = unit(_controller.value) > 0.001;
+    _scrollReady = unit(_controller.value) >= 0.98;
     ref.read(hapticsServiceProvider).prewarm();
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _translation.dispose();
     super.dispose();
+  }
+
+  void _updateTranslation() {
+    _translation.value = Offset(
+      0,
+      _panelHeight * (1 - unit(_controller.value)),
+    );
+  }
+
+  void _updatePresentation() {
+    _updateTranslation();
+    final progress = unit(_controller.value);
+    final shown = progress > 0.001;
+    final scrollReady = progress >= 0.98;
+    if (_shown == shown && _scrollReady == scrollReady) return;
+    setState(() {
+      _shown = shown;
+      _scrollReady = scrollReady;
+    });
   }
 
   void _onPanelChanged((bool, double, bool) signal) {
@@ -109,6 +162,8 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
 
   @override
   Widget build(BuildContext context) {
+    _panelHeight = ShellMetrics.edgePanelHeight(MediaQuery.sizeOf(context));
+    _updateTranslation();
     ref.listen<(bool, double, bool)>(
       shellControllerProvider.select(
         (state) => (
@@ -124,21 +179,21 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) {
-              final progress = unit(_controller.value);
-              if (progress <= 0.001) {
-                return const SizedBox.expand();
-              }
-              return Stack(
+          Offstage(
+            offstage: !_shown,
+            child: TickerMode(
+              enabled: _shown,
+              child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _EdgePanelScrollStrip(progress: progress),
-                  _EdgePanelSheet(progress: progress),
+                  _EdgePanelScrollStrip(enabled: _scrollReady),
+                  RetainedTranslation(
+                    translation: _translation,
+                    child: const _EdgePanelSheet(),
+                  ),
                 ],
-              );
-            },
+              ),
+            ),
           ),
           const _EdgePanelGestureTarget(),
         ],
@@ -181,16 +236,16 @@ class _EdgePanelGestureTarget extends ConsumerWidget {
 }
 
 class _EdgePanelScrollStrip extends ConsumerWidget {
-  const _EdgePanelScrollStrip({required this.progress});
+  const _EdgePanelScrollStrip({required this.enabled});
 
-  final double progress;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final edgePanelVisible = ref.watch(
       shellControllerProvider.select((state) => state.edgePanelVisible),
     );
-    if (!edgePanelVisible || progress < 0.98) {
+    if (!edgePanelVisible || !enabled) {
       return const SizedBox.expand();
     }
 
@@ -218,9 +273,7 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
 }
 
 class _EdgePanelSheet extends ConsumerWidget {
-  const _EdgePanelSheet({required this.progress});
-
-  final double progress;
+  const _EdgePanelSheet();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -228,25 +281,22 @@ class _EdgePanelSheet extends ConsumerWidget {
     final size = MediaQuery.sizeOf(context);
     final panelHeight = ShellMetrics.edgePanelHeight(size);
 
-    return Transform.translate(
-      offset: Offset(0.0, panelHeight * (1.0 - progress)),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
-          onVerticalDragUpdate: (details) {
-            controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
-          },
-          onVerticalDragEnd: (details) {
-            controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
-          },
-          onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: panelHeight,
-            child: const _EdgePanelContent(),
-          ),
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
+        onVerticalDragUpdate: (details) {
+          controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
+        },
+        onVerticalDragEnd: (details) {
+          controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
+        },
+        onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
+        child: SizedBox(
+          width: double.infinity,
+          height: panelHeight,
+          child: const _EdgePanelContent(),
         ),
       ),
     );

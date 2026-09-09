@@ -1,0 +1,43 @@
+{
+  "pid": 1095,
+  "version": "3.12.2 (stable) (Tue Jun 9 01:11:39 2026 -0700) on \"linux_arm64\"",
+  "isolates": [
+    {
+      "id": "isolates/4448181851651475",
+      "name": "main",
+      "number": "4448181851651475",
+      "isSystemIsolate": false,
+      "isolateGroupId": "isolateGroups/1474032915998350",
+      "runnable": true,
+      "livePorts": 8
+    },
+    {
+      "id": "isolates/6731858471168635",
+      "name": "denial-nvidia-worker",
+      "number": "6731858471168635",
+      "isSystemIsolate": false,
+      "isolateGroupId": "isolateGroups/1474032915998350",
+      "runnable": true,
+      "livePorts": 1
+    }
+  ],
+  "systemIsolates": [
+    {
+      "type": "@Isolate",
+      "id": "isolates/4566727618672495",
+      "name": "vm-service",
+      "number": "4566727618672495",
+      "isSystemIsolate": true,
+      "isolateGroupId": "isolateGroups/7674183777268611"
+    }
+  ],
+  "isolateGroups": [
+    {
+      "type": "@IsolateGroup",
+      "id": "isolateGroups/1474032915998350",
+      "name": "main.dart",
+      "number": "1474032915998350",
+      "isSystemIsolateGroup": false
+    }
+  ]
+}

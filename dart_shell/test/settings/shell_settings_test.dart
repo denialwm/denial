@@ -40,6 +40,8 @@ void main() {
         backdropBlurLevel: ShellBackdropBlurLevel.best,
         backdropBlurOpacityThreshold: 0.18,
         glass: ShellGlassConfiguration(
+          appearance: ShellGlassAppearance.light,
+          opacity: 0.42,
           blurSigma: 18,
           quality: 1,
           thickness: 26,
@@ -51,6 +53,11 @@ void main() {
           lightAngle: 210,
           lightIntensity: 0.9,
           edgeStrength: 0.8,
+          bevelWidthScale: 1.4,
+          refractionDepthScale: 0.75,
+          rimWidth: 2.5,
+          rimFalloff: 1.2,
+          oppositeLightStrength: 0.4,
         ),
         focusedWindowBorderEnabled: false,
         focusedWindowOpacity: 0.96,
@@ -296,6 +303,60 @@ void main() {
 
     expect(disabled.appearance.transparencyMode, ShellTransparencyMode.off);
     expect(enabled.appearance.transparencyMode, ShellTransparencyMode.blur);
+  });
+
+  test('older settings preserve the original glass tuning defaults', () {
+    final glass = ShellGlassConfiguration.fromJson(<String, dynamic>{
+      'thickness': 20,
+    });
+    expect(glass.bevelWidthScale, 1);
+    expect(glass.refractionDepthScale, 1);
+    expect(glass.rimWidth, 1.5);
+    expect(glass.rimFalloff, 0.89);
+    expect(glass.oppositeLightStrength, 0.8);
+    expect(glass, const ShellGlassConfiguration());
+  });
+
+  test('glass appearance and opacity tolerate older and invalid settings', () {
+    for (final value in [
+      null,
+      <String, dynamic>{},
+      <String, dynamic>{'appearance': 'invalid', 'opacity': double.nan},
+    ]) {
+      final glass = ShellGlassConfiguration.fromJson(value);
+      expect(glass.appearance, ShellGlassAppearance.dark);
+      expect(glass.opacity, 0.17);
+    }
+    expect(
+      ShellGlassConfiguration.fromJson(<String, dynamic>{
+        'opacity': -1,
+      }).opacity,
+      0,
+    );
+    expect(
+      ShellGlassConfiguration.fromJson(<String, dynamic>{'opacity': 2}).opacity,
+      1,
+    );
+    const configured = ShellGlassConfiguration(
+      appearance: ShellGlassAppearance.light,
+      opacity: 0.42,
+    );
+    expect(ShellGlassConfiguration.fromJson(configured.toJson()), configured);
+  });
+
+  test('glass tuning validates persisted values independently', () {
+    final glass = ShellGlassConfiguration.fromJson(<String, dynamic>{
+      'bevelWidthScale': 0,
+      'refractionDepthScale': double.nan,
+      'rimWidth': 99,
+      'rimFalloff': 'bad',
+      'oppositeLightStrength': -1,
+    });
+    expect(glass.bevelWidthScale, 0.25);
+    expect(glass.refractionDepthScale, 1);
+    expect(glass.rimWidth, 6);
+    expect(glass.rimFalloff, 0.89);
+    expect(glass.oppositeLightStrength, 0);
   });
 
   test('glass settings reject malformed values and clamp optical limits', () {

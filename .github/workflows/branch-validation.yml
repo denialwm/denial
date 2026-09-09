@@ -192,6 +192,9 @@ jobs:
 
       - name: Run compositor and Flutter tests
         shell: bash
+        env:
+          # The hardened runner denies the test's SCHED_RESET_ON_FORK syscall.
+          DENIAL_SKIP_CPU_CAPACITY_TEST: "1"
         run: |
           set -euo pipefail
           tools/denial-pc test \

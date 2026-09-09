@@ -102,6 +102,13 @@ The Flutter path publishes physical Wayland output enter/leave events when a
 window is mapped, moved, resized or unmapped. Clients can therefore follow the
 monitor's refresh rate without a whole-desktop membership sweep each frame.
 
+Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
+and all eight Wayland buffer orientations. Opacity changes publish with the
+parent transaction even when the child keeps its buffer. Flutter applies
+orientation after buffer-coordinate cropping and swaps layout dimensions for
+quarter turns. Droidloom can therefore supply original Android layers as
+ordinary subsurfaces instead of flattening every supported task in Android.
+
 ## Input
 
 Physical events enter through Smithay's libinput backend. Dart publishes one

@@ -734,6 +734,12 @@ build_all() {
 }
 
 test_compositor() {
+    local -a kernel_test_filters=()
+    if [[ "${DENIAL_SKIP_CPU_CAPACITY_TEST:-0}" == 1 ]]; then
+        # RestrictRealtime on the CI runner rejects SCHED_RESET_ON_FORK.
+        # Keep this kernel integration test enabled for normal local runs.
+        kernel_test_filters=(--skip cpu_scheduling::capacity::tests::hint_preserves_priority_and_does_not_leak_to_new_threads)
+    fi
     require_flutter_bindings
     command -v dbus-run-session >/dev/null 2>&1 \
         || die "dbus-run-session is required for isolated notification service tests"
@@ -747,7 +753,8 @@ test_compositor() {
             --lib \
             --bins \
             --tests \
-            --features flutter
+            --features flutter \
+            -- "${kernel_test_filters[@]}"
     )
     run_pinned_cargo test \
         --locked \
@@ -848,6 +855,7 @@ check_engine_test() {
         CARGO_TARGET_DIR="$RUST_TARGET" \
         cargo test --locked --jobs "$BUILD_JOBS" \
             -p denial-flutter-engine \
+            --test bundle_abi -- --ignored --exact \
             loads_the_bundled_flutter_engine_abi
     )
     printf 'Verified staged engine ABI and AOT data (sha256 %s).\n' \

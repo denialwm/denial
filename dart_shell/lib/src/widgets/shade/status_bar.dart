@@ -15,7 +15,9 @@ import 'status_glyphs.dart';
 /// shade. Time and battery are isolated into their own consumers so their
 /// periodic updates never rebuild the drag surface.
 class ShadeStatusBar extends ConsumerWidget {
-  const ShadeStatusBar({super.key});
+  const ShadeStatusBar({super.key, this.shadeProgress});
+
+  final Animation<double>? shadeProgress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -46,7 +48,8 @@ class ShadeStatusBar extends ConsumerWidget {
       height: topPadding + ShellMetrics.statusBarHeight,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
+        onVerticalDragStart: (_) =>
+            controller.startQuickSettingsDrag(progress: shadeProgress?.value),
         onVerticalDragUpdate: (details) {
           controller.updateQuickSettingsDrag(
             Offset(

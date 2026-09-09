@@ -10,9 +10,9 @@ import '../state/shell_state.dart';
 import '../theme/motion.dart';
 import 'gesture_pill.dart';
 
-/// The home pill at the bottom of the screen. Swiping up opens the overview (or
-/// closes it when already open); swiping horizontally switches between adjacent
-/// apps with a spring-settled slide.
+/// The home pill at the bottom of the screen. An upward pull opens recents;
+/// a fast flick sends an app home or opens recents from home. A downward swipe
+/// closes recents, and a horizontal swipe switches between adjacent apps.
 class BottomGestureHandle extends ConsumerStatefulWidget {
   const BottomGestureHandle({super.key});
 
@@ -29,8 +29,8 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
   static const double _switchFlickVelocity = 720.0;
   static const double _axisLockRatio = 1.18;
 
-  /// Upward fling faster than this goes straight to home; a slower-but-longer
-  /// pull opens recents once it passes [_recentsTravelFraction] of the screen.
+  /// A faster upward fling sends an app home or opens recents from home. A
+  /// slower pull opens recents after [_recentsTravelFraction] of the screen.
   static const double _homeFlickVelocity = 1100.0;
   static const double _recentsTravelFraction = 0.16;
 
@@ -154,8 +154,8 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
       return;
     }
 
-    // Vertical outcome: a fast up-flick flies home, a longer pull opens
-    // recents, anything smaller snaps the app back.
+    // A fast up-flick sends an app home or opens recents when already home.
+    // A longer pull also opens recents; smaller gestures cancel.
     final hasForeground = currentState.foregroundWindow != null;
     final upTravel = -drag.dy;
     final screenHeight = MediaQuery.sizeOf(context).height;
@@ -168,8 +168,12 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
       }
       return;
     }
-    if (hasForeground && velocity.dy < -_homeFlickVelocity) {
-      controller.goHome();
+    if (velocity.dy < -_homeFlickVelocity) {
+      if (hasForeground) {
+        controller.goHome();
+      } else {
+        controller.openOverview();
+      }
     } else if (upTravel > screenHeight * _recentsTravelFraction) {
       controller.openOverview();
     } else {

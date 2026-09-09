@@ -12,6 +12,7 @@ import '../state/screenshot_selection.dart';
 import '../state/shell_controller.dart';
 import '../state/shell_profile.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -84,10 +85,11 @@ class DenialShell extends ConsumerWidget {
     final accent = ref.watch(
       shellAccentProvider.select((accent) => accent.color),
     );
-    final colors =
-        appearance.colorSchemePreference.effectiveBrightness == Brightness.light
-        ? ShellColorScheme.light
-        : ShellColorScheme.dark;
+    final light = appearance.transparencyMode == ShellTransparencyMode.glass
+        ? appearance.glass.appearance == ShellGlassAppearance.light
+        : appearance.colorSchemePreference.effectiveBrightness ==
+              Brightness.light;
+    final colors = light ? ShellColorScheme.light : ShellColorScheme.dark;
     final theme = ShellThemeData(
       colors: colors,
       accent: accent,

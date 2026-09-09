@@ -544,8 +544,8 @@ pub(super) fn run_flutter_event_loop(
                 ready_output_apply.is_some() || !events.pending_output_applies.is_empty();
             if !output_apply_waiting && frame_limit.is_none_or(|limit| raster_frames < limit) {
                 let frame_action = runtime.with_frame_readiness(|pending, target_available| {
-                    frame_scheduler.step_with_output_availability(frame_now, pending, |output| {
-                        scheduler.render_available(output) && target_available(output)
+                    frame_scheduler.step_with_output_readiness(frame_now, pending, |output| {
+                        (scheduler.render_available(output), target_available(output))
                     })
                 });
                 match frame_action {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/shell_controller.dart';
 import '../../theme/motion.dart';
 import 'quick_settings_panel.dart';
+import 'shade_progress.dart';
 import 'status_bar.dart';
 
 /// Top-level coordinator for the status bar and the quick-settings shade.
@@ -24,6 +25,7 @@ class SystemShadeLayer extends ConsumerStatefulWidget {
 class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final ProxyAnimation _sharedProgress;
   bool _mountedPanel = false;
   bool _offstage = true;
 
@@ -37,6 +39,7 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     )..addListener(_updateVisibility);
     _mountedPanel = _controller.value > 0;
     _offstage = !_mountedPanel;
+    _sharedProgress = ref.read(shadeProgressProvider)..parent = _controller;
   }
 
   void _updateVisibility() {
@@ -50,6 +53,9 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
 
   @override
   void dispose() {
+    if (identical(_sharedProgress.parent, _controller)) {
+      _sharedProgress.parent = const AlwaysStoppedAnimation(0.0);
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -73,6 +79,12 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
 
   @override
   Widget build(BuildContext context) {
+    final closed = ref.watch(
+      shellControllerProvider.select(
+        (state) =>
+            !state.quickSettingsVisible && !state.quickSettingsDragActive,
+      ),
+    );
     ref.listen<(bool, double, bool)>(
       shellControllerProvider.select(
         (state) => (
@@ -90,7 +102,7 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const ShadeStatusBar(),
+            ShadeStatusBar(shadeProgress: _controller),
             if (_mountedPanel)
               Offstage(
                 offstage: _offstage,
@@ -100,6 +112,7 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
                     child: QuickSettingsShade(
                       progress: _controller,
                       active: !_offstage,
+                      closed: closed,
                     ),
                   ),
                 ),

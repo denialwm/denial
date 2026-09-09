@@ -1584,6 +1584,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'Minimum pixel opacity for blur';
 
   @override
+  String get settingsGlassAppearance => 'Glass appearance';
+
+  @override
+  String get settingsGlassTransparency => 'Transparency of all glass surfaces';
+
+  @override
   String get settingsTransparencyTitle => 'Transparency material';
 
   @override
@@ -3605,5 +3611,35 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String windowUntitled(int windowId) {
     return 'Window $windowId';
+  }
+
+  @override
+  String get settingsGlassAdvanced => 'Glass tuning';
+
+  @override
+  String get settingsGlassReset => 'Reset glass';
+
+  @override
+  String get settingsGlassTuningDescription =>
+      'Changes apply immediately. The defaults preserve the original glass effect.';
+
+  @override
+  String get settingsGlassBevelWidth => 'Bevel width';
+
+  @override
+  String get settingsGlassRefractionDepth => 'Refraction depth';
+
+  @override
+  String get settingsGlassRimWidth => 'Highlight width';
+
+  @override
+  String get settingsGlassRimFalloff => 'Highlight falloff';
+
+  @override
+  String get settingsGlassOppositeLight => 'Opposite-edge light';
+
+  @override
+  String settingsGlassRimPixels(String width) {
+    return '$width px';
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/app_launch_request.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
@@ -11,6 +13,64 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'cold launch retains full-size app layout and icon through zoom and reveal',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final directory = Directory.systemTemp.createTempSync('denial-launch-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final icon = File('${directory.path}/icon.svg')
+        ..writeAsStringSync(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><path fill="red" d="M0 0H64V64H0Z"/></svg>',
+        );
+      await tester.runAsync(
+        () => DesktopAppSvgLoader(icon.path).loadBytes(null),
+      );
+      final request = _request(existing: false, iconPath: icon.path);
+      final completed = <(int, int)>[];
+      Widget launch(DenialWindow? window) => _harness(
+        Stack(
+          children: [
+            LaunchTransitionLayer(
+              request: request,
+              window: window,
+              onCompleted: (id, object) => completed.add((id, object)),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(launch(null));
+      await tester.pump();
+      final iconFinder = find.byType(AppIconImage);
+      final iconElement = iconFinder.evaluate().single;
+      final iconSize = tester.getSize(iconFinder);
+      for (var frame = 0; frame < 5; frame++) {
+        await tester.pump(const Duration(milliseconds: 8));
+        expect(tester.getSize(iconFinder), iconSize);
+      }
+      expect(completed, isEmpty);
+      await tester.pumpWidget(launch(_window));
+      expect(iconFinder.evaluate().single, same(iconElement));
+      final surface = find.byType(WindowSurface);
+      final surfaceWidget = tester.widget(surface);
+      final builds = <String>[];
+      final previous = debugOnRebuildDirtyWidget;
+      debugOnRebuildDirtyWidget = (element, _) =>
+          builds.add(element.widget.runtimeType.toString());
+      addTearDown(() => debugOnRebuildDirtyWidget = previous);
+      for (var frame = 0; frame < 60; frame++) {
+        await tester.pump(const Duration(milliseconds: 8));
+        expect(tester.getSize(surface), const Size(400, 800));
+        expect(tester.widget(surface), same(surfaceWidget));
+        expect(tester.getSize(iconFinder), iconSize);
+      }
+      expect(builds, isEmpty);
+      expect(completed, [(7, 1)]);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('running app grows its retained live surface from the icon', (
     tester,
   ) async {
@@ -70,16 +130,19 @@ void main() {
   });
 }
 
-AppLaunchRequest _request({required bool existing, Rect? source}) =>
-    AppLaunchRequest(
-      requestId: 7,
-      appName: 'Test app',
-      iconPath: null,
-      expectedAppIds: ['test'],
-      existingObjectIds: existing ? [1] : [],
-      targetObjectId: existing ? 1 : null,
-      sourceRect: source,
-    );
+AppLaunchRequest _request({
+  required bool existing,
+  Rect? source,
+  String? iconPath,
+}) => AppLaunchRequest(
+  requestId: 7,
+  appName: 'Test app',
+  iconPath: iconPath,
+  expectedAppIds: ['test'],
+  existingObjectIds: existing ? [1] : [],
+  targetObjectId: existing ? 1 : null,
+  sourceRect: source,
+);
 
 Widget _harness(Widget child) => ProviderScope(
   child: DenialLocalizationScope(

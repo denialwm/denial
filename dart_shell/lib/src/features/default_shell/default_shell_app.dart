@@ -27,7 +27,7 @@ class DenialShellApp extends StatelessWidget {
         chrome: MobileShellChrome(),
         overlays: <Widget>[
           SystemLevelHudLayer(),
-          NotificationBannerLayer(),
+          NotificationBannerLayer(mobile: true),
           MobileWallpaperSelectorLayer(),
           MobileFrameTimingOverlay(),
           GlassBenchmarkLayer(),

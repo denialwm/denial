@@ -21,10 +21,16 @@ class MobileApplicationScene extends StatefulWidget {
 
 class _MobileApplicationSceneState extends State<MobileApplicationScene> {
   final _overviewPresentationActive = ValueNotifier(false);
+  final _overviewProgress = ValueNotifier(0.0);
+  late final _homeContentOpacity = Animation<double>.fromValueListenable(
+    _overviewProgress,
+    transformer: (progress) => 1.0 - progress,
+  );
 
   @override
   void dispose() {
     _overviewPresentationActive.dispose();
+    _overviewProgress.dispose();
     super.dispose();
   }
 
@@ -37,7 +43,12 @@ class _MobileApplicationSceneState extends State<MobileApplicationScene> {
           fit: StackFit.expand,
           children: [
             const ShellWallpaper(),
-            const RepaintBoundary(child: MobileLauncherLayer()),
+            RepaintBoundary(
+              child: MobileLauncherLayer(
+                contentOpacity: _homeContentOpacity,
+                overviewPresentationActive: _overviewPresentationActive,
+              ),
+            ),
             MobilePrimaryWindowLayer(
               overviewPresentationActive: _overviewPresentationActive,
             ),
@@ -45,6 +56,8 @@ class _MobileApplicationSceneState extends State<MobileApplicationScene> {
             MobileOverviewLayer(
               onPresentationChanged: (active) =>
                   _overviewPresentationActive.value = active,
+              onProgressChanged: (progress) =>
+                  _overviewProgress.value = progress,
             ),
           ],
         ),

@@ -35,6 +35,27 @@ production configuration being benchmarked.
 
 ## Report sources
 
+`source=drm_feedback` samples the raw DRM timestamp and sequence at completion
+delivery. Zero, future, stale (over one second old), and nonadvancing monotonic
+timestamps are rejected before they can train the output phase. Repeated or
+reset sequence counters are rejected, while normal 32-bit wrap is accepted.
+Buffer retirement still completes when metadata is invalid.
+
+`source=frame_scheduler` distinguishes `scheduler_unavailable_ticks` (the
+output scheduler cannot accept another ready frame) from
+`target_unavailable_ticks` (the render-target broker cannot authorize work).
+Both count all checked output ticks, including idle ticks, and can overlap.
+`unavailable_output_ticks` counts the combined rejection only while output
+damage is pending; do not sum the two reason counters to obtain that value.
+
+`source=present_stage` splits the native present callback into `retire`,
+`gpu_markers`, `blit`, `fence_create`, `flush`, `fence_export`, and `publish`.
+Each record includes its own sample count and average/p95/p99/maximum duration.
+GPU marker timings are CPU call durations (two markers per completed frame),
+not GPU execution times. Publication includes deadline hints, audit bookkeeping,
+fence duplication, and broker handoff. Timer bookkeeping and uninstrumented
+gaps mean these stages need not sum exactly to `present_callback`.
+
 `source=wayland_commit` is emitted approximately once per second for each
 active surface:
 
@@ -105,6 +126,15 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
   `gpu_timer_abandoned` counts render targets that never reached presentation.
 
 `source=output_scheduler` is emitted approximately once per second:
+
+- `physical_presentations` and `estimated_presentations` distinguish validated
+  kernel timestamps from completion-delivery estimates. Physical latency and
+  presentation-interval metrics exclude estimates; zero samples mean unknown,
+  not zero latency. `physical_interval_samples` and `sequence_samples` expose
+  whether physical cadence and missed-vblank counters have usable evidence.
+- `completion_interval_*` measures userspace completion-processing cadence
+  even when DRM metadata is invalid. It is not a physical scanout timestamp
+  and includes event delivery/batching delays and idle gaps.
 
 - `ready_published` counts Flutter atlas generations made available to KMS.
 - `ready_with_fence` and `fence_signals` describe native-fence readiness.

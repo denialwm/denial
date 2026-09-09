@@ -161,18 +161,21 @@ class SurfaceLayerTexture extends StatelessWidget {
         );
         return _SurfaceOpacity(
           opacity: layer.opacity,
-          child: _ExternalTextureViewport(
-            bufferSize: Size(bufferWidth, bufferHeight),
-            sourceRect: sourceRect,
-            devicePixelRatio: devicePixelRatio,
-            pixelGridOrigin: pixelGridOrigin,
-            alignNativePixels:
-                effectiveFilterQuality == FilterQuality.none &&
-                layer.transform == 0,
-            child: RepaintBoundary(
-              child: Texture(
-                textureId: layer.textureId,
-                filterQuality: effectiveFilterQuality,
+          child: SurfaceBufferTransform(
+            transform: layer.transform,
+            child: _ExternalTextureViewport(
+              bufferSize: Size(bufferWidth, bufferHeight),
+              sourceRect: sourceRect,
+              devicePixelRatio: devicePixelRatio,
+              pixelGridOrigin: pixelGridOrigin,
+              alignNativePixels:
+                  effectiveFilterQuality == FilterQuality.none &&
+                  layer.transform == 0,
+              child: RepaintBoundary(
+                child: Texture(
+                  textureId: layer.textureId,
+                  filterQuality: effectiveFilterQuality,
+                ),
               ),
             ),
           ),
@@ -229,18 +232,21 @@ class _LegacyWindowTexture extends StatelessWidget {
         );
         return _SurfaceOpacity(
           opacity: window.opacity,
-          child: _ExternalTextureViewport(
-            bufferSize: Size(bufferWidth, bufferHeight),
-            sourceRect: sourceRect,
-            devicePixelRatio: devicePixelRatio,
-            pixelGridOrigin: pixelGridOrigin,
-            alignNativePixels:
-                effectiveFilterQuality == FilterQuality.none &&
-                window.transform == 0,
-            child: RepaintBoundary(
-              child: Texture(
-                textureId: window.textureId,
-                filterQuality: effectiveFilterQuality,
+          child: SurfaceBufferTransform(
+            transform: window.transform,
+            child: _ExternalTextureViewport(
+              bufferSize: Size(bufferWidth, bufferHeight),
+              sourceRect: sourceRect,
+              devicePixelRatio: devicePixelRatio,
+              pixelGridOrigin: pixelGridOrigin,
+              alignNativePixels:
+                  effectiveFilterQuality == FilterQuality.none &&
+                  window.transform == 0,
+              child: RepaintBoundary(
+                child: Texture(
+                  textureId: window.textureId,
+                  filterQuality: effectiveFilterQuality,
+                ),
               ),
             ),
           ),
@@ -512,6 +518,31 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
   void applyPaintTransform(RenderBox child, Matrix4 transform) {
     assert(child == this.child);
     transform.translateByDouble(_paintOffset.dx, _paintOffset.dy, 0.0, 1.0);
+  }
+}
+
+/// Applies Wayland's eight buffer orientations without an intermediate image.
+/// Cropping happens in buffer coordinates inside this transform; quarter turns
+/// swap layout constraints before the texture viewport computes its scale.
+class SurfaceBufferTransform extends StatelessWidget {
+  const SurfaceBufferTransform({
+    super.key,
+    required this.transform,
+    required this.child,
+  });
+
+  final int transform;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final quarterTurns = transform & 3;
+    final rotated = quarterTurns == 0
+        ? child
+        : RotatedBox(quarterTurns: quarterTurns, child: child);
+    return transform & 4 == 0
+        ? rotated
+        : Transform.flip(flipX: true, child: rotated);
   }
 }
 

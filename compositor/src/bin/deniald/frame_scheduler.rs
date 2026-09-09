@@ -85,6 +85,8 @@ struct FrameSchedulerAudit {
     output_ticks: u64,
     dirty_output_ticks: u64,
     unavailable_output_ticks: u64,
+    scheduler_unavailable_ticks: u64,
+    target_unavailable_ticks: u64,
     render_requests: u64,
 }
 
@@ -96,6 +98,8 @@ impl FrameSchedulerAudit {
             output_ticks: 0,
             dirty_output_ticks: 0,
             unavailable_output_ticks: 0,
+            scheduler_unavailable_ticks: 0,
+            target_unavailable_ticks: 0,
             render_requests: 0,
         }
     }
@@ -121,6 +125,8 @@ impl FrameSchedulerAudit {
             output_ticks = self.output_ticks,
             dirty_output_ticks = self.dirty_output_ticks,
             unavailable_output_ticks = self.unavailable_output_ticks,
+            scheduler_unavailable_ticks = self.scheduler_unavailable_ticks,
+            target_unavailable_ticks = self.target_unavailable_ticks,
             render_requests = self.render_requests,
             "Denial output-timeline decision audit"
         );
@@ -129,6 +135,8 @@ impl FrameSchedulerAudit {
         self.output_ticks = 0;
         self.dirty_output_ticks = 0;
         self.unavailable_output_ticks = 0;
+        self.scheduler_unavailable_ticks = 0;
+        self.target_unavailable_ticks = 0;
         self.render_requests = 0;
     }
 }
@@ -258,11 +266,21 @@ impl FrameScheduler {
         self.next_dirty_serial
     }
 
+    #[cfg(test)]
     pub(super) fn step_with_output_availability(
         &mut self,
         now: Instant,
         pending: PendingFrame,
         mut output_available: impl FnMut(OutputId) -> bool,
+    ) -> FrameAction {
+        self.step_with_output_readiness(now, pending, |output| (output_available(output), true))
+    }
+
+    pub(super) fn step_with_output_readiness(
+        &mut self,
+        now: Instant,
+        pending: PendingFrame,
+        mut output_available: impl FnMut(OutputId) -> (bool, bool),
     ) -> FrameAction {
         if pending.flutter_requested && !self.flutter_request_latched {
             self.flutter_request_latched = true;
@@ -272,13 +290,21 @@ impl FrameScheduler {
         self.render_requests.clear();
         self.render_texture_ids.clear();
         self.available_outputs.clear();
-        self.available_outputs.extend(
-            self.outputs
-                .ticks()
-                .iter()
-                .map(|tick| tick.output)
-                .filter(|output| output_available(*output)),
-        );
+        self.available_outputs
+            .extend(
+                self.outputs
+                    .ticks()
+                    .iter()
+                    .map(|tick| tick.output)
+                    .filter(|output| {
+                        let (scheduler, target) = output_available(*output);
+                        if let Some(audit) = self.audit.as_mut() {
+                            audit.scheduler_unavailable_ticks += u64::from(!scheduler);
+                            audit.target_unavailable_ticks += u64::from(!target);
+                        }
+                        scheduler && target
+                    }),
+            );
         self.flutter_tick = None;
         let flutter_tick = self.outputs.flutter_tick().filter(|tick| {
             self.flutter_request_latched

@@ -40,9 +40,7 @@ class _NotificationActivatorState extends State<_NotificationActivator> {
         onTap: widget.onActivate,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: context.shellTheme.borderRadius(
-              ShellRadii.notification,
-            ),
+            borderRadius: BorderRadius.circular(context.shellTheme.panelRadius),
             border: _focused
                 ? Border.all(color: ShellTheme.of(context).accent, width: 1.5)
                 : null,
@@ -58,9 +56,13 @@ class _NotificationActionButton extends StatefulWidget {
   const _NotificationActionButton({
     required this.label,
     required this.onPressed,
+    this.fontSize = 12,
+    this.textColor,
   });
 
   final String label;
+  final double fontSize;
+  final Color? textColor;
   final VoidCallback onPressed;
 
   @override
@@ -119,7 +121,13 @@ class _NotificationActionButtonState extends State<_NotificationActionButton> {
               widget.label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: ShellText.cardTitle.copyWith(fontSize: 12),
+              style: ShellText.cardTitle.copyWith(
+                fontSize: widget.fontSize,
+                color: widget.textColor,
+                fontWeight: widget.textColor != null
+                    ? FontWeight.w700
+                    : FontWeight.w600,
+              ),
             ),
           ),
         ),

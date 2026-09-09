@@ -4,6 +4,93 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('buffer orientations preserve layout and all four corners', (
+    tester,
+  ) async {
+    const topLeft = [
+      Offset(0, 0),
+      Offset(60, 0),
+      Offset(60, 40),
+      Offset(0, 40),
+      Offset(60, 0),
+      Offset(0, 0),
+      Offset(0, 40),
+      Offset(60, 40),
+    ];
+    const bottomRight = [
+      Offset(60, 40),
+      Offset(0, 40),
+      Offset(0, 0),
+      Offset(60, 0),
+      Offset(0, 40),
+      Offset(60, 40),
+      Offset(60, 0),
+      Offset(0, 0),
+    ];
+    const topRight = [
+      Offset(60, 0),
+      Offset(60, 40),
+      Offset(0, 40),
+      Offset(0, 0),
+      Offset(0, 0),
+      Offset(0, 40),
+      Offset(60, 40),
+      Offset(60, 0),
+    ];
+    const bottomLeft = [
+      Offset(0, 40),
+      Offset(0, 0),
+      Offset(60, 0),
+      Offset(60, 40),
+      Offset(60, 40),
+      Offset(60, 0),
+      Offset(0, 0),
+      Offset(0, 40),
+    ];
+    for (var transform = 0; transform < 8; transform++) {
+      final parent = GlobalKey();
+      final child = GlobalKey();
+      await tester.pumpWidget(
+        Center(
+          child: SizedBox(
+            key: parent,
+            width: 60,
+            height: 40,
+            child: SurfaceBufferTransform(
+              transform: transform,
+              child: SizedBox.expand(key: child),
+            ),
+          ),
+        ),
+      );
+      final box = child.currentContext!.findRenderObject()! as RenderBox;
+      final ancestor = parent.currentContext!.findRenderObject()! as RenderBox;
+      expect(
+        box.size,
+        transform.isOdd ? const Size(40, 60) : const Size(60, 40),
+      );
+      expect(
+        box.localToGlobal(Offset.zero, ancestor: ancestor),
+        offsetMoreOrLessEquals(topLeft[transform]),
+      );
+      expect(
+        box.localToGlobal(
+          box.size.bottomRight(Offset.zero),
+          ancestor: ancestor,
+        ),
+        offsetMoreOrLessEquals(bottomRight[transform]),
+      );
+      expect(
+        box.localToGlobal(box.size.topRight(Offset.zero), ancestor: ancestor),
+        offsetMoreOrLessEquals(topRight[transform]),
+      );
+      expect(
+        box.localToGlobal(box.size.bottomLeft(Offset.zero), ancestor: ancestor),
+        offsetMoreOrLessEquals(bottomLeft[transform]),
+      );
+    }
+  });
+
   testWidgets('owner output scale overrides the atlas device pixel ratio', (
     tester,
   ) async {

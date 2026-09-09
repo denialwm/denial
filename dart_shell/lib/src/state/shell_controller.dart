@@ -657,6 +657,12 @@ class ShellController extends Notifier<ShellState>
   }
 
   void _handleNativeWindowActivated(int windowId) {
+    // Closing the native focused window can activate its neighbor. Recents
+    // keeps ownership of presentation until the user selects a card or leaves;
+    // an automatic focus fallback must not interrupt the removal reflow.
+    if (state.overviewVisible) {
+      return;
+    }
     for (final window in state.windows) {
       if (window.windowId == windowId && window.isUserApp) {
         final appId = AppLaunchRequest.normalizeAppId(window.appId);
@@ -784,13 +790,21 @@ class ShellController extends Notifier<ShellState>
     );
   }
 
-  void startQuickSettingsDrag() {
-    _quickSettingsDragStartedOpen =
-        state.quickSettingsVisible || state.quickSettingsDragProgress >= 1.0;
+  void startQuickSettingsDrag({double? progress}) {
+    // A drag can interrupt the settling spring. Continue from the painted
+    // position supplied by the shade rather than jumping to its target state.
+    final initialProgress = (progress ?? state.quickSettingsDragProgress).clamp(
+      0.0,
+      1.0,
+    );
+    _quickSettingsDragStartedOpen = initialProgress >= 1.0;
     _quickSettingsDragMoved = false;
     state = state.copyWith(
-      quickSettingsDrag: Offset.zero,
-      quickSettingsVisible: state.quickSettingsVisible,
+      quickSettingsDrag: Offset(
+        0,
+        initialProgress * ShellMetrics.quickSettingsDragDistance,
+      ),
+      quickSettingsVisible: false,
       quickSettingsDragActive: true,
     );
   }

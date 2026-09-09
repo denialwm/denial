@@ -9,6 +9,14 @@ pub(super) enum RenderAuditStage {
     ExistingDamage,
     ExternalTexture,
     PresentCallback,
+    PresentRetire,
+    PresentGpuMarkers,
+    PresentBlit,
+    PresentFenceCreate,
+    PresentFlush,
+    PresentFenceExport,
+    PresentPublish,
+
     RasterIdleCallback,
 }
 
@@ -93,6 +101,7 @@ pub(super) struct RenderDamageAudit {
     last_buffer_damage: Option<DamageRegion>,
     raster_started_at: Option<Instant>,
     raster_restarts: u64,
+    present_stages: [RenderTiming; 7],
     context_make_current: RenderTiming,
     backing_store: RenderTiming,
     existing_damage: RenderTiming,
@@ -142,6 +151,7 @@ impl RenderDamageAudit {
             last_buffer_damage: None,
             raster_started_at: None,
             raster_restarts: 0,
+            present_stages: std::array::from_fn(|_| RenderTiming::default()),
             context_make_current: RenderTiming::default(),
             backing_store: RenderTiming::default(),
             existing_damage: RenderTiming::default(),
@@ -165,6 +175,13 @@ impl RenderDamageAudit {
             RenderAuditStage::BackingStore => self.backing_store.record(duration),
             RenderAuditStage::ExistingDamage => self.existing_damage.record(duration),
             RenderAuditStage::ExternalTexture => self.external_texture.record(duration),
+            RenderAuditStage::PresentRetire => self.present_stages[0].record(duration),
+            RenderAuditStage::PresentGpuMarkers => self.present_stages[1].record(duration),
+            RenderAuditStage::PresentBlit => self.present_stages[2].record(duration),
+            RenderAuditStage::PresentFenceCreate => self.present_stages[3].record(duration),
+            RenderAuditStage::PresentFlush => self.present_stages[4].record(duration),
+            RenderAuditStage::PresentFenceExport => self.present_stages[5].record(duration),
+            RenderAuditStage::PresentPublish => self.present_stages[6].record(duration),
             RenderAuditStage::PresentCallback => self.present_callback.record(duration),
             RenderAuditStage::RasterIdleCallback => self.raster_idle_callback.record(duration),
         }
@@ -322,6 +339,25 @@ impl RenderDamageAudit {
             .last_frame_damage
             .as_ref()
             .map_or_else(|| "-".to_owned(), DamageRegion::compact_description);
+        for (name, timing) in [
+            "retire",
+            "gpu_markers",
+            "blit",
+            "fence_create",
+            "flush",
+            "fence_export",
+            "publish",
+        ]
+        .into_iter()
+        .zip(&self.present_stages)
+        {
+            let summary = timing.summary();
+            info!(target: "deniald::render_audit", source = "present_stage",
+                stage = name, interval_ms = elapsed.as_secs_f64() * 1000.0,
+                samples = timing.samples, avg_us = summary.average_us,
+                p95_us = summary.p95_us, p99_us = summary.p99_us, max_us = summary.max_us,
+                "Native present stage audit");
+        }
         let last_buffer_damage = self
             .last_buffer_damage
             .as_ref()
@@ -449,6 +485,7 @@ impl RenderDamageAudit {
         self.last_frame_damage = None;
         self.last_buffer_damage = None;
         self.raster_restarts = 0;
+        self.present_stages = std::array::from_fn(|_| RenderTiming::default());
         self.context_make_current = RenderTiming::default();
         self.backing_store = RenderTiming::default();
         self.existing_damage = RenderTiming::default();

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../input/shell_interaction_registry.dart';
 import '../../state/display_layout.dart';
+import '../../state/shell_controller.dart';
+import '../../platform/denial_bridge.dart';
 import '../../theme/motion.dart';
 import '../../widgets/edge_panel_layer.dart';
 import '../../widgets/shell_wallpaper.dart';
@@ -14,11 +18,49 @@ import 'mobile_wallpaper_selector_surface.dart';
 /// The wallpaper plane intentionally covers the running application while the
 /// selector is open, matching the desktop experience without changing the
 /// mobile application or launcher scene underneath it.
-class MobileWallpaperSelectorLayer extends ConsumerWidget {
+class MobileWallpaperSelectorLayer extends ConsumerStatefulWidget {
   const MobileWallpaperSelectorLayer({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MobileWallpaperSelectorLayer> createState() =>
+      _MobileWallpaperSelectorLayerState();
+}
+
+class _MobileWallpaperSelectorLayerState
+    extends ConsumerState<MobileWallpaperSelectorLayer> {
+  late final StreamSubscription<DenialShellActionEvent> _shellActions;
+
+  @override
+  void initState() {
+    super.initState();
+    _shellActions = ref.read(denialBridgeProvider).shellActions.listen((event) {
+      if (event.action == DenialShellAction.wallpaper) {
+        unawaited(_openSelector());
+      }
+    });
+  }
+
+  Future<void> _openSelector() async {
+    if (ref.read(shellControllerProvider).lockLayerVisible) return;
+    var layout = ref.read(displayLayoutProvider);
+    layout ??= await ref.read(displayLayoutProvider.notifier).ensureLoaded();
+    // The profile may have changed or the session locked while loading outputs.
+    if (!mounted || ref.read(shellControllerProvider).lockLayerVisible) return;
+    final fallback =
+        MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
+    ref
+        .read(wallpaperControllerProvider.notifier)
+        .openSelector(targetPixelSize: layout?.pixelSize ?? fallback);
+  }
+
+  @override
+  void dispose() {
+    unawaited(_shellActions.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final visible = ref.watch(
       wallpaperControllerProvider.select((state) => state.selectorVisible),
     );

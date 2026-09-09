@@ -1,6 +1,53 @@
 //! Surface commit ingestion, snapshot publication, and Flutter scene projection.
 
 use super::*;
+#[cfg(feature = "flutter")]
+use std::sync::Mutex;
+
+#[cfg(feature = "flutter")]
+#[derive(Default)]
+struct PublishedSurfaceAlpha(Option<u32>);
+
+#[cfg(feature = "flutter")]
+fn surface_crop_to_buffer(
+    source: Rectangle<f64, Logical>,
+    scale: f64,
+    transform: Transform,
+    logical_size: Size<f64, Logical>,
+) -> Rectangle<f64, smithay::utils::Buffer> {
+    // Flutter displays the inverse Wayland buffer transform. Smithay's
+    // rectangle conversion rotates in the opposite direction to that mapping;
+    // invert it when recovering raw texture coordinates from the viewport.
+    source.to_buffer(scale, transform.invert(), &logical_size)
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod surface_crop_tests {
+    use super::*;
+
+    #[test]
+    fn cropped_scaled_sources_round_trip_all_wayland_orientations() {
+        let cases = [
+            (Transform::Normal, (10.0, 7.0, 30.0, 20.0)),
+            (Transform::_90, (53.0, 10.0, 20.0, 30.0)),
+            (Transform::_180, (60.0, 53.0, 30.0, 20.0)),
+            (Transform::_270, (7.0, 60.0, 20.0, 30.0)),
+            (Transform::Flipped, (60.0, 7.0, 30.0, 20.0)),
+            (Transform::Flipped90, (7.0, 10.0, 20.0, 30.0)),
+            (Transform::Flipped180, (10.0, 53.0, 30.0, 20.0)),
+            (Transform::Flipped270, (53.0, 60.0, 20.0, 30.0)),
+        ];
+        for (transform, (x, y, w, h)) in cases {
+            let source = Rectangle::new((x / 2.0, y / 2.0).into(), (w / 2.0, h / 2.0).into());
+            let area = transform.transform_size(Size::from((50.0, 40.0)));
+            assert_eq!(
+                surface_crop_to_buffer(source, 2.0, transform, area),
+                Rectangle::new((10.0, 7.0).into(), (30.0, 20.0).into()),
+                "{transform:?}",
+            );
+        }
+    }
+}
 
 impl WaylandFrontend {
     #[cfg(feature = "flutter")]
@@ -171,6 +218,27 @@ impl WaylandFrontend {
 
         let mut metadata_changed = false;
         for surface in committed_surfaces.drain(..) {
+            // Alpha is synchronized surface state. Inspect it when the root
+            // transaction publishes, including children without a new buffer.
+            metadata_changed |= with_states(&surface, |states| {
+                states
+                    .data_map
+                    .insert_if_missing_threadsafe(|| Mutex::new(PublishedSurfaceAlpha::default()));
+                let alpha = states
+                    .cached_state
+                    .get::<AlphaModifierSurfaceCachedState>()
+                    .current()
+                    .multiplier();
+                let mut published = states
+                    .data_map
+                    .get::<Mutex<PublishedSurfaceAlpha>>()
+                    .expect("inserted above")
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                let changed = published.0 != alpha;
+                published.0 = alpha;
+                changed
+            });
             let Some(kind) = self.pending_surface_commits.remove(&surface.id()) else {
                 continue;
             };
@@ -404,16 +472,30 @@ impl WaylandFrontend {
                 let source = renderer_state
                     .buffer_size()
                     .map(|buffer_size| {
-                        view.src
-                            .to_buffer(f64::from(scale), transform, &buffer_size.to_f64())
+                        surface_crop_to_buffer(
+                            view.src,
+                            f64::from(scale),
+                            transform,
+                            buffer_size.to_f64(),
+                        )
                     })
                     .unwrap_or_default();
                 let renderer_buffer = renderer_state.buffer();
-                let opaque = renderer_state.opaque_regions().is_some_and(|regions| {
-                    Rectangle::from_size(view.dst)
-                        .subtract_rects(regions.iter().copied())
-                        .is_empty()
-                });
+                let opacity = states
+                    .cached_state
+                    .get::<AlphaModifierSurfaceCachedState>()
+                    .current()
+                    .multiplier_f32()
+                    .unwrap_or(1.0);
+                // A zero-alpha layer is omitted by Flutter. Its mailbox must
+                // still advance so producers are not waiting for an impossible sample.
+                let expects_sample = expects_sample && opacity > 0.0;
+                let opaque = opacity == 1.0
+                    && renderer_state.opaque_regions().is_some_and(|regions| {
+                        Rectangle::from_size(view.dst)
+                            .subtract_rects(regions.iter().copied())
+                            .is_empty()
+                    });
                 let dmabuf = renderer_buffer
                     .and_then(|buffer| get_dmabuf(buffer).ok())
                     .cloned();
@@ -458,7 +540,7 @@ impl WaylandFrontend {
                     .last_mut()
                     .filter(|frame| frame.texture_id == surface_id as i64)
                 {
-                    frame.set_feedback(super::presentation::surface_feedback(surface));
+                    frame.set_feedback(super::presentation::surface_feedback(states));
                     frame.presentation = Some(Default::default());
                 }
                 let role = if surface == root {
@@ -485,7 +567,7 @@ impl WaylandFrontend {
                     transform: transform_to_wire(transform),
                     scale_120: u32::try_from(scale).unwrap_or(1).saturating_mul(120),
                     composition_order: *composition_order,
-                    opacity: 1.0,
+                    opacity,
                     opaque,
                 });
                 *composition_order = composition_order.saturating_add(1);
@@ -501,6 +583,16 @@ impl WaylandFrontend {
         expects_sample: bool,
     ) -> Option<ExternalTextureFrame> {
         let surface = self.surfaces_by_id.get(&surface_id)?;
+        let expects_sample = expects_sample
+            && with_states(surface, |states| {
+                states
+                    .cached_state
+                    .get::<AlphaModifierSurfaceCachedState>()
+                    .current()
+                    .multiplier()
+                    .unwrap_or(u32::MAX)
+                    > 0
+            });
         let (renderable, dmabuf_source) = with_renderer_surface_state(surface, |state| {
             let renderable = state
                 .view()
@@ -530,7 +622,7 @@ impl WaylandFrontend {
                     revision,
                     expects_sample,
                 )
-                .with_feedback(super::presentation::surface_feedback(surface)),
+                .with_feedback(with_states(surface, super::presentation::surface_feedback)),
             );
         }
         self.surface_shm_frames
@@ -538,7 +630,7 @@ impl WaylandFrontend {
             .cloned()
             .map(|frame| {
                 ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
-                    .with_feedback(super::presentation::surface_feedback(surface))
+                    .with_feedback(with_states(surface, super::presentation::surface_feedback))
             })
     }
 
@@ -901,7 +993,7 @@ impl WaylandFrontend {
                     layer.opaque = false;
                 }
             }
-            let opacity_class = with_renderer_surface_state(&surface, |state| {
+            let mut opacity_class = with_renderer_surface_state(&surface, |state| {
                 let Some(view) = state.view() else {
                     return WindowOpacityClass::ContentTranslucent;
                 };
@@ -913,6 +1005,34 @@ impl WaylandFrontend {
                 )
             })
             .unwrap_or(WindowOpacityClass::ContentTranslucent);
+            // An invisible carrier root can have opaque child content. Prove
+            // coverage from the complete tree so such windows do not request
+            // backdrop work merely because the root itself is transparent.
+            if layers.len() > 1 && content.size.w > 0 && content.size.h > 0 {
+                let opaque_children = layers
+                    .iter()
+                    .filter(|layer| {
+                        layer.popup_root_surface_id == 0
+                            && layer.texture_id != 0
+                            && layer.opaque
+                            && layer.opacity == 1.0
+                    })
+                    .filter_map(|layer| {
+                        let left = layer.surface_x.ceil() as i32;
+                        let top = layer.surface_y.ceil() as i32;
+                        let right = (layer.surface_x + layer.surface_width).floor() as i32;
+                        let bottom = (layer.surface_y + layer.surface_height).floor() as i32;
+                        (right > left && bottom > top).then(|| {
+                            Rectangle::new(
+                                (left, top).into(),
+                                (right.saturating_sub(left), bottom.saturating_sub(top)).into(),
+                            )
+                        })
+                    });
+                if content.subtract_rects(opaque_children).is_empty() {
+                    opacity_class = WindowOpacityClass::FullyOpaque;
+                }
+            }
             let description = WindowDescription {
                 object_id: stable_id,
                 surface_id: stable_id,
@@ -945,7 +1065,11 @@ impl WaylandFrontend {
                 content_height: f64::from(content.size.h),
                 suppress_animations,
                 server_side_decorated,
-                opacity: opacity * window_opacity,
+                opacity: if opacity_class == WindowOpacityClass::FullyOpaque {
+                    window_opacity
+                } else {
+                    opacity * window_opacity
+                },
                 surfaces: layers,
                 content_kind: WindowContentKind::SurfaceTree,
                 opacity_class,

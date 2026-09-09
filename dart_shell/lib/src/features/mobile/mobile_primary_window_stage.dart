@@ -55,7 +55,9 @@ class _MobilePrimaryWindowStageState extends State<MobilePrimaryWindowStage> {
 
   void _updateTranslations() {
     final travel = _width + ShellMetrics.appSwitchGap;
-    final dx = widget.switchDragX.value.clamp(-travel, travel).toDouble();
+    final dx = widget.switchTargetWindow == null
+        ? 0.0
+        : widget.switchDragX.value.clamp(-travel, travel).toDouble();
     _currentTranslation.value = Offset(dx, 0);
     _targetTranslation.value = Offset(dx > 0 ? dx - travel : dx + travel, 0);
   }
@@ -66,40 +68,51 @@ class _MobilePrimaryWindowStageState extends State<MobilePrimaryWindowStage> {
     final radius = target == null
         ? BorderRadius.zero
         : context.shellTheme.borderRadius(18);
-    final current = WindowContentRect(
-      key: ValueKey<int>(widget.currentWindow.objectId),
-      window: widget.currentWindow,
-      active: true,
-      borderRadius: radius,
+    // The parent chain and the Stack child keys stay stable across idle,
+    // switching, cancellation and target promotion. A key below a newly
+    // inserted LayoutBuilder cannot preserve the surface element.
+    final stage = LayoutBuilder(
+      builder: (context, constraints) {
+        _width = constraints.maxWidth;
+        _updateTranslations();
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            RetainedTranslation(
+              key: _WindowStageKey(widget.currentWindow.objectId),
+              translation: _currentTranslation,
+              child: RepaintBoundary(
+                child: WindowContentRect(
+                  key: ValueKey<int>(widget.currentWindow.objectId),
+                  window: widget.currentWindow,
+                  active: true,
+                  borderRadius: radius,
+                ),
+              ),
+            ),
+            if (target != null)
+              RetainedTranslation(
+                key: _WindowStageKey(target.objectId),
+                translation: _targetTranslation,
+                child: RepaintBoundary(
+                  child: WindowContentRect(
+                    key: ValueKey<int>(target.objectId),
+                    window: target,
+                    borderRadius: radius,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
-    final stage = target == null
-        ? current
-        : LayoutBuilder(
-            builder: (context, constraints) {
-              _width = constraints.maxWidth;
-              _updateTranslations();
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  RetainedTranslation(
-                    translation: _currentTranslation,
-                    child: current,
-                  ),
-                  RetainedTranslation(
-                    translation: _targetTranslation,
-                    child: WindowContentRect(
-                      key: ValueKey<int>(target.objectId),
-                      window: target,
-                      borderRadius: radius,
-                    ),
-                  ),
-                ],
-              );
-            },
-          );
     // Keep the surface and its backdrop mounted while the overview hero owns
     // presentation. Inserting/removing this wrapper recreates the whole app
     // subtree on gesture cancellation, including a transparent app's glass.
     return Opacity(opacity: widget.opacity, child: stage);
   }
+}
+
+class _WindowStageKey extends ValueKey<int> {
+  const _WindowStageKey(super.value);
 }

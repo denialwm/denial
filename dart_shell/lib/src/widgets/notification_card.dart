@@ -7,6 +7,10 @@ class NotificationCard extends StatelessWidget {
     this.previewMode = NotificationPreviewMode.full,
     this.announce = false,
     this.compact = false,
+    this.mobile = false,
+    this.groupedBackdrop = false,
+    this.expanded = false,
+    this.showActions = true,
     this.onDismiss,
     this.onDefaultAction,
     this.onAction,
@@ -16,6 +20,11 @@ class NotificationCard extends StatelessWidget {
   final NotificationPreviewMode previewMode;
   final bool announce;
   final bool compact;
+  final bool mobile;
+  final bool groupedBackdrop;
+
+  final bool expanded;
+  final bool showActions;
   final VoidCallback? onDismiss;
   final VoidCallback? onDefaultAction;
   final ValueChanged<String>? onAction;
@@ -46,76 +55,117 @@ class NotificationCard extends StatelessWidget {
     final semanticLabel = body.isEmpty
         ? l10n.notificationSemantics(appName, summary)
         : l10n.notificationSemanticsWithBody(appName, summary, body);
-    final banner = !compact;
+    final banner = !compact && !mobile;
 
-    final content = DecoratedBox(
+    final panelSurface = banner || mobile;
+    final radius = BorderRadius.circular(theme.panelRadius);
+    final copy = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!mobile) ...[
+          _NotificationHeader(
+            notification: notification,
+            appName: appName,
+            onDismiss: onDismiss,
+          ),
+          SizedBox(height: compact ? 8 : 10),
+        ],
+        _NotificationBody(
+          notification: notification,
+          summary: mobile && !fullPreview ? appName : summary,
+          body: mobile && !fullPreview ? l10n.notificationNew : body,
+          fullPreview: fullPreview,
+          compact: compact,
+          mobile: mobile,
+          expanded: expanded,
+        ),
+        if (fullPreview && notification.hasProgress) ...[
+          const SizedBox(height: 11),
+          _NotificationProgress(value: notification.progress),
+        ],
+        if (showActions && namedActions.isNotEmpty && onAction != null) ...[
+          const SizedBox(height: 11),
+          SizedBox(
+            height: mobile ? 48 : 34,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: namedActions.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 7),
+              itemBuilder: (context, index) {
+                final action = namedActions[index];
+                return _NotificationActionButton(
+                  label: action.label.isEmpty ? action.key : action.label,
+                  fontSize: mobile ? 17 : 12,
+                  textColor: mobile ? context.shellColors.textPrimary : null,
+                  onPressed: () => onAction!(action.key),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+
+    final decoration = DecoratedBox(
       decoration: BoxDecoration(
-        color: banner
+        color: panelSurface
             ? null
             : theme.cardColor(context.shellColors.surfaceContainerLow),
-        gradient: banner
+        gradient: panelSurface
             ? theme.panelGradient(
                 context.shellColors.panelBackground,
                 context.shellColors.panelBackgroundBottom,
               )
             : null,
-        borderRadius: BorderRadius.circular(theme.panelRadius),
+        borderRadius: radius,
         border: Border.all(
-          color: banner
+          color: panelSurface
               ? context.shellColors.hairline
               : context.shellColors.hairlineSoft,
         ),
       ),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          compact ? 12 : 14,
-          compact ? 11 : 13,
-          compact ? 10 : 12,
-          compact ? 12 : 14,
+          mobile ? 20 : (compact ? 12 : 14),
+          mobile ? 20 : (compact ? 11 : 13),
+          mobile ? 20 : (compact ? 10 : 12),
+          mobile ? 20 : (compact ? 12 : 14),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _NotificationHeader(
-              notification: notification,
-              appName: appName,
-              onDismiss: onDismiss,
-            ),
-            SizedBox(height: compact ? 8 : 10),
-            _NotificationBody(
-              notification: notification,
-              summary: summary,
-              body: body,
-              fullPreview: fullPreview,
-              compact: compact,
-            ),
-            if (fullPreview && notification.hasProgress) ...[
-              const SizedBox(height: 11),
-              _NotificationProgress(value: notification.progress),
-            ],
-            if (namedActions.isNotEmpty && onAction != null) ...[
-              const SizedBox(height: 11),
-              SizedBox(
-                height: 34,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: namedActions.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 7),
-                  itemBuilder: (context, index) {
-                    final action = namedActions[index];
-                    return _NotificationActionButton(
-                      label: action.label.isEmpty ? action.key : action.label,
-                      onPressed: () => onAction!(action.key),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ],
-        ),
+        child: mobile
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  NotificationArtwork(
+                    notification: notification,
+                    size: 56,
+                    preferContentImage: false,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(child: copy),
+                  if (onDismiss != null)
+                    _NotificationIconButton(
+                      label: l10n.notificationDismiss,
+                      icon: Icons.close_rounded,
+                      onPressed: onDismiss!,
+                    ),
+                ],
+              )
+            : copy,
       ),
     );
+
+    final content = mobile
+        ? ShellBackdropBlur(
+            grouped: groupedBackdrop,
+            blur:
+                !ShadeBackdropScene.sharesBlur(context) &&
+                theme.effectivePanelOpacity < 1.0,
+            separateChild: true,
+            borderRadius: radius,
+            child: decoration,
+          )
+        : decoration;
 
     return Semantics(
       container: true,
@@ -210,6 +260,8 @@ class _NotificationBody extends StatelessWidget {
     required this.body,
     required this.fullPreview,
     required this.compact,
+    this.mobile = false,
+    this.expanded = false,
   });
 
   final DesktopNotification notification;
@@ -217,6 +269,8 @@ class _NotificationBody extends StatelessWidget {
   final String body;
   final bool fullPreview;
   final bool compact;
+  final bool mobile;
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -226,10 +280,12 @@ class _NotificationBody extends StatelessWidget {
       children: [
         Text(
           summary,
-          maxLines: 2,
+          maxLines: expanded ? null : (mobile ? 1 : 2),
           overflow: TextOverflow.ellipsis,
           style: ShellText.cardTitle.copyWith(
-            fontSize: compact ? 13.5 : 14.5,
+            color: mobile ? context.shellColors.textPrimary : null,
+            fontSize: mobile ? 20 : (compact ? 13.5 : 14.5),
+            fontWeight: mobile ? FontWeight.w700 : FontWeight.w600,
             height: 1.2,
             letterSpacing: 0,
           ),
@@ -238,11 +294,14 @@ class _NotificationBody extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             body,
-            maxLines: compact ? 2 : 3,
+            maxLines: expanded ? null : (mobile || compact ? 2 : 3),
             overflow: TextOverflow.ellipsis,
             style: ShellText.base.copyWith(
-              color: context.shellColors.textSecondary,
-              fontSize: compact ? 12 : 12.5,
+              color: mobile
+                  ? context.shellColors.textPrimary
+                  : context.shellColors.textSecondary,
+              fontSize: mobile ? 18 : (compact ? 12 : 12.5),
+              fontWeight: FontWeight.w400,
               height: 1.34,
             ),
           ),
@@ -258,12 +317,14 @@ class _NotificationBody extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (mobile) Expanded(child: copy),
+        if (mobile) const SizedBox(width: 12),
         NotificationArtwork(
           notification: notification,
-          size: compact ? 58 : 68,
+          size: mobile ? 48 : (compact ? 58 : 68),
         ),
-        const SizedBox(width: 11),
-        Expanded(child: copy),
+        if (!mobile) const SizedBox(width: 11),
+        if (!mobile) Expanded(child: copy),
       ],
     );
   }

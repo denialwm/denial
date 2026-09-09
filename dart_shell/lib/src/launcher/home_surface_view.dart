@@ -6,16 +6,27 @@ class _HomeSurfaceView extends StatelessWidget {
     required this.owner,
     required this.active,
     required this.interactive,
-    required this.gridAsync,
+    required this.contents,
   });
 
   final _HomeSurfaceState owner;
   final bool active;
   final bool interactive;
-  final AsyncValue<HomeGridState> gridAsync;
+  final _HomePageContents contents;
 
   @override
   Widget build(BuildContext context) {
+    final content = Stack(
+      fit: StackFit.expand,
+      children: [
+        Padding(
+          padding: _HomeSurfaceState._contentPadding,
+          child: _HomePager(owner: owner, contents: contents),
+        ),
+        _HomeDragOverlay(owner: owner),
+      ],
+    );
+    final opacity = owner.widget.contentOpacity;
     return Offstage(
       offstage: !active,
       child: TickerMode(
@@ -33,11 +44,10 @@ class _HomeSurfaceView extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 const CustomPaint(painter: HomeBackdropPainter()),
-                Padding(
-                  padding: _HomeSurfaceState._contentPadding,
-                  child: _HomePager(owner: owner, gridAsync: gridAsync),
-                ),
-                _HomeDragOverlay(owner: owner),
+                if (opacity == null)
+                  content
+                else
+                  FadeTransition(opacity: opacity, child: content),
               ],
             ),
           ),

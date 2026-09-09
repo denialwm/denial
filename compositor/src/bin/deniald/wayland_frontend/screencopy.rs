@@ -182,6 +182,7 @@ impl CaptureWorker {
         let worker = thread::Builder::new()
             .name("denial-screencopy".into())
             .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("screencopy");
                 // SAFETY: the new shared context has never been current and is
                 // moved directly into this one owning renderer thread.
                 let mut renderer = match unsafe { GlesRenderer::new(context) } {

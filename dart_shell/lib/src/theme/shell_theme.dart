@@ -192,10 +192,14 @@ class ShellThemeData {
 
   /// The normalized backing opacity shared by panels, notifications, and HUDs.
   double get effectivePanelOpacity =>
-      panelOpacity.clamp(ShellOpacity.minimumPanel, 1.0).toDouble();
+      transparencyMode == ShellTransparencyMode.glass
+      ? glass.opacity.clamp(0.0, 1.0).toDouble()
+      : panelOpacity.clamp(ShellOpacity.minimumPanel, 1.0).toDouble();
 
   double get effectiveCardOpacity =>
-      cardOpacity.clamp(ShellOpacity.minimumCard, 1.0).toDouble();
+      transparencyMode == ShellTransparencyMode.glass
+      ? effectivePanelOpacity
+      : cardOpacity.clamp(ShellOpacity.minimumCard, 1.0).toDouble();
 
   Color panelColor(Color color) => _resolution.panelColor(color);
 
@@ -376,9 +380,17 @@ class _ShellThemeResolution {
     () => BorderRadius.circular(theme.scaledRadius(baseRadius)),
   );
 
+  Color get _glassBacking => theme.glass.appearance == ShellGlassAppearance.dark
+      ? ShellMediaColors.darkness
+      : ShellMediaColors.contrastLight;
+
   Color panelColor(Color color) => _panelColors.putIfAbsent(
     color,
-    () => color.withValues(alpha: theme.effectivePanelOpacity),
+    () =>
+        (theme.transparencyMode == ShellTransparencyMode.glass
+                ? _glassBacking
+                : color)
+            .withValues(alpha: theme.effectivePanelOpacity),
   );
 
   LinearGradient panelGradient(Color top, Color bottom) =>
@@ -393,7 +405,11 @@ class _ShellThemeResolution {
 
   Color cardColor(Color color) => _cardColors.putIfAbsent(
     color,
-    () => color.withValues(alpha: theme.effectiveCardOpacity),
+    () =>
+        (theme.transparencyMode == ShellTransparencyMode.glass
+                ? _glassBacking
+                : color)
+            .withValues(alpha: theme.effectiveCardOpacity),
   );
 
   LinearGradient cardGradient(Color top, Color bottom) =>
@@ -470,6 +486,11 @@ class _ShellThemeResolution {
           lightAngle: glass.lightAngle * math.pi / 180,
           lightIntensity: glass.lightIntensity * materialStrength,
           edgeStrength: glass.edgeStrength * materialStrength,
+          bevelWidthScale: glass.bevelWidthScale,
+          refractionDepthScale: glass.refractionDepthScale,
+          rimWidth: glass.rimWidth,
+          rimFalloff: glass.rimFalloff,
+          oppositeLightStrength: glass.oppositeLightStrength,
           backdropAlphaThreshold: threshold,
           backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
         );

@@ -415,6 +415,7 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "png",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "sha2",

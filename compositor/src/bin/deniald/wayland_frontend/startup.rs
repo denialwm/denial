@@ -28,6 +28,7 @@ impl WaylandFrontend {
         let pointer_constraints_state =
             PointerConstraintsState::new::<RuntimeState>(&display_handle);
         let viewporter_state = ViewporterState::new::<RuntimeState>(&display_handle);
+        let alpha_modifier_state = AlphaModifierState::new::<RuntimeState>(&display_handle);
         let fractional_scale_manager_state =
             FractionalScaleManagerState::new::<RuntimeState>(&display_handle);
         let xdg_decoration_state = XdgDecorationState::new::<RuntimeState>(&display_handle);
@@ -239,16 +240,20 @@ impl WaylandFrontend {
             xwayland::scale_for_engine(atlas.engine_scale_120, xwayland_scale_mode);
         let xwayland_dpi = xwayland::dpi(xwayland_scale_120);
         let xwayland_args = ["-dpi".to_owned(), xwayland_dpi.to_string()];
-        let (xwayland, xwayland_client) = XWayland::spawn(
-            &display_handle,
-            None,
-            std::iter::empty::<(String, String)>(),
-            xwayland_args,
-            true,
-            Stdio::null(),
-            Stdio::null(),
-            |_| {},
-        )?;
+        // Smithay has no pre-exec hook here. Temporarily widen this spawning
+        // thread, synchronized with our guard, so Xwayland gets the app domain.
+        let (xwayland, xwayland_client) = crate::cpu_scheduling::with_application_affinity(|| {
+            XWayland::spawn(
+                &display_handle,
+                None,
+                std::iter::empty::<(String, String)>(),
+                xwayland_args,
+                true,
+                Stdio::null(),
+                Stdio::null(),
+                |_| {},
+            )
+        })?;
         xwayland_client
             .get_data::<XWaylandClientData>()
             .expect("Xwayland client is missing compositor state")
@@ -348,6 +353,7 @@ impl WaylandFrontend {
             _relative_pointer_manager_state: relative_pointer_manager_state,
             _pointer_constraints_state: pointer_constraints_state,
             _viewporter_state: viewporter_state,
+            _alpha_modifier_state: alpha_modifier_state,
             _fractional_scale_manager_state: fractional_scale_manager_state,
             xwm: None,
             #[cfg(feature = "flutter")]

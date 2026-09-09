@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../localization/denial_localizations.dart';
 import '../input/shell_interaction_registry.dart';
+import '../input/input_layout.dart';
 import '../models/desktop_notification.dart';
 import '../models/shell_popup_placement.dart';
 import '../settings/settings_controller.dart';
@@ -20,13 +21,18 @@ import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'notification_media.dart';
 import 'shell_backdrop_blur.dart';
+import 'shade/shade_backdrop_scene.dart';
 
 part 'notification_card.dart';
 part 'notification_card_controls.dart';
 part 'notification_transition.dart';
+part 'mobile_notification_banner.dart';
+part 'mobile_notification_card.dart';
 
 class NotificationBannerLayer extends ConsumerWidget {
-  const NotificationBannerLayer({super.key});
+  const NotificationBannerLayer({super.key, this.mobile = false});
+
+  final bool mobile;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -42,6 +48,25 @@ class NotificationBannerLayer extends ConsumerWidget {
         ? const <DesktopNotification>[]
         : notificationState.bannerNotifications;
     final controller = ref.read(desktopNotificationsProvider.notifier);
+    if (mobile) {
+      final shadeVisible = ref.watch(
+        shellControllerProvider.select(
+          (state) =>
+              state.quickSettingsVisible || state.quickSettingsDragProgress > 0,
+        ),
+      );
+      return MobileNotificationBannerView(
+        notification: shadeVisible || notifications.isEmpty
+            ? null
+            : notifications.first,
+        previewMode: previewMode,
+        interactive: !locked,
+        onHide: controller.hideBanner,
+        onDismiss: controller.dismiss,
+        onDefaultAction: controller.invokeDefaultAction,
+        onAction: controller.invokeAction,
+      );
+    }
     final placement = ref.watch(
       shellSettingsProvider.select(
         (settings) => settings.overlays.notifications,

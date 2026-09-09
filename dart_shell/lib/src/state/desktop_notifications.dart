@@ -83,7 +83,9 @@ class DesktopNotificationsState {
     final visible = <DesktopNotification>[];
     for (final id in bannerQueue) {
       final notification = active[id];
-      if (notification == null || pendingDismissals.contains(id)) {
+      if (notification == null ||
+          notification.historyOnly ||
+          pendingDismissals.contains(id)) {
         continue;
       }
       if (doNotDisturb &&
@@ -320,6 +322,17 @@ class DesktopNotificationsController extends Notifier<DesktopNotificationsState>
     );
   }
 
+  /// Stops a heads-up presentation without closing the notification or
+  /// acknowledging its history entry.
+  void hideBanner(int notificationId) {
+    if (!state.bannerQueue.contains(notificationId)) return;
+    state = state.copyWith(
+      bannerQueue: List<int>.unmodifiable(
+        state.bannerQueue.where((id) => id != notificationId),
+      ),
+    );
+  }
+
   bool _invokeOnce(
     int notificationId,
     String actionKey,
@@ -390,8 +403,9 @@ class DesktopNotificationsController extends Notifier<DesktopNotificationsState>
       _invokedActions.remove(notification.id);
 
       bannerQueue.remove(notification.id);
-      if (!state.doNotDisturb ||
-          notification.urgency == DesktopNotificationUrgency.critical) {
+      if (!notification.historyOnly &&
+          (!state.doNotDisturb ||
+              notification.urgency == DesktopNotificationUrgency.critical)) {
         bannerQueue.insert(0, notification.id);
       }
       if (bannerQueue.length > maxBannerQueue) {
@@ -401,7 +415,7 @@ class DesktopNotificationsController extends Notifier<DesktopNotificationsState>
       final historyIndex = history.indexWhere(
         (record) => record.notification.id == notification.id,
       );
-      if (notification.transient) {
+      if (notification.transient && !notification.historyOnly) {
         if (historyIndex >= 0) {
           history.removeAt(historyIndex);
         }

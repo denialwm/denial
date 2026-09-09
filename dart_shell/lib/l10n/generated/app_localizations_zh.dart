@@ -1532,6 +1532,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
 
   @override
+  String get settingsGlassAppearance => '玻璃外观';
+
+  @override
+  String get settingsGlassTransparency => '所有玻璃表面的透明度';
+
+  @override
   String get settingsTransparencyTitle => '透明材质';
 
   @override
@@ -3445,5 +3451,34 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String windowUntitled(int windowId) {
     return '窗口 $windowId';
+  }
+
+  @override
+  String get settingsGlassAdvanced => '玻璃效果调节';
+
+  @override
+  String get settingsGlassReset => '重置玻璃效果';
+
+  @override
+  String get settingsGlassTuningDescription => '更改会立即生效。默认值保留原有的玻璃效果。';
+
+  @override
+  String get settingsGlassBevelWidth => '斜边宽度';
+
+  @override
+  String get settingsGlassRefractionDepth => '折射深度';
+
+  @override
+  String get settingsGlassRimWidth => '高光宽度';
+
+  @override
+  String get settingsGlassRimFalloff => '高光衰减';
+
+  @override
+  String get settingsGlassOppositeLight => '对侧边缘光照';
+
+  @override
+  String settingsGlassRimPixels(String width) {
+    return '$width 像素';
   }
 }

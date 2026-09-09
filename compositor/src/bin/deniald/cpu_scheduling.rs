@@ -12,6 +12,11 @@
 //! through RTKit instead. All other Denial threads are explicitly normalized,
 //! and launched applications never inherit either policy.
 
+#[path = "cpu_scheduling/capacity.rs"]
+mod capacity;
+#[path = "cpu_scheduling/placement.rs"]
+mod placement;
+
 use std::cell::RefCell;
 use std::fs;
 use std::io;
@@ -36,6 +41,7 @@ const PREFERRED_NICE_LEVEL: libc::c_int = -10;
 const MAX_REGISTERED_PRIORITY_THREADS: usize = 8;
 
 static INITIALIZE: Once = Once::new();
+
 static PRIORITY_GUARD_START: Once = Once::new();
 static RTKIT: OnceLock<RtKitClient> = OnceLock::new();
 static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -47,6 +53,16 @@ static PRIORITY_THREAD_IDS: [AtomicI32; MAX_REGISTERED_PRIORITY_THREADS] =
     [const { AtomicI32::new(0) }; MAX_REGISTERED_PRIORITY_THREADS];
 static PRIORITY_THREAD_ROLES: [AtomicU8; MAX_REGISTERED_PRIORITY_THREADS] =
     [const { AtomicU8::new(PriorityRole::Unknown as u8) }; MAX_REGISTERED_PRIORITY_THREADS];
+
+pub(super) fn initialize_placement() -> Option<String> {
+    placement::initialize()
+}
+
+pub(super) fn with_application_affinity<T>(
+    launch: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    placement::with_application_affinity(launch)
+}
 
 thread_local! {
     static CURRENT_PRIORITY_REGISTRATION: RefCell<Option<ThreadRegistration>> =
@@ -195,6 +211,9 @@ fn initialize_once() {
         .is_some_and(flag_value_enabled)
     {
         info!("realtime CPU scheduling disabled by DENIAL_NO_RT");
+        if placement::enabled() {
+            start_priority_guard();
+        }
         return;
     }
     SCHEDULING_ENABLED.store(true, Ordering::Release);
@@ -325,6 +344,7 @@ pub(super) fn promote_volition_thread() {
 }
 
 fn promote_and_log(role: PriorityRole) {
+    placement::current(false);
     if !SCHEDULING_ENABLED.load(Ordering::Acquire) {
         return;
     }
@@ -343,6 +363,25 @@ fn promote_and_log(role: PriorityRole) {
             %error,
             "could not elevate a latency-critical thread"
         ),
+    }
+    // Apply at thread creation, including replacement Flutter engines after
+    // output changes. A startup PID scan cannot follow that lifecycle.
+    if matches!(
+        role,
+        PriorityRole::Compositor | PriorityRole::FlutterDisplay | PriorityRole::FlutterRaster
+    ) {
+        match capacity::apply_configured() {
+            Ok(Some(minimum)) => info!(
+                thread = role.label(),
+                tid = current_tid(),
+                minimum,
+                "applied UI CPU capacity request"
+            ),
+            Ok(None) => {}
+            Err(error) => {
+                warn!(thread = role.label(), %error, "could not apply UI CPU capacity request")
+            }
+        }
     }
 }
 
@@ -378,6 +417,25 @@ pub(super) unsafe extern "C" fn set_flutter_thread_priority(priority: sys::Flutt
 /// Drops inherited compositor priority before an ordinary worker begins any
 /// native or blocking work.
 pub(super) fn normalize_current_worker(role: &'static str) {
+    // These are explicitly owned service/housekeeping lanes. Flutter's IO and
+    // generic workers retain the big default because their work can feed frames.
+    placement::current(matches!(
+        role,
+        "priority-guard"
+            | "portal-ipc"
+            | "output-control"
+            | "control-client"
+            | "authentication"
+            | "audio"
+            | "brightness"
+            | "session power"
+            | "notifications"
+            | "orientation"
+            | "screenshot-writer"
+            | "xembed tray"
+            | "child-reaper"
+            | "clipboard-dnd"
+    ));
     if let Err(error) = normalize_current_thread() {
         warn!(
             thread = role,
@@ -406,6 +464,10 @@ fn normalize_current_thread() -> io::Result<()> {
 /// registered compositor/Flutter thread set. This is a defense for native
 /// libraries whose internal pthreads inherit Linux scheduling attributes.
 pub(super) fn contain_unregistered_priority_threads() {
+    placement::reconcile();
+    if !SCHEDULING_ENABLED.load(Ordering::Acquire) {
+        return;
+    }
     let Ok(tasks) = fs::read_dir("/proc/self/task") else {
         return;
     };
@@ -485,6 +547,7 @@ fn flutter_realtime_role(priority: sys::FlutterThreadPriority) -> Option<Priorit
 /// check is defense in depth and also covers the normal-scheduler fallback
 /// when deniald itself inherited a negative nice level.
 pub(super) fn reset_application_scheduling() -> io::Result<()> {
+    placement::restore_application()?;
     set_scheduler(0, libc::SCHED_OTHER, 0)?;
     let policy = scheduler_policy(0)?;
     if policy & !libc::SCHED_RESET_ON_FORK != libc::SCHED_OTHER {

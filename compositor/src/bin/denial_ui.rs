@@ -22,6 +22,10 @@ const MAX_WORKSPACE_BYTES: usize = 4096;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn main() -> ExitCode {
+    if let Err(error) = denial_core::cpu_affinity::restore_tool_affinity() {
+        eprintln!("denial-ui: could not restore application CPU affinity: {error}");
+        return ExitCode::FAILURE;
+    }
     let executable = env::args_os()
         .next()
         .and_then(|path| PathBuf::from(path).file_name().map(OsStr::to_owned));

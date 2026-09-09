@@ -24,6 +24,9 @@ import '../shell_surface_host.dart';
 import 'quick_settings_tiles.dart';
 import 'range_bar.dart';
 import 'status_glyphs.dart';
+import 'mobile_notification_history.dart';
+import 'shade_backdrop_scene.dart';
+import 'shade_dismiss_gesture.dart';
 
 /// The sliding quick-settings panel. [progress] is `0` when fully hidden and
 /// `1` when fully open; the panel translates in from the top edge accordingly.
@@ -32,10 +35,12 @@ class QuickSettingsShade extends ConsumerWidget {
     super.key,
     required this.progress,
     this.active = true,
+    this.closed = false,
   });
 
   final Animation<double> progress;
   final bool active;
+  final bool closed;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -45,51 +50,83 @@ class QuickSettingsShade extends ConsumerWidget {
 
     return IgnorePointer(
       ignoring: !active,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: controller.closeQuickSettings,
-            child: const SizedBox.expand(),
-          ),
-          Align(
-            alignment: Alignment.topCenter,
-            child: RetainedTranslation(
-              translation: progress.drive(
-                Tween(begin: Offset(0, -panelHeight), end: Offset.zero),
-              ),
-              child: Focus(
-                autofocus: active,
-                canRequestFocus: active,
-                onKeyEvent: (_, event) {
-                  if (event is KeyDownEvent &&
-                      event.logicalKey == LogicalKeyboardKey.escape) {
-                    controller.closeQuickSettings();
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {},
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: panelHeight,
-                    child: const _ControlPanel(),
+      child: ShadeBackdropScene(
+        progress: progress,
+        child: BackdropGroup(
+          child: ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ShadeDismissGesture(
+                  progress: progress,
+                  child: const SizedBox.expand(),
+                ),
+                Positioned(
+                  top: panelHeight + 8,
+                  left: 0,
+                  right: 0,
+                  height:
+                      (size.height -
+                              panelHeight -
+                              32 -
+                              MediaQuery.paddingOf(context).bottom)
+                          .clamp(0.0, double.infinity),
+                  child: RetainedTranslation(
+                    translation: progress.drive(
+                      Tween(
+                        begin: Offset(0, -panelHeight - 8),
+                        end: Offset.zero,
+                      ),
+                    ),
+                    child: MobileNotificationHistory(
+                      progress: progress,
+                      closed: closed,
+                      active: active,
+                    ),
                   ),
                 ),
-              ),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: RetainedTranslation(
+                    translation: progress.drive(
+                      Tween(begin: Offset(0, -panelHeight), end: Offset.zero),
+                    ),
+                    child: Focus(
+                      autofocus: active,
+                      canRequestFocus: active,
+                      onKeyEvent: (_, event) {
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.escape) {
+                          controller.closeQuickSettings();
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {},
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: panelHeight,
+                          child: _ControlPanel(progress: progress),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _ControlPanel extends StatelessWidget {
-  const _ControlPanel();
+  const _ControlPanel({required this.progress});
+
+  final Animation<double> progress;
 
   @override
   Widget build(BuildContext context) {
@@ -97,36 +134,48 @@ class _ControlPanel extends StatelessWidget {
     final theme = ShellTheme.of(context);
 
     return RepaintBoundary(
-      child: ShellBackdropBlur(
-        blur: theme.effectivePanelOpacity < 1.0,
-        separateChild: true,
+      child: ShadeBackdropRegion(
+        occludesNotifications: true,
         borderRadius: BorderRadius.vertical(
           bottom: Radius.circular(theme.panelRadius),
         ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: theme.panelGradient(
-              context.shellColors.panelBackground,
-              context.shellColors.panelBackgroundBottom,
-            ),
-            borderRadius: BorderRadius.vertical(
-              bottom: Radius.circular(theme.panelRadius),
-            ),
-            border: Border(
-              bottom: BorderSide(color: context.shellColors.hairline),
-            ),
+        child: ShellBackdropBlur(
+          grouped: true,
+          blur:
+              !ShadeBackdropScene.sharesBlur(context) &&
+              theme.effectivePanelOpacity < 1.0,
+          separateChild: true,
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(theme.panelRadius),
           ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(16, padding.top + 12, 16, 8),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ShadeHeader(),
-                SizedBox(height: 12),
-                Expanded(child: _ControlContents()),
-                SizedBox(height: 8),
-                Center(child: _ShadeHandle()),
-              ],
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: theme.panelGradient(
+                context.shellColors.panelBackground,
+                context.shellColors.panelBackgroundBottom,
+              ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(theme.panelRadius),
+              ),
+              border: Border(
+                bottom: BorderSide(color: context.shellColors.hairline),
+              ),
+            ),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, padding.top + 12, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ShadeDragSurface(
+                    progress: progress,
+                    child: const _ShadeHeader(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Expanded(child: _ControlContents()),
+                  const SizedBox(height: 8),
+                  Center(child: _ShadeHandle(progress: progress)),
+                ],
+              ),
             ),
           ),
         ),
@@ -149,6 +198,11 @@ class _ControlContents extends StatelessWidget {
         RepaintBoundary(child: _BrightnessRangeBar()),
         SizedBox(height: 10),
         RepaintBoundary(child: _VolumeRangeBar()),
+        SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: ClearNotificationHistoryButton(),
+        ),
       ],
     );
   }
@@ -245,6 +299,8 @@ class _BrightnessRangeBar extends ConsumerWidget {
     );
     final controller = ref.read(quickSettingsProvider.notifier);
     return RangeBar(
+      translucentTrack: true,
+      showValueMarker: false,
       icon: Icons.brightness_6_rounded,
       value: brightness,
       activeColor: ShellTheme.of(context).accent,
@@ -266,6 +322,8 @@ class _VolumeRangeBar extends ConsumerWidget {
     );
     final controller = ref.read(quickSettingsProvider.notifier);
     return RangeBar(
+      translucentTrack: true,
+      showValueMarker: false,
       icon: Icons.volume_up_rounded,
       value: volume,
       activeColor: ShellTheme.of(context).accent,
@@ -318,7 +376,13 @@ class _ShadeHeader extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: _StatusPill(child: StatusCluster(battery: battery)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: StatusCluster(battery: battery),
+              ),
             ),
             const SizedBox(height: 12),
             ShadeActions(onOpenPower: () => showPowerSessionSurface(ref)),
@@ -339,29 +403,10 @@ class _ShadeHeader extends ConsumerWidget {
   };
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.shellColors.surfaceContainer,
-        borderRadius: context.shellTheme.borderRadius(22),
-        border: Border.all(color: context.shellColors.hairlineSoft),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: child,
-      ),
-    );
-  }
-}
-
 class _ShadeHandle extends ConsumerWidget {
-  const _ShadeHandle();
+  const _ShadeHandle({required this.progress});
+
+  final Animation<double> progress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -386,7 +431,8 @@ class _ShadeHandle extends ConsumerWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: controller.closeQuickSettings,
-          onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
+          onVerticalDragStart: (_) =>
+              controller.startQuickSettingsDrag(progress: progress.value),
           onVerticalDragUpdate: (details) => controller.updateQuickSettingsDrag(
             Offset(
               0.0,
@@ -414,6 +460,34 @@ class _ShadeHandle extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ShadeDragSurface extends ConsumerWidget {
+  const _ShadeDragSurface({required this.progress, required this.child});
+
+  final Animation<double> progress;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(shellControllerProvider.notifier);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) =>
+          controller.startQuickSettingsDrag(progress: progress.value),
+      onVerticalDragUpdate: (details) => controller.updateQuickSettingsDrag(
+        Offset(
+          0,
+          details.delta.dy *
+              ShellMetrics.quickSettingsDragScale(MediaQuery.sizeOf(context)),
+        ),
+      ),
+      onVerticalDragEnd: (details) =>
+          controller.endQuickSettingsDrag(details.primaryVelocity ?? 0),
+      onVerticalDragCancel: () => controller.endQuickSettingsDrag(0),
+      child: child,
     );
   }
 }

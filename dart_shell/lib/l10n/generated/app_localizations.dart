@@ -2837,6 +2837,18 @@ abstract class AppLocalizations {
   /// **'Minimum pixel opacity for blur'**
   String get settingsBackdropBlurOpacityThreshold;
 
+  /// Dark or light appearance for glass surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass appearance'**
+  String get settingsGlassAppearance;
+
+  /// Shared transparency slider for all shell glass panels and cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparency of all glass surfaces'**
+  String get settingsGlassTransparency;
+
   /// Title for choosing the visual material behind translucent shell surfaces.
   ///
   /// In en, this message translates to:
@@ -6399,6 +6411,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Window {windowId}'**
   String windowUntitled(int windowId);
+
+  /// Glass appearance tuning: Advanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass tuning'**
+  String get settingsGlassAdvanced;
+
+  /// Glass appearance tuning: Reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset glass'**
+  String get settingsGlassReset;
+
+  /// Glass appearance tuning: TuningDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes apply immediately. The defaults preserve the original glass effect.'**
+  String get settingsGlassTuningDescription;
+
+  /// Glass appearance tuning: BevelWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Bevel width'**
+  String get settingsGlassBevelWidth;
+
+  /// Glass appearance tuning: RefractionDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'Refraction depth'**
+  String get settingsGlassRefractionDepth;
+
+  /// Glass appearance tuning: RimWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight width'**
+  String get settingsGlassRimWidth;
+
+  /// Glass appearance tuning: RimFalloff.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight falloff'**
+  String get settingsGlassRimFalloff;
+
+  /// Glass appearance tuning: OppositeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Opposite-edge light'**
+  String get settingsGlassOppositeLight;
+
+  /// Width of the glass highlight in pixels, including fractional values.
+  ///
+  /// In en, this message translates to:
+  /// **'{width} px'**
+  String settingsGlassRimPixels(String width);
 }
 
 class _AppLocalizationsDelegate

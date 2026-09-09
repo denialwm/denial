@@ -358,5 +358,15 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
     if options.max_outputs == 0 {
         return Ok(());
     }
+    let application_cpus = cpu_scheduling::initialize_placement();
+    // SAFETY: still the sole startup thread, before run() creates any native,
+    // driver or engine workers. Dart's direct tool-spawn path inherits this
+    // original domain; native application launches remove the metadata.
+    unsafe {
+        match application_cpus {
+            Some(cpus) => std::env::set_var(denial_core::cpu_affinity::APPLICATION_CPUS_ENV, cpus),
+            None => std::env::remove_var(denial_core::cpu_affinity::APPLICATION_CPUS_ENV),
+        }
+    }
     run(options)
 }

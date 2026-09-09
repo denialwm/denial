@@ -449,6 +449,8 @@
   "settingsBackdropBlurLevelGood": "良好",
   "settingsBackdropBlurLevelBest": "最佳",
   "settingsBackdropBlurOpacityThreshold": "模糊的最低像素不透明度",
+  "settingsGlassAppearance": "玻璃外观",
+  "settingsGlassTransparency": "所有玻璃表面的透明度",
   "settingsTransparencyTitle": "透明材质",
   "settingsTransparencyOff": "关闭",
   "settingsTransparencyBlur": "模糊",
@@ -1033,5 +1035,14 @@
   "wifiWepRequirements": "WEP 密钥必须包含 5 到 64 个字符。",
   "windowSwitcherPosition": "{position} / {total}",
   "windowSwitcherSelected": "已选择 {windowTitle}",
-  "windowUntitled": "窗口 {windowId}"
+  "windowUntitled": "窗口 {windowId}",
+  "settingsGlassAdvanced": "玻璃效果调节",
+  "settingsGlassReset": "重置玻璃效果",
+  "settingsGlassTuningDescription": "更改会立即生效。默认值保留原有的玻璃效果。",
+  "settingsGlassBevelWidth": "斜边宽度",
+  "settingsGlassRefractionDepth": "折射深度",
+  "settingsGlassRimWidth": "高光宽度",
+  "settingsGlassRimFalloff": "高光衰减",
+  "settingsGlassOppositeLight": "对侧边缘光照",
+  "settingsGlassRimPixels": "{width} 像素"
 }

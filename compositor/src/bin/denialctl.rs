@@ -32,6 +32,10 @@ const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn main() -> ExitCode {
+    if let Err(error) = denial_core::cpu_affinity::restore_tool_affinity() {
+        eprintln!("denialctl: could not restore application CPU affinity: {error}");
+        return ExitCode::FAILURE;
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

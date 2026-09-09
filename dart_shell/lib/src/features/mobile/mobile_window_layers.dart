@@ -98,9 +98,14 @@ class MobileLaunchLayer extends ConsumerWidget {
 }
 
 class MobileOverviewLayer extends ConsumerStatefulWidget {
-  const MobileOverviewLayer({super.key, required this.onPresentationChanged});
+  const MobileOverviewLayer({
+    super.key,
+    required this.onPresentationChanged,
+    this.onProgressChanged,
+  });
 
   final ValueChanged<bool> onPresentationChanged;
+  final ValueChanged<double>? onProgressChanged;
 
   @override
   ConsumerState<MobileOverviewLayer> createState() =>
@@ -142,6 +147,7 @@ class _MobileOverviewLayerState extends ConsumerState<MobileOverviewLayer> {
       swipeDy: _dragY,
       homeTransitionActive: overview.homeActive,
       onPresentationChanged: widget.onPresentationChanged,
+      onProgressChanged: widget.onProgressChanged,
       onDismissOverview: controller.closeOverview,
       onDismissWindow: controller.closeWindow,
       onFocusWindow: controller.focusWindow,

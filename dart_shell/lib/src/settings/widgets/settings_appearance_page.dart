@@ -15,6 +15,7 @@ import '../../wallpaper/wallpaper.dart';
 import '../../wallpaper/widgets/wallpaper_image.dart';
 import '../../widgets/shell_cursor.dart';
 import 'settings_controls.dart';
+import 'settings_glass_tuning_controls.dart';
 
 const settingsWallpaperTriggerKey = ValueKey<String>(
   'settings-wallpaper-trigger',
@@ -295,31 +296,34 @@ class SettingsAppearancePage extends StatelessWidget {
                     ),
                     onChanged: onCornerRadiusScaleChanged,
                   ),
-                  const SizedBox(height: 8),
-                  SettingsSlider(
-                    label: l10n.settingsPanelOpacity,
-                    value: settings.panelOpacity,
-                    minimum: ShellOpacity.minimumPanel,
-                    maximum: 1,
-                    divisions: 95,
-                    valueLabel: l10n.settingsPercent(
-                      (settings.panelOpacity * 100).round(),
+                  if (settings.transparencyMode !=
+                      ShellTransparencyMode.glass) ...[
+                    const SizedBox(height: 8),
+                    SettingsSlider(
+                      label: l10n.settingsPanelOpacity,
+                      value: settings.panelOpacity,
+                      minimum: ShellOpacity.minimumPanel,
+                      maximum: 1,
+                      divisions: 95,
+                      valueLabel: l10n.settingsPercent(
+                        (settings.panelOpacity * 100).round(),
+                      ),
+                      onChanged: onPanelOpacityChanged,
                     ),
-                    onChanged: onPanelOpacityChanged,
-                  ),
-                  const SizedBox(height: 8),
-                  SettingsSlider(
-                    key: settingsCardOpacitySliderKey,
-                    label: l10n.settingsCardOpacity,
-                    value: settings.cardOpacity,
-                    minimum: ShellOpacity.minimumCard,
-                    maximum: 1,
-                    divisions: 95,
-                    valueLabel: l10n.settingsPercent(
-                      (settings.cardOpacity * 100).round(),
+                    const SizedBox(height: 8),
+                    SettingsSlider(
+                      key: settingsCardOpacitySliderKey,
+                      label: l10n.settingsCardOpacity,
+                      value: settings.cardOpacity,
+                      minimum: ShellOpacity.minimumCard,
+                      maximum: 1,
+                      divisions: 95,
+                      valueLabel: l10n.settingsPercent(
+                        (settings.cardOpacity * 100).round(),
+                      ),
+                      onChanged: onCardOpacityChanged,
                     ),
-                    onChanged: onCardOpacityChanged,
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -742,6 +746,40 @@ class _GlassControls extends StatelessWidget {
 
     return Column(
       children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(l10n.settingsGlassAppearance, style: ShellText.base),
+        ),
+        const SizedBox(height: 8),
+        SettingsSegmentedControl<ShellGlassAppearance>(
+          key: const ValueKey('settings-glass-appearance'),
+          value: configuration.appearance,
+          choices: [
+            SettingsChoice(
+              ShellGlassAppearance.dark,
+              l10n.settingsColorSchemeDark,
+            ),
+            SettingsChoice(
+              ShellGlassAppearance.light,
+              l10n.settingsColorSchemeLight,
+            ),
+          ],
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(appearance: value)),
+        ),
+        const SizedBox(height: 12),
+        SettingsSlider(
+          key: const ValueKey('settings-glass-transparency'),
+          label: l10n.settingsGlassTransparency,
+          value: 1 - configuration.opacity,
+          minimum: 0,
+          maximum: 1,
+          divisions: 100,
+          valueLabel: percent(1 - configuration.opacity),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(opacity: 1 - value)),
+        ),
+        const SizedBox(height: 8),
         SettingsSlider(
           label: l10n.settingsGlassFrost,
           value: configuration.blurSigma,
@@ -861,6 +899,11 @@ class _GlassControls extends StatelessWidget {
           valueLabel: percent(configuration.edgeStrength),
           onChanged: (value) =>
               onChanged(configuration.copyWith(edgeStrength: value)),
+        ),
+        const SizedBox(height: 12),
+        SettingsGlassTuningControls(
+          configuration: configuration,
+          onChanged: onChanged,
         ),
       ],
     );

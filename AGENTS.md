@@ -57,8 +57,23 @@ The Moto Edge 70 (`roadstr`, serial `ZY22MMG59D`, USB SSH `10.77.71.2`) also
 has the user's standing authorization for session restarts and device reboots
 needed to activate authorized device work. Announce the transition and verify
 the resulting process and service health without asking for separate permission.
-Prefer reboot over live compositor restart on this phone because display-driver
-teardown has previously hung. This does not extend to the development workstation.
+Changing the Denial version, Flutter engine, or shell bundle does not normally
+require rebooting a device. For agent-managed devices, activate these updates
+by restarting the Denial service or graphical session, then verify the new
+process, mapped engine, artifact hashes, and service health. This also applies
+to the Moto Edge 70: a previous display-driver teardown hang is not a standing
+reason to reboot it for every Denial update. Reboot only when the particular
+change requires it or a service/session restart cannot safely complete or
+recover. This activation rule takes precedence over older device-workflow
+instructions that prescribe a reboot for every Denial deployment. When a Moto
+reboot is necessary, retain its required boot-manifest verification gate.
+This does not authorize restarting the user's local graphical session or
+rebooting the development workstation.
+
+Moto restart observation (2026-09-08): the user reports that Denial seems to
+restart without hanging when the screen is already off. Keep this condition in
+mind for future authorized restarts; its reliability still needs repeated
+confirmation.
 
 ## User-owned visual validation and test triggers
 

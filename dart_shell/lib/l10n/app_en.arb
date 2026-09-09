@@ -2253,6 +2253,10 @@
   "@settingsBackdropBlurOpacityThreshold": {
     "description": "Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered."
   },
+  "settingsGlassAppearance": "Glass appearance",
+  "@settingsGlassAppearance": {"description": "Dark or light appearance for glass surfaces."},
+  "settingsGlassTransparency": "Transparency of all glass surfaces",
+  "@settingsGlassTransparency": {"description": "Shared transparency slider for all shell glass panels and cards."},
   "settingsTransparencyTitle": "Transparency material",
   "@settingsTransparencyTitle": {
     "description": "Title for choosing the visual material behind translucent shell surfaces."
@@ -4891,6 +4895,47 @@
     "placeholders": {
       "windowId": {
         "type": "int"
+      }
+    }
+  },
+  "settingsGlassAdvanced": "Glass tuning",
+  "@settingsGlassAdvanced": {
+    "description": "Glass appearance tuning: Advanced."
+  },
+  "settingsGlassReset": "Reset glass",
+  "@settingsGlassReset": {
+    "description": "Glass appearance tuning: Reset."
+  },
+  "settingsGlassTuningDescription": "Changes apply immediately. The defaults preserve the original glass effect.",
+  "@settingsGlassTuningDescription": {
+    "description": "Glass appearance tuning: TuningDescription."
+  },
+  "settingsGlassBevelWidth": "Bevel width",
+  "@settingsGlassBevelWidth": {
+    "description": "Glass appearance tuning: BevelWidth."
+  },
+  "settingsGlassRefractionDepth": "Refraction depth",
+  "@settingsGlassRefractionDepth": {
+    "description": "Glass appearance tuning: RefractionDepth."
+  },
+  "settingsGlassRimWidth": "Highlight width",
+  "@settingsGlassRimWidth": {
+    "description": "Glass appearance tuning: RimWidth."
+  },
+  "settingsGlassRimFalloff": "Highlight falloff",
+  "@settingsGlassRimFalloff": {
+    "description": "Glass appearance tuning: RimFalloff."
+  },
+  "settingsGlassOppositeLight": "Opposite-edge light",
+  "@settingsGlassOppositeLight": {
+    "description": "Glass appearance tuning: OppositeLight."
+  },
+  "settingsGlassRimPixels": "{width} px",
+  "@settingsGlassRimPixels": {
+    "description": "Width of the glass highlight in pixels, including fractional values.",
+    "placeholders": {
+      "width": {
+        "type": "String"
       }
     }
   }

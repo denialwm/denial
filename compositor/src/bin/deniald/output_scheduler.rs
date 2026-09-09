@@ -385,6 +385,10 @@ struct OutputSchedulerAudit {
     real_submissions: u64,
     volition_scheduled_submissions: u64,
     presentations: u64,
+    physical_presentations: u64,
+    estimated_presentations: u64,
+    last_completion_at: Vec<Option<Instant>>,
+    completion_interval: AuditLatency,
     sequence_samples: u64,
     sequence_delta_total: u64,
     sequence_delta_max: u32,
@@ -486,6 +490,10 @@ impl OutputSchedulerAudit {
             real_submissions: 0,
             volition_scheduled_submissions: 0,
             presentations: 0,
+            physical_presentations: 0,
+            estimated_presentations: 0,
+            last_completion_at: vec![None; output_count],
+            completion_interval: AuditLatency::default(),
             sequence_samples: 0,
             sequence_delta_total: 0,
             sequence_delta_max: 0,
@@ -630,44 +638,68 @@ impl OutputSchedulerAudit {
         render_deadline: Instant,
         presentation_target: Instant,
         sequence: Option<u64>,
+        physical_timestamp: bool,
     ) {
         self.maybe_report();
         self.presentations = self.presentations.saturating_add(1);
         let delivered_at = Instant::now();
-        self.presentation_delivery
-            .record(delivered_at.saturating_duration_since(observed_at));
-        if let Some(submitted_at) = self
-            .submitted_at
-            .get_mut(output_index)
-            .and_then(Option::take)
-        {
-            self.submit_to_presentation
-                .record(observed_at.saturating_duration_since(submitted_at));
-        }
-        self.target_to_presentation
-            .record(observed_at.saturating_duration_since(presentation_target));
-        self.deadline_to_presentation
-            .record(observed_at.saturating_duration_since(render_deadline));
-        if let Some(latency) = self.target_to_presentation_by_output.get_mut(output_index) {
-            latency.record(observed_at.saturating_duration_since(presentation_target));
-        }
-        if let Some(latency) = self
-            .deadline_to_presentation_by_output
-            .get_mut(output_index)
-        {
-            latency.record(observed_at.saturating_duration_since(render_deadline));
-        }
-        if let Some(presented_at) = self.last_presented_at.get_mut(output_index) {
-            if let Some(previous) = *presented_at {
-                let interval = observed_at.saturating_duration_since(previous);
-                self.presentation_interval.record(interval);
-                if let Some(latency) = self.presentation_interval_by_output.get_mut(output_index) {
-                    latency.record(interval);
-                }
+        if let Some(last) = self.last_completion_at.get_mut(output_index) {
+            if let Some(previous) = last.replace(delivered_at) {
+                self.completion_interval
+                    .record(delivered_at.saturating_duration_since(previous));
             }
-            *presented_at = Some(observed_at);
+        }
+        if physical_timestamp {
+            self.physical_presentations += 1;
+            self.presentation_delivery
+                .record(delivered_at.saturating_duration_since(observed_at));
+            if let Some(submitted_at) = self
+                .submitted_at
+                .get_mut(output_index)
+                .and_then(Option::take)
+            {
+                self.submit_to_presentation
+                    .record(observed_at.saturating_duration_since(submitted_at));
+            }
+            self.target_to_presentation
+                .record(observed_at.saturating_duration_since(presentation_target));
+            self.deadline_to_presentation
+                .record(observed_at.saturating_duration_since(render_deadline));
+            if let Some(latency) = self.target_to_presentation_by_output.get_mut(output_index) {
+                latency.record(observed_at.saturating_duration_since(presentation_target));
+            }
+            if let Some(latency) = self
+                .deadline_to_presentation_by_output
+                .get_mut(output_index)
+            {
+                latency.record(observed_at.saturating_duration_since(render_deadline));
+            }
+            if let Some(presented_at) = self.last_presented_at.get_mut(output_index) {
+                if let Some(previous) = *presented_at {
+                    let interval = observed_at.saturating_duration_since(previous);
+                    self.presentation_interval.record(interval);
+                    if let Some(latency) =
+                        self.presentation_interval_by_output.get_mut(output_index)
+                    {
+                        latency.record(interval);
+                    }
+                }
+                *presented_at = Some(observed_at);
+            }
+        } else {
+            self.estimated_presentations += 1;
+            // An estimate must not bridge physical latency/sequence samples.
+            if let Some(last) = self.last_presented_at.get_mut(output_index) {
+                *last = None;
+            }
+            if let Some(pending) = self.submitted_at.get_mut(output_index) {
+                *pending = None;
+            }
         }
         let Some(sequence) = sequence.map(|sequence| sequence as u32) else {
+            if let Some(last) = self.last_sequences.get_mut(output_index) {
+                *last = None;
+            }
             return;
         };
         let Some(last_sequence) = self.last_sequences.get_mut(output_index) else {
@@ -743,6 +775,7 @@ impl OutputSchedulerAudit {
         let submit_to_presentation = self.submit_to_presentation.summary();
         let target_to_presentation = self.target_to_presentation.summary();
         let presentation_interval = self.presentation_interval.summary();
+        let completion_interval = self.completion_interval.summary();
         let deadline_to_ready = self.deadline_to_ready.summary();
         let deadline_to_fence = self.deadline_to_fence.summary();
         let deadline_to_submit = self.deadline_to_submit.summary();
@@ -759,6 +792,14 @@ impl OutputSchedulerAudit {
             real_submissions = self.real_submissions,
             volition_scheduled_submissions = self.volition_scheduled_submissions,
             presentations = self.presentations,
+            physical_presentations = self.physical_presentations,
+            estimated_presentations = self.estimated_presentations,
+            completion_interval_samples = self.completion_interval.samples,
+            completion_interval_avg_us = completion_interval.average_us,
+            completion_interval_p50_us = completion_interval.p50_us,
+            completion_interval_p95_us = completion_interval.p95_us,
+            completion_interval_max_us = completion_interval.max_us,
+            physical_interval_samples = self.presentation_interval.samples,
             sequence_samples = self.sequence_samples,
             sequence_delta_avg = if self.sequence_samples == 0 {
                 0.0
@@ -837,6 +878,9 @@ impl OutputSchedulerAudit {
         self.real_submissions = 0;
         self.volition_scheduled_submissions = 0;
         self.presentations = 0;
+        self.physical_presentations = 0;
+        self.estimated_presentations = 0;
+        self.completion_interval = AuditLatency::default();
         self.sequence_samples = 0;
         self.sequence_delta_total = 0;
         self.sequence_delta_max = 0;
@@ -1463,6 +1507,7 @@ impl OutputScheduler {
                     presented.request.tick.render_deadline,
                     presented.request.tick.presentation_target,
                     completion.sequence,
+                    completion.presented_at.is_some(),
                 );
             }
             if let Some(frontend) = events.wayland.as_mut() {
@@ -1757,5 +1802,41 @@ impl OutputScheduler {
 
     pub(super) fn presented_outputs(&self) -> &[PresentedOutput] {
         &self.presented_outputs
+    }
+}
+
+#[cfg(test)]
+mod feedback_audit_tests {
+    use super::*;
+
+    #[test]
+    fn estimated_completions_do_not_create_physical_latency_or_bridge_sequences() {
+        let now = Instant::now();
+        let mut audit = OutputSchedulerAudit::new(3, vec![OutputId(1)]);
+        audit.submitted_at[0] = Some(now - Duration::from_millis(2));
+        audit.record_presentation(0, now, now - Duration::from_millis(5), now, Some(42), true);
+        assert_eq!(audit.physical_presentations, 1);
+        assert_eq!(audit.submit_to_presentation.samples, 1);
+        audit.submitted_at[0] = Some(now);
+        audit.record_presentation(0, now, now, now, None, false);
+        assert_eq!(audit.estimated_presentations, 1);
+        assert_eq!(audit.physical_presentations, 1);
+        assert_eq!(audit.submit_to_presentation.samples, 1);
+        assert_eq!(audit.presentation_interval.samples, 0);
+        assert_eq!(audit.last_presented_at[0], None);
+        assert_eq!(audit.last_sequences[0], None);
+        assert_eq!(audit.submitted_at[0], None);
+        audit.record_presentation(
+            0,
+            now + Duration::from_millis(8),
+            now,
+            now,
+            Some(1000),
+            true,
+        );
+        assert_eq!(audit.sequence_samples, 0);
+        assert_eq!(audit.missed_vblanks, 0);
+        assert_eq!(audit.presentation_interval.samples, 0);
+        assert_eq!(audit.completion_interval.samples, 2);
     }
 }
