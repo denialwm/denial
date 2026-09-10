@@ -1,3 +1,25 @@
+# Denial — Fedora source build adapter
+#
+# This spec builds Denial from the tagged Git source snapshot: %build runs the
+# project's canonical pipeline (tools/denial-pc bootstrap +
+# tools/stage-denial-runtime) inside the build chroot, compiling the Rust
+# compositor with Cargo and the Flutter shell/settings bundles with the
+# lock-pinned Denial Flutter fork. tools/stage-denial-runtime then stages the
+# payload trees (denial/ and denial-flutter-engine/) that %install consumes,
+# byte for byte.
+#
+# The raw Flutter engine (libflutter_engine.so) is not compiled by this spec:
+# it is a SHA-256-pinned, source-built generation owned by the
+# denial-flutter-engine package. That package must therefore be available to
+# mock as a BuildRequire. In a local "lc" build flow, build
+# denial-flutter-engine.spec first into the local repository, then build this
+# spec against that repository (lc build --torepo). The denial-flutter-engine
+# subpackage declared below carries the identical payload so a single spec
+# still reproduces both packages.
+#
+# %prep restores a minimal Git repository over the extracted snapshot so the
+# project's own staging tool (which pins the release tag and refuses a dirty
+# checkout) can identify the exact source.
 %global debug_package %{nil}
 %global __os_install_post %{nil}
 %global _build_id_links none
@@ -5,21 +27,65 @@
 # denial-settings resolves this bundled private runtime through $ORIGIN/lib.
 %global __requires_exclude ^libflutter_linux_gtk\\.so.*$
 
+# Release-coupled metadata for v0.3.1 (see prebuilt/flutter-engine/ in the
+# source tree for the normative pins).
+%global release_tag        v0.3.1
+%global source_date_epoch  1788209911
+%global glibc_baseline     2.39
+%global flutter_engine_abi 3.44.7.denial1
+%global pinned_engine_sha256 237db59d4018e52c68f0a087586cf51c5ef02aae08e75f33813ea92f86c510d5
+%global runtime_version_path /usr/share/denial/version
+
 Name:           denial
-Version:        %{denial_version}
-Release:        %{denial_release}
+Version:        0.3.1
+Release:        1%{?dist}
 Summary:        Flutter-native Wayland compositor and desktop shell
 License:        GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
 URL:            https://github.com/denialwm/denial
+Source0:        https://codeload.github.com/denialwm/denial/tar.gz/refs/tags/%{release_tag}
 ExclusiveArch:  x86_64
+
+# The build chroot needs the Rust toolchain compatible with the repository's
+# rust-toolchain.toml (1.98.0), the pinned Flutter fork's build toolchain
+# (git, ninja, Python for depot_tools), Clang (the engine and the settings
+# runner are Clang builds), GTK3 development files for the settings runner's
+# CMake build, and the development libraries Smithay's DRM/GBM-EGL/libinput/
+# libseat/udev/Wayland backends link against.
+BuildRequires:  cargo
+BuildRequires:  clang
+BuildRequires:  cmake
+BuildRequires:  cpio
+BuildRequires:  curl
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  git
+BuildRequires:  gtk3-devel
+BuildRequires:  jq
+BuildRequires:  libinput-devel
+BuildRequires:  libseat-devel
+BuildRequires:  libudev-devel
+BuildRequires:  mesa-libEGL-devel
+BuildRequires:  mesa-libGL-devel
+BuildRequires:  mesa-libgbm-devel
+BuildRequires:  ninja-build
+BuildRequires:  pkgconf-pkg-config
+BuildRequires:  python3
+BuildRequires:  rsync
+BuildRequires:  rust
+BuildRequires:  wayland-devel
+BuildRequires:  wget
+BuildRequires:  which
+BuildRequires:  denial-flutter-engine = 1:%{version}
 
 Requires:       bash
 Requires:       coreutils
 Requires:       dbus
-Requires:       denial-flutter-engine = 1:%{version}-%{release}
+Requires:       denial-flutter-engine = 1:%{version}
+Requires:       fontconfig
 Requires:       glibc >= %{glibc_baseline}
 Requires:       gtk3
 Requires:       libEGL.so.1()(64bit)
+Requires:       libdrm
 Requires:       libpam.so.0()(64bit)
 Requires:       libpulse.so.0()(64bit)
 Requires:       rtkit
@@ -47,6 +113,10 @@ Requires(postun): systemd
 Denial owns the Wayland desktop scene, shell, motion, and composition using
 Flutter as part of the compositor foundation.
 
+This spec builds the compositor, shell, and settings bundles from the tagged
+Git source snapshot and consumes the SHA-256-pinned denial-flutter-engine
+generation supplied by the denial-flutter-engine package.
+
 %package -n denial-flutter-engine
 Epoch:          1
 Summary:        Pinned Flutter Engine runtime for Denial
@@ -57,16 +127,121 @@ Provides:       denial-flutter-engine-abi = %{flutter_engine_abi}
 Conflicts:      denial-flutter-engine-git
 
 %description -n denial-flutter-engine
-Source-built Flutter Engine generation coupled to Denial's embedder ABI.
+Source-built Flutter Engine generation coupled to Denial's embedder ABI. The
+generation is pinned by SHA-256 in the Denial source tree; this package ships
+the verified artifact, and the denial package links and bundles against it.
 
 %prep
+%setup -q
+# Restore a minimal Git repository so tools/stage-denial-runtime can pin the
+# release tag on a clean checkout. The snapshot is committed verbatim; the tag
+# points at that commit and carries the release's source date epoch.
+git init -q .
+git config user.name  "Denial Fedora Source Build"
+git config user.email "fedora-source-build@denialwm.invalid"
+git add -A
+git -c commit.gpgsign=false commit -q \
+    --date="@%{source_date_epoch}" \
+    -m "denial %{version} Fedora source snapshot"
+git tag %{release_tag}
 
 %build
+export SOURCE_DATE_EPOCH=%{source_date_epoch}
+export DENIAL_RELEASE_TAG=%{release_tag}
+export DENIAL_PACKAGE_RELEASE=1
+# Pin the toolchain parallelism (Flutter engine, Flutter tool, Cargo) to the
+# full core count instead of denial-pc's nproc-2 heuristic, so the build
+# saturates the build machine regardless of its size.
+export DENIAL_BUILD_JOBS="$(nproc)"
+# Build every C/C++ unit (Flutter settings runner, Cargo C via the cc crate)
+# with Clang: the pinned Flutter engine is a Clang build, and the tooling in
+# this chroot expects clang++ as CXX.
+export CC=clang
+export CXX=clang++
+# rpmbuild exports CFLAGS/CXXFLAGS carrying gcc-only -specs tokens
+# (redhat-hardened-cc1, redhat-annobin-cc1). The Flutter settings runner's
+# CMake build compiles with clang++ under -Werror and rejects them as
+# unused command-line arguments; they are no-ops for clang, so strip them.
+export CFLAGS="$(printf '%s' "$CFLAGS" | sed 's/-specs=[^ ]*//g' | tr -s ' ')"
+export CXXFLAGS="$(printf '%s' "$CXXFLAGS" | sed 's/-specs=[^ ]*//g' | tr -s ' ')"
+
+# Seed the pinned raw Flutter engine, verified by SHA-256 against the source
+# tree's prebuilt/flutter-engine metadata, from the prebuilt
+# denial-flutter-engine package into the checkout's prebuilt staging slot.
+install -d -m 0755 prebuilt/flutter-engine/linux-x64-release
+install -m 0644 /usr/lib/denial/flutter/lib/libflutter_engine.so \
+    prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so
+
+# Bootstrap the lock-pinned Denial Flutter fork (framework + engine sources),
+# the Flutter tool snapshot, and the locked Cargo dependency graph.
+tools/denial-pc bootstrap
+
+# The engine compiles against a prebuilt Debian bullseye sysroot
+# (chrome-linux-sysroot, installed by a gclient hook during the engine
+# checkout inside tools/stage-denial-runtime). gn's pkg_config() template
+# (engine/src/build/config/linux/pkg_config.gni) runs pkg-config.py, which
+# points PKG_CONFIG_LIBDIR at the sysroot's .pc directories and then
+# executes the bare `pkg-config` from PATH. On RHEL-family hosts the
+# multilib pkg-config wrapper (or any fallback to the chroot's own .pc
+# files) resolves glib & co from the Fedora layout (libdir=/usr/lib64),
+# whose libdir-relative include directories (e.g. /usr/lib64/glib-2.0/
+# include, holding glibconfig.h) do not exist inside the Debian sysroot,
+# and the engine build dies with "glibconfig.h: No such file or directory".
+# The sysroot only exists at gn time, so the fix is a PATH shim: whenever
+# pkg-config is invoked with a sysroot-scoped PKG_CONFIG_PATH or
+# PKG_CONFIG_LIBDIR, pin both variables to the sysroot's real .pc
+# directories (search stays inside the sysroot) and bridge the sysroot's
+# missing usr/lib64 onto its real lib dir so lib64-style paths from stray
+# Fedora .pc files still resolve. Non-scoped callers (Cargo, the settings
+# CMake build) see an unmodified pass-through.
+install -d -m 0755 "$HOME/.denial-pc-shim/bin"
+cat > "$HOME/.denial-pc-shim/bin/pkg-config" <<'EOS'
+#!/bin/bash
+# Fedora chroot shim: when a pkg-config invocation is scoped to the Debian
+# bullseye engine sysroot (PKG_CONFIG_PATH or PKG_CONFIG_LIBDIR, as set by
+# the engine's build/config/linux/pkg-config.py), pin both variables to the
+# sysroot's real .pc directories so every package resolves inside the
+# sysroot, and bridge the sysroot's missing usr/lib64 onto its actual lib
+# directory so lib64-style paths from stray .pc files still resolve.
+_shim_dir="${HOME:-/builddir}/.denial-pc-shim"
+_log() { printf '%s\n' "$*" >> "$_shim_dir/shim.log" 2>/dev/null
+         printf '%s\n' "$*" >> /tmp/denial-pc-shim.log 2>/dev/null; }
+_sysroot_pc=''
+for _v in "${PKG_CONFIG_PATH:-}" "${PKG_CONFIG_LIBDIR:-}"; do
+  _m="$(printf '%s' "$_v" | tr ':' '\n' \
+      | grep -m1 '/debian_bullseye_amd64-sysroot/' || true)"
+  if [ -n "$_m" ]; then _sysroot_pc="$_m"; break; fi
+done
+if [ -n "$_sysroot_pc" ]; then
+  _sysroot="${_sysroot_pc%%/usr/*}"
+  export PKG_CONFIG_PATH="$_sysroot/usr/lib/x86_64-linux-gnu/pkgconfig:$_sysroot/usr/lib/pkgconfig:$_sysroot/usr/share/pkgconfig"
+  export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+  if [ -d "$_sysroot" ] && [ ! -e "$_sysroot/usr/lib64" ]; then
+    if [ -d "$_sysroot/usr/lib/glib-2.0" ]; then
+      ln -sfn lib "$_sysroot/usr/lib64" && _log "$(date +%T) SYMLINK lib64->lib"
+    elif [ -d "$_sysroot/usr/lib/x86_64-linux-gnu/glib-2.0" ]; then
+      ln -sfn lib/x86_64-linux-gnu "$_sysroot/usr/lib64" \
+          && _log "$(date +%T) SYMLINK lib64->lib/x86_64-linux-gnu"
+    fi
+  fi
+  _log "$(date +%T) SCOPED argv=[$*] PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+else
+  _log "$(date +%T) PASSTHROUGH argv=[$*] PATH=${PKG_CONFIG_PATH:-} LIBDIR=${PKG_CONFIG_LIBDIR:-}"
+fi
+exec /usr/bin/pkg-config "$@"
+EOS
+chmod 0755 "$HOME/.denial-pc-shim/bin/pkg-config"
+export PATH="$HOME/.denial-pc-shim/bin:$PATH"
+
+# Compile the compositor (deniald, denialctl, denial-portal) with Cargo and
+# the Flutter shell + settings bundles against the lock-matched local engine,
+# then stage the versioned payload trees that %install consumes.
+tools/stage-denial-runtime
 
 %install
 install -d -m 0755 %{buildroot}
-cp -a -- %{denial_payload}/. %{buildroot}/
-cp -a -- %{engine_payload}/. %{buildroot}/
+cp -a -- "$HOME/.cache/denial/pc-build/package-input/native/denial/." %{buildroot}/
+cp -a -- "$HOME/.cache/denial/pc-build/package-input/native/denial-flutter-engine/." %{buildroot}/
 
 %check
 test -x %{buildroot}/usr/bin/deniald
@@ -77,6 +252,21 @@ test -x %{buildroot}/usr/bin/denial-settings
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
 test -f %{buildroot}/usr/lib/denial/settings/lib/libflutter_linux_gtk.so
+
+# Prove the staged build metadata matches this spec's release pins.
+stage_root="$HOME/.cache/denial/pc-build/package-input/native"
+test -f "$stage_root/metadata.json"
+jq -e \
+    --arg version "%{version}" \
+    --arg abi "%{flutter_engine_abi}" \
+    --arg glibc "%{glibc_baseline}" \
+    --arg sha "%{pinned_engine_sha256}" \
+    '.package_version == $version
+        and .package_release == 1
+        and .glibc_baseline == $glibc
+        and .flutter_engine_abi == $abi
+        and .flutter_engine_sha256 == $sha' \
+    "$stage_root/metadata.json"
 
 %post
 if [ $1 -eq 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
@@ -131,5 +321,14 @@ fi
 %license /usr/share/licenses/denial-flutter-engine/*
 
 %changelog
-* Wed Aug 12 2026 Doctor Logix <doctor.logix@gmail.com> - %{version}-%{release}
+* Tue Sep 10 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.3.1-1
+- Convert the Fedora adapter from a staged-binary spec to a true source
+  build: %build now runs the canonical tools/denial-pc pipeline (lock-pinned
+  Flutter fork bootstrap, gn/ninja engine artifacts, Flutter AOT shell and
+  settings bundles, Cargo release build of the compositor) inside the chroot,
+  and installs the payload trees staged by tools/stage-denial-runtime.
+- denial-flutter-engine is seeded from the SHA-256-pinned engine artifact via
+  the standalone denial-flutter-engine spec (build it into the local lc
+  repository first; this spec BuildRequires it from that repository).
+* Wed Aug 12 2026 Doctor Logix <doctor.logix@gmail.com> - 0.3.1-1
 - Add the native Fedora package adapter.
