@@ -26,17 +26,17 @@
 # denial-settings resolves this bundled private runtime through $ORIGIN/lib.
 %global __requires_exclude ^libflutter_linux_gtk\\.so.*$
 
-# Release-coupled metadata for v0.3.1 (see prebuilt/flutter-engine/ in the
+# Release-coupled metadata for v0.4.0 (see prebuilt/flutter-engine/ in the
 # source tree for the normative pins).
-%global release_tag        v0.3.1
-%global source_date_epoch  1788209911
+%global release_tag        v0.4.0
+%global source_date_epoch  1789324398
 %global glibc_baseline     2.39
 %global flutter_engine_abi 3.44.7.denial1
-%global pinned_engine_sha256 237db59d4018e52c68f0a087586cf51c5ef02aae08e75f33813ea92f86c510d5
+%global pinned_engine_sha256 fe45556c875249c15ac46bc9e667013f93445c623822e9cc11884405936719a7
 %global runtime_version_path /usr/share/denial/version
 
 Name:           denial
-Version:        0.3.1
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Flutter-native Wayland compositor and desktop shell
 License:        GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
@@ -102,6 +102,7 @@ Suggests:       ddcutil
 Suggests:       gdm
 Suggests:       iwd
 Suggests:       NetworkManager
+Suggests:       ModemManager
 Conflicts:      denial-git
 Requires(post): systemd
 Requires(preun): systemd
@@ -305,6 +306,8 @@ fi
 /usr/lib/denial/flutter/data/flutter_assets
 /usr/lib/denial/flutter/lib/libapp.so
 /usr/lib/denial/settings
+/usr/lib/elogind/system-sleep/denial-suspend-mode
+/usr/lib/systemd/system-sleep/denial-suspend-mode
 /usr/lib/systemd/user/denial-session.target
 /usr/lib/systemd/user/denial-portal.service
 /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service
@@ -328,7 +331,18 @@ fi
 %license /usr/share/licenses/denial-flutter-engine/*
 
 %changelog
-* Tue Sep 10 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.3.1-1
+* Sun Sep 13 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.4.0-1
+- Bump the adapter to the v0.4.0 tagged source snapshot: Version and the
+  release tag move to v0.4.0, the source date epoch is the v0.4.0 tag
+  commit's timestamp, and the pinned engine SHA-256 follows the
+  lock-advanced Flutter generation (SOURCE_LOCK revision c8894357).
+- v0.4.0 staging installs the new packaging/denial-suspend-mode hook into
+  both /usr/lib/systemd/system-sleep and /usr/lib/elogind/system-sleep, so
+  the spec now ships both paths; add ModemManager as a Suggests for the
+  modem integration.
+- The embedder ABI generation (3.44.7.denial1), the glibc 2.39 baseline,
+  and the in-chroot build lane are unchanged in v0.4.0.
+* Thu Sep 10 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.3.1-1
 - Convert the Fedora adapter from a staged-binary spec to a true source
   build: %build now runs the canonical tools/denial-pc pipeline (lock-pinned
   Flutter fork bootstrap, gn/ninja engine artifacts, Flutter AOT shell and
