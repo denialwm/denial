@@ -1,0 +1,94 @@
+pkgbase = denial-bin
+	pkgver = 0.3.1
+	pkgrel = 2
+	epoch = 1
+	url = https://github.com/denialwm/denial
+	arch = x86_64
+	license = GPL-3.0-or-later
+	noextract = denial-0.3.1-1-x86_64.pkg.tar.zst
+	noextract = denial-flutter-engine-1.0.3.1-1-x86_64.pkg.tar.zst
+	noextract = denial-ui-development-0.3.1-1-x86_64.pkg.tar.zst
+	options = !strip
+	options = !debug
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-0.3.1-1-x86_64.pkg.tar.zst
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-0.3.1-1-x86_64.pkg.tar.zst.sig
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-flutter-engine-1.0.3.1-1-x86_64.pkg.tar.zst
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-flutter-engine-1.0.3.1-1-x86_64.pkg.tar.zst.sig
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-ui-development-0.3.1-1-x86_64.pkg.tar.zst
+	source = https://github.com/denialwm/denial/releases/download/v0.3.1/denial-ui-development-0.3.1-1-x86_64.pkg.tar.zst.sig
+	validpgpkeys = AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
+	sha256sums = a0a23e0b850821ef697779e42f30d8a53785d4ec0f576f4b1d5f825f04426d03
+	sha256sums = SKIP
+	sha256sums = 9a8c83bc3cb33144dac481ed0704a5603ce38aa04d733c84951ce4482334e7cc
+	sha256sums = SKIP
+	sha256sums = bf7e4646ff4960f6e7cc6e8bb1914c90dce9768eda2f7c783334e1d55b7ceb2c
+	sha256sums = SKIP
+
+pkgname = denial-flutter-engine-bin
+	pkgdesc = Pinned Flutter Engine runtime for Denial (prebuilt binary)
+	license = BSD-3-Clause
+	depends = fontconfig
+	depends = glibc
+	provides = denial-flutter-engine=0.3.1
+	provides = denial-flutter-engine-abi=3.44.7.denial1
+	conflicts = denial-flutter-engine
+	conflicts = denial-flutter-engine-git
+
+pkgname = denial-bin
+	pkgdesc = Flutter-native Wayland compositor and desktop shell (prebuilt binary)
+	license = GPL-3.0-or-later
+	license = CC-BY-SA-4.0
+	license = GPL-3.0-only
+	license = OFL-1.1
+	depends = adobe-source-han-sans-cn-fonts
+	depends = bash
+	depends = coreutils
+	depends = ddcutil
+	depends = denial-flutter-engine-bin=1:0.3.1-2
+	depends = dbus
+	depends = glibc
+	depends = gtk3
+	depends = libgcc
+	depends = libglvnd
+	depends = libinput
+	depends = libpulse
+	depends = libxkbcommon
+	depends = mesa
+	depends = pam
+	depends = rtkit
+	depends = seatd
+	depends = systemd-libs
+	depends = xkeyboard-config
+	depends = xdg-desktop-portal
+	depends = xdg-desktop-portal-gtk
+	depends = xdg-desktop-portal-wlr
+	depends = xorg-xwayland
+	depends = zenity
+	optdepends = denial-ui-development-bin: live Flutter UI editing and hot reload
+	optdepends = iwd: Wi-Fi controls without NetworkManager
+	optdepends = lact: AMD GPU performance controls
+	optdepends = networkmanager: Wi-Fi and network controls through NetworkManager
+	optdepends = pipewire-pulse: desktop audio controls
+	optdepends = power-profiles-daemon: system power profiles
+	optdepends = sddm: graphical login and session selection
+	optdepends = upower: battery and power status
+	provides = denial=0.3.1
+	conflicts = denial
+	conflicts = denial-git
+	backup = etc/denial/outputs.conf
+	backup = etc/denial/session.conf
+	backup = etc/xdg/xdg-desktop-portal-wlr/Denial
+
+pkgname = denial-ui-development-bin
+	pkgdesc = Pinned live Flutter UI development environment for Denial (prebuilt binary)
+	license = BSD-3-Clause
+	license = GPL-3.0-or-later
+	depends = denial-bin=1:0.3.1-2
+	depends = fontconfig
+	depends = git
+	depends = glibc
+	depends = libgcc
+	provides = denial-ui-development=0.3.1
+	provides = denial-ui-development-engine=3.44.7.denial1
+	conflicts = denial-ui-development
+	conflicts = denial-ui-development-git
