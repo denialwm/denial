@@ -1,6 +1,6 @@
 pkgbase = denial-bin
 	pkgver = 0.3.1
-	pkgrel = 1
+	pkgrel = 2
 	epoch = 1
 	url = https://github.com/denialwm/denial
 	arch = x86_64
@@ -44,8 +44,7 @@ pkgname = denial-bin
 	depends = bash
 	depends = coreutils
 	depends = ddcutil
-	depends = denial-flutter-engine-bin=1:0.3.1-1
-	depends = denial-flutter-engine-abi=3.44.7.denial1
+	depends = denial-flutter-engine-bin=1:0.3.1-2
 	depends = dbus
 	depends = glibc
 	depends = gtk3
@@ -84,8 +83,7 @@ pkgname = denial-ui-development-bin
 	pkgdesc = Pinned live Flutter UI development environment for Denial (prebuilt binary)
 	license = BSD-3-Clause
 	license = GPL-3.0-or-later
-	depends = denial-bin=1:0.3.1-1
-	depends = denial-flutter-engine-abi=3.44.7.denial1
+	depends = denial-bin=1:0.3.1-2
 	depends = fontconfig
 	depends = git
 	depends = glibc

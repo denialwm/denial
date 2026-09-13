@@ -5,7 +5,7 @@
 pkgbase=denial-bin
 pkgname=('denial-flutter-engine-bin' 'denial-bin' 'denial-ui-development-bin')
 pkgver=0.3.1
-pkgrel=1
+pkgrel=2
 epoch=1
 arch=('x86_64')
 url='https://github.com/denialwm/denial'
@@ -79,13 +79,17 @@ package_denial-bin() {
     'GPL-3.0-only'
     'OFL-1.1'
   )
+  # NOTE: do not depend on the denial-flutter-engine-abi virtual here.
+  # The exact -bin pin below already locks the matching trio from this
+  # pkgbase, and some helpers (e.g. aura) cannot resolve versioned
+  # virtuals via the AUR RPC (which only matches real package names).
+  # The provides=() entries are kept so repo packages can interoperate.
   depends=(
     'adobe-source-han-sans-cn-fonts'
     'bash'
     'coreutils'
     'ddcutil'
     "denial-flutter-engine-bin=1:${pkgver}-${pkgrel}"
-    "denial-flutter-engine-abi=${_flutter_generation}"
     'dbus'
     'glibc'
     'gtk3'
@@ -133,7 +137,6 @@ package_denial-ui-development-bin() {
   license=('BSD-3-Clause' 'GPL-3.0-or-later')
   depends=(
     "denial-bin=1:${pkgver}-${pkgrel}"
-    "denial-flutter-engine-abi=${_flutter_generation}"
     'fontconfig'
     'git'
     'glibc'
