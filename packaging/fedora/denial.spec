@@ -26,17 +26,17 @@
 # denial-settings resolves this bundled private runtime through $ORIGIN/lib.
 %global __requires_exclude ^libflutter_linux_gtk\\.so.*$
 
-# Release-coupled metadata for v0.4.0 (see prebuilt/flutter-engine/ in the
+# Release-coupled metadata for v0.4.3 (see prebuilt/flutter-engine/ in the
 # source tree for the normative pins).
-%global release_tag        v0.4.0
-%global source_date_epoch  1789324398
+%global release_tag        v0.4.3
+%global source_date_epoch  1789676450
 %global glibc_baseline     2.39
 %global flutter_engine_abi 3.44.7.denial1
 %global pinned_engine_sha256 fe45556c875249c15ac46bc9e667013f93445c623822e9cc11884405936719a7
 %global runtime_version_path /usr/share/denial/version
 
 Name:           denial
-Version:        0.4.0
+Version:        0.4.3
 Release:        1%{?dist}
 Summary:        Flutter-native Wayland compositor and desktop shell
 License:        GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
@@ -331,6 +331,22 @@ fi
 %license /usr/share/licenses/denial-flutter-engine/*
 
 %changelog
+* Thu Sep 17 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.4.3-1
+- Bump the adapter to the v0.4.3 tagged source snapshot: Version and the
+  release tag move to v0.4.3, and the source date epoch is the v0.4.3
+  tag commit's timestamp.
+- This range (tags v0.4.1..v0.4.3) lands the expanded capture protocol
+  (LayerShell content kinds, idempotent Fullscreen publication, focus
+  routing, compositor-owned window state repair fields), the
+  Super+Shift+S region screenshot workflow, configurable shell font
+  families, two-axis workspace transitions and four-finger gestures,
+  three-finger swipe speed tuning, vmwgfx render-device detection, and
+  KMS-only build fixes.
+- The embedder ABI generation (3.44.7.denial1), the pinned engine
+  SHA-256 (SOURCE_LOCK revision c8894357, unchanged in this range), the
+  glibc 2.39 baseline, the Cargo and pub dependency graphs, and the
+  staged payload layout are all unchanged, so no BuildRequires,
+  Requires, or %files changes are needed.
 * Sun Sep 13 2026 Sunny Yang <sunny@users.noreply.github.com> - 0.4.0-1
 - Bump the adapter to the v0.4.0 tagged source snapshot: Version and the
   release tag move to v0.4.0, the source date epoch is the v0.4.0 tag
