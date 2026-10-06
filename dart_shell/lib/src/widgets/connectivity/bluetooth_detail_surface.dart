@@ -150,6 +150,7 @@ class _BluetoothDetailSurfaceState
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
           child: ShellBackdropBlur(
+            separateChild: true,
             blur: theme.effectivePanelOpacity < 1.0,
             borderRadius: BorderRadius.circular(theme.panelRadius),
             child: DecoratedBox(

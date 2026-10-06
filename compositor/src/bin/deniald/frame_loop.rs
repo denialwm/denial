@@ -17,6 +17,7 @@ pub(super) struct FrameLoopContext<'a, 'event_loop> {
     pub(super) scanouts: &'a mut Vec<Scanout>,
     pub(super) restore_state: &'a mut RestoreState,
     pub(super) wayland: Option<wayland_frontend::WaylandFrontend>,
+    pub(super) gamma_control: Arc<Mutex<gamma_control::GammaController>>,
     #[cfg(feature = "flutter")]
     pub(super) flutter: Option<flutter_runtime::FlutterRuntime>,
     #[cfg(feature = "flutter")]
@@ -43,6 +44,7 @@ pub(super) fn run_frame_loop(
         scanouts,
         restore_state,
         wayland,
+        gamma_control,
         #[cfg(feature = "flutter")]
         mut flutter,
         #[cfg(feature = "flutter")]
@@ -71,6 +73,7 @@ pub(super) fn run_frame_loop(
         .unwrap_or_default();
     let mut events = RuntimeState {
         wayland,
+        gamma_control,
         native_escape_shortcut,
         #[cfg(feature = "flutter")]
         clipboard: Default::default(),
@@ -89,6 +92,16 @@ pub(super) fn run_frame_loop(
 
     for frame_number in 1..=frame_count {
         service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, None)?;
+        let gamma_reapply_requested = std::mem::take(&mut events.gamma_reapply_requested);
+        let force_gamma_reapply = events.scanout_rebased || gamma_reapply_requested;
+        gamma_control::synchronize_gamma_control(
+            drm,
+            scanouts,
+            &mut events,
+            &[],
+            force_gamma_reapply,
+        );
+        events.scanout_rebased = false;
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
             return Ok(swapchain.representative_framebuffer());
@@ -161,6 +174,7 @@ pub(super) fn run_frame_loop(
             let next = atlas_swapchain.next_index();
             if let Some(frontend) = events.wayland.as_mut() {
                 frontend.process_pending_dmabufs(renderer)?;
+                frontend.process_toplevel_screencopies(renderer)?;
                 frontend.render(renderer, &mut atlas_swapchain.buffers[next].dmabuf)?;
             } else {
                 render_diagnostic_atlas(
@@ -301,7 +315,9 @@ pub(super) fn run_frame_loop(
                 frame_number,
                 event_loop,
                 events: &mut events,
+                #[cfg(feature = "flutter")]
                 flutter: &mut flutter,
+                #[cfg(feature = "flutter")]
                 flutter_launcher: flutter_launcher.as_deref_mut(),
             })?;
         }
@@ -346,7 +362,9 @@ pub(super) fn run_frame_loop(
                     frame_number,
                     event_loop,
                     events: &mut events,
+                    #[cfg(feature = "flutter")]
                     flutter: &mut flutter,
+                    #[cfg(feature = "flutter")]
                     flutter_launcher: flutter_launcher.as_deref_mut(),
                 })?;
             }

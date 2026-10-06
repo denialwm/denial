@@ -53,6 +53,7 @@ impl WindowIdentity {
         Self::new(WindowBackend::Wayland, app_id)
     }
 
+    #[cfg(feature = "xwayland")]
     pub(super) fn x11(class: &str) -> Option<Self> {
         Self::new(WindowBackend::X11, class)
     }

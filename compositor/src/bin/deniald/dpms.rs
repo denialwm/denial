@@ -130,7 +130,83 @@ impl DpmsTopologyGuard {
 }
 
 #[cfg(feature = "flutter")]
+pub(super) fn synchronize_wake_gestures(scanouts: &[Scanout], events: &mut RuntimeState) {
+    for name in std::mem::take(&mut events.wake_gesture_outputs) {
+        let Some(scanout) = scanouts.iter().find(|s| s.output.name == name) else {
+            continue;
+        };
+        let output = scanout.output.id;
+        let powered = events
+            .output_power_requests
+            .get(&output)
+            .copied()
+            .unwrap_or(scanout.powered);
+        if powered && !events.fingerprint.exclusive_for(output) {
+            continue;
+        }
+        events.fingerprint.independent_wake();
+        let request = events.idle_policy.wake_output_now(output, Instant::now());
+        events.queue_idle_power_requests([request]);
+        info!(output = %name, "hardware double tap requested display wake");
+    }
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut RuntimeState) {
+    if !events.power_button.take_toggle() {
+        return;
+    }
+    let action = events.idle_policy.power_button_action();
+    if action != idle_policy::PowerButtonAction::Dpms {
+        if events
+            .system_controls
+            .as_ref()
+            .is_some_and(|controls| controls.power_button_action(action))
+        {
+            info!(?action, "power button requested system power action");
+        } else {
+            warn!(?action, "could not request power-button system action");
+        }
+        return;
+    }
+    events.fingerprint.independent_wake();
+    // Queued requests are the effective state until the atomic KMS gate runs.
+    let outputs = scanouts
+        .iter()
+        .map(|scanout| {
+            let output = scanout.output.id;
+            (
+                output,
+                events
+                    .output_power_requests
+                    .get(&output)
+                    .copied()
+                    .unwrap_or(scanout.powered),
+            )
+        })
+        .collect::<Vec<_>>();
+    let actions = events.idle_policy.toggle_now(outputs, Instant::now());
+    if actions.lock {
+        if let Some(authentication) = events.authentication.as_ref() {
+            // Close the security gate before queuing DPMS off. Waking only
+            // restores display power; authentication remains locked.
+            authentication.lock();
+            synchronize_authentication_boundary(events);
+            info!("locked the session before power-button display off");
+        } else {
+            warn!("could not lock on power button: authentication is unavailable");
+        }
+    }
+    events.queue_idle_power_requests(actions.power_requests);
+    info!("power button requested compositor-owned display power toggle");
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
+    // Presentation owns a bounded wake and restores its prior power state.
+    if events.fingerprint.active() {
+        return;
+    }
     let inhibited = events
         .wayland
         .as_mut()
@@ -176,6 +252,13 @@ pub(super) fn synchronize_idle_dpms_configuration(
     let Some(configuration) = runtime.take_idle_policy() else {
         return;
     };
+    if events
+        .system_controls
+        .as_ref()
+        .is_none_or(|controls| !controls.set_suspend_mode(configuration.suspend_mode))
+    {
+        warn!("could not synchronize the selected suspend mode");
+    }
     let requests = events.idle_policy.configure(configuration, Instant::now());
     events.queue_idle_power_requests(requests);
     info!(
@@ -184,6 +267,11 @@ pub(super) fn synchronize_idle_dpms_configuration(
         suspend_timeout_seconds = configuration
             .suspend_timeout
             .map(|timeout| timeout.as_secs()),
+        suspend_mode = configuration
+            .suspend_mode
+            .kernel_value()
+            .unwrap_or("system-default"),
+        power_button_action = ?configuration.power_button_action,
         "configured automatic inactivity policy"
     );
 }
@@ -351,6 +439,9 @@ pub(super) fn apply_output_power_requests(
     }
 
     if !power_on.is_empty() {
+        // Resume Flutter to build the lock UI, but KMS remains off until a
+        // frame tagged after its layout acknowledgement passes the wake gate.
+        runtime.prepare_locked_wake()?;
         for &(output, scanout_index) in &power_on {
             let framebuffer_index = scheduler
                 .stable_framebuffer_index(output)

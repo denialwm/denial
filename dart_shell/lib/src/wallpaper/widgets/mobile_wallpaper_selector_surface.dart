@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../launcher/launcher_providers.dart';
 import '../../models/display_layout.dart';
 import '../../state/display_layout.dart';
 import '../../state/shell_controller.dart';
@@ -292,6 +293,10 @@ class _BrowseSurface extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(l10n.wallpaperMobileChoose, style: ShellText.cardTitle),
+                const SizedBox(height: 6),
+                WallpaperFolderHint(
+                  directory: ref.watch(runtimePathsProvider).wallpaperDirectory,
+                ),
                 const SizedBox(height: 10),
                 WallpaperSearchField(
                   controller: searchController,
@@ -302,6 +307,13 @@ class _BrowseSurface extends ConsumerWidget {
                   },
                   onSubmit: controller.submitQuery,
                 ),
+                if (state.imageServerAvailability ==
+                    WallpaperImageServerAvailability.unavailable) ...[
+                  const SizedBox(height: 10),
+                  WallpaperNetworkWarning(
+                    onRetry: controller.retryOnlineWallpapers,
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 128,

@@ -30,6 +30,10 @@ const PHASE_LOCK_GAIN_DIVISOR: i128 = 8;
 pub(super) struct FrameTick {
     pub(super) output: OutputId,
     pub(super) sequence: u64,
+    /// Stable period derived from the configured output mode. Phase locking
+    /// moves presentation targets but never changes this cadence identity.
+    pub(super) nominal_interval: Duration,
+    /// Phase-corrected duration from this render deadline to its target.
     pub(super) interval: Duration,
     pub(super) render_deadline: Instant,
     pub(super) presentation_target: Instant,
@@ -50,6 +54,8 @@ pub(super) enum FrameAction {
 pub(super) struct OutputFrameRequest {
     pub(super) tick: FrameTick,
     pub(super) dirty_serial: u64,
+    pub(super) lock_frame_token: u64,
+    pub(super) fingerprint_epoch: u64,
 }
 
 #[derive(Debug, Default)]
@@ -81,6 +87,8 @@ struct FrameSchedulerAudit {
     output_ticks: u64,
     dirty_output_ticks: u64,
     unavailable_output_ticks: u64,
+    scheduler_unavailable_ticks: u64,
+    target_unavailable_ticks: u64,
     render_requests: u64,
 }
 
@@ -92,6 +100,8 @@ impl FrameSchedulerAudit {
             output_ticks: 0,
             dirty_output_ticks: 0,
             unavailable_output_ticks: 0,
+            scheduler_unavailable_ticks: 0,
+            target_unavailable_ticks: 0,
             render_requests: 0,
         }
     }
@@ -117,6 +127,8 @@ impl FrameSchedulerAudit {
             output_ticks = self.output_ticks,
             dirty_output_ticks = self.dirty_output_ticks,
             unavailable_output_ticks = self.unavailable_output_ticks,
+            scheduler_unavailable_ticks = self.scheduler_unavailable_ticks,
+            target_unavailable_ticks = self.target_unavailable_ticks,
             render_requests = self.render_requests,
             "Denial output-timeline decision audit"
         );
@@ -125,6 +137,8 @@ impl FrameSchedulerAudit {
         self.output_ticks = 0;
         self.dirty_output_ticks = 0;
         self.unavailable_output_ticks = 0;
+        self.scheduler_unavailable_ticks = 0;
+        self.target_unavailable_ticks = 0;
         self.render_requests = 0;
     }
 }
@@ -254,11 +268,21 @@ impl FrameScheduler {
         self.next_dirty_serial
     }
 
+    #[cfg(test)]
     pub(super) fn step_with_output_availability(
         &mut self,
         now: Instant,
         pending: PendingFrame,
         mut output_available: impl FnMut(OutputId) -> bool,
+    ) -> FrameAction {
+        self.step_with_output_readiness(now, pending, |output| (output_available(output), true))
+    }
+
+    pub(super) fn step_with_output_readiness(
+        &mut self,
+        now: Instant,
+        pending: PendingFrame,
+        mut output_available: impl FnMut(OutputId) -> (bool, bool),
     ) -> FrameAction {
         if pending.flutter_requested && !self.flutter_request_latched {
             self.flutter_request_latched = true;
@@ -268,13 +292,21 @@ impl FrameScheduler {
         self.render_requests.clear();
         self.render_texture_ids.clear();
         self.available_outputs.clear();
-        self.available_outputs.extend(
-            self.outputs
-                .ticks()
-                .iter()
-                .map(|tick| tick.output)
-                .filter(|output| output_available(*output)),
-        );
+        self.available_outputs
+            .extend(
+                self.outputs
+                    .ticks()
+                    .iter()
+                    .map(|tick| tick.output)
+                    .filter(|output| {
+                        let (scheduler, target) = output_available(*output);
+                        if let Some(audit) = self.audit.as_mut() {
+                            audit.scheduler_unavailable_ticks += u64::from(!scheduler);
+                            audit.target_unavailable_ticks += u64::from(!target);
+                        }
+                        scheduler && target
+                    }),
+            );
         self.flutter_tick = None;
         let flutter_tick = self.outputs.flutter_tick().filter(|tick| {
             self.flutter_request_latched
@@ -313,6 +345,8 @@ impl FrameScheduler {
             self.render_requests.push(OutputFrameRequest {
                 tick,
                 dirty_serial: dirty.serial,
+                lock_frame_token: 0,
+                fingerprint_epoch: 0,
             });
             self.render_texture_ids
                 .extend(dirty.texture_ids.iter().copied());
@@ -529,6 +563,7 @@ impl OutputTimeline {
         Some(FrameTick {
             output: self.source.output,
             sequence,
+            nominal_interval: self.source.interval,
             interval: presentation_target.saturating_duration_since(render_deadline),
             render_deadline,
             presentation_target,
@@ -586,4 +621,38 @@ fn refresh_interval(scanout: &Scanout) -> Duration {
         .filter(|refresh| *refresh > 0)
         .unwrap_or(60_000);
     Duration::from_nanos(1_000_000_000_000 / refresh_millihz)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_correction_does_not_change_cadence_identity() {
+        let now = Instant::now();
+        let nominal = Duration::from_micros(8_333);
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: OutputId(7),
+                interval: nominal,
+            },
+            now,
+        );
+
+        let first = timeline.take_tick(now).expect("initial tick");
+        assert_eq!(first.nominal_interval, nominal);
+        assert_eq!(first.interval, nominal);
+
+        timeline.pending_phase_adjustment_nanos = 100_000;
+        let second_deadline = timeline.next_tick;
+        let second = timeline
+            .take_tick(second_deadline)
+            .expect("phase-corrected tick");
+        assert_eq!(second.nominal_interval, nominal);
+        assert_eq!(second.interval, nominal + Duration::from_micros(100));
+        assert_eq!(
+            second.presentation_target,
+            second.render_deadline + second.interval
+        );
+    }
 }

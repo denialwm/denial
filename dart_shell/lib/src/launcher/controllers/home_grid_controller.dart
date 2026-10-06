@@ -7,7 +7,6 @@ import '../../local_apps/local_flutter_application.dart';
 import '../../state/shell_controller.dart';
 import '../../state/system_status.dart';
 import '../launcher_providers.dart';
-import '../models/home_battery_discharge_info.dart';
 import '../models/desktop_app.dart';
 import '../models/home_drag_session.dart';
 import '../models/home_clock_info.dart';
@@ -51,15 +50,6 @@ final homeClockProvider = Provider<HomeClockInfo>((ref) {
     power: ref.watch(effectivePowerStatusProvider),
   );
 }, isAutoDispose: true);
-
-final homeBatteryDischargeProvider = StreamProvider<HomeBatteryDischargeSeries>(
-  (ref) {
-    final reader = HomeBatteryDischargeTailReader();
-    ref.onDispose(() => unawaited(reader.dispose()));
-    return reader.snapshots;
-  },
-  isAutoDispose: true,
-);
 
 class HomeDragSessionController extends Notifier<HomeDragSession?> {
   @override
@@ -455,12 +445,18 @@ bool _sameDesktopApp(DesktopApp a, DesktopApp b) {
       a.icon != b.icon ||
       a.iconPath != b.iconPath ||
       a.startupWmClass != b.startupWmClass ||
-      a.categories.length != b.categories.length) {
+      a.categories.length != b.categories.length ||
+      a.keywords.length != b.keywords.length) {
     return false;
   }
 
   for (var index = 0; index < a.categories.length; index += 1) {
     if (a.categories[index] != b.categories[index]) {
+      return false;
+    }
+  }
+  for (var index = 0; index < a.keywords.length; index += 1) {
+    if (a.keywords[index] != b.keywords[index]) {
       return false;
     }
   }
@@ -478,7 +474,8 @@ bool _savedLayoutNeedsRefresh(
   }
 
   final savedIds = <String>{for (final slot in savedLayout) ?slot?.id};
-  if (savedIds.contains('widget:frame-time')) {
+  if (savedIds.contains('widget:frame-time') ||
+      savedIds.contains('widget:battery-discharge')) {
     return true;
   }
 

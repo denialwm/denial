@@ -31,9 +31,7 @@ use super::super::clipboard::{
     ClipboardAction, ClipboardCapturePlan, ClipboardDragPayload, ClipboardOrigin,
     ClipboardSelection, ClipboardSourceIdentity,
 };
-use super::{
-    KeyboardFocusTarget, RuntimeState, WaylandFrontend, XdgToplevelSurfaceData, with_states,
-};
+use super::{RuntimeState, WaylandFrontend};
 
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(3);
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -159,6 +157,7 @@ impl Source for ClipboardDndSource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CaptureOwner {
     Wayland,
+    #[cfg(feature = "xwayland")]
     Xwayland,
 }
 
@@ -172,6 +171,7 @@ impl CaptureOwner {
     fn origin(self) -> ClipboardOrigin {
         match self {
             Self::Wayland => ClipboardOrigin::Wayland,
+            #[cfg(feature = "xwayland")]
             Self::Xwayland => ClipboardOrigin::X11,
         }
     }
@@ -351,21 +351,17 @@ fn start_representation_capture(
             )
             .map_err(|error| error.to_string())
         }
+        #[cfg(feature = "xwayland")]
         CaptureOwner::Xwayland => state
             .wayland
             .as_mut()
             .expect("missing Wayland frontend")
-            .xwm
-            .as_mut()
-            .ok_or_else(|| "Xwayland clipboard owner disappeared".to_owned())
-            .and_then(|xwm| {
-                xwm.send_selection(
-                    SelectionTarget::Clipboard,
-                    mime_type.clone(),
-                    OwnedFd::from(writer),
-                )
-                .map_err(|error| error.to_string())
-            }),
+            .xwayland
+            .send_selection(
+                SelectionTarget::Clipboard,
+                mime_type.clone(),
+                OwnedFd::from(writer),
+            ),
     };
     if let Err(error) = request {
         state
@@ -488,9 +484,9 @@ pub(crate) fn apply_clipboard_actions(state: &mut RuntimeState, actions: Vec<Cli
                         mime_types.clone(),
                         ClipboardSelection::History { item_id },
                     );
-                    if let Some(xwm) = frontend.xwm.as_mut()
-                        && let Err(error) =
-                            xwm.new_selection(SelectionTarget::Clipboard, Some(mime_types))
+                    if let Err(error) = frontend
+                        .xwayland
+                        .publish_selection(SelectionTarget::Clipboard, Some(mime_types))
                     {
                         warn!(%error, item_id, "could not publish retained clipboard to Xwayland");
                     }
@@ -509,13 +505,17 @@ pub(crate) fn apply_clipboard_actions(state: &mut RuntimeState, actions: Vec<Cli
                     continue;
                 }
                 clear_data_device_selection(&frontend.display_handle, &frontend.seat);
-                if let Some(xwm) = frontend.xwm.as_mut()
-                    && let Err(error) = xwm.new_selection(SelectionTarget::Clipboard, None)
+                if let Err(error) = frontend
+                    .xwayland
+                    .publish_selection(SelectionTarget::Clipboard, None)
                 {
                     warn!(%error, "could not clear retained Xwayland clipboard");
                 }
             }
+            #[cfg(feature = "flutter")]
             ClipboardAction::StartDrag { item_id } => start_retained_drag(state, item_id),
+            #[cfg(not(feature = "flutter"))]
+            ClipboardAction::StartDrag { .. } => {}
         }
     }
 }
@@ -581,6 +581,7 @@ fn paste_into_focused_client(state: &mut RuntimeState) {
     debug!("pasted activated clipboard item into focused client");
 }
 
+#[cfg(feature = "flutter")]
 fn start_retained_drag(state: &mut RuntimeState, item_id: u64) {
     if state.secure_session_locked() || !state.flutter_input.pointer_captured() {
         warn!(
@@ -668,21 +669,8 @@ fn start_retained_drag(state: &mut RuntimeState, item_id: u64) {
 
 fn focused_source_identity(frontend: &WaylandFrontend) -> Option<ClipboardSourceIdentity> {
     let focus = frontend.seat.get_keyboard()?.current_focus()?;
-    match focus {
-        KeyboardFocusTarget::X11(surface) => {
-            ClipboardSourceIdentity::bounded(surface.class(), surface.title())
-        }
-        KeyboardFocusTarget::Wayland(surface) => with_states(&surface, |states| {
-            let attributes = states.data_map.get::<XdgToplevelSurfaceData>()?;
-            let attributes = attributes
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            ClipboardSourceIdentity::bounded(
-                attributes.app_id.clone().unwrap_or_default(),
-                attributes.title.clone().unwrap_or_default(),
-            )
-        }),
-    }
+    let (title, app_id) = focus.window_metadata()?;
+    ClipboardSourceIdentity::bounded(app_id, title)
 }
 
 fn focused_source(

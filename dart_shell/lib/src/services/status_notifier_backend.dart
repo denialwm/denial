@@ -16,8 +16,11 @@ class _StatusNotifierDbusBackend {
   static const Duration _methodTimeout = Duration(seconds: 4);
   static const Duration _signalCoalesce = Duration(milliseconds: 45);
   static const int _maxItems = 64;
-  static const int _maxMenuItems = 256;
-  static const int _maxMenuDepth = 5;
+
+  // Fetch one level at a time so an unopened subtree cannot starve its later
+  // siblings. The UI requests each submenu by its exported item ID on open.
+  static const int _menuFetchDepth = 1;
+  static const int _maxMenuItemsPerLevel = 2048;
 
   final DBusClient _client;
   final StatusNotifierWatcherEndpoint _watcher;
@@ -531,7 +534,10 @@ class _StatusNotifierDbusBackend {
     return false;
   }
 
-  Future<List<SystemTrayMenuEntry>?> loadMenu(String itemId) async {
+  Future<List<SystemTrayMenuEntry>?> loadMenu(
+    String itemId, {
+    int parentId = 0,
+  }) async {
     final registration = _registrations[itemId];
     final item = _items[itemId];
     if (registration == null ||
@@ -555,8 +561,8 @@ class _StatusNotifierDbusBackend {
     );
     try {
       await object
-          .callMethod(menuInterface, 'AboutToShow', const <DBusValue>[
-            DBusInt32(0),
+          .callMethod(menuInterface, 'AboutToShow', <DBusValue>[
+            DBusInt32(parentId),
           ], replySignature: DBusSignature('b'))
           .timeout(_methodTimeout);
     } on Object {
@@ -565,29 +571,19 @@ class _StatusNotifierDbusBackend {
     }
     try {
       final response = await object
-          .callMethod(menuInterface, 'GetLayout', <DBusValue>[
-            const DBusInt32(0),
-            const DBusInt32(_maxMenuDepth),
-            DBusArray.string(const <String>[
-              'label',
-              'enabled',
-              'visible',
-              'type',
-              'children-display',
-              'toggle-type',
-              'toggle-state',
-              'disposition',
-            ]),
-          ], replySignature: DBusSignature('u(ia{sv}av)'))
+          .callMethod(
+            menuInterface,
+            'GetLayout',
+            _menuLayoutRequest(parentId),
+            replySignature: DBusSignature('u(ia{sv}av)'),
+          )
           .timeout(_methodTimeout);
       if (response.returnValues.length != 2) {
         return null;
       }
-      final budget = _MenuBudget(_maxMenuItems);
       final root = _parseMenuEntry(
         response.returnValues[1],
-        budget: budget,
-        depth: 0,
+        parseChildren: true,
       );
       if (root == null) {
         return null;

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/startup_environment.dart';
 import '../models/ui_development.dart';
 import '../platform/denial_bridge.dart';
 import 'shell_controller.dart';
@@ -13,7 +14,9 @@ final uiDevelopmentProvider =
     );
 
 final uiWorkspaceSetupProvider = Provider<UiWorkspaceSetupService>(
-  (_) => const SystemUiWorkspaceSetupService(),
+  (ref) => SystemUiWorkspaceSetupService(
+    environment: ref.watch(startupEnvironmentProvider).values,
+  ),
 );
 
 abstract interface class UiWorkspaceSetupService {
@@ -23,10 +26,22 @@ abstract interface class UiWorkspaceSetupService {
 }
 
 class SystemUiWorkspaceSetupService implements UiWorkspaceSetupService {
-  const SystemUiWorkspaceSetupService();
+  const SystemUiWorkspaceSetupService({
+    Map<String, String> environment = const <String, String>{},
+  }) : _environment = environment;
 
-  static const _controlTool = '/usr/bin/denialctl';
-  static const _developmentTool = '/usr/bin/denial-ui';
+  final Map<String, String> _environment;
+
+  String get _controlTool =>
+      _tool(variable: 'DENIAL_CONTROL_TOOL', fallback: 'denialctl');
+
+  String get _developmentTool =>
+      _tool(variable: 'DENIAL_DEVELOPMENT_TOOL', fallback: 'denial-ui');
+
+  String _tool({required String variable, required String fallback}) {
+    final configured = _environment[variable]?.trim();
+    return configured == null || configured.isEmpty ? fallback : configured;
+  }
 
   @override
   bool get available =>
@@ -43,7 +58,7 @@ class SystemUiWorkspaceSetupService implements UiWorkspaceSetupService {
       '--json',
       'ui',
       'setup',
-    ]);
+    ], environment: _environment);
     if (result.exitCode == 0) {
       return;
     }

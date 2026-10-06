@@ -43,7 +43,12 @@ class _ObjectKindReader extends fb.Reader<ObjectKind> {
 
 enum WindowContentKind {
   SurfaceTree(0),
-  LocalFlutter(1);
+  LocalFlutter(1),
+  LayerShellBackground(2),
+  LayerShellBottom(3),
+  LayerShellTop(4),
+  LayerShellOverlay(5),
+  PopupSurface(6);
 
   final int value;
   const WindowContentKind(this.value);
@@ -52,6 +57,11 @@ enum WindowContentKind {
     switch (value) {
       case 0: return WindowContentKind.SurfaceTree;
       case 1: return WindowContentKind.LocalFlutter;
+      case 2: return WindowContentKind.LayerShellBackground;
+      case 3: return WindowContentKind.LayerShellBottom;
+      case 4: return WindowContentKind.LayerShellTop;
+      case 5: return WindowContentKind.LayerShellOverlay;
+      case 6: return WindowContentKind.PopupSurface;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -60,7 +70,7 @@ enum WindowContentKind {
       value == null ? null : WindowContentKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 1;
+  static const int maxValue = 6;
   static const fb.Reader<WindowContentKind> reader = _WindowContentKindReader();
 }
 
@@ -154,7 +164,9 @@ enum WindowRequestKind {
   FocusWindow(3),
   ConfigureWindow(4),
   CreateLocalWindow(5),
-  ConfigureSystemBar(6);
+  ConfigureSystemBar(6),
+  SwitchWorkspace(7),
+  MoveWindowToWorkspace(8);
 
   final int value;
   const WindowRequestKind(this.value);
@@ -168,6 +180,8 @@ enum WindowRequestKind {
       case 4: return WindowRequestKind.ConfigureWindow;
       case 5: return WindowRequestKind.CreateLocalWindow;
       case 6: return WindowRequestKind.ConfigureSystemBar;
+      case 7: return WindowRequestKind.SwitchWorkspace;
+      case 8: return WindowRequestKind.MoveWindowToWorkspace;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -176,7 +190,7 @@ enum WindowRequestKind {
       value == null ? null : WindowRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 6;
+  static const int maxValue = 8;
   static const fb.Reader<WindowRequestKind> reader = _WindowRequestKindReader();
 }
 
@@ -266,7 +280,8 @@ enum WindowActionKind {
   Maximize(1),
   Restore(2),
   ToggleMaximize(3),
-  ToggleFullscreen(4);
+  ToggleFullscreen(4),
+  Fullscreen(5);
 
   final int value;
   const WindowActionKind(this.value);
@@ -278,6 +293,7 @@ enum WindowActionKind {
       case 2: return WindowActionKind.Restore;
       case 3: return WindowActionKind.ToggleMaximize;
       case 4: return WindowActionKind.ToggleFullscreen;
+      case 5: return WindowActionKind.Fullscreen;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -286,7 +302,7 @@ enum WindowActionKind {
       value == null ? null : WindowActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 4;
+  static const int maxValue = 5;
   static const fb.Reader<WindowActionKind> reader = _WindowActionKindReader();
 }
 
@@ -314,7 +330,12 @@ enum ShellActionKind {
   Wallpaper(9),
   WindowSwitcherPrevious(10),
   OpenSettings(11),
-  Dashboard(12);
+  Dashboard(12),
+  WorkspaceChanged(13),
+  FocusLeft(14),
+  FocusRight(15),
+  FocusUp(16),
+  FocusDown(17);
 
   final int value;
   const ShellActionKind(this.value);
@@ -334,6 +355,11 @@ enum ShellActionKind {
       case 10: return ShellActionKind.WindowSwitcherPrevious;
       case 11: return ShellActionKind.OpenSettings;
       case 12: return ShellActionKind.Dashboard;
+      case 13: return ShellActionKind.WorkspaceChanged;
+      case 14: return ShellActionKind.FocusLeft;
+      case 15: return ShellActionKind.FocusRight;
+      case 16: return ShellActionKind.FocusUp;
+      case 17: return ShellActionKind.FocusDown;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -342,7 +368,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 12;
+  static const int maxValue = 17;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -359,7 +385,8 @@ class _ShellActionKindReader extends fb.Reader<ShellActionKind> {
 
 enum KeyboardCommandKind {
   Text(0),
-  Key(1);
+  Key(1),
+  DismissPanel(2);
 
   final int value;
   const KeyboardCommandKind(this.value);
@@ -368,6 +395,7 @@ enum KeyboardCommandKind {
     switch (value) {
       case 0: return KeyboardCommandKind.Text;
       case 1: return KeyboardCommandKind.Key;
+      case 2: return KeyboardCommandKind.DismissPanel;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -376,7 +404,7 @@ enum KeyboardCommandKind {
       value == null ? null : KeyboardCommandKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 1;
+  static const int maxValue = 2;
   static const fb.Reader<KeyboardCommandKind> reader = _KeyboardCommandKindReader();
 }
 
@@ -518,7 +546,30 @@ enum ShortcutActionKind {
   SwapLeft(27),
   SwapRight(28),
   SwapUp(29),
-  SwapDown(30);
+  SwapDown(30),
+  PreviousWorkspace(31),
+  NextWorkspace(32),
+  MoveToPreviousWorkspace(33),
+  MoveToNextWorkspace(34),
+  SwitchWorkspace1(35),
+  SwitchWorkspace2(36),
+  SwitchWorkspace3(37),
+  SwitchWorkspace4(38),
+  SwitchWorkspace5(39),
+  SwitchWorkspace6(40),
+  SwitchWorkspace7(41),
+  SwitchWorkspace8(42),
+  SwitchWorkspace9(43),
+  MoveToWorkspace1(44),
+  MoveToWorkspace2(45),
+  MoveToWorkspace3(46),
+  MoveToWorkspace4(47),
+  MoveToWorkspace5(48),
+  MoveToWorkspace6(49),
+  MoveToWorkspace7(50),
+  MoveToWorkspace8(51),
+  MoveToWorkspace9(52),
+  ToggleWindowAlwaysOnTop(53);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -556,6 +607,29 @@ enum ShortcutActionKind {
       case 28: return ShortcutActionKind.SwapRight;
       case 29: return ShortcutActionKind.SwapUp;
       case 30: return ShortcutActionKind.SwapDown;
+      case 31: return ShortcutActionKind.PreviousWorkspace;
+      case 32: return ShortcutActionKind.NextWorkspace;
+      case 33: return ShortcutActionKind.MoveToPreviousWorkspace;
+      case 34: return ShortcutActionKind.MoveToNextWorkspace;
+      case 35: return ShortcutActionKind.SwitchWorkspace1;
+      case 36: return ShortcutActionKind.SwitchWorkspace2;
+      case 37: return ShortcutActionKind.SwitchWorkspace3;
+      case 38: return ShortcutActionKind.SwitchWorkspace4;
+      case 39: return ShortcutActionKind.SwitchWorkspace5;
+      case 40: return ShortcutActionKind.SwitchWorkspace6;
+      case 41: return ShortcutActionKind.SwitchWorkspace7;
+      case 42: return ShortcutActionKind.SwitchWorkspace8;
+      case 43: return ShortcutActionKind.SwitchWorkspace9;
+      case 44: return ShortcutActionKind.MoveToWorkspace1;
+      case 45: return ShortcutActionKind.MoveToWorkspace2;
+      case 46: return ShortcutActionKind.MoveToWorkspace3;
+      case 47: return ShortcutActionKind.MoveToWorkspace4;
+      case 48: return ShortcutActionKind.MoveToWorkspace5;
+      case 49: return ShortcutActionKind.MoveToWorkspace6;
+      case 50: return ShortcutActionKind.MoveToWorkspace7;
+      case 51: return ShortcutActionKind.MoveToWorkspace8;
+      case 52: return ShortcutActionKind.MoveToWorkspace9;
+      case 53: return ShortcutActionKind.ToggleWindowAlwaysOnTop;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -564,7 +638,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 30;
+  static const int maxValue = 53;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 
@@ -1790,10 +1864,15 @@ class Window {
   double get opacity => const fb.Float32Reader().vTableGet(_bc, _bcOffset, 72, 1.0);
   WindowContentKind get contentKind => WindowContentKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 74, 0));
   WindowOpacityClass get opacityClass => WindowOpacityClass.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 76, 0));
+  int get workspaceId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 78, 1);
+  bool get minimized => const fb.BoolReader().vTableGet(_bc, _bcOffset, 80, false);
+  bool get fullscreen => const fb.BoolReader().vTableGet(_bc, _bcOffset, 82, false);
+  bool get maximized => const fb.BoolReader().vTableGet(_bc, _bcOffset, 84, false);
+  int get transientParentId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 86, 0);
 
   @override
   String toString() {
-    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}}';
+    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}, workspaceId: ${workspaceId}, minimized: ${minimized}, fullscreen: ${fullscreen}, maximized: ${maximized}, transientParentId: ${transientParentId}}';
   }
 }
 
@@ -1811,7 +1890,7 @@ class WindowBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(37);
+    fbBuilder.startTable(42);
   }
 
   int addObjectId(int? objectId) {
@@ -1962,6 +2041,26 @@ class WindowBuilder {
     fbBuilder.addUint8(36, opacityClass?.value);
     return fbBuilder.offset;
   }
+  int addWorkspaceId(int? workspaceId) {
+    fbBuilder.addInt64(37, workspaceId);
+    return fbBuilder.offset;
+  }
+  int addMinimized(bool? minimized) {
+    fbBuilder.addBool(38, minimized);
+    return fbBuilder.offset;
+  }
+  int addFullscreen(bool? fullscreen) {
+    fbBuilder.addBool(39, fullscreen);
+    return fbBuilder.offset;
+  }
+  int addMaximized(bool? maximized) {
+    fbBuilder.addBool(40, maximized);
+    return fbBuilder.offset;
+  }
+  int addTransientParentId(int? transientParentId) {
+    fbBuilder.addUint64(41, transientParentId);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2006,6 +2105,11 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
   final double? _opacity;
   final WindowContentKind? _contentKind;
   final WindowOpacityClass? _opacityClass;
+  final int? _workspaceId;
+  final bool? _minimized;
+  final bool? _fullscreen;
+  final bool? _maximized;
+  final int? _transientParentId;
 
   WindowObjectBuilder({
     int? objectId,
@@ -2045,6 +2149,11 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     double? opacity,
     WindowContentKind? contentKind,
     WindowOpacityClass? opacityClass,
+    int? workspaceId,
+    bool? minimized,
+    bool? fullscreen,
+    bool? maximized,
+    int? transientParentId,
   })
       : _objectId = objectId,
         _objectKind = objectKind,
@@ -2082,7 +2191,12 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         _serverSideDecorated = serverSideDecorated,
         _opacity = opacity,
         _contentKind = contentKind,
-        _opacityClass = opacityClass;
+        _opacityClass = opacityClass,
+        _workspaceId = workspaceId,
+        _minimized = minimized,
+        _fullscreen = fullscreen,
+        _maximized = maximized,
+        _transientParentId = transientParentId;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -2093,7 +2207,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_appId!);
     final int? surfacesOffset = _surfaces == null ? null
         : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(37);
+    fbBuilder.startTable(42);
     fbBuilder.addUint64(0, _objectId);
     fbBuilder.addUint8(1, _objectKind?.value);
     fbBuilder.addUint64(2, _surfaceId);
@@ -2131,6 +2245,11 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addFloat32(34, _opacity);
     fbBuilder.addUint8(35, _contentKind?.value);
     fbBuilder.addUint8(36, _opacityClass?.value);
+    fbBuilder.addInt64(37, _workspaceId);
+    fbBuilder.addBool(38, _minimized);
+    fbBuilder.addBool(39, _fullscreen);
+    fbBuilder.addBool(40, _maximized);
+    fbBuilder.addUint64(41, _transientParentId);
     return fbBuilder.endTable();
   }
 
@@ -2245,10 +2364,11 @@ class DisplayOutput {
   WireRect? get sourceRect => WireRect.reader.vTableGetNullable(_bc, _bcOffset, 12);
   double get scale => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 14, 1.0);
   double get refreshRate => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 16, 60.0);
+  int get activeWorkspace => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 18, 1);
 
   @override
   String toString() {
-    return 'DisplayOutput{monitorId: ${monitorId}, name: ${name}, logicalRect: ${logicalRect}, pixelSize: ${pixelSize}, sourceRect: ${sourceRect}, scale: ${scale}, refreshRate: ${refreshRate}}';
+    return 'DisplayOutput{monitorId: ${monitorId}, name: ${name}, logicalRect: ${logicalRect}, pixelSize: ${pixelSize}, sourceRect: ${sourceRect}, scale: ${scale}, refreshRate: ${refreshRate}, activeWorkspace: ${activeWorkspace}}';
   }
 }
 
@@ -2266,7 +2386,7 @@ class DisplayOutputBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(7);
+    fbBuilder.startTable(8);
   }
 
   int addMonitorId(int? monitorId) {
@@ -2297,6 +2417,10 @@ class DisplayOutputBuilder {
     fbBuilder.addFloat64(6, refreshRate);
     return fbBuilder.offset;
   }
+  int addActiveWorkspace(int? activeWorkspace) {
+    fbBuilder.addUint32(7, activeWorkspace);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2311,6 +2435,7 @@ class DisplayOutputObjectBuilder extends fb.ObjectBuilder {
   final WireRectObjectBuilder? _sourceRect;
   final double? _scale;
   final double? _refreshRate;
+  final int? _activeWorkspace;
 
   DisplayOutputObjectBuilder({
     int? monitorId,
@@ -2320,6 +2445,7 @@ class DisplayOutputObjectBuilder extends fb.ObjectBuilder {
     WireRectObjectBuilder? sourceRect,
     double? scale,
     double? refreshRate,
+    int? activeWorkspace,
   })
       : _monitorId = monitorId,
         _name = name,
@@ -2327,14 +2453,15 @@ class DisplayOutputObjectBuilder extends fb.ObjectBuilder {
         _pixelSize = pixelSize,
         _sourceRect = sourceRect,
         _scale = scale,
-        _refreshRate = refreshRate;
+        _refreshRate = refreshRate,
+        _activeWorkspace = activeWorkspace;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? nameOffset = _name == null ? null
         : fbBuilder.writeString(_name!);
-    fbBuilder.startTable(7);
+    fbBuilder.startTable(8);
     fbBuilder.addInt64(0, _monitorId);
     fbBuilder.addOffset(1, nameOffset);
     if (_logicalRect != null) {
@@ -2348,6 +2475,7 @@ class DisplayOutputObjectBuilder extends fb.ObjectBuilder {
     }
     fbBuilder.addFloat64(5, _scale);
     fbBuilder.addFloat64(6, _refreshRate);
+    fbBuilder.addUint32(7, _activeWorkspace);
     return fbBuilder.endTable();
   }
 
@@ -2559,10 +2687,14 @@ class WindowRequest {
   SystemBarSide get systemBarSide => SystemBarSide.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 14, 2));
   List<int>? get systemBarMonitorIds => const fb.ListReader<int>(fb.Int64Reader()).vTableGetNullable(_bc, _bcOffset, 16);
   int get flags => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 18, 0);
+  int get monitorId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 20, -1);
+  int get workspaceId => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 22, 1);
+  double get systemBarThickness => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 24, -1.0);
+  double get maximizePadding => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 26, -1.0);
 
   @override
   String toString() {
-    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}, appId: ${appId}, title: ${title}, systemBarSide: ${systemBarSide}, systemBarMonitorIds: ${systemBarMonitorIds}, flags: ${flags}}';
+    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}, appId: ${appId}, title: ${title}, systemBarSide: ${systemBarSide}, systemBarMonitorIds: ${systemBarMonitorIds}, flags: ${flags}, monitorId: ${monitorId}, workspaceId: ${workspaceId}, systemBarThickness: ${systemBarThickness}, maximizePadding: ${maximizePadding}}';
   }
 }
 
@@ -2580,7 +2712,7 @@ class WindowRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(8);
+    fbBuilder.startTable(12);
   }
 
   int addKind(WindowRequestKind? kind) {
@@ -2615,6 +2747,22 @@ class WindowRequestBuilder {
     fbBuilder.addUint32(7, flags);
     return fbBuilder.offset;
   }
+  int addMonitorId(int? monitorId) {
+    fbBuilder.addInt64(8, monitorId);
+    return fbBuilder.offset;
+  }
+  int addWorkspaceId(int? workspaceId) {
+    fbBuilder.addUint32(9, workspaceId);
+    return fbBuilder.offset;
+  }
+  int addSystemBarThickness(double? systemBarThickness) {
+    fbBuilder.addFloat64(10, systemBarThickness);
+    return fbBuilder.offset;
+  }
+  int addMaximizePadding(double? maximizePadding) {
+    fbBuilder.addFloat64(11, maximizePadding);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2630,6 +2778,10 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
   final SystemBarSide? _systemBarSide;
   final List<int>? _systemBarMonitorIds;
   final int? _flags;
+  final int? _monitorId;
+  final int? _workspaceId;
+  final double? _systemBarThickness;
+  final double? _maximizePadding;
 
   WindowRequestObjectBuilder({
     WindowRequestKind? kind,
@@ -2640,6 +2792,10 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
     SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
     int? flags,
+    int? monitorId,
+    int? workspaceId,
+    double? systemBarThickness,
+    double? maximizePadding,
   })
       : _kind = kind,
         _windowId = windowId,
@@ -2648,7 +2804,11 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
         _title = title,
         _systemBarSide = systemBarSide,
         _systemBarMonitorIds = systemBarMonitorIds,
-        _flags = flags;
+        _flags = flags,
+        _monitorId = monitorId,
+        _workspaceId = workspaceId,
+        _systemBarThickness = systemBarThickness,
+        _maximizePadding = maximizePadding;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -2659,7 +2819,7 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_title!);
     final int? systemBarMonitorIdsOffset = _systemBarMonitorIds == null ? null
         : fbBuilder.writeListInt64(_systemBarMonitorIds!);
-    fbBuilder.startTable(8);
+    fbBuilder.startTable(12);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _windowId);
     if (_geometry != null) {
@@ -2670,6 +2830,10 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addUint8(5, _systemBarSide?.value);
     fbBuilder.addOffset(6, systemBarMonitorIdsOffset);
     fbBuilder.addUint32(7, _flags);
+    fbBuilder.addInt64(8, _monitorId);
+    fbBuilder.addUint32(9, _workspaceId);
+    fbBuilder.addFloat64(10, _systemBarThickness);
+    fbBuilder.addFloat64(11, _maximizePadding);
     return fbBuilder.endTable();
   }
 
@@ -2897,10 +3061,11 @@ class ShellAction {
   int get monitorId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 6, -1);
   bool get hasMonitorId => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
   int get textureId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  int get workspaceId => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 1);
 
   @override
   String toString() {
-    return 'ShellAction{action: ${action}, monitorId: ${monitorId}, hasMonitorId: ${hasMonitorId}, textureId: ${textureId}}';
+    return 'ShellAction{action: ${action}, monitorId: ${monitorId}, hasMonitorId: ${hasMonitorId}, textureId: ${textureId}, workspaceId: ${workspaceId}}';
   }
 }
 
@@ -2918,7 +3083,7 @@ class ShellActionBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
   }
 
   int addAction(ShellActionKind? action) {
@@ -2937,6 +3102,10 @@ class ShellActionBuilder {
     fbBuilder.addInt64(3, textureId);
     return fbBuilder.offset;
   }
+  int addWorkspaceId(int? workspaceId) {
+    fbBuilder.addUint32(4, workspaceId);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2948,26 +3117,30 @@ class ShellActionObjectBuilder extends fb.ObjectBuilder {
   final int? _monitorId;
   final bool? _hasMonitorId;
   final int? _textureId;
+  final int? _workspaceId;
 
   ShellActionObjectBuilder({
     ShellActionKind? action,
     int? monitorId,
     bool? hasMonitorId,
     int? textureId,
+    int? workspaceId,
   })
       : _action = action,
         _monitorId = monitorId,
         _hasMonitorId = hasMonitorId,
-        _textureId = textureId;
+        _textureId = textureId,
+        _workspaceId = workspaceId;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
     fbBuilder.addUint8(0, _action?.value);
     fbBuilder.addInt64(1, _monitorId);
     fbBuilder.addBool(2, _hasMonitorId);
     fbBuilder.addInt64(3, _textureId);
+    fbBuilder.addUint32(4, _workspaceId);
     return fbBuilder.endTable();
   }
 
@@ -3262,10 +3435,11 @@ class TextInputState {
   bool get legacy => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
   int get contentHint => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
   int get contentPurpose => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 0);
+  int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 14, 0);
 
   @override
   String toString() {
-    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}}';
+    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}, activationSerial: ${activationSerial}}';
   }
 }
 
@@ -3283,7 +3457,7 @@ class TextInputStateBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(6);
   }
 
   int addActive(bool? active) {
@@ -3306,6 +3480,10 @@ class TextInputStateBuilder {
     fbBuilder.addUint32(4, contentPurpose);
     return fbBuilder.offset;
   }
+  int addActivationSerial(int? activationSerial) {
+    fbBuilder.addUint64(5, activationSerial);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3318,6 +3496,7 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
   final bool? _legacy;
   final int? _contentHint;
   final int? _contentPurpose;
+  final int? _activationSerial;
 
   TextInputStateObjectBuilder({
     bool? active,
@@ -3325,22 +3504,25 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
     bool? legacy,
     int? contentHint,
     int? contentPurpose,
+    int? activationSerial,
   })
       : _active = active,
         _inputPanelVisible = inputPanelVisible,
         _legacy = legacy,
         _contentHint = contentHint,
-        _contentPurpose = contentPurpose;
+        _contentPurpose = contentPurpose,
+        _activationSerial = activationSerial;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(6);
     fbBuilder.addBool(0, _active);
     fbBuilder.addBool(1, _inputPanelVisible);
     fbBuilder.addBool(2, _legacy);
     fbBuilder.addUint32(3, _contentHint);
     fbBuilder.addUint32(4, _contentPurpose);
+    fbBuilder.addUint64(5, _activationSerial);
     return fbBuilder.endTable();
   }
 
@@ -3368,10 +3550,11 @@ class KeyboardCommand {
   String? get text => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
   String? get key => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
   int get flags => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 12, 0);
 
   @override
   String toString() {
-    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}}';
+    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}, activationSerial: ${activationSerial}}';
   }
 }
 
@@ -3389,7 +3572,7 @@ class KeyboardCommandBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
   }
 
   int addKind(KeyboardCommandKind? kind) {
@@ -3408,6 +3591,10 @@ class KeyboardCommandBuilder {
     fbBuilder.addUint32(3, flags);
     return fbBuilder.offset;
   }
+  int addActivationSerial(int? activationSerial) {
+    fbBuilder.addUint64(4, activationSerial);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3419,17 +3606,20 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
   final String? _text;
   final String? _key;
   final int? _flags;
+  final int? _activationSerial;
 
   KeyboardCommandObjectBuilder({
     KeyboardCommandKind? kind,
     String? text,
     String? key,
     int? flags,
+    int? activationSerial,
   })
       : _kind = kind,
         _text = text,
         _key = key,
-        _flags = flags;
+        _flags = flags,
+        _activationSerial = activationSerial;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -3438,11 +3628,12 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_text!);
     final int? keyOffset = _key == null ? null
         : fbBuilder.writeString(_key!);
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addOffset(1, textOffset);
     fbBuilder.addOffset(2, keyOffset);
     fbBuilder.addUint32(3, _flags);
+    fbBuilder.addUint64(4, _activationSerial);
     return fbBuilder.endTable();
   }
 
@@ -4402,10 +4593,11 @@ class TouchpadConfiguration {
   bool get tapToClickEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, true);
   bool get naturalScrollEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, false);
   double get scrollSpeedFactor => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 8, 1.0);
+  double get scrollingLayoutSwipeSpeedFactor => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 10, 1.0);
 
   @override
   String toString() {
-    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}, scrollSpeedFactor: ${scrollSpeedFactor}}';
+    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}, scrollSpeedFactor: ${scrollSpeedFactor}, scrollingLayoutSwipeSpeedFactor: ${scrollingLayoutSwipeSpeedFactor}}';
   }
 }
 
@@ -4423,7 +4615,7 @@ class TouchpadConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(3);
+    fbBuilder.startTable(4);
   }
 
   int addTapToClickEnabled(bool? tapToClickEnabled) {
@@ -4438,6 +4630,10 @@ class TouchpadConfigurationBuilder {
     fbBuilder.addFloat64(2, scrollSpeedFactor);
     return fbBuilder.offset;
   }
+  int addScrollingLayoutSwipeSpeedFactor(double? scrollingLayoutSwipeSpeedFactor) {
+    fbBuilder.addFloat64(3, scrollingLayoutSwipeSpeedFactor);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -4448,23 +4644,27 @@ class TouchpadConfigurationObjectBuilder extends fb.ObjectBuilder {
   final bool? _tapToClickEnabled;
   final bool? _naturalScrollEnabled;
   final double? _scrollSpeedFactor;
+  final double? _scrollingLayoutSwipeSpeedFactor;
 
   TouchpadConfigurationObjectBuilder({
     bool? tapToClickEnabled,
     bool? naturalScrollEnabled,
     double? scrollSpeedFactor,
+    double? scrollingLayoutSwipeSpeedFactor,
   })
       : _tapToClickEnabled = tapToClickEnabled,
         _naturalScrollEnabled = naturalScrollEnabled,
-        _scrollSpeedFactor = scrollSpeedFactor;
+        _scrollSpeedFactor = scrollSpeedFactor,
+        _scrollingLayoutSwipeSpeedFactor = scrollingLayoutSwipeSpeedFactor;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(3);
+    fbBuilder.startTable(4);
     fbBuilder.addBool(0, _tapToClickEnabled);
     fbBuilder.addBool(1, _naturalScrollEnabled);
     fbBuilder.addFloat64(2, _scrollSpeedFactor);
+    fbBuilder.addFloat64(3, _scrollingLayoutSwipeSpeedFactor);
     return fbBuilder.endTable();
   }
 

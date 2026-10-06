@@ -1,18 +1,19 @@
 # Denial platform-channel inventory
 
-All custom `denial/*` traffic is binary. Framework-owned Flutter channels are
-outside this inventory.
+Custom `denial/*` channels use the encodings listed below. Framework-owned
+Flutter channels are outside this inventory.
 
 | Channel | Direction | Encoding | Purpose |
 | --- | --- | --- | --- |
 | `denial/wire/to_native` | Dart → native | FlatBuffers `DENW` | Input layout, window requests, OSK keys, notification commands, revisioned settings requests |
 | `denial/wire/to_flutter` | Native → Dart | FlatBuffers `DENW` or fixed `DENP` | Window/display state, actions, cursor state, notifications, settings state, ordered placement |
-| `denial/haptics` | Dart → native | 1 byte | Prewarm or tap through the persistent haptics socket |
+| `denial/haptics` | Dart → native | 1 byte | Prewarm or tap through the optional hapticd system D-Bus service |
 | `denial/audio` | Dart → native | bounded fixed packet | Read/set default output and enumerate/control application streams |
 | `denial/audio_state` | Native → Dart | 5 bytes | Level and request serial |
 | `denial/audio_streams_state` | Native → Dart | bounded length-prefixed packet | Application stream identities, names, level, and mute state |
 | `denial/authentication` | Dart → native | bounded `DAUT` packet | Synchronize, lock, begin, respond to, or cancel a native PAM attempt |
-| `denial/authentication_state` | Native → Dart | bounded `DAUT` packet | Authoritative lock state, PAM prompts, results, and retry cooldown |
+| `denial/authentication_state` | Native → Dart | bounded `DAUT` packet | Authoritative lock state, PAM prompts, results, retry cooldown, and advisory fingerprint feedback |
+| `denial/lock_frame` | Bidirectional | UTF-8 decimal token (`StringCodec`); `sync` query | Prepare a settled lock layout while KMS remains off, then acknowledge the current wake token after layout |
 | `denial/clipboard` | Dart → native → reply | bounded `DCLP` request / `DCLS` response | Search/read clipboard history and activate, pin, delete, clear, or pause it |
 | `denial/clipboard_state` | Native → Dart | bounded `DCLS` snapshot | Authoritative, lock-redacted clipboard-history metadata |
 | `denial/brightness` | Dart → native | little-endian `float64` | Absolute level for the output under the cursor |
@@ -34,13 +35,15 @@ revision tokens. Keyboard responses may also be unsolicited (`request_id=0`)
 when the active XKB group changes. Rust remains the only process that opens
 the settings file.
 
-## Dormant diagnostic hooks
+## Haptic feedback
 
-The Dart shell still contains hooks for
-`denial/imported_frame_timing_control` and `denial/imported_frame_timing`.
-The current native compositor neither handles the control message nor
-publishes timing packets, so these names are not part of the active protocol
-contract.
+The `denial/haptics` byte is `0` to prewarm or `1` for a keyboard tap.
+Native uses a persistent system D-Bus connection to `org.hapticd`, object
+`/org/hapticd/Haptics`, interface `org.hapticd.Haptics1`. Install and configure
+hapticd separately; its default actuator handles 15 ms taps at 30% intensity.
+A trusted fingerprint rejection in the current lock epoch requests two 35 ms
+pulses at 70%, separated by 60 ms. The bounded worker drops stale feedback;
+missing hardware or a stopped service never blocks input or authentication.
 
 ## System-command packet
 
@@ -107,3 +110,21 @@ The VM service binds to IPv4 loopback, keeps Flutter's authentication code,
 and disables mDNS publication. Native also writes its URI to a mode-`0600`
 file below `$XDG_RUNTIME_DIR/denial/` for same-user editor tooling, and removes
 it when the live runtime ends.
+
+### Fingerprint feedback
+
+The `DAUT` native-to-Flutter extension kind `0x84` carries `no-match` for a
+rejected fingerprint from the current lock epoch. Its argument is zero. Flutter
+treats it only as transient feedback: it cannot modify the authoritative lock
+state, replace a PAM prompt, or apply a password cooldown. Older shells ignore
+this unknown event kind; the existing success result still unlocks them.
+
+### Fingerprint presentation scene
+
+`denial/fingerprint_scene` is an internal StringCodec channel carrying a JSON
+scene snapshot (epoch, logical output/target rectangles, external texture ID,
+black background, authenticated black-scene reveal and target fade flags). Flutter replies with the
+current epoch after layout and schedules a replacement frame after native
+acknowledgement. This is a rendering acknowledgement, never authentication.
+The compositor's external Wayland protocol remains the privileged hardware
+presentation API; fprintd and native PAM/account checks own unlock decisions.

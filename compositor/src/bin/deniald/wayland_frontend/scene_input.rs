@@ -42,11 +42,37 @@ pub(super) fn constrain_pointer_to_outputs(
 }
 
 impl WaylandFrontend {
-    #[cfg(feature = "flutter")]
-    pub(crate) fn has_pending_frame_callbacks(&self) -> bool {
-        !self.pending_frame_callback_windows.is_empty()
-            || !self.pending_input_method_frame_callbacks.is_empty()
-            || !self.pending_cursor_frame_callback_roots.is_empty()
+    fn layer_surface_under(
+        &self,
+        position: Point<f64, Logical>,
+        kinds: &[WlrLayer],
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let sample =
+            Point::<i32, Logical>::from((position.x.floor() as i32, position.y.floor() as i32));
+        let output = self
+            .outputs
+            .iter()
+            .find(|output| output.logical_geometry.contains(sample))?;
+        let output_origin = output.logical_geometry.loc;
+        let output_position = position - output_origin.to_f64();
+        let map = layer_map_for_output(&output.output);
+        for kind in kinds {
+            for layer in map.layers_on(*kind).rev() {
+                let Some(geometry) = map.layer_geometry(layer) else {
+                    continue;
+                };
+                let Some((surface, offset)) = layer.surface_under(
+                    output_position - geometry.loc.to_f64(),
+                    WindowSurfaceType::ALL,
+                ) else {
+                    continue;
+                };
+                let global_origin =
+                    saturating_point_add(saturating_point_add(output_origin, geometry.loc), offset);
+                return Some((surface, global_origin.to_f64()));
+            }
+        }
+        None
     }
 
     #[cfg(feature = "flutter")]
@@ -70,16 +96,17 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub(crate) fn reset_flutter_input_generation(&mut self) {
+    pub(crate) fn reset_flutter_input_generation(&mut self) -> bool {
         // The replacement engine has not observed the old generation's
         // layout, pressed keys, or active touch sequences. Forget them so a
         // later release/up cannot be delivered to the new engine without its
         // matching press/down. Client captures and routes remain untouched.
         self.input_layout = None;
+        let released_shell_focus = self.text_input.shell_captures_keyboard();
         self.text_input.set_shell_capture(false);
         self.text_input.retire_flutter_generation();
         self.synchronize_input_method();
-        self.visible_window_ids.clear();
+        self.clear_visible_windows();
         self.input_visibility_known = false;
         self.invalidate_idle_inhibition();
         self.client_input_route_cache = None;
@@ -92,24 +119,27 @@ impl WaylandFrontend {
             &mut self.flutter_keyboard_keys,
             &mut self.retired_keyboard_keys,
         );
-        input::retire_flutter_generation_keys(
-            &mut self.flutter_input_method_keys,
-            &mut self.retired_input_method_keys,
-        );
+        released_shell_focus
     }
 
     pub(super) fn surface_under(
         &self,
         position: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.space
-            .element_under(position)
-            .and_then(|(window, location)| {
-                window
-                    .surface_under(position - location.to_f64(), WindowSurfaceType::ALL)
-                    .map(|(surface, offset)| {
-                        (surface, saturating_point_add(offset, location).to_f64())
+        self.layer_surface_under(position, &[WlrLayer::Overlay, WlrLayer::Top])
+            .or_else(|| {
+                self.space
+                    .element_under(position)
+                    .and_then(|(window, location)| {
+                        window
+                            .surface_under(position - location.to_f64(), WindowSurfaceType::ALL)
+                            .map(|(surface, offset)| {
+                                (surface, saturating_point_add(offset, location).to_f64())
+                            })
                     })
+            })
+            .or_else(|| {
+                self.layer_surface_under(position, &[WlrLayer::Bottom, WlrLayer::Background])
             })
     }
 
@@ -236,26 +266,22 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub fn outputs_submitted(&mut self, output_ids: &[OutputId]) -> Result<(), Box<dyn Error>> {
-        if output_ids.is_empty() {
-            return Ok(());
-        }
-
-        self.presentation.begin_output_batch();
-        for entry in &mut self.outputs {
-            entry.submitted_this_batch = output_ids.contains(&entry.id);
-            if entry.submitted_this_batch {
-                entry.presentation_batch.begin(&entry.output);
-                for window in self.output_window_membership.windows(entry.id) {
-                    entry
-                        .presentation_batch
-                        .submit_window(&entry.output, window);
-                }
+    pub fn sampled_frame_presented(
+        &mut self,
+        presented: crate::PresentedOutput,
+        sampled: &[crate::surface_feedback::SurfaceFeedback],
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(entry) = self.outputs.iter().find(|entry| entry.id == presented.id) {
+            if self.presentation.presented_sampled(
+                &entry.output,
+                sampled,
+                presented.presented_at,
+                Instant::now().saturating_duration_since(presented.observed_at),
+                presented.sequence,
+            ) {
+                self.display_handle.flush_clients()?;
             }
         }
-        // Submission only captures presentation-feedback objects. Protocol
-        // events are emitted by the matching page flip, so there is nothing
-        // to flush on this boundary.
         Ok(())
     }
 
@@ -267,24 +293,9 @@ impl WaylandFrontend {
         if outputs.is_empty() {
             return Ok(());
         }
-        let mut feedback_delivered = false;
-        let observed_now = Instant::now();
         for presented_output in outputs.iter().copied() {
-            if let Some(entry) = self
-                .outputs
-                .iter_mut()
-                .find(|entry| entry.id == presented_output.id)
-            {
-                feedback_delivered |= self.presentation.presented_output(
-                    &mut entry.presentation_batch,
-                    presented_output.presented_at,
-                    observed_now.saturating_duration_since(presented_output.observed_at),
-                    presented_output.sequence,
-                );
-            }
-        }
-        if feedback_delivered {
-            self.display_handle.flush_clients()?;
+            self.frame_timeline
+                .presented(presented_output.id, presented_output.logical_sequence);
         }
         Ok(())
     }
@@ -292,7 +303,7 @@ impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub fn frame_tick(&mut self, tick: FrameTick) -> Result<(), Box<dyn Error>> {
         let callback_time = self.presentation.timeline_time(tick.render_deadline);
-        let mut sent = 0usize;
+        let mut sent = self.publish_frame_grant(tick);
         if !self.pending_frame_callback_windows.is_empty() {
             for window in self.output_window_membership.windows(tick.output) {
                 let Some(root) = window.wl_surface() else {
@@ -308,6 +319,27 @@ impl WaylandFrontend {
             }
         }
         let callback_millis = callback_time.as_millis() as u32;
+        if !self.pending_layer_frame_callback_roots.is_empty()
+            && let Some(output) = self.outputs.iter().find(|output| output.id == tick.output)
+        {
+            let map = layer_map_for_output(&output.output);
+            for layer in map.layers() {
+                let root = layer.wl_surface();
+                if !self.pending_layer_frame_callback_roots.remove(&root.id()) {
+                    continue;
+                }
+                sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                    root,
+                    callback_millis,
+                ));
+                for (popup, _) in PopupManager::popups_for_surface(root) {
+                    sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                        popup.wl_surface(),
+                        callback_millis,
+                    ));
+                }
+            }
+        }
         if !self.pending_cursor_frame_callback_roots.is_empty()
             && cursor_frame_callback_matches(self.cursor_output, tick.output)
         {
@@ -333,7 +365,7 @@ impl WaylandFrontend {
                     .contains(&popup.surface().id())
                     && self
                         .surface_id(popup.surface())
-                        .is_some_and(|surface_id| self.visible_window_ids.contains(&surface_id))
+                        .is_some_and(|surface_id| self.window_id_is_visible(surface_id))
                 {
                     self.pending_input_method_frame_callbacks
                         .remove(&popup.surface().id());
@@ -354,6 +386,9 @@ impl WaylandFrontend {
     pub fn after_present(&mut self) -> Result<(), Box<dyn Error>> {
         self.presentation.presented();
         self.space.refresh();
+        for output in &self.outputs {
+            layer_map_for_output(&output.output).cleanup();
+        }
         self.popups.cleanup();
         self.display_handle.flush_clients()?;
         Ok(())
@@ -403,6 +438,10 @@ impl WaylandFrontend {
             return;
         };
         let mut target = output_geometry;
+        #[cfg(feature = "flutter")]
+        if let Some(mobile) = self.mobile_window_geometry(window) {
+            target = mobile;
+        }
         target.loc = saturating_point_sub(
             saturating_point_sub(target.loc, parent_offset),
             window_geometry.loc,

@@ -153,11 +153,33 @@ impl InputMethodPopup {
     }
 }
 
-#[derive(Debug, Default)]
-struct KeyboardRouteState {
-    resource: Option<ZwpInputMethodKeyboardGrabV2>,
-    active: bool,
+#[derive(Debug)]
+struct KeyboardRouteState<R = ZwpInputMethodKeyboardGrabV2> {
+    resource: Option<R>,
+    editor_active: bool,
     input_method_keys: HashSet<u32>,
+}
+
+impl<R> Default for KeyboardRouteState<R> {
+    fn default() -> Self {
+        Self {
+            resource: None,
+            editor_active: false,
+            input_method_keys: HashSet::new(),
+        }
+    }
+}
+
+impl<R: PartialEq> KeyboardRouteState<R> {
+    fn install_resource(&mut self, resource: R) {
+        self.resource = Some(resource);
+    }
+
+    fn remove_resource(&mut self, resource: &R) {
+        if self.resource.as_ref() == Some(resource) {
+            self.resource = None;
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -172,7 +194,7 @@ impl InputMethodKeyboardRoute {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        inner.resource = Some(resource);
+        inner.install_resource(resource);
     }
 
     fn remove(&self, resource: &ZwpInputMethodKeyboardGrabV2) {
@@ -180,17 +202,18 @@ impl InputMethodKeyboardRoute {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if inner.resource.as_ref() == Some(resource) {
-            inner.resource = None;
-            inner.active = false;
-        }
+        // Editor activation and keyboard-grab resource lifetimes are
+        // independent. Fcitx replaces its grab after every activate event;
+        // clearing activation while the old resource is destroyed would
+        // leave the replacement grab installed but permanently bypassed.
+        inner.remove_resource(resource);
     }
 
     fn set_active(&self, active: bool) {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .active = active;
+            .editor_active = active;
     }
 
     fn resource(&self) -> Option<ZwpInputMethodKeyboardGrabV2> {
@@ -264,7 +287,7 @@ impl KeyboardGrab<RuntimeState> for InputMethodKeyboardRoute {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let resource = inner.resource.clone().filter(Resource::is_alive);
         let route_to_input_method = match state {
-            KeyState::Pressed if inner.active && resource.is_some() => {
+            KeyState::Pressed if inner.editor_active && resource.is_some() => {
                 inner.input_method_keys.insert(raw);
                 true
             }
@@ -321,6 +344,18 @@ pub(super) struct InputMethodManager {
     flutter_transactions: VecDeque<(u64, i64, InputMethodTransaction)>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EditorPublication {
+    Update,
+    Activation,
+}
+
+impl EditorPublication {
+    fn sends_activate(self, already_active: bool) -> bool {
+        !already_active || self == Self::Activation
+    }
+}
+
 impl InputMethodManager {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         Self {
@@ -343,7 +378,7 @@ impl InputMethodManager {
             return false;
         }
         self.blocked = blocked;
-        self.publish_editor_state()
+        self.publish_editor_state(EditorPublication::Update)
     }
 
     pub(super) fn synchronize(&mut self, editor: Option<EditorSnapshot>) -> bool {
@@ -351,10 +386,17 @@ impl InputMethodManager {
             return false;
         }
         self.editor = editor;
-        self.publish_editor_state()
+        self.publish_editor_state(EditorPublication::Update)
     }
 
-    fn publish_editor_state(&mut self) -> bool {
+    /// Publish a committed text-input enable, including when the selected
+    /// editor resource was already active.
+    pub(super) fn synchronize_activation(&mut self, editor: Option<EditorSnapshot>) -> bool {
+        self.editor = editor;
+        self.publish_editor_state(EditorPublication::Activation)
+    }
+
+    fn publish_editor_state(&mut self, publication: EditorPublication) -> bool {
         let effective = self
             .editor
             .as_ref()
@@ -385,9 +427,12 @@ impl InputMethodManager {
             instance.pending = InputMethodTransaction::default();
         }
         if let Some(editor) = effective {
-            if !instance.active {
+            if publication.sends_activate(instance.active) {
                 instance.resource.activate();
                 instance.active = true;
+                // input-method-v2 defines `activate` as a reset boundary for
+                // requests staged against the preceding editor state.
+                instance.pending = InputMethodTransaction::default();
             }
             // `same_editor` deliberately ignores mutable routing metadata such
             // as a Wayland text-input commit serial. Keep the identity stable,
@@ -445,7 +490,7 @@ impl InputMethodManager {
             active_endpoint: None,
             pending: InputMethodTransaction::default(),
         });
-        self.publish_editor_state();
+        self.publish_editor_state(EditorPublication::Update);
         info!("Wayland input method connected");
     }
 
@@ -631,7 +676,7 @@ impl InputMethodManager {
         self.active_editor_ref().cloned()
     }
 
-    fn flutter_editor_active(&self) -> bool {
+    pub(super) fn flutter_editor_active(&self) -> bool {
         self.active_editor_ref()
             .is_some_and(|editor| matches!(&editor.endpoint, EditorEndpoint::Flutter { .. }))
     }
@@ -754,7 +799,6 @@ pub(super) struct InputMethodKeyboardUserData {
 pub(super) struct VirtualKeyboardUserData {
     accepted: bool,
     keymap_ready: AtomicBool,
-    modifiers: Mutex<Option<ModifiersState>>,
 }
 
 impl VirtualKeyboardUserData {
@@ -762,26 +806,11 @@ impl VirtualKeyboardUserData {
         Self {
             accepted,
             keymap_ready: AtomicBool::new(false),
-            modifiers: Mutex::new(None),
         }
     }
 
     fn ready(&self) -> bool {
         self.keymap_ready.load(Ordering::Acquire)
-    }
-
-    fn modifiers(&self) -> Option<ModifiersState> {
-        *self
-            .modifiers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn set_modifiers(&self, modifiers: ModifiersState) {
-        *self
-            .modifiers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(modifiers);
     }
 }
 
@@ -797,12 +826,11 @@ fn forward_virtual_modifiers(
     keyboard: &KeyboardHandle<RuntimeState>,
     state: &mut RuntimeState,
     serialized: SerializedMods,
-) -> ModifiersState {
+) {
     // The companion virtual keyboard uses the keymap Denial supplied to the
-    // input-method grab, so its modifier indices are compatible with the
-    // physical seat. Decode the masks in an isolated XKB state: the result is
-    // needed by Flutter key events, but must not replace the compositor-owned
-    // physical state or a disappearing input method could strand a modifier.
+    // input-method grab, so its modifier indices are compatible with the seat.
+    // Decode its masks in an isolated XKB state and publish them to the seat's
+    // current focus without replacing the compositor-owned physical state.
     let modifiers = keyboard.with_xkb_state(state, |context| {
         let xkb = context.xkb().lock().unwrap();
         // SAFETY: the keymap is borrowed only while the XKB mutex is held.
@@ -830,7 +858,6 @@ fn forward_virtual_modifiers(
     {
         focus.modifiers(&seat, state, modifiers, SERIAL_COUNTER.next_serial());
     }
-    modifiers
 }
 
 impl GlobalDispatch<ZwpVirtualKeyboardManagerV1, ()> for RuntimeState {
@@ -937,33 +964,19 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                     warn!(key, "discarding out-of-range virtual-keyboard keycode");
                     return;
                 }
-                let Some((keyboard, route, flutter_editor_active)) =
-                    state.wayland.as_ref().and_then(|frontend| {
-                        frontend
-                            .input_method
-                            .accepts_virtual_keyboard(resource)
-                            .then(|| {
-                                Some((
-                                    frontend.seat.get_keyboard()?,
-                                    frontend.input_method.keyboard_route(),
-                                    frontend.input_method.flutter_editor_active(),
-                                ))
-                            })?
-                    })
-                else {
+                let Some((keyboard, route)) = state.wayland.as_ref().and_then(|frontend| {
+                    frontend
+                        .input_method
+                        .accepts_virtual_keyboard(resource)
+                        .then(|| {
+                            Some((
+                                frontend.seat.get_keyboard()?,
+                                frontend.input_method.keyboard_route(),
+                            ))
+                        })?
+                }) else {
                     return;
                 };
-                let keycode = Keycode::new(key + XKB_KEYCODE_OFFSET);
-                if super::input::dispatch_input_method_key_to_flutter(
-                    state,
-                    &keyboard,
-                    keycode,
-                    key_state,
-                    flutter_editor_active,
-                    data.modifiers(),
-                ) {
-                    return;
-                }
                 route.forward_virtual_key(&keyboard, state, key, key_state, time);
             }
             zwp_virtual_keyboard_v1::Request::Modifiers {
@@ -986,7 +999,7 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                         .then(|| frontend.seat.get_keyboard())?
                 });
                 if let Some(keyboard) = keyboard {
-                    let modifiers = forward_virtual_modifiers(
+                    forward_virtual_modifiers(
                         &keyboard,
                         state,
                         SerializedMods {
@@ -996,7 +1009,6 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                             layout_effective: group,
                         },
                     );
-                    data.set_modifiers(modifiers);
                 }
             }
             zwp_virtual_keyboard_v1::Request::Destroy => {}
@@ -1325,5 +1337,36 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, InputMethodKeyboardUserData> for Run
         {
             keyboard.unset_grab(state);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EditorPublication, KeyboardRouteState};
+
+    #[test]
+    fn committed_enable_reactivates_an_existing_input_method() {
+        assert!(EditorPublication::Activation.sends_activate(true));
+        assert!(EditorPublication::Activation.sends_activate(false));
+        assert!(!EditorPublication::Update.sends_activate(true));
+        assert!(EditorPublication::Update.sends_activate(false));
+    }
+
+    #[test]
+    fn replacing_keyboard_grab_preserves_active_editor_route() {
+        let mut route = KeyboardRouteState::<u32>::default();
+        route.editor_active = true;
+        route.install_resource(1);
+
+        // Fcitx releases the preceding grab before requesting a replacement
+        // for every activate event. The resource gap must not deactivate the
+        // editor-level route.
+        route.remove_resource(&1);
+        assert!(route.resource.is_none());
+        assert!(route.editor_active);
+
+        route.install_resource(2);
+        assert_eq!(route.resource, Some(2));
+        assert!(route.editor_active);
     }
 }

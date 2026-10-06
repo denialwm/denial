@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../launcher/launcher_providers.dart';
 import '../../models/display_layout.dart';
 import '../../state/display_layout.dart';
 import '../../theme/motion.dart';
@@ -318,7 +319,12 @@ class _WallpaperSelectorSurfaceState
       _focusedIndex = candidates.length - 1;
     }
     final carouselTop = math.max(36.0, widget.displaySize.height * 0.10);
-    final bottomReserve = widget.displaySize.width >= 580 ? 302.0 : 390.0;
+    final imageServerUnavailable =
+        state.imageServerAvailability ==
+        WallpaperImageServerAvailability.unavailable;
+    final bottomReserve =
+        (widget.displaySize.width >= 580 ? 330.0 : 418.0) +
+        (imageServerUnavailable ? 60.0 : 0.0);
     final maximumCarouselHeight = math.max(
       240.0,
       widget.displaySize.height - carouselTop - bottomReserve,
@@ -407,6 +413,14 @@ class _WallpaperSelectorSurfaceState
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (imageServerUnavailable) ...[
+                      WallpaperNetworkWarning(
+                        onRetry: ref
+                            .read(wallpaperControllerProvider.notifier)
+                            .retryOnlineWallpapers,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     if (state.error != null) ...[
                       WallpaperStatusChip(
                         icon: Icons.cloud_off_rounded,
@@ -468,6 +482,12 @@ class _WallpaperSelectorSurfaceState
                       onSubmit: ref
                           .read(wallpaperControllerProvider.notifier)
                           .submitQuery,
+                    ),
+                    const SizedBox(height: 8),
+                    WallpaperFolderHint(
+                      directory: ref
+                          .watch(runtimePathsProvider)
+                          .wallpaperDirectory,
                     ),
                   ],
                 ),

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -8,7 +9,29 @@ BUILD_ROOT="$(readlink -m -- "${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-buil
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
 STAGE_ROOT="${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}"
 PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
-RPM_ROOT="$(readlink -m -- "$BUILD_ROOT/rpm-package")"
+RPM_DISTRIBUTION="${DENIAL_RPM_DISTRIBUTION:-fedora}"
+
+case "$RPM_DISTRIBUTION" in
+  fedora)
+    RPM_SPEC="$ROOT/packaging/fedora/denial.spec"
+    RPM_ROOT="$(readlink -m -- "$BUILD_ROOT/rpm-package")"
+    RPM_ROOT_NAME=rpm-package
+    RPM_OUTPUT_ROOT="$PACKAGE_ROOT"
+    RPM_LABEL=Fedora
+    ;;
+  opensuse)
+    RPM_SPEC="$ROOT/packaging/opensuse/denial.spec"
+    RPM_ROOT="$(readlink -m -- "$BUILD_ROOT/opensuse-rpm-package")"
+    RPM_ROOT_NAME=opensuse-rpm-package
+    RPM_OUTPUT_ROOT="$PACKAGE_ROOT/opensuse"
+    RPM_LABEL=openSUSE
+    ;;
+  *)
+    printf 'package-denial-rpm: unsupported RPM distribution: %s\n' \
+      "$RPM_DISTRIBUTION" >&2
+    exit 2
+    ;;
+esac
 
 if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 \
   && "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
@@ -46,9 +69,9 @@ readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
 [[ "$BUILD_ROOT" != / && "$BUILD_ROOT" != /home \
   && "$BUILD_ROOT" != "${HOME:-}" ]] \
   || { printf 'package-denial-rpm: unsafe build root\n' >&2; exit 1; }
-[[ "$RPM_ROOT" == "$BUILD_ROOT"/rpm-package ]] \
+[[ "$RPM_ROOT" == "$BUILD_ROOT/$RPM_ROOT_NAME" ]] \
   || { printf 'package-denial-rpm: RPM root must be below the build root\n' >&2; exit 1; }
-mkdir -p -- "$PACKAGE_ROOT"
+mkdir -p -- "$RPM_OUTPUT_ROOT"
 if [[ -e "$RPM_ROOT" ]]; then
   [[ -d "$RPM_ROOT" && ! -L "$RPM_ROOT" ]] \
     || { printf 'package-denial-rpm: unsafe RPM root\n' >&2; exit 1; }
@@ -59,7 +82,7 @@ install -d -m 0755 \
   "$RPM_ROOT/SOURCES" "$RPM_ROOT/SPECS" "$RPM_ROOT/SRPMS" \
   "$RPM_ROOT/database"
 
-cp -- "$ROOT/packaging/fedora/denial.spec" "$RPM_ROOT/SPECS/denial.spec"
+cp -- "$RPM_SPEC" "$RPM_ROOT/SPECS/denial.spec"
 runtime_version_definition=()
 if [[ -f "$STAGE_ROOT/denial/usr/share/denial/version" ]]; then
   runtime_version_definition=(
@@ -86,8 +109,8 @@ engine_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-flutter-engine-${P
 [[ -n "$denial_package" && -n "$engine_package" ]] \
   || { printf 'package-denial-rpm: expected RPM outputs are missing\n' >&2; exit 1; }
 
-denial_output="$PACKAGE_ROOT/${denial_package##*/}"
-engine_output="$PACKAGE_ROOT/${engine_package##*/}"
+denial_output="$RPM_OUTPUT_ROOT/${denial_package##*/}"
+engine_output="$RPM_OUTPUT_ROOT/${engine_package##*/}"
 cp -- "$denial_package" "$denial_output"
 cp -- "$engine_package" "$engine_output"
 
@@ -105,4 +128,5 @@ rpm --dbpath "$RPM_ROOT/database" -qp \
   rpm "$denial_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
   "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
 
-printf '\nFedora packages ready:\n%s\n%s\n' "$engine_output" "$denial_output"
+printf '\n%s packages ready:\n%s\n%s\n' \
+  "$RPM_LABEL" "$engine_output" "$denial_output"

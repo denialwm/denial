@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/shell_controller.dart';
 import '../../theme/motion.dart';
 import 'quick_settings_panel.dart';
+import 'shade_progress.dart';
 import 'status_bar.dart';
 
 /// Top-level coordinator for the status bar and the quick-settings shade.
@@ -24,19 +25,38 @@ class SystemShadeLayer extends ConsumerStatefulWidget {
 class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final ProxyAnimation _sharedProgress;
+  bool _mountedPanel = false;
+  bool _offstage = true;
+  ShadePage _page = ShadePage.quickSettings;
 
   @override
   void initState() {
     super.initState();
     final state = ref.read(shellControllerProvider);
-    _controller = AnimationController.unbounded(
+    _controller = AnimationController(
       vsync: this,
       value: state.quickSettingsVisible ? 1.0 : state.quickSettingsDragProgress,
-    );
+    )..addListener(_updateVisibility);
+    _mountedPanel = _controller.value > 0;
+    _offstage = !_mountedPanel;
+    _sharedProgress = ref.read(shadeProgressProvider)..parent = _controller;
+  }
+
+  void _updateVisibility() {
+    final offstage = _controller.value <= 0;
+    if (offstage == _offstage) return;
+    setState(() {
+      _offstage = offstage;
+      _mountedPanel = true;
+    });
   }
 
   @override
   void dispose() {
+    if (identical(_sharedProgress.parent, _controller)) {
+      _sharedProgress.parent = const AlwaysStoppedAnimation(0.0);
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -58,8 +78,25 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     }
   }
 
+  void _selectPageFromStatusBar(Offset position) {
+    final width = MediaQuery.sizeOf(context).width;
+    final downOnRight = position.dx >= width / 2;
+    final quickSettingsOnRight =
+        Directionality.of(context) == TextDirection.ltr;
+    final page = downOnRight == quickSettingsOnRight
+        ? ShadePage.quickSettings
+        : ShadePage.notifications;
+    if (_page != page) setState(() => _page = page);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final closed = ref.watch(
+      shellControllerProvider.select(
+        (state) =>
+            !state.quickSettingsVisible && !state.quickSettingsDragActive,
+      ),
+    );
     ref.listen<(bool, double, bool)>(
       shellControllerProvider.select(
         (state) => (
@@ -77,16 +114,27 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const ShadeStatusBar(),
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                final progress = unit(_controller.value);
-                if (progress <= 0.001) {
-                  return const SizedBox.expand();
-                }
-                return QuickSettingsShade(progress: progress);
-              },
+            if (_mountedPanel)
+              Offstage(
+                offstage: _offstage,
+                child: TickerMode(
+                  enabled: !_offstage,
+                  child: RepaintBoundary(
+                    child: QuickSettingsShade(
+                      progress: _controller,
+                      active: !_offstage,
+                      closed: closed,
+                      page: _page,
+                      onPageChanged: (page) {
+                        if (_page != page) setState(() => _page = page);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ShadeStatusBar(
+              shadeProgress: _controller,
+              onDragStart: _selectPageFromStatusBar,
             ),
           ],
         ),

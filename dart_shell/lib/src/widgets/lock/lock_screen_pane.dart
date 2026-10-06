@@ -175,6 +175,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   ],
                 ),
               ),
+              if (widget.authenticationEnabled)
+                _LockFingerprintFeedback(
+                  visible: authentication.fingerprintRejected,
+                ),
             ],
           ),
         );

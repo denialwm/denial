@@ -49,6 +49,7 @@ class AuthenticationState {
     required this.prompt,
     required this.resultMessage,
     required this.resultIsError,
+    this.fingerprintRejected = false,
   });
 
   const AuthenticationState.initial()
@@ -61,7 +62,8 @@ class AuthenticationState {
       statusMessage = null,
       prompt = null,
       resultMessage = null,
-      resultIsError = false;
+      resultIsError = false,
+      fingerprintRejected = false;
 
   final bool synchronized;
   final bool locked;
@@ -73,6 +75,7 @@ class AuthenticationState {
   final AuthenticationPrompt? prompt;
   final String? resultMessage;
   final bool resultIsError;
+  final bool fingerprintRejected;
 
   bool get rateLimited => cooldown > Duration.zero;
 
@@ -90,6 +93,7 @@ class AuthenticationState {
     String? resultMessage,
     bool clearResultMessage = false,
     bool? resultIsError,
+    bool? fingerprintRejected,
   }) {
     return AuthenticationState(
       synchronized: synchronized ?? this.synchronized,
@@ -106,6 +110,7 @@ class AuthenticationState {
           ? null
           : (resultMessage ?? this.resultMessage),
       resultIsError: resultIsError ?? this.resultIsError,
+      fingerprintRejected: fingerprintRejected ?? this.fingerprintRejected,
     );
   }
 }
@@ -116,6 +121,7 @@ class AuthenticationController extends Notifier<AuthenticationState>
   AuthenticationState build() {
     _service = ref.watch(authenticationServiceProvider);
     _cooldownTimer = null;
+    _fingerprintFeedbackTimer = null;
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
     final subscription = _service.events.listen(
@@ -125,6 +131,8 @@ class AuthenticationController extends Notifier<AuthenticationState>
     ref.onDispose(() {
       _cooldownTimer?.cancel();
       _cooldownTimer = null;
+      _fingerprintFeedbackTimer?.cancel();
+      _fingerprintFeedbackTimer = null;
     });
     scheduleMicrotask(() {
       if (isBuildGenerationActive(generation)) {
@@ -137,6 +145,7 @@ class AuthenticationController extends Notifier<AuthenticationState>
   late AuthenticationService _service;
   late int _buildGeneration;
   Timer? _cooldownTimer;
+  Timer? _fingerprintFeedbackTimer;
 
   void lock() => _service.lock();
 
@@ -176,6 +185,23 @@ class AuthenticationController extends Notifier<AuthenticationState>
     if (!isBuildGenerationActive(generation)) {
       return;
     }
+    if (packet.kind == AuthenticationPacketKind.fingerprintFeedback) {
+      // Feedback is advisory: never alter lock state, PAM prompts or cooldowns.
+      if (state.locked && packet.locked && packet.payload == 'no-match') {
+        _fingerprintFeedbackTimer?.cancel();
+        state = state.copyWith(fingerprintRejected: true);
+        _fingerprintFeedbackTimer = Timer(const Duration(seconds: 4), () {
+          if (isBuildGenerationActive(generation)) {
+            state = state.copyWith(fingerprintRejected: false);
+          }
+        });
+      }
+      return;
+    }
+    if (!packet.locked) {
+      _fingerprintFeedbackTimer?.cancel();
+      _fingerprintFeedbackTimer = null;
+    }
     final cooldown = Duration(
       milliseconds: packet.kind == AuthenticationPacketKind.prompt
           ? 0
@@ -208,6 +234,7 @@ class AuthenticationController extends Notifier<AuthenticationState>
 
     state = state.copyWith(
       synchronized: true,
+      fingerprintRejected: packet.locked && state.fingerprintRejected,
       locked: packet.locked,
       available: packet.available,
       busy: packet.busy,

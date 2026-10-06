@@ -11,6 +11,9 @@ import 'settings_controls.dart';
 const settingsTapToClickToggleKey = Key('settings-touchpad-tap-to-click');
 const settingsNaturalScrollToggleKey = Key('settings-touchpad-natural-scroll');
 const settingsScrollSpeedSliderKey = Key('settings-touchpad-scroll-speed');
+const settingsScrollingLayoutSwipeSpeedSliderKey = Key(
+  'settings-touchpad-scrolling-layout-swipe-speed',
+);
 const settingsMouseSpeedSliderKey = Key('settings-mouse-speed');
 
 class SettingsTouchpadPage extends ConsumerStatefulWidget {
@@ -26,6 +29,8 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
   var _changingMouseSpeed = false;
   double? _draftScrollSpeedFactor;
   var _changingScrollSpeed = false;
+  double? _draftScrollingLayoutSwipeSpeedFactor;
+  var _changingScrollingLayoutSwipeSpeed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +46,11 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
     final scrollSpeedFactor = _changingScrollSpeed || state.busy
         ? _draftScrollSpeedFactor ?? capabilities.scrollSpeedFactor
         : capabilities.scrollSpeedFactor;
+    final scrollingLayoutSwipeSpeedFactor =
+        _changingScrollingLayoutSwipeSpeed || state.busy
+        ? _draftScrollingLayoutSwipeSpeedFactor ??
+              capabilities.scrollingLayoutSwipeSpeedFactor
+        : capabilities.scrollingLayoutSwipeSpeedFactor;
     return SettingsPageLayout(
       icon: Icons.mouse_rounded,
       eyebrow: l10n.settingsTouchpadSection,
@@ -117,6 +127,37 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
             ),
             Padding(
               padding: const EdgeInsets.all(16),
+              child: SettingsSlider(
+                key: settingsScrollingLayoutSwipeSpeedSliderKey,
+                label: l10n.settingsTouchpadScrollingLayoutSwipeSpeed,
+                value: scrollingLayoutSwipeSpeedFactor,
+                minimum: touchpadScrollingLayoutSwipeSpeedFactorMinimum,
+                maximum: touchpadScrollingLayoutSwipeSpeedFactorMaximum,
+                divisions: 75,
+                valueLabel:
+                    '${scrollingLayoutSwipeSpeedFactor.toStringAsFixed(2)}×',
+                enabled: touchpadControlsEnabled,
+                onChangeStart: (value) => setState(() {
+                  _changingScrollingLayoutSwipeSpeed = true;
+                  _draftScrollingLayoutSwipeSpeedFactor =
+                      _normalizedScrollingLayoutSwipeFactor(value);
+                }),
+                onChanged: (value) => setState(
+                  () => _draftScrollingLayoutSwipeSpeedFactor =
+                      _normalizedScrollingLayoutSwipeFactor(value),
+                ),
+                onChangeEnd: (value) {
+                  final factor = _normalizedScrollingLayoutSwipeFactor(value);
+                  setState(() {
+                    _changingScrollingLayoutSwipeSpeed = false;
+                    _draftScrollingLayoutSwipeSpeedFactor = factor;
+                  });
+                  controller.setScrollingLayoutSwipeSpeedFactor(factor);
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: SettingsToggle(
                 key: settingsNaturalScrollToggleKey,
                 label: l10n.settingsTouchpadNaturalScroll,
@@ -149,4 +190,12 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
   double _normalizedFactor(double value) => ((value * 20).round() / 20)
       .clamp(touchpadScrollSpeedFactorMinimum, touchpadScrollSpeedFactorMaximum)
       .toDouble();
+
+  double _normalizedScrollingLayoutSwipeFactor(double value) =>
+      ((value * 20).round() / 20)
+          .clamp(
+            touchpadScrollingLayoutSwipeSpeedFactorMinimum,
+            touchpadScrollingLayoutSwipeSpeedFactorMaximum,
+          )
+          .toDouble();
 }

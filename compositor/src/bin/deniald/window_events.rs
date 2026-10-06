@@ -96,12 +96,6 @@ impl PendingWindowEventQueue {
         self.events.push(event);
     }
 
-    pub(super) fn extend(&mut self, events: impl IntoIterator<Item = PendingWindowEvent>) {
-        for event in events {
-            self.push(event);
-        }
-    }
-
     pub(super) fn drain_events(&mut self) -> Vec<PendingWindowEvent> {
         self.overflow_reported = false;
         let replacement = std::mem::take(&mut self.drain_scratch);

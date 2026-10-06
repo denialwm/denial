@@ -14,6 +14,10 @@ class Motion {
   // Scripted durations -------------------------------------------------------
   static const Duration overviewOpen = Duration(milliseconds: 380);
   static const Duration overviewClose = Duration(milliseconds: 280);
+  static const Duration workspaceSwitch = Duration(milliseconds: 320);
+  static const Duration workspaceIndicatorTakeoff = Duration(milliseconds: 72);
+  static const Duration workspaceIndicatorTravel = Duration(milliseconds: 168);
+  static const Duration workspaceIndicatorSettle = Duration(milliseconds: 80);
   static const Duration launch = Duration(milliseconds: 430);
   static const Duration launchReveal = Duration(milliseconds: 160);
   static const Duration focusZoom = Duration(milliseconds: 320);
@@ -24,6 +28,7 @@ class Motion {
   static const Duration desktopPanelFadeClose = Duration(milliseconds: 150);
   static const Duration homeFlyAway = Duration(milliseconds: 280);
   static const Duration tile = Duration(milliseconds: 160);
+  static const Duration layoutTileReflow = Duration(milliseconds: 200);
   static const Duration inputMethodPopup = Duration(milliseconds: 180);
   static const Duration pill = Duration(milliseconds: 90);
   static const Duration cardSettle = Duration(milliseconds: 220);
@@ -51,6 +56,10 @@ class Motion {
   static const Duration systemLevelHud = Duration(milliseconds: 220);
   static const Duration systemLevelHudValue = Duration(milliseconds: 260);
   static const Duration notificationBanner = Duration(milliseconds: 260);
+  static const Duration mobileNotificationBanner = Duration(milliseconds: 400);
+  static const Duration notificationHistorySlide = Duration(milliseconds: 350);
+  static const Duration notificationHistoryStagger = Duration(milliseconds: 16);
+  static const int notificationHistoryMaxStagger = 5;
   static const Duration screenshotTake = Duration(milliseconds: 220);
   static const Duration unlock = Duration(milliseconds: 400);
 
@@ -79,6 +88,12 @@ class Motion {
   /// A modest non-zero initial slope avoids a perceptible stop at the reversal
   /// point, while the zero terminal slope still settles cleanly.
   static const Curve overviewReversalCurve = Cubic(0.4, 0.2, 0.2, 1.0);
+
+  /// A restrained one-shot overshoot for siblings displaced by a managed
+  /// layout drop preview. It reaches the destination quickly, travels about
+  /// 1.4% beyond it, and settles without the repeated oscillation of an
+  /// elastic curve.
+  static const Curve layoutTileReflowCurve = Cubic(0.18, 0.82, 0.24, 1.08);
 
   // Springs (tuned for normalised [0,1] controllers) -------------------------
   // Damping is kept at / just below critical so motion is lively but does not
@@ -131,7 +146,14 @@ TickerFuture springTo(
   String telemetryLabel = 'spring',
 }) {
   final future = controller.animateWith(
-    SpringSimulation(spring, controller.value, target, velocity),
+    SpringSimulation(
+      spring,
+      controller.value,
+      target,
+      velocity,
+      // Hidden layers must reach zero so their input barriers are released.
+      snapToEnd: true,
+    ),
   );
   return MotionTelemetry.observe(
     controller,
@@ -143,7 +165,7 @@ TickerFuture springTo(
 
 /// Opt-in animation and scheduler telemetry for the embedded shell.
 ///
-/// Enable with `DENIA_DART_FRAME_TRACE=1`. It remains completely dormant in
+/// Enable with `DENIAL_DART_FRAME_TRACE=1`. It remains completely dormant in
 /// normal operation. During a traced animation it reports controller ticks and
 /// the number of transient callbacks queued for the following frame. That lets
 /// the host-side vsync trace distinguish a stopped ticker from a delayed frame.

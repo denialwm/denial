@@ -6,35 +6,43 @@ const DENIAL_SESSION_TARGET: &str = "denial-session.target";
 const GRAPHICAL_SESSION_TARGET: &str = "graphical-session.target";
 const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 
-pub(super) fn preserves_predecessor_kms_state(runtime_limit: RuntimeLimit) -> bool {
-    runtime_limit != RuntimeLimit::UntilLogout
+pub(super) fn preserves_predecessor_kms_state(
+    runtime_limit: RuntimeLimit,
+    no_predecessor: bool,
+) -> bool {
+    !no_predecessor && runtime_limit != RuntimeLimit::UntilLogout
 }
 
 fn session_activation_environment(
     wayland_display: &OsStr,
-    x11_display: &OsStr,
+    x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
     qt_platform_theme: Option<&OsStr>,
 ) -> Result<BTreeMap<&'static str, String>, Box<dyn Error>> {
     let wayland_display = wayland_display
         .to_str()
         .ok_or("Wayland socket name is not valid UTF-8")?;
-    let x11_display = x11_display
-        .to_str()
-        .ok_or("X11 display name is not valid UTF-8")?;
     let qt_platform_theme = qt_platform_theme
         .unwrap_or_else(|| OsStr::new(DEFAULT_QT_QPA_PLATFORMTHEME))
         .to_str()
         .ok_or("QT_QPA_PLATFORMTHEME is not valid UTF-8")?;
     let mut environment = BTreeMap::from([
         ("DESKTOP_SESSION", String::from("Denial")),
-        ("DISPLAY", x11_display.to_owned()),
         ("QT_QPA_PLATFORMTHEME", qt_platform_theme.to_owned()),
         ("WAYLAND_DISPLAY", wayland_display.to_owned()),
         ("XDG_CURRENT_DESKTOP", String::from("Denial")),
         ("XDG_SESSION_DESKTOP", String::from("Denial")),
         ("XDG_SESSION_TYPE", String::from("wayland")),
     ]);
+    if let Some(x11_display) = x11_display {
+        environment.insert(
+            "DISPLAY",
+            x11_display
+                .to_str()
+                .ok_or("X11 display name is not valid UTF-8")?
+                .to_owned(),
+        );
+    }
     if let Some(socket) = output_control_socket {
         environment.insert(
             "DENIAL_SOCKET",
@@ -42,6 +50,14 @@ fn session_activation_environment(
                 .to_str()
                 .ok_or("Denial control socket path is not valid UTF-8")?
                 .to_owned(),
+        );
+    }
+    #[cfg(feature = "flutter")]
+    if let Some(cursor_environment) = crate::xcursor_sentinel::environment() {
+        environment.extend(
+            cursor_environment
+                .into_iter()
+                .map(|(name, value)| (name, value.to_owned())),
         );
     }
     Ok(environment)
@@ -131,7 +147,7 @@ pub(super) fn stop_systemd_graphical_session() -> Result<(), Box<dyn Error>> {
 
 pub(super) fn publish_session_activation_environment(
     wayland_display: &OsStr,
-    x11_display: &OsStr,
+    x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
 ) -> Result<SessionActivation, Box<dyn Error>> {
     let qt_platform_theme = std::env::var_os("QT_QPA_PLATFORMTHEME");
@@ -172,4 +188,24 @@ pub(super) fn publish_session_activation_environment(
         "published the compositor session and queued its graphical-session target"
     );
     Ok(SessionActivation::Systemd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_is_published_only_when_xwayland_is_active() {
+        let wayland = OsStr::new("wayland-7");
+        let x11 = OsStr::new(":3");
+        let with_xwayland = session_activation_environment(wayland, Some(x11), None, None).unwrap();
+        let without_xwayland = session_activation_environment(wayland, None, None, None).unwrap();
+
+        assert_eq!(with_xwayland.get("DISPLAY").map(String::as_str), Some(":3"));
+        assert!(!without_xwayland.contains_key("DISPLAY"));
+        assert_eq!(
+            without_xwayland.get("WAYLAND_DISPLAY").map(String::as_str),
+            Some("wayland-7")
+        );
+    }
 }

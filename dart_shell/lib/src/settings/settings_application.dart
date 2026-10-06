@@ -1,16 +1,17 @@
+import 'fingerprint/fingerprint_service.dart';
+import 'widgets/settings_fingerprint_page.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../l10n/generated/app_localizations_en.dart';
-import '../local_apps/local_flutter_application.dart';
 import '../launcher/controllers/home_grid_controller.dart';
 import '../launcher/models/desktop_app.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
 import '../state/cursor_theme.dart';
+import '../state/shell_fonts.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
@@ -40,7 +41,6 @@ import 'widgets/settings_shortcuts_page.dart';
 import 'widgets/settings_system_pages.dart';
 import 'widgets/settings_touchpad_page.dart';
 
-final _englishSettings = AppLocalizationsEn();
 final settingsDesktopApplicationsProvider = FutureProvider<List<DesktopApp>>(
   (ref) => ref.watch(desktopAppsRepositoryProvider).loadApplications(),
   isAutoDispose: true,
@@ -83,45 +83,6 @@ class SettingsPageOpenRequestController
       state = null;
     }
   }
-}
-
-final denialSettingsApplication = LocalFlutterApplication(
-  id: denialSettingsApplicationId,
-  title: _englishSettings.settingsApplicationTitle,
-  defaultSize: const Size(900, 620),
-  minimumSize: const Size(520, 400),
-  translucent: true,
-  icon: Icons.settings_rounded,
-  categories: <String>[
-    _englishSettings.settingsApplicationTitle,
-    _englishSettings.settingsApplicationCategorySystem,
-    _englishSettings.settingsApplicationCategoryAppearance,
-    _englishSettings.settingsApplicationCategoryPreferences,
-  ],
-  localizedTitle: _localizedSettingsTitle,
-  localizedCategories: _localizedSettingsCategories,
-  builder: _buildSettingsApplication,
-);
-
-String _localizedSettingsTitle(BuildContext context) {
-  return context.l10n.settingsApplicationTitle;
-}
-
-List<String> _localizedSettingsCategories(BuildContext context) {
-  final l10n = context.l10n;
-  return <String>[
-    l10n.settingsApplicationTitle,
-    l10n.settingsApplicationCategorySystem,
-    l10n.settingsApplicationCategoryAppearance,
-    l10n.settingsApplicationCategoryPreferences,
-  ];
-}
-
-Widget _buildSettingsApplication(
-  BuildContext context,
-  LocalFlutterWindowHandle window,
-) {
-  return const DenialSettingsApplication();
 }
 
 class DenialSettingsApplication extends ConsumerStatefulWidget {
@@ -174,12 +135,16 @@ class _DenialSettingsApplicationState
     if (_page == page) {
       return;
     }
+    if (_page == SettingsPageId.fingerprint) {
+      ref.read(fingerprintSessionProvider).close();
+    }
     setState(() => _page = page);
   }
 
   @override
   Widget build(BuildContext context) {
     _scheduleRequestedPage(ref.watch(settingsPageOpenRequestProvider));
+    final showFingerprint = ref.watch(fingerprintDeviceProvider).value ?? false;
     return Semantics(
       container: true,
       role: .main,
@@ -201,6 +166,7 @@ class _DenialSettingsApplicationState
                     selected: _page,
                     compact: true,
                     showTouchpad: true,
+                    showFingerprint: showFingerprint,
                     onSelected: _selectPage,
                   ),
                   Divider(height: 1, color: context.shellColors.hairlineSoft),
@@ -214,6 +180,7 @@ class _DenialSettingsApplicationState
                           selected: _page,
                           compact: false,
                           showTouchpad: true,
+                          showFingerprint: showFingerprint,
                           onSelected: _selectPage,
                         ),
                       Expanded(
@@ -343,6 +310,11 @@ class _SettingsPageBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(shellSettingsProvider.notifier);
     switch (page) {
+      case SettingsPageId.fingerprint:
+        if (!(ref.watch(fingerprintDeviceProvider).value ?? false)) {
+          return const SizedBox.shrink();
+        }
+        return const SettingsFingerprintPage();
       case SettingsPageId.appearance:
         final settings = ref.watch(
           shellSettingsProvider.select((settings) => settings.appearance),
@@ -355,6 +327,7 @@ class _SettingsPageBody extends ConsumerWidget {
         final cursorCatalogLoading = ref
             .watch(cursorThemeCatalogProvider)
             .isLoading;
+        final fontCatalog = ref.watch(availableShellFontFamiliesProvider);
         return SettingsAppearancePage(
           settings: settings,
           extractedAccent: ref.watch(wallpaperAccentProvider).color,
@@ -363,13 +336,17 @@ class _SettingsPageBody extends ConsumerWidget {
           onColorSchemePreferenceChanged: controller.setColorSchemePreference,
           onAccentSourceChanged: controller.setAccentSource,
           onOpenAccentPicker: onOpenAccentPicker,
+          fontFamilies: fontCatalog.value ?? const <String>[],
+          fontCatalogLoading: fontCatalog.isLoading,
+          onFontFamilyChanged: controller.setFontFamily,
           onCornerRadiusScaleChanged: controller.setCornerRadiusScale,
           onPanelOpacityChanged: controller.setPanelOpacity,
           onCardOpacityChanged: controller.setCardOpacity,
-          onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
+          onTransparencyModeChanged: controller.setTransparencyMode,
           onBackdropBlurLevelChanged: controller.setBackdropBlurLevel,
           onBackdropBlurOpacityThresholdChanged:
               controller.setBackdropBlurOpacityThreshold,
+          onGlassChanged: controller.setGlassConfiguration,
           onFocusedWindowBorderEnabledChanged:
               controller.setFocusedWindowBorderEnabled,
           onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
@@ -459,6 +436,14 @@ class _SettingsPageBody extends ConsumerWidget {
           settings: settings,
           displayLayout: displayLayout,
           onWindowLayoutChanged: controller.setDesktopWindowLayout,
+          onScrollingLayoutWheelSpeedChanged:
+              controller.setScrollingLayoutWheelSpeed,
+          onScrollingLayoutWheelUpDirectionChanged:
+              controller.setScrollingLayoutWheelUpDirection,
+          onWorkspacesEnabledChanged: controller.setWorkspacesEnabled,
+          onWorkspaceCountChanged: controller.setWorkspaceCount,
+          onWorkspaceSwitchingOrientationChanged:
+              controller.setWorkspaceSwitchingOrientation,
           onSystemBarChanged: (side, monitorIds) {
             final outputNames = <String>[
               for (final output
@@ -514,6 +499,8 @@ class _SettingsPageBody extends ConsumerWidget {
           onDpmsTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
           onSuspendEnabledChanged: controller.setIdleSuspendEnabled,
           onSuspendTimeoutChanged: controller.setIdleSuspendTimeoutMinutes,
+          onSuspendModeChanged: controller.setSuspendMode,
+          onPowerButtonActionChanged: controller.setPowerButtonAction,
           onReset: controller.resetPower,
         );
       case SettingsPageId.lockScreen:
@@ -575,7 +562,9 @@ class _SettingsDisplaysBody extends ConsumerWidget {
             busy: state.applying,
             onKeep: () => unawaited(controller.keepChanges()),
             onRevert: () => unawaited(controller.rollbackChanges()),
-            onExpired: () => unawaited(controller.refresh()),
+            onExpired: () => unawaited(
+              controller.refreshAfterConfirmationExpiry(confirmation.token),
+            ),
           ),
       ],
     );

@@ -1,0 +1,71 @@
+{
+  "metrics": {
+    "baseline-2026-09-04": {
+      "cpu_one_core_percent": 16.410989202989537,
+      "raster_mean_us": 2057.0481659874026,
+      "raster_p95_us": 2268,
+      "raster_p99_us": 2485,
+      "gpu_render_busy_percent": 47.33748901387049,
+      "cursor_ticks_per_second": 59.97718400365614,
+      "timed_frames": 5398
+    },
+    "snapshot-coverage-2026-09-04": {
+      "cpu_one_core_percent": 8.055524241047655,
+      "raster_mean_us": 648.584592426786,
+      "raster_p95_us": 799,
+      "raster_p99_us": 2832,
+      "gpu_render_busy_percent": 5.122659853180265,
+      "cursor_ticks_per_second": 59.566052474481154,
+      "timed_frames": 5361
+    },
+    "backdrop-refresh-2026-09-05": {
+      "cpu_one_core_percent": 8.044371979579688,
+      "raster_mean_us": 644.1335571721694,
+      "raster_p95_us": 840,
+      "raster_p99_us": 1331,
+      "gpu_render_busy_percent": 4.7300346156094,
+      "cursor_ticks_per_second": 59.56613851357184,
+      "timed_frames": 5361
+    }
+  },
+  "change_percent_vs_baseline": {
+    "cpu_one_core_percent": -50.98179713557869,
+    "raster_mean_us": -68.68651070875731,
+    "raster_p95_us": -62.96296296296296,
+    "raster_p99_us": -46.438631790744466,
+    "gpu_render_busy_percent": -90.00784639374632,
+    "cursor_ticks_per_second": -0.6853364273641804
+  },
+  "change_percent_vs_previous": {
+    "cpu_one_core_percent": -0.1384424046685706,
+    "raster_mean_us": -0.6862690397812732,
+    "raster_p95_us": 5.1314142678347885,
+    "raster_p99_us": -53.001412429378526,
+    "gpu_render_busy_percent": -7.664479954239289,
+    "cursor_ticks_per_second": 0.00014444316369655041
+  },
+  "controls": {
+    "host_kernel_cpu_policy_environment_match": true,
+    "shell_aot_match": true,
+    "compositor_match": true,
+    "engine_changed": true,
+    "output_path_and_ticker_match": true
+  },
+  "artifact_hashes": {
+    "baseline-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "ba1c03f88b1a0c8c6a67010f953422690a7ae09b2e6bbfe5b35a8ba0aa6a2668",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    },
+    "snapshot-coverage-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "4a0f63b644477305cba26e0dca0fccf44502082abb087479167b4799e3f98fc2",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    },
+    "backdrop-refresh-2026-09-05": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "d9abf12eacf4ec6e17b8ea365ab305701b95ec5b2e71573c9a5d16a2a71abeb2",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    }
+  }
+}

@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
@@ -9,16 +8,16 @@ import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import 'app_icon.dart';
-import 'window_hero.dart';
+import 'retained_scale.dart';
+import 'retained_window_motion.dart';
+import 'window_surface.dart';
 
 typedef LaunchTransitionCompleted = void Function(int requestId, int objectId);
 
-/// Immediately grows a black app preview from the centre of the launcher.
+/// Reopens a running app by growing its live preview from the Home icon.
 ///
-/// The requested app's icon remains visible while its process is starting.
-/// Once the matching compositor window exists, its live texture cross-fades
-/// into the exact same moving rect. Completion is reported only after both the
-/// zoom and live-surface reveal have finished.
+/// New processes use an icon placeholder until their window arrives. Completion
+/// is reported only after the zoom and any live-surface reveal have finished.
 class LaunchTransitionLayer extends StatefulWidget {
   const LaunchTransitionLayer({
     super.key,
@@ -39,6 +38,9 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     with TickerProviderStateMixin {
   late final AnimationController _zoomController;
   late final AnimationController _revealController;
+  late final Animation<double> _reveal;
+  late final Animation<double> _iconOpacity;
+  late final Animation<double> _iconScale;
   int? _activeRequestId;
   int? _completedRequestId;
 
@@ -51,6 +53,9 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
       vsync: this,
       duration: Motion.launchReveal,
     )..addStatusListener(_handleAnimationStatus);
+    _reveal = _revealController.drive(CurveTween(curve: Motion.standard));
+    _iconOpacity = ReverseAnimation(_reveal);
+    _iconScale = _reveal.drive(Tween<double>(begin: 1.0, end: 0.92));
     _startRequest(widget.request, widget.window);
   }
 
@@ -91,22 +96,30 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
               if (constraints.maxWidth <= 0.0 || constraints.maxHeight <= 0.0) {
                 return const SizedBox.expand();
               }
-              return AnimatedBuilder(
-                animation: Listenable.merge(<Listenable>[
-                  _zoomController,
-                  _revealController,
-                ]),
-                child: ExcludeSemantics(
+              final window = widget.window;
+              if (_isExistingWindow(request, window)) {
+                final source = request.sourceRect;
+                final start = source ?? _startRectFor(context, constraints);
+                return RetainedWindowMotion(
+                  progress: _zoomController,
+                  begin: start,
+                  beginIsGlobal: source != null,
+                  end: Offset.zero & constraints.biggest,
+                  beginRadius: math.min(
+                    context.shellTheme.panelRadius,
+                    start.shortestSide / 2,
+                  ),
+                  curve: Motion.md3EmphasizedDecelerate,
+                  child: WindowSurface(window: window!),
+                );
+              }
+              return _buildTransition(
+                context,
+                constraints,
+                window,
+                ExcludeSemantics(
                   child: AppIconImage(iconPath: request.iconPath),
                 ),
-                builder: (context, child) {
-                  return _buildTransition(
-                    context,
-                    constraints,
-                    widget.window,
-                    child!,
-                  );
-                },
               );
             },
           ),
@@ -121,14 +134,9 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     DenialWindow? window,
     Widget appIcon,
   ) {
-    final zoom = Motion.md3EmphasizedDecelerate.transform(
-      unit(_zoomController.value),
-    );
-    final reveal = Motion.standard.transform(unit(_revealController.value));
     final viewRect = Offset.zero & constraints.biggest;
     final startRect = _startRectFor(context, constraints);
-    final rect = Rect.lerp(startRect, viewRect, zoom)!;
-    final radius = lerpDouble(ShellTheme.of(context).panelRadius, 0.0, zoom)!;
+    final radius = context.shellTheme.panelRadius;
     final iconSize = math
         .min(startRect.width * 0.28, startRect.height * 0.34)
         .clamp(56.0, 112.0)
@@ -137,40 +145,38 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     return Stack(
       fit: StackFit.expand,
       children: [
-        Positioned.fromRect(
-          rect: rect,
-          child: RepaintBoundary(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: context.shellColors.launchSurface,
-                borderRadius: BorderRadius.circular(radius),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(radius),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (window != null)
-                      Opacity(
-                        opacity: reveal,
-                        child: WindowSurface(
-                          window: window,
-                          addRepaintBoundary: false,
-                        ),
-                      ),
-                    Opacity(
-                      opacity: 1.0 - reveal,
-                      child: Center(
-                        child: Transform.scale(
-                          scale: lerpDouble(1.0, 0.92, reveal)!,
-                          child: SizedBox.square(
-                            dimension: iconSize,
-                            child: appIcon,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+        RetainedWindowMotion(
+          progress: _zoomController,
+          begin: startRect,
+          end: viewRect,
+          beginRadius: radius,
+          curve: Motion.md3EmphasizedDecelerate,
+          child: ColoredBox(
+            color: context.shellColors.launchSurface,
+            child: window == null
+                ? null
+                : FadeTransition(
+                    opacity: _reveal,
+                    child: WindowSurface(window: window),
+                  ),
+          ),
+        ),
+        // The placeholder stays centered and keeps its logical size while
+        // the surface behind it grows. Both children retain their layout.
+        RetainedWindowMotion(
+          progress: _zoomController,
+          begin: startRect,
+          end: viewRect,
+          beginRadius: radius,
+          curve: Motion.md3EmphasizedDecelerate,
+          transformChild: false,
+          child: FadeTransition(
+            opacity: _iconOpacity,
+            child: Center(
+              child: RetainedScale(
+                scale: _iconScale,
+                child: RepaintBoundary(
+                  child: SizedBox.square(dimension: iconSize, child: appIcon),
                 ),
               ),
             ),
@@ -198,7 +204,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
       target: 1.0,
     );
     if (window != null) {
-      _startReveal();
+      _revealWindow(request, window);
     }
   }
 
@@ -206,6 +212,17 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     _revealController.stop();
     _revealController.value = 0.0;
     if (window != null && widget.request != null) {
+      _revealWindow(widget.request!, window);
+    }
+  }
+
+  bool _isExistingWindow(AppLaunchRequest request, DenialWindow? window) =>
+      window != null && request.targetObjectId == window.objectId;
+
+  void _revealWindow(AppLaunchRequest request, DenialWindow window) {
+    if (_isExistingWindow(request, window)) {
+      _revealController.value = 1.0;
+    } else {
       _startReveal();
     }
   }

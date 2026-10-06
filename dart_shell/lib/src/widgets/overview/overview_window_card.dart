@@ -1,40 +1,29 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/gestures.dart' show VelocityTracker;
 
-import '../../localization/denial_localizations.dart';
 import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
-import '../../theme/shell_theme.dart';
-import '../../theme/tokens.dart';
-import '../window_hero.dart';
+import '../retained_translation.dart';
+import 'overview_window_preview.dart';
 
-/// A single overview preview: a live window texture with a centred title that
-/// can be flicked up to dismiss its window.
-///
-/// The dismiss gesture is driven entirely by an unbounded [AnimationController]
-/// read inside an [AnimatedBuilder], so dragging and settling never rebuild the
-/// (expensive) texture beneath it.
+/// A fixed-size preview with paint-only drag and settle motion.
 class OverviewWindowCard extends StatefulWidget {
   const OverviewWindowCard({
     super.key,
     required this.window,
-    required this.index,
-    required this.progress,
-    required this.pageOffset,
     required this.cardSize,
-    required this.hidden,
+    required this.foreground,
+    this.focusing = false,
     required this.onDismiss,
     required this.onFocus,
   });
 
   final DenialWindow window;
-  final int index;
-  final double progress;
-  final double pageOffset;
   final Size cardSize;
-  final bool hidden;
+  final bool foreground;
+  final bool focusing;
   final ValueChanged<DenialWindow> onDismiss;
   final void Function(DenialWindow window, Rect startRect) onFocus;
 
@@ -44,15 +33,24 @@ class OverviewWindowCard extends StatefulWidget {
 
 class _OverviewWindowCardState extends State<OverviewWindowCard>
     with SingleTickerProviderStateMixin {
-  static const double _downwardRubberBandLimit = 56.0;
-  static const double _dismissDistanceRatio = 0.32;
-  static const double _dismissFlingVelocity = -760.0;
-  static const Duration _dismissMinDuration = Duration(milliseconds: 90);
-  static const Duration _dismissMaxDuration = Duration(milliseconds: 240);
+  // Android 16 TaskViewDismissTouchController: half the off-screen travel,
+  // 25dp undershoot, and BaseSwipeDetector's 1dp/ms release threshold.
+  static const double _downwardRubberBandLimit = 25.0;
+  static const double _dismissDistanceRatio = 0.5;
+  static const double _dismissFlingVelocity = 1000.0;
+  static const double _offscreenMargin = 16.0;
 
   late final AnimationController _dismiss;
+  late final Animation<Offset> _translation;
   double _exitY = -double.maxFinite;
+  double _dragDisplacement = 0;
+  double _dismissLength = 1;
+  VelocityTracker? _velocityTracker;
+  int? _trackedPointer;
+  bool _pointerCancelled = false;
   bool _dismissed = false;
+  bool _exiting = false;
+  bool _commitScheduled = false;
   final GlobalKey _previewKey = GlobalKey();
 
   @override
@@ -60,6 +58,9 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
     super.initState();
     _dismiss = AnimationController.unbounded(vsync: this)
       ..addListener(_checkCommit);
+    _translation = _dismiss.drive(
+      Tween(begin: Offset.zero, end: const Offset(0, 1)),
+    );
   }
 
   @override
@@ -70,6 +71,8 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
       _dismiss.value = 0.0;
       _exitY = -double.maxFinite;
       _dismissed = false;
+      _exiting = false;
+      _commitScheduled = false;
     }
   }
 
@@ -81,103 +84,60 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
 
   @override
   Widget build(BuildContext context) {
-    final placeholderHeight = widget.cardSize.height + 44.0;
-    if (widget.hidden || _dismissed) {
+    if (_dismissed || widget.focusing || widget.foreground) {
       return Center(
         child: SizedBox(
           width: widget.cardSize.width,
-          height: placeholderHeight,
+          height: widget.cardSize.height,
         ),
       );
     }
 
-    final cappedIndex = math.min(widget.index, 4);
-    final intro = interval(widget.progress, cappedIndex * 0.045, 1.0);
-    final easedIntro = Motion.standard.transform(intro);
-    final pageDistance = widget.pageOffset.abs().clamp(0.0, 1.0).toDouble();
-    final sideScale = lerpDouble(1.0, 0.925, pageDistance)!;
-    final introScale = lerpDouble(0.86, 1.0, easedIntro)!;
-    // The whole strip slides in horizontally (see OverviewCarousel); each card
-    // only keeps the small side-card dip plus its page parallax.
-    final y = pageDistance * 18.0;
-    final x =
-        widget.pageOffset.clamp(-1.0, 1.0).toDouble() *
-        lerpDouble(18.0, 0.0, easedIntro)!;
-    final baseOpacity = easedIntro * lerpDouble(1.0, 0.68, pageDistance)!;
-
-    return Center(
-      child: AnimatedBuilder(
-        animation: _dismiss,
-        child: _buildBody(),
-        builder: (context, child) {
-          final dismissY = _dismiss.value;
-          final dismissProgress = unit(
-            -dismissY / (widget.cardSize.height * 0.72),
-          );
-          final opacity = unit(
-            baseOpacity * lerpDouble(1.0, 0.48, dismissProgress)!,
-          );
-
-          return Opacity(
-            opacity: opacity,
-            child: Transform.translate(
-              offset: Offset(x, y + dismissY),
-              child: Transform.scale(
-                scale: introScale * sideScale,
-                child: child,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _handleTap,
-      onVerticalDragStart: (_) {
-        if (_dismissed) return;
-        _dismiss.stop();
-      },
-      onVerticalDragUpdate: _handleVerticalDragUpdate,
-      onVerticalDragEnd: _handleVerticalDragEnd,
-      onVerticalDragCancel: _settleBack,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            key: _previewKey,
-            width: widget.cardSize.width,
-            height: widget.cardSize.height,
-            child: WindowSurface(
+    final card = Center(
+      child: RetainedTranslation(
+        translation: _translation,
+        child: Listener(
+          onPointerDown: (event) {
+            if (_trackedPointer != null) return;
+            _trackedPointer = event.pointer;
+            _pointerCancelled = false;
+            _velocityTracker = VelocityTracker.withKind(event.kind)
+              ..addPosition(event.timeStamp, event.position);
+          },
+          onPointerMove: (event) {
+            if (event.pointer == _trackedPointer) {
+              _velocityTracker?.addPosition(event.timeStamp, event.position);
+            }
+          },
+          onPointerUp: (event) {
+            if (event.pointer == _trackedPointer) _trackedPointer = null;
+          },
+          onPointerCancel: (event) {
+            if (event.pointer != _trackedPointer) return;
+            _trackedPointer = null;
+            _pointerCancelled = true;
+          },
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _handleTap,
+            onVerticalDragStart: _handleVerticalDragStart,
+            onVerticalDragUpdate: _handleVerticalDragUpdate,
+            onVerticalDragEnd: _handleVerticalDragEnd,
+            onVerticalDragCancel: _settleBack,
+            child: OverviewWindowPreview(
+              previewKey: _previewKey,
               window: widget.window,
-              radius: ShellTheme.of(context).windowRadius,
-              borderColor: context.shellColors.hairlineWindow,
+              size: widget.cardSize,
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: widget.cardSize.width,
-            height: 28,
-            child: Center(
-              child: Text(
-                localizedWindowTitle(context, widget.window),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: ShellText.cardTitle,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
+    return card;
   }
 
   void _handleTap() {
-    if (_dismissed) return;
+    if (_dismissed || _exiting) return;
 
     final renderObject = _previewKey.currentContext?.findRenderObject();
     if (renderObject is! RenderBox || !renderObject.hasSize) {
@@ -188,21 +148,59 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
   }
 
   void _handleVerticalDragUpdate(DragUpdateDetails details) {
-    if (_dismissed) return;
+    if (_dismissed || _exiting) return;
 
+    _dragDisplacement += details.delta.dy;
+    if (_dragDisplacement <= 0) {
+      _dismiss.value = _dragDisplacement.clamp(-_dismissLength, 0.0);
+    } else {
+      // Track raw finger travel separately: resistance must unwind smoothly
+      // when the user reverses, rather than sticking at a hard clamp.
+      final fraction = (_dragDisplacement / _dismissLength).clamp(0.0, 1.0);
+      _dismiss.value =
+          _downwardRubberBandLimit * Curves.decelerate.transform(fraction);
+    }
+  }
+
+  void _handleVerticalDragStart(DragStartDetails details) {
+    if (_dismissed || _exiting) return;
     _dismiss.stop();
-    _dismiss.value = (_dismiss.value + details.delta.dy)
-        .clamp(_exitOffset(context), _downwardRubberBandLimit)
-        .toDouble();
+    _dismissLength = math.max(1.0, -_exitOffset(context));
+    _dragDisplacement = _dismiss.value <= 0
+        ? _dismiss.value
+        : _dismissLength *
+              (1 -
+                  math.sqrt(
+                    1 -
+                        (_dismiss.value / _downwardRubberBandLimit).clamp(
+                          0.0,
+                          1.0,
+                        ),
+                  ));
   }
 
   void _handleVerticalDragEnd(DragEndDetails details) {
-    if (_dismissed) return;
+    if (_dismissed || _exiting) return;
+    // An accepted Flutter drag reports PointerCancel through onEnd too.
+    if (_pointerCancelled) {
+      _settleBack();
+      return;
+    }
 
-    final velocity = details.primaryVelocity ?? 0.0;
+    // The preview follows the finger. Estimate velocity in screen coordinates
+    // so its moving local coordinate space cannot cancel out the fling.
+    final velocity =
+        (_velocityTracker?.getVelocity().pixelsPerSecond.dy ??
+                details.primaryVelocity ??
+                0.0)
+            .clamp(-8000.0, 8000.0);
     final passedDistance =
-        _dismiss.value <= -widget.cardSize.height * _dismissDistanceRatio;
-    if (passedDistance || velocity <= _dismissFlingVelocity) {
+        _dismiss.value < -_dismissLength * _dismissDistanceRatio;
+    final flingingUp = velocity < -_dismissFlingVelocity;
+    final flingingDown = velocity > _dismissFlingVelocity;
+    // Release direction takes precedence over distance, so throwing a card
+    // back down cancels even after crossing the dismissal threshold.
+    if (flingingUp || (passedDistance && !flingingDown)) {
       _flingOffscreen(velocity);
     } else {
       _settleBack(velocity);
@@ -210,7 +208,7 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
   }
 
   void _settleBack([double velocity = 0.0]) {
-    if (_dismissed) return;
+    if (_dismissed || _exiting) return;
     springTo(
       _dismiss,
       0.0,
@@ -221,32 +219,45 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
   }
 
   void _flingOffscreen(double velocity) {
+    _exiting = true;
     _exitY = _exitOffset(context);
-    final distance = (_dismiss.value - _exitY).abs();
-    final speed = math.max(velocity.abs(), 1600.0);
-    final durationMs = ((distance / speed) * 1000.0)
-        .clamp(
-          _dismissMinDuration.inMilliseconds.toDouble(),
-          _dismissMaxDuration.inMilliseconds.toDouble(),
-        )
-        .round();
-    _dismiss.animateTo(
+    springTo(
+      _dismiss,
       _exitY,
-      duration: Duration(milliseconds: durationMs),
-      curve: Motion.emphasized,
+      velocity: velocity,
+      spring: Motion.snappy,
+      telemetryLabel: 'overview_card_dismiss',
     );
   }
 
   void _checkCommit() {
-    if (!_dismissed && _dismiss.value <= _exitY) {
+    if (!_exiting ||
+        _dismissed ||
+        _commitScheduled ||
+        _dismiss.value > _exitY + _offscreenMargin) {
+      return;
+    }
+    _commitScheduled = true;
+    final objectId = widget.window.objectId;
+    // Commit as soon as the preview leaves the screen. The spring's
+    // target has extra clearance; waiting for that exact value adds its slow
+    // settling tail after the card is already invisible.
+    // Present this last frame before releasing the app's surface.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.window.objectId != objectId) return;
       _dismiss.stop();
       setState(() => _dismissed = true);
       widget.onDismiss(widget.window);
-    }
+    });
   }
 
   double _exitOffset(BuildContext context) {
-    final viewHeight = MediaQuery.sizeOf(context).height;
-    return -(viewHeight + widget.cardSize.height + 160.0);
+    final preview = _previewKey.currentContext?.findRenderObject();
+    if (preview is RenderBox && preview.hasSize) {
+      return _dismiss.value -
+          preview.localToGlobal(Offset(0, preview.size.height)).dy -
+          _offscreenMargin;
+    }
+    return -(MediaQuery.sizeOf(context).height + widget.cardSize.height);
   }
 }

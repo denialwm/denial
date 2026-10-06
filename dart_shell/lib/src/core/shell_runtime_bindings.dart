@@ -139,12 +139,14 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
       ref
           .read(denialBridgeProvider)
           .setIdlePolicy(
+            powerButtonAction: power.powerButtonAction,
             lockEnabled: power.idleLockEnabled,
             lockTimeout: Duration(minutes: power.idleLockTimeoutMinutes),
             dpmsEnabled: power.idleDpmsEnabled,
             dpmsTimeout: Duration(minutes: power.idleDpmsTimeoutMinutes),
             suspendEnabled: power.idleSuspendEnabled,
             suspendTimeout: Duration(minutes: power.idleSuspendTimeoutMinutes),
+            suspendMode: power.suspendMode,
           );
     });
   }

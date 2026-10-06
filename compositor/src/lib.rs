@@ -2,6 +2,9 @@
 
 use std::{fs, path::PathBuf, sync::OnceLock};
 
+#[cfg(any(feature = "kms", feature = "control"))]
+pub mod cpu_affinity;
+pub mod environment;
 pub mod portal_protocol;
 pub mod topology;
 #[cfg(feature = "kms")]

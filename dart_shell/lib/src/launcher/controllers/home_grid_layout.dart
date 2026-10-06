@@ -56,24 +56,6 @@ class HomeGridLayout {
     return math.max(minPages, (slots.length / pageSize).ceil());
   }
 
-  static List<HomeGridItem?> ensureSlotCapacity(
-    List<HomeGridItem?> slots,
-    int pageSize,
-  ) {
-    if (pageSize <= 0) {
-      return slots;
-    }
-
-    final minSlots = pageSize * minPages;
-    final roundedSlots = ((slots.length + pageSize - 1) ~/ pageSize) * pageSize;
-    final wantedSlots = math.max(minSlots, roundedSlots);
-    if (slots.length >= wantedSlots) {
-      return slots;
-    }
-
-    return [...slots, for (var i = slots.length; i < wantedSlots; i += 1) null];
-  }
-
   static List<HomeGridItem?> initialSlotsForApps(
     List<DesktopApp> apps,
     Iterable<LocalFlutterApplication> localApps,
@@ -81,7 +63,6 @@ class HomeGridLayout {
   ) {
     final itemsById = <String, HomeGridItem>{
       'widget:clock': HomeGridItem.clock(),
-      'widget:battery-discharge': HomeGridItem.batteryDischarge(),
       for (final app in apps) 'app:${app.id}': HomeGridItem.app(app),
       for (final app in localApps)
         'local:${app.id}': HomeGridItem.localApp(app),
@@ -225,16 +206,21 @@ class HomeGridLayout {
     return column + item.colSpan <= columns;
   }
 
-  static bool itemFitsInPage(int index, HomeGridItem item, int pageSize) {
-    if (pageSize <= 0 || !itemFitsAtColumn(item, index)) {
+  static bool itemFitsInPage(
+    int index,
+    HomeGridItem item,
+    int pageSize, {
+    int? columns,
+  }) {
+    final columnCount = columns ?? HomeGridLayout.columns;
+    if (index < 0 ||
+        pageSize <= 0 ||
+        index % columnCount + item.colSpan > columnCount) {
       return false;
     }
-    final pageStart = (index ~/ pageSize) * pageSize;
-    final pageEnd = pageStart + pageSize;
-    return cellsFor(
-      index,
-      item,
-    ).every((cell) => cell >= pageStart && cell < pageEnd);
+    final lastCell =
+        index + (item.rowSpan - 1) * columnCount + item.colSpan - 1;
+    return index ~/ pageSize == lastCell ~/ pageSize;
   }
 
   static List<int> cellsFor(int index, HomeGridItem item, {int? columns}) {
@@ -249,13 +235,27 @@ class HomeGridLayout {
   }
 
   static int? anchorForCell(int cell, List<HomeGridItem?> slots) {
-    for (var index = 0; index < slots.length; index += 1) {
-      final item = slots[index];
-      if (item == null) {
-        continue;
-      }
-      if (cellsFor(index, item).contains(cell)) {
-        return index;
+    if (cell < 0) return null;
+    final row = cell ~/ columns;
+    final column = cell % columns;
+    // Only anchors in the largest widget's footprint can cover this cell.
+    // Hit testing and drag placement allocate no temporary cell lists.
+    final firstRow = math.max(0, row - HomeGridItem.clockMaxRowSpan + 1);
+    final firstColumn = math.max(0, column - HomeGridItem.clockMaxColSpan + 1);
+    for (var anchorRow = firstRow; anchorRow <= row; anchorRow++) {
+      for (
+        var anchorColumn = firstColumn;
+        anchorColumn <= column;
+        anchorColumn++
+      ) {
+        final index = anchorRow * columns + anchorColumn;
+        if (index >= slots.length) break;
+        final item = slots[index];
+        if (item != null &&
+            row - anchorRow < item.rowSpan &&
+            column - anchorColumn < item.colSpan) {
+          return index;
+        }
       }
     }
     return null;

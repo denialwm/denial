@@ -53,7 +53,7 @@ final availableShellCursorThemesProvider = Provider<List<ShellCursorThemeData>>(
 
 final shellCursorThemeProvider = Provider<ShellCursorThemeData>((ref) {
   final selectedId = ref
-      .watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME']
+      .watch(startupEnvironmentProvider)['DENIAL_CURSOR_THEME']
       ?.trim()
       .toLowerCase();
   return resolveShellCursorTheme(ShellCursorThemes.all, selectedId ?? '');

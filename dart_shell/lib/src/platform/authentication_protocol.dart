@@ -18,7 +18,8 @@ enum AuthenticationPacketKind {
   cancel(5),
   state(0x81),
   prompt(0x82),
-  result(0x83);
+  result(0x83),
+  fingerprintFeedback(0x84);
 
   const AuthenticationPacketKind(this.value);
   final int value;
@@ -158,6 +159,7 @@ abstract final class AuthenticationProtocol {
     if (kind == AuthenticationPacketKind.state ||
         kind == AuthenticationPacketKind.prompt ||
         kind == AuthenticationPacketKind.result ||
+        kind == AuthenticationPacketKind.fingerprintFeedback ||
         attemptId < 0 ||
         argument < 0) {
       return null;

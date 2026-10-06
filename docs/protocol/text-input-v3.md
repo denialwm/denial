@@ -29,10 +29,11 @@ Denial exposes `zwp_input_method_manager_v2` and the companion
 input-method object owns the seat; later contenders receive `unavailable`.
 Virtual keyboards are accepted only from the Wayland client that owns that
 input-method object, so an unrelated client cannot use the companion protocol
-to inject keys. The virtual keyboard returns unhandled grabbed keys directly
-to the focused client without re-entering the input-method grab. Its modifier
-masks are forwarded with those keys without replacing the physical seat state,
-so shortcuts remain intact and an input-method exit cannot strand a modifier.
+to inject keys. The virtual keyboard returns unhandled grabbed keys through
+the seat to its current Flutter, Wayland, or Xwayland keyboard focus target
+without re-entering the input-method grab. Its modifier masks are forwarded
+with those keys without replacing the physical seat state, so shortcuts remain
+intact and an input-method exit cannot strand a modifier.
 Activation,
 bounded surrounding state, content type, serials, preedit, commit, UTF-8 byte
 deletion, repeat/keymap changes, and paired key releases cross the same broker.

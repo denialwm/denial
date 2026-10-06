@@ -1,0 +1,92 @@
+[
+  {
+    "path": "compositor/src/bin/deniald/authentication.rs",
+    "current_sha256": "d836a408cdd882783e6c053afd55e04fc7c3377a0f7e0267f85f0343a7516677",
+    "staged_sha256": "d836a408cdd882783e6c053afd55e04fc7c3377a0f7e0267f85f0343a7516677",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/cpu_scheduling.rs",
+    "current_sha256": "3f832e1663798e01a94c05e915939b94dcb1002fd7347639935e05dcb4d6cdde",
+    "staged_sha256": "3f832e1663798e01a94c05e915939b94dcb1002fd7347639935e05dcb4d6cdde",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/notification_server.rs",
+    "current_sha256": "e742ac75cf1c08e85d6398647467f8329c31097b89a3e832e51bd82b97a4cf93",
+    "staged_sha256": "e742ac75cf1c08e85d6398647467f8329c31097b89a3e832e51bd82b97a4cf93",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/orientation_sensor.rs",
+    "current_sha256": "578be2b3209601feaf7e0c3c03aa91280e334092f8d7391f464d01e39fb1394b",
+    "staged_sha256": "578be2b3209601feaf7e0c3c03aa91280e334092f8d7391f464d01e39fb1394b",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/portal_ipc.rs",
+    "current_sha256": "1cea0a674c58d90251c28e8257aca00769b5683cded02f08b2d6e9d9399fecc4",
+    "staged_sha256": "1cea0a674c58d90251c28e8257aca00769b5683cded02f08b2d6e9d9399fecc4",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/screenshot.rs",
+    "current_sha256": "88b3d39e4e1a69ca1af2ec32dc66ea2ad04b3b098bda8a5bfe247f17bf191645",
+    "staged_sha256": "88b3d39e4e1a69ca1af2ec32dc66ea2ad04b3b098bda8a5bfe247f17bf191645",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/xembed_tray.rs",
+    "current_sha256": "b37633b0233f85725c276f6529e3946b96c4add9bc7d20caaab92de7a194c12f",
+    "staged_sha256": "b37633b0233f85725c276f6529e3946b96c4add9bc7d20caaab92de7a194c12f",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/output_control.rs",
+    "current_sha256": "6a1719de9768037c41e41800844229ef9cdfc312d3fa8fcb303d2acee3024ffb",
+    "staged_sha256": "6a1719de9768037c41e41800844229ef9cdfc312d3fa8fcb303d2acee3024ffb",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/system_controls.rs",
+    "current_sha256": "6e16f2244b1c0059d59c2821271ce937e446eedc8c7e64c869328de6b0aaa3ae",
+    "staged_sha256": "6e16f2244b1c0059d59c2821271ce937e446eedc8c7e64c869328de6b0aaa3ae",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/flutter_runtime/system_command.rs",
+    "current_sha256": "c7b65ff1cabc1667cfd94cd516cd320f8f84ee1b6ee73c94342a3ce8cf09b6cb",
+    "staged_sha256": "c7b65ff1cabc1667cfd94cd516cd320f8f84ee1b6ee73c94342a3ce8cf09b6cb",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/wayland_frontend/screencopy.rs",
+    "current_sha256": "00c9552ca4e71d301c5f190fc2d22556267a0e58fe0fc176ed433d477f9171cf",
+    "staged_sha256": "00c9552ca4e71d301c5f190fc2d22556267a0e58fe0fc176ed433d477f9171cf",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/bin/deniald/wayland_frontend/clipboard.rs",
+    "current_sha256": "aaba75f5088e216ab6e28a8c374986aa5da29fd8247aea962098cc249037b60b",
+    "staged_sha256": "aaba75f5088e216ab6e28a8c374986aa5da29fd8247aea962098cc249037b60b",
+    "identical": true
+  },
+  {
+    "path": "compositor/src/volition/mod.rs",
+    "current_sha256": "a73d604ca6b48f3ae5250d9bc3279c5cde2fe7d8761de5fe66f8947615a58bb0",
+    "staged_sha256": "a73d604ca6b48f3ae5250d9bc3279c5cde2fe7d8761de5fe66f8947615a58bb0",
+    "identical": true
+  },
+  {
+    "path": "compositor/flutter-engine/src/host.rs",
+    "current_sha256": "1796414104319a6774a91db104d64ad81921f0bed6f0b37dab0d21bf1667656a",
+    "staged_sha256": "1796414104319a6774a91db104d64ad81921f0bed6f0b37dab0d21bf1667656a",
+    "identical": true
+  },
+  {
+    "path": "compositor/Cargo.lock",
+    "current_sha256": "034b1fa527fe56b36cf78e223c9b7522d517a67f0cdc1275a6a4a397a66085ad",
+    "staged_sha256": "034b1fa527fe56b36cf78e223c9b7522d517a67f0cdc1275a6a4a397a66085ad",
+    "identical": true
+  }
+]

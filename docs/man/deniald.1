@@ -6,8 +6,8 @@ deniald \- run the Denial Wayland compositor
 .RI [ options ]
 .SH DESCRIPTION
 .B deniald
-owns the DRM/KMS display, input devices, Wayland and Xwayland frontends, and
-the embedded Flutter desktop scene.
+owns the DRM/KMS display, input devices, the Wayland frontend, optional
+Xwayland integration, and the embedded Flutter desktop scene.
 An installed graphical session should normally start
 .BR denial-session (1),
 which discovers the correct devices, configuration, and Flutter bundle before
@@ -27,7 +27,13 @@ Load persistent output configuration from
 .IR path .
 .TP
 .B \-\-wayland
-Start the Wayland frontend and Xwayland integration.
+Start the Wayland frontend and, when available, Xwayland integration.
+.TP
+.B \-\-no-xwayland
+Do not start the Xwayland server or publish an X11
+.B DISPLAY
+for this session. This option is also accepted by builds compiled without the
+optional Xwayland feature.
 .TP
 .BI \-\-flutter-bundle " path"
 Load the packaged Flutter shell bundle from
@@ -35,6 +41,15 @@ Load the packaged Flutter shell bundle from
 .TP
 .BI \-\-flutter-renderer " skia|impeller"
 Select the Flutter GLES renderer. Impeller is the default.
+.TP
+.B \-\-software-rendering
+Select Mesa's
+.B kms_swrast
+driver and set
+.B LIBGL_ALWAYS_SOFTWARE=1
+before initializing GBM, EGL, or Flutter. The installed session launcher uses
+this compatibility path automatically for VMware
+.BR vmwgfx .
 .TP
 .B \-\-start-locked
 Initialize the native authentication gate and Flutter lock screen as locked.
@@ -61,6 +76,29 @@ Override an output position for this invocation.
 .PP
 Additional reconfiguration and topology-test options are listed by
 .BR "deniald --help" .
+.SH ENVIRONMENT
+.TP
+.B LIBGL_ALWAYS_SOFTWARE
+Control Mesa's hardware or software renderer selection. The
+.B \-\-software-rendering
+option sets this to 1 and sets
+.B MESA_LOADER_DRIVER_OVERRIDE=kms_swrast
+before graphics initialization.
+.TP
+.B DENIAL_NO_PREDECESSOR=1
+Force the session-handoff KMS path without capturing a predecessor framebuffer.
+Denial automatically detects direct-boot systems whose primary plane has never
+scanned out a framebuffer. This override is intended for unusual DRM
+implementations that cannot report or expose their predecessor state. The
+default continues to preserve and restore every predecessor framebuffer that
+is present during bounded diagnostic runs.
+.PP
+Denial environment variables use the
+.B DENIAL_*
+prefix. The former
+.B DENIA_*
+spellings remain compatibility aliases; the canonical spelling takes
+precedence when both are present.
 .SH SIGNALS
 .TP
 .B SIGUSR1

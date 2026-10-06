@@ -88,6 +88,63 @@ check_bwrap_network_isolation() {
   fi
 }
 
+check_nix_cache() {
+  local cache_config="$ROOT/nix/cachix-cache.json"
+  local cache_public_key
+  local cache_uri
+  local experimental_features
+  local public_keys
+  local substituters
+
+  command_exists nix && command_exists jq || return
+  if ! cache_uri="$(jq -er '.uri' "$cache_config" 2>/dev/null)" \
+    || ! cache_public_key="$(
+      jq -er '.public_key' "$cache_config" 2>/dev/null
+    )"; then
+    fail 'Denial Cachix configuration could not be read'
+    return
+  fi
+  if ! experimental_features="$(
+    nix --extra-experimental-features nix-command \
+      config show experimental-features 2>/dev/null
+  )"; then
+    fail 'Nix configuration could not be inspected'
+    return
+  fi
+  if ! substituters="$(
+    nix --extra-experimental-features nix-command \
+      config show substituters 2>/dev/null
+  )" || ! public_keys="$(
+    nix --extra-experimental-features nix-command \
+      config show trusted-public-keys 2>/dev/null
+  )"; then
+    fail 'Nix cache configuration could not be inspected'
+    return
+  fi
+
+  if [[ " $experimental_features " == *' flakes '* ]]; then
+    pass 'Nix flakes are enabled'
+  else
+    fail 'Nix flakes are not enabled'
+  fi
+  if [[ " $substituters " == *" ${cache_uri} "* ]]; then
+    pass 'Nix uses the public Denial Cachix substituter'
+  else
+    fail 'Nix is missing the public Denial Cachix substituter'
+  fi
+  if [[ " $public_keys " == *" ${cache_public_key} "* ]]; then
+    pass 'Nix trusts the public Denial Cachix signing key'
+  else
+    fail 'Nix is missing the public Denial Cachix signing key'
+  fi
+  if nix --extra-experimental-features nix-command \
+    store info --store daemon >/dev/null 2>&1; then
+    pass 'runner account can reach the Nix daemon'
+  else
+    fail 'runner account cannot reach the Nix daemon'
+  fi
+}
+
 existing_path_for() {
   local candidate="$1"
   local parent
@@ -138,6 +195,7 @@ doctor() {
     mkarchroot
     namcap
     ninja
+    nix
     objdump
     patchelf
     pkg-config
@@ -253,6 +311,7 @@ doctor() {
     check_command "$command_name"
   done
   check_bwrap_network_isolation
+  check_nix_cache
 
   if command_exists timedatectl \
     && [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)" == yes ]]; then
@@ -897,6 +956,7 @@ source_audit() {
     "$ROOT/tools/package-denial-apk" \
     "$ROOT/tools/package-denial-deb" \
     "$ROOT/tools/package-denial-native" \
+    "$ROOT/tools/package-denial-opensuse-rpm" \
     "$ROOT/tools/package-denial-rpm" \
     "$ROOT/tools/prepare-denial-apk-promotion-host" \
     "$ROOT/tools/promote-denial-arch-candidate" \
@@ -1136,13 +1196,13 @@ source_audit() {
     "$ROOT/README.md" \
     "$ROOT/docs/packaging/arch/INSTALL.md"; do
     if grep -Fqx \
-      'sh -c '\''if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'\''' \
+      'curl -fsSL https://install.denialwm.org | sh' \
       "$install_document"; then
       pass "$(realpath --relative-to="$ROOT" "$install_document") uses the canonical guided-install command"
     else
       fail "$(realpath --relative-to="$ROOT" "$install_document") does not use the canonical guided-install command"
     fi
-    if grep -Fqx \
+    if grep -Fq \
       'sudo pacman -Syu denial' \
       "$install_document"; then
       pass "$(realpath --relative-to="$ROOT" "$install_document") keeps package installation explicit"

@@ -1,0 +1,24 @@
+{
+  "units": {
+    "denial-portal.service": {
+      "status": 0,
+      "stdout": "Requires=\nWants=\nPartOf=\nLoadState=not-found\nActiveState=inactive\nFragmentPath=\nMainPID=0\nControlGroup=\n",
+      "stderr": ""
+    },
+    "graphical-session.target": {
+      "status": 0,
+      "stdout": "Requires=basic.target\nWants=droidloom.service\nPartOf=\nLoadState=loaded\nActiveState=active\nFragmentPath=/usr/lib/systemd/user/graphical-session.target\n",
+      "stderr": ""
+    },
+    "droidloom.service": {
+      "status": 0,
+      "stdout": "Requires=basic.target app.slice\nWants=droidloom-applications.service\nPartOf=graphical-session.target\nLoadState=loaded\nActiveState=active\nFragmentPath=/usr/lib/systemd/user/droidloom.service\nMainPID=1161\nExecStart={ path=/var/lib/moto70-droidloom/root-aspect1/droidloom-wayland ; argv[]=/var/lib/moto70-droidloom/root-aspect1/droidloom-wayland ; ignore_errors=no ; start_time=[Tue 2026-09-08 08:49:17 UTC] ; stop_time=[n/a] ; pid=1161 ; code=(null) ; status=0/0 }\nControlGroup=/user.slice/user-0.slice/user@0.service/app.slice/droidloom.service\n",
+      "stderr": ""
+    }
+  },
+  "kitty_helper_subcommands": {
+    "3837": "__atexit__",
+    "3845": "__watch_conf__"
+  },
+  "denial_service_active": "active"
+}

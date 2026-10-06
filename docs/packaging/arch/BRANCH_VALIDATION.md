@@ -34,18 +34,20 @@ unchanged, and then signs and publishes it. It performs no compilation.
 For either trusted branch, the owner-operated x86-64 runner:
 
 1. checks out the exact pushed commit in a fresh ephemeral workspace;
-2. builds or reuses optimized, profile, and JIT Flutter Engine artifacts from
-   the exact locked Denial Flutter and Skia fork commits;
-3. audits committed inputs and qualifies the builder;
+2. audits committed inputs and qualifies the builder;
+3. builds the Nix package and checks, using the public Denial Cachix cache for
+   substitution and retaining the exact output paths for an explicit upload;
 4. bootstraps the pinned Flutter and Rust toolchains;
-5. builds the Flutter integration bundle;
-6. runs the Rust and Flutter test suites;
-7. builds and internally validates the two required runtime packages as Arch,
+5. builds or reuses optimized, profile, and JIT Flutter Engine artifacts from
+   the exact locked Denial Flutter and Skia fork commits;
+6. builds the Flutter integration bundle;
+7. runs the Rust and Flutter test suites;
+8. builds and internally validates the two required runtime packages as Arch,
    Debian, RPM, and Alpine archives, plus the optional Arch UI-development
    package;
-8. records package metadata, host inputs, checksums, toolchain versions, and
+9. records package metadata, host inputs, checksums, toolchain versions, and
    build logs; and
-9. uploads the unsigned candidate artifact.
+10. uploads the unsigned candidate artifact and the explicit Nix closures.
 
 A separate GitHub-hosted Arch job downloads that artifact and independently
 checks its source identity, checksums, all nine archives, package ownership
@@ -101,11 +103,16 @@ tools/denial-builder arm
 ```
 
 `install` creates the credential-free persistent engine cache under
-`/srv/denial-builder/cache/flutter-engine`. The workflow populates it from the
-committed fork source lock. The runner validates or provisions an exact,
-detached Flutter/Skia projection; it never inherits an editable source
-checkout. Exact artifact hits are checksum-verified no-ops, while compatible
-build outputs and locked projections may still be reused.
+`/srv/denial-builder/cache/flutter-engine` and configures the root-owned Nix
+daemon with Denial's public Cachix URL and signing key. The workflow populates
+the engine cache from the committed fork source lock. The runner validates or
+provisions an exact, detached Flutter/Skia projection; it never inherits an
+editable source checkout. Exact artifact hits are checksum-verified no-ops,
+while compatible build outputs and locked projections may still be reused.
+The Cachix write token is a repository Actions secret available only inside
+the disposable job. The workflow realizes its Cachix CLI from the flake's
+locked Nixpkgs input and passes that exact executable to the pinned action; it
+does not depend on the action's mutable remote installer expression.
 
 Test the downloadable development artifact when a change warrants a live
 session check. Do not repair a failed `main` production build directly on

@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:denial_dart_shell/src/models/denial_cursor_state.dart';
+import 'package:denial_dart_shell/src/models/power_button_action.dart';
+import 'package:denial_dart_shell/src/models/suspend_mode.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 import 'package:flutter/services.dart';
@@ -90,21 +92,25 @@ void main() {
 
       try {
         bridge.setIdlePolicy(
+          powerButtonAction: PowerButtonAction.hibernate,
           lockEnabled: true,
           lockTimeout: const Duration(minutes: 5),
           dpmsEnabled: true,
           dpmsTimeout: const Duration(minutes: 10),
           suspendEnabled: false,
           suspendTimeout: const Duration(minutes: 30),
+          suspendMode: SuspendMode.deep,
         );
         await Future<void>.delayed(Duration.zero);
 
         final data = packet;
         expect(data, isNotNull);
         expect(data!.lengthInBytes, 32);
-        expect(data.getUint8(0), 1);
+        expect(data.getUint8(0), 3);
         expect(data.getUint8(1), 0x03);
-        expect(data.buffer.asUint8List(2, 6), everyElement(0));
+        expect(data.getUint8(2), 3);
+        expect(data.getUint8(3), 2);
+        expect(data.buffer.asUint8List(4, 4), everyElement(0));
         expect(data.getUint64(8, Endian.little), 5 * 60 * 1000);
         expect(data.getUint64(16, Endian.little), 10 * 60 * 1000);
         expect(data.getUint64(24, Endian.little), 30 * 60 * 1000);
@@ -114,4 +120,58 @@ void main() {
       }
     },
   );
+
+  test('software dimming requests and state cross the native bridge', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    ByteData? packet;
+    messenger.setMockMessageHandler('denial/software_dimming', (message) async {
+      packet = message;
+      return null;
+    });
+    final bridge = DenialBridge();
+    final states = <DenialSoftwareDimmingState>[];
+    final subscription = bridge.softwareDimmingStates.listen(states.add);
+
+    try {
+      final read = bridge.readSoftwareDimmingLevel(monitorId: 42);
+      await Future<void>.delayed(Duration.zero);
+
+      final readPacket = packet;
+      expect(readPacket, isNotNull);
+      expect(readPacket!.lengthInBytes, 10);
+      expect(readPacket.getUint8(0), 0);
+      expect(readPacket.getInt64(1, Endian.little), 42);
+      expect(readPacket.getUint8(9), 100);
+
+      final response = ByteData(10)
+        ..setInt64(0, 42, Endian.little)
+        ..setUint8(8, 37)
+        ..setUint8(9, 1);
+      await messenger.handlePlatformMessage(
+        'denial/software_dimming_state',
+        response,
+        null,
+      );
+
+      expect(await read, 0.37);
+      expect(states, hasLength(1));
+      expect(states.single.monitorId, 42);
+      expect(states.single.level, 0.37);
+      expect(states.single.supported, isTrue);
+      expect(states.single.completesRead, isTrue);
+
+      expect(bridge.setSoftwareDimming(monitorId: 42, level: 0.314), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      final setPacket = packet;
+      expect(setPacket, isNotNull);
+      expect(setPacket!.getUint8(0), 1);
+      expect(setPacket.getInt64(1, Endian.little), 42);
+      expect(setPacket.getUint8(9), 31);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+      messenger.setMockMessageHandler('denial/software_dimming', null);
+    }
+  });
 }

@@ -1,0 +1,125 @@
+{
+  "rounded_clips_rendered": 707,
+  "whole_current_clip_contained": 0,
+  "effective_rect_clips_with_1px_corner_margin": 331,
+  "effective_rect_clips_matching_existing_scissor_threshold": 325,
+  "post_coverage_mean_us_for_scissor_candidates": 13.971827692307693,
+  "examples": [
+    {
+      "begin_ns": 9863290678556,
+      "type": "round_rect",
+      "rendered": true,
+      "op": 1,
+      "aa": 1,
+      "coverage_valid": 1,
+      "contained_with_1px_margin": false,
+      "matrix": [
+        1.100000023841858,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.100000023841858,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        967.9000244140625,
+        1045.0999755859375,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        0.0,
+        0.0,
+        851.0908813476562,
+        936.5454711914062
+      ],
+      "current_coverage": [
+        965.0,
+        312.0,
+        1019.0,
+        347.0
+      ],
+      "global_pass_position": [
+        0.0,
+        0.0
+      ],
+      "radii": [
+        15.800000190734863,
+        15.800000190734863
+      ],
+      "translation_scale_only": true,
+      "end_ns": 9863290694460,
+      "post_coverage_us": 15.904,
+      "effective_clip_is_rect_with_1px_corner_margin": true,
+      "effective_clip": [
+        967.9000244140625,
+        312.0,
+        1019.0,
+        347.0
+      ],
+      "matches_existing_scissor_threshold": true
+    },
+    {
+      "begin_ns": 9863290708050,
+      "type": "round_rect",
+      "rendered": true,
+      "op": 1,
+      "aa": 1,
+      "coverage_valid": 1,
+      "contained_with_1px_margin": false,
+      "matrix": [
+        1.100000023841858,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.100000023841858,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        967.9000244140625,
+        1045.0999755859375,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        1.0,
+        1.0,
+        850.0908813476562,
+        935.5454711914062
+      ],
+      "current_coverage": [
+        967.9000244140625,
+        312.0,
+        1019.0,
+        347.0
+      ],
+      "global_pass_position": [
+        0.0,
+        0.0
+      ],
+      "radii": [
+        15.800000190734863,
+        15.800000190734863
+      ],
+      "translation_scale_only": true,
+      "end_ns": 9863290718980,
+      "post_coverage_us": 10.93,
+      "effective_clip_is_rect_with_1px_corner_margin": true,
+      "effective_clip": [
+        969.0000244379044,
+        312.0,
+        1019.0,
+        347.0
+      ],
+      "matches_existing_scissor_threshold": true
+    }
+  ]
+}

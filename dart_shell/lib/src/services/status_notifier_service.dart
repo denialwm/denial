@@ -128,14 +128,17 @@ class StatusNotifierService {
     );
   }
 
-  Future<List<SystemTrayMenuEntry>?> loadMenu(SystemTrayItem item) {
+  Future<List<SystemTrayMenuEntry>?> loadMenu(
+    SystemTrayItem item, {
+    int parentId = 0,
+  }) {
     final local = _localBackend;
     if (local != null) {
-      return local.loadMenu(item.id);
+      return local.loadMenu(item.id, parentId: parentId);
     }
     return _worker!.invoke<List<SystemTrayMenuEntry>?>(
       operation: _StatusNotifierWorkerOperation.loadMenu,
-      payload: item.id,
+      payload: <Object?>[item.id, parentId],
       decode: _decodeMenuEntries,
     );
   }

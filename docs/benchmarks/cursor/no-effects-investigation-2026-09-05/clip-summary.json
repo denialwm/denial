@@ -1,0 +1,30 @@
+{
+  "frames": 719,
+  "frames_without_text": 675,
+  "outer_first_pass": {
+    "count": 719,
+    "mean_us": 32.08878859527121,
+    "p50_us": 29.008,
+    "p95_us": 55.808,
+    "max_us": 117.653
+  },
+  "outer_first_pass_without_text": {
+    "count": 675,
+    "mean_us": 30.50084888888889,
+    "p50_us": 28.908,
+    "p95_us": 44.564,
+    "max_us": 117.653
+  },
+  "clip_types": {
+    "path": 1705,
+    "round_rect": 707,
+    "rect": 178
+  },
+  "rounded_clips": 707,
+  "rounded_clips_rendered": 707,
+  "rounded_clips_rendered_despite_interior_containment": 0,
+  "redundant_round_clip_post_coverage": {
+    "count": 0
+  },
+  "examples": []
+}

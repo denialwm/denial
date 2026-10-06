@@ -106,7 +106,8 @@ class NativeAuthenticationService implements AuthenticationService {
     if (packet != null &&
         (packet.kind == AuthenticationPacketKind.state ||
             packet.kind == AuthenticationPacketKind.prompt ||
-            packet.kind == AuthenticationPacketKind.result)) {
+            packet.kind == AuthenticationPacketKind.result ||
+            packet.kind == AuthenticationPacketKind.fingerprintFeedback)) {
       _events.add(packet);
     }
     return null;

@@ -1,0 +1,64 @@
+{
+  "metrics": {
+    "baseline-2026-09-04": {
+      "cpu_one_core_percent": 16.410989202989537,
+      "raster_mean_us": 2057.0481659874026,
+      "raster_p95_us": 2268,
+      "raster_p99_us": 2485,
+      "gpu_render_busy_percent": 47.33748901387049,
+      "cursor_ticks_per_second": 59.97718400365614,
+      "timed_frames": 5398
+    },
+    "backdrop-damage-2026-09-04": {
+      "cpu_one_core_percent": 15.633510753530528,
+      "raster_mean_us": 1985.317575083426,
+      "raster_p95_us": 2191,
+      "raster_p99_us": 2367,
+      "gpu_render_busy_percent": 46.840489779186804,
+      "cursor_ticks_per_second": 59.9327459924226,
+      "timed_frames": 5394
+    },
+    "snapshot-coverage-2026-09-04": {
+      "cpu_one_core_percent": 8.055524241047655,
+      "raster_mean_us": 648.584592426786,
+      "raster_p95_us": 799,
+      "raster_p99_us": 2832,
+      "gpu_render_busy_percent": 5.122659853180265,
+      "cursor_ticks_per_second": 59.566052474481154,
+      "timed_frames": 5361
+    }
+  },
+  "change_percent_vs_baseline": {
+    "cpu_one_core_percent": -50.91384107680599,
+    "raster_mean_us": -68.47013097938525,
+    "raster_p95_us": -64.77072310405644,
+    "raster_p99_us": 13.963782696177063,
+    "gpu_render_busy_percent": -89.17842927477784,
+    "cursor_ticks_per_second": -0.6854798803990647
+  },
+  "controls": {
+    "host_kernel_cpu_policy_environment_match": true,
+    "shell_aot_match": true,
+    "compositor_match": true,
+    "engine_changed": true,
+    "output_path_and_ticker_match": true
+  },
+  "artifact_hashes": {
+    "baseline-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "ba1c03f88b1a0c8c6a67010f953422690a7ae09b2e6bbfe5b35a8ba0aa6a2668",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    },
+    "backdrop-damage-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "7cc19f194d6631aacfc4edcd79bbc433d1c520d4c7caa62c41100c82c8993310",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    },
+    "snapshot-coverage-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "4a0f63b644477305cba26e0dca0fccf44502082abb087479167b4799e3f98fc2",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    }
+  },
+  "interpretation": "Substantial reduction in CPU, raster duration, GPU activity and repaint area for the user-validated static glass Kitty cursor workload. Pacing and tail-latency changes are retained separately; their cause is not established. Further experiments focus on remaining raster work."
+}

@@ -102,8 +102,7 @@ impl FlutterRuntime {
             return;
         }
         self.cursor_output = output;
-        let active = self.cursor_texture_ids.clone();
-        self.install_cursor_texture_membership(&active);
+        self.reinstall_cursor_texture_membership();
     }
 
     pub(super) fn acknowledge_cursor_epoch(&mut self, epoch: u64) -> Result<bool, Box<dyn Error>> {
@@ -144,16 +143,36 @@ impl FlutterRuntime {
     }
 
     pub(super) fn install_cursor_texture_membership(&mut self, ids: &HashSet<i64>) {
-        self.texture_output_membership
-            .retain(|texture_id, _| !self.cursor_texture_ids.contains(texture_id));
-        let Some(output) = self.cursor_output else {
-            return;
-        };
-        let outputs: Arc<[OutputId]> = Arc::from([output]);
-        for texture_id in ids {
-            self.texture_output_membership
-                .insert(*texture_id, Arc::clone(&outputs));
-        }
+        replace_cursor_texture_membership(
+            &mut self.texture_output_membership,
+            &self.cursor_texture_ids,
+            ids,
+            self.cursor_output,
+        );
+    }
+
+    pub(super) fn reinstall_cursor_texture_membership(&mut self) {
+        replace_cursor_texture_membership(
+            &mut self.texture_output_membership,
+            &self.cursor_texture_ids,
+            &self.cursor_texture_ids,
+            self.cursor_output,
+        );
+    }
+}
+
+fn replace_cursor_texture_membership(
+    memberships: &mut HashMap<i64, TextureOutputMembership>,
+    previous: &HashSet<i64>,
+    desired: &HashSet<i64>,
+    output: Option<OutputId>,
+) {
+    memberships.retain(|texture_id, _| !previous.contains(texture_id));
+    let Some(output) = output else {
+        return;
+    };
+    for texture_id in desired {
+        memberships.insert(*texture_id, TextureOutputMembership::One(output));
     }
 }
 

@@ -71,6 +71,7 @@ final outputConfigurationProvider =
 
 class OutputConfigurationController extends Notifier<OutputConfigurationState> {
   static const _confirmationTimeoutMilliseconds = 10_000;
+  static const _confirmationRefreshRetryDelay = Duration(milliseconds: 50);
 
   late DenialBridge _bridge;
   int _generation = 0;
@@ -96,17 +97,7 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
       if (generation != _generation) {
         return;
       }
-      final outputs = List<DenialOutput>.unmodifiable(configuration.outputs);
-      final selected =
-          outputs.any((output) => output.name == state.selectedName)
-          ? state.selectedName
-          : outputs.firstOrNull?.name;
-      state = OutputConfigurationState(
-        configuration: configuration,
-        draftOutputs: outputs,
-        draftPrimaryOutput: configuration.primaryOutput,
-        selectedName: selected,
-      );
+      _acceptConfiguration(configuration);
     } on Object catch (error) {
       if (generation == _generation) {
         state = state.copyWith(
@@ -116,6 +107,53 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
         );
       }
     }
+  }
+
+  Future<void> refreshAfterConfirmationExpiry(int token) async {
+    if (state.applying ||
+        state.configuration?.pendingConfirmation?.token != token) {
+      return;
+    }
+    final generation = _generation;
+    state = state.copyWith(loading: true, clearError: true);
+    try {
+      while (generation == _generation) {
+        final configuration = await _bridge.readOutputConfiguration();
+        if (generation != _generation) {
+          return;
+        }
+        // The compositor retains this token in its published snapshot while
+        // the rollback topology is still being installed. Its removal is the
+        // boundary at which topology-derived fields are authoritative again.
+        if (configuration.pendingConfirmation?.token == token) {
+          await Future<void>.delayed(_confirmationRefreshRetryDelay);
+          continue;
+        }
+        _acceptConfiguration(configuration);
+        return;
+      }
+    } on Object catch (error) {
+      if (generation == _generation) {
+        state = state.copyWith(
+          loading: false,
+          applying: false,
+          error: error.toString(),
+        );
+      }
+    }
+  }
+
+  void _acceptConfiguration(DenialOutputConfiguration configuration) {
+    final outputs = List<DenialOutput>.unmodifiable(configuration.outputs);
+    final selected = outputs.any((output) => output.name == state.selectedName)
+        ? state.selectedName
+        : outputs.firstOrNull?.name;
+    state = OutputConfigurationState(
+      configuration: configuration,
+      draftOutputs: outputs,
+      draftPrimaryOutput: configuration.primaryOutput,
+      selectedName: selected,
+    );
   }
 
   void select(String name) {
@@ -145,6 +183,34 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
     );
   }
 
+  void setEnabled(String name, bool enabled) {
+    final capabilities = state.configuration?.capabilities;
+    if (capabilities == null || !capabilities.enable) {
+      return;
+    }
+    final index = state.draftOutputs.indexWhere(
+      (output) => output.name == name,
+    );
+    if (index < 0 || state.draftOutputs[index].enabled == enabled) {
+      return;
+    }
+    if (!enabled &&
+        state.draftOutputs.where((output) => output.enabled).length <= 1) {
+      return;
+    }
+
+    final outputs = state.draftOutputs.toList(growable: false);
+    outputs[index] = outputs[index].copyWith(enabled: enabled);
+    state = state.copyWith(
+      draftOutputs: List<DenialOutput>.unmodifiable(outputs),
+      draftPrimaryOutput: !enabled && state.draftPrimaryOutput == name
+          ? null
+          : state.draftPrimaryOutput,
+      dirty: true,
+      clearError: true,
+    );
+  }
+
   void setMode(String name, DenialOutputMode mode) {
     _replace(name, (output) => output.copyWith(currentMode: mode));
   }
@@ -158,6 +224,14 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
 
   void setTransform(String name, DenialOutputTransform transform) {
     _replace(name, (output) => output.copyWith(transform: transform));
+  }
+
+  void setScrollingLayoutAxis(String name, DenialScrollingLayoutAxis axis) {
+    final capabilities = state.configuration?.capabilities;
+    if (capabilities == null || !capabilities.scrollingLayoutAxis) {
+      return;
+    }
+    _replace(name, (output) => output.copyWith(scrollingLayoutAxis: axis));
   }
 
   void setAdaptiveSync(String name, bool enabled) {

@@ -1,3 +1,5 @@
+import 'dart:ui' show Rect;
+
 import 'denial_window.dart';
 
 /// A launcher-owned transition to one specific application window.
@@ -13,6 +15,7 @@ class AppLaunchRequest {
     required Iterable<String> expectedAppIds,
     required Iterable<int> existingObjectIds,
     this.targetObjectId,
+    this.sourceRect,
   }) : expectedAppIds = Set<String>.unmodifiable(
          expectedAppIds
              .map(normalizeAppId)
@@ -26,6 +29,9 @@ class AppLaunchRequest {
   final Set<String> expectedAppIds;
   final Set<int> existingObjectIds;
   final int? targetObjectId;
+
+  /// The tapped Home icon's bounds in global logical coordinates.
+  final Rect? sourceRect;
 
   bool matchesWindow(DenialWindow window) {
     if (!window.isUserApp) {

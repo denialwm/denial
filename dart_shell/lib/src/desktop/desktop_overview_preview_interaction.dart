@@ -1,7 +1,29 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../widgets/shell_cursor.dart';
+
+/// Publishes whether a window has finished moving into overview.
+///
+/// The position animation owns this signal so preview emphasis follows its
+/// actual completion rather than a parallel timer that can drift or ignore an
+/// interrupted transition.
+class DesktopOverviewTransitionStatus
+    extends InheritedNotifier<ValueNotifier<bool>> {
+  const DesktopOverviewTransitionStatus({
+    super.key,
+    required ValueNotifier<bool> completed,
+    required super.child,
+  }) : super(notifier: completed);
+
+  static bool completedOf(BuildContext context) {
+    final status = context
+        .dependOnInheritedWidgetOfExactType<DesktopOverviewTransitionStatus>();
+    return status?.notifier?.value ?? true;
+  }
+}
 
 /// Pointer interaction for a window preview in the desktop overview.
 ///
@@ -17,8 +39,10 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
     required this.overview,
     required this.desktopWidget,
     required this.dragging,
+    this.selected = false,
     required this.label,
     required this.onTap,
+    required this.onClose,
     required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
@@ -30,8 +54,10 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
   final bool overview;
   final bool desktopWidget;
   final bool dragging;
+  final bool selected;
   final String label;
   final VoidCallback onTap;
+  final VoidCallback onClose;
   final VoidCallback onDragStart;
   final ValueChanged<Offset> onDragUpdate;
   final VoidCallback onDragEnd;
@@ -45,7 +71,7 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
 
 class _DesktopOverviewPreviewInteractionState
     extends State<DesktopOverviewPreviewInteraction> {
-  static const double _hoverScale = 1.025;
+  static const double _emphasizedScale = 1.018;
 
   bool _hovered = false;
   Offset? _lastGlobalDragPosition;
@@ -92,40 +118,75 @@ class _DesktopOverviewPreviewInteractionState
     widget.onDragCancel();
   }
 
+  void _handlePointerDown(PointerDownEvent event) {
+    if (widget.overviewActive &&
+        widget.overview &&
+        event.buttons == kMiddleMouseButton) {
+      widget.onClose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final overviewTransitionCompleted =
+        DesktopOverviewTransitionStatus.completedOf(context);
     final hovered =
         (widget.overview || widget.desktopWidget) &&
         !widget.dragging &&
         _hovered;
+    final emphasized = widget.overview
+        ? overviewTransitionCompleted && (widget.selected || hovered)
+        : hovered;
     final interactive =
         (widget.overviewActive && widget.overview) ||
         (!widget.overviewActive && widget.desktopWidget);
     return Semantics(
       button: interactive,
+      selected: widget.overview ? widget.selected : null,
       label: interactive ? widget.label : null,
       child: MouseRegion(
         cursor: interactive ? ShellMouseCursors.link : ShellMouseCursors.normal,
         onEnter: interactive ? (_) => _setHovered(true) : null,
         onExit: interactive ? (_) => _setHovered(false) : null,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: interactive ? widget.onTap : null,
-          onPanStart: widget.overview ? _startDrag : null,
-          onPanUpdate: widget.overview ? _updateDrag : null,
-          onPanEnd: widget.overview ? (_) => _endDrag() : null,
-          onPanCancel: widget.overview ? _cancelDrag : null,
-          child: AnimatedScale(
-            duration: Motion.tile,
-            curve: hovered
-                ? Motion.md3EmphasizedDecelerate
-                : Motion.md3EmphasizedAccelerate,
-            scale: hovered
-                ? widget.desktopWidget
-                      ? 1.018
-                      : _hoverScale
-                : 1.0,
-            child: widget.child,
+        child: Listener(
+          onPointerDown: _handlePointerDown,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: interactive ? widget.onTap : null,
+            onPanStart: widget.overview ? _startDrag : null,
+            onPanUpdate: widget.overview ? _updateDrag : null,
+            onPanEnd: widget.overview ? (_) => _endDrag() : null,
+            onPanCancel: widget.overview ? _cancelDrag : null,
+            child: AnimatedScale(
+              duration: Motion.tile,
+              curve: emphasized
+                  ? Motion.md3EmphasizedDecelerate
+                  : Motion.md3EmphasizedAccelerate,
+              scale: emphasized ? _emphasizedScale : 1.0,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  widget.child,
+                  IgnorePointer(
+                    child: AnimatedContainer(
+                      duration: Motion.tile,
+                      curve: Motion.standard,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: context.shellTheme.accent.withValues(
+                            alpha: widget.selected ? 1.0 : 0.0,
+                          ),
+                          width: widget.selected ? 2.0 : 0.0,
+                        ),
+                        borderRadius: BorderRadius.circular(
+                          context.shellTheme.windowRadius,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

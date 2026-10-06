@@ -1,0 +1,50 @@
+{
+  "metrics": {
+    "baseline-2026-09-04": {
+      "cpu_one_core_percent": 16.410989202989537,
+      "raster_mean_us": 2057.0481659874026,
+      "raster_p95_us": 2268,
+      "raster_p99_us": 2485,
+      "gpu_render_busy_percent": 47.33748901387049,
+      "cursor_ticks_per_second": 59.97718400365614,
+      "timed_frames": 5398
+    },
+    "backdrop-damage-2026-09-04": {
+      "cpu_one_core_percent": 15.633510753530528,
+      "raster_mean_us": 1985.317575083426,
+      "raster_p95_us": 2191,
+      "raster_p99_us": 2367,
+      "gpu_render_busy_percent": 46.840489779186804,
+      "cursor_ticks_per_second": 59.9327459924226,
+      "timed_frames": 5394
+    }
+  },
+  "change_percent": {
+    "cpu_one_core_percent": -4.7375477482940465,
+    "raster_mean_us": -3.4870642355399273,
+    "raster_p95_us": -3.3950617283950657,
+    "raster_p99_us": -4.748490945674044,
+    "gpu_render_busy_percent": -1.0499062054982633,
+    "cursor_ticks_per_second": -0.07409152658922613
+  },
+  "controls": {
+    "host_kernel_cpu_policy_environment_match": true,
+    "shell_aot_match": true,
+    "compositor_match": true,
+    "engine_changed": true,
+    "output_path_and_ticker_match": true
+  },
+  "artifact_hashes": {
+    "baseline-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "ba1c03f88b1a0c8c6a67010f953422690a7ae09b2e6bbfe5b35a8ba0aa6a2668",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    },
+    "backdrop-damage-2026-09-04": {
+      "libapp.so": "bd82201287119a1fc82b1b42f615b801392922af36ba33444ff392c9e0ebc95e",
+      "libflutter_engine.so": "7cc19f194d6631aacfc4edcd79bbc433d1c520d4c7caa62c41100c82c8993310",
+      "exe": "83043dc22f4788d07d8c34a47870d2e01db0cbc3a03abdfa0bc5e3426d4b871f"
+    }
+  },
+  "interpretation": "Descriptive before/after comparison. Full-output damage persisted; the intended reduction in repaint work was not achieved. Small timing differences are not attributed to the patch."
+}

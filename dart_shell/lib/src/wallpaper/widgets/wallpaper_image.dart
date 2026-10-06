@@ -26,6 +26,81 @@ ImageProvider<Object> wallpaperImageProvider(
   );
 }
 
+@immutable
+class _WallpaperImageCacheUse {
+  const _WallpaperImageCacheUse(this.provider, this.configuration);
+
+  final ImageProvider<Object> provider;
+  final ImageConfiguration configuration;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _WallpaperImageCacheUse &&
+      other.provider == provider &&
+      other.configuration == configuration;
+
+  @override
+  int get hashCode => Object.hash(provider, configuration);
+}
+
+/// Keeps a rendered wallpaper variant alive while immediately evicting its
+/// decoded cache entry after the final wallpaper scene releases it.
+@internal
+class WallpaperImageCacheLease {
+  WallpaperImageCacheLease(this.provider, this.configuration)
+    : _use = _WallpaperImageCacheUse(provider, configuration) {
+    _WallpaperImageCacheLeases.retain(_use);
+  }
+
+  final ImageProvider<Object> provider;
+  final ImageConfiguration configuration;
+  final _WallpaperImageCacheUse _use;
+  bool _released = false;
+
+  void release() {
+    if (_released) {
+      return;
+    }
+    _released = true;
+    _WallpaperImageCacheLeases.release(_use);
+  }
+}
+
+class _WallpaperImageCacheLeases {
+  static final Map<_WallpaperImageCacheUse, int> _counts =
+      <_WallpaperImageCacheUse, int>{};
+
+  static void retain(_WallpaperImageCacheUse use) {
+    _counts.update(use, (count) => count + 1, ifAbsent: () => 1);
+  }
+
+  static void release(_WallpaperImageCacheUse use) {
+    final count = _counts[use];
+    assert(count != null && count > 0);
+    if (count == null) {
+      return;
+    }
+    if (count > 1) {
+      _counts[use] = count - 1;
+      return;
+    }
+    _counts.remove(use);
+    scheduleMicrotask(() async {
+      if (_counts.containsKey(use)) {
+        return;
+      }
+      try {
+        final key = await use.provider.obtainKey(use.configuration);
+        if (!_counts.containsKey(use)) {
+          PaintingBinding.instance.imageCache.evict(key, includeLive: false);
+        }
+      } on Object {
+        // A provider which cannot produce a key has nothing cacheable to evict.
+      }
+    });
+  }
+}
+
 ImageProvider<Object> _rawWallpaperImageProvider(WallpaperResource resource) {
   return switch (resource.kind) {
     WallpaperResourceKind.asset => AssetImage(resource.path),

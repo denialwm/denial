@@ -4,18 +4,48 @@ use denial_core::topology::{
     AtlasPlan, LogicalRect, OutputId, OutputSpec, OutputTransform, TopologySnapshot,
 };
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::desktop::Window;
+use smithay::desktop::{Window, layer_map_for_output};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
 use tracing::info;
 
+use super::managed_window::{ClientWindowState, ManagedWindow};
 #[cfg(feature = "flutter")]
 use super::shm_cache_budget_for_atlas;
-use super::window_management::toplevel_has_state;
 use super::{RuntimeState, WaylandFrontend, WaylandOutput};
+
+#[cfg(feature = "flutter")]
+#[derive(Debug, Default)]
+pub(crate) struct TopologyWindowReconciliation {
+    pub(super) layout_membership_changed: bool,
+    pub(super) windows_to_minimize: Vec<u64>,
+}
+
+#[cfg(feature = "flutter")]
+pub(crate) type TopologyUpdate = TopologyWindowReconciliation;
+#[cfg(not(feature = "flutter"))]
+pub(super) type TopologyUpdate = ();
+
+#[cfg(feature = "flutter")]
+fn windows_on_retired_outputs(
+    registry: &super::window_registry::WindowRegistry,
+    retained_outputs: &std::collections::HashSet<OutputId>,
+) -> Vec<u64> {
+    let mut windows = registry
+        .iter()
+        .filter_map(|(id, record)| {
+            (!record.minimized
+                && record
+                    .workspace
+                    .is_some_and(|location| !retained_outputs.contains(&location.output)))
+            .then_some(id.get())
+        })
+        .collect::<Vec<_>>();
+    windows.sort_unstable();
+    windows
+}
 
 struct WindowTopologyRecord {
     window: Window,
@@ -38,6 +68,16 @@ fn output_candidate_is_better(candidate: OutputCandidateScore, best: OutputCandi
         || (candidate.contains_center == best.contains_center
             && (candidate.overlap > best.overlap
                 || (candidate.overlap == best.overlap && candidate.distance < best.distance)))
+}
+
+fn output_membership_changed(
+    previous: &[(OutputId, Rectangle<i32, Logical>)],
+    current: &[(OutputId, Rectangle<i32, Logical>)],
+) -> bool {
+    previous.len() != current.len()
+        || previous
+            .iter()
+            .any(|(id, _)| !current.iter().any(|(candidate, _)| candidate == id))
 }
 
 impl WaylandFrontend {
@@ -71,13 +111,9 @@ impl WaylandFrontend {
             .map(|index| &self.outputs[index])
     }
 
-    /// `geometry` minus the shell system-bar strip when the given output (or,
-    /// with `output` unknown, the output whose logical rect equals `geometry`)
-    /// hosts the bar, and minus the configured maximize padding on every
-    /// bar-free edge. Mirrors the Dart shell's `DisplayLayout.workAreaOf`
-    /// so a client-requested maximize configure lands on the same rect the
-    /// shell places maximized windows into. True fullscreen keeps the full
-    /// output geometry and must not call this.
+    /// The inset working area used by ordinary managed layouts and legacy
+    /// shell-owned maximize. The system bar consumes its edge; configured
+    /// layout padding consumes every bar-free edge.
     pub(super) fn maximize_work_area(
         &self,
         output: Option<&Output>,
@@ -146,7 +182,14 @@ impl WaylandFrontend {
         self.arrange_layout_windows();
     }
 
-    pub fn update_topology(&mut self, snapshot: &TopologySnapshot) -> Result<(), Box<dyn Error>> {
+    pub fn update_topology(
+        &mut self,
+        snapshot: &TopologySnapshot,
+    ) -> Result<TopologyUpdate, Box<dyn Error>> {
+        // Geometry, mode, transform, and output membership all invalidate the
+        // meaning of outstanding exact frame opportunities as one operation.
+        #[cfg(feature = "flutter")]
+        self.invalidate_frame_timeline();
         self.ticker_output = snapshot.ticker;
         let desktop_bounds = logical_bounds(snapshot)?;
         let atlas = AtlasPlan::for_snapshot(snapshot).ok_or("Wayland topology has no atlas")?;
@@ -159,31 +202,32 @@ impl WaylandFrontend {
             .iter()
             .map(|entry| (entry.id, entry.logical_geometry))
             .collect::<Vec<_>>();
+        #[cfg(feature = "flutter")]
+        let windows_to_minimize = {
+            let retained_outputs = snapshot
+                .outputs
+                .iter()
+                .map(|output| output.id)
+                .collect::<std::collections::HashSet<_>>();
+            windows_on_retired_outputs(&self.window_registry, &retained_outputs)
+        };
         let window_records = self
             .space
             .elements()
             .filter_map(|window| {
                 let root_surface = self.window_root_surface(window)?;
-                let (fullscreen, maximized) = if let Some(toplevel) = window.toplevel() {
-                    (
-                        toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen),
-                        toplevel_has_state(toplevel, xdg_toplevel::State::Maximized),
-                    )
-                } else if let Some(x11) = window.x11_surface() {
-                    (x11.is_fullscreen(), x11.is_maximized())
-                } else {
-                    (false, false)
-                };
+                let client = ManagedWindow::new(window)
+                    .map(|window| window.facts().client_state)
+                    .unwrap_or_else(ClientWindowState::default);
                 Some(WindowTopologyRecord {
                     window: window.clone(),
                     root_surface: root_surface.clone(),
                     geometry: self.window_geometry_target(window),
                     restore_geometry: self
-                        .restore_window_geometries
-                        .get(&root_surface.id())
-                        .copied(),
-                    fullscreen,
-                    maximized,
+                        .window_record_for_surface(&root_surface.id())
+                        .and_then(|record| record.restore_geometry),
+                    fullscreen: client.fullscreen,
+                    maximized: client.maximized,
                 })
             })
             .collect::<Vec<_>>();
@@ -202,8 +246,17 @@ impl WaylandFrontend {
 
             let removed_id = current.id;
             self.fail_output_power(removed_id);
+            self.gamma_control_failed(removed_id);
             self.fail_screencopies_for_output(removed_id);
             let removed = self.outputs.swap_remove(index);
+            {
+                let mut map = layer_map_for_output(&removed.output);
+                let layers = map.layers().cloned().collect::<Vec<_>>();
+                for layer in layers {
+                    map.unmap_layer(&layer);
+                    layer.layer_surface().send_close();
+                }
+            }
             removed.output.leave_all();
             self.space.unmap_output(&removed.output);
             self.display_handle
@@ -258,19 +311,22 @@ impl WaylandFrontend {
                 capture_source,
                 capture_size,
                 powered: true,
-                #[cfg(feature = "flutter")]
-                presentation_batch: super::presentation::OutputPresentationBatch::new(),
-                #[cfg(feature = "flutter")]
-                submitted_this_batch: false,
             });
         }
         self.outputs.sort_by_key(|entry| entry.id);
+        for output in &self.outputs {
+            layer_map_for_output(&output.output).arrange();
+        }
+        #[cfg(feature = "flutter")]
+        self.reconcile_workspace_outputs();
 
         let new_output_geometries = self
             .outputs
             .iter()
             .map(|entry| (entry.id, entry.logical_geometry))
             .collect::<Vec<_>>();
+        let layout_membership_changed =
+            output_membership_changed(&old_output_geometries, &new_output_geometries);
         let mut migrated_windows = 0usize;
         for record in window_records {
             let surface_id = record.root_surface.id();
@@ -280,8 +336,9 @@ impl WaylandFrontend {
                     &old_output_geometries,
                     &new_output_geometries,
                 );
-                self.restore_window_geometries
-                    .insert(surface_id.clone(), restore);
+                self.ensure_window_record_for_surface(&surface_id)
+                    .expect("managed window has no stable id")
+                    .restore_geometry = Some(restore);
             }
 
             let target = if record.fullscreen || record.maximized {
@@ -326,7 +383,7 @@ impl WaylandFrontend {
                     toplevel.send_pending_configure();
                 }
             }
-            self.set_window_geometry_target(&record.window, target);
+            self.set_window_geometry_target_preserving_authority(&record.window, target);
             migrated_windows += 1;
         }
 
@@ -400,8 +457,19 @@ impl WaylandFrontend {
         if xwayland_scale_changed {
             self.reconfigure_x11_for_scale()?;
         }
-        self.rebuild_window_layout();
+        if !layout_membership_changed {
+            // Rotation, scale, position, and mode changes leave every layout
+            // leaf in the same output/workspace. Preserve the layout's tree,
+            // ratios, ordering, maximized leaf, and scrolling viewport; only
+            // arrange that model inside the new work areas.
+            self.arrange_layout_windows();
+        }
+        #[cfg(not(feature = "flutter"))]
+        if layout_membership_changed {
+            self.rebuild_window_layout();
+        }
         self.space.refresh();
+        self.refresh_image_copy_constraints();
         info!(
             epoch = snapshot.epoch,
             outputs = self.outputs.len(),
@@ -410,7 +478,17 @@ impl WaylandFrontend {
             atlas_height = atlas.pixel_size.height,
             "updated live Wayland topology"
         );
-        Ok(())
+        #[cfg(feature = "flutter")]
+        {
+            Ok(TopologyWindowReconciliation {
+                layout_membership_changed,
+                windows_to_minimize,
+            })
+        }
+        #[cfg(not(feature = "flutter"))]
+        {
+            Ok(())
+        }
     }
 }
 
@@ -569,6 +647,33 @@ pub(super) fn clamp_window_geometry(
     )
 }
 
+/// Centers a client-sized transient over its parent and keeps its origin on
+/// the parent's output.
+///
+/// Oversized clients retain their chosen dimensions and align to the output's
+/// leading edge. Size negotiation remains a protocol concern; placement must
+/// not silently turn into a resize.
+pub(super) fn centered_transient_geometry(
+    size: Size<i32, Logical>,
+    parent: Rectangle<i32, Logical>,
+    output: Rectangle<i32, Logical>,
+) -> Rectangle<i32, Logical> {
+    let centered = Rectangle::new(
+        Point::from((
+            parent
+                .loc
+                .x
+                .saturating_add(parent.size.w.saturating_sub(size.w) / 2),
+            parent
+                .loc
+                .y
+                .saturating_add(parent.size.h.saturating_sub(size.h) / 2),
+        )),
+        size,
+    );
+    clamp_window_geometry(centered, output)
+}
+
 pub(super) fn migrate_window_geometry(
     geometry: Rectangle<i32, Logical>,
     old_outputs: &[(OutputId, Rectangle<i32, Logical>)],
@@ -655,5 +760,125 @@ fn output_transform(transform: OutputTransform) -> Transform {
         OutputTransform::Flipped90 => Transform::Flipped90,
         OutputTransform::Flipped180 => Transform::Flipped180,
         OutputTransform::Flipped270 => Transform::Flipped270,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transient_geometry_centers_over_parent() {
+        let output = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        let parent = Rectangle::new((100, 50).into(), (800, 600).into());
+
+        assert_eq!(
+            centered_transient_geometry((300, 200).into(), parent, output),
+            Rectangle::new((350, 250).into(), (300, 200).into()),
+        );
+    }
+
+    #[test]
+    fn transient_geometry_follows_parent_resize() {
+        let output = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        let resized_parent = Rectangle::new((100, 50).into(), (1200, 800).into());
+
+        assert_eq!(
+            centered_transient_geometry((300, 200).into(), resized_parent, output),
+            Rectangle::new((550, 350).into(), (300, 200).into()),
+        );
+    }
+
+    #[test]
+    fn transient_geometry_stays_on_parent_output() {
+        let output = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        let parent = Rectangle::new((1800, 900).into(), (400, 300).into());
+
+        assert_eq!(
+            centered_transient_geometry((500, 400).into(), parent, output),
+            Rectangle::new((1420, 680).into(), (500, 400).into()),
+        );
+    }
+
+    #[test]
+    fn oversized_transient_keeps_client_size() {
+        let output = Rectangle::new((100, 200).into(), (1920, 1080).into());
+        let parent = Rectangle::new((400, 500).into(), (800, 600).into());
+
+        assert_eq!(
+            centered_transient_geometry((2200, 1200).into(), parent, output),
+            Rectangle::new((100, 200).into(), (2200, 1200).into()),
+        );
+    }
+
+    #[test]
+    fn output_geometry_changes_preserve_layout_membership() {
+        let before = [
+            (
+                OutputId(1),
+                Rectangle::new((0, 0).into(), (1920, 1080).into()),
+            ),
+            (
+                OutputId(2),
+                Rectangle::new((1920, 0).into(), (2560, 1440).into()),
+            ),
+        ];
+        let rotated = [
+            (
+                OutputId(1),
+                Rectangle::new((0, 0).into(), (1080, 1920).into()),
+            ),
+            (
+                OutputId(2),
+                Rectangle::new((1080, 0).into(), (2560, 1440).into()),
+            ),
+        ];
+
+        assert!(!output_membership_changed(&before, &rotated));
+    }
+
+    #[test]
+    fn output_replacement_changes_layout_membership() {
+        let before = [(
+            OutputId(1),
+            Rectangle::new((0, 0).into(), (1920, 1080).into()),
+        )];
+        let replaced = [(
+            OutputId(2),
+            Rectangle::new((0, 0).into(), (1920, 1080).into()),
+        )];
+
+        assert!(output_membership_changed(&before, &replaced));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn retired_outputs_select_every_non_minimized_workspace_window() {
+        use std::collections::HashSet;
+
+        use super::super::window_registry::{WindowId, WindowRegistry};
+        use super::super::workspace::WorkspaceLocation;
+
+        let mut registry = WindowRegistry::default();
+        registry.ensure(WindowId::new(30)).workspace = Some(WorkspaceLocation {
+            output: OutputId(2),
+            workspace: 3,
+        });
+        registry.ensure(WindowId::new(10)).workspace = Some(WorkspaceLocation {
+            output: OutputId(1),
+            workspace: 1,
+        });
+        registry.ensure(WindowId::new(20)).workspace = Some(WorkspaceLocation {
+            output: OutputId(2),
+            workspace: 1,
+        });
+        let minimized = registry.ensure(WindowId::new(40));
+        minimized.minimized = true;
+        minimized.minimized_output = Some(OutputId(2));
+
+        assert_eq!(
+            windows_on_retired_outputs(&registry, &HashSet::from([OutputId(1)])),
+            vec![20, 30],
+        );
     }
 }

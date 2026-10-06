@@ -412,16 +412,6 @@ impl InputQueue {
         }
     }
 
-    pub fn handle_keyboard(
-        &mut self,
-        key: KeysymHandle<'_>,
-        state: KeyState,
-        modifiers: &ModifiersState,
-    ) {
-        let unicode = key.modified_sym().key_char().map(u32::from).unwrap_or(0);
-        self.handle_keyboard_with_unicode(key.raw_code().raw(), state, modifiers, unicode);
-    }
-
     pub fn handle_keyboard_with_unicode(
         &mut self,
         xkb_keycode: u32,

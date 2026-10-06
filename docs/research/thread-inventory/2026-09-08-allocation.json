@@ -1,0 +1,1500 @@
+{
+  "pid": 1068,
+  "boot_id": "ecbda8eb-af2e-49ae-952c-437c8efbae34",
+  "compositor_sha256": "e6ad915bb93e782a1d0aa326ae47755723cef1973690ccfeb39483cbceb521ba",
+  "verified": true,
+  "snapshots": [
+    {
+      "time_utc": "2026-09-08T11:18:59.759985+00:00",
+      "threads": [
+        {
+          "tid": 1068,
+          "name": "deniald",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1076,
+          "name": "denial-portal-i",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1078,
+          "name": "async-io",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1079,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1080,
+          "name": "denial-priority",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1082,
+          "name": "deniald:zfq0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1083,
+          "name": "denial:traceq0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 3,
+          "nice": 19,
+          "util_min": 0
+        },
+        {
+          "tid": 1084,
+          "name": "deniald:disk$0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 3,
+          "nice": 19,
+          "util_min": 0
+        },
+        {
+          "tid": 1085,
+          "name": "deniald:zcq0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1086,
+          "name": "deniald:zcfq0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1087,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1088,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1089,
+          "name": "deniald:zcfq1",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1090,
+          "name": "deniald:zcfq2",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1091,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1092,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1093,
+          "name": "denial-screenco",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1094,
+          "name": "denial-control",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1095,
+          "name": "denial-authenti",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1096,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1097,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1098,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1099,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1100,
+          "name": "deniald:zcfq3",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1119,
+          "name": "denial-audio",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1120,
+          "name": "denial-brightne",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1121,
+          "name": "denial-session-",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1122,
+          "name": "denial-notifica",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1127,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1128,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1129,
+          "name": "denial-orientat",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1131,
+          "name": "denial-screensh",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1173,
+          "name": "deniald",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1174,
+          "name": "denial-xembed-t",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1176,
+          "name": "Shm dropping th",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1237,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1238,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1239,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1240,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1241,
+          "name": "io.flutter.ui",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1242,
+          "name": "io.flutter.rast",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1243,
+          "name": "io.flutter.io",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1244,
+          "name": "io.worker.1",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1245,
+          "name": "io.worker.2",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1246,
+          "name": "io.worker.3",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1247,
+          "name": "io.worker.4",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1248,
+          "name": "dart:io EventHa",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1250,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1252,
+          "name": "volition-kms",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1268,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 3250,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 3502,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 3527,
+          "name": "Dart Profiler T",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        }
+      ],
+      "counts": {
+        "big": 37,
+        "little": 16
+      },
+      "descendants": [
+        {
+          "pid": 1075,
+          "name": "(sd-pam)",
+          "masks": [
+            [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          ]
+        },
+        {
+          "pid": 1081,
+          "name": "Xwayland",
+          "masks": [
+            [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "time_utc": "2026-09-08T11:19:02.827615+00:00",
+      "threads": [
+        {
+          "tid": 1068,
+          "name": "deniald",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1076,
+          "name": "denial-portal-i",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1078,
+          "name": "async-io",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1079,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1080,
+          "name": "denial-priority",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1082,
+          "name": "deniald:zfq0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1083,
+          "name": "denial:traceq0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 3,
+          "nice": 19,
+          "util_min": 0
+        },
+        {
+          "tid": 1084,
+          "name": "deniald:disk$0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 3,
+          "nice": 19,
+          "util_min": 0
+        },
+        {
+          "tid": 1085,
+          "name": "deniald:zcq0",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1086,
+          "name": "deniald:zcfq0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1087,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1088,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1089,
+          "name": "deniald:zcfq1",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1090,
+          "name": "deniald:zcfq2",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1091,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1092,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1093,
+          "name": "denial-screenco",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1094,
+          "name": "denial-control",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1095,
+          "name": "denial-authenti",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1096,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1097,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1098,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1099,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1100,
+          "name": "deniald:zcfq3",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1119,
+          "name": "denial-audio",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1120,
+          "name": "denial-brightne",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1121,
+          "name": "denial-session-",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1122,
+          "name": "denial-notifica",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1127,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1128,
+          "name": "zbus::Connectio",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1129,
+          "name": "denial-orientat",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1131,
+          "name": "denial-screensh",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1173,
+          "name": "deniald",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1174,
+          "name": "denial-xembed-t",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1176,
+          "name": "Shm dropping th",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1237,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1238,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1239,
+          "name": "deniald:gdrv0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1240,
+          "name": "deniald:gl0",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1241,
+          "name": "io.flutter.ui",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1242,
+          "name": "io.flutter.rast",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 512
+        },
+        {
+          "tid": 1243,
+          "name": "io.flutter.io",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1244,
+          "name": "io.worker.1",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1245,
+          "name": "io.worker.2",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1246,
+          "name": "io.worker.3",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1247,
+          "name": "io.worker.4",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1248,
+          "name": "dart:io EventHa",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1250,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1252,
+          "name": "volition-kms",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 2,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 1268,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 3250,
+          "name": "DartWorker",
+          "cpus": [
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        },
+        {
+          "tid": 3527,
+          "name": "Dart Profiler T",
+          "cpus": [
+            0,
+            1,
+            2
+          ],
+          "policy": 0,
+          "nice": 0,
+          "util_min": 0
+        }
+      ],
+      "counts": {
+        "big": 36,
+        "little": 16
+      },
+      "descendants": [
+        {
+          "pid": 1075,
+          "name": "(sd-pam)",
+          "masks": [
+            [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          ]
+        },
+        {
+          "pid": 1081,
+          "name": "Xwayland",
+          "masks": [
+            [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

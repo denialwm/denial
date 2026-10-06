@@ -33,6 +33,7 @@ class DenialWindowPlacementEvent extends DenialWindowEvent {
 enum DenialWindowAction {
   minimize,
   maximize,
+  fullscreen,
   restore,
   toggleMaximize,
   toggleFullscreen,

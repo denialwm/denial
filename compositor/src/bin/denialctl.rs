@@ -22,9 +22,6 @@ const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(25);
 const MODE_SWITCH_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(75);
-const SYSTEM_UI_SOURCE_TEMPLATE: &str = "/usr/share/denial/ui-development/workspace";
-const SYSTEM_UI_TOOL: &str = "/usr/bin/denial-ui";
-const SYSTEM_GIT: &str = "/usr/bin/git";
 const DENIAL_GIT_REMOTE: &str = "https://github.com/denialwm/denial.git";
 const UI_SOURCE_MARKER: &str = ".denial-ui-source.json";
 const MAX_SOURCE_MARKER_BYTES: usize = 64 * 1024;
@@ -32,12 +29,76 @@ const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn main() -> ExitCode {
+    if let Err(error) = denial_core::cpu_affinity::restore_tool_affinity() {
+        eprintln!("denialctl: could not restore application CPU affinity: {error}");
+        return ExitCode::FAILURE;
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("denialctl: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn installed_path(relative: &str) -> PathBuf {
+    env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(|executable| installed_path_from(executable, relative))
+        .unwrap_or_else(|| PathBuf::from(relative))
+}
+
+fn installed_sibling(name: &str) -> PathBuf {
+    env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(|bin| bin.join(name)))
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
+fn installed_path_from(executable: &Path, relative: &str) -> Option<PathBuf> {
+    let bin = executable.parent()?;
+    let prefix = bin.parent()?;
+    Some(prefix.join(relative))
+}
+
+fn executable_on_path(name: &str) -> Option<PathBuf> {
+    env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| env::split_paths(&path).collect::<Vec<_>>())
+        .map(|directory| directory.join(name))
+        .find_map(|candidate| {
+            let metadata = fs::metadata(&candidate).ok()?;
+            if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+                fs::canonicalize(candidate).ok()
+            } else {
+                None
+            }
+        })
+}
+
+#[cfg(test)]
+mod installed_path_tests {
+    use super::*;
+
+    #[test]
+    fn derives_resources_from_the_executable_prefix() {
+        let executable = Path::new("/nix/store/denial/bin/denialctl");
+        assert_eq!(
+            installed_path_from(executable, "share/denial/ui-development/workspace"),
+            Some(PathBuf::from(
+                "/nix/store/denial/share/denial/ui-development/workspace"
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_an_executable_without_an_install_prefix() {
+        assert_eq!(
+            installed_path_from(Path::new("denialctl"), "share/denial"),
+            None
+        );
     }
 }
 
@@ -302,14 +363,15 @@ fn setup_ui_workspace(
     let template = env::var_os("DENIAL_UI_SOURCE_TEMPLATE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(SYSTEM_UI_SOURCE_TEMPLATE));
+        .unwrap_or_else(|| installed_path("share/denial/ui-development/workspace"));
     let remote = env::var_os("DENIAL_UI_SOURCE_REMOTE")
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| OsString::from(DENIAL_GIT_REMOTE));
     let git = env::var_os("DENIAL_UI_GIT")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(SYSTEM_GIT));
+        .or_else(|| executable_on_path("git"))
+        .unwrap_or_else(|| PathBuf::from("git"));
     let destination = resolve_setup_destination(destination)?;
     let (workspace, created) = materialize_ui_source(&template, &git, &remote, &destination)?;
 
@@ -784,10 +846,11 @@ fn copy_source_tree(source: &Path, destination: &Path) -> Result<(), CliError> {
 }
 
 fn prepare_ui_workspace(workspace: &Path, capture_output: bool) -> Result<(), CliError> {
-    let tool = env::var_os("DENIAL_UI_TOOL")
+    let tool = env::var_os("DENIAL_DEVELOPMENT_TOOL")
         .filter(|value| !value.is_empty())
+        .or_else(|| env::var_os("DENIAL_UI_TOOL").filter(|value| !value.is_empty()))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(SYSTEM_UI_TOOL));
+        .unwrap_or_else(|| installed_sibling("denial-ui"));
     let metadata = fs::symlink_metadata(&tool).map_err(|error| {
         CliError::new(format!(
             "Denial UI development tool is unavailable at {}: {error}; install denial-ui-development",

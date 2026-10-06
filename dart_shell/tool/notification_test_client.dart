@@ -22,6 +22,8 @@ Future<void> main(List<String> arguments) async {
         await client.printServerInformation();
       case 'basic':
         await client.sendBasic();
+      case 'battery':
+        await client.sendBattery(_batteryCapacity(arguments));
       case 'stack':
         await client.sendStack();
       case 'markup':
@@ -80,6 +82,7 @@ Usage: tools/notification-test-client COMMAND [OPTION]
 Commands:
   info                 Print server identity and capabilities
   basic                Send a plain notification
+  battery [PERCENT]    Send a Denial low-battery warning (default: 15)
   stack                Send three staggered, expiring notifications
   markup               Send body markup and a themed icon
   urgency              Send low, normal, and critical notifications
@@ -214,6 +217,24 @@ class NotificationTestClient {
           'urgency': DBusByte(1),
           'category': DBusString('device'),
           'desktop-entry': DBusString('denial-notification-test'),
+        },
+      ),
+    );
+  }
+
+  Future<int> sendBattery(int capacity) {
+    final critical = capacity <= 10;
+    return notify(
+      NotificationRequest(
+        appName: 'Denial',
+        summary: critical ? 'Critical battery' : 'Low battery',
+        body: 'Battery is at $capacity%. Connect a charger.',
+        appIcon: 'battery-caution-symbolic',
+        expireTimeoutMs: critical ? 0 : 8000,
+        hints: <String, DBusValue>{
+          'urgency': DBusByte(critical ? 2 : 1),
+          'category': const DBusString('device.battery'),
+          'desktop-entry': const DBusString('denial'),
         },
       ),
     );
@@ -446,6 +467,7 @@ class NotificationTestClient {
     await printServerInformation();
     stdout.writeln();
     await sendBasic();
+    await sendBattery(15);
     await sendMarkup();
     await sendUrgencies();
     await sendImage();
@@ -529,6 +551,20 @@ class NotificationTestClient {
       await closeSubscription.cancel();
     }
   }
+}
+
+int _batteryCapacity(List<String> arguments) {
+  if (arguments.length > 2) {
+    throw const FormatException('battery accepts at most one percentage');
+  }
+  if (arguments.length == 1) {
+    return 15;
+  }
+  final capacity = int.tryParse(arguments[1]);
+  if (capacity == null || capacity < 0 || capacity > 100) {
+    throw FormatException('invalid battery percentage: ${arguments[1]}');
+  }
+  return capacity;
 }
 
 class NotificationRequest {

@@ -46,7 +46,7 @@ class ShellController extends Notifier<ShellState>
     _authentication = ref.watch(authenticationProvider.notifier);
     final startLocked = ref
         .watch(startupEnvironmentProvider)
-        .flag('DENIA_START_LOCKED');
+        .flag('DENIAL_START_LOCKED');
     _resetBuildFields();
     _automaticSoftwareKeyboard =
         ref.read(shellProfileProvider) == ShellProfile.mobile;
@@ -128,6 +128,8 @@ class ShellController extends Notifier<ShellState>
   bool _quickSettingsDragMoved = false;
   bool _edgePanelDragStartedOpen = false;
   bool _edgePanelDragMoved = false;
+  int? _edgePanelDismissalSerial;
+  DenialTextInputState? _lastTextInput;
   bool _refreshInProgress = false;
   bool _refreshQueued = false;
   bool _hasLoadedWindowSnapshot = false;
@@ -141,6 +143,8 @@ class ShellController extends Notifier<ShellState>
   StreamSubscription<DenialTextInputState>? _textInputStateSubscription;
 
   void _resetBuildFields() {
+    _lastTextInput = null;
+    _edgePanelDismissalSerial = null;
     _automaticSoftwareKeyboardCloseTimer?.cancel();
     _automaticSoftwareKeyboardCloseTimer = null;
     unawaited(_textInputStateSubscription?.cancel());
@@ -164,6 +168,7 @@ class ShellController extends Notifier<ShellState>
   }
 
   void _handleTextInputState(DenialTextInputState input) {
+    _lastTextInput = input;
     if (!_automaticSoftwareKeyboard) {
       return;
     }
@@ -297,7 +302,10 @@ class ShellController extends Notifier<ShellState>
       do {
         _refreshQueued = false;
         try {
-          final snapshot = await _bridge.listWindows(state.windows);
+          final snapshot = await _bridge.listWindows(<DenialWindow>[
+            ...state.windows,
+            ...state.layerSurfaces,
+          ]);
           if (!isBuildGenerationActive(generation)) {
             return;
           }
@@ -322,9 +330,15 @@ class ShellController extends Notifier<ShellState>
       return;
     }
 
-    final windows = snapshot.windows;
+    final windows = snapshot.windows
+        .where((window) => !window.isLayerShell)
+        .toList(growable: false);
+    final layerSurfaces = snapshot.windows
+        .where((window) => window.isLayerShell)
+        .toList(growable: false);
     if (_hasLoadedWindowSnapshot &&
-        _sameWindowSnapshots(state.windows, windows)) {
+        _sameWindowSnapshots(state.windows, windows) &&
+        _sameWindowSnapshots(state.layerSurfaces, layerSurfaces)) {
       if (snapshot.sequence > state.windowSnapshotSequence) {
         state = state.copyWith(windowSnapshotSequence: snapshot.sequence);
       }
@@ -333,6 +347,7 @@ class ShellController extends Notifier<ShellState>
 
     _hasLoadedWindowSnapshot = true;
     final stableWindows = List<DenialWindow>.unmodifiable(windows);
+    final stableLayerSurfaces = List<DenialWindow>.unmodifiable(layerSurfaces);
     final request = state.launchRequest;
     final launchWindow = request == null
         ? null
@@ -345,6 +360,7 @@ class ShellController extends Notifier<ShellState>
       _gestureAxis = _GestureAxis.undecided;
       state = state.copyWith(
         windows: stableWindows,
+        layerSurfaces: stableLayerSurfaces,
         windowSnapshotSequence: snapshot.sequence,
         overviewVisible: false,
         gestureDrag: Offset.zero,
@@ -372,6 +388,7 @@ class ShellController extends Notifier<ShellState>
 
     state = state.copyWith(
       windows: stableWindows,
+      layerSurfaces: stableLayerSurfaces,
       windowSnapshotSequence: snapshot.sequence,
       clearForegroundObjectId: !foregroundStillVisible,
       clearLaunchingObjectId: !launchingStillVisible,
@@ -431,6 +448,7 @@ class ShellController extends Notifier<ShellState>
     required DenialWindow window,
     required String appName,
     required String? iconPath,
+    Rect? sourceRect,
   }) {
     if (!window.isUserApp) {
       return null;
@@ -440,6 +458,7 @@ class ShellController extends Notifier<ShellState>
       iconPath: iconPath,
       expectedAppIds: <String>[window.appId],
       targetWindow: window,
+      sourceRect: sourceRect,
     );
   }
 
@@ -448,6 +467,7 @@ class ShellController extends Notifier<ShellState>
     required String? iconPath,
     required Iterable<String> expectedAppIds,
     DenialWindow? targetWindow,
+    Rect? sourceRect,
   }) {
     if (state.lockLayerVisible || state.launchRequest != null) {
       return null;
@@ -461,6 +481,7 @@ class ShellController extends Notifier<ShellState>
       expectedAppIds: expectedAppIds,
       existingObjectIds: state.openAppWindows.map((window) => window.objectId),
       targetObjectId: targetWindow?.objectId,
+      sourceRect: sourceRect,
     );
 
     _rawGestureDrag = Offset.zero;
@@ -517,6 +538,7 @@ class ShellController extends Notifier<ShellState>
       _gestureAxis = _GestureAxis.undecided;
       state = state.copyWith(
         overviewVisible: true,
+        homeTransitionActive: false,
         gestureDrag: Offset.zero,
         quickSettingsVisible: false,
         quickSettingsDrag: Offset.zero,
@@ -634,6 +656,7 @@ class ShellController extends Notifier<ShellState>
     _gestureAxis = _GestureAxis.undecided;
     state = state.copyWith(
       foregroundObjectId: window.objectId,
+      homeTransitionActive: false,
       overviewVisible: false,
       gestureDrag: Offset.zero,
       quickSettingsVisible: false,
@@ -646,6 +669,12 @@ class ShellController extends Notifier<ShellState>
   }
 
   void _handleNativeWindowActivated(int windowId) {
+    // Closing the native focused window can activate its neighbor. Recents
+    // keeps ownership of presentation until the user selects a card or leaves;
+    // an automatic focus fallback must not interrupt the removal reflow.
+    if (state.overviewVisible) {
+      return;
+    }
     for (final window in state.windows) {
       if (window.windowId == windowId && window.isUserApp) {
         final appId = AppLaunchRequest.normalizeAppId(window.appId);
@@ -773,13 +802,21 @@ class ShellController extends Notifier<ShellState>
     );
   }
 
-  void startQuickSettingsDrag() {
-    _quickSettingsDragStartedOpen =
-        state.quickSettingsVisible || state.quickSettingsDragProgress >= 1.0;
+  void startQuickSettingsDrag({double? progress}) {
+    // A drag can interrupt the settling spring. Continue from the painted
+    // position supplied by the shade rather than jumping to its target state.
+    final initialProgress = (progress ?? state.quickSettingsDragProgress).clamp(
+      0.0,
+      1.0,
+    );
+    _quickSettingsDragStartedOpen = initialProgress >= 1.0;
     _quickSettingsDragMoved = false;
     state = state.copyWith(
-      quickSettingsDrag: Offset.zero,
-      quickSettingsVisible: state.quickSettingsVisible,
+      quickSettingsDrag: Offset(
+        0,
+        initialProgress * ShellMetrics.quickSettingsDragDistance,
+      ),
+      quickSettingsVisible: false,
       quickSettingsDragActive: true,
     );
   }
@@ -884,6 +921,9 @@ class ShellController extends Notifier<ShellState>
   }
 
   void startEdgePanelDrag() {
+    _edgePanelDismissalSerial = _lastTextInput?.active == true
+        ? _lastTextInput!.activationSerial
+        : null;
     _edgePanelDragStartedOpen =
         state.edgePanelVisible || state.edgePanelDragProgress >= 1.0;
     _edgePanelDragMoved = false;
@@ -933,6 +973,14 @@ class ShellController extends Notifier<ShellState>
         ((_edgePanelDragStartedOpen && !_edgePanelDragMoved) ||
             drag >= ShellMetrics.edgePanelOpenDistance ||
             flickOpen);
+    // Only a completed user dismissal sends feedback. Automatic hides and
+    // animation frames must not ask the application to dismiss another editor.
+    if (!shouldOpen &&
+        _edgePanelDragStartedOpen &&
+        _edgePanelDismissalSerial != null) {
+      _bridge.dismissKeyboardPanel(_edgePanelDismissalSerial!);
+    }
+    _edgePanelDismissalSerial = null;
     _edgePanelDragStartedOpen = false;
     _edgePanelDragMoved = false;
     if (shouldOpen) {

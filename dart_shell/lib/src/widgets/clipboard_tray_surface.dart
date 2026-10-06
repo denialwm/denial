@@ -34,6 +34,7 @@ class _ClipboardTraySurface extends ConsumerWidget {
 
     return RepaintBoundary(
       child: ShellBackdropBlur(
+        separateChild: true,
         blur: shellTheme.effectivePanelOpacity < 1.0,
         borderRadius: radius,
         child: Material(

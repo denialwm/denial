@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[cfg(feature = "flutter")]
+fn finish_cursor_state(
+    mut state: CursorStateDescription,
+    mut unused_layers: Vec<SurfaceLayerDescription>,
+) -> CursorStateDescription {
+    if state.kind != CursorStateKind::Surface {
+        // Named and hidden cursors borrow this allocation only as scratch. A
+        // surface cursor may have been reclassified after traversal, so never
+        // let its discarded layers become a named-cursor payload.
+        unused_layers.clear();
+        state.surfaces = unused_layers;
+    }
+    state
+}
+
 impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub(super) fn update_cursor_image(&mut self, image: CursorImageStatus) {
@@ -20,7 +35,7 @@ impl WaylandFrontend {
         if self.pointer_cursor_visible
             && matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_))
         {
-            self.queue_cursor_publication(self.resolved_client_cursor_publication());
+            self.queue_cursor_image_publication();
             self.update_cursor_output_membership();
         }
     }
@@ -29,8 +44,24 @@ impl WaylandFrontend {
     pub(super) fn update_tablet_cursor_image(&mut self, image: CursorImageStatus) {
         self.cursor_status = image;
         if self.pointer_cursor_visible {
-            self.queue_cursor_publication(self.resolved_client_cursor_publication());
+            self.queue_cursor_image_publication();
             self.update_cursor_output_membership();
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    fn queue_cursor_image_publication(&mut self) {
+        let publication = self.resolved_client_cursor_publication();
+        if matches!(publication, CursorPublication::Surface(_)) {
+            // Xwayland reuses one wl_surface for successive X cursors. Its
+            // wl_pointer.set_cursor requests can therefore change the role's
+            // hotspot without changing surface identity. Force the complete
+            // description across the bridge so Dart never anchors a new
+            // cursor buffer with the preceding cursor's hotspot.
+            self.published_cursor_state = None;
+            self.pending_cursor_state = Some(publication);
+        } else {
+            self.queue_cursor_publication(publication);
         }
     }
 
@@ -79,6 +110,22 @@ impl WaylandFrontend {
                 RoutedPointerTarget::Client(_) => Some(self.resolved_client_cursor_publication()),
             }
         };
+        self.update_cursor_output_membership();
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(crate) fn set_compositor_pointer_grab_active(&mut self, active: bool) {
+        if self.compositor_pointer_grab_active == active {
+            return;
+        }
+        self.compositor_pointer_grab_active = active;
+        if !self.pointer_cursor_visible
+            || !matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_))
+        {
+            return;
+        }
+        self.published_cursor_state = None;
+        self.pending_cursor_state = Some(self.resolved_client_cursor_publication());
         self.update_cursor_output_membership();
     }
 
@@ -158,21 +205,44 @@ impl WaylandFrontend {
                     &mut layers,
                     &mut textures,
                 );
-                CursorStateDescription {
-                    epoch: 0,
-                    kind: CursorStateKind::Surface,
-                    shape: String::new(),
-                    hotspot_x: f64::from(hotspot.x),
-                    hotspot_y: f64::from(hotspot.y),
-                    surfaces: std::mem::take(&mut layers),
+                if let Some(cursor_override) = self.xwayland_cursor_override(&surface) {
+                    // Xwayland calls wl_pointer.set_cursor before attaching
+                    // and committing the replacement buffer. It also reuses
+                    // this surface for later application cursors, so the
+                    // final composed layer is the first authoritative place
+                    // to classify the buffer selected by that request.
+                    textures.clear();
+                    let publication = match cursor_override {
+                        crate::xcursor_sentinel::CursorOverride::Hidden => {
+                            CursorPublication::Hidden
+                        }
+                        crate::xcursor_sentinel::CursorOverride::Named(shape) => {
+                            CursorPublication::Named(shape)
+                        }
+                    };
+                    self.published_cursor_state = Some(publication.clone());
+                    match publication {
+                        CursorPublication::Hidden => CursorStateDescription::hidden(),
+                        CursorPublication::Named(shape) => CursorStateDescription::named(shape),
+                        CursorPublication::Surface(_) => {
+                            unreachable!("cursor override is semantic")
+                        }
+                    }
+                } else {
+                    CursorStateDescription {
+                        epoch: 0,
+                        kind: CursorStateKind::Surface,
+                        shape: String::new(),
+                        hotspot_x: f64::from(hotspot.x),
+                        hotspot_y: f64::from(hotspot.y),
+                        surfaces: std::mem::take(&mut layers),
+                    }
                 }
             }
         };
         self.pending_cursor_metadata = false;
         self.pending_cursor_buffer_surface_ids.clear();
-        if state.kind != CursorStateKind::Surface {
-            state.surfaces = layers;
-        }
+        state = finish_cursor_state(state, layers);
         (state, textures)
     }
 
@@ -200,12 +270,15 @@ impl WaylandFrontend {
         textures.clear();
         for surface_id in &surface_ids {
             let Some(frame) = self.external_texture_frame(*surface_id, true) else {
-                self.pending_cursor_metadata = true;
-                if let CursorImageStatus::Surface(surface) = &self.cursor_status {
-                    self.published_cursor_state = None;
-                    self.pending_cursor_state = Some(CursorPublication::Surface(surface.clone()));
+                let publication = self.resolved_client_cursor_publication();
+                self.pending_cursor_metadata = matches!(publication, CursorPublication::Surface(_));
+                self.published_cursor_state = None;
+                self.pending_cursor_state = Some(publication);
+                if self.pending_cursor_metadata {
+                    self.pending_cursor_buffer_surface_ids = surface_ids;
+                } else {
+                    self.pending_cursor_buffer_surface_ids.clear();
                 }
-                self.pending_cursor_buffer_surface_ids = surface_ids;
                 self.cursor_state_textures_scratch = textures;
                 return None;
             };
@@ -229,18 +302,23 @@ impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub(super) fn record_cursor_surface_commits(
         &mut self,
-        root: &WlSurface,
+        _root: &WlSurface,
         commits: PublishedSurfaceCommits,
     ) {
         let PublishedSurfaceCommits {
             metadata_changed,
             mut buffer_surface_ids,
         } = commits;
-        if metadata_changed {
-            self.pending_cursor_metadata = true;
+        let publication = self.resolved_client_cursor_publication();
+        let publication_changed = self.published_cursor_state.as_ref() != Some(&publication);
+        if metadata_changed
+            || publication_changed
+            || !matches!(publication, CursorPublication::Surface(_))
+        {
+            self.pending_cursor_metadata = matches!(publication, CursorPublication::Surface(_));
             self.pending_cursor_buffer_surface_ids.clear();
             self.published_cursor_state = None;
-            self.pending_cursor_state = Some(CursorPublication::Surface(root.clone()));
+            self.pending_cursor_state = Some(publication);
             self.cursor_output = None;
             self.cursor_output_scale = None;
             self.update_cursor_output_membership();
@@ -318,7 +396,7 @@ impl WaylandFrontend {
         match resolved_client_cursor_intent(
             intent,
             self.settings.allow_client_cursor_surfaces(),
-            self.clipboard_drag_active,
+            self.clipboard_drag_active || self.compositor_pointer_grab_active,
         ) {
             ClientCursorIntent::Hidden => CursorPublication::Hidden,
             ClientCursorIntent::Named(shape) => CursorPublication::Named(shape),
@@ -326,15 +404,53 @@ impl WaylandFrontend {
                 let CursorImageStatus::Surface(surface) = &self.cursor_status else {
                     unreachable!("surface cursor intent must retain its wl_surface")
                 };
-                CursorPublication::Surface(surface.clone())
+                if let Some(cursor_override) = self.xwayland_cursor_override(surface) {
+                    match cursor_override {
+                        crate::xcursor_sentinel::CursorOverride::Hidden => {
+                            CursorPublication::Hidden
+                        }
+                        crate::xcursor_sentinel::CursorOverride::Named(shape) => {
+                            CursorPublication::Named(shape)
+                        }
+                    }
+                } else {
+                    CursorPublication::Surface(surface.clone())
+                }
             }
         }
+    }
+
+    #[cfg(feature = "flutter")]
+    fn xwayland_cursor_override(
+        &self,
+        surface: &WlSurface,
+    ) -> Option<crate::xcursor_sentinel::CursorOverride> {
+        if !self.is_xwayland_cursor_surface(surface) {
+            return None;
+        }
+        let frame = self.surface_shm_frames.get(&surface.id())?;
+        if frame.is_fully_transparent() {
+            return Some(crate::xcursor_sentinel::CursorOverride::Hidden);
+        }
+        if !crate::xcursor_sentinel::is_active() {
+            return None;
+        }
+        let pixel = frame.pixels_if_single()?;
+        crate::xcursor_sentinel::override_for_marker(frame.width(), frame.height(), &pixel)
+    }
+
+    #[cfg(feature = "flutter")]
+    fn is_xwayland_cursor_surface(&self, surface: &WlSurface) -> bool {
+        surface
+            .client()
+            .is_some_and(|client| xwayland::is_client(&client))
     }
 
     #[cfg(feature = "flutter")]
     pub(super) fn active_cursor_root_for(&self, surface: &WlSurface) -> Option<WlSurface> {
         if !self.pointer_cursor_visible
             || self.clipboard_drag_active
+            || self.compositor_pointer_grab_active
             || !self.settings.allow_client_cursor_surfaces()
             || !matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_))
         {
@@ -439,7 +555,45 @@ impl WaylandFrontend {
         &self.socket_name
     }
 
-    pub fn xdisplay_name(&self) -> OsString {
-        OsString::from(format!(":{}", self.xdisplay))
+    pub fn xdisplay_name(&self) -> Option<OsString> {
+        self.xwayland.display_name()
+    }
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod tests {
+    use super::*;
+    use crate::wire;
+
+    #[test]
+    fn reclassified_named_cursor_drops_traversed_surface_layers() {
+        let layer = SurfaceLayerDescription {
+            surface_id: 1,
+            parent_surface_id: 0,
+            popup_root_surface_id: 0,
+            role: SurfaceRoleDescription::Root,
+            texture_id: 1,
+            width: 1,
+            height: 1,
+            surface_x: 0.0,
+            surface_y: 0.0,
+            surface_width: 1.0,
+            surface_height: 1.0,
+            texture_source_x: 0.0,
+            texture_source_y: 0.0,
+            texture_source_width: 1.0,
+            texture_source_height: 1.0,
+            transform: 0,
+            scale_120: 120,
+            composition_order: 0,
+            opacity: 1.0,
+            opaque: false,
+        };
+
+        let state = finish_cursor_state(CursorStateDescription::named("pointer"), vec![layer]);
+
+        assert_eq!(state.kind, CursorStateKind::Named);
+        assert!(state.surfaces.is_empty());
+        assert!(wire::validate_cursor_state(&CursorStateDescription { epoch: 1, ..state }).is_ok());
     }
 }

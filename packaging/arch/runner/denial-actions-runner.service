@@ -35,7 +35,9 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectProc=invisible
-RestrictSUIDSGID=yes
+# Bubblewrap 0.12 cannot construct its namespace beneath systemd's
+# RestrictSUIDSGID seccomp filter. NoNewPrivileges and the empty capability
+# sets above already prevent set-ID elevation by the unprivileged runner.
 RestrictRealtime=yes
 # Bubblewrap uses NETLINK_ROUTE only to initialize the private network
 # namespace requested by --unshare-net. The runner still has no capabilities.

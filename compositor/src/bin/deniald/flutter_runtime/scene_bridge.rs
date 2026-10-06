@@ -2,6 +2,10 @@
 
 use super::*;
 
+fn accept_scene_texture_identifier(texture_id: i64, desired: &mut HashSet<i64>) -> bool {
+    texture_id > 0 && desired.insert(texture_id)
+}
+
 impl FlutterRuntime {
     pub fn sync_wayland_scene(
         &mut self,
@@ -11,15 +15,34 @@ impl FlutterRuntime {
         restored_window_ids: &BTreeSet<u64>,
     ) -> Result<SyncedWaylandScene, Box<dyn Error>> {
         self.rebuild_texture_output_membership(&windows);
-        let cursor_ids = self.cursor_texture_ids.clone();
-        self.install_cursor_texture_membership(&cursor_ids);
+        self.reinstall_cursor_texture_membership();
         let mut desired = mem::take(&mut self.scene_texture_ids);
         desired.clear();
         desired.reserve(frames.len());
-        for frame in &frames {
-            if frame.texture_id <= 0 || !desired.insert(frame.texture_id) {
-                return Err("external texture identifiers must be unique and positive".into());
+        let supplied_frame_count = frames.len();
+        frames.retain(|frame| {
+            if !accept_scene_texture_identifier(frame.texture_id, &mut desired) {
+                if frame.texture_id <= 0 {
+                    warn!(
+                        texture_id = frame.texture_id,
+                        "discarded a Wayland scene frame with an invalid texture identifier"
+                    );
+                } else {
+                    warn!(
+                        texture_id = frame.texture_id,
+                        "discarded a duplicate Wayland scene texture frame"
+                    );
+                }
+                return false;
             }
+            true
+        });
+        if frames.len() != supplied_frame_count {
+            warn!(
+                supplied = supplied_frame_count,
+                accepted = frames.len(),
+                "recovered from invalid Wayland scene texture bookkeeping"
+            );
         }
 
         // Both work collections retain their capacity across client buffer
@@ -81,6 +104,7 @@ impl FlutterRuntime {
                 .difference(&desired)
                 .filter(|texture_id| {
                     self.screenshot_texture_id != Some(**texture_id)
+                        && self.fingerprint_scene.texture != Some(**texture_id)
                         && !self.retains_cursor_texture(**texture_id)
                         && !self
                             .window_close_texture_leases
@@ -139,5 +163,22 @@ impl FlutterRuntime {
 
     pub fn synced_window_ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.wire.window_ids()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scene_texture_identifiers_reject_non_positive_and_duplicate_values() {
+        let mut desired = HashSet::new();
+        assert!(!accept_scene_texture_identifier(-1, &mut desired));
+        assert!(!accept_scene_texture_identifier(0, &mut desired));
+        assert!(accept_scene_texture_identifier(37, &mut desired));
+        assert!(accept_scene_texture_identifier(39, &mut desired));
+        assert!(!accept_scene_texture_identifier(39, &mut desired));
+        assert!(accept_scene_texture_identifier(41, &mut desired));
+        assert_eq!(desired, HashSet::from([37, 39, 41]));
     }
 }

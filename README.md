@@ -5,85 +5,126 @@
   </picture>
 </h1>
 
-<p align="center"><strong>A Flutter-native Wayland compositor.</strong></p>
+<p align="center"><strong>A Wayland compositor. We got a little carried away.</strong></p>
 
-Denial begins with a belief: origin does not have to dictate purpose.
+<p align="center">
+  <a href="https://github.com/denialwm/denial/tags"><img alt="Latest tagged version" src="https://img.shields.io/github/v/tag/denialwm/denial?sort=semver&amp;style=flat-square&amp;label=version&amp;color=8b5cf6"></a>
+  <a href="https://github.com/denialwm/denial/actions/workflows/branch-validation.yml?query=branch%3Amain"><img alt="Main branch build status" src="https://img.shields.io/github/actions/workflow/status/denialwm/denial/branch-validation.yml?branch=main&amp;style=flat-square&amp;label=build"></a>
+  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square"></a>
+  <a href="https://sponsor.denialwm.org/en"><img alt="Sponsor Denial" src="https://img.shields.io/badge/%E2%99%A5-Sponsor-ea4aaa?style=flat-square"></a>
+</p>
 
-Flutter was created to build application interfaces. Here, it is given a
-different life. It owns the desktop scene itself: the shell, its motion, and
-the composition of Wayland applications. Flutter is not an overlay placed on
-top of another compositor. It is part of the compositor's foundation.
+<p align="center"><strong>English</strong> | <a href="README.zh-CN.md" lang="zh-CN">简体中文</a></p>
 
-That is the architecture. It is also the meaning of the name.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/poem-dark.svg">
+    <img src="assets/branding/poem.svg" width="540" alt="Let windows glide and catch the light; make every little detail right. No config files to steal your night, no beauty you must lose to might. We built the windows. You decide the view. The finishing touch was always you.">
+  </picture>
+</p>
 
-![The Denial desktop with its settings, system bar, terminal, clock, and audio visualizer](assets/screenshots/desktop.png)
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#edit-the-shell">Edit the shell</a> ·
+  <a href="docs/README.md">Documentation</a>
+</p>
 
-## Flutter at the compositor layer
+https://github.com/user-attachments/assets/2c7335bb-7363-46b1-8e3a-0d98c36c64b1
 
-A conventional Flutter desktop application receives a window from an existing
-compositor. Denial goes one layer deeper: `deniald` embeds the Flutter Engine
-directly through its native Embedder API, and the Dart shell runs AOT-compiled
-inside the compositor process. It is not a Wayland client and does not need
-another compositor beneath it.
+## Features
 
-Rust and Flutter have separate responsibilities:
+- Stacking, tiling, and scrolling tiling layouts.
+- Workspaces and touchpad gestures. Plenty of room for projects you'll
+  definitely finish someday.
+- Smooth animations and transitions.
+- Blur and customizable glass. Subtlety is available in Settings.
+- Light and dark themes. Pick an accent color or borrow one from your wallpaper.
+- Settings for layouts, displays, input, shortcuts, and appearance.
+  It's a desktop. You should be able to configure it with a mouse.
+- [Live shell editing and hot reload](#edit-the-shell).
+- Wayland apps, optional X11 support through Xwayland, multiple monitors, screenshots,
+  and screen sharing.
 
-- Rust, built on Smithay, owns Wayland protocol state, client buffers, input
-  devices, focus and grabs, output configuration, DRM/KMS presentation, and
-  native resource lifetimes.
-- Flutter owns the visible desktop policy: shell layout, windows, system
-  surfaces, settings, motion, gestures, and the regions that participate in
-  shell interaction.
+Hyprland and niri users are welcome. We won't tell.
 
-Wayland client buffers remain native resources. Denial imports their contents
-as external textures and places them in the same Flutter scene as the shell
-UI. Flutter renders that scene into a desktop-wide GBM atlas; each connected
-display scans its own region directly through KMS, without a second compositor
-pass over the completed frame.
+| Glass dashboard | Another mood |
+| --- | --- |
+| [![Denial desktop with a translucent dashboard and terminal visualizers](assets/screenshots/glass-dashboard.png)](assets/screenshots/glass-dashboard.png) | [![Denial desktop with a purple wallpaper, btop, app launcher, and audio visualizer](assets/screenshots/desktop-purple.png)](assets/screenshots/desktop-purple.png) |
+| **Launcher, up close** | **Wuthering Waves, with company** |
+| [![Glass application launcher over the desktop wallpaper](assets/screenshots/glass-launcher.png)](assets/screenshots/glass-launcher.png) | [![Wuthering Waves running with floating lava lamp and audio visualizer terminals](assets/screenshots/wuthering-waves.png)](assets/screenshots/wuthering-waves.png) |
 
-```text
-Wayland clients ──> Rust / Smithay ──> external textures ──> Flutter scene
-       input <──── native routing <──── shell hit regions <──────┘
-                                                               │
-Displays <────────────── DRM / KMS <────────────── shared GBM atlas
+## Support Denial
+
+There are easier hobbies than writing a compositor. Unfortunately, we like this one.
+
+If you like where Denial is going, help fund its development.
+
+**[Sponsor Denial](https://sponsor.denialwm.org/en)**
+
+## Install
+
+Denial is in **public beta**. It runs on Linux. Someone got it running on
+StarryOS's [starry-kernel](https://github.com/rcore-os/tgoskits/tree/dev/os/StarryOS/kernel)
+too. Apparently one kernel wasn't enough.
+Linux builds support **x86-64 and ARM64**.
+Configuration and developer interfaces may change before 1.0.
+
+First-party Linux binary packages are currently x86-64. For the distributions below,
+review the [repository setup script](install.sh), then add the signed repository:
+
+```sh
+curl -fsSL https://install.denialwm.org | sh
 ```
 
-### Impeller at desktop scale
+Setup shows its plan and asks for confirmation before using `sudo`. Once it
+finishes, install Denial with the command for your distribution:
 
-Denial renders with Flutter's **Impeller** backend by default. That sentence
-hides the interesting part: Impeller was designed to render an application
-inside a window, while Denial asks it to render the entire desktop into
-compositor-owned, rotating GBM framebuffers. Denial's locked Flutter fork
-integrates Impeller's GLES path directly with the shared KMS atlas, including
-exact embedder FBO presentation, no-target frame handling, preserved partial
-damage, native fences, and external-texture lifetime.
+| Distribution | Install |
+| --- | --- |
+| Arch Linux / CachyOS / Omarchy 4.0 | `sudo pacman -Syu denial` |
+| Debian 13 / Ubuntu 24.04 LTS | `sudo apt update && sudo apt install denial` |
+| Fedora 44 | `sudo dnf install denial` |
 
-This is not a Flutter app using Impeller inside another compositor. Impeller
-is part of the compositor's own frame path, from the Dart scene to scanout.
-Skia/Ganesh remains in the same engine generation as a compatibility fallback
-and can be selected explicitly with `--flutter-renderer skia` or the packaged
-`DENIA_FLUTTER_RENDERER=skia` session override.
+Alpine Linux 3.24 has [signed APK downloads](docs/INSTALL.md#alpine-linux-324).
+NixOS has a [first-party source flake and module](packaging/nixos/README.md).
+ARM64 builds are supported [from source](docs/BUILDING.md); Void Linux has also
+been tested, with no first-party binary yet. openSUSE Tumbleweed has a
+[native local RPM adapter](packaging/opensuse/README.md); publication is not
+connected yet.
 
-The native compositor, embedded Flutter shell, and standalone Flutter Settings
-client are built as separate runtime parts.
-The current shell lives in `dart_shell/` and is loaded with its AOT library,
-assets, ICU data, and pinned engine generation as one runtime bundle. Their
-platform bridge carries immutable scene state and bounded commands without
-giving Dart ownership of file descriptors, Wayland objects, EGL images, or
-KMS buffers.
+After installing, choose **Denial** from your display manager's session menu.
 
-Settings lives in `settings_app/` as a normal Wayland process and communicates
-with `deniald` over its versioned Unix control socket. Its rendering workload
-is isolated from the compositor's Flutter engine, while Rust remains the sole
-authority for persistent and hardware state.
+[Installation, updates, and removal](docs/INSTALL.md) ·
+[Session setup and renderer options](docs/SESSION_STARTUP.md)
 
-This bundle boundary is also the path toward alternative Flutter shells. The
-Flutter package now exposes a supported `package:denial_dart_shell/denial.dart`
-framework boundary: custom UI supplies feature scenes while Denial retains the
-compositor lifecycle, input, cursor, theme, localization, lock, and overlay
-plumbing. See [Custom Flutter shells](docs/CUSTOM_SHELLS.md). Activating an
-independently built bundle still depends on the compatibility and recovery
-work tracked by the live-development tooling.
+## Edit the shell
+
+The shell's UI is editable Flutter code. With the development tools installed,
+change a widget, save, and watch your desktop update while your Wayland apps
+keep running. Try to remember what you were supposed to be working on.
+
+The optional `denial-ui-development` package is available only through the
+Pacman repository:
+
+```sh
+sudo pacman -S denial-ui-development
+denialctl ui setup
+```
+
+Open the generated workspace's `dart_shell` directory in VSCodium for hot reload
+on save. If an edit goes wrong, `denialctl ui restore` gets you back to the
+packaged shell, even when Settings can't open.
+
+[Live development guide](docs/UI_DEVELOPMENT.md) ·
+[Custom shell framework](docs/CUSTOM_SHELLS.md)
+
+## Under the hood
+
+Rust and Smithay handle Wayland, input, and displays. Flutter draws the shell
+and application windows together. Yes, that Flutter. It got promoted.
+
+[Explore the architecture](docs/architecture.md) ·
+[Build from source](docs/BUILDING.md)
 
 ## Why Denial
 
@@ -100,159 +141,25 @@ a heart and gained the ability to choose what she would become.
 Her story reflects Denial's central idea: what something was made to be does
 not have to determine what it can become.
 
-## Project status
+## Made through dialogue
 
-Denial is a public beta in active development. The supported PC architectures
-are x86-64 and ARM64 (AArch64), and the native APIs, Flutter bundle contract,
-configuration, and wire protocol may still change before 1.0. The compositor
-already runs as a complete Wayland session with Xwayland, multi-output
-presentation, native input routing, direct screenshots, and portal-based
-screen sharing. Denial's appearance setting also drives one semantic light or
-dark shell theme and the standard desktop `color-scheme` and `accent-color`
-portal preferences, so portal-aware Wayland applications follow Denial's
-committed brightness and resolved custom or wallpaper-derived accent.
+Denial was conceived, architected, directed, and tested by Doctor Logix, and
+developed in continuous collaboration with OpenAI Codex. Its initial
+implementation was generated through that dialogue.
 
-## Supported architectures
+Doctor Logix made the design and technical decisions, tested the results on
+real hardware, and sent the work back when it wasn't right. Codex investigated
+problems, proposed solutions, and wrote the code.
 
-| Architecture | Working | Binaries available |
-| --- | :---: | :---: |
-| x86-64 | ✅ | ✅ |
-| ARM64 (AArch64) | ✅ | ❌ |
-
-ARM64 is fully supported, but first-party ARM64 binaries are not published
-yet. Build Denial from source with an architecture-matched Flutter engine and
-shell bundle; see the [build guide](docs/BUILDING.md).
-
-## Supported distros
-
-| Distro | Working | Binaries available |
-| --- | :---: | :---: |
-| Arch Linux | ✅ | ✅ |
-| CachyOS | ✅ | ✅ |
-| Omarchy 4.0 | ✅ | ✅ |
-| Debian 13 (trixie) | ✅ | ✅ |
-| Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
-| Fedora 44 | ✅ | ✅ |
-| Alpine Linux 3.24 | ✅ | ✅ |
-| NixOS | ✅ | ❌ |
-| Void Linux | ✅ | ❌ |
-
-The binary column refers to the current first-party x86-64 package set. Omarchy
-uses the signed Arch-compatible Pacman packages and is validated with Denial as
-its native compositor and desktop session; Omarchy's Hyprland-specific
-Quickshell is not part of that compatibility claim. Alpine packages are signed
-direct GitHub Release downloads; a native APK repository is not published yet.
-NixOS and Void Linux have been tested successfully, but do not have first-party
-binary packages yet.
-
-## Live Flutter shell development
-
-The optional `denial-ui-development` binary package is currently available
-only through the Pacman repository. It turns the reference shell into an
-editable Flutter workspace. `denialctl ui setup` creates the
-matching source checkout and starts a JIT shell; opening its `dart_shell` directory in
-VSCodium enables hot reload on save and the packaged browser DevTools for
-Flutter Inspector and performance profiling while Wayland applications keep
-running.
-
-Install it separately when this workflow is wanted:
-
-```sh
-sudo pacman -S denial-ui-development
-denialctl ui setup
-```
-
-The supported editor debug-adapter connection is deliberately non-pausing. It
-does not grant breakpoint, pause, stepping, or expression-evaluation control
-over the desktop isolate. Browser DevTools connects through the broader VM
-service and should be used carefully because pausing the root isolate pauses
-the interactive desktop. A native `denialctl ui restore` command returns to
-the packaged optimized shell even when edited Flutter code cannot present a
-usable Settings window.
-
-## Install
-
-Denial provides signed first-party x86-64 repositories for Arch Linux and
-CachyOS, Debian 13, Ubuntu 24.04 LTS, and Fedora 44. Review the
-[repository setup script](install.sh), then run:
-
-```sh
-sh -c 'if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'
-```
-
-It verifies the complete release-key fingerprint, rejects conflicting package
-manager configuration, and adds the matching signed repository. It does not
-install packages. When setup completes, use only the command for the current
-distribution.
-
-**Arch Linux or CachyOS**
-
-```sh
-sudo pacman -Syu denial
-```
-
-**Debian 13 or Ubuntu 24.04**
-
-```sh
-sudo apt update && sudo apt install denial
-```
-
-**Fedora 44**
-
-```sh
-sudo dnf install denial
-```
-
-The package manager pulls in the matching `denial-flutter-engine` package.
-The setup script shows its complete plan and asks for confirmation before using
-`sudo`.
-
-ARM64 is fully supported from source, but the first-party repositories do not
-publish ARM64 packages yet. See [Build Denial](docs/BUILDING.md).
-
-Impeller is the default renderer. If a driver-specific issue requires the
-Skia/Ganesh fallback, set `DENIA_FLUTTER_RENDERER=skia` in
-`/etc/denial/session.conf` and restart the Denial session.
-
-See the [complete installation guide](docs/INSTALL.md) for per-distribution
-trust paths, updates, removal, and manual Pacman setup.
+Authorship is more than typing source code.
 
 ## Documentation
 
-- [Install Denial](docs/INSTALL.md)
-- [Arch repository details](docs/packaging/arch/INSTALL.md)
-- [Build Denial](docs/BUILDING.md)
-- [Session startup and locking](docs/SESSION_STARTUP.md)
-- [Control and recover Denial with `denialctl`](docs/DENIALCTL.md)
-- [Live Flutter UI development](docs/UI_DEVELOPMENT.md)
-- [Architecture](docs/architecture.md)
-- [Screenshots and screen sharing](docs/SCREEN_CAPTURE.md)
-- [Changelog](CHANGELOG.md)
-- [Roadmap](ROADMAP.md)
-- [Security policy](SECURITY.md)
-- [Beta contribution policy](CONTRIBUTING.md)
-- [Complete documentation index](docs/README.md)
+[All guides](docs/README.md) · [Control and recovery](docs/DENIALCTL.md) ·
+[Screenshots and screen sharing](docs/SCREEN_CAPTURE.md)
 
-## Made through dialogue
-
-Denial was conceived, architected, directed, and tested by its human creator,
-Doctor Logix, and developed in continuous collaboration with OpenAI Codex. Its
-initial implementation was generated through that collaboration rather than
-written manually by its creator.
-
-The project's purpose, architecture, design principles, and final technical
-decisions came from the human side. Codex investigated the codebase, proposed
-solutions, implemented features, analyzed failures, and refined the system
-through an ongoing dialogue. Every result was evaluated against real hardware
-and redirected whenever it failed to match the intended design or performance
-expectations.
-
-This is part of Denial’s origin, not a disclaimer hidden in a footnote.
-
-Authorship is more than typing source code. Denial exists because a person
-decided what should exist, defined how it should work, recognized when the
-implementation was wrong, and kept directing the process until the idea became
-a functioning system.
+[Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md) ·
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## License
 

@@ -52,6 +52,7 @@ impl ScreenshotManager {
         let worker = thread::Builder::new()
             .name("denial-screenshot-writer".into())
             .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("screenshot-writer");
                 while let Ok(job) = receiver.recv() {
                     match write_png(job) {
                         Ok(output) => {

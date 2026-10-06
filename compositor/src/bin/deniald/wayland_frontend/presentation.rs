@@ -10,6 +10,8 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 #[cfg(feature = "flutter")]
 use smithay::utils::Time;
 use smithay::utils::{Clock, Monotonic};
+#[cfg(feature = "flutter")]
+use smithay::wayland::compositor::SurfaceData;
 use smithay::wayland::compositor::{
     SurfaceAttributes, TraversalAction, with_surface_tree_downward,
 };
@@ -18,8 +20,9 @@ use smithay::wayland::seat::WaylandFocus;
 
 use super::RuntimeState;
 
-#[cfg(feature = "flutter")]
-const MAX_REUSABLE_OUTPUT_FEEDBACKS: usize = 256;
+#[cfg(all(test, feature = "flutter"))]
+#[path = "presentation_tests.rs"]
+mod tests;
 
 struct PendingPresentation {
     output: WeakOutput,
@@ -44,50 +47,42 @@ impl PendingPresentation {
 }
 
 #[cfg(feature = "flutter")]
-pub(super) struct OutputPresentationBatch {
-    slots: Vec<PendingPresentation>,
-    active: usize,
-    refresh: Refresh,
-}
+#[derive(Default)]
+struct SurfaceFeedbackState(std::sync::Mutex<Option<crate::surface_feedback::SurfaceFeedback>>);
 
 #[cfg(feature = "flutter")]
-impl OutputPresentationBatch {
-    pub(super) fn new() -> Self {
-        Self {
-            slots: Vec::new(),
-            active: 0,
-            refresh: Refresh::Unknown,
-        }
-    }
+pub(super) fn capture_surface_feedback(surface: &WlSurface) {
+    smithay::wayland::compositor::with_states(surface, |states| {
+        states
+            .data_map
+            .insert_if_missing_threadsafe(SurfaceFeedbackState::default);
+        let feedback = SurfacePresentationFeedback::from_states(
+            states,
+            wp_presentation_feedback::Kind::empty(),
+        );
+        *states
+            .data_map
+            .get::<SurfaceFeedbackState>()
+            .unwrap()
+            .0
+            .lock()
+            .unwrap() = feedback.map(crate::surface_feedback::SurfaceFeedback::new);
+    });
+}
 
-    pub(super) fn begin(&mut self, output: &Output) {
-        // A second submit before page-flip supersedes the old attribution.
-        // Discard its callbacks explicitly, but retain Smithay's internal
-        // callback Vec for the next frame on this same output.
-        for pending in &mut self.slots[..self.active] {
-            pending.discard();
-        }
-        self.active = 0;
-        self.slots.truncate(MAX_REUSABLE_OUTPUT_FEEDBACKS);
-        self.refresh = output_refresh(output);
-    }
-
-    pub(super) fn submit_window(&mut self, output: &Output, window: &Window) {
-        // Presentation feedback belongs to the buffer accepted by KMS and is
-        // therefore captured at submission. wl_surface.frame is deliberately
-        // not drained here; Denial's output timeline releases that scheduling
-        // hint independently of whether the scanout buffer changes.
-        if self.active == self.slots.len() {
-            self.slots
-                .push(PendingPresentation::new(output, self.refresh));
-        }
-        let pending = &mut self.slots[self.active];
-        debug_assert!(pending.feedbacks.is_empty());
-        debug_assert_eq!(pending.output.upgrade().as_ref(), Some(output));
-        pending.refresh = self.refresh;
-        collect_window_presentation_feedback(window, &mut pending.feedbacks);
-        self.active += 1;
-    }
+// Tree traversal already holds the surface lock. Accept its supplied state
+// instead of a WlSurface so feedback lookup cannot recursively acquire it.
+#[cfg(feature = "flutter")]
+pub(super) fn surface_feedback(
+    states: &SurfaceData,
+) -> Option<crate::surface_feedback::SurfaceFeedback> {
+    states
+        .data_map
+        .get::<SurfaceFeedbackState>()?
+        .0
+        .lock()
+        .unwrap()
+        .clone()
 }
 
 /// Keeps frame scheduling and presentation feedback on their distinct
@@ -95,8 +90,8 @@ impl OutputPresentationBatch {
 ///
 /// `wl_surface.frame` tells a client when it is useful to start producing the
 /// *next* frame and is dispatched by Denial's output timeline.
-/// `wp_presentation` describes the submitted output buffer and is captured when KMS
-/// accepts it, then retained until that same page-flip event.
+/// `wp_presentation` follows the sampled source generation through rendering and
+/// submission until that exact output buffer completes its page flip.
 pub(super) struct PresentationTracker {
     _state: PresentationState,
     clock: Clock<Monotonic>,
@@ -174,14 +169,10 @@ impl PresentationTracker {
     }
 
     #[cfg(feature = "flutter")]
-    pub(super) fn begin_output_batch(&mut self) {
-        self.shared_pending.clear();
-    }
-
-    #[cfg(feature = "flutter")]
-    pub(super) fn presented_output(
+    pub(super) fn presented_sampled(
         &mut self,
-        batch: &mut OutputPresentationBatch,
+        output: &Output,
+        sampled: &[crate::surface_feedback::SurfaceFeedback],
         kernel_timestamp: Option<Duration>,
         observation_delay: Duration,
         kernel_sequence: Option<u64>,
@@ -196,14 +187,20 @@ impl PresentationTracker {
                 now.saturating_sub(observation_delay)
             })
             .into();
-        let delivered = batch.slots[..batch.active]
-            .iter()
-            .any(|pending| !pending.feedbacks.is_empty());
-        for feedback in &mut batch.slots[..batch.active] {
-            present_feedback(feedback, presented_at, self.clock_id, sequence);
+        let mut delivered = false;
+        for token in sampled {
+            if let Some(mut feedback) = token.take() {
+                feedback.presented(
+                    output,
+                    self.clock_id,
+                    presented_at,
+                    output_refresh(output),
+                    sequence,
+                    wp_presentation_feedback::Kind::Vsync,
+                );
+                delivered = true;
+            }
         }
-        batch.active = 0;
-        batch.slots.truncate(MAX_REUSABLE_OUTPUT_FEEDBACKS);
         delivered
     }
 }

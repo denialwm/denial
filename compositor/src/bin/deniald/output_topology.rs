@@ -1,6 +1,35 @@
 //! Connector discovery, output-control validation, and topology projection.
 
 use super::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum ScrollingLayoutAxis {
+    #[default]
+    Auto,
+    Horizontal,
+    Vertical,
+}
+
+impl ScrollingLayoutAxis {
+    pub(super) const fn settings_name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Horizontal => "horizontal",
+            Self::Vertical => "vertical",
+        }
+    }
+
+    pub(super) fn from_settings_name(name: &str) -> Option<Self> {
+        match name {
+            "auto" => Some(Self::Auto),
+            "horizontal" => Some(Self::Horizontal),
+            "vertical" => Some(Self::Vertical),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct OutputModePreference {
@@ -16,6 +45,7 @@ pub(super) struct RuntimeOutputConfiguration {
     pub(super) modes: BTreeMap<String, OutputModePreference>,
     pub(super) scales_120: BTreeMap<String, u32>,
     pub(super) transforms: BTreeMap<String, OutputTransform>,
+    pub(super) scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
     /// Transient device rotation from iio-sensor-proxy. `transforms` remains
     /// the persistent panel-mount baseline.
     pub(super) sensor_rotation: OutputTransform,
@@ -60,6 +90,7 @@ impl RuntimeOutputConfiguration {
             modes,
             scales_120: options.scales_120.clone(),
             transforms: options.transforms.clone(),
+            scrolling_layout_axes: options.scrolling_layout_axes.clone(),
             sensor_rotation: OutputTransform::Normal,
             vrr_outputs: options.vrr_outputs.clone(),
             disabled_outputs: options.disabled_outputs.clone(),
@@ -89,6 +120,13 @@ impl RuntimeOutputConfiguration {
         } else {
             effective
         }
+    }
+
+    pub(super) fn scrolling_layout_axis(&self, name: &str) -> ScrollingLayoutAxis {
+        self.scrolling_layout_axes
+            .get(name)
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -283,9 +321,16 @@ pub(super) fn output_control_state(
         let (logical_width, logical_height) = fallback_mode.map_or((0, 0), |mode| {
             logical_size_for_control(mode, scale_120, transform)
         });
+        // Output control speaks in persistent layout coordinates. The live
+        // topology is rebased independently, so publishing `spec.position`
+        // first would turn that transient origin shift into configuration the
+        // next time Settings applies an otherwise unchanged request.
         let position = placement.resolve(
-            spec.map(|output| output.position)
-                .or_else(|| configuration.positions.get(&name).copied()),
+            configuration
+                .positions
+                .get(&name)
+                .copied()
+                .or_else(|| spec.map(|output| output.position)),
         );
         placement.include(position, i32::try_from(logical_width)?)?;
         let (physical_width_mm, physical_height_mm) = connector
@@ -324,6 +369,7 @@ pub(super) fn output_control_state(
             physical_height_mm,
             scale: f64::from(scale_120) / f64::from(SCALE_BASE),
             transform: output_transform_name(transform),
+            scrolling_layout_axis: configuration.scrolling_layout_axis(&name),
             adaptive_sync_supported,
             adaptive_sync,
             current_mode,
@@ -658,6 +704,13 @@ pub(super) fn configuration_from_output_request(
             name.clone(),
             current.baseline_transform(&name, effective_transform),
         );
+        if let Some(axis) = output.scrolling_layout_axis {
+            if axis == ScrollingLayoutAxis::Auto {
+                staged.scrolling_layout_axes.remove(&name);
+            } else {
+                staged.scrolling_layout_axes.insert(name.clone(), axis);
+            }
+        }
         if output.enabled {
             staged.disabled_outputs.remove(&name);
             power.insert(
@@ -843,7 +896,35 @@ fn output_specs(
         specs.push(spec);
     }
 
+    normalize_live_output_positions(&mut specs)?;
     Ok(specs)
+}
+
+/// Rebase only the connected, in-memory layout to a non-negative origin.
+///
+/// Persistent connector coordinates remain in `RuntimeOutputConfiguration`.
+/// Recomputing this projection after every connector scan therefore removes
+/// empty Xwayland root space while restoring the configured relative layout
+/// when an absent output reconnects.
+fn normalize_live_output_positions(outputs: &mut [OutputSpec]) -> Result<(), Box<dyn Error>> {
+    let Some(origin_x) = outputs.iter().map(|output| output.position.x).min() else {
+        return Ok(());
+    };
+    let origin_y = outputs
+        .iter()
+        .map(|output| output.position.y)
+        .min()
+        .expect("a non-empty output layout has a vertical origin");
+
+    for output in outputs {
+        output.position = LogicalPoint::new(
+            i32::try_from(i64::from(output.position.x) - i64::from(origin_x))
+                .map_err(|_| "output layout X normalization overflow")?,
+            i32::try_from(i64::from(output.position.y) - i64::from(origin_y))
+                .map_err(|_| "output layout Y normalization overflow")?,
+        );
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -868,5 +949,90 @@ impl HorizontalOutputPlacement {
                 .ok_or("output layout overflow")?,
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(name: &str, position: LogicalPoint, mode: PixelSize, scale_120: u32) -> OutputSpec {
+        OutputSpec {
+            id: OutputId(name.bytes().map(u64::from).sum()),
+            name: name.to_owned(),
+            position,
+            mode,
+            scale_120,
+            refresh_millihz: 60_000,
+            transform: OutputTransform::Normal,
+        }
+    }
+
+    #[test]
+    fn lone_connected_output_is_rebased_without_mutating_stored_coordinates() {
+        let stored = output(
+            "eDP-1",
+            LogicalPoint::new(1_375, 2_400),
+            PixelSize::new(2_560, 1_600),
+            180,
+        );
+        let mut live = vec![stored.clone()];
+
+        normalize_live_output_positions(&mut live).unwrap();
+
+        assert_eq!(live[0].position, LogicalPoint::new(0, 0));
+        assert_eq!(stored.position, LogicalPoint::new(1_375, 2_400));
+    }
+
+    #[test]
+    fn connected_layout_keeps_relative_placement_after_rebase() {
+        let mut live = vec![
+            output(
+                "DP-3",
+                LogicalPoint::new(1_375, 1_200),
+                PixelSize::new(3_840, 2_400),
+                240,
+            ),
+            output(
+                "eDP-1",
+                LogicalPoint::new(1_375, 2_400),
+                PixelSize::new(2_560, 1_600),
+                180,
+            ),
+        ];
+
+        normalize_live_output_positions(&mut live).unwrap();
+
+        assert_eq!(live[0].position, LogicalPoint::new(0, 0));
+        assert_eq!(live[1].position, LogicalPoint::new(0, 1_200));
+    }
+
+    #[test]
+    fn reconnect_recomputes_from_persistent_coordinates() {
+        let configured = vec![
+            output(
+                "DP-3",
+                LogicalPoint::new(1_375, 1_200),
+                PixelSize::new(3_840, 2_400),
+                240,
+            ),
+            output(
+                "eDP-1",
+                LogicalPoint::new(1_375, 2_400),
+                PixelSize::new(2_560, 1_600),
+                180,
+            ),
+        ];
+        let mut panel_only = vec![configured[1].clone()];
+        normalize_live_output_positions(&mut panel_only).unwrap();
+        assert_eq!(panel_only[0].position, LogicalPoint::new(0, 0));
+
+        let mut reconnected = configured.clone();
+        normalize_live_output_positions(&mut reconnected).unwrap();
+
+        assert_eq!(reconnected[0].position, LogicalPoint::new(0, 0));
+        assert_eq!(reconnected[1].position, LogicalPoint::new(0, 1_200));
+        assert_eq!(configured[0].position, LogicalPoint::new(1_375, 1_200));
+        assert_eq!(configured[1].position, LogicalPoint::new(1_375, 2_400));
     }
 }

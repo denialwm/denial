@@ -786,6 +786,34 @@ impl UiDevelopmentController {
         self.bump_revision();
     }
 
+    pub(super) fn runtime_switch_failed_preserving_active(
+        &mut self,
+        mode: UiRuntimeMode,
+        error: &dyn fmt::Display,
+    ) {
+        let active_mode = self.state.active_mode;
+        self.state.desired_mode = active_mode;
+        self.state.operation = UiDevelopmentOperation::Idle;
+        self.state.error = format!(
+            "Could not start {}: {error}. Continuing with {}.",
+            mode.description(),
+            active_mode.description()
+        );
+        self.state.status = format!(
+            "The requested runtime was not started; {} remains active.",
+            active_mode.description()
+        );
+        self.state.diagnostics.clear();
+        self.state.diagnostics.push(UiDevelopmentDiagnostic {
+            severity: DiagnosticSeverity::Error,
+            message: self.state.error.clone(),
+            path: String::new(),
+            line: 0,
+            column: 0,
+        });
+        self.bump_revision();
+    }
+
     pub(super) fn set_vm_service_uri(&mut self, uri: String) {
         if !matches!(
             self.state.active_mode,
@@ -1091,6 +1119,88 @@ fn default_vm_service_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .map(|path| path.join("denial/flutter-vm-service.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renderer_preparation_failure_preserves_the_active_runtime() {
+        let mut controller = UiDevelopmentController::with_paths(
+            Path::new("/official"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        controller.state.desired_mode = UiRuntimeMode::LiveDevelopment;
+        controller.state.operation = UiDevelopmentOperation::SwitchingRuntime;
+        let generation = controller.state.generation;
+        let revision = controller.state.revision;
+
+        controller.runtime_switch_failed_preserving_active(
+            UiRuntimeMode::LiveDevelopment,
+            &"renderer preflight failed",
+        );
+
+        assert_eq!(
+            controller.state.active_mode,
+            UiRuntimeMode::OfficialOptimized
+        );
+        assert_eq!(
+            controller.state.desired_mode,
+            UiRuntimeMode::OfficialOptimized
+        );
+        assert_eq!(controller.state.operation, UiDevelopmentOperation::Idle);
+        assert_eq!(controller.state.generation, generation);
+        assert!(controller.state.error.contains("renderer preflight failed"));
+        assert!(
+            controller
+                .state
+                .error
+                .contains("Continuing with the packaged")
+        );
+        assert_eq!(controller.state.diagnostics.len(), 1);
+        assert_ne!(controller.state.revision, revision);
+    }
+
+    #[test]
+    fn retained_live_runtime_keeps_its_vm_service_capabilities() {
+        let mut controller = UiDevelopmentController::with_paths(
+            Path::new("/official"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        controller.state.active_mode = UiRuntimeMode::LiveDevelopment;
+        controller.state.desired_mode = UiRuntimeMode::OfficialOptimized;
+        controller.state.operation = UiDevelopmentOperation::SwitchingRuntime;
+        controller.state.vm_service_uri = "http://127.0.0.1:1234/token/".to_owned();
+        controller.state.can_hot_reload = true;
+        controller.state.can_hot_restart = true;
+
+        controller.runtime_switch_failed_preserving_active(
+            UiRuntimeMode::OfficialOptimized,
+            &"renderer preflight failed",
+        );
+
+        assert_eq!(controller.state.active_mode, UiRuntimeMode::LiveDevelopment);
+        assert_eq!(
+            controller.state.desired_mode,
+            UiRuntimeMode::LiveDevelopment
+        );
+        assert_eq!(controller.state.operation, UiDevelopmentOperation::Idle);
+        assert_eq!(
+            controller.state.vm_service_uri,
+            "http://127.0.0.1:1234/token/"
+        );
+        assert!(controller.state.can_hot_reload);
+        assert!(controller.state.can_hot_restart);
+    }
 }
 
 fn load_config(path: &Path) -> Option<PersistedUiDevelopment> {

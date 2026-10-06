@@ -90,9 +90,6 @@ class _NotificationTransitionState extends State<_NotificationTransition>
       notification: widget.notification,
       previewMode: widget.previewMode,
       announce: true,
-      onDismiss: interactive && widget.onDismiss != null
-          ? () => widget.onDismiss!(widget.notification.id)
-          : null,
       onDefaultAction: interactive && widget.onDefaultAction != null
           ? () => widget.onDefaultAction!(widget.notification.id)
           : null,
@@ -100,14 +97,22 @@ class _NotificationTransitionState extends State<_NotificationTransition>
           ? (actionKey) => widget.onAction!(widget.notification.id, actionKey)
           : null,
     );
-    final cardRegion = interactive
-        ? ShellInputRegion(
-            debugLabel: 'Notification ${widget.notification.id}',
-            child: card,
-          )
-        : IgnorePointer(child: card);
-
-    return ClipRect(
+    final surface = RepaintBoundary(
+      child: ShellBackdropBlur(
+        separateChild: true,
+        blur: theme.effectivePanelOpacity < 1.0,
+        borderRadius: BorderRadius.circular(theme.panelRadius),
+        child: card,
+      ),
+    );
+    final swipe = widget.onDismiss == null
+        ? surface
+        : DesktopNotificationSwipeDismiss(
+            enabled: interactive,
+            onDismiss: () => widget.onDismiss!(widget.notification.id),
+            child: surface,
+          );
+    final transition = ClipRect(
       child: SizeTransition(
         sizeFactor: _curved,
         alignment: widget.entryOffset.dy > 0
@@ -117,17 +122,17 @@ class _NotificationTransitionState extends State<_NotificationTransition>
           position: position,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: RepaintBoundary(
-              child: ShellBackdropBlur(
-                blur: theme.effectivePanelOpacity < 1.0,
-                borderRadius: BorderRadius.circular(theme.panelRadius),
-                child: cardRegion,
-              ),
-            ),
+            child: IgnorePointer(ignoring: !interactive, child: swipe),
           ),
         ),
       ),
     );
+    return widget.interactive
+        ? ShellInputRegion(
+            debugLabel: 'Notification ${widget.notification.id}',
+            child: transition,
+          )
+        : IgnorePointer(child: transition);
   }
 
   @override

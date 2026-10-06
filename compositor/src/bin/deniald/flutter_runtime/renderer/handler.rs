@@ -2,6 +2,8 @@
 
 use super::*;
 
+#[path = "handler/gpu_deadline.rs"]
+mod gpu_deadline;
 #[path = "handler/open_gl.rs"]
 mod open_gl;
 
@@ -9,6 +11,7 @@ mod open_gl;
 struct PendingOutputPresentation {
     view_id: i64,
     framebuffer: u32,
+    presentation_time_nanos: u64,
 }
 
 pub(in crate::flutter_runtime) struct FlutterGlHandler {
@@ -21,13 +24,13 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     depth_stencils: Mutex<Vec<u32>>,
     broker: Mutex<OutputBufferBroker>,
     pending_output_presentation: Mutex<Option<PendingOutputPresentation>>,
+    gpu_deadline_hints: gpu_deadline::GpuDeadlineHints,
     external_texture_sources: Mutex<HashMap<i64, ExternalTextureSlot>>,
     raster_sampled_buffers: Mutex<Vec<SampledBufferHold>>,
+    raster_sampled_feedback: Mutex<Vec<crate::surface_feedback::SurfaceFeedback>>,
     sampled_buffer_release_fence: Mutex<Option<OwnedFd>>,
     sampled_buffer_batch_pool: Arc<SampledBufferBatchPool>,
     dmabuf_texture_cache: Mutex<PartitionedRecencyCache<i64, Dmabuf, Arc<CachedTextureBinding>>>,
-    retained_native_texture_cache:
-        Mutex<PartitionedRecencyCache<i64, u64, Arc<CachedTextureBinding>>>,
     shm_texture_cache: Mutex<RecencyCache<(i64, u64), Arc<CachedTextureBinding>>>,
     retired_external_bindings: Arc<RetiredExternalBindingQueue>,
     retired_external_binding_scratch: Mutex<Vec<ExternalTextureBinding>>,
@@ -46,9 +49,14 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     generation: u64,
     desktop_size: PixelSize,
     producer: ProducerArbiter,
+    shutdown_started: AtomicBool,
 }
 
 impl FlutterGlHandler {
+    pub(in crate::flutter_runtime) fn assign_generation(&mut self, generation: u64) {
+        self.generation = generation;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in crate::flutter_runtime) fn new<'a>(
         render_context: egl_context::SharedEglContext,
@@ -145,9 +153,13 @@ impl FlutterGlHandler {
                     render_texture: 0,
                     render_framebuffer: 0,
                 };
+                let import_error;
                 // SAFETY: a compatible GLES context is current and all output
                 // pointers reference live local integers.
                 unsafe {
+                    // Attribute a driver error to this import, not to a prior
+                    // output or depth/stencil allocation.
+                    let _ = (gl.get_error)();
                     (gl.gen_textures)(1, &mut target.scanout_texture);
                     (gl.bind_texture)(gl::TEXTURE_2D, target.scanout_texture);
                     (gl.tex_parameter_i)(
@@ -171,6 +183,7 @@ impl FlutterGlHandler {
                         gl::CLAMP_TO_EDGE as i32,
                     );
                     (gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
+                    import_error = (gl.get_error)();
                     (gl.gen_framebuffers)(1, &mut target.scanout_framebuffer);
                     (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.scanout_framebuffer);
                     (gl.framebuffer_texture_2d)(
@@ -197,21 +210,31 @@ impl FlutterGlHandler {
                 // SAFETY: the same compatible GLES context remains current, the
                 // newly created framebuffer is still bound, and the output
                 // pointer references a live local integer.
-                let framebuffer_status = unsafe {
+                let (framebuffer_status, attachment_error) = unsafe {
+                    let attachment_error = (gl.get_error)();
                     let status = (gl.check_framebuffer_status)(gl::FRAMEBUFFER);
                     (gl.get_integer_v)(gl::SAMPLES, &mut actual_samples);
                     if needs_depth_stencil {
                         (gl.get_integer_v)(gl::STENCIL_BITS, &mut actual_stencil_bits);
                     }
-                    status
+                    (status, attachment_error)
                 };
                 if target.scanout_texture == 0
                     || target.scanout_framebuffer == 0
+                    || import_error != gl::NO_ERROR
+                    || attachment_error != gl::NO_ERROR
                     || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
                     || (!offscreen_blit && actual_samples > 1)
                     || (!offscreen_blit && needs_depth_stencil && actual_stencil_bits < 8)
                 {
                     warn!(
+                        output = ?pool.output_id,
+                        buffer_index,
+                        width,
+                        height,
+                        format = ?scanout_dmabuf.format(),
+                        import_error = format_args!("{import_error:#x}"),
+                        attachment_error = format_args!("{attachment_error:#x}"),
                         texture = target.scanout_texture,
                         framebuffer = target.scanout_framebuffer,
                         status = framebuffer_status,
@@ -224,7 +247,10 @@ impl FlutterGlHandler {
                     destroy_targets(gl, &display, &mut targets);
                     destroy_depth_stencils(gl, &mut depth_stencils);
                     render_context.unbind()?;
-                    return Err("a Flutter output scanout framebuffer is incomplete".into());
+                    return Err(format!(
+                        "Flutter output {:?} buffer {buffer_index} ({width}x{height}, {:?}) scanout framebuffer failed: status={framebuffer_status:#x}, import_error={import_error:#x}, attachment_error={attachment_error:#x}",
+                        pool.output_id, scanout_dmabuf.format(),
+                    ).into());
                 }
 
                 if offscreen_blit {
@@ -452,16 +478,15 @@ impl FlutterGlHandler {
             depth_stencils: Mutex::new(depth_stencils),
             broker: Mutex::new(broker),
             pending_output_presentation: Mutex::new(None),
+            gpu_deadline_hints: gpu_deadline::GpuDeadlineHints::default(),
             external_texture_sources: Mutex::new(HashMap::new()),
             raster_sampled_buffers: Mutex::new(Vec::new()),
+            raster_sampled_feedback: Mutex::new(Vec::new()),
             sampled_buffer_release_fence: Mutex::new(None),
             sampled_buffer_batch_pool: Arc::new(Mutex::new(Vec::with_capacity(
                 MAX_RECYCLED_SAMPLED_BUFFER_BATCHES,
             ))),
             dmabuf_texture_cache: Mutex::new(PartitionedRecencyCache::new(
-                MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE,
-            )),
-            retained_native_texture_cache: Mutex::new(PartitionedRecencyCache::new(
                 MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE,
             )),
             shm_texture_cache: Mutex::new(RecencyCache::new(MAX_CACHED_SHM_BINDINGS)),
@@ -484,6 +509,7 @@ impl FlutterGlHandler {
             generation,
             desktop_size,
             producer: ProducerArbiter::new(),
+            shutdown_started: AtomicBool::new(false),
         }))
     }
 
@@ -513,12 +539,15 @@ impl FlutterGlHandler {
         &self,
         requests: &[OutputFrameRequest],
         views: &mut Vec<i64>,
+        lock_frame_token: u64,
     ) {
         views.clear();
         let mut broker = lock(&self.broker);
         let now = Instant::now();
         for request in requests {
-            if let Some(view) = broker.authorize(*request, now) {
+            let mut request = *request;
+            request.lock_frame_token = lock_frame_token;
+            if let Some(view) = broker.authorize(request, now) {
                 views.push(view);
             }
         }
@@ -581,12 +610,13 @@ impl FlutterGlHandler {
             texture_id,
             source,
             expects_sample,
+            presentation,
         } in frames
         {
             if sources
                 .entry(texture_id)
                 .or_default()
-                .queue(source, expects_sample)
+                .queue(source, expects_sample, presentation)
             {
                 changed.push(texture_id);
             }
@@ -649,6 +679,15 @@ impl FlutterGlHandler {
         }
     }
 
+    fn record_sampled_feedback(&self, feedback: Option<crate::surface_feedback::SurfaceFeedback>) {
+        if let Some(feedback) = feedback.filter(|token| token.pending()) {
+            let mut sampled = lock(&self.raster_sampled_feedback);
+            if !sampled.iter().any(|token| token.same(&feedback)) {
+                sampled.push(feedback);
+            }
+        }
+    }
+
     pub(in crate::flutter_runtime) fn record_sampled_buffer(
         &self,
         texture_id: i64,
@@ -665,7 +704,7 @@ impl FlutterGlHandler {
         sampled.push(SampledBufferHold {
             texture_id,
             generation,
-            buffer_guard,
+            _buffer_guard: buffer_guard,
         });
     }
 
@@ -740,13 +779,12 @@ impl FlutterGlHandler {
     pub(in crate::flutter_runtime) fn remove_external_texture_source(&self, texture_id: i64) {
         lock(&self.external_texture_sources).remove(&texture_id);
         let retired_dmabufs = lock(&self.dmabuf_texture_cache).remove(&texture_id);
-        let retired_native = lock(&self.retained_native_texture_cache).remove(&texture_id);
         let retired_shm =
             lock(&self.shm_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
         // Dropping a cache reference never issues GL calls. If no Flutter
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
-        drop((retired_dmabufs, retired_native, retired_shm));
+        drop((retired_dmabufs, retired_shm));
     }
 
     pub(in crate::flutter_runtime) fn cached_dmabuf_binding(
@@ -764,26 +802,6 @@ impl FlutterGlHandler {
         binding: Arc<CachedTextureBinding>,
     ) {
         let retired = lock(&self.dmabuf_texture_cache).insert(texture_id, dmabuf, binding);
-        drop(retired);
-    }
-
-    pub(in crate::flutter_runtime) fn cached_retained_native_binding(
-        &self,
-        texture_id: i64,
-        revision: u64,
-    ) -> Option<Arc<CachedTextureBinding>> {
-        lock(&self.retained_native_texture_cache)
-            .get_by(&texture_id, |cached_revision| *cached_revision == revision)
-    }
-
-    pub(in crate::flutter_runtime) fn cache_retained_native_binding(
-        &self,
-        texture_id: i64,
-        revision: u64,
-        binding: Arc<CachedTextureBinding>,
-    ) {
-        let retired =
-            lock(&self.retained_native_texture_cache).insert(texture_id, revision, binding);
         drop(retired);
     }
 
@@ -936,104 +954,13 @@ impl FlutterGlHandler {
             return false;
         };
 
-        // The raster commands and this draw share one GLES context, so command
-        // ordering makes the completed LINEAR scene texture available without
-        // a CPU wait. Use ordinary texture sampling into the compressed KMS
-        // target instead of glBlitFramebuffer: the latter enters a faulty CP
-        // copy path on this Adreno and eventually faults while reading IOVA 0.
-        let width = target.size.width as i32;
-        let height = target.size.height as i32;
-        let mut previous_draw_framebuffer = 0;
-        let mut previous_program = 0;
-        let mut previous_active_texture = 0;
-        let mut previous_texture_2d = 0;
-        let mut previous_viewport = [0; 4];
-        let mut previous_color_mask = [gl::FALSE; 4];
-        let mut previous_capabilities = [false; 5];
-        // SAFETY: Flutter invokes present with this handler's render context
-        // current, and every GL object below remains live in this handler.
-        unsafe {
-            for _ in 0..8 {
-                if (self.gl.get_error)() == gl::NO_ERROR {
-                    break;
-                }
-            }
-            (self.gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_draw_framebuffer);
-            (self.gl.get_integer_v)(gl::CURRENT_PROGRAM, &mut previous_program);
-            (self.gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
-            (self.gl.get_integer_v)(gl::VIEWPORT, previous_viewport.as_mut_ptr());
-            (self.gl.get_boolean_v)(gl::COLOR_WRITEMASK, previous_color_mask.as_mut_ptr());
-            for (saved, capability) in previous_capabilities.iter_mut().zip([
-                gl::BLEND,
-                gl::CULL_FACE,
-                gl::DEPTH_TEST,
-                gl::SCISSOR_TEST,
-                gl::STENCIL_TEST,
-            ]) {
-                *saved = (self.gl.is_enabled)(capability) == gl::TRUE;
-            }
-            (self.gl.active_texture)(gl::TEXTURE0);
-            (self.gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
-
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, target.scanout_framebuffer);
-            (self.gl.viewport)(0, 0, width, height);
-            (self.gl.disable)(gl::BLEND);
-            (self.gl.disable)(gl::CULL_FACE);
-            (self.gl.disable)(gl::DEPTH_TEST);
-            (self.gl.disable)(gl::SCISSOR_TEST);
-            (self.gl.disable)(gl::STENCIL_TEST);
-            (self.gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
-            (self.gl.use_program)(shader_blit.program);
-            (self.gl.active_texture)(gl::TEXTURE0);
-            (self.gl.bind_texture)(gl::TEXTURE_2D, target.render_texture);
-            (self.gl.uniform_1i)(shader_blit.source_uniform, 0);
-            (self.gl.draw_arrays)(gl::TRIANGLES, 0, 3);
-        }
-        // SAFETY: the same render context remains current after the blit.
-        let draw_error = unsafe { (self.gl.get_error)() };
-        // Skia caches GLES state across frames. Restore every binding and
-        // fixed-function value touched by the copy so the following Flutter
-        // frame cannot inherit a stale program, texture, mask, or capability.
-        // SAFETY: all values were queried from this same current context.
-        unsafe {
-            (self.gl.use_program)(previous_program as u32);
-            (self.gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
-            (self.gl.active_texture)(previous_active_texture as u32);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
-            (self.gl.viewport)(
-                previous_viewport[0],
-                previous_viewport[1],
-                previous_viewport[2],
-                previous_viewport[3],
-            );
-            (self.gl.color_mask)(
-                previous_color_mask[0],
-                previous_color_mask[1],
-                previous_color_mask[2],
-                previous_color_mask[3],
-            );
-            for (enabled, capability) in previous_capabilities.into_iter().zip([
-                gl::BLEND,
-                gl::CULL_FACE,
-                gl::DEPTH_TEST,
-                gl::SCISSOR_TEST,
-                gl::STENCIL_TEST,
-            ]) {
-                if enabled {
-                    (self.gl.enable)(capability);
-                } else {
-                    (self.gl.disable)(capability);
-                }
-            }
-        }
-        // SAFETY: the same render context remains current after restoration.
-        let restore_error = unsafe { (self.gl.get_error)() };
-        let error = if draw_error != gl::NO_ERROR {
-            draw_error
-        } else {
-            restore_error
-        };
-        if error != gl::NO_ERROR {
+        if let Err(error) = copy_to_scanout(
+            self.gl,
+            target.render_texture,
+            target.scanout_framebuffer,
+            target.size,
+            shader_blit,
+        ) {
             error!(
                 framebuffer = render_framebuffer,
                 scanout_framebuffer = target.scanout_framebuffer,
@@ -1045,192 +972,25 @@ impl FlutterGlHandler {
         true
     }
 
-    pub(in crate::flutter_runtime) fn retain_native_texture(
-        &self,
-        source_texture: u32,
-        width: u32,
-        height: u32,
-    ) -> Result<Arc<CachedTextureBinding>, Box<dyn Error>> {
-        let width_i32 = i32::try_from(width).map_err(|_| "native snapshot width exceeds GLES")?;
-        let height_i32 =
-            i32::try_from(height).map_err(|_| "native snapshot height exceeds GLES")?;
-        if source_texture == 0 || width_i32 <= 0 || height_i32 <= 0 {
-            return Err("native snapshot has invalid texture or dimensions".into());
-        }
-        let binding_permit = self
-            .external_texture_resource_budget
-            .try_acquire()
-            .ok_or("native snapshot exceeded the external texture resource limit")?;
-        let shader_blit = lock(&self.shader_blit)
-            .as_ref()
-            .copied()
-            .ok_or("native snapshot has no GLES copy pipeline")?;
-
-        let mut previous_draw_framebuffer = 0;
-        let mut previous_program = 0;
-        let mut previous_active_texture = 0;
-        let mut previous_texture_2d = 0;
-        let mut previous_viewport = [0; 4];
-        let mut previous_color_mask = [gl::FALSE; 4];
-        let mut previous_capabilities = [false; 5];
-        let mut texture = 0;
-        let mut framebuffer = 0;
-        let framebuffer_status;
-        let draw_error;
-
-        // The callback owns Flutter's current GLES context. Save and restore
-        // every state touched by the private copy so Skia cannot observe the
-        // snapshot operation in the surrounding external-texture callback.
-        // SAFETY: all queried pointers are valid local storage and every GL
-        // object is created, used, and either retained or deleted in this call.
-        unsafe {
-            for _ in 0..8 {
-                if (self.gl.get_error)() == gl::NO_ERROR {
-                    break;
-                }
-            }
-            (self.gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_draw_framebuffer);
-            (self.gl.get_integer_v)(gl::CURRENT_PROGRAM, &mut previous_program);
-            (self.gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
-            (self.gl.get_integer_v)(gl::VIEWPORT, previous_viewport.as_mut_ptr());
-            (self.gl.get_boolean_v)(gl::COLOR_WRITEMASK, previous_color_mask.as_mut_ptr());
-            for (saved, capability) in previous_capabilities.iter_mut().zip([
-                gl::BLEND,
-                gl::CULL_FACE,
-                gl::DEPTH_TEST,
-                gl::SCISSOR_TEST,
-                gl::STENCIL_TEST,
-            ]) {
-                *saved = (self.gl.is_enabled)(capability) == gl::TRUE;
-            }
-            (self.gl.active_texture)(gl::TEXTURE0);
-            (self.gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
-
-            (self.gl.gen_textures)(1, &mut texture);
-            (self.gl.bind_texture)(gl::TEXTURE_2D, texture);
-            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
-            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
-            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-            (self.gl.tex_image_2d)(
-                gl::TEXTURE_2D,
-                0,
-                gl::RGBA8 as i32,
-                width_i32,
-                height_i32,
-                0,
-                gl::RGBA,
-                gl::UNSIGNED_BYTE,
-                ptr::null(),
-            );
-            (self.gl.gen_framebuffers)(1, &mut framebuffer);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, framebuffer);
-            (self.gl.framebuffer_texture_2d)(
-                gl::DRAW_FRAMEBUFFER,
-                gl::COLOR_ATTACHMENT0,
-                gl::TEXTURE_2D,
-                texture,
-                0,
-            );
-            framebuffer_status = (self.gl.check_framebuffer_status)(gl::DRAW_FRAMEBUFFER);
-            if texture != 0 && framebuffer != 0 && framebuffer_status == gl::FRAMEBUFFER_COMPLETE {
-                (self.gl.viewport)(0, 0, width_i32, height_i32);
-                (self.gl.disable)(gl::BLEND);
-                (self.gl.disable)(gl::CULL_FACE);
-                (self.gl.disable)(gl::DEPTH_TEST);
-                (self.gl.disable)(gl::SCISSOR_TEST);
-                (self.gl.disable)(gl::STENCIL_TEST);
-                (self.gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
-                (self.gl.use_program)(shader_blit.program);
-                (self.gl.active_texture)(gl::TEXTURE0);
-                (self.gl.bind_texture)(gl::TEXTURE_2D, source_texture);
-                (self.gl.uniform_1i)(shader_blit.source_uniform, 0);
-                (self.gl.draw_arrays)(gl::TRIANGLES, 0, 3);
-            }
-            draw_error = (self.gl.get_error)();
-
-            (self.gl.use_program)(previous_program as u32);
-            (self.gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
-            (self.gl.active_texture)(previous_active_texture as u32);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
-            (self.gl.viewport)(
-                previous_viewport[0],
-                previous_viewport[1],
-                previous_viewport[2],
-                previous_viewport[3],
-            );
-            (self.gl.color_mask)(
-                previous_color_mask[0],
-                previous_color_mask[1],
-                previous_color_mask[2],
-                previous_color_mask[3],
-            );
-            for (enabled, capability) in previous_capabilities.into_iter().zip([
-                gl::BLEND,
-                gl::CULL_FACE,
-                gl::DEPTH_TEST,
-                gl::SCISSOR_TEST,
-                gl::STENCIL_TEST,
-            ]) {
-                if enabled {
-                    (self.gl.enable)(capability);
-                } else {
-                    (self.gl.disable)(capability);
-                }
-            }
-            if framebuffer != 0 {
-                (self.gl.delete_framebuffers)(1, &framebuffer);
-            }
-        }
-        // SAFETY: the same render context remains current after restoration.
-        let restore_error = unsafe { (self.gl.get_error)() };
-        if texture == 0
-            || framebuffer == 0
-            || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
-            || draw_error != gl::NO_ERROR
-            || restore_error != gl::NO_ERROR
-        {
-            // SAFETY: an allocated texture remains owned by this context and
-            // has not escaped on the failure path.
-            unsafe {
-                if texture != 0 {
-                    (self.gl.delete_textures)(1, &texture);
-                }
-            }
-            return Err(format!(
-                "native snapshot copy failed: framebuffer={framebuffer} status={framebuffer_status:#x} draw={draw_error:#x} restore={restore_error:#x}"
-            )
-            .into());
-        }
-        Ok(Arc::new(CachedTextureBinding {
-            binding: Some(ExternalTextureBinding {
-                dmabuf_image: None,
-                texture,
-                _resource_permit: binding_permit,
-            }),
-            retirements: Arc::clone(&self.retired_external_bindings),
-        }))
-    }
-
-    pub(in crate::flutter_runtime) fn destroy_targets(&self) {
+    pub(in crate::flutter_runtime) fn destroy_targets(&self) -> bool {
         let mut targets = lock(&self.targets);
         let mut shader_blit = lock(&self.shader_blit);
         let mut depth_stencils = lock(&self.depth_stencils);
         if targets.is_empty() && shader_blit.is_none() && depth_stencils.is_empty() {
-            return;
+            return true;
         }
         let mut context = lock(&self.render_context);
-        // SAFETY: EngineHost has already shut down and joined its raster
-        // thread, so this context is no longer current anywhere else.
+        // SAFETY: either no engine has received this handler, or EngineHost
+        // has shut down and joined its workers. A failed shutdown leaks its
+        // callback-state Arc, preventing the final handler drop and cleanup.
         if let Err(error) = unsafe { context.context.make_current() } {
             error!(%error, "could not bind Flutter context for output-target cleanup");
-            return;
+            return false;
         }
         context.owner = Some(thread::current().id());
         let cached_dmabufs = lock(&self.dmabuf_texture_cache).drain();
-        let cached_native = lock(&self.retained_native_texture_cache).drain();
         let cached_shm = lock(&self.shm_texture_cache).drain();
-        drop((cached_dmabufs, cached_native, cached_shm));
+        drop((cached_dmabufs, cached_shm));
         self.destroy_retired_external_bindings();
         if let Some(gpu_timing) = &self.gpu_timing {
             lock(gpu_timing).clear();
@@ -1238,7 +998,7 @@ impl FlutterGlHandler {
         destroy_shader_blit(self.gl, &mut shader_blit);
         destroy_targets(self.gl, &self.display, &mut targets);
         destroy_depth_stencils(self.gl, &mut depth_stencils);
-        let _ = context.clear_current();
+        context.clear_current()
     }
 
     pub(in crate::flutter_runtime) fn destroy_retired_external_bindings(&self) {
@@ -1306,6 +1066,7 @@ impl FlutterGlHandler {
             return false;
         };
         let source_generation = source.generation();
+        let feedback = source.feedback();
         let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
             return false;
         };
@@ -1313,37 +1074,23 @@ impl FlutterGlHandler {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard,
-                revision,
+                revision: _,
+                feedback: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
                 let width = usize::try_from(dmabuf_width).unwrap_or_default();
                 let height = usize::try_from(dmabuf_height).unwrap_or_default();
-                if buffer_guard
-                    .as_ref()
-                    .is_some_and(ExternalBufferGuard::is_native)
-                {
-                    let Some(binding) = self.cached_retained_native_binding(texture_id, revision)
-                    else {
-                        return false;
-                    };
-                    let resource = ExternalTextureLeaseResource::Retained {
-                        _binding: Arc::clone(&binding),
-                        _resource_permit: lease_permit,
-                    };
-                    (width, height, binding, resource, None)
-                } else {
-                    let Some(binding) = self.cached_dmabuf_binding(texture_id, &dmabuf) else {
-                        return false;
-                    };
-                    let sampled_buffer = buffer_guard.clone();
-                    let resource = ExternalTextureLeaseResource::Dmabuf {
-                        _binding: Arc::clone(&binding),
-                        _buffer_guard: buffer_guard,
-                        _resource_permit: lease_permit,
-                    };
-                    (width, height, binding, resource, sampled_buffer)
-                }
+                let Some(binding) = self.cached_dmabuf_binding(texture_id, &dmabuf) else {
+                    return false;
+                };
+                let sampled_buffer = buffer_guard.clone();
+                let resource = ExternalTextureLeaseResource::Dmabuf {
+                    _binding: Arc::clone(&binding),
+                    _buffer_guard: buffer_guard,
+                    _resource_permit: lease_permit,
+                };
+                (width, height, binding, resource, sampled_buffer)
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();
@@ -1365,6 +1112,7 @@ impl FlutterGlHandler {
         *prepared_slot = Some(PreparedExternalTexture {
             texture_id,
             source_generation,
+            feedback,
             width,
             height,
             name,
@@ -1392,6 +1140,14 @@ impl FlutterGlHandler {
             first.get_or_insert(error);
         }
         first
+    }
+}
+
+impl Drop for FlutterGlHandler {
+    fn drop(&mut self) {
+        // Also covers abandoned preparations and startup failures. Successful
+        // runtime shutdown already drains the targets; cleanup is idempotent.
+        let _ = self.destroy_targets();
     }
 }
 

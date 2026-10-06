@@ -1,4 +1,9 @@
-//! Process-lifetime secure session lock and PAM authentication boundary.
+//! Process-lifetime secure session lock, PAM and fprintd authentication boundary.
+
+#[path = "authentication/fingerprint.rs"]
+mod fingerprint;
+#[path = "authentication/fingerprint_settings.rs"]
+pub(super) mod fingerprint_settings;
 
 use std::collections::VecDeque;
 use std::error::Error;
@@ -36,6 +41,7 @@ const KIND_CANCEL: u8 = 5;
 const KIND_STATE: u8 = 0x81;
 const KIND_PROMPT: u8 = 0x82;
 const KIND_RESULT: u8 = 0x83;
+const KIND_FINGERPRINT_FEEDBACK: u8 = 0x84;
 
 const STATE_LOCKED: u8 = 1 << 0;
 const STATE_AVAILABLE: u8 = 1 << 1;
@@ -328,6 +334,45 @@ struct PamBackend {
 }
 
 impl PamBackend {
+    /// Fingerprints replace the credential check, never PAM account policy.
+    fn validate_account(&self) -> Result<(), String> {
+        let username = CString::new(current_username()).map_err(|error| error.to_string())?;
+        let mut conversation = |_style: PromptStyle, _message: &str| None;
+        let cancelled = || false;
+        let mut context = PamConversationContext {
+            conversation: &mut conversation,
+            cancelled: &cancelled,
+        };
+        let adapter = PamConversation {
+            conv: Some(pam_conversation),
+            appdata_ptr: (&mut context as *mut PamConversationContext<'_>).cast(),
+        };
+        let mut handle = ptr::null_mut();
+        // SAFETY: all pointers remain live until the balanced pam_end below.
+        let mut result = unsafe {
+            (self.api.start)(
+                self.service.as_ptr(),
+                username.as_ptr(),
+                &adapter,
+                &mut handle,
+            )
+        };
+        if result != PAM_SUCCESS || handle.is_null() {
+            return Err(format!("PAM account initialization failed: {result}"));
+        }
+        // SAFETY: handle is owned by this call and ended exactly once.
+        unsafe {
+            (self.api.set_item)(handle, PAM_TTY, c"denial".as_ptr().cast());
+            result = (self.api.account_management)(handle, PAM_SILENT);
+            (self.api.end)(handle, result);
+        }
+        if result == PAM_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("PAM account denied fingerprint unlock: {result}"))
+        }
+    }
+
     fn load() -> Result<Self, String> {
         let service = configured_pam_service();
         Ok(Self {
@@ -604,6 +649,7 @@ enum AuthenticationEventKind {
     State,
     Prompt { style: PromptStyle, sequence: u32 },
     Result { success: bool, cancelled: bool },
+    FingerprintFeedback,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -629,6 +675,9 @@ impl AuthenticationEvent {
             flags |= STATE_RATE_LIMITED;
         }
         let (kind, argument, payload) = match self.kind {
+            AuthenticationEventKind::FingerprintFeedback => {
+                (KIND_FINGERPRINT_FEEDBACK, 0, self.message.as_str())
+            }
             AuthenticationEventKind::State => (
                 KIND_STATE,
                 self.state.cooldown_ms,
@@ -681,6 +730,8 @@ struct AuthenticationState {
     busy: bool,
     cancel_requested: bool,
     generation: u64,
+    lock_epoch: u64,
+    fingerprint_unlock: Option<fingerprint::PendingUnlock>,
     next_attempt_id: u64,
     active_attempt_id: u64,
     next_prompt_sequence: u32,
@@ -694,6 +745,7 @@ struct AuthenticationState {
 }
 
 struct SharedAuthentication {
+    haptics: std::sync::OnceLock<crate::haptics::HapticsClient>,
     locked: AtomicBool,
     security_gate_locked: AtomicBool,
     events_pending: AtomicBool,
@@ -716,11 +768,27 @@ impl SharedAuthentication {
 pub(super) struct AuthenticationController {
     shared: Arc<SharedAuthentication>,
     worker: Mutex<Option<JoinHandle<()>>>,
+    fingerprint_worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AuthenticationController {
     pub(super) fn new(start_locked: bool) -> io::Result<Self> {
-        Self::with_backend(default_backend(), start_locked)
+        let controller = Self::with_backend(default_backend(), start_locked)?;
+        match crate::haptics::HapticsClient::new() {
+            Ok(client) => {
+                let _ = controller.shared.haptics.set(client);
+            }
+            Err(error) => warn!(%error, "could not start optional haptics worker"),
+        }
+        let shared = Arc::clone(&controller.shared);
+        let worker = thread::Builder::new()
+            .name("denial-fingerprint".into())
+            .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("fingerprint");
+                fingerprint::run_worker(&shared, &mut fingerprint::FprintBackend);
+            })?;
+        *lock_unpoisoned(&controller.fingerprint_worker) = Some(worker);
+        Ok(controller)
     }
 
     fn with_backend(
@@ -730,6 +798,7 @@ impl AuthenticationController {
         let available = backend.available();
         let unavailable_reason = backend.unavailable_reason();
         let shared = Arc::new(SharedAuthentication {
+            haptics: std::sync::OnceLock::new(),
             locked: AtomicBool::new(start_locked),
             security_gate_locked: AtomicBool::new(start_locked),
             events_pending: AtomicBool::new(false),
@@ -738,6 +807,8 @@ impl AuthenticationController {
                 busy: false,
                 cancel_requested: false,
                 generation: 0,
+                lock_epoch: 0,
+                fingerprint_unlock: None,
                 next_attempt_id: 1,
                 active_attempt_id: 0,
                 next_prompt_sequence: 1,
@@ -763,11 +834,34 @@ impl AuthenticationController {
         Ok(Self {
             shared,
             worker: Mutex::new(Some(worker)),
+            fingerprint_worker: Mutex::new(None),
         })
+    }
+
+    pub(super) fn handle_haptics_packet(&self, packet: &[u8]) -> Result<(), &'static str> {
+        if let Some(client) = self.shared.haptics.get() {
+            client.handle_packet(packet)
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn locked(&self) -> bool {
         self.shared.locked.load(Ordering::Acquire)
+    }
+
+    pub(super) fn locked_epoch(&self) -> Option<u64> {
+        if !self.locked() {
+            return None;
+        }
+        let state = lock_unpoisoned(&self.shared.state);
+        self.locked().then_some(state.lock_epoch)
+    }
+
+    /// Returns true when a validated fingerprint needs the displays woken.
+    /// Only the native output loop may advance this; Flutter cannot bypass it.
+    pub(super) fn advance_fingerprint_unlock(&self, now: Instant, outputs_ready: bool) -> bool {
+        fingerprint::advance_pending_unlock(&self.shared, now, outputs_ready)
     }
 
     pub(super) fn security_gate_locked(&self) -> bool {
@@ -810,6 +904,8 @@ impl AuthenticationController {
     pub(super) fn lock(&self) {
         {
             let mut state = lock_unpoisoned(&self.shared.state);
+            state.lock_epoch = state.lock_epoch.wrapping_add(1);
+            state.fingerprint_unlock = None;
             self.shared.locked.store(true, Ordering::Release);
             self.shared
                 .security_gate_locked
@@ -839,29 +935,22 @@ impl AuthenticationController {
     }
 
     fn synchronize(&self) {
-        let (state_event, prompt_event) = {
-            let state = lock_unpoisoned(&self.shared.state);
-            let snapshot = snapshot_locked(&self.shared, &state, Instant::now());
-            let prompt = state.prompt.as_ref().map(|prompt| AuthenticationEvent {
+        let state = lock_unpoisoned(&self.shared.state);
+        let snapshot = snapshot_locked(&self.shared, &state, Instant::now());
+        self.shared.push_event(AuthenticationEvent {
+            kind: AuthenticationEventKind::State,
+            state: snapshot.clone(),
+            message: String::new(),
+        });
+        if let Some(prompt) = state.prompt.as_ref() {
+            self.shared.push_event(AuthenticationEvent {
                 kind: AuthenticationEventKind::Prompt {
                     style: prompt.style,
                     sequence: prompt.sequence,
                 },
-                state: snapshot.clone(),
+                state: snapshot,
                 message: prompt.message.clone(),
             });
-            (
-                AuthenticationEvent {
-                    kind: AuthenticationEventKind::State,
-                    state: snapshot,
-                    message: String::new(),
-                },
-                prompt,
-            )
-        };
-        self.shared.push_event(state_event);
-        if let Some(prompt) = prompt_event {
-            self.shared.push_event(prompt);
         }
     }
 
@@ -869,7 +958,7 @@ impl AuthenticationController {
         let immediate = {
             let mut state = lock_unpoisoned(&self.shared.state);
             let now = Instant::now();
-            if !self.locked() || state.busy {
+            if !self.locked() || state.busy || state.fingerprint_unlock.is_some() {
                 return;
             }
             if !state.available {
@@ -971,6 +1060,12 @@ impl Drop for AuthenticationController {
             state.prompt = None;
         }
         self.shared.condition.notify_all();
+        if lock_unpoisoned(&self.fingerprint_worker)
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            warn!("fingerprint worker panicked during shutdown");
+        }
         if lock_unpoisoned(&self.worker)
             .take()
             .is_some_and(|worker| worker.join().is_err())
@@ -1049,7 +1144,7 @@ fn run_authentication_worker(
         let cancelled = move || authentication_cancelled(&cancellation_shared, work.generation);
         let result = backend.authenticate(username, &mut conversation, &cancelled);
 
-        let event = {
+        {
             let mut state = lock_unpoisoned(&shared.state);
             let current = !state.stopping
                 && work.attempt_id == state.active_attempt_id
@@ -1064,6 +1159,8 @@ fn run_authentication_worker(
 
             let message = if success {
                 shared.locked.store(false, Ordering::Release);
+                state.lock_epoch = state.lock_epoch.wrapping_add(1);
+                shared.condition.notify_all();
                 state.failure_count = 0;
                 state.cooldown_until = None;
                 "Authentication successful".into()
@@ -1078,22 +1175,20 @@ fn run_authentication_worker(
                     "System authentication could not complete.".into()
                 }
             };
-            AuthenticationEvent {
+            shared.push_event(AuthenticationEvent {
                 kind: AuthenticationEventKind::Result {
                     success,
                     cancelled: was_cancelled,
                 },
                 state: snapshot_locked(shared, &state, Instant::now()),
                 message,
-            }
-        };
-        shared.push_event(event);
-        let state = lock_unpoisoned(&shared.state);
-        shared.push_event(AuthenticationEvent {
-            kind: AuthenticationEventKind::State,
-            state: snapshot_locked(shared, &state, Instant::now()),
-            message: String::new(),
-        });
+            });
+            shared.push_event(AuthenticationEvent {
+                kind: AuthenticationEventKind::State,
+                state: snapshot_locked(shared, &state, Instant::now()),
+                message: String::new(),
+            });
+        }
     }
 }
 
@@ -1109,7 +1204,7 @@ fn converse(
     message: &str,
 ) -> Option<SecureString> {
     let requires_response = style.requires_response();
-    let (sequence, event) = {
+    let sequence = {
         let mut state = lock_unpoisoned(&shared.state);
         if state.stopping
             || work.generation != state.generation
@@ -1133,9 +1228,9 @@ fn converse(
             state: snapshot_locked(shared, &state, Instant::now()),
             message,
         };
-        (sequence, event)
+        shared.push_event(event);
+        sequence
     };
-    shared.push_event(event);
     if !requires_response {
         return Some(SecureString::new(&[]));
     }

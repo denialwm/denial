@@ -108,6 +108,12 @@ verify_deb() {
         grep -Fxq "$portal_artifact" <<<"$payload_listing" \
           || fail "Debian package lacks $portal_artifact"
       done
+      for suspend_hook in \
+        ./usr/lib/systemd/system-sleep/denial-suspend-mode \
+        ./usr/lib/elogind/system-sleep/denial-suspend-mode; do
+        grep -Fxq "$suspend_hook" <<<"$payload_listing" \
+          || fail "Debian package lacks $suspend_hook"
+      done
       routing="$(
         dpkg-deb --fsys-tarfile "$package" \
           | bsdtar -xOf - ./usr/share/xdg-desktop-portal/denial-portals.conf
@@ -210,6 +216,12 @@ verify_rpm() {
         /usr/share/xdg-desktop-portal/portals/denial.portal; do
         grep -Fxq "$portal_artifact" <<<"$package_files" \
           || fail "Denial RPM lacks $portal_artifact"
+      done
+      for suspend_hook in \
+        /usr/lib/systemd/system-sleep/denial-suspend-mode \
+        /usr/lib/elogind/system-sleep/denial-suspend-mode; do
+        grep -Fxq "$suspend_hook" <<<"$package_files" \
+          || fail "Denial RPM lacks $suspend_hook"
       done
       for expected_action in \
         'install-user-units denial-session.target' \

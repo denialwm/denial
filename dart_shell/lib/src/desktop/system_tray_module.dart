@@ -138,6 +138,11 @@ typedef SystemTrayInvoke =
     );
 typedef SystemTrayMenuLoader =
     Future<List<SystemTrayMenuEntry>?> Function(SystemTrayItem item);
+typedef SystemTraySubmenuLoader =
+    Future<List<SystemTrayMenuEntry>?> Function(
+      SystemTrayItem item,
+      int parentId,
+    );
 typedef SystemTrayMenuInvoke =
     FutureOr<bool> Function(SystemTrayItem item, int entryId);
 
@@ -274,6 +279,7 @@ class SystemTrayModule extends ConsumerWidget {
     required this.items,
     this.onInvoke,
     this.onLoadMenu,
+    this.onLoadSubmenu,
     this.onInvokeMenu,
     super.key,
   });
@@ -283,6 +289,7 @@ class SystemTrayModule extends ConsumerWidget {
   final List<SystemTrayItem> items;
   final SystemTrayInvoke? onInvoke;
   final SystemTrayMenuLoader? onLoadMenu;
+  final SystemTraySubmenuLoader? onLoadSubmenu;
   final SystemTrayMenuInvoke? onInvokeMenu;
 
   @override
@@ -295,6 +302,11 @@ class SystemTrayModule extends ConsumerWidget {
     final loadMenu =
         onLoadMenu ??
         (item) => ref.read(systemTrayProvider.notifier).loadMenu(item);
+    final loadSubmenu =
+        onLoadSubmenu ??
+        (item, parentId) => ref
+            .read(systemTrayProvider.notifier)
+            .loadMenu(item, parentId: parentId);
     final invokeMenu =
         onInvokeMenu ??
         (item, entryId) => ref
@@ -315,6 +327,7 @@ class SystemTrayModule extends ConsumerWidget {
               accent: accent,
               onInvoke: invoke,
               onLoadMenu: loadMenu,
+              onLoadSubmenu: loadSubmenu,
               onInvokeMenu: invokeMenu,
             ),
           ],
@@ -330,6 +343,7 @@ class _SystemTrayButton extends ConsumerStatefulWidget {
     required this.accent,
     required this.onInvoke,
     required this.onLoadMenu,
+    required this.onLoadSubmenu,
     required this.onInvokeMenu,
     super.key,
   });
@@ -338,6 +352,7 @@ class _SystemTrayButton extends ConsumerStatefulWidget {
   final Color accent;
   final SystemTrayInvoke onInvoke;
   final SystemTrayMenuLoader onLoadMenu;
+  final SystemTraySubmenuLoader onLoadSubmenu;
   final SystemTrayMenuInvoke onInvokeMenu;
 
   @override
@@ -350,6 +365,10 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
   late final _SystemTrayMenuSessionController _menuSessions;
   Offset? _primaryPosition;
   List<SystemTrayMenuEntry> _menuEntries = const <SystemTrayMenuEntry>[];
+  final Map<int, List<SystemTrayMenuEntry>> _submenuEntries =
+      <int, List<SystemTrayMenuEntry>>{};
+  final Set<int> _loadingSubmenus = <int>{};
+  final Set<int> _failedSubmenus = <int>{};
   int _menuGeneration = 0;
 
   @override
@@ -396,7 +415,12 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
     if (visibleEntries.isEmpty) {
       return false;
     }
-    setState(() => _menuEntries = visibleEntries);
+    setState(() {
+      _submenuEntries.clear();
+      _loadingSubmenus.clear();
+      _failedSubmenus.clear();
+      _menuEntries = visibleEntries;
+    });
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || generation != _menuGeneration) {
       return false;
@@ -424,6 +448,39 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
     if (!await _openFlutterMenu(position)) {
       await _invoke(SystemTrayAction.contextMenu, position);
     }
+  }
+
+  Future<void> _loadSubmenu(int parentId) async {
+    if (_loadingSubmenus.contains(parentId)) {
+      return;
+    }
+    final generation = _menuGeneration;
+    setState(() {
+      _loadingSubmenus.add(parentId);
+      _failedSubmenus.remove(parentId);
+    });
+    List<SystemTrayMenuEntry>? entries;
+    try {
+      entries = await widget.onLoadSubmenu(widget.item, parentId);
+    } on Object {
+      entries = null;
+    }
+    if (!mounted || generation != _menuGeneration) {
+      return;
+    }
+    setState(() {
+      _loadingSubmenus.remove(parentId);
+      if (entries == null) {
+        if (!_submenuEntries.containsKey(parentId)) {
+          _failedSubmenus.add(parentId);
+        }
+        return;
+      }
+      _failedSubmenus.remove(parentId);
+      _submenuEntries[parentId] = List<SystemTrayMenuEntry>.unmodifiable(
+        entries.where((entry) => entry.visible),
+      );
+    });
   }
 
   Widget _menuInputRegion({required String debugLabel, required Widget child}) {
@@ -464,7 +521,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
         );
         continue;
       }
-      final children = _buildMenuChildren(context, entry.children);
+      final children = _buildEntryChildren(context, entry);
       final label = entry.label.isEmpty ? 'Untitled item' : entry.label;
       final leadingIcon = _menuLeadingIcon(
         entry,
@@ -486,7 +543,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
           ),
         ),
       );
-      if (children.isNotEmpty && entry.enabled) {
+      if ((entry.hasSubmenu || children.isNotEmpty) && entry.enabled) {
         output.add(
           _menuInputRegion(
             debugLabel: 'System tray submenu entry',
@@ -497,6 +554,9 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
               menuStyle: menuStyle,
               useRootOverlay: false,
               hoverOpenDelay: const Duration(milliseconds: 140),
+              onOpen: entry.hasSubmenu
+                  ? () => unawaited(_loadSubmenu(entry.id))
+                  : null,
               menuChildren: children,
               child: child,
             ),
@@ -524,6 +584,37 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
       );
     }
     return output;
+  }
+
+  List<Widget> _buildEntryChildren(
+    BuildContext context,
+    SystemTrayMenuEntry entry,
+  ) {
+    final loaded = _submenuEntries[entry.id];
+    if (loaded != null && loaded.isNotEmpty) {
+      return _buildMenuChildren(context, loaded);
+    }
+    if (entry.children.isNotEmpty) {
+      return _buildMenuChildren(context, entry.children);
+    }
+    if (!entry.hasSubmenu) {
+      return const <Widget>[];
+    }
+    final label = loaded != null
+        ? 'No menu items'
+        : _failedSubmenus.contains(entry.id)
+        ? 'Unable to load menu'
+        : 'Loading…';
+    return <Widget>[
+      _menuInputRegion(
+        debugLabel: 'System tray submenu status',
+        child: MenuItemButton(
+          onPressed: null,
+          style: _menuButtonStyle(context, destructive: false),
+          child: Text(label),
+        ),
+      ),
+    ];
   }
 
   MenuStyle _menuStyle(BuildContext context) {
@@ -643,6 +734,9 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
         oldWidget.item.menuPath != widget.item.menuPath) {
       _menuGeneration += 1;
       _menuEntries = const <SystemTrayMenuEntry>[];
+      _submenuEntries.clear();
+      _loadingSubmenus.clear();
+      _failedSubmenus.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _menuController.close();

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart'
 import 'package:flutter/widgets.dart';
 
 import '../models/denial_drag_icon.dart';
+import '../diagnostics/cursor_benchmark.dart';
 import '../models/denial_cursor_state.dart';
 import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
@@ -177,6 +178,7 @@ class ShellCursorHost extends StatefulWidget {
     this.displayLayout,
     this.cursorSize = shellCursorDefaultSize,
     this.onCursorStatePresented,
+    this.benchmarkSocket,
   });
 
   final Widget child;
@@ -191,12 +193,14 @@ class ShellCursorHost extends StatefulWidget {
   /// Target size of the longest cursor-artwork edge in physical pixels.
   final double cursorSize;
   final ValueChanged<int>? onCursorStatePresented;
+  final String? benchmarkSocket;
 
   @override
   State<ShellCursorHost> createState() => _ShellCursorHostState();
 }
 
-class _ShellCursorHostState extends State<ShellCursorHost> {
+class _ShellCursorHostState extends State<ShellCursorHost>
+    with SingleTickerProviderStateMixin {
   final _cursorController = _ShellCursorController.instance;
   final _cursorTranslation = ValueNotifier<Offset>(Offset.zero);
   Offset? _position;
@@ -211,6 +215,8 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   int _pendingCursorAckEpoch = 0;
   bool _cursorAckScheduled = false;
   ShellCursorThemeData? _precacheTheme;
+  CursorBenchmark? _benchmark;
+  Offset? _physicalPosition;
 
   @override
   void initState() {
@@ -222,6 +228,32 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     _subscribeToPlatformCursorStates();
     _subscribeToPlatformCursorPositions();
     _subscribeToPlatformDragIcons();
+    final socket = widget.benchmarkSocket;
+    if (socket != null && socket.isNotEmpty) {
+      final benchmark = CursorBenchmark(
+        vsync: this,
+        layout: () => widget.displayLayout,
+        available: () =>
+            mounted &&
+            _physicalPosition != null &&
+            !widget.hideCursor &&
+            _visible &&
+            _platformCursorState?.kind != DenialCursorStateKind.hidden &&
+            _dragIcon == null,
+        move: _setPosition,
+        restore: () {
+          if (mounted && _physicalPosition != null) {
+            _setPosition(_physicalPosition!);
+          }
+        },
+      );
+      _benchmark = benchmark;
+      unawaited(
+        benchmark.listen(socket).catchError((Object error) {
+          debugPrint('Cursor benchmark unavailable: $error');
+        }),
+      );
+    }
   }
 
   @override
@@ -233,6 +265,12 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   @override
   void didUpdateWidget(covariant ShellCursorHost oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.displayLayout?.epoch != widget.displayLayout?.epoch ||
+        oldWidget.hideCursor != widget.hideCursor ||
+        oldWidget.theme != widget.theme ||
+        oldWidget.cursorSize != widget.cursorSize) {
+      _benchmark?.cancel('scene_configuration_changed');
+    }
     if (oldWidget.platformCursorShapes != widget.platformCursorShapes) {
       unawaited(_platformCursorSubscription?.cancel());
       _subscribeToPlatformCursorShapes();
@@ -258,6 +296,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
 
   @override
   void dispose() {
+    _benchmark?.dispose();
     unawaited(_platformCursorSubscription?.cancel());
     unawaited(_platformCursorStateSubscription?.cancel());
     unawaited(_platformPositionSubscription?.cancel());
@@ -358,7 +397,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     if (!mounted || !position.dx.isFinite || !position.dy.isFinite) {
       return;
     }
-    _setPosition(position);
+    _acceptPhysicalPosition(position);
   }
 
   void _updatePosition(PointerEvent event) {
@@ -366,7 +405,15 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
         event.localPosition == _position) {
       return;
     }
-    _setPosition(event.localPosition);
+    _acceptPhysicalPosition(event.localPosition);
+  }
+
+  void _acceptPhysicalPosition(Offset position) {
+    if (_physicalPosition != position) {
+      _physicalPosition = position;
+      _benchmark?.cancel('physical_pointer_moved');
+    }
+    if (!(_benchmark?.running ?? false)) _setPosition(position);
   }
 
   void _setPosition(Offset position) {

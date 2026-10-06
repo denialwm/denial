@@ -14,6 +14,9 @@ mod dpms;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[cfg(feature = "flutter")]
+#[path = "deniald/fingerprint_presentation.rs"]
+mod fingerprint_presentation;
+#[cfg(feature = "flutter")]
 #[path = "deniald/flutter_event_loop.rs"]
 mod flutter_event_loop;
 #[cfg(feature = "flutter")]
@@ -36,6 +39,11 @@ mod frame_loop;
 #[cfg(feature = "flutter")]
 #[path = "deniald/frame_scheduler.rs"]
 mod frame_scheduler;
+#[path = "deniald/gamma_control.rs"]
+mod gamma_control;
+#[cfg(feature = "flutter")]
+#[path = "deniald/haptics.rs"]
+mod haptics;
 #[path = "deniald/hotplug_transaction.rs"]
 mod hotplug_transaction;
 #[cfg(feature = "flutter")]
@@ -54,9 +62,6 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
-#[cfg(feature = "flutter")]
-#[path = "deniald/native_app_plugin.rs"]
-mod native_app_plugin;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -90,8 +95,17 @@ mod screenshot;
 mod session_activation;
 #[path = "deniald/settings.rs"]
 mod settings;
+#[cfg(feature = "flutter")]
+#[path = "deniald/settings_watch.rs"]
+mod settings_watch;
+#[cfg(feature = "flutter")]
+#[path = "deniald/sleep_transition.rs"]
+mod sleep_transition;
 #[path = "deniald/startup.rs"]
 mod startup;
+#[cfg(feature = "flutter")]
+#[path = "deniald/surface_feedback.rs"]
+mod surface_feedback;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
@@ -115,8 +129,17 @@ mod window_placement_store;
 #[path = "deniald/wire.rs"]
 mod wire;
 #[cfg(feature = "flutter")]
+#[path = "deniald/x11_input_method.rs"]
+mod x11_input_method;
+#[cfg(feature = "flutter")]
+#[path = "deniald/xcursor_sentinel.rs"]
+mod xcursor_sentinel;
+#[cfg(all(feature = "flutter", feature = "xwayland"))]
 #[path = "deniald/xembed_tray.rs"]
 mod xembed_tray;
+#[cfg(feature = "flutter")]
+#[path = "deniald/xembed_tray_protocol.rs"]
+mod xembed_tray_protocol;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
@@ -124,7 +147,7 @@ use std::ffi::OsStr;
 #[cfg(feature = "flutter")]
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::MetadataExt;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
@@ -132,7 +155,8 @@ use std::path::Path;
 #[cfg(feature = "flutter")]
 use std::path::PathBuf;
 #[cfg(feature = "flutter")]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
@@ -146,14 +170,13 @@ use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::{Allocator, Buffer as AllocatorBuffer, Format, Fourcc, Modifier};
-use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo};
 use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
+use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -181,7 +204,7 @@ const DEFAULT_QT_QPA_PLATFORMTHEME: &str = "xdgdesktopportal";
 #[cfg(feature = "flutter")]
 use dpms::{
     apply_output_power_requests, collect_output_power_requests, synchronize_idle_dpms,
-    synchronize_idle_dpms_configuration, synchronize_requested_dpms_off,
+    synchronize_idle_dpms_configuration, synchronize_power_button, synchronize_requested_dpms_off,
 };
 #[cfg(feature = "flutter")]
 use flutter_event_loop::{FlutterEventLoopContext, run_flutter_event_loop};
@@ -193,21 +216,22 @@ use flutter_scene_sync::{
 #[cfg(feature = "flutter")]
 use flutter_service_sync::{
     publish_software_keyboard_state, synchronize_authentication_boundary, synchronize_clipboard,
-    synchronize_notification_events, synchronize_shell_keyboard, synchronize_system_control_events,
-    synchronize_xembed_tray,
+    synchronize_fingerprint_display_wake, synchronize_notification_events,
+    synchronize_shell_keyboard, synchronize_system_control_events, synchronize_xembed_tray,
 };
 #[cfg(feature = "flutter")]
 use flutter_session::{
-    ActiveOutputConfirmation, begin_output_confirmation, cancel_active_screenshot,
-    install_ready_fence_watch, install_sampled_buffer_releases, quiesce_flutter_page_flips,
-    reload_flutter_runtime, screenshot_buffer_modifier, screenshot_composite_sources,
-    service_native_app_plugins, submit_ready_frames,
+    ActiveOutputConfirmation, FlutterReloadOutcome, begin_output_confirmation,
+    cancel_active_screenshot, install_ready_fence_watch, install_sampled_buffer_releases,
+    quiesce_flutter_page_flips, reload_flutter_runtime, screenshot_buffer_modifier,
+    screenshot_composite_sources, submit_ready_frames,
 };
 #[cfg(feature = "flutter")]
 use flutter_settings_sync::{
     apply_automatic_orientation, apply_resident_output_geometry, send_flutter_window_event,
-    synchronize_flutter_window_management, synchronize_resident_flutter_geometry_state,
-    synchronize_settings, synchronize_system_bar_configuration,
+    synchronize_flutter_window_commands, synchronize_flutter_window_management,
+    synchronize_resident_flutter_geometry_state, synchronize_settings,
+    synchronize_system_bar_configuration,
 };
 use frame_loop::{FrameLoopContext, run_frame_loop};
 use hotplug_transaction::{
@@ -236,9 +260,9 @@ use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 #[cfg(feature = "flutter")]
 use output_control::{
     ControlEvent, OutputConfirmationAction, OutputControlFailure, OutputControlServer,
-    PendingOutputApply, PendingOutputConfirmation, PendingSettingsControl, PendingSystemControl,
-    PendingSystemControlWait, PendingUiDevelopment, SettingsControlCommand, ShellControlCommand,
-    SystemControlCommand, SystemControlWaitKind,
+    PendingOutputApply, PendingOutputConfirmation, PendingSettingsControl, PendingSoftwareDimming,
+    PendingSystemControl, PendingSystemControlWait, PendingUiDevelopment, SettingsControlCommand,
+    ShellControlCommand, SystemControlCommand, SystemControlWaitKind,
 };
 use output_topology::{
     ConnectedConnector, RuntimeOutputConfiguration, configured_outputs, connected_outputs,
@@ -261,6 +285,8 @@ use session_activation::{
     preserves_predecessor_kms_state, publish_session_activation_environment,
     stop_systemd_graphical_session,
 };
+#[cfg(feature = "flutter")]
+use sleep_transition::{release_sleep_delay_if_ready, synchronize_sleep_transition};
 use startup::run;
 use system_controls::SystemControls;
 #[cfg(feature = "flutter")]
@@ -311,20 +337,23 @@ const MAX_FLUTTER_EVENTS_PER_ITERATION: usize = 128;
 #[cfg(feature = "flutter")]
 fn render_audit_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("DENIA_RENDER_AUDIT")
-                .ok()
-                .as_deref()
-                .map(str::trim)
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("1" | "true" | "yes" | "on")
-        )
-    })
+    *ENABLED.get_or_init(|| denial_core::environment::flag("DENIAL_RENDER_AUDIT"))
 }
 
 fn main() {
+    #[cfg(feature = "flutter")]
+    if std::env::args_os()
+        .skip(1)
+        .eq([std::ffi::OsString::from("--fingerprint-settings")])
+    {
+        if let Err(error) = authentication::fingerprint_settings::run() {
+            println!("{}", serde_json::json!({"event":"unavailable"}));
+            eprintln!("deniald fingerprint settings: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Err(error) = denial_main() {
         // Returning Result::Err from main becomes status 1, which display
         // managers can mistake for an orderly session exit. Preserve the
@@ -336,13 +365,30 @@ fn main() {
 }
 
 fn denial_main() -> Result<(), Box<dyn Error>> {
+    install_legacy_denial_environment_aliases();
     let options = Options::parse()?;
+    if options.software_rendering {
+        // SAFETY: option parsing happens on the process's only thread, before
+        // libseat, Mesa, Flutter, or any Denial worker is initialized. Mesa
+        // reads these overrides while constructing the first GBM/EGL display.
+        // The driver override is required on GBM backends such as vmwgfx,
+        // where LIBGL_ALWAYS_SOFTWARE alone can retain the hardware DRI driver.
+        unsafe {
+            std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+            std::env::set_var("MESA_LOADER_DRIVER_OVERRIDE", "kms_swrast");
+        }
+    }
+    #[cfg(feature = "flutter")]
+    if options.wayland && options.flutter_bundle.is_some() {
+        xcursor_sentinel::install()?;
+    }
     if options.start_locked {
         // SAFETY: option parsing happens on the process's only thread, before
         // libseat, authentication, Flutter, or any other worker is started.
         // Dart reads this once to make its very first visual state match the
         // already-locked native security gate.
         unsafe {
+            std::env::set_var("DENIAL_START_LOCKED", "1");
             std::env::set_var("DENIA_START_LOCKED", "1");
         }
     }
@@ -355,8 +401,39 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
         )
         .init();
 
+    if options.software_rendering {
+        info!(driver = "kms_swrast", "using Mesa software rendering");
+    }
+
     if options.max_outputs == 0 {
         return Ok(());
     }
+    let application_cpus = cpu_scheduling::initialize_placement();
+    // SAFETY: still the sole startup thread, before run() creates any native,
+    // driver or engine workers. Dart's direct tool-spawn path inherits this
+    // original domain; native application launches remove the metadata.
+    unsafe {
+        match application_cpus {
+            Some(cpus) => std::env::set_var(denial_core::cpu_affinity::APPLICATION_CPUS_ENV, cpus),
+            None => std::env::remove_var(denial_core::cpu_affinity::APPLICATION_CPUS_ENV),
+        }
+    }
     run(options)
+}
+
+fn install_legacy_denial_environment_aliases() {
+    let aliases = std::env::vars_os()
+        .filter_map(|(name, value)| {
+            let suffix = name.to_str()?.strip_prefix("DENIAL_")?;
+            Some((format!("DENIA_{suffix}"), value))
+        })
+        .collect::<Vec<_>>();
+    // SAFETY: denial_main calls this before option parsing starts libseat,
+    // Flutter, graphics drivers, or any worker thread. Canonical values win
+    // so the pinned engine's legacy getenv calls observe the same setting.
+    unsafe {
+        for (legacy, value) in aliases {
+            std::env::set_var(legacy, value);
+        }
+    }
 }

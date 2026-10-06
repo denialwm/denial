@@ -34,6 +34,8 @@ const int denialWireMaxTrayIconBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
 const int denialWireMaxLocalWindowTitleBytes = 1024;
 const int denialWireMaxSettingsDocumentBytes = 256 * 1024;
+const double denialWireMaxSystemBarThickness = 512;
+const double denialWireMaxMaximizePadding = 256;
 const int _maxShortcutBindings = 256;
 const int _maxShortcutInputs = 256;
 const int _maxShortcutCommandArguments = 64;
@@ -202,6 +204,8 @@ class DenialWireCodec {
     generated.SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
     int flags = 0,
+    int monitorId = -1,
+    int workspaceId = 1,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -214,6 +218,8 @@ class DenialWireCodec {
         systemBarSide: systemBarSide,
         systemBarMonitorIds: systemBarMonitorIds,
         flags: flags,
+        monitorId: monitorId,
+        workspaceId: workspaceId,
       ),
       requestId: requestId,
     );
@@ -223,13 +229,21 @@ class DenialWireCodec {
     required int requestId,
     required SystemBarSide side,
     required List<int> monitorIds,
+    required double systemBarThickness,
+    required double maximizePadding,
   }) {
     if (requestId <= 0 ||
         side == SystemBarSide.hidden ||
         monitorIds.isEmpty ||
         monitorIds.length > denialWireMaxWindows ||
         monitorIds.any((monitorId) => monitorId < 0) ||
-        monitorIds.toSet().length != monitorIds.length) {
+        monitorIds.toSet().length != monitorIds.length ||
+        !systemBarThickness.isFinite ||
+        systemBarThickness <= 0 ||
+        systemBarThickness > denialWireMaxSystemBarThickness ||
+        !maximizePadding.isFinite ||
+        maximizePadding < 0 ||
+        maximizePadding > denialWireMaxMaximizePadding) {
       return null;
     }
     final wireSide = switch (side) {
@@ -246,6 +260,8 @@ class DenialWireCodec {
       _AlignedSystemBarRequestObjectBuilder(
         side: wireSide,
         monitorIds: List<int>.unmodifiable(monitorIds),
+        systemBarThickness: systemBarThickness,
+        maximizePadding: maximizePadding,
       ),
       requestId: requestId,
     );
@@ -281,6 +297,16 @@ class DenialWireCodec {
       generated.KeyboardCommandObjectBuilder(
         kind: generated.KeyboardCommandKind.Text,
         text: text,
+      ),
+    );
+  }
+
+  Uint8List encodeKeyboardPanelDismissal(int activationSerial) {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.KeyboardCommand,
+      generated.KeyboardCommandObjectBuilder(
+        kind: generated.KeyboardCommandKind.DismissPanel,
+        activationSerial: activationSerial,
       ),
     );
   }
@@ -403,7 +429,12 @@ class DenialWireCodec {
         capabilities.revision <= 0 ||
         !capabilities.scrollSpeedFactor.isFinite ||
         capabilities.scrollSpeedFactor < touchpadScrollSpeedFactorMinimum ||
-        capabilities.scrollSpeedFactor > touchpadScrollSpeedFactorMaximum) {
+        capabilities.scrollSpeedFactor > touchpadScrollSpeedFactorMaximum ||
+        !capabilities.scrollingLayoutSwipeSpeedFactor.isFinite ||
+        capabilities.scrollingLayoutSwipeSpeedFactor <
+            touchpadScrollingLayoutSwipeSpeedFactorMinimum ||
+        capabilities.scrollingLayoutSwipeSpeedFactor >
+            touchpadScrollingLayoutSwipeSpeedFactorMaximum) {
       return null;
     }
     return _encodeEnvelope(
@@ -415,6 +446,8 @@ class DenialWireCodec {
           tapToClickEnabled: capabilities.tapToClickEnabled,
           naturalScrollEnabled: capabilities.naturalScrollEnabled,
           scrollSpeedFactor: capabilities.scrollSpeedFactor,
+          scrollingLayoutSwipeSpeedFactor:
+              capabilities.scrollingLayoutSwipeSpeedFactor,
         ),
       ),
       requestId: requestId,
@@ -526,6 +559,8 @@ class DenialWireCodec {
     final touchpad = inputDevices?.touchpad;
     final mouse = inputDevices?.mouse;
     final scrollSpeedFactor = touchpad?.scrollSpeedFactor;
+    final scrollingLayoutSwipeSpeedFactor =
+        touchpad?.scrollingLayoutSwipeSpeedFactor;
     final mouseSpeed = mouse?.speed;
     if (!response.success ||
         response.kind != generated.SettingsResponseKind.InputDevices ||
@@ -534,10 +569,16 @@ class DenialWireCodec {
         touchpad == null ||
         mouse == null ||
         scrollSpeedFactor == null ||
+        scrollingLayoutSwipeSpeedFactor == null ||
         mouseSpeed == null ||
         !scrollSpeedFactor.isFinite ||
         scrollSpeedFactor < touchpadScrollSpeedFactorMinimum ||
         scrollSpeedFactor > touchpadScrollSpeedFactorMaximum ||
+        !scrollingLayoutSwipeSpeedFactor.isFinite ||
+        scrollingLayoutSwipeSpeedFactor <
+            touchpadScrollingLayoutSwipeSpeedFactorMinimum ||
+        scrollingLayoutSwipeSpeedFactor >
+            touchpadScrollingLayoutSwipeSpeedFactorMaximum ||
         !mouseSpeed.isFinite ||
         mouseSpeed < mouseSpeedMinimum ||
         mouseSpeed > mouseSpeedMaximum) {
@@ -552,6 +593,7 @@ class DenialWireCodec {
       tapToClickEnabled: touchpad.tapToClickEnabled,
       naturalScrollEnabled: touchpad.naturalScrollEnabled,
       scrollSpeedFactor: scrollSpeedFactor,
+      scrollingLayoutSwipeSpeedFactor: scrollingLayoutSwipeSpeedFactor,
     );
   }
 
@@ -1297,6 +1339,16 @@ class DenialWireCodec {
           DenialWindowContentKind.surfaceTree,
         generated.WindowContentKind.LocalFlutter =>
           DenialWindowContentKind.localFlutter,
+        generated.WindowContentKind.LayerShellBackground =>
+          DenialWindowContentKind.layerShellBackground,
+        generated.WindowContentKind.LayerShellBottom =>
+          DenialWindowContentKind.layerShellBottom,
+        generated.WindowContentKind.LayerShellTop =>
+          DenialWindowContentKind.layerShellTop,
+        generated.WindowContentKind.LayerShellOverlay =>
+          DenialWindowContentKind.layerShellOverlay,
+        generated.WindowContentKind.PopupSurface =>
+          DenialWindowContentKind.popupSurface,
       };
       if (contentKind == DenialWindowContentKind.localFlutter &&
           (window.textureId != 0 || sourceLayers.isNotEmpty)) {
@@ -1374,6 +1426,13 @@ class DenialWireCodec {
           geometryWidth: window.geometryWidth,
           geometryHeight: window.geometryHeight,
           monitorId: window.monitorId,
+          workspaceId: window.workspaceId,
+          transientParentObjectId: window.transientParentId == 0
+              ? null
+              : window.transientParentId,
+          minimized: window.minimized,
+          fullscreen: window.fullscreen,
+          maximized: window.maximized,
           transform: window.transform,
           scale120: window.scale120,
           pinned: window.pinned,
@@ -1462,6 +1521,8 @@ class DenialWireCodec {
           outputPixels.height <= 0.0 ||
           output.scale <= 0.0 ||
           output.refreshRate <= 0.0 ||
+          output.activeWorkspace < 1 ||
+          output.activeWorkspace > 9 ||
           output.monitorId < 0 ||
           !outputIds.add(output.monitorId)) {
         rejectedStructuredMessages += 1;
@@ -1475,6 +1536,7 @@ class DenialWireCodec {
           pixelSize: Size(outputPixels.width, outputPixels.height),
           scale: output.scale,
           refreshRate: output.refreshRate,
+          activeWorkspace: output.activeWorkspace,
         ),
       );
     }

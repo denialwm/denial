@@ -1,72 +1,15 @@
-//! Flutter-session adapters for plugins, fences, screenshots, reload, and shutdown.
+//! Flutter-session adapters for fences, screenshots, reload, and shutdown.
 
 use super::kms_render::{physical_rect, smithay_output_transform};
 use super::kms_session::service_session_lifecycle;
 use super::*;
 
-pub(super) fn native_app_plugins_require_service(events: &RuntimeState) -> bool {
-    !events.native_release_commands.is_empty()
-        || !events.native_ready_frames.is_empty()
-        || !events.native_plugin_actions.is_empty()
-        || events
-            .native_app_plugins
-            .as_ref()
-            .is_some_and(native_app_plugin::NativeAppPluginManager::has_dirty_target_pools)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FlutterReloadOutcome {
+    Replaced,
+    Retained,
 }
 
-pub(super) fn service_native_app_plugins(
-    event_loop: &mut EventLoop<'_, RuntimeState>,
-    events: &mut RuntimeState,
-    allocator: &mut GbmAllocator<DrmDeviceFd>,
-) -> Result<(), Box<dyn Error>> {
-    let Some(mut manager) = events.native_app_plugins.take() else {
-        events.native_plugin_actions.clear();
-        events.native_release_commands.clear();
-        events.native_ready_frames.clear();
-        return Ok(());
-    };
-
-    for release in events.native_release_commands.drain(..) {
-        if let Err(error) = manager.handle_release_command(release) {
-            warn!(%error, "native application plugin release command failed");
-        }
-    }
-    for key in events.native_ready_frames.drain(..) {
-        manager.activate_frame(key);
-    }
-
-    let default_size = events.native_plugin_default_size;
-    let formats = &events.native_plugin_formats;
-    manager.refresh_dirty_target_pools(formats, allocator)?;
-    let release_sender = events
-        .native_release_sender
-        .as_ref()
-        .ok_or("native application release channel disappeared")?;
-    for action in events.native_plugin_actions.drain(..) {
-        let watch =
-            match manager.handle_action(action, default_size, formats, allocator, release_sender) {
-                Ok(watch) => watch,
-                Err(error) => {
-                    warn!(%error, "rejected native application plugin event");
-                    continue;
-                }
-            };
-        let Some(watch) = watch else {
-            continue;
-        };
-        let key = watch.key;
-        event_loop.handle().insert_source(
-            Generic::new(watch.fence, Interest::READ, PollMode::Level),
-            move |_, _, state: &mut RuntimeState| {
-                state.native_ready_frames.push(key);
-                Ok(PostAction::Remove)
-            },
-        )?;
-    }
-
-    events.native_app_plugins = Some(manager);
-    Ok(())
-}
 pub(super) fn install_sampled_buffer_releases(
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
@@ -74,23 +17,16 @@ pub(super) fn install_sampled_buffer_releases(
     for (fence, batch) in events.sampled_buffer_releases.drain(..) {
         let Some(fence) = fence else {
             // The raster thread already used glFinish. Drop the guards here so
-            // producer release remains on the compositor thread.
-            batch.complete_native_releases_without_fence()?;
+            // client releases remain on the compositor thread.
             drop(batch);
             continue;
         };
-        batch.materialize_native_releases(fence.as_fd())?;
         let mut batch = Some(batch);
         event_loop.handle().insert_source(
             Generic::new(fence, Interest::READ, PollMode::Level),
             move |_, _, _| {
                 // A sync_file becomes readable only after every preceding
                 // Flutter sample command has completed on the GPU.
-                if let Some(batch) = batch.as_ref()
-                    && let Err(error) = batch.complete_native_releases()
-                {
-                    error!(%error, "could not complete a native plugin buffer release");
-                }
                 drop(batch.take());
                 Ok(PostAction::Remove)
             },
@@ -119,12 +55,14 @@ pub(super) fn install_ready_fence_watch(
 
 #[cfg(feature = "flutter")]
 pub(super) fn submit_ready_frames(
+    runtime: &flutter_runtime::FlutterRuntime,
     scheduler: &mut output_scheduler::OutputScheduler,
     swapchain: &RenderSwapchains,
     scanouts: &[Scanout],
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
     scheduler.submit_ready(
+        runtime,
         swapchain
             .outputs()
             .ok_or("ready submission has no physical output pools")?,
@@ -247,10 +185,35 @@ pub(super) fn reload_flutter_runtime(
     events: &mut RuntimeState,
     flutter: &mut Option<flutter_runtime::FlutterRuntime>,
     flutter_launcher: &mut FlutterLauncher,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<FlutterReloadOutcome, Box<dyn Error>> {
     let snapshot = topology.snapshot();
     let atlas = AtlasPlan::for_snapshot(&snapshot)
         .ok_or("current topology produced no atlas during Flutter bundle refresh")?;
+    let output_swapchains = swapchain
+        .outputs()
+        .ok_or("Flutter bundle refresh has no physical output pools")?;
+    // Validate every replacement context and FBO while the active runtime and
+    // its imports remain alive. Some EGL drivers cannot reliably tear down an
+    // engine and then immediately reimport the same DMA-BUF pool; a failed
+    // preflight is still reversible because Flutter has not been taken yet.
+    let prepared = match flutter_launcher.prepare_output_targets(
+        renderer,
+        output_swapchains,
+        atlas.pixel_size,
+    ) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            let runtime = flutter
+                .as_mut()
+                .ok_or("Flutter runtime disappeared after bundle refresh preflight")?;
+            flutter_launcher.retain_runtime_after_switch_failure(runtime, error.as_ref());
+            warn!(
+                %error,
+                "Flutter bundle refresh renderer preflight failed; retaining the active runtime"
+            );
+            return Ok(FlutterReloadOutcome::Retained);
+        }
+    };
     let Some(mut old_runtime) = flutter.take() else {
         return Err("Flutter runtime disappeared during bundle refresh".into());
     };
@@ -267,37 +230,35 @@ pub(super) fn reload_flutter_runtime(
         synchronize_flutter_input_layout(&mut old_runtime, events)?;
         Ok(())
     })();
-    let shutdown = old_runtime.shutdown();
-    events.flutter_events.clear();
-    match (prepare_restart, shutdown) {
-        (Ok(()), Ok(())) => {}
-        (Err(error), Ok(())) => {
-            return Err(format!("Flutter pre-refresh drain failed: {error}").into());
-        }
-        (Ok(()), Err(error)) => {
-            return Err(format!("Flutter shutdown before refresh failed: {error}").into());
-        }
-        (Err(prepare_error), Err(shutdown_error)) => {
-            return Err(format!(
-                "Flutter pre-refresh drain failed: {prepare_error}; shutdown failed: {shutdown_error}"
-            )
-            .into());
-        }
+    if let Err(error) = prepare_restart {
+        *flutter = Some(old_runtime);
+        let runtime = flutter
+            .as_mut()
+            .expect("restored Flutter runtime after pre-refresh drain failure");
+        flutter_launcher.retain_runtime_after_switch_failure(runtime, error.as_ref());
+        warn!(
+            %error,
+            "Flutter pre-refresh drain failed; retaining the active runtime"
+        );
+        return Ok(FlutterReloadOutcome::Retained);
     }
+    old_runtime
+        .shutdown()
+        .map_err(|error| format!("Flutter shutdown before refresh failed: {error}"))?;
+    events.flutter_events.clear();
 
-    *flutter = Some(
-        flutter_launcher.start(
-            renderer,
-            swapchain
-                .outputs()
-                .ok_or("Flutter bundle refresh has no physical output pools")?,
-            scanouts,
-            &snapshot,
-            &atlas,
-        )?,
-    );
+    let mut replacement = flutter_launcher.start_with_targets(
+        renderer,
+        output_swapchains,
+        scanouts,
+        &snapshot,
+        &atlas,
+        Some(prepared),
+    )?;
+    events.install_workspace_snapshot(&mut replacement)?;
+    *flutter = Some(replacement);
     events.begin_replacement_flutter_generation(swapchain.desktop_size());
-    Ok(())
+    Ok(FlutterReloadOutcome::Replaced)
 }
 
 #[cfg(feature = "flutter")]

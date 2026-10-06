@@ -18,13 +18,16 @@ pub(super) const DISPLAY_POWER_CHANNEL: &CStr = c"denial/display_power";
 
 const LEGACY_PACKET_BYTES: usize = size_of::<u64>();
 const PACKET_BYTES: usize = 32;
-const PACKET_VERSION: u8 = 1;
+const LEGACY_CONFIGURATION_PACKET_VERSION: u8 = 1;
+const SUSPEND_MODE_CONFIGURATION_PACKET_VERSION: u8 = 2;
+const PACKET_VERSION: u8 = 3;
 const LOCK_ENABLED: u8 = 1 << 0;
 const DPMS_ENABLED: u8 = 1 << 1;
 const SUSPEND_ENABLED: u8 = 1 << 2;
 const ENABLED_MASK: u8 = LOCK_ENABLED | DPMS_ENABLED | SUSPEND_ENABLED;
 const DISPLAY_POWER_OFF: u8 = 1;
 const MAX_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const LOCK_AFTER_DPMS_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct IdlePowerRequest {
@@ -37,6 +40,70 @@ pub(super) struct IdlePolicyConfiguration {
     pub(super) lock_timeout: Option<Duration>,
     pub(super) dpms_timeout: Option<Duration>,
     pub(super) suspend_timeout: Option<Duration>,
+    pub(super) suspend_mode: SuspendMode,
+    pub(super) power_button_action: PowerButtonAction,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum PowerButtonAction {
+    #[default]
+    Dpms = 0,
+    Suspend = 1,
+    Hibernate = 2,
+    PowerOff = 3,
+}
+
+impl PowerButtonAction {
+    fn decode(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Dpms),
+            1 => Some(Self::Suspend),
+            2 => Some(Self::Hibernate),
+            3 => Some(Self::PowerOff),
+            _ => None,
+        }
+    }
+
+    pub(super) fn logind_method(self) -> Option<&'static str> {
+        match self {
+            Self::Dpms => None,
+            Self::Suspend => Some("Suspend"),
+            Self::Hibernate => Some("Hibernate"),
+            Self::PowerOff => Some("PowerOff"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum SuspendMode {
+    #[default]
+    SystemDefault = 0,
+    S2Idle = 1,
+    Shallow = 2,
+    Deep = 3,
+}
+
+impl SuspendMode {
+    fn decode(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::SystemDefault),
+            1 => Some(Self::S2Idle),
+            2 => Some(Self::Shallow),
+            3 => Some(Self::Deep),
+            _ => None,
+        }
+    }
+
+    pub(super) fn kernel_value(self) -> Option<&'static str> {
+        match self {
+            Self::SystemDefault => None,
+            Self::S2Idle => Some("s2idle"),
+            Self::Shallow => Some("shallow"),
+            Self::Deep => Some("deep"),
+        }
+    }
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -51,6 +118,8 @@ pub(super) enum IdlePolicyPacketError {
     InvalidSize(usize),
     UnsupportedVersion(u8),
     InvalidFlags(u8),
+    InvalidSuspendMode(u8),
+    InvalidPowerButtonAction(u8),
     NonZeroReservedBytes,
     ZeroTimeout(&'static str),
     TimeoutTooLarge {
@@ -77,6 +146,18 @@ impl fmt::Display for IdlePolicyPacketError {
                 write!(
                     formatter,
                     "idle policy packet has invalid flags {flags:#04x}"
+                )
+            }
+            Self::InvalidSuspendMode(mode) => {
+                write!(
+                    formatter,
+                    "idle policy packet has invalid suspend mode {mode}"
+                )
+            }
+            Self::InvalidPowerButtonAction(action) => {
+                write!(
+                    formatter,
+                    "idle policy packet has invalid power button action {action}"
                 )
             }
             Self::NonZeroReservedBytes => {
@@ -142,17 +223,40 @@ pub(super) fn decode_configuration(
     if packet.len() != PACKET_BYTES {
         return Err(IdlePolicyPacketError::InvalidSize(packet.len()));
     }
-    if packet[0] != PACKET_VERSION {
-        return Err(IdlePolicyPacketError::UnsupportedVersion(packet[0]));
-    }
+    let (suspend_mode, power_button_action) = match packet[0] {
+        LEGACY_CONFIGURATION_PACKET_VERSION => {
+            if packet[2..8].iter().any(|byte| *byte != 0) {
+                return Err(IdlePolicyPacketError::NonZeroReservedBytes);
+            }
+            (SuspendMode::SystemDefault, PowerButtonAction::Dpms)
+        }
+        SUSPEND_MODE_CONFIGURATION_PACKET_VERSION => {
+            if packet[3..8].iter().any(|byte| *byte != 0) {
+                return Err(IdlePolicyPacketError::NonZeroReservedBytes);
+            }
+            (
+                SuspendMode::decode(packet[2])
+                    .ok_or(IdlePolicyPacketError::InvalidSuspendMode(packet[2]))?,
+                PowerButtonAction::Dpms,
+            )
+        }
+        PACKET_VERSION => {
+            if packet[4..8].iter().any(|byte| *byte != 0) {
+                return Err(IdlePolicyPacketError::NonZeroReservedBytes);
+            }
+            (
+                SuspendMode::decode(packet[2])
+                    .ok_or(IdlePolicyPacketError::InvalidSuspendMode(packet[2]))?,
+                PowerButtonAction::decode(packet[3])
+                    .ok_or(IdlePolicyPacketError::InvalidPowerButtonAction(packet[3]))?,
+            )
+        }
+        version => return Err(IdlePolicyPacketError::UnsupportedVersion(version)),
+    };
     let flags = packet[1];
     if flags & !ENABLED_MASK != 0 {
         return Err(IdlePolicyPacketError::InvalidFlags(flags));
     }
-    if packet[2..8].iter().any(|byte| *byte != 0) {
-        return Err(IdlePolicyPacketError::NonZeroReservedBytes);
-    }
-
     let lock_timeout = decode_packet_timeout("lock", &packet[8..16])?;
     let dpms_timeout = decode_packet_timeout("display power-off", &packet[16..24])?;
     let suspend_timeout = decode_packet_timeout("suspend", &packet[24..32])?;
@@ -169,6 +273,8 @@ pub(super) fn decode_configuration(
         lock_timeout: (flags & LOCK_ENABLED != 0).then_some(lock_timeout),
         dpms_timeout: (flags & DPMS_ENABLED != 0).then_some(dpms_timeout),
         suspend_timeout: (flags & SUSPEND_ENABLED != 0).then_some(suspend_timeout),
+        suspend_mode,
+        power_button_action,
     })
 }
 
@@ -201,6 +307,34 @@ fn decode_timeout(
     Ok(timeout)
 }
 
+/// Physical power keys are consumed before ordinary input-to-wake handling.
+/// Releases and duplicate presses must never reverse the requested transition.
+#[derive(Default)]
+pub(super) struct PowerButton {
+    held_devices: BTreeSet<String>,
+    toggle_pending: bool,
+}
+
+impl PowerButton {
+    pub(super) fn note_key(&mut self, device: &str, pressed: bool) {
+        if pressed {
+            if self.held_devices.insert(device.to_owned()) {
+                self.toggle_pending = !self.toggle_pending;
+            }
+        } else {
+            self.held_devices.remove(device);
+        }
+    }
+
+    pub(super) fn remove_device(&mut self, device: &str) {
+        self.held_devices.remove(device);
+    }
+
+    pub(super) fn take_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.toggle_pending)
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct IdlePolicy {
     configuration: IdlePolicyConfiguration,
@@ -210,6 +344,7 @@ pub(super) struct IdlePolicy {
     dpms_triggered: bool,
     suspend_triggered: bool,
     blanked_outputs: BTreeSet<OutputId>,
+    manually_blanked: bool,
 }
 
 impl Default for IdlePolicy {
@@ -225,11 +360,47 @@ impl Default for IdlePolicy {
             dpms_triggered: false,
             suspend_triggered: false,
             blanked_outputs: BTreeSet::new(),
+            manually_blanked: false,
         }
     }
 }
 
 impl IdlePolicy {
+    pub(super) fn power_button_action(&self) -> PowerButtonAction {
+        self.configuration.power_button_action
+    }
+
+    /// A physical power press overrides the current output power state, even
+    /// when an external power client originally switched the displays off.
+    pub(super) fn toggle_now(
+        &mut self,
+        outputs: impl IntoIterator<Item = (OutputId, bool)>,
+        now: Instant,
+    ) -> IdlePolicyActions {
+        self.reset_idle_interval(now);
+        let outputs = outputs.into_iter().collect::<Vec<_>>();
+        if outputs.iter().any(|(_, powered)| *powered) {
+            IdlePolicyActions {
+                power_requests: self.blank_now(outputs),
+                lock: true,
+                ..IdlePolicyActions::default()
+            }
+        } else {
+            self.blanked_outputs.clear();
+            self.manually_blanked = false;
+            IdlePolicyActions {
+                power_requests: outputs
+                    .into_iter()
+                    .map(|(output, _)| IdlePowerRequest {
+                        output,
+                        powered: true,
+                    })
+                    .collect(),
+                ..IdlePolicyActions::default()
+            }
+        }
+    }
+
     /// Blanks every powered output explicitly while retaining native
     /// input-to-wake semantics independently of the configured idle timeout.
     pub(super) fn blank_now(
@@ -245,6 +416,7 @@ impl IdlePolicy {
                 });
             }
         }
+        self.manually_blanked |= !requests.is_empty();
         requests
     }
 
@@ -264,17 +436,33 @@ impl IdlePolicy {
         Vec::new()
     }
 
+    /// A hardware wake gesture targets one display, including an externally
+    /// blanked display. It can never toggle a lit display off or unlock.
+    pub(super) fn wake_output_now(&mut self, output: OutputId, now: Instant) -> IdlePowerRequest {
+        self.reset_idle_interval(now);
+        self.blanked_outputs.remove(&output);
+        self.manually_blanked &= !self.blanked_outputs.is_empty();
+        IdlePowerRequest {
+            output,
+            powered: true,
+        }
+    }
+
     pub(super) fn note_activity(&mut self, now: Instant) -> Vec<IdlePowerRequest> {
         self.reset_idle_interval(now);
         self.wake_blanked_outputs()
     }
 
-    pub(super) fn evaluate(
+    pub(super) fn evaluate<I>(
         &mut self,
         now: Instant,
         inhibited: bool,
-        outputs: impl IntoIterator<Item = (OutputId, bool)>,
-    ) -> IdlePolicyActions {
+        outputs: I,
+    ) -> IdlePolicyActions
+    where
+        I: IntoIterator<Item = (OutputId, bool)>,
+        I::IntoIter: Clone,
+    {
         if inhibited {
             if !std::mem::replace(&mut self.inhibited, true) {
                 self.reset_idle_interval(now);
@@ -283,7 +471,13 @@ impl IdlePolicy {
             // KMS transition, honor it immediately rather than requiring a
             // separate physical input event.
             return IdlePolicyActions {
-                power_requests: self.wake_blanked_outputs(),
+                // Inhibitors prevent automatic sleep; they cannot undo the
+                // user's power button or explicit screen-off request.
+                power_requests: if self.manually_blanked {
+                    Vec::new()
+                } else {
+                    self.wake_blanked_outputs()
+                },
                 ..IdlePolicyActions::default()
             };
         }
@@ -292,20 +486,15 @@ impl IdlePolicy {
             self.reset_idle_interval(now);
         }
 
-        let outputs = outputs.into_iter().collect::<Vec<_>>();
-        let live_outputs = outputs
-            .iter()
-            .map(|(output, _)| *output)
-            .collect::<BTreeSet<_>>();
+        let outputs = outputs.into_iter();
         self.blanked_outputs
-            .retain(|output| live_outputs.contains(output));
+            .retain(|blanked| outputs.clone().any(|(output, _)| output == *blanked));
         let elapsed = now.saturating_duration_since(self.last_activity);
         let mut actions = IdlePolicyActions::default();
 
         if !self.lock_triggered
             && self
-                .configuration
-                .lock_timeout
+                .effective_lock_timeout()
                 .is_some_and(|timeout| elapsed >= timeout)
         {
             self.lock_triggered = true;
@@ -334,8 +523,7 @@ impl IdlePolicy {
         if actions.power_requests.is_empty()
             && !self.suspend_triggered
             && self
-                .configuration
-                .suspend_timeout
+                .effective_suspend_timeout()
                 .is_some_and(|timeout| elapsed >= timeout)
         {
             self.suspend_triggered = true;
@@ -355,13 +543,13 @@ impl IdlePolicy {
         }
         let mut deadline = None;
         if !self.lock_triggered {
-            deadline = earlier(deadline, self.configuration.lock_timeout);
+            deadline = earlier(deadline, self.effective_lock_timeout());
         }
         if !self.dpms_triggered {
             deadline = earlier(deadline, self.configuration.dpms_timeout);
         }
         if !self.suspend_triggered {
-            deadline = earlier(deadline, self.configuration.suspend_timeout);
+            deadline = earlier(deadline, self.effective_suspend_timeout());
         }
         deadline.map(|timeout| self.last_activity + timeout)
     }
@@ -391,7 +579,25 @@ impl IdlePolicy {
         self.suspend_triggered = false;
     }
 
+    fn effective_lock_timeout(&self) -> Option<Duration> {
+        self.configuration.lock_timeout.map(|timeout| {
+            if self.configuration.dpms_timeout == Some(timeout) {
+                timeout + LOCK_AFTER_DPMS_DELAY
+            } else {
+                timeout
+            }
+        })
+    }
+
+    fn effective_suspend_timeout(&self) -> Option<Duration> {
+        self.configuration.suspend_timeout.map(|timeout| {
+            self.effective_lock_timeout()
+                .map_or(timeout, |lock_timeout| timeout.max(lock_timeout))
+        })
+    }
+
     fn wake_blanked_outputs(&mut self) -> Vec<IdlePowerRequest> {
+        self.manually_blanked = false;
         std::mem::take(&mut self.blanked_outputs)
             .into_iter()
             .map(|output| IdlePowerRequest {

@@ -168,7 +168,8 @@ The public GitHub workflows are part of the reviewable build instructions:
   public `main` and promote only the retained exact-commit production payload;
 - signed-tag jobs perform no compilation;
 - workflow permissions default to read-only;
-- build jobs have no signing or repository-publication secret;
+- build jobs have no package-signing or release-publication secret; the only
+  publication credential is a per-cache Cachix token scoped to Nix outputs;
 - a separate `release-signing` environment receives only the secret subkey;
 - publication re-verifies the signed tree without any secret key, exercises
   isolated APT and DNF clients, and publishes the draft GitHub Release only

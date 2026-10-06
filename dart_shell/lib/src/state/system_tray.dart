@@ -88,11 +88,14 @@ class SystemTrayController extends Notifier<List<SystemTrayItem>> {
     return false;
   }
 
-  Future<List<SystemTrayMenuEntry>?> loadMenu(SystemTrayItem item) {
+  Future<List<SystemTrayMenuEntry>?> loadMenu(
+    SystemTrayItem item, {
+    int parentId = 0,
+  }) {
     if (item.source != SystemTrayItemSource.statusNotifier) {
       return Future<List<SystemTrayMenuEntry>?>.value(null);
     }
-    return _statusNotifier.loadMenu(item);
+    return _statusNotifier.loadMenu(item, parentId: parentId);
   }
 
   Future<bool> activateMenuEntry(SystemTrayItem item, int entryId) {

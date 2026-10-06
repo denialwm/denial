@@ -20,6 +20,10 @@ an active systemd user manager, Denial activates its packaged
 .B denial-session.target
 after the compositor has published its endpoints and completed initial KMS
 presentation. That target also activates systemd's
+.B graphical-session-pre.target
+and waits for its session prerequisites before activating
+.BR graphical-session.target .
+It then activates
 .B xdg-desktop-autostart.target
 so standard XDG desktop autostart entries run only after Denial is ready. On
 other logind-compatible systems the launcher process owns the compositor
@@ -30,6 +34,10 @@ lifecycle directly and Denial does not process XDG desktop autostart entries.
 Validate the compositor, control client, session lifecycle, Flutter bundle,
 output configuration, DRM selection, renderer, Qt platform theme, and Xwayland
 without starting a compositor.
+.TP
+.B \-\-print-output-config
+Resolve and synchronize the effective writable output state, print its path,
+and exit. This diagnostic mode does not start a compositor.
 .TP
 .B \-\-start-locked
 Start with Denial's native authentication gate locked. Use this for direct or
@@ -43,11 +51,18 @@ All other arguments are forwarded to
 Root-owned shell-compatible machine configuration. Supported overrides include
 .BR DENIAL_DRM_DEVICE ,
 .BR DENIAL_RENDER_DEVICE ,
-.BR DENIA_SHELL_PROFILE ,
-.BR DENIA_FLUTTER_RENDERER ,
+.BR DENIAL_SHELL_PROFILE ,
+.BR DENIAL_FLUTTER_RENDERER ,
+.BR LIBGL_ALWAYS_SOFTWARE ,
 .BR QT_QPA_PLATFORMTHEME ,
 and
 .BR DENIAL_FLUTTER_BUNDLE .
+.PP
+The former
+.B DENIA_*
+spellings remain compatibility aliases. A
+.B DENIAL_*
+value takes precedence when both forms are present.
 .PP
 Unless explicitly overridden, the launcher selects Qt's
 .B xdgdesktopportal
@@ -55,17 +70,47 @@ platform theme provider so Qt applications receive Denial's colour-scheme
 preference from the Settings portal. Assigning an empty
 .B QT_QPA_PLATFORMTHEME
 value restores Qt's toolkit default.
+.PP
+When the effective render device uses the VMware
+.B vmwgfx
+kernel driver and
+.B LIBGL_ALWAYS_SOFTWARE
+is unset, the launcher automatically selects Denial's Mesa software-rendering
+compatibility path. An explicit value takes precedence; use 0 to retry VMware
+acceleration for diagnostics or 1 to force software rendering on another
+driver. The
+.B --check
+output reports the detected render driver and effective Mesa policy.
 .TP
 .I /etc/denial/outputs.conf
-System output template copied to a user's configuration on first launch.
+Declarative system output configuration used when no per-user source exists.
+Denial writes display changes to the state file below. A later change to this
+source replaces that writable state.
 .TP
 .I $XDG_CONFIG_HOME/denial/outputs.conf
-Per-user persistent output configuration.
+Per-user output configuration. An ordinary writable file is used directly for
+backward compatibility. A symbolic link or read-only file, including a Home
+Manager link into the Nix store, is treated as declarative input and
+synchronized to the writable state below.
+.TP
+.I $XDG_STATE_HOME/denial/outputs.conf
+Writable display state derived from declarative per-user or system input. Live
+changes persist while the declarative source is unchanged. If
+.B XDG_STATE_HOME
+is unset, the default is
+.IR ~/.local/state .
 .TP
 .I $XDG_CONFIG_HOME/denial/settings.json
-Rust-owned per-user settings document. The Settings application submits
+Rust-managed per-user settings document. The Settings application submits
 application-environment changes through Denial's native settings bridge;
-deniald validates and atomically writes the document. String values in its
+deniald validates and atomically writes the document. Direct edits are watched
+and applied live after complete-document validation; invalid edits remain on
+disk while the last known-good settings stay active. The
+.B version
+and
+.B revision
+members are Denial-owned metadata. Deleting the file restores the defaults.
+String values in its
 .B applicationEnvironment
 default and per-application maps set variables and null values remove them.
 Per-application maps are keyed by standard desktop-file IDs and override the

@@ -1,16 +1,16 @@
 # Denial architecture
 
 Denial is a Flutter-native Wayland compositor. The native compositor is Rust;
-Smithay supplies the Wayland, DRM/KMS, libinput, libseat, udev and Xwayland
-foundations, while Flutter owns the shell scene that combines client surfaces
-with native UI.
+Smithay supplies the Wayland, DRM/KMS, libinput, libseat and udev foundations,
+plus an optional Xwayland integration. Flutter owns the shell scene that
+combines client surfaces with native UI.
 
 ## Runtime shape
 
 ```text
 deniald
   Rust compositor
-    Smithay Wayland frontend and Xwayland
+    Smithay Wayland frontend and optional Xwayland
     libseat/libinput/udev session and input
     GBM/EGL rendering and Volition atomic DRM/KMS presentation
     window, focus, grab and buffer lifetime state
@@ -92,7 +92,22 @@ DMA-BUF or SHM content into EGL textures, publishes a complete ordered surface
 tree to Flutter, and keeps sampled generations alive until GPU and presentation
 ownership permit release. Intermediate metadata may be coalesced, but client
 frame callbacks and presentation feedback remain tied to physical output
-progress.
+progress. Presentation feedback is captured with each published client buffer,
+carried with the texture generation Flutter actually samples, and retained by
+that rendered output through KMS completion. A later surface commit cannot be
+acknowledged by an older queued desktop frame. Feedback shared across outputs
+is consumed once by the first completed presentation.
+
+The Flutter path publishes physical Wayland output enter/leave events when a
+window is mapped, moved, resized or unmapped. Clients can therefore follow the
+monitor's refresh rate without a whole-desktop membership sweep each frame.
+
+Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
+and all eight Wayland buffer orientations. Opacity changes publish with the
+parent transaction even when the child keeps its buffer. Flutter applies
+orientation after buffer-coordinate cropping and swaps layout dimensions for
+quarter turns. Droidloom can therefore supply original Android layers as
+ordinary subsurfaces instead of flattening every supported task in Android.
 
 ## Input
 
@@ -117,10 +132,11 @@ unit.
   physical keys remain on the Smithay seat.
 - one external input-method client may bind `zwp_input_method_v2` for the seat;
   later contenders receive `unavailable`, and its `zwp_virtual_keyboard_v1`
-  companion is accepted only from that same Wayland client. Rust bridges its
-  keyboard grab, loop-safe key pass-through, and editing transactions to the
-  active endpoint, while candidate surfaces join the same Flutter scene and
-  native input layout.
+  companion is accepted only from that same Wayland client. Its keyboard grab
+  and loop-safe key pass-through stay on the Smithay seat: Flutter participates
+  as a real keyboard focus target alongside Wayland and Xwayland, while editing
+  transactions use the active text endpoint. Candidate surfaces join the same
+  Flutter scene and native input layout.
 
 Rust also owns one live XKB configuration for that seat. The same map and
 repeat metadata reach native Wayland clients and Xwayland; Flutter physical
@@ -130,18 +146,23 @@ repeat timer. `Super+Space` selects the next configured layout and
 available and publish the resulting active layout back to the shell.
 
 The endpoint broker keeps keyboard focus, shell capture, editor activation,
-and Flutter engine lifetime as separate state. Flutter is an endpoint adapter,
-not a fabricated Wayland surface. The full Wayland contract is documented in
-[Wayland text input v3](protocol/text-input-v3.md).
+and Flutter engine lifetime as separate state. Flutter is a compositor-owned
+seat focus target and text endpoint adapter, not a fabricated Wayland surface.
+The full Wayland contract is documented in [Wayland text input
+v3](protocol/text-input-v3.md).
 
 ## Settings
 
-Rust is the sole owner of the versioned, pretty-printed settings document at
-`$XDG_CONFIG_HOME/denial/settings.json` (or
+Rust is the persistence authority for the versioned, pretty-printed settings
+document at `$XDG_CONFIG_HOME/denial/settings.json` (or
 `$HOME/.config/denial/settings.json`). It migrates older documents, protects
-native-owned sections, revision-checks every mutation, rejects concurrent
-external edits, and persists through a mode-`0600` temporary file plus atomic
-rename.
+native-owned sections, revision-checks every mutation, and persists through a
+mode-`0600` temporary file plus atomic rename. It watches the containing
+directory so editors that replace the file atomically are supported. A valid
+external edit is assigned the next authoritative revision, applied to native
+runtime state, and published like a Settings application change. Invalid edits
+remain on disk while the last known-good configuration stays active; deleting
+the file restores and recreates the defaults.
 
 Settings runs as a separate Flutter Wayland process (`denial-settings`). It
 owns only its application widget tree and talks to `deniald` through control
@@ -150,8 +171,8 @@ brightness, and UI-development state. It therefore has its own UI/raster
 threads and cannot add build, layout, paint, or raster work to the compositor's
 desktop frame. The embedded shell receives committed document notifications
 and remains responsible for rendering desktop policy, but it does not host the
-normal Settings window. `DENIA_EMBED_SETTINGS=1` keeps the old in-process path
-as an explicit recovery/development fallback.
+Settings window. Settings launch actions always target the standalone Linux
+application; there is no embedded Settings registration or environment fallback.
 
 Appearance intent lives beside the other shell-owned appearance settings. The
 same committed value selects Denial's semantic light/dark palette and is
@@ -208,14 +229,19 @@ Touchpad preferences live in the native-owned `touchpad` section:
 {
   "touchpad": {
     "tapToClickEnabled": true,
-    "naturalScrollEnabled": false
+    "naturalScrollEnabled": false,
+    "scrollSpeedFactor": 1.0,
+    "scrollingLayoutSwipeSpeedFactor": 1.0
   }
 }
 ```
 
-Denial applies these preferences through libinput when a touchpad appears and
-on every live update. The shell receives touchpad presence separately so it
-only exposes the touchpad page when suitable hardware is connected.
+Denial applies the device preferences through libinput when a touchpad appears
+and on every live update. The scrolling-layout swipe factor instead scales only
+the compositor-owned continuous three-finger gesture, including its release
+projection; it does not affect two-finger content scrolling or shortcut swipes.
+The shell receives touchpad presence separately so controls are disabled when
+no suitable hardware is connected.
 
 ## Desktop Settings portal
 

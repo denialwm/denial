@@ -72,7 +72,7 @@ per-user file through Denial's atomic output-control transaction.
 `DENIAL_OUTPUT_CONFIG` override must name a readable regular file in a
 directory writable by the session user; this is required for persistent
 display changes. The package launcher selects the desktop shell by default.
-Set `DENIA_SHELL_PROFILE=mobile` in `session.conf` only for an explicit
+Set `DENIAL_SHELL_PROFILE=mobile` in `session.conf` only for an explicit
 mobile-shell development session.
 
 Run `denial-session --check` from an existing desktop for an installation and

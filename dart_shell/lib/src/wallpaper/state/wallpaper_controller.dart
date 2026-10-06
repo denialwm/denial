@@ -40,10 +40,26 @@ final wallpaperStoreProvider = Provider<WallpaperStore>((ref) {
   return WallpaperStore(ref.watch(runtimePathsProvider));
 });
 
+/// A persisted assignment resolved before the production widget tree mounts.
+///
+/// Tests and embedders which do not preload it retain the asynchronous restore
+/// path. The stock shell overrides this so neither its scene nor its accent
+/// extractor can observe the default wallpaper before a saved custom one.
+final initialWallpaperAssignmentProvider = Provider<WallpaperAssignment?>(
+  (ref) => null,
+);
+
 final wallpaperControllerProvider =
     NotifierProvider<WallpaperController, WallpaperExperienceState>(
       WallpaperController.new,
     );
+
+enum WallpaperImageServerAvailability {
+  unknown,
+  checking,
+  available,
+  unavailable,
+}
 
 @immutable
 class WallpaperExperienceState {
@@ -62,11 +78,12 @@ class WallpaperExperienceState {
     required this.downloadingKey,
     required this.downloadProgress,
     required this.error,
+    required this.imageServerAvailability,
   });
 
-  factory WallpaperExperienceState.initial() {
+  factory WallpaperExperienceState.initial({WallpaperAssignment? assignment}) {
     return WallpaperExperienceState(
-      assignment: WallpaperAssignment.initial(),
+      assignment: assignment ?? WallpaperAssignment.initial(),
       outgoingAssignment: null,
       target: const WallpaperTarget.all(),
       transitionTarget: const WallpaperTarget.all(),
@@ -80,6 +97,7 @@ class WallpaperExperienceState {
       downloadingKey: null,
       downloadProgress: 0.0,
       error: null,
+      imageServerAvailability: WallpaperImageServerAvailability.unknown,
     );
   }
 
@@ -97,6 +115,7 @@ class WallpaperExperienceState {
   final String? downloadingKey;
   final double downloadProgress;
   final String? error;
+  final WallpaperImageServerAvailability imageServerAvailability;
 
   WallpaperResource get current => assignment.forTarget(target);
 
@@ -122,6 +141,7 @@ class WallpaperExperienceState {
     double? downloadProgress,
     String? error,
     bool clearError = false,
+    WallpaperImageServerAvailability? imageServerAvailability,
   }) {
     return WallpaperExperienceState(
       assignment: assignment ?? this.assignment,
@@ -142,6 +162,8 @@ class WallpaperExperienceState {
           : downloadingKey ?? this.downloadingKey,
       downloadProgress: downloadProgress ?? this.downloadProgress,
       error: clearError ? null : error ?? this.error,
+      imageServerAvailability:
+          imageServerAvailability ?? this.imageServerAvailability,
     );
   }
 }
@@ -161,8 +183,10 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     _storeEventTimer = null;
     _storeSubscription = null;
     _searchGeneration = 0;
+    _imageServerCheckGeneration = 0;
     _assignmentGeneration = 0;
     _buildGeneration = beginBuildGeneration();
+    final initialAssignment = ref.watch(initialWallpaperAssignmentProvider);
     final generation = _buildGeneration;
     ref.onDispose(() {
       _searchTimer?.cancel();
@@ -174,11 +198,13 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     });
     scheduleMicrotask(() {
       if (isBuildGenerationActive(generation)) {
-        unawaited(_restore(generation));
+        if (initialAssignment == null) {
+          unawaited(_restore(generation));
+        }
         unawaited(_watchStore(generation));
       }
     });
-    return WallpaperExperienceState.initial();
+    return WallpaperExperienceState.initial(assignment: initialAssignment);
   }
 
   static const Duration _searchDebounce = Duration(milliseconds: 360);
@@ -192,6 +218,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   Timer? _storeEventTimer;
   StreamSubscription<FileSystemEvent>? _storeSubscription;
   int _searchGeneration = 0;
+  int _imageServerCheckGeneration = 0;
   int _assignmentGeneration = 0;
 
   void openSelector({required Size targetPixelSize}) {
@@ -204,6 +231,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       clearError: true,
     );
     unawaited(_search(''));
+    unawaited(_checkImageServers());
   }
 
   void selectTarget({
@@ -283,6 +311,12 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   void submitQuery() {
     _searchTimer?.cancel();
     unawaited(_search(state.query));
+  }
+
+  void retryOnlineWallpapers() {
+    _searchTimer?.cancel();
+    unawaited(_search(state.query));
+    unawaited(_checkImageServers());
   }
 
   void reportError(String message) {
@@ -465,6 +499,45 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
         }
       }());
     }
+  }
+
+  Future<void> _checkImageServers() async {
+    final sources = _sources.whereType<WallpaperImageServerProvider>().toList(
+      growable: false,
+    );
+    if (sources.isEmpty) {
+      state = state.copyWith(
+        imageServerAvailability: WallpaperImageServerAvailability.unknown,
+      );
+      return;
+    }
+    final buildGeneration = _buildGeneration;
+    final checkGeneration = ++_imageServerCheckGeneration;
+    if (state.imageServerAvailability !=
+        WallpaperImageServerAvailability.unavailable) {
+      state = state.copyWith(
+        imageServerAvailability: WallpaperImageServerAvailability.checking,
+      );
+    }
+    final results = await Future.wait(
+      sources.map((source) async {
+        try {
+          await source.checkImageServerAvailability();
+          return true;
+        } on Object {
+          return false;
+        }
+      }),
+    );
+    if (!isBuildGenerationActive(buildGeneration) ||
+        checkGeneration != _imageServerCheckGeneration) {
+      return;
+    }
+    state = state.copyWith(
+      imageServerAvailability: results.any((available) => available)
+          ? WallpaperImageServerAvailability.available
+          : WallpaperImageServerAvailability.unavailable,
+    );
   }
 
   void _rememberMaterialized(

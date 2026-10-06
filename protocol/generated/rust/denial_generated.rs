@@ -114,12 +114,17 @@ impl flatbuffers::SimpleToVerifyInSlice for ObjectKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_CONTENT_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_CONTENT_KIND: u8 = 1;
+pub const ENUM_MAX_WINDOW_CONTENT_KIND: u8 = 6;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_CONTENT_KIND: [WindowContentKind; 2] = [
+pub const ENUM_VALUES_WINDOW_CONTENT_KIND: [WindowContentKind; 7] = [
   WindowContentKind::SurfaceTree,
   WindowContentKind::LocalFlutter,
+  WindowContentKind::LayerShellBackground,
+  WindowContentKind::LayerShellBottom,
+  WindowContentKind::LayerShellTop,
+  WindowContentKind::LayerShellOverlay,
+  WindowContentKind::PopupSurface,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -129,18 +134,33 @@ pub struct WindowContentKind(pub u8);
 impl WindowContentKind {
   pub const SurfaceTree: Self = Self(0);
   pub const LocalFlutter: Self = Self(1);
+  pub const LayerShellBackground: Self = Self(2);
+  pub const LayerShellBottom: Self = Self(3);
+  pub const LayerShellTop: Self = Self(4);
+  pub const LayerShellOverlay: Self = Self(5);
+  pub const PopupSurface: Self = Self(6);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 6;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::SurfaceTree,
     Self::LocalFlutter,
+    Self::LayerShellBackground,
+    Self::LayerShellBottom,
+    Self::LayerShellTop,
+    Self::LayerShellOverlay,
+    Self::PopupSurface,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::SurfaceTree => Some("SurfaceTree"),
       Self::LocalFlutter => Some("LocalFlutter"),
+      Self::LayerShellBackground => Some("LayerShellBackground"),
+      Self::LayerShellBottom => Some("LayerShellBottom"),
+      Self::LayerShellTop => Some("LayerShellTop"),
+      Self::LayerShellOverlay => Some("LayerShellOverlay"),
+      Self::PopupSurface => Some("PopupSurface"),
       _ => None,
     }
   }
@@ -377,10 +397,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 6;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 8;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 7] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 9] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
@@ -388,6 +408,8 @@ pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 7] = [
   WindowRequestKind::ConfigureWindow,
   WindowRequestKind::CreateLocalWindow,
   WindowRequestKind::ConfigureSystemBar,
+  WindowRequestKind::SwitchWorkspace,
+  WindowRequestKind::MoveWindowToWorkspace,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -402,9 +424,11 @@ impl WindowRequestKind {
   pub const ConfigureWindow: Self = Self(4);
   pub const CreateLocalWindow: Self = Self(5);
   pub const ConfigureSystemBar: Self = Self(6);
+  pub const SwitchWorkspace: Self = Self(7);
+  pub const MoveWindowToWorkspace: Self = Self(8);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 6;
+  pub const ENUM_MAX: u8 = 8;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
@@ -413,6 +437,8 @@ impl WindowRequestKind {
     Self::ConfigureWindow,
     Self::CreateLocalWindow,
     Self::ConfigureSystemBar,
+    Self::SwitchWorkspace,
+    Self::MoveWindowToWorkspace,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -424,6 +450,8 @@ impl WindowRequestKind {
       Self::ConfigureWindow => Some("ConfigureWindow"),
       Self::CreateLocalWindow => Some("CreateLocalWindow"),
       Self::ConfigureSystemBar => Some("ConfigureSystemBar"),
+      Self::SwitchWorkspace => Some("SwitchWorkspace"),
+      Self::MoveWindowToWorkspace => Some("MoveWindowToWorkspace"),
       _ => None,
     }
   }
@@ -656,15 +684,16 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowEventKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_ACTION_KIND: u8 = 4;
+pub const ENUM_MAX_WINDOW_ACTION_KIND: u8 = 5;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_ACTION_KIND: [WindowActionKind; 5] = [
+pub const ENUM_VALUES_WINDOW_ACTION_KIND: [WindowActionKind; 6] = [
   WindowActionKind::Minimize,
   WindowActionKind::Maximize,
   WindowActionKind::Restore,
   WindowActionKind::ToggleMaximize,
   WindowActionKind::ToggleFullscreen,
+  WindowActionKind::Fullscreen,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -677,15 +706,17 @@ impl WindowActionKind {
   pub const Restore: Self = Self(2);
   pub const ToggleMaximize: Self = Self(3);
   pub const ToggleFullscreen: Self = Self(4);
+  pub const Fullscreen: Self = Self(5);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 4;
+  pub const ENUM_MAX: u8 = 5;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Minimize,
     Self::Maximize,
     Self::Restore,
     Self::ToggleMaximize,
     Self::ToggleFullscreen,
+    Self::Fullscreen,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -695,6 +726,7 @@ impl WindowActionKind {
       Self::Restore => Some("Restore"),
       Self::ToggleMaximize => Some("ToggleMaximize"),
       Self::ToggleFullscreen => Some("ToggleFullscreen"),
+      Self::Fullscreen => Some("Fullscreen"),
       _ => None,
     }
   }
@@ -753,10 +785,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 12;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 17;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 18] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -770,6 +802,11 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
   ShellActionKind::WindowSwitcherPrevious,
   ShellActionKind::OpenSettings,
   ShellActionKind::Dashboard,
+  ShellActionKind::WorkspaceChanged,
+  ShellActionKind::FocusLeft,
+  ShellActionKind::FocusRight,
+  ShellActionKind::FocusUp,
+  ShellActionKind::FocusDown,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -790,9 +827,14 @@ impl ShellActionKind {
   pub const WindowSwitcherPrevious: Self = Self(10);
   pub const OpenSettings: Self = Self(11);
   pub const Dashboard: Self = Self(12);
+  pub const WorkspaceChanged: Self = Self(13);
+  pub const FocusLeft: Self = Self(14);
+  pub const FocusRight: Self = Self(15);
+  pub const FocusUp: Self = Self(16);
+  pub const FocusDown: Self = Self(17);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 12;
+  pub const ENUM_MAX: u8 = 17;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -807,6 +849,11 @@ impl ShellActionKind {
     Self::WindowSwitcherPrevious,
     Self::OpenSettings,
     Self::Dashboard,
+    Self::WorkspaceChanged,
+    Self::FocusLeft,
+    Self::FocusRight,
+    Self::FocusUp,
+    Self::FocusDown,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -824,6 +871,11 @@ impl ShellActionKind {
       Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
       Self::OpenSettings => Some("OpenSettings"),
       Self::Dashboard => Some("Dashboard"),
+      Self::WorkspaceChanged => Some("WorkspaceChanged"),
+      Self::FocusLeft => Some("FocusLeft"),
+      Self::FocusRight => Some("FocusRight"),
+      Self::FocusUp => Some("FocusUp"),
+      Self::FocusDown => Some("FocusDown"),
       _ => None,
     }
   }
@@ -882,12 +934,13 @@ impl flatbuffers::SimpleToVerifyInSlice for ShellActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_KEYBOARD_COMMAND_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 1;
+pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 2;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 2] = [
+pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 3] = [
   KeyboardCommandKind::Text,
   KeyboardCommandKind::Key,
+  KeyboardCommandKind::DismissPanel,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -897,18 +950,21 @@ pub struct KeyboardCommandKind(pub u8);
 impl KeyboardCommandKind {
   pub const Text: Self = Self(0);
   pub const Key: Self = Self(1);
+  pub const DismissPanel: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 2;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Text,
     Self::Key,
+    Self::DismissPanel,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Text => Some("Text"),
       Self::Key => Some("Key"),
+      Self::DismissPanel => Some("DismissPanel"),
       _ => None,
     }
   }
@@ -1193,10 +1249,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 30;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 53;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 31] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 54] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1228,6 +1284,29 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 31] = [
   ShortcutActionKind::SwapRight,
   ShortcutActionKind::SwapUp,
   ShortcutActionKind::SwapDown,
+  ShortcutActionKind::PreviousWorkspace,
+  ShortcutActionKind::NextWorkspace,
+  ShortcutActionKind::MoveToPreviousWorkspace,
+  ShortcutActionKind::MoveToNextWorkspace,
+  ShortcutActionKind::SwitchWorkspace1,
+  ShortcutActionKind::SwitchWorkspace2,
+  ShortcutActionKind::SwitchWorkspace3,
+  ShortcutActionKind::SwitchWorkspace4,
+  ShortcutActionKind::SwitchWorkspace5,
+  ShortcutActionKind::SwitchWorkspace6,
+  ShortcutActionKind::SwitchWorkspace7,
+  ShortcutActionKind::SwitchWorkspace8,
+  ShortcutActionKind::SwitchWorkspace9,
+  ShortcutActionKind::MoveToWorkspace1,
+  ShortcutActionKind::MoveToWorkspace2,
+  ShortcutActionKind::MoveToWorkspace3,
+  ShortcutActionKind::MoveToWorkspace4,
+  ShortcutActionKind::MoveToWorkspace5,
+  ShortcutActionKind::MoveToWorkspace6,
+  ShortcutActionKind::MoveToWorkspace7,
+  ShortcutActionKind::MoveToWorkspace8,
+  ShortcutActionKind::MoveToWorkspace9,
+  ShortcutActionKind::ToggleWindowAlwaysOnTop,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1266,9 +1345,32 @@ impl ShortcutActionKind {
   pub const SwapRight: Self = Self(28);
   pub const SwapUp: Self = Self(29);
   pub const SwapDown: Self = Self(30);
+  pub const PreviousWorkspace: Self = Self(31);
+  pub const NextWorkspace: Self = Self(32);
+  pub const MoveToPreviousWorkspace: Self = Self(33);
+  pub const MoveToNextWorkspace: Self = Self(34);
+  pub const SwitchWorkspace1: Self = Self(35);
+  pub const SwitchWorkspace2: Self = Self(36);
+  pub const SwitchWorkspace3: Self = Self(37);
+  pub const SwitchWorkspace4: Self = Self(38);
+  pub const SwitchWorkspace5: Self = Self(39);
+  pub const SwitchWorkspace6: Self = Self(40);
+  pub const SwitchWorkspace7: Self = Self(41);
+  pub const SwitchWorkspace8: Self = Self(42);
+  pub const SwitchWorkspace9: Self = Self(43);
+  pub const MoveToWorkspace1: Self = Self(44);
+  pub const MoveToWorkspace2: Self = Self(45);
+  pub const MoveToWorkspace3: Self = Self(46);
+  pub const MoveToWorkspace4: Self = Self(47);
+  pub const MoveToWorkspace5: Self = Self(48);
+  pub const MoveToWorkspace6: Self = Self(49);
+  pub const MoveToWorkspace7: Self = Self(50);
+  pub const MoveToWorkspace8: Self = Self(51);
+  pub const MoveToWorkspace9: Self = Self(52);
+  pub const ToggleWindowAlwaysOnTop: Self = Self(53);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 30;
+  pub const ENUM_MAX: u8 = 53;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1301,6 +1403,29 @@ impl ShortcutActionKind {
     Self::SwapRight,
     Self::SwapUp,
     Self::SwapDown,
+    Self::PreviousWorkspace,
+    Self::NextWorkspace,
+    Self::MoveToPreviousWorkspace,
+    Self::MoveToNextWorkspace,
+    Self::SwitchWorkspace1,
+    Self::SwitchWorkspace2,
+    Self::SwitchWorkspace3,
+    Self::SwitchWorkspace4,
+    Self::SwitchWorkspace5,
+    Self::SwitchWorkspace6,
+    Self::SwitchWorkspace7,
+    Self::SwitchWorkspace8,
+    Self::SwitchWorkspace9,
+    Self::MoveToWorkspace1,
+    Self::MoveToWorkspace2,
+    Self::MoveToWorkspace3,
+    Self::MoveToWorkspace4,
+    Self::MoveToWorkspace5,
+    Self::MoveToWorkspace6,
+    Self::MoveToWorkspace7,
+    Self::MoveToWorkspace8,
+    Self::MoveToWorkspace9,
+    Self::ToggleWindowAlwaysOnTop,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1336,6 +1461,29 @@ impl ShortcutActionKind {
       Self::SwapRight => Some("SwapRight"),
       Self::SwapUp => Some("SwapUp"),
       Self::SwapDown => Some("SwapDown"),
+      Self::PreviousWorkspace => Some("PreviousWorkspace"),
+      Self::NextWorkspace => Some("NextWorkspace"),
+      Self::MoveToPreviousWorkspace => Some("MoveToPreviousWorkspace"),
+      Self::MoveToNextWorkspace => Some("MoveToNextWorkspace"),
+      Self::SwitchWorkspace1 => Some("SwitchWorkspace1"),
+      Self::SwitchWorkspace2 => Some("SwitchWorkspace2"),
+      Self::SwitchWorkspace3 => Some("SwitchWorkspace3"),
+      Self::SwitchWorkspace4 => Some("SwitchWorkspace4"),
+      Self::SwitchWorkspace5 => Some("SwitchWorkspace5"),
+      Self::SwitchWorkspace6 => Some("SwitchWorkspace6"),
+      Self::SwitchWorkspace7 => Some("SwitchWorkspace7"),
+      Self::SwitchWorkspace8 => Some("SwitchWorkspace8"),
+      Self::SwitchWorkspace9 => Some("SwitchWorkspace9"),
+      Self::MoveToWorkspace1 => Some("MoveToWorkspace1"),
+      Self::MoveToWorkspace2 => Some("MoveToWorkspace2"),
+      Self::MoveToWorkspace3 => Some("MoveToWorkspace3"),
+      Self::MoveToWorkspace4 => Some("MoveToWorkspace4"),
+      Self::MoveToWorkspace5 => Some("MoveToWorkspace5"),
+      Self::MoveToWorkspace6 => Some("MoveToWorkspace6"),
+      Self::MoveToWorkspace7 => Some("MoveToWorkspace7"),
+      Self::MoveToWorkspace8 => Some("MoveToWorkspace8"),
+      Self::MoveToWorkspace9 => Some("MoveToWorkspace9"),
+      Self::ToggleWindowAlwaysOnTop => Some("ToggleWindowAlwaysOnTop"),
       _ => None,
     }
   }
@@ -3920,6 +4068,11 @@ impl<'a> Window<'a> {
   pub const VT_OPACITY: flatbuffers::VOffsetT = 72;
   pub const VT_CONTENT_KIND: flatbuffers::VOffsetT = 74;
   pub const VT_OPACITY_CLASS: flatbuffers::VOffsetT = 76;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 78;
+  pub const VT_MINIMIZED: flatbuffers::VOffsetT = 80;
+  pub const VT_FULLSCREEN: flatbuffers::VOffsetT = 82;
+  pub const VT_MAXIMIZED: flatbuffers::VOffsetT = 84;
+  pub const VT_TRANSIENT_PARENT_ID: flatbuffers::VOffsetT = 86;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3931,6 +4084,8 @@ impl<'a> Window<'a> {
     args: &'args WindowArgs<'args>
   ) -> flatbuffers::WIPOffset<Window<'bldr>> {
     let mut builder = WindowBuilder::new(_fbb);
+    builder.add_transient_parent_id(args.transient_parent_id);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_content_height(args.content_height);
     builder.add_content_width(args.content_width);
     builder.add_content_y(args.content_y);
@@ -3961,6 +4116,9 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_maximized(args.maximized);
+    builder.add_fullscreen(args.fullscreen);
+    builder.add_minimized(args.minimized);
     builder.add_opacity_class(args.opacity_class);
     builder.add_content_kind(args.content_kind);
     builder.add_server_side_decorated(args.server_side_decorated);
@@ -4231,6 +4389,41 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, Some(WindowOpacityClass::ContentTranslucent)).unwrap()}
   }
+  #[inline]
+  pub fn workspace_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(Window::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
+  #[inline]
+  pub fn minimized(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_MINIMIZED, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn fullscreen(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_FULLSCREEN, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn maximized(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_MAXIMIZED, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn transient_parent_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(Window::VT_TRANSIENT_PARENT_ID, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -4277,6 +4470,11 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<f32>("opacity", Self::VT_OPACITY, false)?
      .visit_field::<WindowContentKind>("content_kind", Self::VT_CONTENT_KIND, false)?
      .visit_field::<WindowOpacityClass>("opacity_class", Self::VT_OPACITY_CLASS, false)?
+     .visit_field::<i64>("workspace_id", Self::VT_WORKSPACE_ID, false)?
+     .visit_field::<bool>("minimized", Self::VT_MINIMIZED, false)?
+     .visit_field::<bool>("fullscreen", Self::VT_FULLSCREEN, false)?
+     .visit_field::<bool>("maximized", Self::VT_MAXIMIZED, false)?
+     .visit_field::<u64>("transient_parent_id", Self::VT_TRANSIENT_PARENT_ID, false)?
      .finish();
     Ok(())
   }
@@ -4319,6 +4517,11 @@ pub struct WindowArgs<'a> {
     pub opacity: f32,
     pub content_kind: WindowContentKind,
     pub opacity_class: WindowOpacityClass,
+    pub workspace_id: i64,
+    pub minimized: bool,
+    pub fullscreen: bool,
+    pub maximized: bool,
+    pub transient_parent_id: u64,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -4361,6 +4564,11 @@ impl<'a> Default for WindowArgs<'a> {
       opacity: 1.0,
       content_kind: WindowContentKind::SurfaceTree,
       opacity_class: WindowOpacityClass::ContentTranslucent,
+      workspace_id: 1,
+      minimized: false,
+      fullscreen: false,
+      maximized: false,
+      transient_parent_id: 0,
     }
   }
 }
@@ -4519,6 +4727,26 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, opacity_class, WindowOpacityClass::ContentTranslucent);
   }
   #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: i64) {
+    self.fbb_.push_slot::<i64>(Window::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
+  pub fn add_minimized(&mut self, minimized: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_MINIMIZED, minimized, false);
+  }
+  #[inline]
+  pub fn add_fullscreen(&mut self, fullscreen: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_FULLSCREEN, fullscreen, false);
+  }
+  #[inline]
+  pub fn add_maximized(&mut self, maximized: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_MAXIMIZED, maximized, false);
+  }
+  #[inline]
+  pub fn add_transient_parent_id(&mut self, transient_parent_id: u64) {
+    self.fbb_.push_slot::<u64>(Window::VT_TRANSIENT_PARENT_ID, transient_parent_id, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -4573,6 +4801,11 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("opacity", &self.opacity());
       ds.field("content_kind", &self.content_kind());
       ds.field("opacity_class", &self.opacity_class());
+      ds.field("workspace_id", &self.workspace_id());
+      ds.field("minimized", &self.minimized());
+      ds.field("fullscreen", &self.fullscreen());
+      ds.field("maximized", &self.maximized());
+      ds.field("transient_parent_id", &self.transient_parent_id());
       ds.finish()
   }
 }
@@ -4713,6 +4946,7 @@ impl<'a> DisplayOutput<'a> {
   pub const VT_SOURCE_RECT: flatbuffers::VOffsetT = 12;
   pub const VT_SCALE: flatbuffers::VOffsetT = 14;
   pub const VT_REFRESH_RATE: flatbuffers::VOffsetT = 16;
+  pub const VT_ACTIVE_WORKSPACE: flatbuffers::VOffsetT = 18;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4727,6 +4961,7 @@ impl<'a> DisplayOutput<'a> {
     builder.add_refresh_rate(args.refresh_rate);
     builder.add_scale(args.scale);
     builder.add_monitor_id(args.monitor_id);
+    builder.add_active_workspace(args.active_workspace);
     if let Some(x) = args.source_rect { builder.add_source_rect(x); }
     if let Some(x) = args.pixel_size { builder.add_pixel_size(x); }
     if let Some(x) = args.logical_rect { builder.add_logical_rect(x); }
@@ -4784,6 +5019,13 @@ impl<'a> DisplayOutput<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f64>(DisplayOutput::VT_REFRESH_RATE, Some(60.0)).unwrap()}
   }
+  #[inline]
+  pub fn active_workspace(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(DisplayOutput::VT_ACTIVE_WORKSPACE, Some(1)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for DisplayOutput<'_> {
@@ -4800,6 +5042,7 @@ impl flatbuffers::Verifiable for DisplayOutput<'_> {
      .visit_field::<WireRect>("source_rect", Self::VT_SOURCE_RECT, false)?
      .visit_field::<f64>("scale", Self::VT_SCALE, false)?
      .visit_field::<f64>("refresh_rate", Self::VT_REFRESH_RATE, false)?
+     .visit_field::<u32>("active_workspace", Self::VT_ACTIVE_WORKSPACE, false)?
      .finish();
     Ok(())
   }
@@ -4812,6 +5055,7 @@ pub struct DisplayOutputArgs<'a> {
     pub source_rect: Option<&'a WireRect>,
     pub scale: f64,
     pub refresh_rate: f64,
+    pub active_workspace: u32,
 }
 impl<'a> Default for DisplayOutputArgs<'a> {
   #[inline]
@@ -4824,6 +5068,7 @@ impl<'a> Default for DisplayOutputArgs<'a> {
       source_rect: None,
       scale: 1.0,
       refresh_rate: 60.0,
+      active_workspace: 1,
     }
   }
 }
@@ -4862,6 +5107,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DisplayOutputBuilder<'a, 'b, A>
     self.fbb_.push_slot::<f64>(DisplayOutput::VT_REFRESH_RATE, refresh_rate, 60.0);
   }
   #[inline]
+  pub fn add_active_workspace(&mut self, active_workspace: u32) {
+    self.fbb_.push_slot::<u32>(DisplayOutput::VT_ACTIVE_WORKSPACE, active_workspace, 1);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DisplayOutputBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     DisplayOutputBuilder {
@@ -4886,6 +5135,7 @@ impl core::fmt::Debug for DisplayOutput<'_> {
       ds.field("source_rect", &self.source_rect());
       ds.field("scale", &self.scale());
       ds.field("refresh_rate", &self.refresh_rate());
+      ds.field("active_workspace", &self.active_workspace());
       ds.finish()
   }
 }
@@ -5197,6 +5447,10 @@ impl<'a> WindowRequest<'a> {
   pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 14;
   pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 16;
   pub const VT_FLAGS: flatbuffers::VOffsetT = 18;
+  pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 20;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 22;
+  pub const VT_SYSTEM_BAR_THICKNESS: flatbuffers::VOffsetT = 24;
+  pub const VT_MAXIMIZE_PADDING: flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5208,7 +5462,11 @@ impl<'a> WindowRequest<'a> {
     args: &'args WindowRequestArgs<'args>
   ) -> flatbuffers::WIPOffset<WindowRequest<'bldr>> {
     let mut builder = WindowRequestBuilder::new(_fbb);
+    builder.add_maximize_padding(args.maximize_padding);
+    builder.add_system_bar_thickness(args.system_bar_thickness);
+    builder.add_monitor_id(args.monitor_id);
     builder.add_window_id(args.window_id);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_flags(args.flags);
     if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.title { builder.add_title(x); }
@@ -5276,6 +5534,34 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(WindowRequest::VT_FLAGS, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn monitor_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(WindowRequest::VT_MONITOR_ID, Some(-1)).unwrap()}
+  }
+  #[inline]
+  pub fn workspace_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WindowRequest::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
+  #[inline]
+  pub fn system_bar_thickness(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(WindowRequest::VT_SYSTEM_BAR_THICKNESS, Some(-1.0)).unwrap()}
+  }
+  #[inline]
+  pub fn maximize_padding(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(WindowRequest::VT_MAXIMIZE_PADDING, Some(-1.0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -5293,6 +5579,10 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
+     .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
+     .visit_field::<u32>("workspace_id", Self::VT_WORKSPACE_ID, false)?
+     .visit_field::<f64>("system_bar_thickness", Self::VT_SYSTEM_BAR_THICKNESS, false)?
+     .visit_field::<f64>("maximize_padding", Self::VT_MAXIMIZE_PADDING, false)?
      .finish();
     Ok(())
   }
@@ -5306,6 +5596,10 @@ pub struct WindowRequestArgs<'a> {
     pub system_bar_side: SystemBarSide,
     pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
     pub flags: u32,
+    pub monitor_id: i64,
+    pub workspace_id: u32,
+    pub system_bar_thickness: f64,
+    pub maximize_padding: f64,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -5319,6 +5613,10 @@ impl<'a> Default for WindowRequestArgs<'a> {
       system_bar_side: SystemBarSide::Top,
       system_bar_monitor_ids: None,
       flags: 0,
+      monitor_id: -1,
+      workspace_id: 1,
+      system_bar_thickness: -1.0,
+      maximize_padding: -1.0,
     }
   }
 }
@@ -5361,6 +5659,22 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot::<u32>(WindowRequest::VT_FLAGS, flags, 0);
   }
   #[inline]
+  pub fn add_monitor_id(&mut self, monitor_id: i64) {
+    self.fbb_.push_slot::<i64>(WindowRequest::VT_MONITOR_ID, monitor_id, -1);
+  }
+  #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: u32) {
+    self.fbb_.push_slot::<u32>(WindowRequest::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
+  pub fn add_system_bar_thickness(&mut self, system_bar_thickness: f64) {
+    self.fbb_.push_slot::<f64>(WindowRequest::VT_SYSTEM_BAR_THICKNESS, system_bar_thickness, -1.0);
+  }
+  #[inline]
+  pub fn add_maximize_padding(&mut self, maximize_padding: f64) {
+    self.fbb_.push_slot::<f64>(WindowRequest::VT_MAXIMIZE_PADDING, maximize_padding, -1.0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -5386,6 +5700,10 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("system_bar_side", &self.system_bar_side());
       ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
       ds.field("flags", &self.flags());
+      ds.field("monitor_id", &self.monitor_id());
+      ds.field("workspace_id", &self.workspace_id());
+      ds.field("system_bar_thickness", &self.system_bar_thickness());
+      ds.field("maximize_padding", &self.maximize_padding());
       ds.finish()
   }
 }
@@ -5705,6 +6023,7 @@ impl<'a> ShellAction<'a> {
   pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 6;
   pub const VT_HAS_MONITOR_ID: flatbuffers::VOffsetT = 8;
   pub const VT_TEXTURE_ID: flatbuffers::VOffsetT = 10;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5718,6 +6037,7 @@ impl<'a> ShellAction<'a> {
     let mut builder = ShellActionBuilder::new(_fbb);
     builder.add_texture_id(args.texture_id);
     builder.add_monitor_id(args.monitor_id);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_has_monitor_id(args.has_monitor_id);
     builder.add_action(args.action);
     builder.finish()
@@ -5752,6 +6072,13 @@ impl<'a> ShellAction<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<i64>(ShellAction::VT_TEXTURE_ID, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn workspace_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ShellAction::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for ShellAction<'_> {
@@ -5765,6 +6092,7 @@ impl flatbuffers::Verifiable for ShellAction<'_> {
      .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
      .visit_field::<bool>("has_monitor_id", Self::VT_HAS_MONITOR_ID, false)?
      .visit_field::<i64>("texture_id", Self::VT_TEXTURE_ID, false)?
+     .visit_field::<u32>("workspace_id", Self::VT_WORKSPACE_ID, false)?
      .finish();
     Ok(())
   }
@@ -5774,6 +6102,7 @@ pub struct ShellActionArgs {
     pub monitor_id: i64,
     pub has_monitor_id: bool,
     pub texture_id: i64,
+    pub workspace_id: u32,
 }
 impl<'a> Default for ShellActionArgs {
   #[inline]
@@ -5783,6 +6112,7 @@ impl<'a> Default for ShellActionArgs {
       monitor_id: -1,
       has_monitor_id: false,
       texture_id: 0,
+      workspace_id: 1,
     }
   }
 }
@@ -5809,6 +6139,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShellActionBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<i64>(ShellAction::VT_TEXTURE_ID, texture_id, 0);
   }
   #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: u32) {
+    self.fbb_.push_slot::<u32>(ShellAction::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShellActionBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ShellActionBuilder {
@@ -5830,6 +6164,7 @@ impl core::fmt::Debug for ShellAction<'_> {
       ds.field("monitor_id", &self.monitor_id());
       ds.field("has_monitor_id", &self.has_monitor_id());
       ds.field("texture_id", &self.texture_id());
+      ds.field("workspace_id", &self.workspace_id());
       ds.finish()
   }
 }
@@ -6230,6 +6565,7 @@ impl<'a> TextInputState<'a> {
   pub const VT_LEGACY: flatbuffers::VOffsetT = 8;
   pub const VT_CONTENT_HINT: flatbuffers::VOffsetT = 10;
   pub const VT_CONTENT_PURPOSE: flatbuffers::VOffsetT = 12;
+  pub const VT_ACTIVATION_SERIAL: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6241,6 +6577,7 @@ impl<'a> TextInputState<'a> {
     args: &'args TextInputStateArgs
   ) -> flatbuffers::WIPOffset<TextInputState<'bldr>> {
     let mut builder = TextInputStateBuilder::new(_fbb);
+    builder.add_activation_serial(args.activation_serial);
     builder.add_content_purpose(args.content_purpose);
     builder.add_content_hint(args.content_hint);
     builder.add_legacy(args.legacy);
@@ -6285,6 +6622,13 @@ impl<'a> TextInputState<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_PURPOSE, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn activation_serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(TextInputState::VT_ACTIVATION_SERIAL, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for TextInputState<'_> {
@@ -6299,6 +6643,7 @@ impl flatbuffers::Verifiable for TextInputState<'_> {
      .visit_field::<bool>("legacy", Self::VT_LEGACY, false)?
      .visit_field::<u32>("content_hint", Self::VT_CONTENT_HINT, false)?
      .visit_field::<u32>("content_purpose", Self::VT_CONTENT_PURPOSE, false)?
+     .visit_field::<u64>("activation_serial", Self::VT_ACTIVATION_SERIAL, false)?
      .finish();
     Ok(())
   }
@@ -6309,6 +6654,7 @@ pub struct TextInputStateArgs {
     pub legacy: bool,
     pub content_hint: u32,
     pub content_purpose: u32,
+    pub activation_serial: u64,
 }
 impl<'a> Default for TextInputStateArgs {
   #[inline]
@@ -6319,6 +6665,7 @@ impl<'a> Default for TextInputStateArgs {
       legacy: false,
       content_hint: 0,
       content_purpose: 0,
+      activation_serial: 0,
     }
   }
 }
@@ -6349,6 +6696,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextInputStateBuilder<'a, 'b, A
     self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_PURPOSE, content_purpose, 0);
   }
   #[inline]
+  pub fn add_activation_serial(&mut self, activation_serial: u64) {
+    self.fbb_.push_slot::<u64>(TextInputState::VT_ACTIVATION_SERIAL, activation_serial, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextInputStateBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     TextInputStateBuilder {
@@ -6371,6 +6722,7 @@ impl core::fmt::Debug for TextInputState<'_> {
       ds.field("legacy", &self.legacy());
       ds.field("content_hint", &self.content_hint());
       ds.field("content_purpose", &self.content_purpose());
+      ds.field("activation_serial", &self.activation_serial());
       ds.finish()
   }
 }
@@ -6394,6 +6746,7 @@ impl<'a> KeyboardCommand<'a> {
   pub const VT_TEXT: flatbuffers::VOffsetT = 6;
   pub const VT_KEY: flatbuffers::VOffsetT = 8;
   pub const VT_FLAGS: flatbuffers::VOffsetT = 10;
+  pub const VT_ACTIVATION_SERIAL: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6405,6 +6758,7 @@ impl<'a> KeyboardCommand<'a> {
     args: &'args KeyboardCommandArgs<'args>
   ) -> flatbuffers::WIPOffset<KeyboardCommand<'bldr>> {
     let mut builder = KeyboardCommandBuilder::new(_fbb);
+    builder.add_activation_serial(args.activation_serial);
     builder.add_flags(args.flags);
     if let Some(x) = args.key { builder.add_key(x); }
     if let Some(x) = args.text { builder.add_text(x); }
@@ -6441,6 +6795,13 @@ impl<'a> KeyboardCommand<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(KeyboardCommand::VT_FLAGS, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn activation_serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for KeyboardCommand<'_> {
@@ -6454,6 +6815,7 @@ impl flatbuffers::Verifiable for KeyboardCommand<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("text", Self::VT_TEXT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("key", Self::VT_KEY, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
+     .visit_field::<u64>("activation_serial", Self::VT_ACTIVATION_SERIAL, false)?
      .finish();
     Ok(())
   }
@@ -6463,6 +6825,7 @@ pub struct KeyboardCommandArgs<'a> {
     pub text: Option<flatbuffers::WIPOffset<&'a str>>,
     pub key: Option<flatbuffers::WIPOffset<&'a str>>,
     pub flags: u32,
+    pub activation_serial: u64,
 }
 impl<'a> Default for KeyboardCommandArgs<'a> {
   #[inline]
@@ -6472,6 +6835,7 @@ impl<'a> Default for KeyboardCommandArgs<'a> {
       text: None,
       key: None,
       flags: 0,
+      activation_serial: 0,
     }
   }
 }
@@ -6498,6 +6862,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> KeyboardCommandBuilder<'a, 'b, 
     self.fbb_.push_slot::<u32>(KeyboardCommand::VT_FLAGS, flags, 0);
   }
   #[inline]
+  pub fn add_activation_serial(&mut self, activation_serial: u64) {
+    self.fbb_.push_slot::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, activation_serial, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> KeyboardCommandBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     KeyboardCommandBuilder {
@@ -6519,6 +6887,7 @@ impl core::fmt::Debug for KeyboardCommand<'_> {
       ds.field("text", &self.text());
       ds.field("key", &self.key());
       ds.field("flags", &self.flags());
+      ds.field("activation_serial", &self.activation_serial());
       ds.finish()
   }
 }
@@ -7928,6 +8297,7 @@ impl<'a> TouchpadConfiguration<'a> {
   pub const VT_TAP_TO_CLICK_ENABLED: flatbuffers::VOffsetT = 4;
   pub const VT_NATURAL_SCROLL_ENABLED: flatbuffers::VOffsetT = 6;
   pub const VT_SCROLL_SPEED_FACTOR: flatbuffers::VOffsetT = 8;
+  pub const VT_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7939,6 +8309,7 @@ impl<'a> TouchpadConfiguration<'a> {
     args: &'args TouchpadConfigurationArgs
   ) -> flatbuffers::WIPOffset<TouchpadConfiguration<'bldr>> {
     let mut builder = TouchpadConfigurationBuilder::new(_fbb);
+    builder.add_scrolling_layout_swipe_speed_factor(args.scrolling_layout_swipe_speed_factor);
     builder.add_scroll_speed_factor(args.scroll_speed_factor);
     builder.add_natural_scroll_enabled(args.natural_scroll_enabled);
     builder.add_tap_to_click_enabled(args.tap_to_click_enabled);
@@ -7967,6 +8338,13 @@ impl<'a> TouchpadConfiguration<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f64>(TouchpadConfiguration::VT_SCROLL_SPEED_FACTOR, Some(1.0)).unwrap()}
   }
+  #[inline]
+  pub fn scrolling_layout_swipe_speed_factor(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(TouchpadConfiguration::VT_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR, Some(1.0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
@@ -7979,6 +8357,7 @@ impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
      .visit_field::<bool>("tap_to_click_enabled", Self::VT_TAP_TO_CLICK_ENABLED, false)?
      .visit_field::<bool>("natural_scroll_enabled", Self::VT_NATURAL_SCROLL_ENABLED, false)?
      .visit_field::<f64>("scroll_speed_factor", Self::VT_SCROLL_SPEED_FACTOR, false)?
+     .visit_field::<f64>("scrolling_layout_swipe_speed_factor", Self::VT_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR, false)?
      .finish();
     Ok(())
   }
@@ -7987,6 +8366,7 @@ pub struct TouchpadConfigurationArgs {
     pub tap_to_click_enabled: bool,
     pub natural_scroll_enabled: bool,
     pub scroll_speed_factor: f64,
+    pub scrolling_layout_swipe_speed_factor: f64,
 }
 impl<'a> Default for TouchpadConfigurationArgs {
   #[inline]
@@ -7995,6 +8375,7 @@ impl<'a> Default for TouchpadConfigurationArgs {
       tap_to_click_enabled: true,
       natural_scroll_enabled: false,
       scroll_speed_factor: 1.0,
+      scrolling_layout_swipe_speed_factor: 1.0,
     }
   }
 }
@@ -8017,6 +8398,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TouchpadConfigurationBuilder<'a
     self.fbb_.push_slot::<f64>(TouchpadConfiguration::VT_SCROLL_SPEED_FACTOR, scroll_speed_factor, 1.0);
   }
   #[inline]
+  pub fn add_scrolling_layout_swipe_speed_factor(&mut self, scrolling_layout_swipe_speed_factor: f64) {
+    self.fbb_.push_slot::<f64>(TouchpadConfiguration::VT_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR, scrolling_layout_swipe_speed_factor, 1.0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TouchpadConfigurationBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     TouchpadConfigurationBuilder {
@@ -8037,6 +8422,7 @@ impl core::fmt::Debug for TouchpadConfiguration<'_> {
       ds.field("tap_to_click_enabled", &self.tap_to_click_enabled());
       ds.field("natural_scroll_enabled", &self.natural_scroll_enabled());
       ds.field("scroll_speed_factor", &self.scroll_speed_factor());
+      ds.field("scrolling_layout_swipe_speed_factor", &self.scrolling_layout_swipe_speed_factor());
       ds.finish()
   }
 }

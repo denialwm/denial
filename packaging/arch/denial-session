@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly CONFIG_FILE=/etc/denial/session.conf
-readonly SYSTEM_OUTPUT_CONFIG=/etc/denial/outputs.conf
-
 die() {
   printf 'denial-session: %s\n' "$*" >&2
   exit 1
@@ -17,6 +14,40 @@ readonly launcher_path launcher_bin package_prefix
 readonly DEFAULT_BUNDLE="$package_prefix/lib/denial/flutter"
 readonly DENIALD="$launcher_bin/deniald"
 readonly DENIALCTL="$launcher_bin/denialctl"
+
+installed_config() {
+  local override="$1"
+  local system_path="$2"
+  local packaged_path="$3"
+  local configured="${!override:-}"
+
+  if [[ -n "$configured" ]]; then
+    [[ "$configured" == /* ]] \
+      || die "$override must be an absolute path: $configured"
+    printf '%s\n' "$configured"
+  elif [[ -e "$system_path" || -L "$system_path" ]]; then
+    printf '%s\n' "$system_path"
+  else
+    printf '%s\n' "$packaged_path"
+  fi
+}
+
+CONFIG_FILE="$(installed_config \
+  DENIAL_SESSION_CONFIG \
+  /etc/denial/session.conf \
+  "$package_prefix/etc/denial/session.conf")"
+SYSTEM_OUTPUT_CONFIG="$(installed_config \
+  DENIAL_SYSTEM_OUTPUT_CONFIG \
+  /etc/denial/outputs.conf \
+  "$package_prefix/etc/denial/outputs.conf")"
+readonly CONFIG_FILE SYSTEM_OUTPUT_CONFIG
+
+# The shell and Settings app inherit exact package-relative paths. Development
+# can still override them explicitly, while regular installations never depend
+# on a distribution choosing /usr/bin as its prefix.
+export DENIAL_COMPOSITOR_BINARY="${DENIAL_COMPOSITOR_BINARY:-$DENIALD}"
+export DENIAL_CONTROL_TOOL="${DENIAL_CONTROL_TOOL:-$DENIALCTL}"
+export DENIAL_SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$launcher_bin/denial-settings}"
 
 discover_user_systemctl() {
   local candidate resolved
@@ -41,34 +72,102 @@ default_user_output_config() {
   printf '%s/denial/outputs.conf\n' "${config_home%/}"
 }
 
-initialize_user_output_config() {
+default_user_output_state() {
+  local state_home="${XDG_STATE_HOME:-}"
+  if [[ -z "$state_home" ]]; then
+    [[ -n "${HOME:-}" ]] \
+      || die 'HOME is unset and XDG_STATE_HOME was not provided'
+    state_home="$HOME/.local/state"
+  fi
+  [[ "$state_home" == /* ]] \
+    || die "XDG_STATE_HOME must be an absolute path: $state_home"
+  printf '%s/denial/outputs.conf\n' "${state_home%/}"
+}
+
+is_writable_output_config() {
   local target="$1"
   local parent
 
-  if [[ ! -e "$target" && ! -L "$target" ]]; then
-    [[ -r "$SYSTEM_OUTPUT_CONFIG" ]] \
-      || die "system output configuration is unreadable: $SYSTEM_OUTPUT_CONFIG"
-    parent="$(dirname -- "$target")"
-    (
-      umask 077
-      mkdir -p -- "$parent"
-      cp -- "$SYSTEM_OUTPUT_CONFIG" "$target"
-      chmod 600 -- "$target"
-    ) || die "could not initialize per-user output configuration: $target"
-  fi
+  [[ ! -L "$target" && -f "$target" && -r "$target" && -w "$target" ]] \
+    || return 1
+  parent="$(dirname -- "$target")"
+  [[ -d "$parent" && -w "$parent" && -x "$parent" ]]
 }
 
-validate_output_config() {
+sync_declarative_output_state() {
+  local source="$1"
+  local target="$2"
+  local parent
+  local snapshot
+  local state_temp=''
+  local snapshot_temp=''
+
+  parent="$(dirname -- "$target")"
+  snapshot="$target.declarative-source"
+  [[ -f "$source" && -r "$source" ]] \
+    || die "declarative output configuration is not a readable regular file: $source"
+  [[ ! -L "$target" ]] \
+    || die "writable output state must not be a symbolic link: $target"
+  [[ ! -L "$snapshot" ]] \
+    || die "output state source snapshot must not be a symbolic link: $snapshot"
+
+  (
+    umask 077
+    mkdir -p -- "$parent"
+    if [[ ! -f "$target" || ! -f "$snapshot" ]] \
+      || ! cmp -s -- "$source" "$snapshot"; then
+      state_temp="$(mktemp -- "$parent/.outputs.conf.XXXXXX")"
+      snapshot_temp="$(mktemp -- "$parent/.outputs.conf.source.XXXXXX")"
+      trap 'rm -f -- "${state_temp:-}" "${snapshot_temp:-}"' EXIT
+      install -m 600 -- "$source" "$state_temp"
+      install -m 600 -- "$source" "$snapshot_temp"
+      mv -fT -- "$state_temp" "$target"
+      state_temp=''
+      mv -fT -- "$snapshot_temp" "$snapshot"
+      snapshot_temp=''
+      trap - EXIT
+    fi
+  ) || die "could not synchronize declarative output configuration into writable state: $target"
+}
+
+resolve_output_config() {
+  local configured="${DENIAL_OUTPUT_CONFIG:-}"
+  local source
+  local state
+  local user_config
+
+  user_config="$(default_user_output_config)"
+  if [[ -n "$configured" ]]; then
+    [[ "$configured" == /* ]] \
+      || die "DENIAL_OUTPUT_CONFIG must be an absolute path: $configured"
+    source="$configured"
+  elif [[ -e "$user_config" || -L "$user_config" ]]; then
+    source="$user_config"
+  else
+    source="$SYSTEM_OUTPUT_CONFIG"
+  fi
+
+  if is_writable_output_config "$source"; then
+    printf '%s\n' "$source"
+    return
+  fi
+
+  state="$(default_user_output_state)"
+  sync_declarative_output_state "$source" "$state"
+  printf '%s\n' "$state"
+}
+
+validate_output_state() {
   local target="$1"
   local parent
 
   [[ ! -L "$target" ]] \
-    || die "output configuration must not be a symbolic link: $target"
-  [[ -f "$target" && -r "$target" ]] \
-    || die "output configuration is not a readable regular file: $target"
+    || die "writable output state must not be a symbolic link: $target"
+  [[ -f "$target" && -r "$target" && -w "$target" ]] \
+    || die "output state is not a readable and writable regular file: $target"
   parent="$(dirname -- "$target")"
   [[ -d "$parent" && -w "$parent" && -x "$parent" ]] \
-    || die "output configuration directory must be writable for persistent display changes: $parent"
+    || die "output state directory must be writable for persistent display changes: $parent"
 }
 
 card_has_connected_output() {
@@ -160,24 +259,42 @@ resolve_render_device() {
   printf '%s\n' "$resolved"
 }
 
+drm_kernel_driver() {
+  local device="$1"
+  local driver
+  driver="$(readlink -f -- "/sys/class/drm/${device##*/}/device/driver" 2>/dev/null)" \
+    || return 1
+  [[ -n "$driver" ]] || return 1
+  printf '%s\n' "${driver##*/}"
+}
+
+should_enable_software_rendering() {
+  [[ "$1" == vmwgfx && -z "${LIBGL_ALWAYS_SOFTWARE+x}" ]]
+}
+
 if [[ -r "$CONFIG_FILE" ]]; then
   # This is a root-owned, shell-compatible machine configuration.
   # shellcheck source=/dev/null
   source "$CONFIG_FILE"
 fi
 
-shell_profile="${DENIA_SHELL_PROFILE:-desktop}"
+shell_profile="${DENIAL_SHELL_PROFILE-${DENIA_SHELL_PROFILE-desktop}}"
 case "$shell_profile" in
   mobile | desktop) ;;
-  *) die "DENIA_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
+  *) die "DENIAL_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
 esac
+export DENIAL_SHELL_PROFILE="$shell_profile"
 export DENIA_SHELL_PROFILE="$shell_profile"
 
-flutter_renderer="${DENIA_FLUTTER_RENDERER:-}"
+flutter_renderer="${DENIAL_FLUTTER_RENDERER-${DENIA_FLUTTER_RENDERER-}}"
 case "$flutter_renderer" in
   '' | skia | impeller) ;;
-  *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
+  *) die "DENIAL_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
 esac
+
+no_predecessor="${DENIAL_NO_PREDECESSOR-${DENIA_NO_PREDECESSOR-}}"
+export DENIAL_NO_PREDECESSOR="$no_predecessor"
+export DENIA_NO_PREDECESSOR="$no_predecessor"
 
 xwayland_scale_mode="${DENIAL_XWAYLAND_SCALE_MODE:-fractional}"
 case "$xwayland_scale_mode" in
@@ -194,15 +311,24 @@ qt_platform_theme="${QT_QPA_PLATFORMTHEME-xdgdesktopportal}"
 export QT_QPA_PLATFORMTHEME="$qt_platform_theme"
 
 bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
-if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
-  output_config="$DENIAL_OUTPUT_CONFIG"
-else
-  output_config="$(default_user_output_config)"
-  initialize_user_output_config "$output_config"
+output_config="$(resolve_output_config)"
+validate_output_state "$output_config"
+if [[ "${1:-}" == --print-output-config ]]; then
+  printf '%s\n' "$output_config"
+  exit 0
 fi
-validate_output_config "$output_config"
 drm_device="$(resolve_drm_device)"
 render_device="$(resolve_render_device)"
+effective_render_device="${render_device:-$drm_device}"
+render_driver="$(drm_kernel_driver "$effective_render_device" || true)"
+software_rendering=0
+mesa_rendering='hardware/default'
+if should_enable_software_rendering "$render_driver"; then
+  software_rendering=1
+  mesa_rendering='software (automatic vmwgfx compatibility)'
+elif [[ -n "${LIBGL_ALWAYS_SOFTWARE+x}" ]]; then
+  mesa_rendering="environment override (LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE})"
+fi
 systemctl_bin="$(discover_user_systemctl || true)"
 if [[ -n "$systemctl_bin" ]]; then
   session_lifecycle='systemd user manager'
@@ -238,8 +364,10 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'Flutter bundle' "$bundle"
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
-  printf 'ok  %-16s %s\n' 'render device' "${render_device:-$drm_device}"
-  printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
+  printf 'ok  %-16s %s\n' 'render device' "$effective_render_device"
+  printf 'ok  %-16s %s\n' 'render driver' "${render_driver:-unknown}"
+  printf 'ok  %-16s %s\n' 'Mesa rendering' "$mesa_rendering"
+  printf 'ok  %-16s %s\n' 'shell profile' "$DENIAL_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland scale' "$xwayland_scale_mode"
   printf 'ok  %-16s %s\n' \
@@ -262,6 +390,9 @@ if [[ -n "$render_device" ]]; then
 fi
 if [[ -n "$flutter_renderer" ]]; then
   denial_args+=(--flutter-renderer "$flutter_renderer")
+fi
+if [[ "$software_rendering" == 1 ]]; then
+  denial_args+=(--software-rendering)
 fi
 if [[ -n "${DENIAL_FLUTTER_DEBUG_BUNDLE:-}" ]]; then
   [[ "$DENIAL_FLUTTER_DEBUG_BUNDLE" == /* ]] \

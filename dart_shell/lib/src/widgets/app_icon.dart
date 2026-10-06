@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:vector_graphics/vector_graphics_compat.dart'
+    show RenderingStrategy;
 
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
@@ -56,20 +58,26 @@ class AppIconImage extends StatelessWidget {
     if (path == null) {
       return const _FallbackAppIcon();
     }
-    if (path.toLowerCase().endsWith('.svg')) {
-      return SvgPicture(
-        DesktopAppSvgLoader(path, context.shellColors.fallbackAppIcon),
-        fit: BoxFit.contain,
-        placeholderBuilder: (_) => const _FallbackAppIcon(),
-        errorBuilder: (_, _, _) => const _FallbackAppIcon(),
-      );
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final logicalWidth = constraints.hasBoundedWidth
             ? constraints.maxWidth
             : 85.0;
+        if (path.toLowerCase().endsWith('.svg')) {
+          return SvgPicture(
+            DesktopAppSvgLoader(path, context.shellColors.fallbackAppIcon),
+            // Impeller replays retained vector layers. Rasterize icons once
+            // instead; equal live assets share pixels and release them after
+            // their last consumer goes away. Explicit dimensions are required:
+            // the raster strategy does not infer resolution from constraints.
+            renderingStrategy: RenderingStrategy.raster,
+            width: logicalWidth,
+            height: constraints.hasBoundedHeight ? constraints.maxHeight : null,
+            fit: BoxFit.contain,
+            placeholderBuilder: (_) => const _FallbackAppIcon(),
+            errorBuilder: (_, _, _) => const _FallbackAppIcon(),
+          );
+        }
         final cacheWidth =
             (logicalWidth * MediaQuery.devicePixelRatioOf(context))
                 .ceil()
@@ -247,10 +255,15 @@ class _FallbackAppIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SvgPicture.asset(
-      AppIconImage.fallbackAsset,
-      fit: BoxFit.contain,
-      theme: SvgTheme(currentColor: context.shellColors.fallbackAppIcon),
+    return LayoutBuilder(
+      builder: (context, constraints) => SvgPicture.asset(
+        AppIconImage.fallbackAsset,
+        renderingStrategy: RenderingStrategy.raster,
+        width: constraints.hasBoundedWidth ? constraints.maxWidth : 85,
+        height: constraints.hasBoundedHeight ? constraints.maxHeight : null,
+        fit: BoxFit.contain,
+        theme: SvgTheme(currentColor: context.shellColors.fallbackAppIcon),
+      ),
     );
   }
 }

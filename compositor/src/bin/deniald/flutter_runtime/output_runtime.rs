@@ -145,8 +145,7 @@ impl FlutterRuntime {
         self.render_output_configuration = ffi_outputs;
         self.render_outputs = runtime_outputs;
         self.texture_output_membership.clear();
-        let cursor_ids = self.cursor_texture_ids.clone();
-        self.install_cursor_texture_membership(&cursor_ids);
+        self.reinstall_cursor_texture_membership();
         for output in &self.render_outputs {
             self.pending_output_updates
                 .entry(output.output_id)
@@ -250,29 +249,27 @@ impl FlutterRuntime {
     ) {
         self.texture_output_membership.clear();
         for window in windows {
-            let outputs: Arc<[OutputId]> = self
-                .render_outputs
-                .iter()
-                .filter(|output| {
-                    output.intersects(
-                        window.geometry_x,
-                        window.geometry_y,
-                        window.geometry_width,
-                        window.geometry_height,
-                    )
-                })
-                .map(|output| output.output_id)
-                .collect::<Vec<_>>()
-                .into();
-            if outputs.is_empty() {
+            let Some(outputs) = TextureOutputMembership::from_outputs(
+                self.render_outputs
+                    .iter()
+                    .filter(|output| {
+                        output.intersects(
+                            window.geometry_x,
+                            window.geometry_y,
+                            window.geometry_width,
+                            window.geometry_height,
+                        )
+                    })
+                    .map(|output| output.output_id),
+            ) else {
                 continue;
-            }
+            };
             let mut remember = |texture_id: u64| {
                 if let Ok(texture_id) = i64::try_from(texture_id)
                     && texture_id > 0
                 {
                     self.texture_output_membership
-                        .insert(texture_id, Arc::clone(&outputs));
+                        .insert(texture_id, outputs.clone());
                 }
             };
             remember(window.texture_id);
@@ -285,7 +282,7 @@ impl FlutterRuntime {
     pub(super) fn stage_changed_textures(&mut self) {
         for texture_id in self.changed_texture_scratch.drain(..) {
             if let Some(outputs) = self.texture_output_membership.get(&texture_id) {
-                for output in outputs.iter() {
+                for output in outputs.outputs() {
                     self.pending_output_updates
                         .entry(*output)
                         .or_default()
@@ -388,8 +385,16 @@ impl FlutterRuntime {
             return Ok(false);
         }
 
-        self.handler
-            .authorize_outputs(requests, &mut self.render_view_scratch);
+        let mut tagged_requests = requests.to_vec();
+        for request in &mut tagged_requests {
+            request.fingerprint_epoch = self.fingerprint_scene.render_epoch(request.tick.output);
+        }
+        self.handler.authorize_outputs(
+            &tagged_requests,
+            &mut self.render_view_scratch,
+            self.lock_frame_gate
+                .render_token(self.authentication.locked_epoch()),
+        );
         if self.render_view_scratch.is_empty() {
             return Ok(false);
         }
@@ -525,5 +530,27 @@ impl FlutterRuntime {
             return Err(error.into());
         }
         Ok(baton.is_some())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_membership_keeps_common_cases_inline() {
+        let one = TextureOutputMembership::from_outputs([OutputId(1)].into_iter()).unwrap();
+        let two =
+            TextureOutputMembership::from_outputs([OutputId(1), OutputId(2)].into_iter()).unwrap();
+        let many = TextureOutputMembership::from_outputs(
+            [OutputId(1), OutputId(2), OutputId(3)].into_iter(),
+        )
+        .unwrap();
+
+        assert!(matches!(one, TextureOutputMembership::One(_)));
+        assert!(matches!(two, TextureOutputMembership::Two(_)));
+        assert!(matches!(&many, TextureOutputMembership::Many(_)));
+        assert_eq!(many.outputs(), [OutputId(1), OutputId(2), OutputId(3)]);
+        assert!(TextureOutputMembership::from_outputs(std::iter::empty()).is_none());
     }
 }

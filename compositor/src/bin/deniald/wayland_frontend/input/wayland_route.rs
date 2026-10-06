@@ -1,10 +1,82 @@
 //! Client-owned Wayland input dispatch.
 
+use super::super::focus::{clear_keyboard_focus, request_keyboard_focus};
 use super::flutter_route::{
     pointer_constraint_blocks_motion, pointer_constraint_reactivation_suppressed,
     process_wayland_keyboard_transition, route_pointer_axis,
 };
 use super::*;
+
+fn activate_surface_at(
+    state: &mut RuntimeState,
+    position: Point<f64, Logical>,
+    serial: smithay::utils::Serial,
+) {
+    let (keyboard, surface, window, layer_focus) = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        let surface = frontend.surface_under(position).map(|(surface, _)| surface);
+        let window = surface.as_ref().and_then(|surface| {
+            frontend
+                .owning_toplevel_surface(surface)
+                .and_then(|root| frontend.window_for_root_surface(&root))
+        });
+        let layer_focus = surface
+            .as_ref()
+            .and_then(|surface| frontend.layer_keyboard_focus_for_surface(surface));
+        (
+            frontend.seat.get_keyboard().expect("seat has no keyboard"),
+            surface,
+            window,
+            layer_focus,
+        )
+    };
+
+    if let Some(window) = window {
+        #[cfg(feature = "flutter")]
+        {
+            let window_id = state
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_root_surface(&window)
+                .and_then(|surface| {
+                    state
+                        .wayland
+                        .as_ref()
+                        .expect("missing Wayland frontend")
+                        .surface_id(&surface)
+                });
+            if let Some(window_id) = window_id {
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .pointer_constraint_escape
+                    .resume_window(window_id);
+            }
+        }
+        let focus = state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .keyboard_focus_for_window(&window);
+        if let Some(focus) = focus {
+            let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.raise_window(&window, true);
+            for candidate in frontend.space.elements() {
+                let changed = candidate.set_activated(candidate == &window);
+                if changed && let Some(toplevel) = candidate.toplevel() {
+                    toplevel.send_pending_configure();
+                }
+            }
+            request_keyboard_focus(state, &keyboard, Some(focus), serial);
+        }
+    } else if let Some(focus) = layer_focus {
+        request_keyboard_focus(state, &keyboard, Some(focus), serial);
+    } else if surface.is_none() {
+        clear_keyboard_focus(state, &keyboard, serial);
+    }
+}
 
 pub(super) fn process_wayland_input_event(
     state: &mut RuntimeState,
@@ -131,67 +203,8 @@ pub(super) fn process_wayland_input_event(
                 .seat
                 .get_pointer()
                 .expect("seat has no pointer");
-            let keyboard = state
-                .wayland
-                .as_ref()
-                .expect("missing Wayland frontend")
-                .seat
-                .get_keyboard()
-                .expect("seat has no keyboard");
-
             if event.state() == ButtonState::Pressed && !pointer.is_grabbed() {
-                let window = state
-                    .wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .space
-                    .element_under(pointer.current_location())
-                    .map(|(window, _)| window.clone());
-                if let Some(window) = window {
-                    #[cfg(feature = "flutter")]
-                    {
-                        let window_id = state
-                            .wayland
-                            .as_ref()
-                            .expect("missing Wayland frontend")
-                            .window_root_surface(&window)
-                            .and_then(|surface| {
-                                state
-                                    .wayland
-                                    .as_ref()
-                                    .expect("missing Wayland frontend")
-                                    .surface_id(&surface)
-                            });
-                        if let Some(window_id) = window_id {
-                            state
-                                .wayland
-                                .as_mut()
-                                .expect("missing Wayland frontend")
-                                .pointer_constraint_escape
-                                .resume_window(window_id);
-                        }
-                    }
-                    let focus = state
-                        .wayland
-                        .as_ref()
-                        .expect("missing Wayland frontend")
-                        .keyboard_focus_for_window(&window);
-                    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                    frontend.raise_window(&window, true);
-                    for candidate in frontend.space.elements() {
-                        let changed = candidate.set_activated(candidate == &window);
-                        if changed && let Some(toplevel) = candidate.toplevel() {
-                            toplevel.send_pending_configure();
-                        }
-                    }
-                    keyboard.set_focus(state, focus, serial);
-                } else {
-                    keyboard.set_focus(
-                        state,
-                        Option::<super::super::KeyboardFocusTarget>::None,
-                        serial,
-                    );
-                }
+                activate_surface_at(state, pointer.current_location(), serial);
             }
 
             update_pressed_buttons(
@@ -218,49 +231,19 @@ pub(super) fn process_wayland_input_event(
         InputEvent::PointerAxis { event, .. } => route_pointer_axis(state, &event),
         InputEvent::TouchDown { event, .. } => {
             let serial = SERIAL_COUNTER.next_serial();
-            let (position, window) = {
+            let position = {
                 let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                let position = output_bound_absolute_position(
+                output_bound_absolute_position(
                     &event,
                     frontend.touch_bounds,
                     frontend.touch_transform,
-                );
-                let window = frontend
-                    .space
-                    .element_under(position)
-                    .map(|(window, _)| window.clone());
-                (position, window)
-            };
-            let (touch, keyboard) = {
-                let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                (
-                    frontend.seat.get_touch().expect("seat has no touch"),
-                    frontend.seat.get_keyboard().expect("seat has no keyboard"),
                 )
             };
-
-            if let Some(window) = window {
-                let focus = state
-                    .wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .keyboard_focus_for_window(&window);
-                let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                frontend.raise_window(&window, true);
-                for candidate in frontend.space.elements() {
-                    let changed = candidate.set_activated(candidate == &window);
-                    if changed && let Some(toplevel) = candidate.toplevel() {
-                        toplevel.send_pending_configure();
-                    }
-                }
-                keyboard.set_focus(state, focus, serial);
-            } else {
-                keyboard.set_focus(
-                    state,
-                    Option::<super::super::KeyboardFocusTarget>::None,
-                    serial,
-                );
-            }
+            let touch = {
+                let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+                frontend.seat.get_touch().expect("seat has no touch")
+            };
+            activate_surface_at(state, position, serial);
 
             let under = state
                 .wayland

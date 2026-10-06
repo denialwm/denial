@@ -326,7 +326,7 @@ class NetworkManagerService implements NetworkBackend {
         devicePath: device.path,
         networkPath: path,
         savedNetworkPath: null,
-        connected: device.activeAccessPointPath == path,
+        connected: device.state == 100 && device.activeAccessPointPath == path,
         available: true,
       );
     })).whereType<WifiNetwork>().toList(growable: false);
@@ -571,6 +571,9 @@ NetworkConnectivityStatus classifyNetworkConnectivity({
   }
   if (managerState == 40 || (deviceState >= 40 && deviceState <= 90)) {
     return NetworkConnectivityStatus.connecting;
+  }
+  if (deviceState != 100) {
+    return NetworkConnectivityStatus.disconnected;
   }
   return switch (connectivity) {
     4 => NetworkConnectivityStatus.online,

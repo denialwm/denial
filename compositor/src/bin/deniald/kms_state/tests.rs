@@ -1,6 +1,28 @@
 #[cfg(feature = "flutter")]
 use super::ensure_resident_jit_engine_matches;
-use super::{ScanoutIdentity, ScanoutIdentityError, validate_scanout_identities};
+use super::{
+    ScanoutIdentity, ScanoutIdentityError, framebuffer_from_property_value,
+    validate_scanout_identities,
+};
+
+#[test]
+fn zero_framebuffer_property_means_no_predecessor_scanout() {
+    assert_eq!(framebuffer_from_property_value(0).unwrap(), None);
+}
+
+#[test]
+fn nonzero_framebuffer_property_identifies_predecessor_scanout() {
+    let framebuffer = framebuffer_from_property_value(17)
+        .unwrap()
+        .expect("nonzero FB_ID should produce a framebuffer handle");
+
+    assert_eq!(u32::from(framebuffer), 17);
+}
+
+#[test]
+fn oversized_framebuffer_property_is_rejected() {
+    assert!(framebuffer_from_property_value(u64::MAX).is_err());
+}
 
 #[cfg(feature = "flutter")]
 #[test]

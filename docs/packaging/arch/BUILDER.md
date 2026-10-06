@@ -37,6 +37,8 @@ The installed boundary is:
 - a locked `denial-builder` system account with `/usr/bin/nologin`;
 - no supplementary groups and no noninteractive sudo access;
 - root-owned runner parents and a fresh, user-writable `current` instance;
+- a root-owned Nix daemon configured with only Denial's public Cachix URL and
+  signing key; the runner remains an untrusted Nix user;
 - GitHub Actions runner `2.336.0`, downloaded from the official release and
   verified against SHA-256
   `04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d`;
@@ -53,10 +55,12 @@ The production package-signing key must never be copied to this laptop.
 Builds produce unsigned candidates, hashes, and evidence. Signing and
 publication are separate operations.
 
-The machine does not store a GitHub PAT. `tools/denial-builder arm` requests a
-short-lived repository registration token through the operator workstation's
-authenticated `gh` session, passes it over SSH, and starts one runner. The
-runner's generated credentials disappear with the writable instance.
+The machine does not store a GitHub PAT or Cachix credential.
+`tools/denial-builder arm` requests a short-lived repository registration
+token through the operator workstation's authenticated `gh` session, passes
+it over SSH, and starts one runner. GitHub supplies the cache-scoped
+`CACHIX_AUTH_TOKEN` repository secret to an authorized job. Both credentials
+disappear with the writable instance.
 
 ## Trigger policy
 
@@ -89,6 +93,7 @@ devtools
 git
 jq
 libarchive
+nix
 zstd
 gnupg
 namcap
@@ -139,6 +144,14 @@ A matching verified artifact entry skips the engine build entirely.
 A separately checksum-verified Alpine minirootfs archive may survive below
 `/srv/denial-builder/cache/alpine`; each job re-extracts it into disposable
 storage and installs its declared APK build dependencies afresh.
+
+The installer also adds a root-owned Nix configuration fragment containing
+only Denial's public Cachix URL and signing key. The unprivileged runner can
+ask the Nix daemon to realize immutable store paths, but it cannot change the
+daemon configuration or install a post-build hook. CI uploads only the
+explicit Denial outputs recorded by the Nix build. The Cachix CLI itself is
+realized from the flake's locked Nixpkgs input and supplied directly to the
+pinned action, avoiding its remote installer expression.
 
 Audit the machine as the unprivileged runner account:
 

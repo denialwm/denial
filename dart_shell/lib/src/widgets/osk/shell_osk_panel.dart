@@ -72,6 +72,18 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
   bool _ctrlArmed = false;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) {
+      // The mobile sheet is retained while hidden. Keep the fresh-keyboard
+      // behavior previously supplied by unmounting it on close.
+      _layer = _OskLayer.letters;
+      _shiftEnabled = false;
+      _ctrlArmed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final rows = _rowsForCurrentLayer();
     final bottomPadding = math.max(MediaQuery.paddingOf(context).bottom, 12.0);
@@ -365,6 +377,21 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   DateTime? _lastPressStartedAt;
   bool _pressed = false;
   bool _holdActive = false;
+  bool _enabled = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _enabled = TickerMode.valuesOf(context).enabled;
+    if (!_enabled) {
+      // Offstage alone neither cancels a held native key nor its animation.
+      _finishHold();
+      _pressed = false;
+      _lastPressStartedAt = null;
+      _glow.stop();
+      _glow.value = 0;
+    }
+  }
 
   @override
   void dispose() {
@@ -401,8 +428,10 @@ class _OskKeyButtonState extends State<_OskKeyButton>
         onPointerCancel: (_) => _handlePointerEnd(),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.holdEnabled ? null : widget.onPressed,
-          onLongPress: widget.holdEnabled ? null : widget.onLongPress,
+          onTap: !_enabled || widget.holdEnabled ? null : widget.onPressed,
+          onLongPress: !_enabled || widget.holdEnabled
+              ? null
+              : widget.onLongPress,
           child: AnimatedBuilder(
             animation: _glow,
             builder: (context, child) {
@@ -458,6 +487,7 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   }
 
   void _handlePointerDown() {
+    if (!_enabled) return;
     _startGlow();
     if (!widget.holdEnabled || _holdActive) {
       return;

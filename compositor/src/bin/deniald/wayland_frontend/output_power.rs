@@ -126,9 +126,17 @@ impl WaylandFrontend {
         let Some(entry) = self.outputs.iter_mut().find(|entry| entry.id == output) else {
             return;
         };
+        let changed = entry.powered != powered;
         entry.powered = powered;
+        #[cfg(feature = "flutter")]
+        if changed {
+            self.invalidate_frame_timeline();
+        }
         if !powered {
             self.fail_screencopies_for_output(output);
+        }
+        if changed {
+            self.refresh_image_copy_constraints();
         }
         if let Some(resource) = self.output_power.controllers.get(&output) {
             resource.mode(if powered {
@@ -136,6 +144,12 @@ impl WaylandFrontend {
             } else {
                 zwlr_output_power_v1::Mode::Off
             });
+            // KMS applies power transitions outside Wayland client dispatch.
+            // Deliver the event now: a sleeping client may send no requests
+            // that would otherwise flush this notification.
+            if let Err(error) = self.display_handle.flush_clients() {
+                tracing::warn!(%error, "failed to flush output power state");
+            }
         }
     }
 

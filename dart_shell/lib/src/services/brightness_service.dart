@@ -21,6 +21,8 @@ class BrightnessService {
   final DenialBridge _bridge;
   final DisplayOutput? defaultOutput;
   Stream<DenialBrightnessState> get states => _bridge.brightnessStates;
+  Stream<DenialSoftwareDimmingState> get softwareDimmingStates =>
+      _bridge.softwareDimmingStates;
 
   int? get defaultMonitorId => defaultOutput?.monitorId;
 
@@ -45,6 +47,30 @@ class BrightnessService {
         monitorId: target.monitorId,
         connector: target.name,
         level: percent.clamp(1, 100) / 100,
+      );
+    }
+    return Future<void>.value();
+  }
+
+  /// Current scanout-time software dimming as a `[0.0, 1.0]` fraction.
+  ///
+  /// Returns null when the output does not expose a usable DRM gamma LUT.
+  Future<double?> readSoftwareDimming([DisplayOutput? output]) {
+    final target = output ?? defaultOutput;
+    if (target == null) return Future<double?>.value();
+    return _bridge.readSoftwareDimmingLevel(monitorId: target.monitorId);
+  }
+
+  /// Applies scanout-time software dimming without changing captured pixels.
+  Future<void> applySoftwareDimming(
+    int percent, [
+    DisplayOutput? output,
+  ]) {
+    final target = output ?? defaultOutput;
+    if (target != null) {
+      _bridge.setSoftwareDimming(
+        monitorId: target.monitorId,
+        level: percent.clamp(0, 100) / 100,
       );
     }
     return Future<void>.value();

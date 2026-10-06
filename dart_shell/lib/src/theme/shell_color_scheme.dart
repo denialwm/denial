@@ -74,7 +74,7 @@ class ShellColorScheme {
     volumeTrack: Color(0xf6343a45),
     wallpaperEffectTrack: Color(0xf6343a45),
     gestureArmed: Color(0xff8ee6c1),
-    gesturePill: Color(0xdff7f7f8),
+    gesturePill: Color(0xff8a8a8a),
     launchSurface: Color(0xff000000),
     fallbackAppIcon: Color(0xff147cdc),
     performanceGood: Color(0xff8ee6c1),

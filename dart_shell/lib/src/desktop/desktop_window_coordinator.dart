@@ -412,29 +412,26 @@ bool _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
       }
       return workspace.applyNativePlacement(target.objectId, event);
     case DenialWindowActionEvent():
-      switch (event.action) {
-        case DenialWindowAction.minimize:
-          workspace.minimize(target.objectId);
+      // Managed XDG and Xwayland windows have already completed this action
+      // in Rust. Their next snapshot/placement is the sole geometry and state
+      // authority. Replaying the action in Flutter would manufacture a second
+      // restore rectangle; for a client which started fullscreen there is no
+      // valid pre-fullscreen rectangle, so that speculation can reject every
+      // later layout split until an unrelated manual resize clears it.
+      if (!target.isLocalFlutter) {
+        if (event.action == DenialWindowAction.minimize) {
           ref.read(shellControllerProvider.notifier).releaseWindowFocus(target);
-        case DenialWindowAction.maximize:
-          workspace.maximize(
-            target.objectId,
-            bounds: _outputBounds(ref, target.objectId, workArea: true),
-          );
-        case DenialWindowAction.restore:
-          workspace.restore(target.objectId);
-        case DenialWindowAction.toggleMaximize:
-          workspace.toggleMaximized(
-            target.objectId,
-            bounds: _outputBounds(ref, target.objectId, workArea: true),
-          );
-        case DenialWindowAction.toggleFullscreen:
-          // True fullscreen deliberately ignores the system-bar work area and
-          // covers the complete output.
-          workspace.toggleFullscreen(
-            target.objectId,
-            bounds: _outputBounds(ref, target.objectId, workArea: false),
-          );
+        }
+        return true;
+      }
+      workspace.applyFlutterOwnedWindowAction(
+        target,
+        event.action,
+        maximizeBounds: _outputBounds(ref, target.objectId, workArea: true),
+        fullscreenBounds: _outputBounds(ref, target.objectId, workArea: false),
+      );
+      if (event.action == DenialWindowAction.minimize) {
+        ref.read(shellControllerProvider.notifier).releaseWindowFocus(target);
       }
       return true;
   }
@@ -476,6 +473,38 @@ Rect _outputBounds(Ref ref, int objectId, {required bool workArea}) {
         return bounds;
       }
     }
+  }
+
+  // A scrolling tile or a client-supplied virtual-desktop rectangle can put
+  // the frame center outside every output. Select the strongest physical
+  // overlap (then the nearest output) instead of treating the whole Flutter
+  // canvas as a monitor.
+  DisplayOutput? bestOutput;
+  var bestOverlap = -1.0;
+  var bestDistance = double.infinity;
+  for (final output in outputs) {
+    final bounds = resolve(output);
+    if (bounds.isEmpty) {
+      continue;
+    }
+    final overlap = bounds.intersect(placement.frame);
+    final overlapArea = overlap.isEmpty ? 0.0 : overlap.width * overlap.height;
+    final dx =
+        placement.frame.center.dx.clamp(bounds.left, bounds.right) -
+        placement.frame.center.dx;
+    final dy =
+        placement.frame.center.dy.clamp(bounds.top, bounds.bottom) -
+        placement.frame.center.dy;
+    final distance = dx * dx + dy * dy;
+    if (overlapArea > bestOverlap ||
+        (overlapArea == bestOverlap && distance < bestDistance)) {
+      bestOutput = output;
+      bestOverlap = overlapArea;
+      bestDistance = distance;
+    }
+  }
+  if (bestOutput != null) {
+    return resolve(bestOutput);
   }
 
   return canvas;

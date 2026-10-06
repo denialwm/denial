@@ -22,6 +22,7 @@ void main() {
       tapToClickEnabled: true,
       naturalScrollEnabled: false,
       scrollSpeedFactor: 1,
+      scrollingLayoutSwipeSpeedFactor: 1,
     );
 
     final bytes = codec.encodeMouseConfiguration(
@@ -53,6 +54,56 @@ void main() {
     );
   });
 
+  test('touchpad request carries and bounds scrolling layout swipe speed', () {
+    final codec = DenialWireCodec();
+    const capabilities = DenialInputDeviceCapabilities(
+      revision: 7,
+      hasMouse: true,
+      mouseSpeed: 0.35,
+      hasTouchpad: true,
+      tapToClickEnabled: true,
+      naturalScrollEnabled: false,
+      scrollSpeedFactor: 1.5,
+      scrollingLayoutSwipeSpeedFactor: 2.25,
+    );
+
+    final bytes = codec.encodeTouchpadConfiguration(
+      requestId: 22,
+      capabilities: capabilities,
+    );
+
+    expect(bytes, isNotNull);
+    final envelope = Envelope(bytes!);
+    final request = envelope.payload as SettingsRequest;
+    expect(envelope.requestId, 22);
+    expect(request.kind, SettingsRequestKind.ConfigureTouchpad);
+    expect(request.expectedRevision, 7);
+    expect(request.touchpad!.scrollSpeedFactor, closeTo(1.5, 0.0001));
+    expect(
+      request.touchpad!.scrollingLayoutSwipeSpeedFactor,
+      closeTo(2.25, 0.0001),
+    );
+    expect(request.mouse, isNull);
+    expect(
+      codec.encodeTouchpadConfiguration(
+        requestId: 23,
+        capabilities: capabilities.copyWith(
+          scrollingLayoutSwipeSpeedFactor: 4.001,
+        ),
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeTouchpadConfiguration(
+        requestId: 24,
+        capabilities: capabilities.copyWith(
+          scrollingLayoutSwipeSpeedFactor: double.nan,
+        ),
+      ),
+      isNull,
+    );
+  });
+
   test('input capability response carries mouse and touchpad settings', () {
     final bytes = EnvelopeObjectBuilder(
       protocolVersion: 1,
@@ -71,6 +122,7 @@ void main() {
             tapToClickEnabled: false,
             naturalScrollEnabled: true,
             scrollSpeedFactor: 2.25,
+            scrollingLayoutSwipeSpeedFactor: 1.75,
           ),
         ),
       ),
@@ -90,6 +142,7 @@ void main() {
     expect(capabilities.tapToClickEnabled, isFalse);
     expect(capabilities.naturalScrollEnabled, isTrue);
     expect(capabilities.scrollSpeedFactor, closeTo(2.25, 0.0001));
+    expect(capabilities.scrollingLayoutSwipeSpeedFactor, closeTo(1.75, 0.0001));
   });
 
   test('theme accent is encoded as opaque packed sRGB', () {
@@ -117,6 +170,24 @@ void main() {
     expect(request.flags, 2);
   });
 
+  test('workspace requests preserve monitor and workspace targets', () {
+    final bytes = DenialWireCodec().encodeWindowRequest(
+      WindowRequestKind.MoveWindowToWorkspace,
+      windowId: 42,
+      monitorId: 7,
+      workspaceId: 3,
+      flags: 1,
+    );
+
+    final envelope = Envelope(bytes);
+    final request = envelope.payload as WindowRequest;
+    expect(request.kind, WindowRequestKind.MoveWindowToWorkspace);
+    expect(request.windowId, 42);
+    expect(request.monitorId, 7);
+    expect(request.workspaceId, 3);
+    expect(request.flags, 1);
+  });
+
   test('keyboard key lifecycle preserves tap, press, and release', () {
     final codec = DenialWireCodec();
     for (final expectation in <(DenialKeyboardKeyPhase, int)>[
@@ -133,12 +204,25 @@ void main() {
     }
   });
 
+  test('panel dismissal carries activation identity without a key or text', () {
+    final codec = DenialWireCodec();
+    final envelope = Envelope(codec.encodeKeyboardPanelDismissal(123));
+    final command = envelope.payload as KeyboardCommand;
+    expect(command.kind, KeyboardCommandKind.DismissPanel);
+    expect(command.activationSerial, 123);
+    expect(command.flags, 0);
+    expect(command.text, isNull);
+    expect(command.key, isNull);
+  });
+
   test('system bar configuration encodes its edge and selected outputs', () {
     final codec = DenialWireCodec();
     final bytes = codec.encodeSystemBarConfiguration(
       requestId: 41,
       side: model.SystemBarSide.right,
       monitorIds: const <int>[7, 9],
+      systemBarThickness: 46,
+      maximizePadding: 18,
     );
 
     expect(bytes, isNotNull);
@@ -148,6 +232,8 @@ void main() {
     expect(request.kind, WindowRequestKind.ConfigureSystemBar);
     expect(request.systemBarSide, SystemBarSide.Right);
     expect(request.systemBarMonitorIds, <int>[7, 9]);
+    expect(request.systemBarThickness, 46);
+    expect(request.maximizePadding, 18);
     expect(
       bytes,
       File('../protocol/golden/dart_system_bar.denw').readAsBytesSync(),
@@ -157,6 +243,28 @@ void main() {
         requestId: 42,
         side: model.SystemBarSide.hidden,
         monitorIds: const <int>[7],
+        systemBarThickness: 32,
+        maximizePadding: 10,
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeSystemBarConfiguration(
+        requestId: 43,
+        side: model.SystemBarSide.top,
+        monitorIds: const <int>[7],
+        systemBarThickness: double.nan,
+        maximizePadding: 10,
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeSystemBarConfiguration(
+        requestId: 44,
+        side: model.SystemBarSide.top,
+        monitorIds: const <int>[7],
+        systemBarThickness: 32,
+        maximizePadding: -1,
       ),
       isNull,
     );
@@ -471,6 +579,7 @@ void main() {
             serverSideDecorated: false,
             opacity: 0.75,
             opacityClass: WindowOpacityClass.BorderAlphaOnly,
+            transientParentId: 99,
           ),
         ],
       ),
@@ -482,6 +591,7 @@ void main() {
     final windows = codec.decodeWindows(decoded!.payload as WindowSnapshot);
     expect(windows, hasLength(1));
     expect(windows!.single.suppressAnimations, isTrue);
+    expect(windows.single.transientParentObjectId, 99);
     expect(windows.single.serverSideDecorated, isFalse);
     expect(windows.single.opacity, closeTo(0.75, 0.0001));
     expect(windows.single.surfaceLayers.single.opacity, closeTo(0.5, 0.0001));
@@ -624,6 +734,47 @@ void main() {
       ByteData.sublistView(snapshot(textureId: 7)),
     );
     expect(codec.decodeWindows(invalid!.payload as WindowSnapshot), isNull);
+  });
+
+  test('popup surfaces decode as focus-inert non-application content', () {
+    final bytes = EnvelopeObjectBuilder(
+      protocolVersion: 1,
+      sequence: 1,
+      payloadType: PayloadTypeId.WindowSnapshot,
+      payload: WindowSnapshotObjectBuilder(
+        windows: <WindowObjectBuilder>[
+          WindowObjectBuilder(
+            objectId: 101,
+            surfaceId: 101,
+            windowId: 101,
+            textureId: 102,
+            title: 'Fcitx5 Input Window',
+            appId: 'fcitx',
+            width: 320,
+            height: 72,
+            surfaceWidth: 320,
+            surfaceHeight: 72,
+            geometryX: 240,
+            geometryY: 180,
+            geometryWidth: 320,
+            geometryHeight: 72,
+            contentWidth: 320,
+            contentHeight: 72,
+            contentKind: WindowContentKind.PopupSurface,
+          ),
+        ],
+      ),
+    ).toBytes('DENW');
+
+    final codec = DenialWireCodec();
+    final decoded = codec.decodeStructured(ByteData.sublistView(bytes));
+    final window = codec
+        .decodeWindows(decoded!.payload as WindowSnapshot)!
+        .single;
+
+    expect(window.contentKind, DenialWindowContentKind.popupSurface);
+    expect(window.isPopupSurface, isTrue);
+    expect(window.isUserApp, isFalse);
   });
 
   test('window business validation rejects opacity outside the unit range', () {

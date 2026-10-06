@@ -1,6 +1,9 @@
 const double touchpadScrollSpeedFactorMinimum = 0.05;
 const double touchpadScrollSpeedFactorMaximum = 5.0;
 const double touchpadScrollSpeedFactorDefault = 1.0;
+const double touchpadScrollingLayoutSwipeSpeedFactorMinimum = 0.25;
+const double touchpadScrollingLayoutSwipeSpeedFactorMaximum = 4.0;
+const double touchpadScrollingLayoutSwipeSpeedFactorDefault = 1.0;
 const double mouseSpeedMinimum = -1.0;
 const double mouseSpeedMaximum = 1.0;
 const double mouseSpeedDefault = 0.0;
@@ -14,6 +17,7 @@ class DenialInputDeviceCapabilities {
     required this.tapToClickEnabled,
     required this.naturalScrollEnabled,
     required this.scrollSpeedFactor,
+    required this.scrollingLayoutSwipeSpeedFactor,
   });
 
   const DenialInputDeviceCapabilities.none()
@@ -23,7 +27,9 @@ class DenialInputDeviceCapabilities {
       hasTouchpad = false,
       tapToClickEnabled = true,
       naturalScrollEnabled = false,
-      scrollSpeedFactor = touchpadScrollSpeedFactorDefault;
+      scrollSpeedFactor = touchpadScrollSpeedFactorDefault,
+      scrollingLayoutSwipeSpeedFactor =
+          touchpadScrollingLayoutSwipeSpeedFactorDefault;
 
   final int revision;
   final bool hasMouse;
@@ -32,6 +38,7 @@ class DenialInputDeviceCapabilities {
   final bool tapToClickEnabled;
   final bool naturalScrollEnabled;
   final double scrollSpeedFactor;
+  final double scrollingLayoutSwipeSpeedFactor;
 
   factory DenialInputDeviceCapabilities.fromJson(Map<String, Object?> json) {
     return DenialInputDeviceCapabilities(
@@ -45,6 +52,9 @@ class DenialInputDeviceCapabilities {
       scrollSpeedFactor:
           (json['scroll_speed_factor'] as num?)?.toDouble() ??
           touchpadScrollSpeedFactorDefault,
+      scrollingLayoutSwipeSpeedFactor:
+          (json['scrolling_layout_swipe_speed_factor'] as num?)?.toDouble() ??
+          touchpadScrollingLayoutSwipeSpeedFactorDefault,
     );
   }
 
@@ -52,6 +62,7 @@ class DenialInputDeviceCapabilities {
     'tapToClickEnabled': tapToClickEnabled,
     'naturalScrollEnabled': naturalScrollEnabled,
     'scrollSpeedFactor': scrollSpeedFactor,
+    'scrollingLayoutSwipeSpeedFactor': scrollingLayoutSwipeSpeedFactor,
   };
 
   Map<String, Object> mouseToApplyJson() => <String, Object>{
@@ -66,6 +77,7 @@ class DenialInputDeviceCapabilities {
     bool? tapToClickEnabled,
     bool? naturalScrollEnabled,
     double? scrollSpeedFactor,
+    double? scrollingLayoutSwipeSpeedFactor,
   }) {
     return DenialInputDeviceCapabilities(
       revision: revision ?? this.revision,
@@ -75,6 +87,9 @@ class DenialInputDeviceCapabilities {
       tapToClickEnabled: tapToClickEnabled ?? this.tapToClickEnabled,
       naturalScrollEnabled: naturalScrollEnabled ?? this.naturalScrollEnabled,
       scrollSpeedFactor: scrollSpeedFactor ?? this.scrollSpeedFactor,
+      scrollingLayoutSwipeSpeedFactor:
+          scrollingLayoutSwipeSpeedFactor ??
+          this.scrollingLayoutSwipeSpeedFactor,
     );
   }
 
@@ -88,7 +103,9 @@ class DenialInputDeviceCapabilities {
             hasTouchpad == other.hasTouchpad &&
             tapToClickEnabled == other.tapToClickEnabled &&
             naturalScrollEnabled == other.naturalScrollEnabled &&
-            scrollSpeedFactor == other.scrollSpeedFactor;
+            scrollSpeedFactor == other.scrollSpeedFactor &&
+            scrollingLayoutSwipeSpeedFactor ==
+                other.scrollingLayoutSwipeSpeedFactor;
   }
 
   @override
@@ -100,5 +117,6 @@ class DenialInputDeviceCapabilities {
     tapToClickEnabled,
     naturalScrollEnabled,
     scrollSpeedFactor,
+    scrollingLayoutSwipeSpeedFactor,
   );
 }

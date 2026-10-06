@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
+denial_arch_configure
 FLUTTER_SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
 
 if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
@@ -59,24 +62,27 @@ FLUTTER_ENGINE_CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-$CACHE_HOME/denia
 # directory. Engine outputs deliberately live outside both canonical and
 # managed source trees, so point it at the exact cache build root.
 LOCAL_ENGINE_SRC_PATH="$FLUTTER_ENGINE_CACHE_ROOT/build"
-LOCAL_ENGINE_TARGET="denial_host_release"
+LOCAL_ENGINE_TARGET="$(denial_flutter_engine_target release)"
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
-BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/x64/release/bundle}"
+BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
-SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
+SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$SETTINGS_BUNDLE/denial-settings}"
 SETTINGS_DESKTOP_SOURCE="$ROOT/packaging/arch/dev.denial.Settings.desktop"
 USER_DATA_HOME="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
 SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/dev.denial.Settings.desktop}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
-ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
-PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/$DENIAL_FLUTTER_PLATFORM/icudtl.dat"
+PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
 PREBUILT_ENGINE="${DENIAL_PC_ENGINE_SOURCE:-$PREBUILT_ENGINE_DIR/libflutter_engine.so}"
 PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE_DIR/libflutter_engine.so.sha256"
-PREBUILT_ENGINE_REVISION="$PREBUILT_ENGINE_DIR/ENGINE_REVISION"
-PREBUILT_FLUTTER_REVISION="$PREBUILT_ENGINE_DIR/FLUTTER_REVISION"
+# The generated Rust embedder ABI is architecture-independent. Until native
+# ARM metadata is qualified, use the existing coupled upstream revision stamp.
+ABI_METADATA_DIR="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+PREBUILT_ENGINE_REVISION="$ABI_METADATA_DIR/ENGINE_REVISION"
+PREBUILT_FLUTTER_REVISION="$ABI_METADATA_DIR/FLUTTER_REVISION"
 EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
 ENGINE_TEST_STORE="${DENIAL_PC_ENGINE_TEST_STORE:-$CACHE_HOME/denial/engine-test}"
 ENGINE_TEST_CURRENT="$ENGINE_TEST_STORE/current"
@@ -95,6 +101,8 @@ ENGINE_TEST_SESSION_TEMPLATE="$ROOT/dev/denial-engine-test.desktop.in"
 ENGINE_TEST_SESSION_FILE="${DENIAL_ENGINE_TEST_SESSION_FILE:-/usr/share/wayland-sessions/denial-engine-test.desktop}"
 SESSION_TARGET_SOURCE="$ROOT/packaging/denial-session.target"
 SESSION_TARGET_FILE="${DENIAL_SESSION_TARGET_FILE:-/usr/local/lib/systemd/user/denial-session.target}"
+SUSPEND_MODE_HOOK_SOURCE="$ROOT/packaging/denial-suspend-mode"
+SUSPEND_MODE_HOOK_FILE="${DENIAL_SUSPEND_MODE_HOOK_FILE:-/usr/lib/systemd/system-sleep/denial-suspend-mode}"
 PORTAL_TEMPLATE="$ROOT/dev/denial-portals.conf.in"
 PORTAL_FILE="${DENIAL_PORTAL_FILE:-/usr/share/xdg-desktop-portal/denial-portals.conf}"
 DENIAL_PORTAL_DESCRIPTOR_SOURCE="$ROOT/packaging/arch/denial.portal"
@@ -125,7 +133,16 @@ elif ((AVAILABLE_CPUS > 2)); then
 else
     DEFAULT_BUILD_JOBS=1
 fi
+if [[ "$DENIAL_ARCH" == aarch64 ]] && ((DEFAULT_BUILD_JOBS > 10)); then
+    DEFAULT_BUILD_JOBS=10
+fi
 BUILD_JOBS="${DENIAL_BUILD_JOBS:-$DEFAULT_BUILD_JOBS}"
+PC_XWAYLAND="${DENIAL_PC_XWAYLAND:-1}"
+COMPOSITOR_FEATURES="flutter"
+COMPOSITOR_DEFAULT_FEATURE_ARGS=()
+if [[ "$PC_XWAYLAND" == 0 ]]; then
+    COMPOSITOR_DEFAULT_FEATURE_ARGS=(--no-default-features)
+fi
 
 usage() {
     cat <<'EOF'
@@ -133,7 +150,7 @@ Usage: tools/denial-pc COMMAND
 
 Commands:
   bootstrap         Validate or provision Flutter, then fetch Rust crates
-  bundle            Build only the x64 Dart/Flutter bundle
+  bundle            Build only the native Dart/Flutter bundle
   settings          Build only the standalone Flutter Settings application
   refresh           Build the bundle and reload its Flutter runtime in this session
   kms-refresh       Re-evaluate the live KMS topology without ending the session
@@ -142,6 +159,7 @@ Commands:
   arch-package      Build an installable Arch Linux package
   debian-package    Build installable Debian-family packages
   fedora-package    Build installable Fedora RPM packages
+  opensuse-package  Build installable openSUSE RPM packages
   alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
   flutter-test      Run lock-matched Flutter shell tests; forwards remaining arguments
@@ -172,8 +190,10 @@ Environment:
   DENIAL_BUILD_JOBS  Explicit Cargo and Flutter build parallelism
   DENIAL_PC_DEDICATED_BUILDER
                      Set to 1 to use every CPU by default
-  DENIA_FLUTTER_RENDERER
+  DENIAL_FLUTTER_RENDERER
                      Development-session renderer: skia or impeller (default: impeller)
+                     DENIA_FLUTTER_RENDERER remains a compatibility alias
+  DENIAL_PC_XWAYLAND  Set to 0 to build and run without Xwayland (default: 1)
 
 The production compositor is deniald and its native client is denialctl. The
 denial-nested binary is a separate visual topology harness and never acquires
@@ -188,6 +208,8 @@ die() {
 
 [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
     || die "DENIAL_BUILD_JOBS must be a positive integer"
+[[ "$PC_XWAYLAND" == 0 || "$PC_XWAYLAND" == 1 ]] \
+    || die "DENIAL_PC_XWAYLAND must be 0 or 1"
 
 run_pinned_cargo() (
     cd -- "$COMPOSITOR_ROOT"
@@ -240,8 +262,8 @@ is_compatible_legacy_config() {
 require_managed_config_or_absent() {
     local label="$1"
     local path="$2"
-    [[ -e "$path" || -L "$path" ]] || return
-    grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$path" && return
+    [[ -e "$path" || -L "$path" ]] || return 0
+    grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$path" && return 0
     if is_compatible_legacy_config "$label" "$path"; then
         printf 'Adopting compatible legacy %s: %s\n' "$label" "$path"
         return
@@ -373,15 +395,19 @@ file_sha256() {
 }
 
 prebuilt_engine_sha256() {
-    require_file "$PREBUILT_ENGINE_SHA256"
-    cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
+    if [[ -f "$PREBUILT_ENGINE_SHA256" ]]; then
+        cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
+    else
+        require_file "$PREBUILT_ENGINE"
+        file_sha256 "$PREBUILT_ENGINE"
+    fi
 }
 
 verify_prebuilt_engine() {
     [[ -f "$PREBUILT_ENGINE" ]] \
-        || die "missing locally built Flutter engine: $PREBUILT_ENGINE (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
+        || die "missing locally built Flutter engine: $PREBUILT_ENGINE"
     [[ "$(file_sha256 "$PREBUILT_ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
-        || die "locally built Flutter engine does not match $PREBUILT_ENGINE_SHA256; rebuild or investigate it (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
+        || die "locally built Flutter engine does not match $PREBUILT_ENGINE_SHA256; rebuild or investigate it"
 }
 
 install_pinned_engine() {
@@ -621,11 +647,11 @@ build_bundle() (
             --output="$assembly" \
             -dTargetFile=lib/main.dart \
             -dBuildMode=release \
-            -dTargetPlatform=linux-x64 \
+            -dTargetPlatform="$DENIAL_FLUTTER_PLATFORM" \
             -dDartObfuscation=false \
             -dTrackWidgetCreation=true \
             -dTreeShakeIcons=true \
-            release_bundle_linux-x64_assets
+            "release_bundle_${DENIAL_FLUTTER_PLATFORM}_assets"
     )
     require_file "$assembly/lib/libapp.so"
     require_file "$ICU_DATA"
@@ -710,7 +736,8 @@ build_compositor() {
         --locked \
         --release \
         --jobs "$BUILD_JOBS" \
-        --features flutter \
+        "${COMPOSITOR_DEFAULT_FEATURE_ARGS[@]}" \
+        --features "$COMPOSITOR_FEATURES" \
         --bin deniald \
         --bin denialctl
     run_pinned_cargo build \
@@ -732,12 +759,31 @@ build_all() {
 }
 
 test_compositor() {
+    local -a kernel_test_filters=()
+    if [[ "${DENIAL_SKIP_CPU_CAPACITY_TEST:-0}" == 1 ]]; then
+        # RestrictRealtime on the CI runner rejects SCHED_RESET_ON_FORK.
+        # Keep this kernel integration test enabled for normal local runs.
+        kernel_test_filters=(--skip cpu_scheduling::capacity::tests::hint_preserves_priority_and_does_not_leak_to_new_threads)
+    fi
     require_flutter_bindings
+    run_pinned_cargo check \
+        --locked \
+        --jobs "$BUILD_JOBS" \
+        --no-default-features \
+        --features kms \
+        --bin deniald
+    run_pinned_cargo check \
+        --locked \
+        --jobs "$BUILD_JOBS" \
+        --no-default-features \
+        --features flutter \
+        --bin deniald
     command -v dbus-run-session >/dev/null 2>&1 \
         || die "dbus-run-session is required for isolated notification service tests"
     (
         cd -- "$COMPOSITOR_ROOT"
         DENIAL_NOTIFICATION_TEST_BUS=1 \
+        DENIAL_FPRINT_TEST_BUS=1 \
         CARGO_TARGET_DIR="$RUST_TARGET" \
         dbus-run-session -- cargo test \
             --locked \
@@ -745,7 +791,8 @@ test_compositor() {
             --lib \
             --bins \
             --tests \
-            --features flutter
+            --features flutter \
+            -- "${kernel_test_filters[@]}"
     )
     run_pinned_cargo test \
         --locked \
@@ -794,28 +841,34 @@ run_compositor() {
     [[ -x "$SETTINGS_BINARY" ]] \
         || die "Settings application is not executable: $SETTINGS_BINARY"
     require_file "$OUTPUT_CONFIG"
-    command -v Xwayland >/dev/null 2>&1 \
-        || die "Xwayland is required for X11 applications such as Steam"
+    local -a xwayland_arguments=()
+    if [[ "$PC_XWAYLAND" == 1 ]]; then
+        command -v Xwayland >/dev/null 2>&1 \
+            || die "Xwayland is required for X11 applications such as Steam"
+    else
+        xwayland_arguments=(--no-xwayland)
+    fi
 
     local drm_device
     drm_device="$(resolve_drm_device)"
-    local shell_profile="${DENIA_SHELL_PROFILE:-desktop}"
+    local shell_profile="${DENIAL_SHELL_PROFILE-${DENIA_SHELL_PROFILE-desktop}}"
     case "$shell_profile" in
         mobile | desktop) ;;
-        *) die "DENIA_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
+        *) die "DENIAL_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
     esac
-    local flutter_renderer="${DENIA_FLUTTER_RENDERER:-impeller}"
+    local flutter_renderer="${DENIAL_FLUTTER_RENDERER-${DENIA_FLUTTER_RENDERER-impeller}}"
     case "$flutter_renderer" in
         skia | impeller) ;;
-        *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
+        *) die "DENIAL_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
     esac
 
     unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
     unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
+    export DENIAL_SHELL_PROFILE="$shell_profile"
     export DENIA_SHELL_PROFILE="$shell_profile"
     export DENIAL_SETTINGS_BINARY="$SETTINGS_BINARY"
     export RUST_BACKTRACE=1
-    export RUST_LOG="${DENIA_RUST_LOG:-deniald=info,smithay=warn}"
+    export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
 
     command -v systemd-cat >/dev/null 2>&1 \
         || die "systemd-cat is required to retain compositor diagnostics"
@@ -823,6 +876,7 @@ run_compositor() {
         --device "$drm_device" \
         --output-config "$OUTPUT_CONFIG" \
         --wayland \
+        "${xwayland_arguments[@]}" \
         --flutter-bundle "$BUNDLE" \
         --flutter-renderer "$flutter_renderer"
 }
@@ -846,6 +900,7 @@ check_engine_test() {
         CARGO_TARGET_DIR="$RUST_TARGET" \
         cargo test --locked --jobs "$BUILD_JOBS" \
             -p denial-flutter-engine \
+            --test bundle_abi -- --ignored --exact \
             loads_the_bundled_flutter_engine_abi
     )
     printf 'Verified staged engine ABI and AOT data (sha256 %s).\n' \
@@ -927,11 +982,15 @@ show_command_state() {
 }
 
 show_engine_state() {
-    if [[ ! -e "$PREBUILT_ENGINE" || ! -e "$PREBUILT_ENGINE_SHA256" ]]; then
+    if [[ ! -e "$PREBUILT_ENGINE" ]]; then
         printf 'missing  %-18s %s (rebuild locally)\n' \
             "pinned engine" "$PREBUILT_ENGINE"
-    elif [[ "$(file_sha256 "$PREBUILT_ENGINE")" != "$(prebuilt_engine_sha256)" ]]; then
+    elif [[ -e "$PREBUILT_ENGINE_SHA256" \
+        && "$(file_sha256 "$PREBUILT_ENGINE")" != "$(prebuilt_engine_sha256)" ]]; then
         printf 'corrupt  %-18s %s (checksum mismatch; rebuild or investigate)\n' \
+            "pinned engine" "$PREBUILT_ENGINE"
+    elif [[ ! -e "$PREBUILT_ENGINE_SHA256" ]]; then
+        printf 'ok       %-18s %s (native, not yet qualified)\n' \
             "pinned engine" "$PREBUILT_ENGINE"
     else
         printf 'ok       %-18s %s\n' "pinned engine" "$PREBUILT_ENGINE"
@@ -939,9 +998,9 @@ show_engine_state() {
 
     if [[ ! -e "$ENGINE" ]]; then
         printf 'missing  %-18s %s\n' "bundle engine" "$ENGINE"
-    elif [[ -e "$PREBUILT_ENGINE_SHA256" \
+    elif [[ -e "$PREBUILT_ENGINE" \
         && "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]]; then
-        printf 'ok       %-18s %s (pinned)\n' "bundle engine" "$ENGINE"
+        printf 'ok       %-18s %s (native engine)\n' "bundle engine" "$ENGINE"
     else
         printf 'stale    %-18s %s (not pinned; run bundle)\n' "bundle engine" "$ENGINE"
     fi
@@ -1006,6 +1065,16 @@ show_session_state() {
             "session target" "$SESSION_TARGET_FILE"
     fi
 
+    if [[ ! -e "$SUSPEND_MODE_HOOK_FILE" ]]; then
+        printf 'missing  %-18s %s\n' "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    elif [[ -x "$SUSPEND_MODE_HOOK_FILE" ]] \
+        && cmp -s -- "$SUSPEND_MODE_HOOK_SOURCE" "$SUSPEND_MODE_HOOK_FILE"; then
+        printf 'ok       %-18s %s\n' "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' \
+            "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    fi
+
     if [[ -e "$LEGACY_SESSION_FILE" ]]; then
         printf 'stale    %-18s %s (removed by install-session)\n' \
             "legacy SDDM entry" "$LEGACY_SESSION_FILE"
@@ -1068,7 +1137,7 @@ as_root() {
 }
 
 remove_legacy_session_entry() {
-    [[ -e "$LEGACY_SESSION_FILE" ]] || return
+    [[ -e "$LEGACY_SESSION_FILE" ]] || return 0
     if ! grep -Fqx "Name=Denial (Rust)" "$LEGACY_SESSION_FILE" \
         || ! grep -Fqx \
             "Exec=uwsm start -e -D Denial $ROOT/dev/denial-rs-session session" \
@@ -1084,6 +1153,7 @@ remove_legacy_session_entry() {
 install_session() {
     require_file "$SESSION_TEMPLATE"
     require_file "$SESSION_TARGET_SOURCE"
+    require_file "$SUSPEND_MODE_HOOK_SOURCE"
     require_file "$PORTAL_TEMPLATE"
     require_file "$DENIAL_PORTAL_DESCRIPTOR_SOURCE"
     require_file "$DENIAL_PORTAL_DBUS_TEMPLATE"
@@ -1122,8 +1192,10 @@ install_session() {
         "$DENIAL_PORTAL_DBUS_TEMPLATE" > "$dbus_rendered"
     sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
         "$DENIAL_PORTAL_UNIT_TEMPLATE" > "$unit_rendered"
+    sh -n "$SUSPEND_MODE_HOOK_SOURCE"
     if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
         && as_root install -Dm644 "$SESSION_TARGET_SOURCE" "$SESSION_TARGET_FILE" \
+        && as_root install -Dm755 "$SUSPEND_MODE_HOOK_SOURCE" "$SUSPEND_MODE_HOOK_FILE" \
         && as_root install -Dm644 "$portal_rendered" "$PORTAL_FILE" \
         && as_root install -Dm644 "$wlr_portal_rendered" "$WLR_PORTAL_CONFIG" \
         && as_root install -Dm644 "$DENIAL_PORTAL_DESCRIPTOR_SOURCE" "$DENIAL_PORTAL_DESCRIPTOR" \
@@ -1140,9 +1212,10 @@ install_session() {
         "$dbus_rendered" "$unit_rendered"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     remove_legacy_session_entry
-    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
+    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
         "$SESSION_FILE" "$SESSION_TARGET_FILE" "$PORTAL_FILE" "$WLR_PORTAL_CONFIG" \
-        "$DENIAL_PORTAL_DESCRIPTOR" "$DENIAL_PORTAL_DBUS_SERVICE" "$DENIAL_PORTAL_UNIT"
+        "$DENIAL_PORTAL_DESCRIPTOR" "$DENIAL_PORTAL_DBUS_SERVICE" "$DENIAL_PORTAL_UNIT" \
+        "$SUSPEND_MODE_HOOK_FILE"
     printf 'Log out, then choose "Denial (development)" in the display manager.\n'
 }
 
@@ -1180,7 +1253,7 @@ remove_engine_test_session() {
 }
 
 remove_portal_entry() {
-    [[ -e "$PORTAL_FILE" ]] || return
+    [[ -e "$PORTAL_FILE" ]] || return 0
     if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE"; then
         printf 'warning  refusing to remove unrecognized portal routing %s\n' \
             "$PORTAL_FILE" >&2
@@ -1191,7 +1264,7 @@ remove_portal_entry() {
 }
 
 remove_wlr_portal_config() {
-    [[ -e "$WLR_PORTAL_CONFIG" ]] || return
+    [[ -e "$WLR_PORTAL_CONFIG" ]] || return 0
     if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$WLR_PORTAL_CONFIG"; then
         printf 'warning  refusing to remove unrecognized wlr portal config %s\n' \
             "$WLR_PORTAL_CONFIG" >&2
@@ -1242,7 +1315,7 @@ remove_denial_portal_metadata() {
 }
 
 remove_session_target() {
-    [[ -e "$SESSION_TARGET_FILE" ]] || return
+    [[ -e "$SESSION_TARGET_FILE" ]] || return 0
     if ! grep -Fqx 'BindsTo=graphical-session.target' "$SESSION_TARGET_FILE"; then
         printf 'warning  refusing to remove unrecognized session target %s\n' \
             "$SESSION_TARGET_FILE" >&2
@@ -1285,6 +1358,7 @@ case "${1:-}" in
     arch-package) "$ROOT/tools/package-denial-arch" ;;
     debian-package) "$ROOT/tools/package-denial-deb" ;;
     fedora-package) "$ROOT/tools/package-denial-rpm" ;;
+    opensuse-package) "$ROOT/tools/package-denial-opensuse-rpm" ;;
     alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
     flutter-test)

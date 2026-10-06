@@ -12,8 +12,11 @@ pub(super) enum BufferState {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RenderTargetBlocked {
+    UnknownView,
+    SizeMismatch { expected: PixelSize },
+    MissingAuthorization,
     ReadyHandoff,
-    PoolExhausted,
+    NoFreeSlot,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,6 +43,7 @@ pub(super) struct OutputBufferSlot {
     pub(super) screenshot_request_id: Option<u64>,
     pub(super) rendered_at: Option<Instant>,
     pub(super) ready_transaction: u64,
+    pub(super) feedback: Vec<crate::surface_feedback::SurfaceFeedback>,
     pub(super) request: Option<OutputFrameRequest>,
 }
 
@@ -77,6 +81,7 @@ pub struct ReadyOutputFrame {
     pub screenshot_request_id: Option<u64>,
     pub rendered_at: Option<Instant>,
     pub request: OutputFrameRequest,
+    pub(crate) feedback: Vec<crate::surface_feedback::SurfaceFeedback>,
 }
 
 impl OutputBufferBroker {
@@ -120,6 +125,7 @@ impl OutputBufferBroker {
                     screenshot_request_id: None,
                     rendered_at: None,
                     ready_transaction: 0,
+                    feedback: Vec::new(),
                     request: None,
                 })
                 .collect();
@@ -224,12 +230,17 @@ impl OutputBufferBroker {
         let Some(pool) = self
             .pools
             .iter_mut()
-            .find(|pool| pool.render_view_id.get() == render_view_id && pool.size == size)
+            .find(|pool| pool.render_view_id.get() == render_view_id)
         else {
-            return Err(RenderTargetBlocked::PoolExhausted);
+            return Err(RenderTargetBlocked::UnknownView);
         };
+        if pool.size != size {
+            return Err(RenderTargetBlocked::SizeMismatch {
+                expected: pool.size,
+            });
+        }
         let Some(authorization) = pool.authorized_request else {
-            return Err(RenderTargetBlocked::PoolExhausted);
+            return Err(RenderTargetBlocked::MissingAuthorization);
         };
         if pool
             .slots
@@ -243,7 +254,7 @@ impl OutputBufferBroker {
             .iter()
             .position(|slot| slot.state == BufferState::Free && slot.output_refs == 0)
         else {
-            return Err(RenderTargetBlocked::PoolExhausted);
+            return Err(RenderTargetBlocked::NoFreeSlot);
         };
         pool.authorized_request = None;
         let slot = &mut pool.slots[slot_index];
@@ -276,7 +287,7 @@ impl OutputBufferBroker {
         })
     }
 
-    pub(super) fn mark_ready(
+    pub(super) fn mark_ready_with_feedback(
         &mut self,
         render_view_id: i64,
         framebuffer: u32,
@@ -284,6 +295,7 @@ impl OutputBufferBroker {
         buffer_damage: &[sys::FlutterRect],
         fence: Option<OwnedFd>,
         rendered_at: Option<Instant>,
+        feedback: Vec<crate::surface_feedback::SurfaceFeedback>,
     ) -> bool {
         let Some(pool) = self
             .pools
@@ -323,6 +335,7 @@ impl OutputBufferBroker {
         slot.state = BufferState::Ready;
         slot.fence = fence;
         slot.rendered_at = rendered_at;
+        slot.feedback = feedback;
         slot.ready_transaction = self.transaction;
         true
     }
@@ -356,6 +369,7 @@ impl OutputBufferBroker {
                 screenshot_request_id: slot.screenshot_request_id.take(),
                 rendered_at: slot.rendered_at.take(),
                 request,
+                feedback: std::mem::take(&mut slot.feedback),
             });
         }
         if let Some((output, request_id)) = self.next_screenshot

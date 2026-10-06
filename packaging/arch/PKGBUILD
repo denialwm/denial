@@ -41,10 +41,13 @@ depends=(
   'zenity'
 )
 optdepends=(
+  'fprintd: fingerprint unlock and enrollment'
+  'sudo: authorize fingerprint management in Settings'
   'denial-ui-development: live Flutter UI editing and hot reload'
   'iwd: Wi-Fi controls without NetworkManager'
   'lact: AMD GPU performance controls'
   'networkmanager: Wi-Fi and network controls through NetworkManager'
+  'modemmanager: mobile signal status and SIM PIN unlock'
   'pipewire-pulse: desktop audio controls'
   'power-profiles-daemon: system power profiles'
   'sddm: graphical login and session selection'
@@ -60,6 +63,7 @@ options=('!strip' '!debug')
 source=(
   'denial-session'
   "denial-session.target::file://$startdir/../denial-session.target"
+  "denial-suspend-mode::file://$startdir/../denial-suspend-mode"
   'denial.desktop'
   'dev.denial.Settings.desktop'
   'denial-portal.service'
@@ -71,16 +75,17 @@ source=(
   'xdg-desktop-portal-wlr-Denial'
 )
 sha256sums=(
-  'd3807fd0d955b9f9922a1d068613a64085c5f37f7fadecb22b4b0e38854bb4df'
-  'f4672dd57973a65c6b91def4e97a2824da0a69f02132301c625d6177799f207b'
+  'ec293de2d329ea5649261f747a2412afbab09a70c9d5b864817e5b7c226fc609'
+  '86888dd6549c6673e140391fb34958f8f5c9d5ed0dd313a5ed377056ea34ad16'
+  '57c146e3579dd87e12c332a180cca32c17602c823fcd39767a7c737f2688fc71'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
-  'b9ef447d94ad8f1ac041462d25e2f86b12c7da52ef67f4df725bfb374f74ea3c'
+  'f8acf498ad592dcbf1ee31955264b068c27846f99cded6055a6b64aaf7f4fe07'
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
   'b50dc233ee7e74c6c1fefbcfe03ed79b030ee5bd4369e19ff21199daa8159e0f'
   'e9e98058ed0831f659d811d4901a9f9dd508c7aeaf33decab3fffd5464ace2d1'
   '4a60d3ff767caf9d84c1a35b0d76d04e9e135cbabc384d1daac3f358398760de'
-  '7c3abc34d9250bcaeb3822c93479ef3c75069c6d234ce2a7f3baf598588fa016'
-  '7b2ca14a61e49e5e099da3dbba23db13fc466bd9fa7f0d8903f8fc0d678bdc58'
+  '7b7e463f4156ded01e5dde1cefd288c0798cb06299e79aba29732fbdbd743524'
+  'd16259fc266efb63d0ad195f8af20b1877e8e8d839ea219a61dca381d9fee25d'
   '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
 )
 
@@ -158,6 +163,10 @@ package() {
     "$pkgdir/usr/lib/systemd/user/denial-session.target"
   install -Dm644 "$srcdir/denial-portal.service" \
     "$pkgdir/usr/lib/systemd/user/denial-portal.service"
+  install -Dm755 "$srcdir/denial-suspend-mode" \
+    "$pkgdir/usr/lib/systemd/system-sleep/denial-suspend-mode"
+  install -Dm755 "$srcdir/denial-suspend-mode" \
+    "$pkgdir/usr/lib/elogind/system-sleep/denial-suspend-mode"
 
   install -dm755 \
     "$pkgdir/usr/lib/denial/flutter/data" \

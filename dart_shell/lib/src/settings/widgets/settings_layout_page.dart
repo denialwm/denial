@@ -8,11 +8,20 @@ import '../shell_settings.dart';
 import 'settings_controls.dart';
 import 'system_bar_placement_card.dart';
 
+const Key settingsScrollingLayoutWheelSpeedSliderKey = Key(
+  'settings-scrolling-layout-wheel-speed-slider',
+);
+
 class SettingsLayoutPage extends StatelessWidget {
   const SettingsLayoutPage({
     required this.settings,
     required this.displayLayout,
     required this.onWindowLayoutChanged,
+    required this.onScrollingLayoutWheelSpeedChanged,
+    required this.onScrollingLayoutWheelUpDirectionChanged,
+    required this.onWorkspacesEnabledChanged,
+    required this.onWorkspaceCountChanged,
+    required this.onWorkspaceSwitchingOrientationChanged,
     required this.onSystemBarChanged,
     required this.onSystemBarThicknessChanged,
     required this.onMaximizePaddingChanged,
@@ -26,6 +35,13 @@ class SettingsLayoutPage extends StatelessWidget {
   final ShellLayoutSettings settings;
   final DisplayLayout? displayLayout;
   final ValueChanged<DesktopWindowLayout> onWindowLayoutChanged;
+  final ValueChanged<double> onScrollingLayoutWheelSpeedChanged;
+  final ValueChanged<ScrollingLayoutWheelUpDirection>
+  onScrollingLayoutWheelUpDirectionChanged;
+  final ValueChanged<bool> onWorkspacesEnabledChanged;
+  final ValueChanged<double> onWorkspaceCountChanged;
+  final ValueChanged<WorkspaceSwitchingOrientation>
+  onWorkspaceSwitchingOrientationChanged;
   final SystemBarPlacementChanged onSystemBarChanged;
   final ValueChanged<double> onSystemBarThicknessChanged;
   final ValueChanged<double> onMaximizePaddingChanged;
@@ -62,6 +78,10 @@ class SettingsLayoutPage extends StatelessWidget {
                         DesktopWindowLayout.dwindle,
                         l10n.settingsWindowLayoutDwindle,
                       ),
+                      SettingsChoice(
+                        DesktopWindowLayout.scrolling,
+                        l10n.settingsWindowLayoutScrolling,
+                      ),
                     ],
                     onChanged: onWindowLayoutChanged,
                   ),
@@ -73,6 +93,107 @@ class SettingsLayoutPage extends StatelessWidget {
                       fontSize: 11,
                       height: 1.4,
                     ),
+                  ),
+                ],
+              ),
+            ),
+            if (settings.windowLayout == DesktopWindowLayout.scrolling)
+              SettingsSection(
+                title: l10n.settingsScrollingLayoutWheelTitle,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      l10n.settingsScrollingLayoutWheelDescription,
+                      style: ShellText.base.copyWith(
+                        color: ShellTheme.colorsOf(context).textSecondary,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SettingsSlider(
+                      key: settingsScrollingLayoutWheelSpeedSliderKey,
+                      label: l10n.settingsScrollingLayoutWheelSpeed,
+                      value: settings.scrollingLayoutWheelSpeed,
+                      minimum: scrollingLayoutWheelSpeedMinimum,
+                      maximum: scrollingLayoutWheelSpeedMaximum,
+                      divisions: 15,
+                      valueLabel:
+                          '${settings.scrollingLayoutWheelSpeed.toStringAsFixed(2)}×',
+                      onChanged: onScrollingLayoutWheelSpeedChanged,
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      l10n.settingsScrollingLayoutWheelUpDirection,
+                      style: ShellText.cardTitle.copyWith(
+                        color: ShellTheme.colorsOf(context).textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SettingsSegmentedControl<ScrollingLayoutWheelUpDirection>(
+                      value: settings.scrollingLayoutWheelUpDirection,
+                      choices: [
+                        SettingsChoice(
+                          ScrollingLayoutWheelUpDirection.left,
+                          l10n.settingsScrollingLayoutWheelUpLeft,
+                        ),
+                        SettingsChoice(
+                          ScrollingLayoutWheelUpDirection.right,
+                          l10n.settingsScrollingLayoutWheelUpRight,
+                        ),
+                      ],
+                      onChanged: onScrollingLayoutWheelUpDirectionChanged,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        SettingsCardGroup(
+          children: [
+            SettingsSection(
+              title: l10n.settingsWorkspacesTitle,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SettingsToggle(
+                    value: settings.workspacesEnabled,
+                    label: l10n.settingsWorkspacesEnable,
+                    description: l10n.settingsWorkspacesDescription,
+                    onChanged: onWorkspacesEnabledChanged,
+                  ),
+                  const SizedBox(height: 18),
+                  SettingsSlider(
+                    label: l10n.settingsWorkspaceCount,
+                    value: settings.workspaceCount.toDouble(),
+                    minimum: minimumWorkspaceCount.toDouble(),
+                    maximum: maximumWorkspaceCount.toDouble(),
+                    divisions: maximumWorkspaceCount - minimumWorkspaceCount,
+                    valueLabel: settings.workspaceCount.toString(),
+                    onChanged: onWorkspaceCountChanged,
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    l10n.settingsWorkspaceSwitchingOrientation,
+                    style: ShellText.cardTitle.copyWith(
+                      color: ShellTheme.colorsOf(context).textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SettingsSegmentedControl<WorkspaceSwitchingOrientation>(
+                    value: settings.workspaceSwitchingOrientation,
+                    choices: [
+                      SettingsChoice(
+                        WorkspaceSwitchingOrientation.horizontal,
+                        l10n.settingsWorkspaceSwitchingHorizontal,
+                      ),
+                      SettingsChoice(
+                        WorkspaceSwitchingOrientation.vertical,
+                        l10n.settingsWorkspaceSwitchingVertical,
+                      ),
+                    ],
+                    onChanged: onWorkspaceSwitchingOrientationChanged,
                   ),
                 ],
               ),

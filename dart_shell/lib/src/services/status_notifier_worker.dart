@@ -65,10 +65,16 @@ class _StatusNotifierWorkerHost {
   }
 
   Future<Object?> _loadMenu(Object? payload) async {
-    if (payload is! String) {
+    if (payload is! List<Object?> ||
+        payload.length != 2 ||
+        payload[0] is! String ||
+        payload[1] is! int) {
       throw const FormatException('Invalid StatusNotifier menu request');
     }
-    final entries = await _requireBackend().loadMenu(payload);
+    final entries = await _requireBackend().loadMenu(
+      payload[0]! as String,
+      parentId: payload[1]! as int,
+    );
     return entries == null ? null : _encodeMenuEntries(entries);
   }
 
@@ -204,6 +210,7 @@ List<Object?> _encodeMenuEntry(SystemTrayMenuEntry entry) => <Object?>[
   entry.toggleType.index,
   entry.toggleState,
   entry.destructive,
+  entry.hasSubmenu,
   _encodeMenuEntries(entry.children),
 ];
 
@@ -219,7 +226,7 @@ List<SystemTrayMenuEntry>? _decodeMenuEntries(Object? response) {
 
 SystemTrayMenuEntry _decodeMenuEntry(Object? response) {
   if (response is! List<Object?> ||
-      response.length != 9 ||
+      response.length != 10 ||
       response[0] is! int ||
       response[1] is! String ||
       response[2] is! bool ||
@@ -227,7 +234,8 @@ SystemTrayMenuEntry _decodeMenuEntry(Object? response) {
       response[4] is! bool ||
       response[5] is! int ||
       response[6] is! int ||
-      response[7] is! bool) {
+      response[7] is! bool ||
+      response[8] is! bool) {
     throw const FormatException('Invalid StatusNotifier menu entry');
   }
   final toggleIndex = response[5]! as int;
@@ -244,6 +252,17 @@ SystemTrayMenuEntry _decodeMenuEntry(Object? response) {
     toggleType: SystemTrayMenuToggleType.values[toggleIndex],
     toggleState: response[6]! as int,
     destructive: response[7]! as bool,
-    children: _decodeMenuEntries(response[8]) ?? const <SystemTrayMenuEntry>[],
+    hasSubmenu: response[8]! as bool,
+    children: _decodeMenuEntries(response[9]) ?? const <SystemTrayMenuEntry>[],
   );
 }
+
+@visibleForTesting
+Object encodeStatusNotifierMenuEntriesForTesting(
+  List<SystemTrayMenuEntry> entries,
+) => _encodeMenuEntries(entries);
+
+@visibleForTesting
+List<SystemTrayMenuEntry>? decodeStatusNotifierMenuEntriesForTesting(
+  Object? response,
+) => _decodeMenuEntries(response);

@@ -15,6 +15,19 @@ impl WireBridge {
         validate_topology(snapshot, atlas)?;
         self.snapshot = snapshot.clone();
         self.atlas = atlas.clone();
+        let live_monitors = self
+            .snapshot
+            .outputs
+            .iter()
+            .map(|output| {
+                monitor_id(output.id).ok_or(WireError::Topology("monitor id exceeds i64"))
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        self.active_workspaces
+            .retain(|monitor_id, _| live_monitors.contains(monitor_id));
+        for monitor_id in live_monitors {
+            self.active_workspaces.entry(monitor_id).or_insert(1);
+        }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
         encode_display_layout(
@@ -24,6 +37,64 @@ impl WireBridge {
             &self.snapshot,
             &self.atlas,
             &self.work_area,
+            &self.active_workspaces,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    /// Replaces the monitor-local workspace snapshot without emitting an
+    /// event. Replacement Flutter runtimes install this before they process
+    /// their first display-layout request.
+    pub fn set_active_workspaces(
+        &mut self,
+        workspaces: impl IntoIterator<Item = (i64, u8)>,
+    ) -> Result<(), WireError> {
+        let live_monitors = self
+            .snapshot
+            .outputs
+            .iter()
+            .map(|output| {
+                monitor_id(output.id).ok_or(WireError::Topology("monitor id exceeds i64"))
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        let mut next = BTreeMap::new();
+        for (monitor_id, workspace_id) in workspaces {
+            if !live_monitors.contains(&monitor_id)
+                || !(1..=9).contains(&workspace_id)
+                || next.insert(monitor_id, workspace_id).is_some()
+            {
+                return Err(WireError::Topology("invalid active workspace snapshot"));
+            }
+        }
+        for monitor_id in live_monitors {
+            next.entry(monitor_id).or_insert(1);
+        }
+        self.active_workspaces = next;
+        Ok(())
+    }
+
+    /// Updates one workspace and emits the complete display-layout snapshot.
+    /// Workspace ownership is state, while the following ShellAction remains
+    /// only the transition/animation notification.
+    pub fn update_active_workspace(
+        &mut self,
+        monitor_id: i64,
+        workspace_id: u8,
+    ) -> Result<&[u8], WireError> {
+        if !(1..=9).contains(&workspace_id) || !self.active_workspaces.contains_key(&monitor_id) {
+            return Err(WireError::Topology("workspace output is not live"));
+        }
+        self.active_workspaces.insert(monitor_id, workspace_id);
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_display_layout(
+            &mut self.outbound_builder,
+            sequence,
+            0,
+            &self.snapshot,
+            &self.atlas,
+            &self.work_area,
+            &self.active_workspaces,
         )?;
         Ok(self.outbound_builder.finished_data())
     }
@@ -46,6 +117,7 @@ impl WireBridge {
         }
         let next_restored_window_ids = windows
             .iter()
+            .filter(|window| !window.content_kind.is_layer_shell())
             .filter_map(|window| {
                 restored_window_ids
                     .contains(&window.window_id)
@@ -124,9 +196,15 @@ impl WireBridge {
         &mut self,
         action: ShellAction,
         monitor_id: Option<i64>,
+        workspace_id: Option<u8>,
     ) -> Result<&[u8], WireError> {
         if monitor_id.is_some_and(|monitor_id| monitor_id < 0) {
             return Err(WireError::Topology("invalid shell action monitor"));
+        }
+        if (action == ShellAction::WorkspaceChanged)
+            != (monitor_id.is_some() && workspace_id.is_some_and(|workspace| workspace > 0))
+        {
+            return Err(WireError::Identity);
         }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
@@ -135,6 +213,7 @@ impl WireBridge {
             sequence,
             action,
             monitor_id,
+            workspace_id,
             0,
             None,
         )?;
@@ -166,6 +245,7 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             action,
+            None,
             None,
             request_id,
             texture_id,
@@ -201,6 +281,7 @@ impl WireBridge {
         legacy: bool,
         content_hint: u32,
         content_purpose: u32,
+        activation_serial: u64,
     ) -> Result<&[u8], WireError> {
         if input_panel_visible && !active {
             return Err(WireError::Payload);
@@ -215,6 +296,7 @@ impl WireBridge {
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         )?;
         Ok(self.outbound_builder.finished_data())
     }
@@ -318,6 +400,7 @@ impl WireBridge {
                 tap_to_click_enabled: touchpad.tap_to_click_enabled,
                 natural_scroll_enabled: touchpad.natural_scroll_enabled,
                 scroll_speed_factor: touchpad.scroll_speed_factor,
+                scrolling_layout_swipe_speed_factor: touchpad.scrolling_layout_swipe_speed_factor,
             },
         );
         let mouse = fb::MouseConfiguration::create(
@@ -524,6 +607,12 @@ fn create_window_snapshot<'a>(
                 geometry_width: description.geometry_width,
                 geometry_height: description.geometry_height,
                 monitor_id: description.monitor_id,
+                workspace_id: description.workspace_id,
+                transient_parent_id: description.transient_parent_id,
+                minimized: description.minimized,
+                fullscreen: description.fullscreen,
+                maximized: description.maximized,
+                pinned: description.pinned,
                 transform: description.transform,
                 scale_120: description.scale_120,
                 content_x: description.content_x,
@@ -663,6 +752,7 @@ fn encode_shell_action(
     sequence: u64,
     action: ShellAction,
     monitor_id: Option<i64>,
+    workspace_id: Option<u8>,
     request_id: u64,
     texture_id: Option<i64>,
 ) -> Result<(), WireError> {
@@ -673,6 +763,7 @@ fn encode_shell_action(
             monitor_id: monitor_id.unwrap_or(-1),
             has_monitor_id: monitor_id.is_some(),
             texture_id: texture_id.unwrap_or(0),
+            workspace_id: u32::from(workspace_id.unwrap_or(1)),
         },
     );
     let envelope = fb::Envelope::create(
@@ -689,8 +780,18 @@ fn encode_shell_action(
     validate_finished_message(builder)
 }
 
-fn validate_cursor_state(state: &CursorStateDescription) -> Result<(), WireError> {
-    if state.epoch == 0 || !state.hotspot_x.is_finite() || !state.hotspot_y.is_finite() {
+pub(super) fn validate_cursor_state(state: &CursorStateDescription) -> Result<(), WireError> {
+    validate_cursor_state_payload(state)?;
+    if state.epoch == 0 {
+        return Err(WireError::Geometry);
+    }
+    Ok(())
+}
+
+pub(super) fn validate_cursor_state_payload(
+    state: &CursorStateDescription,
+) -> Result<(), WireError> {
+    if !state.hotspot_x.is_finite() || !state.hotspot_y.is_finite() {
         return Err(WireError::Geometry);
     }
     let shape = state.shape.trim();
@@ -862,6 +963,7 @@ fn encode_text_input_state(
     legacy: bool,
     content_hint: u32,
     content_purpose: u32,
+    activation_serial: u64,
 ) -> Result<(), WireError> {
     let state = fb::TextInputState::create(
         builder,
@@ -871,6 +973,7 @@ fn encode_text_input_state(
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         },
     );
     let envelope = fb::Envelope::create(
@@ -1119,6 +1222,7 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::MinimizeAllWindows => fb::ShortcutActionKind::MinimizeAllWindows,
         ShortcutAction::ToggleMaximize => fb::ShortcutActionKind::ToggleMaximize,
         ShortcutAction::ToggleFullscreen => fb::ShortcutActionKind::ToggleFullscreen,
+        ShortcutAction::ToggleWindowAlwaysOnTop => fb::ShortcutActionKind::ToggleWindowAlwaysOnTop,
         ShortcutAction::ReleasePointer => fb::ShortcutActionKind::ReleasePointer,
         ShortcutAction::LockScreen => fb::ShortcutActionKind::LockScreen,
         ShortcutAction::VolumeUp => fb::ShortcutActionKind::VolumeUp,
@@ -1137,6 +1241,28 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::SwapRight => fb::ShortcutActionKind::SwapRight,
         ShortcutAction::SwapUp => fb::ShortcutActionKind::SwapUp,
         ShortcutAction::SwapDown => fb::ShortcutActionKind::SwapDown,
+        ShortcutAction::PreviousWorkspace => fb::ShortcutActionKind::PreviousWorkspace,
+        ShortcutAction::NextWorkspace => fb::ShortcutActionKind::NextWorkspace,
+        ShortcutAction::MoveToPreviousWorkspace => fb::ShortcutActionKind::MoveToPreviousWorkspace,
+        ShortcutAction::MoveToNextWorkspace => fb::ShortcutActionKind::MoveToNextWorkspace,
+        ShortcutAction::SwitchWorkspace1 => fb::ShortcutActionKind::SwitchWorkspace1,
+        ShortcutAction::SwitchWorkspace2 => fb::ShortcutActionKind::SwitchWorkspace2,
+        ShortcutAction::SwitchWorkspace3 => fb::ShortcutActionKind::SwitchWorkspace3,
+        ShortcutAction::SwitchWorkspace4 => fb::ShortcutActionKind::SwitchWorkspace4,
+        ShortcutAction::SwitchWorkspace5 => fb::ShortcutActionKind::SwitchWorkspace5,
+        ShortcutAction::SwitchWorkspace6 => fb::ShortcutActionKind::SwitchWorkspace6,
+        ShortcutAction::SwitchWorkspace7 => fb::ShortcutActionKind::SwitchWorkspace7,
+        ShortcutAction::SwitchWorkspace8 => fb::ShortcutActionKind::SwitchWorkspace8,
+        ShortcutAction::SwitchWorkspace9 => fb::ShortcutActionKind::SwitchWorkspace9,
+        ShortcutAction::MoveToWorkspace1 => fb::ShortcutActionKind::MoveToWorkspace1,
+        ShortcutAction::MoveToWorkspace2 => fb::ShortcutActionKind::MoveToWorkspace2,
+        ShortcutAction::MoveToWorkspace3 => fb::ShortcutActionKind::MoveToWorkspace3,
+        ShortcutAction::MoveToWorkspace4 => fb::ShortcutActionKind::MoveToWorkspace4,
+        ShortcutAction::MoveToWorkspace5 => fb::ShortcutActionKind::MoveToWorkspace5,
+        ShortcutAction::MoveToWorkspace6 => fb::ShortcutActionKind::MoveToWorkspace6,
+        ShortcutAction::MoveToWorkspace7 => fb::ShortcutActionKind::MoveToWorkspace7,
+        ShortcutAction::MoveToWorkspace8 => fb::ShortcutActionKind::MoveToWorkspace8,
+        ShortcutAction::MoveToWorkspace9 => fb::ShortcutActionKind::MoveToWorkspace9,
     }
 }
 
@@ -1329,6 +1455,7 @@ pub(super) fn encode_display_layout(
     snapshot: &TopologySnapshot,
     atlas: &AtlasPlan,
     work_area: &WorkAreaOptions,
+    active_workspaces: &BTreeMap<i64, u8>,
 ) -> Result<(), WireError> {
     let mut ordered = snapshot.outputs.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| {
@@ -1363,17 +1490,21 @@ pub(super) fn encode_display_layout(
             f64::from(planned.source_rect.width),
             f64::from(planned.source_rect.height),
         );
+        let monitor_id =
+            monitor_id(output.id).ok_or(WireError::Topology("monitor id exceeds i64"))?;
         outputs.push(fb::DisplayOutput::create(
             builder,
             &fb::DisplayOutputArgs {
-                monitor_id: monitor_id(output.id)
-                    .ok_or(WireError::Topology("monitor id exceeds i64"))?,
+                monitor_id,
                 name: Some(name),
                 logical_rect: Some(&logical),
                 pixel_size: Some(&pixels),
                 source_rect: Some(&source),
                 scale: f64::from(output.scale_120) / f64::from(SCALE_BASE),
                 refresh_rate: f64::from(output.refresh_millihz) / 1_000.0,
+                active_workspace: u32::from(
+                    active_workspaces.get(&monitor_id).copied().unwrap_or(1),
+                ),
             },
         ));
     }

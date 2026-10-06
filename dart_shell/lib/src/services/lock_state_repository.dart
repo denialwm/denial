@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../config/startup_environment.dart';
+
 typedef LockRequestChanged = void Function(bool locked);
 
 /// Event-triggered compatibility bridge for legacy `denia-lock` callers.
@@ -121,13 +123,13 @@ class LockStateRepository {
 
   static String _defaultRequestPath(Map<String, String> environment) {
     final runtime = environment['XDG_RUNTIME_DIR'] ?? '/tmp';
-    return environment['DENIA_LOCK_REQUEST_STATE'] ??
+    return denialEnvironmentValue(environment, 'DENIAL_LOCK_REQUEST_STATE') ??
         '$runtime/denia-lock-request';
   }
 
   static String _defaultSecureStatePath(Map<String, String> environment) {
     final runtime = environment['XDG_RUNTIME_DIR'] ?? '/tmp';
-    return environment['DENIA_LOCK_SECURE_STATE'] ??
+    return denialEnvironmentValue(environment, 'DENIAL_LOCK_SECURE_STATE') ??
         '$runtime/denia-lock-secure';
   }
 }

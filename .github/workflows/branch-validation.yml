@@ -17,6 +17,41 @@ concurrency:
   cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
 
 jobs:
+  nix-evaluation:
+    name: Evaluate Nix package and module contracts
+    needs: authorize
+    if: >-
+      github.ref == 'refs/heads/dev'
+      || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the exact pushed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          extra_nix_config: accept-flake-config = true
+          github_access_token: ${{ github.token }}
+
+      - name: Evaluate all flake outputs
+        shell: bash
+        run: nix flake check --no-build --print-build-logs
+
+      - name: Verify source locks and module integration
+        shell: bash
+        run: >-
+          nix build
+          .#checks.x86_64-linux.locks
+          .#checks.x86_64-linux.module
+          --no-link --print-build-logs
+
   build:
     name: Build and test ${{ github.ref_name }} x86-64 candidate
     needs: authorize
@@ -161,6 +196,52 @@ jobs:
           tools/denial-release doctor --ci --branch "$VALIDATION_BRANCH" \
             2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
 
+      - name: Require Cachix write credential
+        shell: bash
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CACHIX_AUTH_TOKEN" ]]; then
+            printf '%s\n' \
+              'CACHIX_AUTH_TOKEN must be a repository Actions secret.' >&2
+            exit 1
+          fi
+
+      - name: Build cacheable Nix package and checks
+        id: nix_cache_build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_name="$(jq -er '.name' nix/cachix-cache.json)"
+          mapfile -t nix_paths < <(
+            nix build \
+              .#denial \
+              .#denial-flutter \
+              .#checks.x86_64-linux.locks \
+              .#checks.x86_64-linux.module \
+              .#checks.x86_64-linux.path-contract \
+              --accept-flake-config \
+              --cores 16 \
+              --out-link "$RUNNER_TEMP/denial-nix-cache" \
+              --print-build-logs \
+              --print-out-paths \
+              2> >(tee "$EVIDENCE_ROOT/nix-build.txt" >&2)
+          )
+          ((${#nix_paths[@]} == 5))
+          for path in "${nix_paths[@]}"; do
+            [[ "$path" == /nix/store/* ]]
+          done
+          printf '%s\n' "${nix_paths[@]}" \
+            | sort --unique \
+            | tee "$EVIDENCE_ROOT/nix-cache-paths.txt"
+          cache_paths="$(paste -sd ' ' "$EVIDENCE_ROOT/nix-cache-paths.txt")"
+          [[ "$cache_paths" != *$'\n'* ]]
+          {
+            printf 'cache_name=%s\n' "$cache_name"
+            printf 'paths=%s\n' "$cache_paths"
+          } >>"$GITHUB_OUTPUT"
+
       - name: Bootstrap pinned development toolchains
         shell: bash
         run: |
@@ -192,6 +273,9 @@ jobs:
 
       - name: Run compositor and Flutter tests
         shell: bash
+        env:
+          # The hardened runner denies the test's SCHED_RESET_ON_FORK syscall.
+          DENIAL_SKIP_CPU_CAPACITY_TEST: "1"
         run: |
           set -euo pipefail
           tools/denial-pc test \
@@ -425,6 +509,33 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
           compression-level: 0
+
+      - name: Resolve pinned Cachix CLI
+        id: cachix_cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t cachix_paths < <(
+            nix build \
+              .#denial-cachix-cli \
+              --accept-flake-config \
+              --no-link \
+              --print-out-paths
+          )
+          ((${#cachix_paths[@]} == 1))
+          cachix_bin="${cachix_paths[0]}/bin/cachix"
+          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
+          test -x "$cachix_bin"
+          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
+
+      - name: Publish Nix closures to Cachix
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ steps.nix_cache_build.outputs.cache_name }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
+          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
+          skipAddingSubstituter: true
 
   verify:
     name: Independently verify candidate artifact

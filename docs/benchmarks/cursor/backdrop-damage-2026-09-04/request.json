@@ -1,0 +1,7 @@
+{
+  "method": "run",
+  "duration_seconds": 30.0,
+  "warmup_seconds": 5.0,
+  "period_seconds": 2.0,
+  "radius": 180.0
+}

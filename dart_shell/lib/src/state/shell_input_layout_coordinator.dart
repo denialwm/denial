@@ -119,35 +119,45 @@ class ShellInputLayoutCoordinator {
     required double contentOffset,
     required double inputBottom,
   }) {
-    final frameTop = -contentOffset;
-    final contentTop =
-        frameTop + (window.isUserApp ? ShellMetrics.appStatusBarHeight : 0.0);
-    final contentBottom = frameTop + viewSize.height;
-    final visibleTop = contentTop.clamp(0.0, viewSize.height).toDouble();
-    final visibleBottom = contentBottom.clamp(0.0, inputBottom).toDouble();
-    if (visibleBottom <= visibleTop) {
+    final frame = window.presentationCoordinateRect;
+    final content = window.contentCoordinateRect;
+    if (frame.isEmpty || content.isEmpty) {
       return const <InputWindowRegion>[];
     }
-
-    final rect = Rect.fromLTRB(0, visibleTop, viewSize.width, visibleBottom);
-    final sourceRect = Rect.fromLTWH(
-      0,
-      rect.top - contentTop,
-      viewSize.width,
-      rect.height,
+    // Match the texture's top-centred BoxFit.cover, including the interval
+    // between an output configure and the client's replacement buffer.
+    final widthScale = viewSize.width / frame.width;
+    final heightScale = viewSize.height / frame.height;
+    final scale = widthScale > heightScale ? widthScale : heightScale;
+    final frameLeft = (viewSize.width - frame.width * scale) / 2.0;
+    final frameTop = -contentOffset;
+    final fullContentRect = Rect.fromLTWH(
+      frameLeft,
+      frameTop,
+      frame.width * scale,
+      frame.height * scale,
     );
-    final fullContentRect = Rect.fromLTRB(
-      0.0,
-      contentTop,
-      viewSize.width,
-      contentBottom,
+    final clientRect = Rect.fromLTWH(
+      frameLeft + (content.left - frame.left) * scale,
+      frameTop + (content.top - frame.top) * scale,
+      content.width * scale,
+      content.height * scale,
+    );
+    final clip = Rect.fromLTRB(0, 0, viewSize.width, inputBottom);
+    final rect = clientRect.intersect(clip);
+    if (rect.isEmpty) {
+      return const <InputWindowRegion>[];
+    }
+    final sourceRect = Rect.fromLTWH(
+      content.left + (rect.left - clientRect.left) / scale,
+      content.top + (rect.top - clientRect.top) / scale,
+      rect.width / scale,
+      rect.height / scale,
     );
     final regions = <InputWindowRegion>[];
     for (final popup in window.popupRoots.toList(growable: false).reversed) {
       final popupRect = window.mapSurfaceRect(popup, fullContentRect);
-      final clipped = popupRect.intersect(
-        Rect.fromLTRB(0.0, visibleTop, viewSize.width, visibleBottom),
-      );
+      final clipped = popupRect.intersect(rect);
       if (clipped.isEmpty ||
           popupRect.width <= 0.0 ||
           popupRect.height <= 0.0) {

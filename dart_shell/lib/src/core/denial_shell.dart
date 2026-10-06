@@ -12,6 +12,7 @@ import '../state/screenshot_selection.dart';
 import '../state/shell_controller.dart';
 import '../state/shell_profile.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -26,6 +27,8 @@ import 'shell_overlay_host.dart';
 import 'shell_runtime_bindings.dart';
 import 'shell_scene.dart';
 import 'shell_secure_stage.dart';
+import 'fingerprint_stage.dart';
+import '../state/fingerprint_scene.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -73,7 +76,7 @@ class DenialShell extends ConsumerWidget {
     );
     final appearance = presentation.appearance;
     final startupCursorThemeId = ref
-        .watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME']
+        .watch(startupEnvironmentProvider)['DENIAL_CURSOR_THEME']
         ?.trim();
     final cursorTheme = resolveShellCursorTheme(
       ref.watch(availableShellCursorThemesProvider),
@@ -84,19 +87,22 @@ class DenialShell extends ConsumerWidget {
     final accent = ref.watch(
       shellAccentProvider.select((accent) => accent.color),
     );
-    final colors =
-        appearance.colorSchemePreference.effectiveBrightness == Brightness.light
-        ? ShellColorScheme.light
-        : ShellColorScheme.dark;
+    final light = appearance.transparencyMode == ShellTransparencyMode.glass
+        ? appearance.glass.appearance == ShellGlassAppearance.light
+        : appearance.colorSchemePreference.effectiveBrightness ==
+              Brightness.light;
+    final colors = light ? ShellColorScheme.light : ShellColorScheme.dark;
     final theme = ShellThemeData(
       colors: colors,
       accent: accent,
+      fontFamily: appearance.fontFamily,
       cornerRadiusScale: appearance.cornerRadiusScale,
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
-      backdropBlurEnabled: appearance.backdropBlurEnabled,
+      transparencyMode: appearance.transparencyMode,
       backdropBlurLevel: appearance.backdropBlurLevel,
       backdropBlurOpacityThreshold: appearance.backdropBlurOpacityThreshold,
+      glass: appearance.glass,
       focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
@@ -111,19 +117,31 @@ class DenialShell extends ConsumerWidget {
       profile: effectiveProfile,
       scene: effectiveProfile == ShellProfile.mobile ? mobile : desktop,
     );
-    final content = ShellCursorHost(
-      theme: effectiveProfile == ShellProfile.desktop
-          ? cursorTheme
-          : ShellCursorThemes.bibataModernIce,
-      platformCursorShapes: bridge.cursorShapes,
-      platformCursorStates: bridge.cursorStates,
-      platformCursorPositions: bridge.cursorPositions,
-      platformDragIcons: bridge.dragIcons,
-      hideCursor: hideCursor,
-      displayLayout: displayLayout,
-      cursorSize: appearance.cursorSize,
-      onCursorStatePresented: bridge.acknowledgeCursorPresented,
-      child: ShellOverlayHost(child: scene),
+    final fingerprint = ref.watch(fingerprintSceneProvider);
+    final locked = ref.watch(
+      shellControllerProvider.select((state) => state.locked),
+    );
+    final content = FingerprintStage(
+      scene: fingerprint,
+      locked: locked,
+      onLaidOut: ref.read(fingerprintSceneProvider.notifier).laidOut,
+      child: ShellCursorHost(
+        theme: effectiveProfile == ShellProfile.desktop
+            ? cursorTheme
+            : ShellCursorThemes.bibataModernIce,
+        platformCursorShapes: bridge.cursorShapes,
+        platformCursorStates: bridge.cursorStates,
+        platformCursorPositions: bridge.cursorPositions,
+        platformDragIcons: bridge.dragIcons,
+        hideCursor: hideCursor,
+        displayLayout: displayLayout,
+        cursorSize: appearance.cursorSize,
+        onCursorStatePresented: bridge.acknowledgeCursorPresented,
+        benchmarkSocket: ref.watch(
+          startupEnvironmentProvider,
+        )['DENIAL_CURSOR_BENCHMARK_SOCKET'],
+        child: ShellOverlayHost(child: scene),
+      ),
     );
 
     return ShellRuntimeBindings(
@@ -178,7 +196,11 @@ class _ProfileScene extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               ShellSurfaceHost(
-                child: DesktopSceneOverlayHost(
+                // Keep desktop feature popups inside the scene's paint plane.
+                // The screenshot selection layer remains above this overlay,
+                // so its frozen texture includes open menus while its controls
+                // paint and receive input above them.
+                child: ShellOverlayHost(
                   child: Stack(
                     fit: StackFit.expand,
                     children: [scene.content, ...scene.overlays],

@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# systemd and elogind invoke this hook as root immediately before entering a
+# sleep state. Denial itself remains unprivileged: it publishes one validated,
+# session-scoped preference below the logind-owned user runtime directory.
+
+[ "$1" = pre ] || exit 0
+case "$2" in
+  suspend|hybrid-sleep|suspend-then-hibernate) ;;
+  *) exit 0 ;;
+esac
+
+mem_sleep=/sys/power/mem_sleep
+[ -r "$mem_sleep" ] && [ -w "$mem_sleep" ] || exit 0
+command -v loginctl >/dev/null 2>&1 || exit 0
+
+available="$(sed 's/\[//g; s/\]//g' "$mem_sleep" 2>/dev/null)" || exit 0
+loginctl list-sessions --no-legend 2>/dev/null |
+while read -r session uid _rest; do
+  case "$session" in
+    ''|*[!A-Za-z0-9_]*) continue ;;
+  esac
+  case "$uid" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  [ "$(loginctl show-session "$session" -p Active --value 2>/dev/null)" = yes ] \
+    || continue
+  runtime="$(loginctl show-user "$uid" -p RuntimePath --value 2>/dev/null)" \
+    || continue
+  case "$runtime" in
+    /*) ;;
+    *) continue ;;
+  esac
+  marker="$runtime/denial/suspend-mode-$session"
+  [ -f "$marker" ] && [ ! -L "$marker" ] || continue
+  IFS= read -r mode < "$marker" || [ -n "$mode" ] || continue
+  case "$mode" in
+    s2idle|shallow|deep) ;;
+    *) continue ;;
+  esac
+  supported=false
+  for candidate in $available; do
+    if [ "$candidate" = "$mode" ]; then
+      supported=true
+      break
+    fi
+  done
+  [ "$supported" = true ] || continue
+  if ! printf '%s\n' "$mode" > "$mem_sleep"; then
+    logger -t denial-suspend-mode \
+      "could not select kernel suspend mode $mode for session $session"
+  fi
+  break
+done
+
+exit 0

@@ -6,15 +6,30 @@ import 'package:flutter/widgets.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
 import '../../services/power_profile_service.dart';
+import '../../theme/glass_configuration.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
-import '../../theme/tokens.dart';
+import '../shell_backdrop_blur.dart';
+import 'shade_expansion_motion.dart';
+import 'shade_reference_geometry.dart';
+
+abstract final class QuickSettingsGridMetrics {
+  static const double row = 76;
+  static const double capsule = 62;
+  static const double gutter = 14;
+  static const double minimumWidth = capsule * 4 + gutter * 3;
+  static const double height = row * 4;
+}
 
 /// The grid of quick-settings tiles. Purely presentational: every value and
 /// callback is supplied by the panel.
 class QuickSettingsTiles extends StatelessWidget {
   const QuickSettingsTiles({
     super.key,
+    this.mobileDataTile,
+    this.brightnessControl,
+    this.volumeControl,
+    this.expansionProgress,
     required this.wifi,
     required this.wifiSubtitle,
     required this.wifiEnabled,
@@ -36,6 +51,10 @@ class QuickSettingsTiles extends StatelessWidget {
     required this.onCycleProfile,
   });
 
+  final Widget? mobileDataTile;
+  final Widget? brightnessControl;
+  final Widget? volumeControl;
+  final Animation<double>? expansionProgress;
   final bool wifi;
   final String wifiSubtitle;
   final bool wifiEnabled;
@@ -61,53 +80,53 @@ class QuickSettingsTiles extends StatelessWidget {
     final l10n = context.l10n;
     return LayoutBuilder(
       builder: (context, constraints) {
-        const gap = 12.0;
-        final cell = ((constraints.maxWidth - gap * 3) / 4)
-            .clamp(58.0, double.infinity)
-            .toDouble();
-        final wide = cell * 2 + gap;
+        Widget reveal(
+          int index,
+          Widget child, {
+          required double collapseTranslation,
+        }) {
+          final progress = expansionProgress;
+          if (progress == null) return child;
+          return ColorOsShadeElementReveal(
+            progress: progress,
+            threshold: ColorOsShadeMotion.contentElementThreshold,
+            delay: ColorOsShadeMotion.nodeStagger * index,
+            fade: false,
+            collapseTranslation: collapseTranslation,
+            child: child,
+          );
+        }
 
-        return Column(
-          children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: _profileIcon(profile),
-                    title: l10n.quickSettingsPerformance,
-                    subtitle: _profileLabel(profile, l10n),
-                    active: profile != PowerProfile.balanced,
-                    onTap: onCycleProfile,
-                    wide: true,
-                  ),
-                ),
-                const SizedBox(width: gap),
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: Icons.notifications_off_rounded,
-                    title: l10n.quickSettingsSilent,
-                    subtitle: dndReady
-                        ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
-                        : l10n.commonLoading,
-                    active: dnd,
-                    enabled: dndReady,
-                    onTap: onToggleDnd,
-                    wide: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: gap),
-            Row(
-              children: [
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
+        final width = constraints.maxWidth;
+        final scale = (width / QuickSettingsGridMetrics.minimumWidth)
+            .clamp(0.0, 1.0)
+            .toDouble();
+        final gutter = QuickSettingsGridMetrics.gutter * scale;
+        final capsule = QuickSettingsGridMetrics.capsule * scale;
+        final row = QuickSettingsGridMetrics.row * scale;
+        final column = (width - gutter * 3) / 4;
+        final pitch = column + gutter;
+        final wide = column * 2 + gutter;
+        final tall = capsule * 2 + gutter;
+        // The ColorOS collapse chain adds a larger negative-Y offset to each
+        // successive row. Include the node's bottom edge because Denial keeps
+        // live glass fully opaque instead of hiding it with a save-layer fade.
+        final firstRowExit = capsule + 28;
+        final secondRowExit = row + tall + 28;
+        final thirdRowExit = row * 3 + 28;
+        final fourthRowExit = row * 4 + 28;
+        return SizedBox(
+          height: QuickSettingsGridMetrics.height * scale,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                width: wide,
+                height: capsule,
+                child: reveal(
+                  0,
+                  QuickTile(
                     icon: Icons.wifi_rounded,
                     title: l10n.commonWifi,
                     subtitle: wifiSubtitle,
@@ -118,12 +137,17 @@ class QuickSettingsTiles extends StatelessWidget {
                     onDetails: onOpenWifi,
                     wide: true,
                   ),
+                  collapseTranslation: firstRowExit,
                 ),
-                const SizedBox(width: gap),
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
+              ),
+              Positioned(
+                left: pitch * 2,
+                top: 0,
+                width: wide,
+                height: capsule,
+                child: reveal(
+                  1,
+                  QuickTile(
                     icon: Icons.bluetooth_rounded,
                     title: l10n.commonBluetooth,
                     subtitle: bluetoothSubtitle,
@@ -134,29 +158,102 @@ class QuickSettingsTiles extends StatelessWidget {
                     onDetails: onOpenBluetooth,
                     wide: true,
                   ),
+                  collapseTranslation: firstRowExit,
                 ),
-              ],
-            ),
-            const SizedBox(height: gap),
-            Row(
-              children: [
-                SizedBox(
-                  width: constraints.maxWidth,
-                  height: 68,
-                  child: QuickTile(
-                    icon: Icons.screen_rotation_rounded,
+              ),
+              Positioned(
+                left: 0,
+                top: row,
+                width: column,
+                height: tall,
+                child: reveal(
+                  2,
+                  brightnessControl ?? const SizedBox.expand(),
+                  collapseTranslation: secondRowExit,
+                ),
+              ),
+              Positioned(
+                left: pitch,
+                top: row,
+                width: column,
+                height: tall,
+                child: reveal(
+                  3,
+                  volumeControl ?? const SizedBox.expand(),
+                  collapseTranslation: secondRowExit,
+                ),
+              ),
+              if (mobileDataTile != null)
+                Positioned(
+                  left: pitch * 2,
+                  top: row,
+                  width: wide,
+                  height: capsule,
+                  child: reveal(
+                    4,
+                    mobileDataTile!,
+                    collapseTranslation: secondRowExit,
+                  ),
+                ),
+              Positioned(
+                left: pitch * 2,
+                top: row * 2,
+                width: column,
+                height: row,
+                child: reveal(
+                  5,
+                  QuickTile(
+                    icon: _profileIcon(profile),
+                    title: _profileLabel(profile, l10n),
+                    active: profile != PowerProfile.balanced,
+                    onTap: onCycleProfile,
+                  ),
+                  collapseTranslation: thirdRowExit,
+                ),
+              ),
+              Positioned(
+                left: pitch * 3,
+                top: row * 2,
+                width: column,
+                height: row,
+                child: reveal(
+                  6,
+                  QuickTile(
+                    icon: Icons.notifications_off_rounded,
+                    title: l10n.quickSettingsSilent,
+                    subtitle: dndReady
+                        ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
+                        : l10n.commonLoading,
+                    active: dnd,
+                    enabled: dndReady,
+                    onTap: onToggleDnd,
+                  ),
+                  collapseTranslation: thirdRowExit,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                top: row * 3,
+                width: column,
+                height: row,
+                child: reveal(
+                  7,
+                  QuickTile(
+                    icon: rotationLock
+                        ? Icons.screen_lock_rotation_rounded
+                        : Icons.screen_rotation_rounded,
                     title: l10n.quickSettingsRotation,
                     subtitle: rotationLock
                         ? l10n.quickSettingsLocked
                         : l10n.quickSettingsAutomatic,
                     active: !rotationLock,
                     onTap: onToggleRotation,
-                    wide: true,
                   ),
+                  collapseTranslation: fourthRowExit,
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         );
       },
     );
@@ -200,18 +297,16 @@ class _QuickTileState extends State<QuickTile> {
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
     final accent = theme.accentPalette;
-    final background = theme.cardColor(
-      widget.active ? accent.primary : context.shellColors.tileOff,
-    );
+    final background = widget.active
+        ? accent.primary
+        : theme.cardColor(context.shellColors.tileOff);
     final foreground = widget.active
         ? accent.onPrimary
         : context.shellColors.panelText;
     final secondary = widget.active
         ? accent.onPrimary.withValues(alpha: 0.78)
         : context.shellColors.textTertiary;
-    final radius = theme.scaledRadius(
-      widget.wide ? ShellRadii.tileWide : ShellRadii.tile,
-    );
+    final radius = theme.scaledRadius(20);
 
     return Semantics(
       button: true,
@@ -244,164 +339,181 @@ class _QuickTileState extends State<QuickTile> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.enabled ? widget.onTap : null,
-          child: AnimatedContainer(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : Motion.tile,
-            curve: Motion.standard,
-            padding: EdgeInsets.symmetric(horizontal: widget.wide ? 18 : 10),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(
-                color: _focused
-                    ? accent.primary
-                    : widget.active
-                    ? accent.primary
-                    : context.shellColors.hairlineSoft,
-                width: _focused ? 1.5 : 1,
+          child: widget.wide
+              ? _buildWide(background, foreground, secondary, radius)
+              : _buildSmall(background, foreground, radius),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWide(
+    Color background,
+    Color foreground,
+    Color secondary,
+    double radius,
+  ) {
+    final visualScale = ShadeReferenceGeometry.inverseScaleOf(context);
+    return _animatedSurface(
+      background: background,
+      radius: radius,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 0, 6, 0),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 42,
+              child: Center(
+                child: widget.busy
+                    ? SizedBox.square(
+                        dimension: 20 * visualScale,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2 * visualScale,
+                          color: foreground,
+                        ),
+                      )
+                    : Icon(
+                        widget.icon,
+                        color: foreground,
+                        size: 24 * visualScale,
+                      ),
               ),
             ),
-            child: widget.wide
-                ? _buildWide(foreground, secondary)
-                : _buildSmall(foreground),
-          ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 14,
+                      height: 1.08,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                  if (widget.subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      widget.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: secondary,
+                        fontSize: 10.5,
+                        height: 1,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (widget.onDetails != null)
+              _TileDetailsButton(
+                label: context.l10n.quickSettingsOpenDetails(widget.title),
+                foreground: foreground,
+                onPressed: widget.onDetails!,
+              ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildWide(Color foreground, Color secondary) {
-    return Row(
-      children: [
-        _TileIcon(
-          icon: widget.icon,
-          active: widget.active,
-          busy: widget.busy,
-          foreground: foreground,
-          size: 42,
-          iconSize: 24,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: foreground,
-                  fontSize: 15,
-                  height: 1,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                  decoration: TextDecoration.none,
+  Widget _buildSmall(Color background, Color foreground, double radius) {
+    final visualScale = ShadeReferenceGeometry.inverseScaleOf(context);
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        width: QuickSettingsGridMetrics.capsule,
+        height: QuickSettingsGridMetrics.row,
+        child: Column(
+          children: [
+            SizedBox.square(
+              dimension: QuickSettingsGridMetrics.capsule,
+              child: _animatedSurface(
+                background: background,
+                radius: radius,
+                child: Center(
+                  child: widget.busy
+                      ? SizedBox.square(
+                          dimension: 22 * visualScale,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2 * visualScale,
+                            color: foreground,
+                          ),
+                        )
+                      : Icon(
+                          widget.icon,
+                          color: foreground,
+                          size: 30 * visualScale,
+                        ),
                 ),
               ),
-              if (widget.subtitle != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  widget.subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: secondary,
-                    fontSize: 13,
-                    height: 1,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ],
-            ],
-          ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.shellColors.panelText,
+                fontSize: 10,
+                height: 1,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0,
+                decoration: TextDecoration.none,
+              ),
+            ),
+          ],
         ),
-        if (widget.onDetails != null) ...[
-          const SizedBox(width: 6),
-          _TileDetailsButton(
-            label: context.l10n.quickSettingsOpenDetails(widget.title),
-            foreground: foreground,
-            onPressed: widget.onDetails!,
-          ),
-        ],
-      ],
+      ),
     );
   }
 
-  Widget _buildSmall(Color foreground) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _TileIcon(
-          icon: widget.icon,
-          active: widget.active,
-          busy: widget.busy,
-          foreground: foreground,
-          size: 34,
-          iconSize: 21,
-        ),
-        const SizedBox(height: 7),
-        Text(
-          widget.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: foreground,
-            fontSize: 12,
-            height: 1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0,
-            decoration: TextDecoration.none,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TileIcon extends StatelessWidget {
-  const _TileIcon({
-    required this.icon,
-    required this.active,
-    required this.busy,
-    required this.foreground,
-    required this.size,
-    required this.iconSize,
-  });
-
-  final IconData icon;
-  final bool active;
-  final bool busy;
-  final Color foreground;
-  final double size;
-  final double iconSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
+  Widget _animatedSurface({
+    required Color background,
+    required double radius,
+    required Widget child,
+  }) {
+    final theme = ShellTheme.of(context);
+    final accent = theme.accentPalette;
+    final borderRadius = BorderRadius.circular(radius);
+    final surface = AnimatedContainer(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : Motion.tile,
+      curve: Motion.standard,
       decoration: BoxDecoration(
-        color: active
-            ? context.shellTheme.accentPalette.subtle
-            : context.shellColors.tileIcon,
-        borderRadius: context.shellTheme.borderRadius(size / 2),
+        color: background,
+        borderRadius: BorderRadius.circular(radius),
+        border: _focused
+            ? Border.all(color: accent.primary, width: 1.5)
+            : theme.transparencyMode == ShellTransparencyMode.glass
+            ? null
+            : Border.all(
+                color: widget.active
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
+              ),
       ),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: busy
-            ? Padding(
-                padding: EdgeInsets.all(size * 0.27),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: foreground,
-                ),
-              )
-            : Icon(icon, color: foreground, size: iconSize),
-      ),
+      child: child,
+    );
+    return ShellBackdropBlur(
+      blur:
+          !widget.active &&
+          theme.transparencyMode == ShellTransparencyMode.glass &&
+          theme.effectivePanelOpacity < 1,
+      separateChild: true,
+      borderRadius: borderRadius,
+      child: surface,
     );
   }
 }
@@ -451,16 +563,18 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: _focused
-                  ? context.shellColors.surfaceContainerHighest
-                  : ShellMediaColors.transparentDark,
+                  ? context.shellTheme.cardColor(
+                      context.shellColors.surfaceContainerHighest,
+                    )
+                  : const Color(0x00000000),
               borderRadius: context.shellTheme.borderRadius(10),
               border: _focused ? Border.all(color: accent) : null,
             ),
             child: SizedBox.square(
-              dimension: 34,
+              dimension: 24,
               child: Icon(
                 Icons.chevron_right_rounded,
-                size: 21,
+                size: 17 * ShadeReferenceGeometry.inverseScaleOf(context),
                 color: widget.foreground,
               ),
             ),
@@ -473,16 +587,22 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 
 /// Compact shade actions. Application-count prose belongs in the overview,
 /// not in quick settings.
-class ShadeFooter extends StatelessWidget {
-  const ShadeFooter({super.key, required this.onOpenPower});
+class ShadeActions extends StatelessWidget {
+  const ShadeActions({super.key, required this.onOpenPower});
 
   final VoidCallback onOpenPower;
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        _RoundButton(
+          label: context.l10n.quickSettingsSettingsUnavailable,
+          icon: Icons.edit_rounded,
+        ),
+        const SizedBox(width: 12),
         _RoundButton(
           label: context.l10n.quickSettingsSettingsUnavailable,
           icon: Icons.settings_rounded,
@@ -490,7 +610,7 @@ class ShadeFooter extends StatelessWidget {
         const SizedBox(width: 12),
         _RoundButton(
           label: context.l10n.desktopOpenPowerControls,
-          icon: Icons.power_settings_new_rounded,
+          icon: Icons.more_horiz_rounded,
           onPressed: onOpenPower,
         ),
       ],
@@ -515,7 +635,29 @@ class _RoundButtonState extends State<_RoundButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
+    final radius = theme.borderRadius(16);
+    final surface = DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.cardColor(context.shellColors.chip),
+        borderRadius: radius,
+        border: _focused
+            ? Border.all(color: accent)
+            : theme.transparencyMode == ShellTransparencyMode.glass
+            ? null
+            : Border.all(color: context.shellColors.hairlineSoft),
+      ),
+      child: SizedBox(
+        width: 32,
+        height: 32,
+        child: Icon(
+          widget.icon,
+          color: context.shellColors.panelText,
+          size: 18 * ShadeReferenceGeometry.inverseScaleOf(context),
+        ),
+      ),
+    );
     return Semantics(
       button: true,
       enabled: enabled,
@@ -543,27 +685,13 @@ class _RoundButtonState extends State<_RoundButton> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: widget.onPressed,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: context.shellColors.chip,
-                borderRadius: context.shellTheme.borderRadius(
-                  ShellRadii.roundButton,
-                ),
-                border: Border.all(
-                  color: _focused ? accent : context.shellColors.hairlineSoft,
-                ),
-              ),
-              child: SizedBox(
-                width: 42,
-                height: 42,
-                child: Icon(
-                  widget.icon,
-                  color: enabled
-                      ? context.shellTheme.accentPalette.onMutedContainer
-                      : context.shellColors.textTertiary,
-                  size: 21,
-                ),
-              ),
+            child: ShellBackdropBlur(
+              blur:
+                  theme.transparencyMode == ShellTransparencyMode.glass &&
+                  theme.effectivePanelOpacity < 1,
+              separateChild: true,
+              borderRadius: radius,
+              child: surface,
             ),
           ),
         ),

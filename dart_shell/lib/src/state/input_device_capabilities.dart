@@ -84,6 +84,14 @@ class InputDeviceCapabilitiesController
     );
   }
 
+  void setScrollingLayoutSwipeSpeedFactor(double factor) {
+    unawaited(
+      _configure(
+        state.capabilities.copyWith(scrollingLayoutSwipeSpeedFactor: factor),
+      ),
+    );
+  }
+
   void setMouseSpeed(double speed) {
     unawaited(_configureMouse(state.capabilities.copyWith(mouseSpeed: speed)));
   }

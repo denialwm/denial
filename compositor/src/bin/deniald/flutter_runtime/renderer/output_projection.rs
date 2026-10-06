@@ -173,9 +173,12 @@ impl OutputRotationAnimation {
 fn transform_turns(transform: OutputTransform) -> i8 {
     match transform {
         OutputTransform::Normal | OutputTransform::Flipped => 0,
-        OutputTransform::Rotate90 | OutputTransform::Flipped90 => 1,
+        // Flutter's affine coordinates have a downward-positive Y axis, so
+        // Wayland's counter-clockwise transform names have negative visual
+        // quarter turns here.
+        OutputTransform::Rotate90 | OutputTransform::Flipped90 => -1,
         OutputTransform::Rotate180 | OutputTransform::Flipped180 => 2,
-        OutputTransform::Rotate270 | OutputTransform::Flipped270 => 3,
+        OutputTransform::Rotate270 | OutputTransform::Flipped270 => 1,
     }
 }
 
@@ -249,5 +252,34 @@ fn compose_render_transforms(
         translate_y: after.skew_y * before.translate_x
             + after.scale_y * before.translate_y
             + after.translate_y,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotation_animation_follows_wayland_counter_clockwise_names() {
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Normal, OutputTransform::Rotate90),
+            -1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Normal, OutputTransform::Rotate270),
+            1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Rotate90, OutputTransform::Rotate180),
+            -1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Rotate270, OutputTransform::Normal),
+            -1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Flipped, OutputTransform::Flipped90),
+            -1
+        );
     }
 }

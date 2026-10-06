@@ -8,6 +8,10 @@ boundaries may change before 1.0.
 
 ### Added
 
+- Mouse & touchpad settings can now tune the scrolling layout's continuous
+  three-finger swipe speed independently from two-finger content scrolling.
+- Workspace transitions can now move horizontally or vertically, and
+  four-finger workspace gestures work on either axis.
 - Systemd-managed Denial sessions now launch standard XDG desktop autostart
   entries after the compositor and its discovered display endpoints are ready.
 - Settings can configure environment variables for applications launched by
@@ -18,6 +22,8 @@ boundaries may change before 1.0.
   same identity and receive the selected application's rules.
 - End-to-end fractional display scaling now keeps Flutter, native Wayland clients, and Xwayland sharp and consistently sized.
 - `Super+Shift+S` now opens a compositor-native region screenshot workflow with direct Wayland screencopy support.
+- Shortcuts can now toggle the focused window's always-on-top state in both
+  stacking and managed layouts.
 - Settings now runs as a built-in local Flutter application that can be launched from the desktop and mobile home surfaces.
 - Mobile mode now has a dedicated wallpaper browser with preview, drag positioning, fine alignment controls, and per-display targeting.
 - Simplified Chinese localization and a live language selector are now available throughout the shell and Settings.
@@ -30,6 +36,8 @@ boundaries may change before 1.0.
 
 ### Changed
 
+- Denial environment variables now prefer the consistent `DENIAL_*` prefix
+  while accepting every existing `DENIA_*` spelling as a compatibility alias.
 - Clipboard history now provides searchable text, image and file cards, drag-to-drop actions, privacy states, and accessible controls.
 - KMS and rendering devices can now be selected independently, with automatic display-owned scanout allocation for split-GPU hardware.
 - Flutter frame delivery now uses stricter backpressure, preserved logical damage, kernel presentation timing, and safer multi-output buffer ownership.
@@ -41,6 +49,22 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- KMS-only compositor builds now keep shared hotplug and Wayland behavior
+  available without the Flutter shell, and scheduler setup supports musl's
+  extended `sched_param` layout.
+- Installed sessions now detect VMware `vmwgfx` render devices and select
+  Mesa's KMS software renderer before GBM/EGL initialization, avoiding an
+  immediate compositor abort when accelerated EGL is unavailable.
+- Switching to a workspace with no focus history now activates a visible
+  window, so focused-window shortcuts work before the first pointer click.
+- Scrolling layouts now retain each workspace's active viewport, column order,
+  and resized widths when workspace or output membership is reconciled.
+- Direct-boot diagnostic sessions now detect unbound primary planes and start
+  without requiring a predecessor framebuffer. `DENIAL_NO_PREDECESSOR=1`
+  remains available to force that path on unusual DRM implementations.
+- UI workspace setup now honors `DENIAL_CONTROL_TOOL` and
+  `DENIAL_DEVELOPMENT_TOOL`, allowing installations outside `/usr/bin` to use
+  the shell's built-in setup action.
 - Delayed display edges can no longer replay stale frame ticks or supersede a ready Flutter frame before presentation.
 - Mobile edge panels, status text, wallpaper queries, and local-application home-grid persistence now behave consistently across compact layouts.
 - Denial now keeps the Wayland session alive when every DRM output disconnects

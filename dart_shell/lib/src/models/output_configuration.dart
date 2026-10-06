@@ -1,5 +1,15 @@
 import 'dart:ui';
 
+const outputScaleBase = 120;
+
+/// Canonicalizes a requested output scale to Wayland fractional-scale units.
+double canonicalizeOutputScale(double scale) {
+  if (!scale.isFinite || scale <= 0.0) {
+    return scale;
+  }
+  return (scale * outputScaleBase).roundToDouble() / outputScaleBase;
+}
+
 enum DenialOutputTransform {
   normal('normal'),
   rotate90('90'),
@@ -23,6 +33,20 @@ enum DenialOutputTransform {
     return values.firstWhere(
       (transform) => transform.wireName == value,
       orElse: () => throw FormatException('Unknown output transform: $value'),
+    );
+  }
+}
+
+enum DenialScrollingLayoutAxis {
+  auto,
+  horizontal,
+  vertical;
+
+  static DenialScrollingLayoutAxis fromWire(Object? value) {
+    return values.firstWhere(
+      (axis) => axis.name == value,
+      orElse: () =>
+          throw FormatException('Unknown scrolling layout axis: $value'),
     );
   }
 }
@@ -72,10 +96,12 @@ class DenialOutputMode {
 class DenialOutputCapabilities {
   const DenialOutputCapabilities({
     required this.apply,
+    required this.enable,
     required this.position,
     required this.mode,
     required this.scale,
     required this.transform,
+    required this.scrollingLayoutAxis,
     required this.adaptiveSync,
     required this.persistent,
   });
@@ -83,20 +109,24 @@ class DenialOutputCapabilities {
   factory DenialOutputCapabilities.fromJson(Map<String, Object?> json) {
     return DenialOutputCapabilities(
       apply: _bool(json, 'apply'),
+      enable: _bool(json, 'enable'),
       position: _bool(json, 'position'),
       mode: _bool(json, 'mode'),
       scale: _bool(json, 'scale'),
       transform: _bool(json, 'transform'),
+      scrollingLayoutAxis: _bool(json, 'scrolling_layout_axis'),
       adaptiveSync: _bool(json, 'adaptive_sync'),
       persistent: _bool(json, 'persistent'),
     );
   }
 
   final bool apply;
+  final bool enable;
   final bool position;
   final bool mode;
   final bool scale;
   final bool transform;
+  final bool scrollingLayoutAxis;
   final bool adaptiveSync;
   final bool persistent;
 }
@@ -115,6 +145,7 @@ class DenialOutput {
     required this.logicalHeight,
     required this.scale,
     required this.transform,
+    required this.scrollingLayoutAxis,
     required this.adaptiveSyncSupported,
     required this.adaptiveSync,
     required this.currentMode,
@@ -139,6 +170,9 @@ class DenialOutput {
       logicalHeight: _positiveInt(json, 'logical_height'),
       scale: _positiveDouble(json, 'scale'),
       transform: DenialOutputTransform.fromWire(json['transform']),
+      scrollingLayoutAxis: DenialScrollingLayoutAxis.fromWire(
+        json['scrolling_layout_axis'],
+      ),
       adaptiveSyncSupported: _bool(json, 'adaptive_sync_supported'),
       adaptiveSync: _bool(json, 'adaptive_sync'),
       currentMode: currentMode == null
@@ -160,6 +194,7 @@ class DenialOutput {
   final int logicalHeight;
   final double scale;
   final DenialOutputTransform transform;
+  final DenialScrollingLayoutAxis scrollingLayoutAxis;
   final bool adaptiveSyncSupported;
   final bool adaptiveSync;
   final DenialOutputMode? currentMode;
@@ -184,16 +219,23 @@ class DenialOutput {
   }
 
   DenialOutput copyWith({
+    bool? enabled,
+    bool? powered,
     int? x,
     int? y,
     double? scale,
     DenialOutputTransform? transform,
+    DenialScrollingLayoutAxis? scrollingLayoutAxis,
     bool? adaptiveSync,
     DenialOutputMode? currentMode,
   }) {
     final nextMode = currentMode ?? this.currentMode ?? effectiveMode;
-    final nextScale = scale ?? this.scale;
+    final nextScale = scale == null
+        ? this.scale
+        : canonicalizeOutputScale(scale);
     final nextTransform = transform ?? this.transform;
+    final nextEnabled = enabled ?? this.enabled;
+    final nextPowered = powered ?? enabled ?? this.powered;
     final width = nextTransform.swapsAxes ? nextMode.height : nextMode.width;
     final height = nextTransform.swapsAxes ? nextMode.width : nextMode.height;
     return DenialOutput(
@@ -201,14 +243,15 @@ class DenialOutput {
       name: name,
       description: description,
       connected: connected,
-      enabled: enabled,
-      powered: powered,
+      enabled: nextEnabled,
+      powered: nextPowered,
       x: x ?? this.x,
       y: y ?? this.y,
       logicalWidth: (width / nextScale).round().clamp(1, 0x7fffffff),
       logicalHeight: (height / nextScale).round().clamp(1, 0x7fffffff),
       scale: nextScale,
       transform: nextTransform,
+      scrollingLayoutAxis: scrollingLayoutAxis ?? this.scrollingLayoutAxis,
       adaptiveSyncSupported: adaptiveSyncSupported,
       adaptiveSync: adaptiveSync ?? this.adaptiveSync,
       currentMode: nextMode,
@@ -225,6 +268,7 @@ class DenialOutput {
     'mode': effectiveMode.toApplyJson(),
     'scale': scale,
     'transform': transform.wireName,
+    'scrolling_layout_axis': scrollingLayoutAxis.name,
     'adaptive_sync': adaptiveSync,
   };
 }

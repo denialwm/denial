@@ -1,0 +1,34 @@
+{
+  "profile-run": {
+    "metadata_matches_baseline": true,
+    "path_matches_baseline_except_duration": true,
+    "output_matches_baseline": true,
+    "completed": true,
+    "measurement_begin_ns": 9029507928009,
+    "measurement_end_ns": 9054494814325
+  },
+  "stage-run": {
+    "metadata_matches_baseline": true,
+    "path_matches_baseline_except_duration": true,
+    "output_matches_baseline": true,
+    "completed": true,
+    "measurement_begin_ns": 9154897981478,
+    "measurement_end_ns": 9170874774496
+  },
+  "inventory-run": {
+    "metadata_matches_baseline": true,
+    "path_matches_baseline_except_duration": true,
+    "output_matches_baseline": true,
+    "completed": true,
+    "measurement_begin_ns": 9439470879660,
+    "measurement_end_ns": 9451459059266
+  },
+  "clip-woken-run": {
+    "metadata_matches_baseline": true,
+    "path_matches_baseline_except_duration": true,
+    "output_matches_baseline": true,
+    "completed": true,
+    "measurement_begin_ns": 9862847723099,
+    "measurement_end_ns": 9874840440292
+  }
+}

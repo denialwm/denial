@@ -2,7 +2,7 @@
 
 Denial targets Linux rather than one distribution. Arch Linux, CachyOS,
 Omarchy 4.0, Alpine Linux 3.24, Fedora 44, Debian 13, NixOS 26.05, Void Linux,
-and Ubuntu 24.04 LTS have completed runtime validation.
+Ubuntu 24.04 LTS, and openSUSE Tumbleweed have completed runtime validation.
 
 ## Architecture support
 
@@ -23,18 +23,24 @@ the same compositor, Flutter engine, and shell from source.
 | Debian 13 (trixie) | ✅ | ✅ |
 | Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
 | Fedora 44 | ✅ | ✅ |
+| openSUSE Tumbleweed | ✅ | ❌ |
 | Alpine Linux 3.24 | ✅ | ✅ |
-| NixOS 26.05 | ✅ | ❌ |
+| NixOS 26.05 | ✅ | ✅ |
 | Void Linux | ✅ | ❌ |
 
-Debian-family and Fedora package adapters consume one byte-identical runtime
-staging tree. Signed APT repositories serve Debian 13 and Ubuntu 24.04, and a
-signed DNF repository serves Fedora 44; the same packages are retained as
-direct GitHub Release downloads. Arch Linux, CachyOS, and Omarchy use the
-signed Pacman repository. Alpine packages are retained as signed direct GitHub
-Release downloads; a native RSA-signed APK repository is not published yet.
-NixOS and Void do not yet have first-party binary repositories. The packaging
-boundary remains reusable for other distributions.
+Debian-family, Fedora, and openSUSE package adapters consume one byte-identical
+runtime staging tree. Signed APT repositories serve Debian 13 and Ubuntu
+24.04, and a signed DNF repository serves Fedora 44; the same packages are
+retained as direct GitHub Release downloads. The openSUSE adapter currently
+produces local RPMs but is not yet part of a published Zypper repository or
+GitHub Release. Arch Linux, CachyOS, and Omarchy use the signed Pacman
+repository. Alpine packages are retained as signed direct GitHub Release
+downloads; a native RSA-signed APK repository is not published yet.
+NixOS has a first-party source flake and NixOS module. Its packages are served
+from the public [`denial.cachix.org`](https://denial.cachix.org) binary cache;
+there is no conventional Nix binary repository to configure separately. Void
+does not yet have a first-party binary repository. The packaging boundary
+remains reusable for other distributions.
 
 Omarchy 4.0 was validated with Denial owning DRM/KMS and the Wayland session,
 including the optimized Flutter shell, a native Wayland client, Xwayland, and
@@ -57,6 +63,9 @@ port are recorded in the
 The musl/gcompat boundary, OpenRC session model, thin-provisioned boot path,
 and automatic font dependency policy exercised by the sixth port are recorded
 in the [Alpine Linux 3.24 validation](../packaging/alpine/VALIDATION.md).
+The RPM capability mapping and locale-independent payload verification exposed
+by the seventh port are recorded in the
+[openSUSE Tumbleweed validation](../packaging/opensuse/VALIDATION.md).
 
 ## Current limitations
 
@@ -106,8 +115,9 @@ in the [Alpine Linux 3.24 validation](../packaging/alpine/VALIDATION.md).
 
 One version-neutral x86-64 build supplies the locked Flutter engine and Denial
 payload. The shared staging pass enforces the oldest supported ABI baseline,
-currently glibc 2.39 from Ubuntu 24.04, before thin adapters add Debian or RPM
-metadata. Package assembly does not require booting the target distribution.
+currently glibc 2.39 from Ubuntu 24.04, before thin adapters add Debian or
+distribution-specific RPM metadata. Package assembly does not require booting
+the target distribution.
 The adapters preserve compiled bytes and independently compare every extracted
 file and mode with the staging manifest.
 

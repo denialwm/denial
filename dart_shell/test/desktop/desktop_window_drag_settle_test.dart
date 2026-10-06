@@ -1,6 +1,8 @@
 import 'package:denial_dart_shell/src/desktop/desktop_window_coordinator.dart';
 import 'package:denial_dart_shell/src/desktop/retained_animated_positioned.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/theme/motion.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -110,5 +112,159 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 100));
     expect(tester.getRect(find.byKey(childKey)), destination);
+  });
+
+  testWidgets('layout tile reflow has one restrained geometry bounce', (
+    tester,
+  ) async {
+    const childKey = ValueKey<String>('reflowing-tile');
+    const initial = Rect.fromLTWH(20, 30, 100, 80);
+    const destination = Rect.fromLTWH(120, 30, 200, 80);
+
+    Widget scene(Rect rect) {
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 400,
+          height: 200,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              RetainedAnimatedPositioned(
+                duration: Motion.layoutTileReflow,
+                curve: Motion.layoutTileReflowCurve,
+                rect: rect,
+                child: const ColoredBox(
+                  key: childKey,
+                  color: Color(0xff000000),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(scene(initial));
+    await tester.pumpWidget(scene(destination));
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final overshoot = tester.getRect(find.byKey(childKey));
+    expect(overshoot.left, greaterThan(destination.left));
+    expect(overshoot.left, lessThan(destination.left + 2));
+    expect(overshoot.width, greaterThan(destination.width));
+    expect(overshoot.width, lessThan(destination.width + 2));
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(tester.getRect(find.byKey(childKey)), destination);
+  });
+
+  testWidgets('keeps a scene-space clip fixed while the window moves', (
+    tester,
+  ) async {
+    const clipRect = Rect.fromLTWH(100, 0, 100, 100);
+    var taps = 0;
+
+    Widget scene(Rect rect) {
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 300,
+          height: 100,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              RetainedAnimatedPositioned(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.linear,
+                rect: rect,
+                globalClipRect: clipRect,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => taps += 1,
+                  child: const ColoredBox(color: Color(0xff000000)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(scene(const Rect.fromLTWH(50, 0, 100, 100)));
+    await tester.tapAt(const Offset(75, 50));
+    expect(taps, 0);
+    await tester.tapAt(const Offset(125, 50));
+    expect(taps, 1);
+
+    await tester.pumpWidget(scene(const Rect.fromLTWH(150, 0, 100, 100)));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(const Offset(90, 50));
+    expect(taps, 1);
+    await tester.tapAt(const Offset(125, 50));
+    expect(taps, 2);
+  });
+
+  testWidgets('disabling the scene clip preserves an active pointer drag', (
+    tester,
+  ) async {
+    const childKey = ValueKey<String>('drag-target');
+    var clipped = true;
+    var updates = 0;
+    var ends = 0;
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 300,
+          height: 200,
+          child: StatefulBuilder(
+            builder: (context, setState) => Stack(
+              clipBehavior: Clip.none,
+              children: [
+                RetainedAnimatedPositioned(
+                  duration: Duration.zero,
+                  rect: const Rect.fromLTWH(50, 40, 160, 100),
+                  globalClipRect: clipped
+                      ? const Rect.fromLTWH(0, 0, 240, 200)
+                      : null,
+                  child: GestureDetector(
+                    key: childKey,
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (_) => setState(() => clipped = false),
+                    onPanUpdate: (_) => updates += 1,
+                    onPanEnd: (_) => ends += 1,
+                    child: const ColoredBox(color: Color(0xff000000)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    addTearDown(mouse.removePointer);
+    final center = tester.getCenter(find.byKey(childKey));
+    await mouse.addPointer(location: center);
+    await mouse.down(center);
+    await mouse.moveBy(const Offset(20, 0));
+    await tester.pump();
+
+    expect(clipped, isFalse);
+    final updatesAfterClipChanged = updates;
+
+    await mouse.moveBy(const Offset(20, 0));
+    await tester.pump();
+    expect(updates, greaterThan(updatesAfterClipChanged));
+
+    await mouse.up();
+    await tester.pump();
+    expect(ends, 1);
   });
 }

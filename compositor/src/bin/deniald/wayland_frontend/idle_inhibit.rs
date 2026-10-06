@@ -7,7 +7,7 @@ use smithay::reexports::wayland_server::backend::ObjectId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::idle_inhibit::{IdleInhibitHandler, IdleInhibitManagerState};
 
-use super::{RuntimeState, WaylandFrontend, window_expects_sample};
+use super::{RuntimeState, WaylandFrontend};
 
 #[derive(Debug)]
 pub(super) struct IdleInhibitors {
@@ -74,16 +74,11 @@ impl WaylandFrontend {
             let Some(root) = self.owning_toplevel_surface(&entry.surface) else {
                 return false;
             };
-            if self.minimized_windows.contains(&root.id()) {
+            if self.surface_is_minimized(&root.id()) {
                 return false;
             }
-            self.surface_id(&root).is_some_and(|window_id| {
-                window_expects_sample(
-                    self.input_visibility_known,
-                    &self.visible_window_ids,
-                    window_id,
-                )
-            })
+            self.surface_id(&root)
+                .is_some_and(|window_id| self.window_expects_sample(window_id))
         });
         self.idle_inhibition_cached = inhibited;
         self.idle_inhibition_dirty = false;

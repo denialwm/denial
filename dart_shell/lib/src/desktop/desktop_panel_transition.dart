@@ -166,17 +166,16 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
               final panelRadius = BorderRadius.circular(theme.panelRadius);
               if (fadesInPlace) {
                 return RepaintBoundary(
-                  child: AnimatedBuilder(
-                    animation: _progress,
-                    child: widget.child,
-                    builder: (context, child) => ShellBackdropBlur(
-                      // Keep the backdrop outside the opacity save-layer. The
-                      // filter strength follows that layer so both retire in
-                      // the same frame without sampling an isolated backdrop.
+                  child: FadeTransition(
+                    opacity: _progress,
+                    child: ShellBackdropBlur(
+                      // Fade the completed material as one composited panel.
+                      // BackdropFilterLayer absorbs the inherited opacity into
+                      // its own save-layer, so it still samples the real scene.
                       blur: theme.effectivePanelOpacity < 1.0,
-                      strength: _progress.value,
                       borderRadius: panelRadius,
-                      child: Opacity(opacity: _progress.value, child: child),
+                      blendMode: BlendMode.srcOver,
+                      child: widget.child,
                     ),
                   ),
                 );

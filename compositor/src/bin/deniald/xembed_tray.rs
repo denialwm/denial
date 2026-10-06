@@ -31,6 +31,10 @@ use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 use x11rb::{COPY_DEPTH_FROM_PARENT, COPY_FROM_PARENT, CURRENT_TIME, NONE};
 
+use crate::xembed_tray_protocol::{
+    XEmbedTrayAction, XEmbedTrayCommand, XEmbedTrayEvent, XEmbedTrayEventKind, XEmbedTrayIcon,
+};
+
 const COMMAND_CAPACITY: usize = 64;
 const EVENT_CAPACITY: usize = 128;
 const MAX_ICONS: usize = 64;
@@ -43,44 +47,6 @@ const SYSTEM_TRAY_REQUEST_DOCK: u32 = 0;
 const XEMBED_EMBEDDED_NOTIFY: u32 = 0;
 const XEMBED_VERSION: u32 = 0;
 const XEMBED_MAPPED: u32 = 1;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum XEmbedTrayEventKind {
-    Added,
-    Updated,
-    Removed,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct XEmbedTrayIcon {
-    pub(super) window_id: u32,
-    pub(super) title: String,
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) rgba: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct XEmbedTrayEvent {
-    pub(super) kind: XEmbedTrayEventKind,
-    pub(super) window_id: u32,
-    pub(super) icon: Option<XEmbedTrayIcon>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum XEmbedTrayAction {
-    Activate,
-    SecondaryActivate,
-    ContextMenu,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct XEmbedTrayCommand {
-    pub(super) action: XEmbedTrayAction,
-    pub(super) window_id: u32,
-    pub(super) x: i32,
-    pub(super) y: i32,
-}
 
 #[derive(Debug)]
 pub(super) struct XEmbedTrayError(String);

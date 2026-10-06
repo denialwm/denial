@@ -20,6 +20,7 @@ enum SettingsPageId {
   layout,
   overlays,
   lockScreen,
+  fingerprint,
   audio,
   displays,
   network,
@@ -31,6 +32,7 @@ enum SettingsPageId {
 
 extension SettingsPageIdPresentation on SettingsPageId {
   String label(BuildContext context) => switch (this) {
+    SettingsPageId.fingerprint => context.l10n.fingerprintSection,
     SettingsPageId.about => context.l10n.settingsNavigationAbout,
     SettingsPageId.appearance => context.l10n.settingsNavigationAppearance,
     SettingsPageId.language => context.l10n.settingsNavigationLanguage,
@@ -51,6 +53,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
   };
 
   IconData get icon => switch (this) {
+    SettingsPageId.fingerprint => Icons.fingerprint_rounded,
     SettingsPageId.about => Icons.info_outline_rounded,
     SettingsPageId.appearance => Icons.palette_outlined,
     SettingsPageId.language => Icons.translate_rounded,
@@ -77,6 +80,7 @@ class SettingsNavigation extends StatelessWidget {
     required this.onSelected,
     required this.compact,
     this.showTouchpad = false,
+    this.showFingerprint = false,
     super.key,
   });
 
@@ -84,6 +88,7 @@ class SettingsNavigation extends StatelessWidget {
   final ValueChanged<SettingsPageId> onSelected;
   final bool compact;
   final bool showTouchpad;
+  final bool showFingerprint;
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +181,9 @@ class SettingsNavigation extends StatelessWidget {
   }
 
   Iterable<SettingsPageId> get _visiblePages => SettingsPageId.values.where(
-    (page) => page != SettingsPageId.touchpad || showTouchpad,
+    (page) =>
+        (page != SettingsPageId.touchpad || showTouchpad) &&
+        (page != SettingsPageId.fingerprint || showFingerprint),
   );
 }
 

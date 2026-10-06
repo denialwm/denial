@@ -8,6 +8,7 @@ import '../models/display_layout.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/shell_popup_placement.dart';
+import '../settings/shell_settings.dart';
 import 'desktop_overview_layout.dart';
 
 part 'desktop_workspace_controller.dart';
@@ -117,6 +118,16 @@ abstract final class DesktopMetrics {
   }
 }
 
+/// Clips a window to its owning output viewport.
+///
+/// This clip is invariant across overview, switcher, workspace, minimize, and
+/// pinned-window presentation. Only an actively dragged window may cross its
+/// owning output while the drag is in progress.
+Rect? desktopOutputClip({
+  required bool activelyDragging,
+  required Rect? outputRect,
+}) => activelyDragging ? null : outputRect;
+
 enum DesktopPanel { none, launcher, dashboard }
 
 @immutable
@@ -125,15 +136,131 @@ class DesktopOverviewState {
     required this.monitorId,
     required this.bounds,
     required this.backgroundBounds,
+    required this.selectedObjectId,
     required Map<int, Rect> frames,
   }) : frames = Map.unmodifiable(frames);
 
   final int monitorId;
   final Rect bounds;
   final Rect backgroundBounds;
+  final int selectedObjectId;
   final Map<int, Rect> frames;
 
   bool contains(int objectId) => frames.containsKey(objectId);
+
+  DesktopOverviewState copyWith({
+    int? selectedObjectId,
+    Map<int, Rect>? frames,
+  }) {
+    return DesktopOverviewState(
+      monitorId: monitorId,
+      bounds: bounds,
+      backgroundBounds: backgroundBounds,
+      selectedObjectId: selectedObjectId ?? this.selectedObjectId,
+      frames: frames ?? this.frames,
+    );
+  }
+}
+
+enum DesktopOverviewDirection { left, right, up, down }
+
+/// Finds the next overview preview in [direction] using the arranged geometry.
+///
+/// Candidates which overlap the current preview on the perpendicular axis are
+/// preferred. This keeps left/right movement within a justified row and
+/// up/down movement within a visual column before considering diagonal cards.
+int? desktopOverviewNeighbor({
+  required Map<int, Rect> frames,
+  required int fromObjectId,
+  required DesktopOverviewDirection direction,
+}) {
+  final source = frames[fromObjectId];
+  if (source == null) {
+    return null;
+  }
+
+  int? bestObjectId;
+  double? bestPerpendicularGap;
+  double? bestPrimaryDistance;
+  double? bestPerpendicularDistance;
+  for (final entry in frames.entries) {
+    if (entry.key == fromObjectId) {
+      continue;
+    }
+    final candidate = entry.value;
+    final (
+      primaryDistance,
+      perpendicularDistance,
+      perpendicularGap,
+    ) = switch (direction) {
+      DesktopOverviewDirection.left => (
+        source.center.dx - candidate.center.dx,
+        (source.center.dy - candidate.center.dy).abs(),
+        _separation(source.top, source.bottom, candidate.top, candidate.bottom),
+      ),
+      DesktopOverviewDirection.right => (
+        candidate.center.dx - source.center.dx,
+        (source.center.dy - candidate.center.dy).abs(),
+        _separation(source.top, source.bottom, candidate.top, candidate.bottom),
+      ),
+      DesktopOverviewDirection.up => (
+        source.center.dy - candidate.center.dy,
+        (source.center.dx - candidate.center.dx).abs(),
+        _separation(source.left, source.right, candidate.left, candidate.right),
+      ),
+      DesktopOverviewDirection.down => (
+        candidate.center.dy - source.center.dy,
+        (source.center.dx - candidate.center.dx).abs(),
+        _separation(source.left, source.right, candidate.left, candidate.right),
+      ),
+    };
+    if (primaryDistance <= 0.0) {
+      continue;
+    }
+    final better =
+        bestObjectId == null ||
+        perpendicularGap < bestPerpendicularGap! ||
+        (perpendicularGap == bestPerpendicularGap &&
+            (primaryDistance < bestPrimaryDistance! ||
+                (primaryDistance == bestPrimaryDistance &&
+                    (perpendicularDistance < bestPerpendicularDistance! ||
+                        (perpendicularDistance == bestPerpendicularDistance &&
+                            entry.key < bestObjectId)))));
+    if (better) {
+      bestObjectId = entry.key;
+      bestPerpendicularGap = perpendicularGap;
+      bestPrimaryDistance = primaryDistance;
+      bestPerpendicularDistance = perpendicularDistance;
+    }
+  }
+  return bestObjectId;
+}
+
+double _separation(double aStart, double aEnd, double bStart, double bEnd) {
+  if (aEnd < bStart) {
+    return bStart - aEnd;
+  }
+  if (bEnd < aStart) {
+    return aStart - bEnd;
+  }
+  return 0.0;
+}
+
+@immutable
+class DesktopWorkspaceTransition {
+  const DesktopWorkspaceTransition({
+    required this.monitorId,
+    required this.fromWorkspace,
+    required this.toWorkspace,
+    required this.serial,
+  });
+
+  final int monitorId;
+  final int fromWorkspace;
+  final int toWorkspace;
+  final int serial;
+
+  int get direction => toWorkspace >= fromWorkspace ? 1 : -1;
 }
 
 /// Flutter's canonical live placement for one native window.
@@ -153,6 +280,7 @@ class DesktopWindowPlacement {
     this.maximized = false,
     this.fullscreen = false,
     this.serverSideDecorated = true,
+    this.serverFrameWhileMaximized = false,
     this.dragging = false,
     this.layoutPreviewing = false,
     this.restoreFrame,
@@ -168,6 +296,11 @@ class DesktopWindowPlacement {
   final bool maximized;
   final bool fullscreen;
   final bool serverSideDecorated;
+
+  /// Whether the active layout keeps the shell frame around a maximized
+  /// window. Managed layouts leave breathing room around their tiles, unlike
+  /// stacking-mode maximize and true fullscreen.
+  final bool serverFrameWhileMaximized;
   final bool dragging;
 
   /// Whether this window is temporarily displaced by a managed layout drag.
@@ -175,8 +308,13 @@ class DesktopWindowPlacement {
   final Rect? restoreFrame;
   final Rect? fullscreenRestoreFrame;
 
+  bool get drawsLiveServerFrame =>
+      serverSideDecorated &&
+      !fullscreen &&
+      (!maximized || serverFrameWhileMaximized);
+
   double get frameBorder =>
-      fullscreen || !serverSideDecorated ? 0.0 : DesktopMetrics.frameBorder;
+      drawsLiveServerFrame ? DesktopMetrics.frameBorder : 0.0;
 
   Rect get contentRect => frame.deflate(frameBorder);
 
@@ -189,6 +327,7 @@ class DesktopWindowPlacement {
     bool? maximized,
     bool? fullscreen,
     bool? serverSideDecorated,
+    bool? serverFrameWhileMaximized,
     bool? dragging,
     bool? layoutPreviewing,
     Rect? restoreFrame,
@@ -206,6 +345,8 @@ class DesktopWindowPlacement {
       maximized: maximized ?? this.maximized,
       fullscreen: fullscreen ?? this.fullscreen,
       serverSideDecorated: serverSideDecorated ?? this.serverSideDecorated,
+      serverFrameWhileMaximized:
+          serverFrameWhileMaximized ?? this.serverFrameWhileMaximized,
       dragging: dragging ?? this.dragging,
       layoutPreviewing: layoutPreviewing ?? this.layoutPreviewing,
       restoreFrame: clearRestoreFrame
@@ -277,7 +418,14 @@ class DesktopWorkspaceState {
     this.panel = DesktopPanel.none,
     this.overview,
     this.inputLayoutRevision = 0,
-  }) : placements = Map.unmodifiable(placements);
+    this.workspacesEnabled = false,
+    this.workspaceCount = 4,
+    Map<int, int> activeWorkspaces = const <int, int>{},
+    Map<int, DesktopWorkspaceTransition> workspaceTransitions =
+        const <int, DesktopWorkspaceTransition>{},
+  }) : placements = Map.unmodifiable(placements),
+       activeWorkspaces = Map.unmodifiable(activeWorkspaces),
+       workspaceTransitions = Map.unmodifiable(workspaceTransitions);
 
   const DesktopWorkspaceState._({
     required this.placements,
@@ -286,6 +434,10 @@ class DesktopWorkspaceState {
     required this.panel,
     required this.overview,
     required this.inputLayoutRevision,
+    required this.workspacesEnabled,
+    required this.workspaceCount,
+    required this.activeWorkspaces,
+    required this.workspaceTransitions,
   });
 
   factory DesktopWorkspaceState.initial() {
@@ -305,10 +457,33 @@ class DesktopWorkspaceState {
   /// Advances only when state consumed by native input publication may have
   /// changed. Panel-only updates therefore do not rebuild routing maps.
   final int inputLayoutRevision;
+  final bool workspacesEnabled;
+  final int workspaceCount;
+  final Map<int, int> activeWorkspaces;
+  final Map<int, DesktopWorkspaceTransition> workspaceTransitions;
 
   bool get launcherOpen => panel == DesktopPanel.launcher;
   bool get dashboardOpen => panel == DesktopPanel.dashboard;
   bool get overviewActive => overview != null;
+
+  int activeWorkspaceFor(int monitorId) =>
+      workspacesEnabled ? activeWorkspaces[monitorId] ?? 1 : 1;
+
+  bool isPlacementOnActiveWorkspace(DesktopWindowPlacement placement) {
+    return placement.minimized ||
+        !workspacesEnabled ||
+        placement.workspaceId == activeWorkspaceFor(placement.monitorId);
+  }
+
+  bool isPlacementPresented(DesktopWindowPlacement placement) {
+    if (isPlacementOnActiveWorkspace(placement)) {
+      return true;
+    }
+    final transition = workspaceTransitions[placement.monitorId];
+    return transition != null &&
+        (placement.workspaceId == transition.fromWorkspace ||
+            placement.workspaceId == transition.toWorkspace);
+  }
 
   bool isInOverview(int objectId) => overview?.contains(objectId) ?? false;
 
@@ -323,6 +498,10 @@ class DesktopWorkspaceState {
     DesktopPanel? panel,
     DesktopOverviewState? overview,
     bool clearOverview = false,
+    bool? workspacesEnabled,
+    int? workspaceCount,
+    Map<int, int>? activeWorkspaces,
+    Map<int, DesktopWorkspaceTransition>? workspaceTransitions,
   }) {
     return DesktopWorkspaceState._(
       placements: placements == null
@@ -334,7 +513,17 @@ class DesktopWorkspaceState {
       overview: clearOverview ? null : overview ?? this.overview,
       inputLayoutRevision:
           inputLayoutRevision +
-          ((placements != null || overview != null || clearOverview) ? 1 : 0),
+          ((placements != null ||
+                  overview != null ||
+                  clearOverview ||
+                  activeWorkspaces != null ||
+                  workspaceTransitions != null)
+              ? 1
+              : 0),
+      workspacesEnabled: workspacesEnabled ?? this.workspacesEnabled,
+      workspaceCount: workspaceCount ?? this.workspaceCount,
+      activeWorkspaces: activeWorkspaces ?? this.activeWorkspaces,
+      workspaceTransitions: workspaceTransitions ?? this.workspaceTransitions,
     );
   }
 }
@@ -355,6 +544,10 @@ bool desktopWorkspaceHasSameSceneStructure(
   }
   if (left.nextZ != right.nextZ ||
       left.viewSize != right.viewSize ||
+      left.workspacesEnabled != right.workspacesEnabled ||
+      left.workspaceCount != right.workspaceCount ||
+      !mapEquals(left.activeWorkspaces, right.activeWorkspaces) ||
+      !mapEquals(left.workspaceTransitions, right.workspaceTransitions) ||
       !identical(left.overview, right.overview) ||
       left.placements.length != right.placements.length) {
     return false;
@@ -386,6 +579,7 @@ bool _desktopPlacementHasSameSceneStructure(
       left.maximized == right.maximized &&
       left.fullscreen == right.fullscreen &&
       left.serverSideDecorated == right.serverSideDecorated &&
+      left.serverFrameWhileMaximized == right.serverFrameWhileMaximized &&
       left.dragging == right.dragging &&
       left.layoutPreviewing == right.layoutPreviewing &&
       left.restoreFrame == right.restoreFrame &&

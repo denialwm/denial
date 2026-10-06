@@ -72,7 +72,7 @@ impl FlutterRuntime {
 
     pub fn drain_xembed_tray_commands(
         &mut self,
-    ) -> impl Iterator<Item = crate::xembed_tray::XEmbedTrayCommand> + '_ {
+    ) -> impl Iterator<Item = crate::xembed_tray_protocol::XEmbedTrayCommand> + '_ {
         self.wire.drain_xembed_tray_commands()
     }
 
@@ -185,14 +185,33 @@ impl FlutterRuntime {
         &mut self,
         action: wire::ShellAction,
         monitor_id: Option<i64>,
+        workspace_id: Option<u8>,
     ) -> Result<(), Box<dyn Error>> {
         let engine = self
             .host
             .as_ref()
             .expect("Flutter runtime is shutting down")
             .engine();
-        let event = self.wire.encode_shell_action(action, monitor_id)?;
+        if action == wire::ShellAction::WorkspaceChanged {
+            let monitor_id = monitor_id.ok_or("workspace action has no monitor")?;
+            let workspace_id = workspace_id.ok_or("workspace action has no workspace")?;
+            let layout = self
+                .wire
+                .update_active_workspace(monitor_id, workspace_id)?;
+            engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, layout)?;
+        }
+        let event = self
+            .wire
+            .encode_shell_action(action, monitor_id, workspace_id)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, event)?;
+        Ok(())
+    }
+
+    pub fn set_active_workspaces(
+        &mut self,
+        workspaces: impl IntoIterator<Item = (i64, u8)>,
+    ) -> Result<(), Box<dyn Error>> {
+        self.wire.set_active_workspaces(workspaces)?;
         Ok(())
     }
 
@@ -297,6 +316,7 @@ impl FlutterRuntime {
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         )?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         self.published_text_input_state = Some(state);
@@ -319,7 +339,7 @@ impl FlutterRuntime {
 
     pub fn send_xembed_tray_event(
         &mut self,
-        event: &crate::xembed_tray::XEmbedTrayEvent,
+        event: &crate::xembed_tray_protocol::XEmbedTrayEvent,
     ) -> Result<(), Box<dyn Error>> {
         let engine = self
             .host
@@ -545,6 +565,28 @@ impl FlutterRuntime {
         &mut self,
     ) -> impl Iterator<Item = crate::system_controls::BrightnessRequest> + '_ {
         self.pending_brightness_requests.drain(..)
+    }
+
+    pub fn drain_software_dimming_requests(
+        &mut self,
+    ) -> impl Iterator<Item = crate::gamma_control::SoftwareDimmingRequest> + '_ {
+        self.pending_software_dimming_requests.drain(..)
+    }
+
+    pub fn send_software_dimming_state(
+        &mut self,
+        state: crate::gamma_control::SoftwareDimmingState,
+    ) -> Result<(), Box<dyn Error>> {
+        let monitor_id = i64::try_from(state.output.0)
+            .map_err(|_| "software-dimming output id exceeds the platform packet range")?;
+        let mut packet = [0u8; 10];
+        packet[..8].copy_from_slice(&monitor_id.to_le_bytes());
+        packet[8] = (state.level.clamp(0.0, 1.0) * 100.0).round() as u8;
+        packet[9] = u8::from(state.supported);
+        self.host()
+            .engine()
+            .send_platform_message(SOFTWARE_DIMMING_STATE_CHANNEL, &packet)?;
+        Ok(())
     }
 
     pub fn drain_ui_development_commands(

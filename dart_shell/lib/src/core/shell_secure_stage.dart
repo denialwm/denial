@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../settings/settings_controller.dart';
 import '../state/shell_controller.dart';
+import '../state/shell_profile.dart';
+import '../widgets/lock/sim_pin_panel.dart';
+import '../state/lock_frame.dart';
+import '../state/fingerprint_scene.dart';
 import '../theme/motion.dart';
 import '../widgets/lock/lock_screen_layer.dart';
 import '../widgets/output_relative_translation.dart';
@@ -38,7 +42,11 @@ class ShellSecureStage extends ConsumerWidget {
             ),
           )
         : false;
-    return UnlockTransitionHost(
+    final fingerprint = ref.watch(fingerprintSceneProvider);
+    final stage = UnlockTransitionHost(
+      fingerprintBlack: fingerprint.black || fingerprint.reveal,
+      lockFrameToken: ref.watch(lockFrameRequestProvider),
+      onLockFrameLaidOut: ref.read(lockFrameRequestProvider.notifier).laidOut,
       locked: lock.locked,
       lockLayerVisible: lock.visible,
       animateLock: animateLock,
@@ -48,6 +56,9 @@ class ShellSecureStage extends ConsumerWidget {
       scene: scene,
       chrome: chrome,
     );
+    return ref.watch(shellProfileProvider) == ShellProfile.mobile
+        ? MobileSimPromptStage(child: stage)
+        : stage;
   }
 }
 
@@ -67,6 +78,9 @@ class UnlockTransitionHost extends StatefulWidget {
     this.backdrop = const ShellWallpaper(),
     this.lockLayerBuilder,
     this.animateLock = false,
+    this.fingerprintBlack = false,
+    this.lockFrameToken = 0,
+    this.onLockFrameLaidOut,
   });
 
   final bool locked;
@@ -77,6 +91,9 @@ class UnlockTransitionHost extends StatefulWidget {
   final Widget backdrop;
   final Widget Function(Animation<double> progress)? lockLayerBuilder;
   final bool animateLock;
+  final bool fingerprintBlack;
+  final int lockFrameToken;
+  final ValueChanged<int>? onLockFrameLaidOut;
 
   @override
   State<UnlockTransitionHost> createState() => _UnlockTransitionHostState();
@@ -86,6 +103,7 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   var _unlockCompletionScheduled = false;
+  var _preparedLockFrame = false;
 
   @override
   void initState() {
@@ -96,18 +114,33 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
       value: widget.lockLayerVisible ? 0.0 : 1.0,
       animationBehavior: AnimationBehavior.preserve,
     )..addStatusListener(_handleStatus);
+    _prepareLockFrame();
   }
 
   @override
   void didUpdateWidget(covariant UnlockTransitionHost oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.lockFrameToken != 0 &&
+        widget.locked &&
+        (oldWidget.lockFrameToken != widget.lockFrameToken ||
+            !oldWidget.locked)) {
+      _prepareLockFrame();
+      return;
+    }
     if (!oldWidget.locked && widget.locked) {
       _startLock();
       return;
     }
 
     if (oldWidget.locked && !widget.locked && widget.lockLayerVisible) {
-      _startUnlock();
+      if (oldWidget.fingerprintBlack || widget.fingerprintBlack) {
+        _controller
+          ..stop()
+          ..value = 1.0;
+        _scheduleUnlockCompletion();
+      } else {
+        _startUnlock();
+      }
     }
 
     if (oldWidget.lockLayerVisible && !widget.lockLayerVisible) {
@@ -131,7 +164,8 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
         ? widget.lockLayerBuilder?.call(_controller) ??
               LockScreenLayer(
                 unlockProgress: _controller,
-                animateDesktopEntrance: !widget.animateLock,
+                animateDesktopEntrance:
+                    !_preparedLockFrame && !widget.animateLock,
               )
         : null;
     return AnimatedBuilder(
@@ -152,6 +186,7 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
   }
 
   void _startLock() {
+    _preparedLockFrame = false;
     if (!widget.animateLock || MediaQuery.disableAnimationsOf(context)) {
       _controller
         ..stop()
@@ -167,6 +202,24 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
       'session_lock',
       target: 0.0,
     );
+  }
+
+  void _prepareLockFrame() {
+    final token = widget.lockFrameToken;
+    if (token == 0 || !widget.locked || !widget.lockLayerVisible) return;
+    _preparedLockFrame = true;
+    _controller
+      ..stop()
+      ..value = 0.0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          widget.locked &&
+          widget.lockLayerVisible &&
+          widget.lockFrameToken == token &&
+          _controller.value == 0.0) {
+        widget.onLockFrameLaidOut?.call(token);
+      }
+    });
   }
 
   void _startUnlock() {

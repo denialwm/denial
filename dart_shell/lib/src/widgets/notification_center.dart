@@ -82,23 +82,25 @@ class _NotificationCenterState extends ConsumerState<NotificationCenter> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              NotificationCard(
-                                notification: notification,
-                                compact: true,
+                              DesktopNotificationSwipeDismiss(
                                 onDismiss: () => controller.dismissFromHistory(
                                   notification.id,
                                 ),
-                                onDefaultAction: record.active
-                                    ? () => controller.invokeDefaultAction(
-                                        notification.id,
-                                      )
-                                    : null,
-                                onAction: record.active
-                                    ? (actionKey) => controller.invokeAction(
-                                        notification.id,
-                                        actionKey,
-                                      )
-                                    : null,
+                                child: NotificationCard(
+                                  notification: notification,
+                                  compact: true,
+                                  onDefaultAction: record.active
+                                      ? () => controller.invokeDefaultAction(
+                                          notification.id,
+                                        )
+                                      : null,
+                                  onAction: record.active
+                                      ? (actionKey) => controller.invokeAction(
+                                          notification.id,
+                                          actionKey,
+                                        )
+                                      : null,
+                                ),
                               ),
                               if (!record.active)
                                 Padding(

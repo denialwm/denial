@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_fingerprint_v1">
+  <copyright>
+    Copyright 2026 Denial contributors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="denial_fingerprint_manager_v1" version="1">
+    <description summary="privileged optical fingerprint presentation">
+      This experimental extension coordinates optical fingerprint presentation
+      with compositor-owned output power and local panel illumination. It is
+      available only to a compositor-authorized fingerprint presentation agent.
+      An application identifier or the ability to connect to Wayland is not
+      authorization. Unsupported hardware must fail rather than silently
+      substitute global maximum brightness.
+
+      Image buffers contain a presentation image, never biometric samples.
+      Authentication remains in the compositor's trusted authentication path.
+      No request in this protocol can unlock a session or assert a match.
+    </description>
+    <enum name="error">
+      <entry name="unauthorized" value="0" summary="client is not authorized"/>
+      <entry name="busy" value="1" summary="a presentation session already exists"/>
+      <entry name="invalid_sensor" value="2" summary="sensor has no configured presentation profile"/>
+    </enum>
+    <request name="destroy" type="destructor">
+      <description summary="destroy manager">Existing sessions are unaffected.</description>
+    </request>
+    <request name="get_session">
+      <description summary="create an exclusive presentation session">
+        The sensor identifier resolves to trusted compositor configuration
+        specifying the output, physical geometry and illumination requirements.
+        The compositor sends configured before accepting present. Creating a
+        session does not wake the screen or enable illumination.
+      </description>
+      <arg name="id" type="new_id" interface="denial_fingerprint_session_v1"/>
+      <arg name="sensor" type="string" summary="stable sensor profile identifier"/>
+    </request>
+  </interface>
+
+  <interface name="denial_fingerprint_session_v1" version="1">
+    <description summary="bounded fingerprint contact and illumination session">
+      Session states are configured, preparing, ready and stopping. One contact
+      is active at a time. The client coalesces repeated hardware DOWN reports
+      until UP. Every new contact uses a new, nonzero serial, increasing within
+      this session. Events refer to that serial; stale events never authorize
+      acquisition for a newer contact.
+
+      If the target output was off, the compositor wakes it with an exclusive
+      scene: opaque black with only the supplied image at the configured sensor
+      rectangle. Normal shell, applications, cursor and overlays must not appear
+      during this screen-off wake. If the output was already on, its normal UI
+      remains visible and the fingerprint image is overlaid at that rectangle.
+      Local illumination affects only the sensor region in both cases. Output
+      rotation and scale must not move the image away from the physical sensor.
+      Session lock state is preserved.
+
+      On UP, timeout, output loss, client disconnect or revocation, the
+      compositor disables local illumination and releases the presentation.
+      It may retain an opaque black scene for a short bounded idle interval
+      to permit quick retries and a smooth authenticated wake. A compositor-owned
+      copy of the presentation image may briefly remain at ordinary brightness
+      during authentication handoff and fade together with the black scene on
+      trusted unlock. This never extends acquisition readiness or client buffer
+      use beyond release. It then restores
+      the previous screen-off state unless a subsequent independent user wake
+      or successful trusted authentication superseded it. A wake
+      cancellation must never briefly expose a parked ordinary UI frame.
+    </description>
+    <enum name="error">
+      <entry name="invalid_state" value="0" summary="request is invalid in this state"/>
+      <entry name="invalid_geometry" value="1" summary="geometry differs from the trusted sensor profile"/>
+      <entry name="invalid_buffer" value="2" summary="buffer format, dimensions or import is unsupported"/>
+      <entry name="invalid_serial" value="3" summary="serial is zero, stale or reused"/>
+    </enum>
+    <enum name="stop_reason">
+      <entry name="released" value="0" summary="client withdrew the contact"/>
+      <entry name="timeout" value="1" summary="compositor presentation deadline expired"/>
+      <entry name="unavailable" value="2" summary="output, import or local illumination failed"/>
+      <entry name="revoked" value="3" summary="compositor policy revoked the session"/>
+    </enum>
+    <request name="destroy" type="destructor">
+      <description summary="end session and clean up">
+        Any active presentation is cancelled. Buffer use and local illumination
+        must terminate even if the client disconnects without this request.
+      </description>
+    </request>
+    <request name="present">
+      <description summary="report finger down with a DMA-BUF presentation image">
+        The buffer must be created through linux-dmabuf and match width and
+        height exactly. Coordinates are the rectangle's top-left in native,
+        unrotated panel pixels, not desktop logical coordinates. The rectangle
+        must match configured. The compositor validates format, dimensions,
+        output identity and device policy before using the buffer.
+
+        Ordinary DMA-BUF implicit synchronization applies. The client must not
+        modify or reuse the buffer until wl_buffer.release. It must retain the
+        wl_buffer object until release or connection teardown. An accepted
+        present does not authorize capture: wait for ready with this serial.
+
+        The compositor enforces a bounded presentation timeout independently
+        of client responsiveness. Only one present may be outstanding; await
+        stopped before beginning a new contact.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="buffer" type="object" interface="wl_buffer"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="uint"/>
+      <arg name="height" type="uint"/>
+    </request>
+    <request name="withdraw">
+      <description summary="report finger up or cancel capture">
+        Cancels this serial in preparing or ready state. Already stopped
+        serials are ignored. Zero or a serial newer than the last present is an error.
+        This request is also used after capture completes; authentication
+        results travel through the separate trusted authentication service.
+      </description>
+      <arg name="serial" type="uint"/>
+    </request>
+    <event name="configured">
+      <description summary="trusted output geometry and presentation limit">
+        The output name identifies the configured physical panel. Geometry is
+        fixed in native panel pixels regardless of desktop rotation or scale.
+        max_duration_ms bounds a single active contact, not idle session time.
+      </description>
+      <arg name="output" type="string"/>
+      <arg name="panel_width" type="uint"/>
+      <arg name="panel_height" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="uint"/>
+      <arg name="height" type="uint"/>
+      <arg name="max_duration_ms" type="uint"/>
+    </event>
+    <event name="ready">
+      <description summary="safe to acquire for this contact">
+        Sent only after the specific black-and-image frame has reached scanout,
+        local panel illumination is active and the configured settling interval
+        has elapsed. Merely importing a buffer, submitting a frame or receiving
+        a wl_surface.frame callback does not establish this readiness.
+      </description>
+      <arg name="serial" type="uint"/>
+    </event>
+    <event name="stopped">
+      <description summary="contact no longer has illumination">
+        Local illumination is off and this contact is no longer eligible for
+        acquisition. Buffer lifetime is independently indicated by release.
+        Any capture still in progress must be cancelled.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="reason" type="uint" enum="stop_reason"/>
+    </event>
+  </interface>
+</protocol>

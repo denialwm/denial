@@ -167,6 +167,8 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
       resolved = await _bridge.configureSystemBar(
         side: side,
         monitorIds: ordered,
+        systemBarThickness: previous.systemBarThickness,
+        maximizePadding: previous.maximizePadding,
       );
     } on Object {
       resolved = null;
@@ -254,14 +256,9 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     DisplayLayout native,
     DisplayLayout configured,
   ) {
-    if (_configuredSide == null ||
-        _configuredOutputNames.isEmpty ||
-        (native.systemBarSide == configured.systemBarSide &&
-            native.effectiveSystemBarMonitorIds.toSet().containsAll(
-              configured.effectiveSystemBarMonitorIds,
-            ) &&
-            native.effectiveSystemBarMonitorIds.length ==
-                configured.effectiveSystemBarMonitorIds.length)) {
+    if (configured.systemBarSide == SystemBarSide.hidden ||
+        configured.effectiveSystemBarMonitorIds.isEmpty ||
+        _sameShellConfiguration(native, configured)) {
       return;
     }
     unawaited(_sendConfiguredSystemBar(configured));
@@ -272,6 +269,8 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
       await _bridge.configureSystemBar(
         side: configured.systemBarSide,
         monitorIds: configured.effectiveSystemBarMonitorIds,
+        systemBarThickness: configured.systemBarThickness,
+        maximizePadding: configured.maximizePadding,
       );
     } on Object {
       // Persisted policy is applied locally even when the native bridge is

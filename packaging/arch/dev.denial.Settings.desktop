@@ -8,6 +8,5 @@ Exec=/usr/bin/denial-settings
 TryExec=/usr/bin/denial-settings
 Icon=preferences-system
 Terminal=false
-Categories=Settings;System;
-OnlyShowIn=Denial;
+Categories=Settings;
 StartupWMClass=dev.denial.Settings

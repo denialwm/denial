@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
+
+fail() {
+  printf 'test-denial-architecture: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_mapping() {
+  local input="$1"
+  local canonical="$2"
+  local flutter="$3"
+
+  denial_arch_configure "$input"
+  [[ "$DENIAL_ARCH" == "$canonical" ]] || fail "$input canonical mapping"
+  [[ "$DENIAL_FLUTTER_ARCH" == "$flutter" ]] || fail "$input Flutter mapping"
+  [[ "$DENIAL_FLUTTER_PLATFORM" == "linux-$flutter" ]] \
+    || fail "$input Flutter platform mapping"
+  if [[ "$flutter" == x64 ]]; then
+    [[ "$(denial_flutter_engine_target release)" == denial_host_release ]] \
+      || fail "$input release engine target mapping"
+  else
+    [[ "$(denial_flutter_engine_target release)" == denial_host_release_arm64 ]] \
+      || fail "$input release engine target mapping"
+  fi
+}
+
+for alias in x86_64 amd64 x64; do
+  assert_mapping "$alias" x86_64 x64
+done
+for alias in aarch64 arm64; do
+  assert_mapping "$alias" aarch64 arm64
+done
+
+if denial_arch_configure riscv64 2>/dev/null; then
+  fail 'unsupported architecture was accepted'
+fi
+if denial_flutter_engine_target invalid 2>/dev/null; then
+  fail 'unsupported engine mode was accepted'
+fi
+
+printf 'Architecture mappings passed.\n'

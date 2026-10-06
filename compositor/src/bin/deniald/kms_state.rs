@@ -1,11 +1,16 @@
 //! Ownership and rollback state for DRM scanouts and render-target buffers.
 
-use super::kms_render::{output_plane_state, plane_state, plane_state_for_mode};
+#[cfg(feature = "flutter")]
+use super::kms_render::output_plane_state;
+use super::kms_render::{plane_state, plane_state_for_mode};
 use super::*;
 #[cfg(feature = "flutter")]
 use denial_core::topology::{RenderOutputPlan, RenderViewId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use smithay::reexports::rustix::{io, ioctl};
 
 #[cfg(feature = "flutter")]
 use smithay::backend::egl::EGLContext;
@@ -366,34 +371,18 @@ pub(super) struct RestoreAttempt {
     pub(super) failures: Vec<String>,
 }
 
-enum AtlasFramebuffer {
-    Gbm(GbmFramebuffer),
-    Prime(PrimeFramebuffer),
-}
-
-impl AtlasFramebuffer {
-    fn handle(&self) -> framebuffer::Handle {
-        match self {
-            Self::Gbm(framebuffer) => *framebuffer.as_ref(),
-            Self::Prime(framebuffer) => framebuffer.handle,
-        }
-    }
-}
-
-/// A KMS framebuffer whose GEM handles were imported directly from dma-buf
-/// file descriptors. Display-only DRM nodes do not necessarily have a GBM
-/// backend capable of re-importing every modifier their planes can scan out;
-/// PRIME plus ADDFB2 is the kernel ABI for that split-device case.
-struct PrimeFramebuffer {
+/// Owns the KMS framebuffer independently of the allocation. GBM owns its own
+/// GEM handles; only the split-device PRIME path gives us handles to close.
+struct ScanoutFramebuffer {
     handle: framebuffer::Handle,
     drm: DrmDeviceFd,
     imported_handles: Vec<BufferHandle>,
 }
 
-impl Drop for PrimeFramebuffer {
+impl Drop for ScanoutFramebuffer {
     fn drop(&mut self) {
-        if let Err(error) = self.drm.destroy_framebuffer(self.handle) {
-            warn!(framebuffer = ?self.handle, %error, "failed to destroy PRIME scanout framebuffer");
+        if let Err(error) = close_scanout_framebuffer(&self.drm, self.handle) {
+            warn!(framebuffer = ?self.handle, %error, "failed to close scanout framebuffer");
         }
         for handle in self.imported_handles.drain(..) {
             if let Err(error) = self.drm.close_buffer(handle) {
@@ -401,6 +390,58 @@ impl Drop for PrimeFramebuffer {
             }
         }
     }
+}
+
+#[repr(C)]
+struct DrmModeCloseFb {
+    fb_id: u32,
+    pad: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<DrmModeCloseFb>() == 8);
+
+fn close_scanout_framebuffer(
+    drm: &DrmDeviceFd,
+    handle: framebuffer::Handle,
+) -> std::io::Result<()> {
+    static LEGACY_RMFB_REQUIRED: AtomicBool = AtomicBool::new(false);
+
+    if !LEGACY_RMFB_REQUIRED.load(Ordering::Relaxed) {
+        // RMFB may disable an active plane and synchronously flush the kernel's
+        // removal work, even after DRM master was released. CLOSEFB drops our
+        // ownership without that modeset: an active scanout retains its own
+        // reference until the next compositor replaces or disables it. Inactive
+        // framebuffer storage is still released immediately. Use the same rule
+        // for pool retirement, where a previous scanout can still hold a ref.
+        // drm-rs 0.14 does not yet expose DRM_IOCTL_MODE_CLOSEFB.
+        const REQUEST: ioctl::Opcode = ioctl::opcode::read_write::<DrmModeCloseFb>(b'd', 0xd0);
+        let mut request = DrmModeCloseFb {
+            fb_id: handle.into(),
+            pad: 0,
+        };
+        loop {
+            // SAFETY: the exact C-layout DRM UAPI payload is fully initialized,
+            // and both it and the descriptor outlive this synchronous call.
+            let result =
+                unsafe { ioctl::ioctl(drm, ioctl::Updater::<REQUEST, _>::new(&mut request)) };
+            match result {
+                Ok(()) => return Ok(()),
+                Err(io::Errno::INTR) => continue,
+                // Older DRM dispatch tables return EINVAL for an unknown core
+                // ioctl. The only CLOSEFB-specific EINVAL is nonzero padding,
+                // which this request never supplies. Keep old-kernel support,
+                // but report that it cannot provide the non-disabling handoff.
+                Err(io::Errno::INVAL | io::Errno::NOTTY) => {
+                    if !LEGACY_RMFB_REQUIRED.swap(true, Ordering::Relaxed) {
+                        warn!("kernel lacks DRM CLOSEFB; using legacy framebuffer removal");
+                    }
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    drm.destroy_framebuffer(handle)
 }
 
 pub(super) struct ScanoutAllocator {
@@ -473,8 +514,9 @@ impl LinearRenderBuffer {
 }
 
 pub(super) struct ScanoutBuffer {
-    // The framebuffer must be destroyed before its backing allocation.
-    framebuffer: AtlasFramebuffer,
+    // Release framebuffer ownership before its backing allocation. An active
+    // KMS plane independently pins the storage during a compositor handoff.
+    framebuffer: ScanoutFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
     render_target: Option<LinearRenderBuffer>,
@@ -494,9 +536,9 @@ impl ScanoutBuffer {
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
         let framebuffer = if cross_device {
-            AtlasFramebuffer::Prime(framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?)
+            framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?
         } else {
-            AtlasFramebuffer::Gbm(framebuffer_from_bo(drm_fd, &buffer, true)?)
+            framebuffer_from_scanout_bo(drm_fd, &buffer)?
         };
         Ok(Self {
             framebuffer,
@@ -508,7 +550,7 @@ impl ScanoutBuffer {
     }
 
     pub(super) fn framebuffer(&self) -> framebuffer::Handle {
-        self.framebuffer.handle()
+        self.framebuffer.handle
     }
 
     pub(super) fn format(&self) -> Format {
@@ -524,10 +566,46 @@ impl ScanoutBuffer {
     }
 }
 
+fn framebuffer_from_scanout_bo(
+    drm: &DrmDeviceFd,
+    buffer: &GbmBuffer,
+) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
+    // This allocator requests opaque XR24 only. Register the existing GBM
+    // handles directly: PRIME-importing them back onto the same DRM fd could
+    // return GBM's handles and incorrectly make us responsible for closing them.
+    if PlanarBuffer::format(buffer) != Fourcc::Xrgb8888 {
+        return Err("GBM scanout allocation did not preserve the requested XR24 format".into());
+    }
+    let flags = if PlanarBuffer::modifier(buffer).is_some() {
+        FbCmd2Flags::MODIFIERS
+    } else {
+        FbCmd2Flags::empty()
+    };
+    let handle = match drm.add_planar_framebuffer(buffer, flags) {
+        Ok(handle) => handle,
+        Err(error) => {
+            // Preserve Smithay's legacy ADDFB fallback for single-plane GBM
+            // allocations. XR24 has depth 24 and 32 storage bits per pixel.
+            if buffer.plane_count() > 1 {
+                return Err(error.into());
+            }
+            warn!(%error, "ADDFB2 failed for GBM scanout; trying legacy ADDFB");
+            drm.add_framebuffer(buffer, 24, 32)?
+        }
+    };
+    Ok(ScanoutFramebuffer {
+        handle,
+        drm: drm.clone(),
+        imported_handles: Vec::new(),
+    })
+}
+
+/// Display-only DRM nodes may lack GBM import support for a scanout modifier.
+/// Import GEM handles directly through PRIME and register them with ADDFB2.
 fn framebuffer_from_prime_dmabuf(
     drm: &DrmDeviceFd,
     dmabuf: &Dmabuf,
-) -> Result<PrimeFramebuffer, Box<dyn Error>> {
+) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
     let plane_count = dmabuf.num_planes();
     if plane_count == 0 || plane_count > 4 {
         return Err(format!("cannot import a dma-buf with {plane_count} planes to KMS").into());
@@ -584,7 +662,7 @@ fn framebuffer_from_prime_dmabuf(
         }
     };
 
-    Ok(PrimeFramebuffer {
+    Ok(ScanoutFramebuffer {
         handle,
         drm: drm.clone(),
         imported_handles,
@@ -916,6 +994,22 @@ impl FlutterLauncher {
         self.offscreen_blit
     }
 
+    pub(super) fn prepare_output_targets(
+        &self,
+        renderer: &GlesRenderer,
+        swapchains: &OutputSwapchains,
+        desktop_size: PixelSize,
+    ) -> Result<flutter_runtime::PreparedFlutterRenderer, Box<dyn Error>> {
+        flutter_runtime::PreparedFlutterRenderer::new(
+            renderer.egl_context(),
+            flutter_render_target_pools(swapchains),
+            desktop_size,
+            self.renderer_backend,
+            self.offscreen_blit,
+            self.events.clone(),
+        )
+    }
+
     pub(super) fn start(
         &mut self,
         renderer: &GlesRenderer,
@@ -923,6 +1017,19 @@ impl FlutterLauncher {
         scanouts: &[Scanout],
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
+    ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
+        self.start_with_targets(renderer, output_swapchains, scanouts, snapshot, atlas, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn start_with_targets(
+        &mut self,
+        renderer: &GlesRenderer,
+        output_swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        prepared: Option<flutter_runtime::PreparedFlutterRenderer>,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         self.generation = self.generation.wrapping_add(1).max(1);
         if let Err(error) = self.activate_requested_factory() {
@@ -944,6 +1051,7 @@ impl FlutterLauncher {
             .map(|scanout| OutputMode::from(scanout.output.mode).refresh)
             .max()
             .ok_or("Flutter runtime has no output refresh")?;
+        let using_prepared = prepared.is_some();
         let runtime = self.start_with_current_factory(
             renderer.egl_context(),
             flutter_render_target_pools(output_swapchains),
@@ -951,6 +1059,7 @@ impl FlutterLauncher {
             atlas,
             scanouts,
             u32::try_from(refresh_millihz)?,
+            prepared,
         );
         let mut runtime = match runtime {
             Ok(runtime) => runtime,
@@ -961,9 +1070,15 @@ impl FlutterLauncher {
                 warn!(
                     %error,
                     ?failed_mode,
-                    "custom Flutter runtime failed; restoring the packaged shell"
+                    "custom Flutter runtime failed; selecting the packaged shell"
                 );
                 self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
+                if using_prepared {
+                    // The failed engine consumed this preparation. Let the
+                    // topology transaction restore its prepared rollback
+                    // renderer; never reimport targets after old-engine teardown.
+                    return Err(error);
+                }
                 self.start_with_current_factory(
                     renderer.egl_context(),
                     flutter_render_target_pools(output_swapchains),
@@ -971,6 +1086,7 @@ impl FlutterLauncher {
                     atlas,
                     scanouts,
                     u32::try_from(refresh_millihz)?,
+                    None,
                 )?
             }
             Err(error) => return Err(error),
@@ -990,6 +1106,7 @@ impl FlutterLauncher {
         atlas: &AtlasPlan,
         scanouts: &[Scanout],
         refresh_millihz: u32,
+        prepared: Option<flutter_runtime::PreparedFlutterRenderer>,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         if let Some(scanout) = scanouts
             .iter()
@@ -1019,6 +1136,7 @@ impl FlutterLauncher {
             self.wayland_display.clone(),
             self.x11_display.clone(),
             self.output_control_socket.clone(),
+            prepared,
         )
     }
 
@@ -1133,6 +1251,24 @@ impl FlutterLauncher {
             warn!(%error, "could not publish denialctl UI state to Flutter");
         }
         (reload_requested, self.ui_development.state_snapshot())
+    }
+
+    pub(super) fn retain_runtime_after_switch_failure(
+        &mut self,
+        runtime: &mut flutter_runtime::FlutterRuntime,
+        error: &dyn std::fmt::Display,
+    ) {
+        let failed_mode = self.ui_development.desired_mode();
+        self.ui_development
+            .runtime_switch_failed_preserving_active(failed_mode, error);
+        if let Err(publication_error) = self.publish_ui_development_state(runtime) {
+            warn!(
+                %publication_error,
+                %error,
+                ?failed_mode,
+                "could not publish retained Flutter runtime after runtime switch failure"
+            );
+        }
     }
 
     fn publish_ui_development_state(
@@ -1659,6 +1795,23 @@ impl RestoreState {
 
         let mut outputs = Vec::with_capacity(scanouts.len());
         for scanout in scanouts {
+            let Some(source_framebuffer) = primary_framebuffer(drm, scanout.surface.plane())?
+            else {
+                outputs.push(SavedOutputState {
+                    id: scanout.output.id,
+                    name: scanout.output.name.clone(),
+                    original_mode: scanout.original_mode,
+                    framebuffer: None,
+                    properties: Vec::new(),
+                });
+                info!(
+                    output = scanout.output.name,
+                    crtc = ?scanout.output.crtc,
+                    plane = ?scanout.surface.plane(),
+                    "primary plane had no predecessor framebuffer"
+                );
+                continue;
+            };
             let mut properties = Vec::new();
             capture_named_properties(
                 drm,
@@ -1675,8 +1828,12 @@ impl RestoreState {
                 PLANE_PROPERTIES,
                 &mut plane_properties,
             )?;
-            let framebuffer =
-                capture_owned_framebuffer(drm, scanout.surface.plane(), &mut plane_properties)?;
+            let framebuffer = capture_owned_framebuffer(
+                drm,
+                scanout.surface.plane(),
+                source_framebuffer,
+                &mut plane_properties,
+            )?;
             properties.extend_from_slice(&plane_properties);
             outputs.push(SavedOutputState {
                 id: scanout.output.id,
@@ -1859,19 +2016,32 @@ fn capture_owned_mode_blob(
     Ok(())
 }
 
-fn capture_owned_framebuffer(
+fn primary_framebuffer(
     drm: &DrmDevice,
     plane: plane::Handle,
-    destination: &mut Vec<SavedAtomicProperty>,
-) -> Result<framebuffer::Handle, Box<dyn Error>> {
+) -> Result<Option<framebuffer::Handle>, Box<dyn Error>> {
     let fb_property = named_property(drm, plane, "FB_ID")?;
     let source_raw = drm
         .get_properties(plane)?
         .into_iter()
         .find_map(|(handle, value)| (handle == fb_property).then_some(value))
         .ok_or("primary plane has no FB_ID value")?;
-    let source = from_u32::<framebuffer::Handle>(u32::try_from(source_raw)?)
-        .ok_or("primary plane is not scanning out a framebuffer")?;
+    framebuffer_from_property_value(source_raw)
+}
+
+fn framebuffer_from_property_value(
+    value: u64,
+) -> Result<Option<framebuffer::Handle>, Box<dyn Error>> {
+    Ok(from_u32::<framebuffer::Handle>(u32::try_from(value)?))
+}
+
+fn capture_owned_framebuffer(
+    drm: &DrmDevice,
+    plane: plane::Handle,
+    source: framebuffer::Handle,
+    destination: &mut Vec<SavedAtomicProperty>,
+) -> Result<framebuffer::Handle, Box<dyn Error>> {
+    let fb_property = named_property(drm, plane, "FB_ID")?;
     let source_info = drm.get_planar_framebuffer(source)?;
     let alias_buffer = AliasedPlanarBuffer {
         size: source_info.size(),

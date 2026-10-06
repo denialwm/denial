@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 
+import '../../localization/denial_localizations.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../controllers/home_grid_layout.dart';
@@ -41,7 +43,7 @@ class HomeAppPage extends StatelessWidget {
   final double tileHeight;
   final int? draggingSourceIndex;
   final int? resizeModeIndex;
-  final ValueChanged<HomeGridItem> onLaunch;
+  final void Function(HomeGridItem item, Rect sourceRect) onLaunch;
   final void Function(
     HomeGridItem item,
     int fromIndex,
@@ -92,8 +94,12 @@ class HomeAppPage extends StatelessWidget {
       if (item == null) {
         continue;
       }
-      final cells = HomeGridLayout.cellsFor(index, item, columns: columns);
-      if (cells.every((cell) => cell >= startIndex && cell < pageEnd)) {
+      if (HomeGridLayout.itemFitsInPage(
+        index,
+        item,
+        pageSize,
+        columns: columns,
+      )) {
         anchors.add(index);
       }
     }
@@ -168,7 +174,7 @@ class _PositionedGridItem extends StatelessWidget {
   final bool hidden;
   final bool resizeActive;
   final bool resizeModeEnabled;
-  final ValueChanged<HomeGridItem> onLaunch;
+  final void Function(HomeGridItem item, Rect sourceRect) onLaunch;
   final void Function(
     HomeGridItem item,
     int fromIndex,
@@ -217,70 +223,72 @@ class _PositionedGridItem extends StatelessWidget {
       launchEnabled: !resizeModeEnabled,
       onLaunch: onLaunch,
     );
-    final tile = RepaintBoundary(child: card);
-    final child = item.resizable && resizeActive
-        ? Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(child: tile),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _ResizeFramePainter(
-                      radius: context.shellTheme.scaledRadius(8),
-                    ),
-                  ),
+    // Keep the resize handle outside this long-press recognizer. Holding a
+    // handle must not enter move mode or cancel an in-progress resize.
+    final tile = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: item.resizable
+          ? (details) => onResizeModeStart(item, index, pageSize, details)
+          : (details) => onDragStart(
+              item,
+              index,
+              pageSize,
+              details,
+              Size(width, height),
+            ),
+      onLongPressMoveUpdate: item.resizable
+          ? (details) => onResizeModeMove(
+              item,
+              index,
+              pageSize,
+              details,
+              Size(width, height),
+            )
+          : onDragUpdate,
+      onLongPressEnd: item.resizable
+          ? (_) => onResizeModeEnd()
+          : (details) => onDragEnd(details.globalPosition),
+      onLongPressCancel: item.resizable
+          ? onResizeModeEnd
+          : () => onDragEnd(null),
+      child: hidden ? const SizedBox.shrink() : RepaintBoundary(child: card),
+    );
+    final child = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(child: tile),
+        if (!hidden && item.resizable && resizeActive) ...[
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _ResizeFramePainter(
+                  radius: context.shellTheme.scaledRadius(8),
                 ),
               ),
-              Align(
-                alignment: Alignment.bottomRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 4, bottom: 4),
-                  child: _ResizeHandle(
-                    onPanStart: (details) =>
-                        onResizeStart(item, index, pageSize, details),
-                    onPanUpdate: onResizeUpdate,
-                    onPanEnd: onResizeEnd,
-                  ),
-                ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4, bottom: 4),
+              child: _ResizeHandle(
+                onPanStart: (details) =>
+                    onResizeStart(item, index, pageSize, details),
+                onPanUpdate: onResizeUpdate,
+                onPanEnd: onResizeEnd,
               ),
-            ],
-          )
-        : tile;
+            ),
+          ),
+        ],
+      ],
+    );
 
     return Positioned(
       left: column * (tileWidth + gap),
       top: row * (tileHeight + gap),
       width: width,
       height: height,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPressStart: item.resizable
-            ? (details) => onResizeModeStart(item, index, pageSize, details)
-            : (details) => onDragStart(
-                item,
-                index,
-                pageSize,
-                details,
-                Size(width, height),
-              ),
-        onLongPressMoveUpdate: item.resizable
-            ? (details) => onResizeModeMove(
-                item,
-                index,
-                pageSize,
-                details,
-                Size(width, height),
-              )
-            : onDragUpdate,
-        onLongPressEnd: item.resizable
-            ? (_) => onResizeModeEnd()
-            : (details) => onDragEnd(details.globalPosition),
-        onLongPressCancel: item.resizable
-            ? onResizeModeEnd
-            : () => onDragEnd(null),
-        child: hidden ? const SizedBox.shrink() : child,
-      ),
+      child: child,
     );
   }
 }
@@ -302,18 +310,6 @@ class _ResizeFramePainter extends CustomPainter {
     );
     final outline = rect.deflate(3);
     canvas.drawRRect(outline, border);
-
-    final corner = Paint()
-      ..color = ShellMediaColors.lightForeground
-      ..style = PaintingStyle.fill;
-    for (final offset in [
-      outline.outerRect.topLeft,
-      outline.outerRect.topRight,
-      outline.outerRect.bottomLeft,
-      outline.outerRect.bottomRight,
-    ]) {
-      canvas.drawCircle(offset, 7, corner);
-    }
   }
 
   @override
@@ -335,33 +331,39 @@ class _ResizeHandle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanStart: onPanStart,
-      onPanUpdate: onPanUpdate,
-      onPanEnd: (_) => onPanEnd(),
-      onPanCancel: onPanEnd,
-      onLongPressStart: (_) {},
-      onLongPressEnd: (_) {},
-      onLongPressCancel: () {},
-      child: SizedBox.square(
-        dimension: 64,
-        child: Align(
-          alignment: Alignment.bottomRight,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: ShellMediaColors.lightForeground.withValues(alpha: 0.87),
-              borderRadius: context.shellTheme.borderRadius(16),
-              border: Border.all(
-                color: ShellMediaColors.darkSurface.withValues(alpha: 0.54),
-              ),
-            ),
-            child: const SizedBox.square(
-              dimension: 56,
-              child: Icon(
-                Icons.open_in_full_rounded,
-                size: 23,
-                color: ShellMediaColors.darkSurface,
+    return Semantics(
+      label: context.l10n.homeResizeWidget,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeUpLeftDownRight,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          dragStartBehavior: DragStartBehavior.down,
+          onPanStart: onPanStart,
+          onPanUpdate: onPanUpdate,
+          onPanEnd: (_) => onPanEnd(),
+          onPanCancel: onPanEnd,
+          child: SizedBox.square(
+            dimension: 80,
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: ShellMediaColors.lightForeground.withValues(
+                    alpha: 0.87,
+                  ),
+                  borderRadius: context.shellTheme.borderRadius(16),
+                  border: Border.all(
+                    color: ShellMediaColors.darkSurface.withValues(alpha: 0.54),
+                  ),
+                ),
+                child: const SizedBox.square(
+                  dimension: 56,
+                  child: Icon(
+                    Icons.open_in_full_rounded,
+                    size: 23,
+                    color: ShellMediaColors.darkSurface,
+                  ),
+                ),
               ),
             ),
           ),

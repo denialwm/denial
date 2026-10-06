@@ -42,6 +42,7 @@ import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
 import '../state/screenshot_selection.dart';
 import '../state/shell_controller.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
@@ -67,6 +68,7 @@ import '../wallpaper/widgets/wallpaper_selector_surface.dart';
 import 'desktop_overview_preview_interaction.dart';
 import 'desktop_audio_device_dropdown.dart';
 import 'desktop_overview_layout.dart';
+import 'desktop_overview_keyboard.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_home_layout.dart';
 import 'desktop_minimize_layer_handoff.dart';
@@ -130,9 +132,7 @@ class _DesktopSceneWindows {
   // windows. Each keyed frame and popup layer selects its own current window.
   _DesktopSceneWindows(List<DenialWindow> windows)
     : windows = List<DenialWindow>.unmodifiable(
-        windows.where(
-          (window) => window.isUserApp || window.isInputMethodPopup,
-        ),
+        windows.where((window) => window.isUserApp || window.isPopupSurface),
       );
 
   final List<DenialWindow> windows;
@@ -190,7 +190,7 @@ class _DesktopSceneWorkspace {
 
 typedef _DesktopSceneTopology = ({
   Map<int, DenialWindow> windowsById,
-  List<DenialWindow> inputMethodPopups,
+  List<DenialWindow> popupSurfaces,
   List<DesktopWindowPlacement> placements,
   int topZ,
 });
@@ -224,6 +224,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   Timer? _wallpaperOpenTimer;
   Timer? _windowSwitcherHoldTimer;
   Timer? _windowSwitcherCleanupTimer;
+  final Map<int, Timer> _workspaceTransitionTimers = <int, Timer>{};
   final FocusNode _applicationSearchFocusNode = FocusNode(
     debugLabel: 'desktop-application-search',
   );
@@ -257,6 +258,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     _wallpaperOpenTimer?.cancel();
     _windowSwitcherHoldTimer?.cancel();
     _windowSwitcherCleanupTimer?.cancel();
+    for (final timer in _workspaceTransitionTimers.values) {
+      timer.cancel();
+    }
+    _workspaceTransitionTimers.clear();
     unawaited(_shellActionSubscription.cancel());
     _applicationSearchFocusNode.dispose();
     super.dispose();
@@ -271,6 +276,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       case DenialShellAction.overview:
         _cancelWindowSwitcher();
         _toggleOverview(event.monitorId);
+      case DenialShellAction.focusLeft:
+        _moveOverviewSelection(DesktopOverviewDirection.left);
+      case DenialShellAction.focusRight:
+        _moveOverviewSelection(DesktopOverviewDirection.right);
+      case DenialShellAction.focusUp:
+        _moveOverviewSelection(DesktopOverviewDirection.up);
+      case DenialShellAction.focusDown:
+        _moveOverviewSelection(DesktopOverviewDirection.down);
       case DenialShellAction.windowSwitcherNext:
         _cycleWindowSwitcher(
           event.monitorId,
@@ -305,7 +318,35 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         unawaited(_showWallpaperSelector());
       case DenialShellAction.openSettings:
         _openSettings();
+      case DenialShellAction.workspaceChanged:
+        final monitorId = event.monitorId;
+        final workspaceId = event.workspaceId;
+        if (monitorId != null && workspaceId != null) {
+          _workspaceChanged(monitorId, workspaceId);
+        }
     }
+  }
+
+  void _workspaceChanged(int monitorId, int workspaceId) {
+    final controller = ref.read(desktopWorkspaceProvider.notifier);
+    controller.applyWorkspaceChanged(monitorId, workspaceId);
+    final transition = ref
+        .read(desktopWorkspaceProvider)
+        .workspaceTransitions[monitorId];
+    _workspaceTransitionTimers.remove(monitorId)?.cancel();
+    if (transition == null) {
+      return;
+    }
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _workspaceTransitionTimers[monitorId] = Timer(
+      reduceMotion ? Duration.zero : Motion.workspaceSwitch,
+      () {
+        _workspaceTransitionTimers.remove(monitorId);
+        if (mounted) {
+          controller.finishWorkspaceTransition(monitorId, transition.serial);
+        }
+      },
+    );
   }
 
   void _toggleClipboardTray(int? monitorId) {
@@ -520,7 +561,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final workspaceState = ref.read(desktopWorkspaceProvider);
     final workspace = ref.read(desktopWorkspaceProvider.notifier);
     if (workspaceState.overviewActive) {
-      workspace.closeOverview();
+      _activateOverviewSelection();
       return;
     }
 
@@ -547,7 +588,36 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       bounds: target.bounds,
       backgroundBounds: target.backgroundBounds,
       objectIds: target.objectIds,
+      selectedObjectId: shellState.foregroundObjectId,
     );
+  }
+
+  void _moveOverviewSelection(DesktopOverviewDirection direction) {
+    final moved = ref
+        .read(desktopWorkspaceProvider.notifier)
+        .moveOverviewSelection(direction);
+    if (moved) {
+      ref.read(hapticsServiceProvider).pulse();
+    }
+  }
+
+  void _activateOverviewSelection() {
+    final overview = ref.read(desktopWorkspaceProvider).overview;
+    if (overview == null) {
+      return;
+    }
+    final selectedObjectId = overview.selectedObjectId;
+    for (final window in ref.read(shellControllerProvider).openAppWindows) {
+      if (window.objectId == selectedObjectId) {
+        _activateWindow(window);
+        return;
+      }
+    }
+    ref.read(desktopWorkspaceProvider.notifier).closeOverview();
+  }
+
+  void _dismissOverview() {
+    ref.read(desktopWorkspaceProvider.notifier).closeOverview();
   }
 
   void _openLauncher() {
@@ -641,13 +711,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   void _openSettingsPage(SettingsPageId? page) {
     final environment = ref.read(startupEnvironmentProvider);
-    if (environment.flag('DENIA_EMBED_SETTINGS')) {
-      if (page != null) {
-        ref.read(settingsPageOpenRequestProvider.notifier).request(page);
-      }
-      _launchLocalApp(denialSettingsApplication);
-      return;
-    }
     _closePanels();
     for (final window in ref.read(shellControllerProvider).openAppWindows) {
       if (isDenialSettingsApplicationId(window.appId)) {
@@ -660,7 +723,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     }
     final binary = environment['DENIAL_SETTINGS_BINARY']?.trim();
     final executable = binary == null || binary.isEmpty
-        ? '/usr/bin/denial-settings'
+        ? 'denial-settings'
         : binary;
     ref.read(denialBridgeProvider).launchApplication(<String>[
       executable,
@@ -829,6 +892,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           ),
         )
         .windows;
+    final layerSurfaces = ref.watch(
+      shellControllerProvider.select((state) => state.layerSurfaces),
+    );
     final animations = ref.watch(
       shellSettingsProvider.select((settings) => settings.animations),
     );
@@ -839,12 +905,12 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     );
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
     final nativeDisplayLayout = ref.watch(displayLayoutProvider);
-    // DENIA_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
+    // DENIAL_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
     // (no native bridge) while still rendering layout-dependent chrome such
     // as the system bar, for styling work without restarting deniald.
     final displayLayout =
         nativeDisplayLayout ??
-        (ref.watch(startupEnvironmentProvider).flag('DENIA_SHELL_DEV_LAYOUT')
+        (ref.watch(startupEnvironmentProvider).flag('DENIAL_SHELL_DEV_LAYOUT')
             ? DisplayLayout.fallback(
                 MediaQuery.sizeOf(context),
                 MediaQuery.devicePixelRatioOf(context),
@@ -861,43 +927,55 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       child: ColoredBox(
         color: context.shellColors.background,
         child: LayoutBuilder(
-          builder: (context, constraints) => _DesktopScene(
-            viewSize: constraints.biggest,
-            windows: windows,
-            desktop: desktop,
-            closeEffect: animations.windowCloseEffect,
-            minimizedWindowPlacement: minimizedWindowPlacement,
-            panelTravel: animations.panelTravel,
-            panelDurationScale: animations.durationScale,
-            windowSwitcher: windowSwitcher,
-            displayLayout: displayLayout,
-            frameTimingOptions: ref.watch(shellFrameTimingOptionsProvider),
-            wallpaperSelectorVisible: wallpaperSelectorVisible,
-            shellOutputRect: shellOutput?.logicalRect,
-            mainOutputRect: mainOutput?.logicalRect,
-            applicationSearchFocusNode: _applicationSearchFocusNode,
-            onOpenLauncher: _openLauncher,
-            onDismissLauncher: _closePanels,
-            onOpenDashboard: _openDashboard,
-            onOpenWallpaperSelector: _openWallpaperSelector,
-            onCloseWallpaperSelector: _closeWallpaperSelector,
-            onOpenAppVolumeManager: _openAppVolumeManager,
-            onOpenSettings: _openSettings,
-            onOpenPowerSettings: _openPowerSettings,
-            onCancelPanelClose: _cancelPanelClose,
-            onSchedulePanelClose: _schedulePanelClose,
-            onPanelOpened: _panelHoverController.openingCompleted,
-            onLaunchApp: _launchApp,
-            onLaunchLocalApp: _launchLocalApp,
-            onActivateWindow: _activateWindow,
-            onOverviewBarrierTap: _handleOverviewBarrierTap,
-            onBeginOverviewDrag: _beginOverviewDrag,
-            onUpdateOverviewDrag: _updateOverviewDrag,
-            onEndOverviewDrag: _endOverviewDrag,
-            onCancelOverviewDrag: _cancelOverviewDrag,
-            onCloseLeaseComplete: ref
-                .read(denialBridgeProvider)
-                .completeWindowClose,
+          builder: (context, constraints) => DesktopOverviewKeyboard(
+            active: desktop.overviewActive,
+            onNavigate: _moveOverviewSelection,
+            onActivate: _activateOverviewSelection,
+            onDismiss: _dismissOverview,
+            child: _DesktopScene(
+              viewSize: constraints.biggest,
+              windows: windows,
+              layerSurfaces: layerSurfaces,
+              desktop: desktop,
+              closeEffect: animations.windowCloseEffect,
+              minimizedWindowPlacement: minimizedWindowPlacement,
+              panelTravel: animations.panelTravel,
+              panelDurationScale: animations.durationScale,
+              windowSwitcher: windowSwitcher,
+              displayLayout: displayLayout,
+              showFrameTimingOverlay: ref.watch(
+                shellFrameTimingOverlayProvider,
+              ),
+              wallpaperSelectorVisible: wallpaperSelectorVisible,
+              shellOutputRect: shellOutput?.logicalRect,
+              mainOutputRect: mainOutput?.logicalRect,
+              applicationSearchFocusNode: _applicationSearchFocusNode,
+              onOpenLauncher: _openLauncher,
+              onDismissLauncher: _closePanels,
+              onOpenDashboard: _openDashboard,
+              onOpenWallpaperSelector: _openWallpaperSelector,
+              onCloseWallpaperSelector: _closeWallpaperSelector,
+              onOpenAppVolumeManager: _openAppVolumeManager,
+              onOpenSettings: _openSettings,
+              onOpenPowerSettings: _openPowerSettings,
+              onCancelPanelClose: _cancelPanelClose,
+              onSchedulePanelClose: _schedulePanelClose,
+              onPanelOpened: _panelHoverController.openingCompleted,
+              onLaunchApp: _launchApp,
+              onLaunchLocalApp: _launchLocalApp,
+              onActivateWindow: _activateWindow,
+              onCloseWindow: ref
+                  .read(shellControllerProvider.notifier)
+                  .closeWindow,
+              onOverviewBarrierTap: _handleOverviewBarrierTap,
+              onBeginOverviewDrag: _beginOverviewDrag,
+              onUpdateOverviewDrag: _updateOverviewDrag,
+              onEndOverviewDrag: _endOverviewDrag,
+              onCancelOverviewDrag: _cancelOverviewDrag,
+              onCloseLeaseComplete: ref
+                  .read(denialBridgeProvider)
+                  .completeWindowClose,
+            ),
           ),
         ),
       ),

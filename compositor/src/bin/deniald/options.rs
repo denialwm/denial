@@ -12,6 +12,8 @@ use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
 #[cfg(feature = "flutter")]
 use denial_flutter_engine::RendererBackend;
 
+use super::output_topology::ScrollingLayoutAxis;
+
 const DEFAULT_DEVICE: &str = "/dev/dri/by-path/pci-0000:0a:00.0-card";
 const MAX_OUTPUT_CONFIG_BYTES: usize = 64 * 1024;
 const MAX_CONFIGURED_OUTPUTS: usize = 128;
@@ -22,9 +24,9 @@ const MANAGED_OUTPUT_CONFIG_HEADER: &str = "# Output settings managed by Denial 
 static OUTPUT_CONFIG_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub(super) const SIMULATED_HOTPLUG_GAP_FRAMES: u64 = 30;
 const DEFAULT_SYSTEM_BAR_THICKNESS: f64 = 32.0;
-const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
+pub(super) const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
 const DEFAULT_MAXIMIZE_PADDING: f64 = 10.0;
-const MAX_MAXIMIZE_PADDING: f64 = 256.0;
+pub(super) const MAX_MAXIMIZE_PADDING: f64 = 256.0;
 const SYSTEM_BAR_SPEC_HELP: &str =
     "system bar must use SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden";
 
@@ -114,6 +116,7 @@ pub(super) struct Options {
     pub(super) refresh_millihz: BTreeMap<String, u32>,
     pub(super) scales_120: BTreeMap<String, u32>,
     pub(super) transforms: BTreeMap<String, OutputTransform>,
+    pub(super) scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
     pub(super) vrr_outputs: BTreeSet<String>,
     pub(super) disabled_outputs: BTreeSet<String>,
     pub(super) next_positions: BTreeMap<String, LogicalPoint>,
@@ -121,9 +124,11 @@ pub(super) struct Options {
     pub(super) rescan_at_frame: Option<u64>,
     pub(super) simulate_hotplug_at_frame: Option<u64>,
     pub(super) wayland: bool,
+    pub(super) xwayland: bool,
     pub(super) flutter_bundle: Option<PathBuf>,
     #[cfg(feature = "flutter")]
     pub(super) flutter_renderer: RendererBackend,
+    pub(super) software_rendering: bool,
     pub(super) flutter_offscreen_blit: bool,
     pub(super) flutter_debug_bundle: Option<PathBuf>,
     pub(super) flutter_ui_workspace: Option<PathBuf>,
@@ -154,6 +159,7 @@ impl Options {
             refresh_millihz: BTreeMap::new(),
             scales_120: BTreeMap::new(),
             transforms: BTreeMap::new(),
+            scrolling_layout_axes: BTreeMap::new(),
             vrr_outputs: BTreeSet::new(),
             disabled_outputs: BTreeSet::new(),
             next_positions: BTreeMap::new(),
@@ -161,9 +167,11 @@ impl Options {
             rescan_at_frame: None,
             simulate_hotplug_at_frame: None,
             wayland: false,
+            xwayland: false,
             flutter_bundle: None,
             #[cfg(feature = "flutter")]
             flutter_renderer: RendererBackend::default(),
+            software_rendering: false,
             flutter_offscreen_blit: false,
             flutter_debug_bundle: None,
             flutter_ui_workspace: None,
@@ -189,6 +197,7 @@ impl Options {
         let mut refresh_millihz = BTreeMap::new();
         let mut scales_120 = BTreeMap::new();
         let mut transforms = BTreeMap::new();
+        let mut scrolling_layout_axes = BTreeMap::new();
         let mut vrr_outputs = BTreeSet::new();
         let mut disabled_outputs = BTreeSet::new();
         let mut next_positions = BTreeMap::new();
@@ -196,9 +205,11 @@ impl Options {
         let mut rescan_at_frame = None;
         let mut simulate_hotplug_at_frame = None;
         let mut wayland = false;
+        let mut xwayland = cfg!(feature = "xwayland");
         let mut flutter_bundle = None;
         #[cfg(feature = "flutter")]
         let mut flutter_renderer = None;
+        let mut software_rendering = false;
         let mut flutter_offscreen_blit = false;
         let mut flutter_debug_bundle = None;
         let mut flutter_ui_workspace = None;
@@ -279,6 +290,7 @@ impl Options {
                     simulate_hotplug_at_frame = Some(frame);
                 }
                 "--wayland" => wayland = true,
+                "--no-xwayland" => xwayland = false,
                 "--start-locked" => start_locked = true,
                 "--flutter-bundle" => {
                     flutter_bundle = Some(PathBuf::from(
@@ -296,6 +308,7 @@ impl Options {
                             .parse()?,
                     );
                 }
+                "--software-rendering" => software_rendering = true,
                 "--flutter-offscreen-blit" => flutter_offscreen_blit = true,
                 "--flutter-debug-bundle" => {
                     flutter_debug_bundle = Some(PathBuf::from(
@@ -334,8 +347,10 @@ impl Options {
                          [--rescan-at-frame N] \
                          [--simulate-hotplug-at-frame N] \
                          [--wayland] \
+                         [--no-xwayland] \
                          [--flutter-bundle PATH] \
                          [--flutter-renderer skia|impeller] \
+                         [--software-rendering] \
                          [--flutter-offscreen-blit] \
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
@@ -383,6 +398,7 @@ impl Options {
             refresh_millihz = configured.refresh_millihz;
             scales_120 = configured.scales_120;
             transforms = configured.transforms;
+            scrolling_layout_axes = configured.scrolling_layout_axes;
             vrr_outputs = configured.vrr_outputs;
             disabled_outputs = configured.disabled_outputs;
             system_bar = configured.system_bar;
@@ -470,6 +486,7 @@ impl Options {
             refresh_millihz,
             scales_120,
             transforms,
+            scrolling_layout_axes,
             vrr_outputs,
             disabled_outputs,
             next_positions,
@@ -477,9 +494,11 @@ impl Options {
             rescan_at_frame,
             simulate_hotplug_at_frame,
             wayland,
+            xwayland,
             flutter_bundle,
             #[cfg(feature = "flutter")]
             flutter_renderer: flutter_renderer.unwrap_or_default(),
+            software_rendering,
             flutter_offscreen_blit,
             flutter_debug_bundle,
             flutter_ui_workspace,
@@ -602,6 +621,7 @@ struct OutputConfig {
     refresh_millihz: BTreeMap<String, u32>,
     scales_120: BTreeMap<String, u32>,
     transforms: BTreeMap<String, OutputTransform>,
+    scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
     vrr_outputs: BTreeSet<String>,
     disabled_outputs: BTreeSet<String>,
     system_bar: Option<SystemBarOptions>,
@@ -778,6 +798,26 @@ fn format_output_transform(transform: OutputTransform) -> &'static str {
     }
 }
 
+fn parse_scrolling_layout_axis_entry(
+    value: &str,
+) -> Result<(String, ScrollingLayoutAxis), Box<dyn Error>> {
+    let mut fields = value.split(',').map(str::trim);
+    let name = fields
+        .next()
+        .filter(|name| !name.is_empty())
+        .ok_or("scrolling layout axis must use scrolling_axis=NAME,auto|horizontal|vertical")?;
+    let axis = fields
+        .next()
+        .and_then(ScrollingLayoutAxis::from_settings_name)
+        .ok_or("scrolling layout axis must use scrolling_axis=NAME,auto|horizontal|vertical")?;
+    if fields.next().is_some() {
+        return Err(
+            "scrolling layout axis must use scrolling_axis=NAME,auto|horizontal|vertical".into(),
+        );
+    }
+    Ok((name.to_owned(), axis))
+}
+
 fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
     let mut config = OutputConfig::default();
     for (index, raw_line) in contents.lines().enumerate() {
@@ -888,6 +928,26 @@ fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
             config.transforms.insert(name, transform);
             continue;
         }
+        if let Some((key, spec)) = line.split_once('=')
+            && key.trim() == "scrolling_axis"
+        {
+            let (name, axis) = parse_scrolling_layout_axis_entry(spec)
+                .map_err(|error| format!("line {}: {error}", index + 1))?;
+            if config.scrolling_layout_axes.contains_key(&name) {
+                return Err(format!(
+                    "line {}: duplicate scrolling layout axis for output {name}",
+                    index + 1
+                ));
+            }
+            if config.scrolling_layout_axes.len() == MAX_CONFIGURED_OUTPUTS {
+                return Err(format!(
+                    "line {}: output config exceeds the {MAX_CONFIGURED_OUTPUTS}-output scrolling layout axis limit",
+                    index + 1
+                ));
+            }
+            config.scrolling_layout_axes.insert(name, axis);
+            continue;
+        }
         if let Some((key, output)) = line.split_once('=')
             && key.trim() == "disabled"
         {
@@ -963,6 +1023,7 @@ pub(super) struct PersistedOutput {
     pub(super) refresh_millihz: u32,
     pub(super) scale_120: u32,
     pub(super) transform: OutputTransform,
+    pub(super) scrolling_layout_axis: ScrollingLayoutAxis,
     pub(super) adaptive_sync: bool,
 }
 
@@ -1255,6 +1316,13 @@ fn render_persisted_output_config(
                 format_output_transform(output.transform)
             ));
         }
+        if output.scrolling_layout_axis != ScrollingLayoutAxis::Auto {
+            lines.push(format!(
+                "scrolling_axis={},{}",
+                output.name,
+                output.scrolling_layout_axis.settings_name()
+            ));
+        }
         if output.adaptive_sync {
             lines.push(format!("vrr={}", output.name));
         }
@@ -1320,7 +1388,7 @@ fn output_directive_name(raw_line: &str) -> Option<&str> {
     match key {
         "primary" | "system_bar" | "maximize_padding" => None,
         "disabled" | "vrr" => Some(value.trim()),
-        "mode" | "scale" | "transform" => value.split(',').next().map(str::trim),
+        "mode" | "scale" | "transform" | "scrolling_axis" => value.split(',').next().map(str::trim),
         _ => Some(key),
     }
 }
@@ -1334,4 +1402,91 @@ fn format_output_scale(scale_120: u32) -> String {
         value.pop();
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use denial_core::topology::OutputTransform;
+
+    use super::{Options, PersistedOutput, parse_output_config, render_persisted_output_config};
+    use crate::output_topology::ScrollingLayoutAxis;
+
+    #[test]
+    fn software_rendering_is_an_explicit_compositor_option() {
+        let default = Options::parse_from(Vec::<String>::new()).unwrap();
+        let software = Options::parse_from(["--software-rendering".to_owned()]).unwrap();
+
+        assert!(!default.software_rendering);
+        assert!(software.software_rendering);
+    }
+
+    #[test]
+    fn xwayland_defaults_to_compiled_support_and_can_be_disabled() {
+        let default = Options::parse_from(Vec::<String>::new()).unwrap();
+        let disabled = Options::parse_from(["--no-xwayland".to_owned()]).unwrap();
+
+        assert_eq!(default.xwayland, cfg!(feature = "xwayland"));
+        assert!(!disabled.xwayland);
+    }
+
+    #[test]
+    fn output_config_parses_per_output_scrolling_axes() {
+        let config = parse_output_config(
+            "DP-1=0,0\nscrolling_axis=DP-1,horizontal\nscrolling_axis=DP-2,auto\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.scrolling_layout_axes.get("DP-1"),
+            Some(&ScrollingLayoutAxis::Horizontal),
+        );
+        assert_eq!(
+            config.scrolling_layout_axes.get("DP-2"),
+            Some(&ScrollingLayoutAxis::Auto),
+        );
+        assert!(parse_output_config("DP-1=0,0\nscrolling_axis=DP-1,diagonal\n").is_err());
+    }
+
+    #[test]
+    fn persisted_output_config_writes_only_explicit_scrolling_axes() {
+        let outputs = [
+            PersistedOutput {
+                name: "DP-1".to_owned(),
+                enabled: true,
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_millihz: 60_000,
+                scale_120: 120,
+                transform: OutputTransform::Normal,
+                scrolling_layout_axis: ScrollingLayoutAxis::Horizontal,
+                adaptive_sync: false,
+            },
+            PersistedOutput {
+                name: "DP-2".to_owned(),
+                enabled: true,
+                x: 1920,
+                y: 0,
+                width: 1920,
+                height: 1080,
+                refresh_millihz: 60_000,
+                scale_120: 120,
+                transform: OutputTransform::Normal,
+                scrolling_layout_axis: ScrollingLayoutAxis::Auto,
+                adaptive_sync: false,
+            },
+        ];
+
+        let rendered = render_persisted_output_config(
+            "scrolling_axis=DP-1,vertical\nscrolling_axis=UNPLUGGED,vertical\n",
+            &outputs,
+            None,
+        )
+        .unwrap();
+
+        assert!(rendered.contains("scrolling_axis=DP-1,horizontal"));
+        assert!(!rendered.contains("scrolling_axis=DP-2"));
+        assert!(rendered.contains("scrolling_axis=UNPLUGGED,vertical"));
+    }
 }

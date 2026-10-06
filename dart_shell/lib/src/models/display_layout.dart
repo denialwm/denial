@@ -21,6 +21,7 @@ class DisplayOutput {
     required this.pixelSize,
     required this.scale,
     required this.refreshRate,
+    this.activeWorkspace = 1,
   });
 
   final int monitorId;
@@ -29,6 +30,7 @@ class DisplayOutput {
   final Size pixelSize;
   final double scale;
   final double refreshRate;
+  final int activeWorkspace;
 }
 
 @immutable

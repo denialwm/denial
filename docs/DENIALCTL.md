@@ -36,6 +36,12 @@ sudo pacman -S denial-ui-development
 denialctl ui setup
 ```
 
+Installations whose executables are outside `/usr/bin` can set
+`DENIAL_CONTROL_TOOL` to the `denialctl` path and
+`DENIAL_DEVELOPMENT_TOOL` to the `denial-ui` path. The shell uses both
+overrides for its setup action, and `denialctl` uses the development-tool
+override when it prepares the workspace.
+
 The default source root is `~/DenialUI`; pass an explicit destination to
 `ui setup` when preferred. Initial setup clones the branch or release recorded
 by the package from GitHub and rejects it unless its commit matches the

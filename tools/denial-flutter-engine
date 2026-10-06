@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
+denial_arch_configure
 SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
 CACHE_SCHEMA='2'
 CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/flutter-engine}"
@@ -26,13 +29,35 @@ elif ((AVAILABLE_CPUS > 2)); then
 else
   DEFAULT_BUILD_JOBS=1
 fi
+if [[ "$DENIAL_ARCH" == aarch64 ]] && ((DEFAULT_BUILD_JOBS > 10)); then
+  DEFAULT_BUILD_JOBS=10
+fi
 BUILD_JOBS="${DENIAL_FLUTTER_ENGINE_JOBS:-$DEFAULT_BUILD_JOBS}"
 MODES=(release debug profile)
 ARTIFACT_STAGING=''
+if [[ "$DENIAL_FLUTTER_ARCH" == x64 ]]; then
+  NATIVE_TOOLCHAIN_JOBS=16
+  GN_ARCH_ARGS=()
+else
+  NATIVE_TOOLCHAIN_JOBS=4
+  GN_ARCH_ARGS=(--linux "--linux-cpu=$DENIAL_FLUTTER_ARCH")
+fi
+NATIVE_RELEASE_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
 
 fail() {
   printf 'denial-flutter-engine: %s\n' "$*" >&2
   exit 1
+}
+
+install_legacy_denial_environment_aliases() {
+  local canonical
+  local legacy
+  while IFS= read -r canonical; do
+    [[ -n "$canonical" ]] || continue
+    legacy="DENIA_${canonical#DENIAL_}"
+    printf -v "$legacy" '%s' "${!canonical}"
+    export "$legacy"
+  done < <(compgen -e -- DENIAL_)
 }
 
 if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
@@ -118,6 +143,10 @@ lock_value() {
 
 file_sha256() {
   sha256sum "$1" | awk '{ print $1 }'
+}
+
+engine_target() {
+  denial_flutter_engine_target "$1"
 }
 
 write_build_id_note() {
@@ -209,6 +238,34 @@ normalize_generated_args() {
   local generated_job_count
   local normalized="${generated}.denial-normalized.$$"
 
+  if [[ ! -f "$expected" ]]; then
+    grep -Fqx 'host_os = "linux"' "$generated" \
+      || fail "$mode generated args do not target a Linux host"
+    grep -Fqx "host_cpu = \"$DENIAL_FLUTTER_ARCH\"" "$generated" \
+      || fail "$mode generated args do not use native host CPU $DENIAL_FLUTTER_ARCH"
+    grep -Fqx 'target_os = "linux"' "$generated" \
+      || fail "$mode generated args do not target Linux"
+    grep -Fqx "target_cpu = \"$DENIAL_FLUTTER_ARCH\"" "$generated" \
+      || fail "$mode generated args do not target CPU $DENIAL_FLUTTER_ARCH"
+    grep -Fqx "dart_target_arch = \"$DENIAL_FLUTTER_ARCH\"" "$generated" \
+      || fail "$mode generated args do not target Dart CPU $DENIAL_FLUTTER_ARCH"
+    generated_job_count="$(
+      awk '
+        $1 == "concurrent_toolchain_jobs" && $2 == "=" { count++ }
+        END { print count + 0 }
+      ' "$generated"
+    )"
+    [[ "$generated_job_count" == 1 ]] \
+      || fail "$mode generated args have $generated_job_count toolchain job counts"
+    awk -v jobs="$NATIVE_TOOLCHAIN_JOBS" '
+      $1 == "concurrent_toolchain_jobs" && $2 == "=" { $3 = jobs }
+      { print }
+    ' "$generated" >"$normalized"
+    mv -- "$normalized" "$generated"
+    printf 'Using unqualified native %s %s engine arguments; committed ARM metadata will be added after hardware validation.\n' \
+      "$DENIAL_FLUTTER_PLATFORM" "$mode"
+    return
+  fi
   expected_jobs="$(
     awk '$1 == "concurrent_toolchain_jobs" && $2 == "=" { print $3 }' \
       "$expected"
@@ -496,6 +553,11 @@ ensure_repository() {
 
 write_gclient_config() {
   local repository="$1"
+  local custom_vars='{}'
+
+  if [[ "$DENIAL_ARCH" == aarch64 ]]; then
+    custom_vars='{ "download_fuchsia_deps": False }'
+  fi
 
   {
     printf '%s\n' \
@@ -506,12 +568,54 @@ write_gclient_config() {
       '    "managed": False,' \
       '    "name": ".",' \
       '    "safesync_url": "",'
+    printf '    "custom_vars": %s,\n' "$custom_vars"
     printf '    "url": "%s",\n' "$repository"
     printf '%s\n' \
       '  },' \
       ']'
   } >"$CHECKOUT/.gclient"
 }
+
+sync_managed_checkout() (
+  local filtered_deps
+
+  cd "$CHECKOUT"
+  if [[ "$DENIAL_ARCH" != aarch64 ]]; then
+    PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      gclient sync --no-history --nohooks
+    return
+  fi
+
+  # Flutter publishes version 21 of its formatting/Android JDK only for
+  # linux-amd64. The desktop engine build does not use it, but gclient tries to
+  # resolve it unconditionally. Filter that single dependency while syncing,
+  # then restore the exact locked DEPS file before hooks and validation run.
+  git -c core.hooksPath=/dev/null checkout --quiet -- DEPS
+  filtered_deps="$(mktemp -- "$CHECKOUT/.DEPS.arm64.XXXXXX")"
+  trap 'git -c core.hooksPath=/dev/null checkout --quiet -- DEPS; rm -f -- "$filtered_deps"' \
+    EXIT HUP INT TERM
+  if ! awk '
+      BEGIN { skipping = 0; blocks = 0 }
+      $0 == "  '\''engine/src/flutter/third_party/java/openjdk'\'': {" {
+        skipping = 1
+        blocks++
+        next
+      }
+      skipping && $0 == "   }," { skipping = 0; next }
+      !skipping { print }
+      END { if (skipping || blocks != 1) exit 1 }
+    ' DEPS >"$filtered_deps"; then
+    fail 'could not isolate the Flutter OpenJDK dependency for ARM64 sync'
+  fi
+  chmod --reference=DEPS "$filtered_deps"
+  mv -- "$filtered_deps" DEPS
+  PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
+    DEPOT_TOOLS_UPDATE=0 \
+    VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+    gclient sync --no-history --nohooks
+)
 
 checkout_matches_lock() {
   local flutter_revision="$1"
@@ -558,6 +662,9 @@ prepare_checkout() {
     validate_external_sources
     return
   fi
+  if [[ "$DENIAL_ARCH" == aarch64 ]]; then
+    source_state="${source_state}:linux-arm64-sync-v1"
+  fi
 
   flutter_repository="$(lock_value '.flutter.repository')"
   flutter_revision="$(lock_value '.flutter.revision')"
@@ -596,13 +703,7 @@ prepare_checkout() {
   printf 'Synchronizing Flutter dependencies for %s\n' \
     "${flutter_revision:0:12}"
   install -d -m 0700 "$VPYTHON_CACHE_ROOT"
-  (
-    cd "$CHECKOUT"
-    PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
-      DEPOT_TOOLS_UPDATE=0 \
-      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
-      gclient sync --no-history --nohooks
-  )
+  sync_managed_checkout
 
   [[ -x "$checkout_depot/gclient" ]] \
     || fail "synchronized depot_tools is missing: $checkout_depot"
@@ -817,6 +918,14 @@ refresh_metadata() {
     "$(file_sha256 "$SOURCE_LOCK")"
   rm -rf --one-file-system -- "$metadata_stage"
   trap - EXIT
+
+  if command -v nix >/dev/null 2>&1; then
+    "$ROOT/tools/denial-nix" refresh-engine-lock
+    "$ROOT/tools/denial-nix" refresh-pub-locks
+  else
+    printf '%s\n' \
+      'Nix is unavailable; run `tools/denial-nix refresh-engine-lock` and `tools/denial-nix refresh-pub-locks` on a Nix host before committing.' >&2
+  fi
 }
 
 resolve_artifacts() {
@@ -928,20 +1037,25 @@ prepare_app_build() {
   local build_root
   local checkout_depot
   local expected_args
+  local llvm_objcopy
   local output
   local source_state
-  local target='denial_host_release'
+  local target
 
   install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT" "$BUILD_ROOT"
   exec 9>"$CACHE_ROOT/build.lock"
   flock 9
   source_state="$(file_sha256 "$SOURCE_LOCK")"
   prepare_checkout "$source_state"
+  target="$(engine_target release)"
 
   build_root="$CHECKOUT/engine/src"
   checkout_depot="$build_root/flutter/third_party/depot_tools"
+  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
   output="$BUILD_ROOT/out/$target"
-  expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-release/args.gn"
+  expected_args="$NATIVE_RELEASE_ENGINE_DIR/args.gn"
+  [[ -x "$llvm_objcopy" ]] \
+    || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
 
   printf 'Generating lock-matched Flutter application build graph\n'
   (
@@ -950,6 +1064,7 @@ prepare_app_build() {
       DEPOT_TOOLS_UPDATE=0 \
       VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       ./flutter/tools/gn \
+        "${GN_ARCH_ARGS[@]}" \
         --runtime-mode=release \
         --enable-fontconfig \
         --out-dir="$BUILD_ROOT" \
@@ -975,7 +1090,8 @@ prepare_app_build() {
       libflutter_linux_gtk.so \
       flutter/shell/platform/linux:publish_headers_linux \
       flutter/tools/const_finder:const_finder \
-      flutter/tools/font_subset:font_subset
+      flutter/tools/font_subset:font_subset \
+      libflutter_engine.so
   [[ -f "$output/flutter_patched_sdk/platform_strong.dill" ]] \
     || fail "lock-matched platform dill is missing: $output"
   [[ -x "$output/dart-sdk/bin/dart" ]] \
@@ -990,6 +1106,23 @@ prepare_app_build() {
     || fail "lock-matched const_finder is missing: $output"
   [[ -x "$output/font-subset" ]] \
     || fail "lock-matched font-subset is missing: $output"
+  canonicalize_engine_build_id \
+    release \
+    "$output/libflutter_engine.so" \
+    "$llvm_objcopy"
+  verify_engine_exports "$output/libflutter_engine.so" \
+    || fail 'release engine is missing a required embedder export'
+  if [[ -f "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.sha256" ]]; then
+    [[ "$(file_sha256 "$output/libflutter_engine.so")" \
+      == "$(awk 'NR == 1 { print $1 }' "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.sha256")" ]] \
+      || fail "release engine checksum differs from committed metadata; after a deliberate source-lock advance run '$0 refresh-metadata'"
+  fi
+  install -d -m 0755 -- "$NATIVE_RELEASE_ENGINE_DIR"
+  install -m 0755 -- \
+    "$output/libflutter_engine.so" \
+    "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so"
+  printf 'Staged native %s release engine for the application bundle.\n' \
+    "$DENIAL_FLUTTER_PLATFORM"
 }
 
 prepare_development_sdk() {
@@ -1082,8 +1215,10 @@ main() {
   local github_env=''
   local -a command_args=()
 
+  install_legacy_denial_environment_aliases
+
   for command in \
-    awk chmod cmp flock git install jq mktemp mv ninja nm readlink rm sha1sum sha256sum stat; do
+    awk chmod cmp flock git grep install jq mktemp mv ninja nm readlink rm sha1sum sha256sum stat; do
     require_command "$command"
   done
   [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \

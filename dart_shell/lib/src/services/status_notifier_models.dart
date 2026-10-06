@@ -224,21 +224,10 @@ int _premultiplyChannel(int channel, int alpha) {
   return (channel * alpha + 127) ~/ 255;
 }
 
-class _MenuBudget {
-  _MenuBudget(this.remaining);
-
-  int remaining;
-}
-
 SystemTrayMenuEntry? _parseMenuEntry(
   DBusValue value, {
-  required _MenuBudget budget,
-  required int depth,
+  bool parseChildren = false,
 }) {
-  if (budget.remaining <= 0 ||
-      depth > _StatusNotifierDbusBackend._maxMenuDepth) {
-    return null;
-  }
   try {
     final fields = value.asStruct();
     if (fields.length != 3) {
@@ -246,23 +235,22 @@ SystemTrayMenuEntry? _parseMenuEntry(
     }
     final id = fields[0].asInt32();
     final properties = fields[1].asStringVariantDict();
+    final childValues = fields[2].asArray();
     final children = <SystemTrayMenuEntry>[];
-    if (depth < _StatusNotifierDbusBackend._maxMenuDepth) {
-      for (final child in fields[2].asArray()) {
-        if (budget.remaining <= 0) {
-          break;
-        }
-        final parsed = _parseMenuEntry(
-          child.asVariant(),
-          budget: budget,
-          depth: depth + 1,
-        );
+    if (parseChildren) {
+      for (final child in childValues.take(
+        _StatusNotifierDbusBackend._maxMenuItemsPerLevel,
+      )) {
+        final parsed = _parseMenuEntry(child.asVariant());
         if (parsed != null) {
           children.add(parsed);
         }
       }
+      if (childValues.length >
+          _StatusNotifierDbusBackend._maxMenuItemsPerLevel) {
+        children.add(_truncatedMenuEntry);
+      }
     }
-    budget.remaining -= 1;
     final type = _string(properties['type']);
     final toggleType = switch (_string(properties['toggle-type'])) {
       'checkmark' => SystemTrayMenuToggleType.checkmark,
@@ -283,11 +271,41 @@ SystemTrayMenuEntry? _parseMenuEntry(
       toggleState: _int32(properties['toggle-state']),
       destructive: _string(properties['disposition']) == 'warning',
       children: List<SystemTrayMenuEntry>.unmodifiable(children),
+      hasSubmenu:
+          childValues.isNotEmpty ||
+          _string(properties['children-display']) == 'submenu',
     );
   } on Object {
     return null;
   }
 }
+
+const SystemTrayMenuEntry _truncatedMenuEntry = SystemTrayMenuEntry(
+  id: 0,
+  label: 'Additional menu items omitted',
+  enabled: false,
+  visible: true,
+  separator: false,
+  toggleType: SystemTrayMenuToggleType.none,
+  toggleState: 0,
+  destructive: false,
+  children: <SystemTrayMenuEntry>[],
+);
+
+List<DBusValue> _menuLayoutRequest(int parentId) => <DBusValue>[
+  DBusInt32(parentId),
+  const DBusInt32(_StatusNotifierDbusBackend._menuFetchDepth),
+  DBusArray.string(const <String>[
+    'label',
+    'enabled',
+    'visible',
+    'type',
+    'children-display',
+    'toggle-type',
+    'toggle-state',
+    'disposition',
+  ]),
+];
 
 int _int32(DBusValue? value) {
   try {
@@ -328,3 +346,15 @@ SystemTrayIconPixmap? decodeStatusNotifierPixmapForTesting(DBusValue value) =>
 @visibleForTesting
 Set<String> statusNotifierPropertiesForSignalForTesting(String signal) =>
     Set<String>.unmodifiable(_itemSignalProperties[signal] ?? const <String>{});
+
+@visibleForTesting
+List<SystemTrayMenuEntry>? parseStatusNotifierMenuForTesting(DBusValue value) {
+  final root = _parseMenuEntry(value, parseChildren: true);
+  return root == null
+      ? null
+      : List<SystemTrayMenuEntry>.unmodifiable(root.children);
+}
+
+@visibleForTesting
+List<DBusValue> statusNotifierMenuLayoutRequestForTesting(int parentId) =>
+    List<DBusValue>.unmodifiable(_menuLayoutRequest(parentId));

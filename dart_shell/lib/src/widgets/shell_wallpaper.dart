@@ -270,7 +270,7 @@ class _WallpaperDarknessLayer extends StatelessWidget {
   }
 }
 
-class _WallpaperImage extends StatelessWidget {
+class _WallpaperImage extends StatefulWidget {
   const _WallpaperImage({
     super.key,
     required this.resource,
@@ -283,21 +283,71 @@ class _WallpaperImage extends StatelessWidget {
   final Alignment alignment;
 
   @override
+  State<_WallpaperImage> createState() => _WallpaperImageState();
+}
+
+class _WallpaperImageState extends State<_WallpaperImage> {
+  late ImageProvider<Object> _provider;
+  WallpaperImageCacheLease? _cacheLease;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = wallpaperImageProvider(
+      widget.resource,
+      targetPixelSize: widget.targetPixelSize,
+    );
+    final configuration = createLocalImageConfiguration(context);
+    final currentLease = _cacheLease;
+    if (currentLease == null ||
+        currentLease.provider != provider ||
+        currentLease.configuration != configuration) {
+      currentLease?.release();
+      _provider = provider;
+      _cacheLease = WallpaperImageCacheLease(provider, configuration);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _WallpaperImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final provider = wallpaperImageProvider(
+      widget.resource,
+      targetPixelSize: widget.targetPixelSize,
+    );
+    if (provider == _provider) {
+      return;
+    }
+    _cacheLease?.release();
+    _provider = provider;
+    _cacheLease = WallpaperImageCacheLease(
+      provider,
+      createLocalImageConfiguration(context),
+    );
+  }
+
+  @override
+  void dispose() {
+    _cacheLease?.release();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Image(
-      image: wallpaperImageProvider(resource, targetPixelSize: targetPixelSize),
+      image: _provider,
       fit: BoxFit.cover,
-      alignment: alignment,
+      alignment: widget.alignment,
       filterQuality: FilterQuality.low,
       gaplessPlayback: true,
       excludeFromSemantics: true,
       errorBuilder: (context, error, stackTrace) => Image(
         image: wallpaperImageProvider(
           WallpaperResource.defaultWallpaper,
-          targetPixelSize: targetPixelSize,
+          targetPixelSize: widget.targetPixelSize,
         ),
         fit: BoxFit.cover,
-        alignment: alignment,
+        alignment: widget.alignment,
         filterQuality: FilterQuality.low,
         excludeFromSemantics: true,
       ),

@@ -268,12 +268,14 @@ class _SystemBarCard extends StatelessWidget {
     required this.child,
     this.highlighted = false,
     this.focused = false,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12),
   });
 
   final WallpaperAccent accent;
   final Widget child;
   final bool highlighted;
   final bool focused;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
@@ -290,10 +292,15 @@ class _SystemBarCard extends StatelessWidget {
     return ShellBackdropBlur(
       blur: theme.effectiveCardOpacity < 1.0,
       borderRadius: radius,
+      // The bar often lands on fractional physical pixels at scaled output
+      // factors. Preserve the wallpaper beneath the rounded clip's
+      // antialiasing fringe instead of replacing partial coverage with the
+      // filter layer's transparent black.
+      blendMode: BlendMode.srcOver,
       child: AnimatedContainer(
         duration: Motion.wallpaperReveal,
         curve: Motion.standard,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: padding,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,

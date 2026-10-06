@@ -44,11 +44,17 @@ its disposable instance. If systemd still holds the empty instance root as a
 temporary bind mount, the operator-side cleanup removes that directory after
 the service namespace has disappeared.
 
-The only persistent runner-writable state is `/srv/denial-builder/cache`. It
-contains dependency, Cargo, Pub, Rust-target, and Flutter Engine build caches,
-but no credentials. Engine entries are addressed by the committed source
-lock, GN arguments, and expected checksums; every reuse verifies the engine
-bytes before packaging.
+The runner writes ordinary build caches only below
+`/srv/denial-builder/cache`. The unprivileged account can also ask the
+root-owned Nix daemon to realize immutable paths in `/nix/store`, but it is not
+a trusted Nix user and cannot change daemon settings or post-build hooks. The
+installer configures only Denial's public Cachix substituter and signing key.
+The Cachix write token exists only in the disposable Actions environment and
+an explicit list of validated Denial paths is uploaded; credentials are never
+stored in either persistent cache.
+
+Engine entries are addressed by the committed source lock, GN arguments, and
+expected checksums; every reuse verifies the engine bytes before packaging.
 
 ## Updating the runner
 

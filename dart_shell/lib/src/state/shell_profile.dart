@@ -12,7 +12,8 @@ enum ShellProfile {
   /// environment must never make a direct `deniald` launch fall back to the
   /// mobile development shell.
   static ShellProfile fromEnvironment(Map<String, String> environment) {
-    return environment['DENIA_SHELL_PROFILE'] == 'mobile'
+    return denialEnvironmentValue(environment, 'DENIAL_SHELL_PROFILE') ==
+            'mobile'
         ? ShellProfile.mobile
         : ShellProfile.desktop;
   }

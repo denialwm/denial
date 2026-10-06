@@ -19,23 +19,32 @@ class ShellTextTheme {
     required this.cardTitle,
   });
 
-  factory ShellTextTheme.from(ShellColorScheme colors) {
+  factory ShellTextTheme.from(
+    ShellColorScheme colors, {
+    String fontFamily = '',
+  }) {
+    TextStyle resolve(TextStyle style, Color color) {
+      return style.copyWith(
+        color: color,
+        fontFamily: fontFamily.isEmpty ? style.fontFamily : fontFamily,
+      );
+    }
+
     return ShellTextTheme(
-      base: ShellText.base.copyWith(color: colors.textPrimary),
-      statusClock: ShellText.statusClock.copyWith(color: colors.textPrimary),
-      systemBarValue: ShellText.systemBarValue.copyWith(
-        color: colors.textPrimary,
+      base: resolve(ShellText.base, colors.textPrimary),
+      statusClock: resolve(ShellText.statusClock, colors.textPrimary),
+      systemBarValue: resolve(ShellText.systemBarValue, colors.textPrimary),
+      systemBarCaption: resolve(
+        ShellText.systemBarCaption,
+        colors.textSecondary,
       ),
-      systemBarCaption: ShellText.systemBarCaption.copyWith(
-        color: colors.textSecondary,
-      ),
-      shadeClock: ShellText.shadeClock.copyWith(color: colors.panelText),
-      shadeDate: ShellText.shadeDate.copyWith(color: colors.textSecondary),
-      lockClock: ShellText.lockClock.copyWith(color: colors.textPrimary),
-      lockDate: ShellText.lockDate.copyWith(color: colors.textSecondary),
-      lockStatus: ShellText.lockStatus.copyWith(color: colors.textSecondary),
-      lockChip: ShellText.lockChip.copyWith(color: colors.textPrimary),
-      cardTitle: ShellText.cardTitle.copyWith(color: colors.textPrimary),
+      shadeClock: resolve(ShellText.shadeClock, colors.panelText),
+      shadeDate: resolve(ShellText.shadeDate, colors.textSecondary),
+      lockClock: resolve(ShellText.lockClock, colors.textPrimary),
+      lockDate: resolve(ShellText.lockDate, colors.textSecondary),
+      lockStatus: resolve(ShellText.lockStatus, colors.textSecondary),
+      lockChip: resolve(ShellText.lockChip, colors.textPrimary),
+      cardTitle: resolve(ShellText.cardTitle, colors.textPrimary),
     );
   }
 

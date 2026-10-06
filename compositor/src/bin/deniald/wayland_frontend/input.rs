@@ -5,10 +5,11 @@ use std::ffi::OsStr;
 use denial_core::topology::OutputTransform;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
-    GestureBeginEvent, GestureSwipeUpdateEvent, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
+    GestureBeginEvent, GestureEndEvent, GestureSwipeUpdateEvent, InputEvent, KeyState,
+    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
+use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 #[cfg(feature = "flutter")]
 use smithay::desktop::{WindowSurfaceType, utils::under_from_surface_tree};
@@ -25,7 +26,6 @@ use smithay::reexports::calloop::EventLoop;
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::input::event::pointer::PointerEventTrait;
-use smithay::reexports::input::event::touch::TouchEventTrait;
 use smithay::reexports::input::{Device as LibinputDevice, Libinput, TapButtonMap};
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -41,17 +41,19 @@ use tracing::{info, warn};
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
 use super::super::lifecycle::ShutdownReason;
-use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
+use super::super::native_shortcut::{
+    ShortcutAction, ShortcutDisposition, ShortcutGesture, ShortcutTarget,
+};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
 use super::super::settings::{MouseSettings, TouchpadSettings};
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
-    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, TileResizeGrab,
-    TileSwapGrab, X11ResizeSurfaceGrab,
+    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, TileMoveGrab,
+    TileResizeGrab,
 };
 #[cfg(feature = "flutter")]
-use super::super::window_layout::LayoutResizeEdges;
+use super::super::window_layout::{LayoutDirection, LayoutResizeEdges};
 #[cfg(feature = "flutter")]
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
@@ -312,11 +314,15 @@ pub(crate) fn dispatch_shell_keyboard(
             frontend.start_time.elapsed().as_millis() as u32,
         )
     };
-    // Do not gate the shared router on Wayland seat focus. Secure lock
-    // deliberately clears client focus, and process_keyboard_transition()
-    // routes that same focusless stream to Flutter just as it does for a
-    // physical keyboard.
+    // Do not gate the shared router on a focused Wayland surface. Flutter is a
+    // first-class seat focus target, so software and physical keyboards both
+    // use process_keyboard_transition() and the same seat dispatch.
     match command {
+        super::super::wire::KeyboardCommand::DismissPanel { activation_serial } => {
+            let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.text_input.dismiss_panel(*activation_serial);
+            true
+        }
         super::super::wire::KeyboardCommand::Text(text) => {
             let mut delivered = false;
             for character in text.chars() {
@@ -352,6 +358,7 @@ pub(crate) fn dispatch_shell_keyboard(
 #[derive(Clone)]
 pub(super) struct ClientInputRoute {
     window: Option<smithay::desktop::Window>,
+    pub(super) layer_root: Option<WlSurface>,
     pub(super) surface: WlSurface,
     region: InputWindowRegion,
     layout_index: usize,
@@ -413,31 +420,49 @@ impl PointerConstraintEscape {
 
 #[cfg(feature = "flutter")]
 impl ClientInputRoute {
-    fn focus_at(&self, position: Point<f64, Logical>) -> (WlSurface, Point<f64, Logical>) {
+    fn mapped_position(&self, position: Point<f64, Logical>) -> Point<f64, Logical> {
         let scene_position = position - self.scene_origin;
         let (local_x, local_y) =
             self.region
                 .rect
                 .map_to(self.region.source_rect, scene_position.x, scene_position.y);
-        let local_point = Point::from((local_x, local_y));
+        Point::from((local_x, local_y))
+    }
+
+    fn focus_at_if_hit(
+        &self,
+        position: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let local_point = self.mapped_position(position);
+        let (surface, local_origin) =
+            under_from_surface_tree(&self.surface, local_point, (0, 0), WindowSurfaceType::ALL)?;
+        Some((surface, self.global_origin(local_origin)))
+    }
+
+    fn focus_at(&self, position: Point<f64, Logical>) -> (WlSurface, Point<f64, Logical>) {
+        let local_point = self.mapped_position(position);
         let (surface, local_origin) =
             under_from_surface_tree(&self.surface, local_point, (0, 0), WindowSurfaceType::ALL)
                 .unwrap_or_else(|| (self.surface.clone(), (0, 0).into()));
+        (surface, self.global_origin(local_origin))
+    }
+
+    fn global_origin(&self, local_origin: Point<i32, Logical>) -> Point<f64, Logical> {
         let scale_x = self.region.rect.width / self.region.source_rect.width;
         let scale_y = self.region.rect.height / self.region.source_rect.height;
-        let global_origin = self.scene_origin
+        self.scene_origin
             + Point::from((
                 self.region.rect.x
                     + (f64::from(local_origin.x) - self.region.source_rect.x) * scale_x,
                 self.region.rect.y
                     + (f64::from(local_origin.y) - self.region.source_rect.y) * scale_y,
-            ));
-        (surface, global_origin)
+            ))
     }
 }
 
 #[cfg(feature = "flutter")]
 impl WaylandFrontend {
+    #[cfg(feature = "xwayland")]
     pub(super) fn invalidate_window_input_routes(&mut self, window: &smithay::desktop::Window) {
         if self
             .client_input_route_cache
@@ -460,7 +485,9 @@ impl WaylandFrontend {
     }
 
     fn window_id_for_input_surface(&self, surface: &WlSurface) -> Option<u64> {
-        let root = self.owning_toplevel_surface(surface)?;
+        let root = self
+            .owning_toplevel_surface(surface)
+            .or_else(|| self.layer_root_surface(surface).map(|(root, _)| root))?;
         self.surface_id(&root)
     }
 
@@ -583,14 +610,6 @@ impl PointerMotionTarget {
     }
 }
 
-#[cfg(feature = "flutter")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FlutterKeyDisposition {
-    Forward,
-    Dispatch,
-    ConsumeRetired,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct InputDeviceReset {
     keyboard: bool,
@@ -653,48 +672,6 @@ pub(super) fn retire_flutter_generation_keys(
 }
 
 #[cfg(feature = "flutter")]
-fn route_flutter_key_transition(
-    active: &mut HashSet<u32>,
-    retired: &mut HashSet<u32>,
-    keycode: u32,
-    state: KeyState,
-    capture_new_press: bool,
-) -> FlutterKeyDisposition {
-    if retired_key_consumes_transition(retired, keycode, state) {
-        if state == KeyState::Released {
-            active.remove(&keycode);
-        }
-        return FlutterKeyDisposition::ConsumeRetired;
-    }
-    match state {
-        KeyState::Pressed if active.contains(&keycode) || capture_new_press => {
-            active.insert(keycode);
-            FlutterKeyDisposition::Dispatch
-        }
-        KeyState::Pressed => FlutterKeyDisposition::Forward,
-        KeyState::Released if active.remove(&keycode) => FlutterKeyDisposition::Dispatch,
-        KeyState::Released => FlutterKeyDisposition::Forward,
-    }
-}
-
-#[cfg(feature = "flutter")]
-fn route_input_method_key_transition(
-    active: &mut HashSet<u32>,
-    retired: &mut HashSet<u32>,
-    keycode: u32,
-    state: KeyState,
-    flutter_editor_active: bool,
-) -> FlutterKeyDisposition {
-    route_flutter_key_transition(
-        active,
-        retired,
-        keycode,
-        state,
-        flutter_editor_active && matches!(state, KeyState::Pressed),
-    )
-}
-
-#[cfg(feature = "flutter")]
 fn route_shell_key_transition(
     held: &mut HashSet<u32>,
     keycode: u32,
@@ -738,7 +715,12 @@ impl WaylandFrontend {
         self.surfaces_by_id
             .get(&route.region.surface_id)
             .is_some_and(|surface| surface == &route.surface)
-            && (route.window.is_some() || self.input_method.owns_popup_surface(&route.surface))
+            && (route.window.is_some()
+                || route.layer_root.as_ref().is_some_and(|expected| {
+                    self.layer_root_surface(&route.surface)
+                        .is_some_and(|(current, _)| current == *expected)
+                })
+                || self.input_method.owns_popup_surface(&route.surface))
     }
 
     fn input_route(&mut self, position: Point<f64, Logical>) -> Option<&ClientInputRoute> {
@@ -774,6 +756,7 @@ impl WaylandFrontend {
         // check because windows are ordered front-to-back and may overlap.
         let cached_is_valid = self.client_input_route_cache.as_ref().is_some_and(|route| {
             region_accepts_input(&route.region, scene_position)
+                && route.focus_at_if_hit(position).is_some()
                 && layout
                     .windows
                     .get(..route.layout_index)
@@ -800,24 +783,41 @@ impl WaylandFrontend {
                 if self.input_method.owns_popup_surface(&surface) {
                     return Some(ClientInputRoute {
                         window: None,
+                        layer_root: None,
                         surface,
                         region: *region,
                         layout_index,
                         scene_origin: self.atlas_origin,
                     });
                 }
+                if let Some((layer_root, _)) = self.layer_root_surface(&surface) {
+                    if self.surface_id(&layer_root) != Some(region.window_id) {
+                        return None;
+                    }
+                    let route = ClientInputRoute {
+                        window: None,
+                        layer_root: Some(layer_root),
+                        surface,
+                        region: *region,
+                        layout_index,
+                        scene_origin: self.atlas_origin,
+                    };
+                    return route.focus_at_if_hit(position).is_some().then_some(route);
+                }
                 let window = self.window_for_id(region.window_id)?;
                 let root_surface = self.window_root_surface(&window)?;
                 if self.owning_toplevel_surface(&surface).as_ref() != Some(&root_surface) {
                     return None;
                 }
-                Some(ClientInputRoute {
+                let route = ClientInputRoute {
                     window: Some(window.clone()),
+                    layer_root: None,
                     surface,
                     region: *region,
                     layout_index,
                     scene_origin: self.atlas_origin,
-                })
+                };
+                route.focus_at_if_hit(position).is_some().then_some(route)
             });
 
         if let Some(route) = route {
@@ -914,14 +914,20 @@ pub(in super::super) fn init_libinput(
     event_loop: &mut EventLoop<'static, RuntimeState>,
     session: LibSeatSession,
     seat_name: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Libinput, Box<dyn Error>> {
     #[cfg(feature = "flutter")]
     init_joystick_activity(event_loop, session.clone())?;
+    #[cfg(feature = "flutter")]
+    super::wake_gesture::init(event_loop, session.clone())?;
     let mut context =
         Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.into());
     context
         .udev_assign_seat(seat_name)
         .map_err(|()| "libinput could not assign the active seat")?;
+    // Libinput's context survives a libseat pause, but its device descriptors
+    // do not. Keep one reference beside the event source so the session
+    // lifecycle can suspend the old descriptors and reopen them on activation.
+    let lifecycle_context = context.clone();
     let backend = LibinputBatchSource::new(LibinputInputBackend::new(context));
     event_loop
         .handle()
@@ -945,7 +951,19 @@ pub(in super::super) fn init_libinput(
                 }
             }
         })?;
-    Ok(())
+    Ok(lifecycle_context)
+}
+
+impl WaylandFrontend {
+    pub(in super::super) fn suspend_input_session(&mut self) {
+        self.libinput.suspend();
+    }
+
+    pub(in super::super) fn resume_input_session(&mut self) -> Result<(), &'static str> {
+        self.libinput
+            .resume()
+            .map_err(|()| "libinput rejected session resume")
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -959,24 +977,8 @@ fn process_keyboard_transition(
     if intercept_native_escape(state, keycode.raw(), key_state) {
         return true;
     }
-    if let Some(evdev_keycode) = keycode.raw().checked_sub(8) {
-        let allow_new = !state.secure_session_locked();
-        let routed = state.native_app_plugins.as_mut().map(|manager| {
-            manager.route_key(
-                evdev_keycode,
-                key_state == KeyState::Pressed,
-                u64::from(time).saturating_mul(1_000_000),
-                allow_new,
-            )
-        });
-        match routed {
-            Some(Ok(true)) => return true,
-            Some(Err(error)) => {
-                warn!(%error, evdev_keycode, "native application key routing failed");
-                return true;
-            }
-            Some(Ok(false)) | None => {}
-        }
+    if !state.secure_session_locked() {
+        focus_exclusive_layer_for_keyboard_event(state);
     }
     if state.flutter_active {
         return process_flutter_keyboard_transition(state, keycode, key_state, time);
@@ -988,6 +990,28 @@ fn process_keyboard_transition(
     }
     process_wayland_keyboard_transition(state, keycode, key_state, time);
     true
+}
+
+fn focus_exclusive_layer_for_keyboard_event(state: &mut RuntimeState) {
+    let Some((keyboard, focus)) = state.wayland.as_ref().and_then(|frontend| {
+        if frontend.text_input.shell_captures_keyboard() {
+            return None;
+        }
+        Some((
+            frontend.seat.get_keyboard()?,
+            frontend.exclusive_layer_keyboard_focus()?,
+        ))
+    }) else {
+        return;
+    };
+    if keyboard.current_focus().as_ref() != Some(&focus) {
+        super::focus::request_keyboard_focus(
+            state,
+            &keyboard,
+            Some(focus),
+            SERIAL_COUNTER.next_serial(),
+        );
+    }
 }
 
 fn configure_touchpad_device(
@@ -1124,7 +1148,9 @@ fn process_touchpad_gesture_event(
                 | InputEvent::GestureSwipeUpdate { .. }
                 | InputEvent::GestureSwipeEnd { .. }
         ) {
-            state.touchpad_gestures.reset();
+            if state.touchpad_gestures.reset() {
+                finish_horizontal_layout_scroll(state, true, None);
+            }
             state.native_escape_shortcut.cancel_gestures();
             return Some(false);
         }
@@ -1134,26 +1160,77 @@ fn process_touchpad_gesture_event(
     let gesture_event = match event {
         InputEvent::GestureSwipeBegin { event } => {
             let device = event.device();
-            state
-                .touchpad_gestures
-                .begin_swipe(device.sysname(), event.fingers());
+            let scrolling_layout = state
+                .wayland
+                .as_ref()
+                .is_some_and(WaylandFrontend::can_scroll_layout_horizontally);
+            let horizontal_scroll_directions = if scrolling_layout {
+                super::super::touchpad_gestures::HorizontalScrollDirections {
+                    left: state.native_escape_shortcut.gesture_invokes(
+                        ShortcutGesture::ThreeFingerSwipeLeft,
+                        ShortcutAction::WindowSwitcher,
+                    ),
+                    right: state.native_escape_shortcut.gesture_invokes(
+                        ShortcutGesture::ThreeFingerSwipeRight,
+                        ShortcutAction::WindowSwitcher,
+                    ),
+                }
+            } else {
+                super::super::touchpad_gestures::HorizontalScrollDirections::default()
+            };
+            state.touchpad_gestures.begin_swipe(
+                device.sysname(),
+                event.fingers(),
+                horizontal_scroll_directions,
+            );
             None
         }
         InputEvent::GestureSwipeUpdate { event } => {
             let device = event.device();
-            state
-                .touchpad_gestures
-                .update_swipe(device.sysname(), event.delta_x(), event.delta_y())
+            state.touchpad_gestures.update_swipe(
+                device.sysname(),
+                event.delta_x(),
+                event.delta_y(),
+                event.time(),
+            )
         }
         InputEvent::GestureSwipeEnd { event } => {
             let device = event.device();
-            state.touchpad_gestures.end_swipe(device.sysname())
+            state
+                .touchpad_gestures
+                .end_swipe(device.sysname(), event.cancelled(), event.time())
         }
         _ => return None,
     };
 
     if let Some(gesture_event) = gesture_event {
         use super::super::touchpad_gestures::TouchpadGestureEvent;
+
+        match gesture_event {
+            TouchpadGestureEvent::HorizontalScrollBegin { delta_x } => {
+                let handled = update_horizontal_layout_scroll(state, delta_x);
+                if handled {
+                    info!("began continuous scrolling-layout touchpad gesture");
+                }
+                return Some(handled);
+            }
+            TouchpadGestureEvent::HorizontalScrollUpdate { delta_x } => {
+                return Some(update_horizontal_layout_scroll(state, delta_x));
+            }
+            TouchpadGestureEvent::HorizontalScrollEnd {
+                cancelled,
+                projected_delta_x,
+            } => {
+                return Some(finish_horizontal_layout_scroll(
+                    state,
+                    cancelled,
+                    Some(projected_delta_x),
+                ));
+            }
+            TouchpadGestureEvent::Trigger(_)
+            | TouchpadGestureEvent::Repeat(_)
+            | TouchpadGestureEvent::End(_) => {}
+        }
 
         let (gesture, disposition) = match gesture_event {
             TouchpadGestureEvent::Trigger(gesture) => (
@@ -1167,6 +1244,11 @@ fn process_touchpad_gesture_event(
             TouchpadGestureEvent::End(gesture) => {
                 (gesture, state.native_escape_shortcut.end_gesture(gesture))
             }
+            TouchpadGestureEvent::HorizontalScrollBegin { .. }
+            | TouchpadGestureEvent::HorizontalScrollUpdate { .. }
+            | TouchpadGestureEvent::HorizontalScrollEnd { .. } => {
+                unreachable!("continuous scroll events return before shortcut dispatch")
+            }
         };
         let handled = execute_shortcut_disposition(state, disposition);
         if handled {
@@ -1179,6 +1261,90 @@ fn process_touchpad_gesture_event(
     } else {
         Some(false)
     }
+}
+
+#[cfg(feature = "flutter")]
+fn update_horizontal_layout_scroll(state: &mut RuntimeState, delta_x: f64) -> bool {
+    let Some(frame) = state
+        .wayland
+        .as_mut()
+        .and_then(|frontend| frontend.scroll_layout_horizontally(delta_x))
+    else {
+        return false;
+    };
+    let changed = !frame.placements.is_empty();
+    for (window, geometry) in frame.placements {
+        super::window_management::queue_transient_window_placement_for_monitor(
+            state,
+            &window,
+            geometry,
+            frame.monitor_geometry,
+            WindowPlacementPhase::Update,
+            WindowPlacementChange::Move,
+        );
+    }
+    if changed {
+        state.scene_sync.mark_dirty();
+    }
+    changed
+}
+
+#[cfg(feature = "flutter")]
+fn update_mouse_wheel_layout_scroll(state: &mut RuntimeState, vertical_delta: f64) -> bool {
+    let Some(frame) = state
+        .wayland
+        .as_mut()
+        .and_then(|frontend| frontend.scroll_layout_with_mouse_wheel(vertical_delta))
+    else {
+        return false;
+    };
+    let changed = !frame.placements.is_empty();
+    for (window, geometry) in frame.placements {
+        super::window_management::queue_transient_window_placement_for_monitor(
+            state,
+            &window,
+            geometry,
+            frame.monitor_geometry,
+            WindowPlacementPhase::Update,
+            WindowPlacementChange::Move,
+        );
+    }
+    if changed {
+        state.scene_sync.mark_dirty();
+    }
+    changed
+}
+
+#[cfg(feature = "flutter")]
+fn finish_horizontal_layout_scroll(
+    state: &mut RuntimeState,
+    cancelled: bool,
+    projected_delta_x: Option<f64>,
+) -> bool {
+    let Some(frame) = state.wayland.as_mut().and_then(|frontend| {
+        frontend.finish_layout_horizontal_scroll(cancelled, projected_delta_x)
+    }) else {
+        return false;
+    };
+    let selected = frame.selected.clone();
+    let changed = !frame.placements.is_empty();
+    for (window, geometry) in frame.placements {
+        super::window_management::queue_transient_window_placement_for_monitor(
+            state,
+            &window,
+            geometry,
+            frame.monitor_geometry,
+            WindowPlacementPhase::End,
+            WindowPlacementChange::Move,
+        );
+    }
+    if !cancelled && let Some(selected) = selected {
+        super::window_management::activate_window(state, &selected, SERIAL_COUNTER.next_serial());
+    }
+    if changed {
+        state.scene_sync.mark_dirty();
+    }
+    changed
 }
 
 fn process_input_event(
@@ -1248,6 +1414,8 @@ fn process_input_event(
     }
 
     if let InputEvent::DeviceRemoved { device } = &event {
+        #[cfg(feature = "flutter")]
+        state.power_button.remove_device(device.sysname());
         tablet_clients_changed = tablet::unregister_device(state, device);
         if Device::has_capability(device, DeviceCapability::Keyboard) {
             state.keyboard_devices.remove(device.sysname());
@@ -1279,12 +1447,36 @@ fn process_input_event(
         event: key_event, ..
     } = &event
     {
+        // KEY_POWER (116) plus the XKB offset. Handle the entire physical key
+        // sequence before note_user_activity: waking first would invert an
+        // off-to-on toggle, and routing the release would undo on-to-off.
+        if key_event.key_code().raw() == 116 + 8 {
+            state.power_button.note_key(
+                key_event.device().sysname(),
+                key_event.state() == KeyState::Pressed,
+            );
+            return false;
+        }
         return process_keyboard_transition(
             state,
             key_event.key_code(),
             key_event.state(),
             key_event.time_msec(),
         );
+    }
+
+    #[cfg(feature = "flutter")]
+    if state.fingerprint.active()
+        && matches!(
+            &event,
+            InputEvent::TouchDown { .. }
+                | InputEvent::TouchMotion { .. }
+                | InputEvent::TouchUp { .. }
+                | InputEvent::TouchCancel { .. }
+                | InputEvent::TouchFrame { .. }
+        )
+    {
+        return false;
     }
 
     #[cfg(feature = "flutter")]
@@ -1334,6 +1526,10 @@ fn process_input_event(
 }
 
 pub(in super::super) fn reset_all_input_devices(state: &mut RuntimeState) {
+    #[cfg(feature = "flutter")]
+    {
+        state.power_button = Default::default();
+    }
     reset_input_devices(state, InputDeviceReset::ALL);
 }
 
@@ -1400,7 +1596,9 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     }
     #[cfg(feature = "flutter")]
     if reset.pointer {
-        state.touchpad_gestures.reset();
+        if state.touchpad_gestures.reset() {
+            finish_horizontal_layout_scroll(state, true, None);
+        }
         state.native_escape_shortcut.cancel_gestures();
     }
     #[cfg(feature = "flutter")]
@@ -1418,13 +1616,6 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             .flutter_input
             .cancel_device_lifecycles(reset.pointer, reset.touch);
     }
-    #[cfg(feature = "flutter")]
-    if let Some(manager) = state.native_app_plugins.as_mut()
-        && let Err(error) = manager.reset_input(reset.keyboard, reset.touch)
-    {
-        warn!(%error, "could not reset native application input");
-    }
-
     let Some(frontend) = state.wayland.as_mut() else {
         return;
     };
@@ -1474,17 +1665,6 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     }
 
     #[cfg(feature = "flutter")]
-    let active_flutter_keys = if reset.keyboard {
-        std::mem::take(&mut frontend.flutter_keyboard_keys)
-    } else {
-        HashSet::new()
-    };
-    #[cfg(feature = "flutter")]
-    let active_input_method_keys = if reset.keyboard {
-        std::mem::take(&mut frontend.flutter_input_method_keys)
-    } else {
-        HashSet::new()
-    };
     if reset.keyboard {
         frontend.shell_keyboard_keys.clear();
     }
@@ -1497,14 +1677,6 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         for keycode in keyboard.pressed_keys() {
             frontend.retired_keyboard_keys.insert(keycode.raw());
         }
-        #[cfg(feature = "flutter")]
-        frontend
-            .retired_keyboard_keys
-            .extend(active_flutter_keys.iter().copied());
-        #[cfg(feature = "flutter")]
-        frontend
-            .retired_input_method_keys
-            .extend(active_input_method_keys.iter().copied());
     }
     if let Some(pointer) = pointer {
         let had_buttons = !pointer_buttons.is_empty();
@@ -1540,12 +1712,6 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         pressed_keys.sort_unstable_by_key(|keycode| keycode.raw());
         for keycode in pressed_keys {
             let raw_keycode = keycode.raw();
-            #[cfg(feature = "flutter")]
-            let was_flutter = active_flutter_keys.contains(&raw_keycode);
-            #[cfg(feature = "flutter")]
-            let was_flutter_input_method = active_input_method_keys.contains(&raw_keycode);
-            #[cfg(not(feature = "flutter"))]
-            let was_flutter = false;
             let was_retired = previously_retired_keys.contains(&raw_keycode);
             keyboard.input::<(), _>(
                 state,
@@ -1553,16 +1719,8 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
                 KeyState::Released,
                 SERIAL_COUNTER.next_serial(),
                 time,
-                move |state, modifiers, key| {
-                    #[cfg(not(feature = "flutter"))]
-                    let _ = (&state, &modifiers, &key);
-                    #[cfg(feature = "flutter")]
-                    if (was_flutter || was_flutter_input_method) && state.flutter_active {
-                        state
-                            .flutter_input
-                            .handle_keyboard(key, KeyState::Released, modifiers);
-                    }
-                    if was_flutter || was_retired {
+                move |_, _, _| {
+                    if was_retired {
                         FilterResult::Intercept(())
                     } else {
                         FilterResult::Forward
@@ -1621,11 +1779,85 @@ fn flutter_key_repeats(key: &smithay::input::keyboard::KeysymHandle<'_>) -> bool
 }
 
 #[cfg(feature = "flutter")]
-fn retained_flutter_xkb_keycode(keycode: u32) -> Keycode {
-    // flutter_keyboard_keys retains Smithay/XKB keycodes, which already
-    // include XKB's evdev + 8 offset. Replay that value unchanged; adding the
-    // offset again turns XKB Backspace (22) into XKB U (30).
-    Keycode::new(keycode)
+fn flutter_modifiers_for_key(
+    key: &smithay::input::keyboard::KeysymHandle<'_>,
+) -> smithay::input::keyboard::ModifiersState {
+    let xkb = key.xkb().lock().unwrap();
+    let mut modifiers = smithay::input::keyboard::ModifiersState::default();
+    // SAFETY: the state reference remains inside the XKB mutex guard.
+    modifiers.update_with(unsafe { xkb.state() });
+    modifiers
+}
+
+/// Deliver a seat keyboard event whose real focus target is the compositor's
+/// Flutter shell.
+///
+/// This is the sole Flutter hardware-key delivery point. Physical keys and
+/// keys returned by an input method both arrive here through Smithay's seat.
+#[cfg(feature = "flutter")]
+pub(super) fn dispatch_focused_flutter_key(
+    state: &mut RuntimeState,
+    key: smithay::input::keyboard::KeysymHandle<'_>,
+    key_state: KeyState,
+) {
+    let raw_keycode = key.raw_code().raw();
+    let (dispatch, input_method_owns_repeat) = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        let dispatch = match key_state {
+            KeyState::Pressed => {
+                frontend.flutter_keyboard_keys.insert(raw_keycode);
+                true
+            }
+            KeyState::Released => frontend.flutter_keyboard_keys.remove(&raw_keycode),
+        };
+        (dispatch, frontend.input_method.flutter_editor_active())
+    };
+    if !dispatch || !state.flutter_active {
+        return;
+    }
+
+    let repeatable = matches!(key_state, KeyState::Pressed) && flutter_key_repeats(&key);
+    let unicode = if matches!(key_state, KeyState::Pressed) {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        flutter_unicode_for_keysym(frontend.flutter_compose.as_mut(), key.modified_sym())
+    } else {
+        key.modified_sym().key_char().map(u32::from).unwrap_or(0)
+    };
+    let modifiers = flutter_modifiers_for_key(&key);
+    state
+        .flutter_input
+        .handle_keyboard_with_unicode(raw_keycode, key_state, &modifiers, unicode);
+    if repeatable && !input_method_owns_repeat {
+        start_flutter_repeat(state, raw_keycode);
+    } else if matches!(key_state, KeyState::Released)
+        && state
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.flutter_repeat_key == Some(raw_keycode))
+    {
+        cancel_flutter_repeat(state);
+    }
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn leave_focused_flutter_keyboard(state: &mut RuntimeState) {
+    cancel_flutter_repeat(state);
+    let mut keys = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        std::mem::take(&mut frontend.flutter_keyboard_keys)
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    keys.sort_unstable();
+    let modifiers = smithay::input::keyboard::ModifiersState::default();
+    for keycode in keys {
+        state.flutter_input.handle_keyboard_with_unicode(
+            keycode,
+            KeyState::Released,
+            &modifiers,
+            0,
+        );
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -1700,74 +1932,19 @@ fn dispatch_flutter_repeat(state: &mut RuntimeState, keycode: u32) -> bool {
     if !owned {
         return false;
     }
-    let xkb_keycode = retained_flutter_xkb_keycode(keycode);
-    let keysym = keyboard.with_xkb_state(state, |context| {
-        let xkb = context.xkb().lock().unwrap();
-        // SAFETY: the state reference remains inside the XKB mutex guard.
-        unsafe { xkb.state() }.key_get_one_sym(xkb_keycode)
-    });
-    let modifiers = keyboard.modifier_state();
-    let unicode = {
-        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        flutter_unicode_for_keysym(frontend.flutter_compose.as_mut(), keysym)
-    };
-    state.flutter_input.handle_keyboard_with_unicode(
-        xkb_keycode.raw(),
+    let time = state
+        .wayland
+        .as_ref()
+        .map(|frontend| frontend.start_time.elapsed().as_millis() as u32)
+        .unwrap_or_default();
+    keyboard.input_forward(
+        state,
+        Keycode::new(keycode),
         KeyState::Pressed,
-        &modifiers,
-        unicode,
+        SERIAL_COUNTER.next_serial(),
+        time,
+        false,
     );
-    true
-}
-
-/// Deliver a key returned by the external input method to its Flutter editor.
-///
-/// The physical transition has already updated Smithay's XKB state before the
-/// input-method grab received it. A modifier state explicitly supplied by the
-/// companion virtual keyboard takes precedence for the replayed Flutter event,
-/// without replacing that physical state or re-entering the grab. Keys not
-/// owned by Flutter remain on the ordinary virtual-keyboard path.
-#[cfg(feature = "flutter")]
-pub(super) fn dispatch_input_method_key_to_flutter(
-    state: &mut RuntimeState,
-    keyboard: &KeyboardHandle<RuntimeState>,
-    keycode: Keycode,
-    key_state: KeyState,
-    flutter_editor_active: bool,
-    virtual_modifiers: Option<smithay::input::keyboard::ModifiersState>,
-) -> bool {
-    let disposition = {
-        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        route_input_method_key_transition(
-            &mut frontend.flutter_input_method_keys,
-            &mut frontend.retired_input_method_keys,
-            keycode.raw(),
-            key_state,
-            state.flutter_active && flutter_editor_active,
-        )
-    };
-    match disposition {
-        FlutterKeyDisposition::Forward => return false,
-        FlutterKeyDisposition::ConsumeRetired => return true,
-        FlutterKeyDisposition::Dispatch if !state.flutter_active => return true,
-        FlutterKeyDisposition::Dispatch => {}
-    }
-
-    let keysym = keyboard.with_xkb_state(state, |context| {
-        let xkb = context.xkb().lock().unwrap();
-        // SAFETY: the state reference remains inside the XKB mutex guard.
-        unsafe { xkb.state() }.key_get_one_sym(keycode)
-    });
-    let modifiers = virtual_modifiers.unwrap_or_else(|| keyboard.modifier_state());
-    let unicode = if matches!(key_state, KeyState::Pressed) {
-        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        flutter_unicode_for_keysym(frontend.flutter_compose.as_mut(), keysym)
-    } else {
-        keysym.key_char().map(u32::from).unwrap_or(0)
-    };
-    state
-        .flutter_input
-        .handle_keyboard_with_unicode(keycode.raw(), key_state, &modifiers, unicode);
     true
 }
 
@@ -1784,6 +1961,11 @@ fn intercept_native_escape(
     let disposition = state
         .native_escape_shortcut
         .observe(evdev_keycode, key_state == KeyState::Pressed);
+    // VT switching is a seat-level escape, not a client, window, or shell
+    // action. Keep it available while the native lock screen owns input.
+    if let ShortcutDisposition::RequestVtSwitch(vt) = &disposition {
+        return execute_shortcut_disposition(state, ShortcutDisposition::RequestVtSwitch(*vt));
+    }
     #[cfg(feature = "flutter")]
     if state.secure_session_locked() {
         return match disposition {
@@ -1806,7 +1988,11 @@ fn intercept_native_escape(
             _ => true,
         };
     }
-    execute_shortcut_disposition(state, disposition)
+    let handled = execute_shortcut_disposition(state, disposition);
+    if !handled && key_state == KeyState::Pressed {
+        state.native_escape_shortcut.pass_through_key(evdev_keycode);
+    }
+    handled
 }
 
 pub(super) fn execute_shortcut_disposition(
@@ -1816,6 +2002,21 @@ pub(super) fn execute_shortcut_disposition(
     match disposition {
         ShortcutDisposition::Forward => false,
         ShortcutDisposition::Consume => true,
+        ShortcutDisposition::RequestVtSwitch(vt) => {
+            let result = if let Some(frontend) = state.wayland.as_mut() {
+                frontend
+                    .session
+                    .change_vt(vt)
+                    .map_err(|error| error.to_string())
+            } else {
+                Err("Wayland frontend is unavailable".to_owned())
+            };
+            match result {
+                Ok(()) => info!(vt, "requested virtual terminal switch"),
+                Err(error) => warn!(%error, vt, "could not switch virtual terminal"),
+            }
+            true
+        }
         ShortcutDisposition::RequestShutdown => {
             state
                 .lifecycle
@@ -1840,6 +2041,97 @@ pub(super) fn execute_shortcut_disposition(
             }
             true
         }
+        direction @ (ShortcutDisposition::RequestPreviousWorkspace
+        | ShortcutDisposition::RequestNextWorkspace) => {
+            #[cfg(feature = "flutter")]
+            {
+                let delta = if matches!(direction, ShortcutDisposition::RequestPreviousWorkspace) {
+                    -1
+                } else {
+                    1
+                };
+                let Some(monitor_id) = prepare_shell_overlay_action(state) else {
+                    return false;
+                };
+                let target = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.adjacent_workspace(monitor_id, delta));
+                let Some(target) = target else {
+                    return false;
+                };
+                return super::window_management::switch_monitor_workspace(
+                    state, monitor_id, target,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        ShortcutDisposition::RequestSwitchWorkspace(workspace_id) => {
+            #[cfg(feature = "flutter")]
+            {
+                let Some(monitor_id) = prepare_shell_overlay_action(state) else {
+                    return false;
+                };
+                return super::window_management::switch_monitor_workspace(
+                    state,
+                    monitor_id,
+                    workspace_id,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        direction @ (ShortcutDisposition::RequestMoveToPreviousWorkspace
+        | ShortcutDisposition::RequestMoveToNextWorkspace) => {
+            #[cfg(feature = "flutter")]
+            {
+                let delta = if matches!(
+                    direction,
+                    ShortcutDisposition::RequestMoveToPreviousWorkspace
+                ) {
+                    -1
+                } else {
+                    1
+                };
+                let Some((window_id, monitor_id)) =
+                    super::window_management::focused_workspace_window(state)
+                else {
+                    return false;
+                };
+                let target = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.adjacent_workspace(monitor_id, delta));
+                let Some(target) = target else {
+                    return false;
+                };
+                return super::window_management::move_window_to_workspace(
+                    state, window_id, None, target, true,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        ShortcutDisposition::RequestMoveToWorkspace(workspace_id) => {
+            #[cfg(feature = "flutter")]
+            {
+                let Some((window_id, _)) =
+                    super::window_management::focused_workspace_window(state)
+                else {
+                    return false;
+                };
+                return super::window_management::move_window_to_workspace(
+                    state,
+                    window_id,
+                    None,
+                    workspace_id,
+                    true,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
         ShortcutDisposition::RequestToggleVerticalMaximize => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_vertical_maximize_focused_toplevel(state);
@@ -1847,8 +2139,28 @@ pub(super) fn execute_shortcut_disposition(
         }
         ShortcutDisposition::RequestFocus(direction) => {
             #[cfg(feature = "flutter")]
-            super::window_management::focus_toplevel_in_direction(state, direction);
-            true
+            {
+                let shell_owns_scene = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.input_layout.as_ref())
+                    .is_some_and(InputLayoutSnapshot::exclusive_shell);
+                if shell_owns_scene {
+                    let action = match direction {
+                        LayoutDirection::Left => super::super::wire::ShellAction::FocusLeft,
+                        LayoutDirection::Right => super::super::wire::ShellAction::FocusRight,
+                        LayoutDirection::Up => super::super::wire::ShellAction::FocusUp,
+                        LayoutDirection::Down => super::super::wire::ShellAction::FocusDown,
+                    };
+                    state.queue_shell_action(action, None);
+                    true
+                } else {
+                    super::window_management::focus_toplevel_in_direction(state, direction);
+                    true
+                }
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
         }
         ShortcutDisposition::RequestSwap(direction) => {
             #[cfg(feature = "flutter")]
@@ -1921,6 +2233,11 @@ pub(super) fn execute_shortcut_disposition(
         ShortcutDisposition::RequestToggleFullscreen => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_fullscreen_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestToggleWindowAlwaysOnTop => {
+            #[cfg(feature = "flutter")]
+            super::window_management::toggle_always_on_top_focused_toplevel(state);
             true
         }
         ShortcutDisposition::RequestReleasePointer => {
@@ -2160,11 +2477,20 @@ fn prepare_shell_overlay_action(state: &mut RuntimeState) -> Option<i64> {
         state.scene_sync.mark_dirty();
     }
 
-    state
+    let pointer_monitor = state
         .wayland
         .as_ref()
         .and_then(WaylandFrontend::control_output_under_pointer)
-        .map(|(_, monitor_id)| monitor_id)
+        .map(|(_, monitor_id)| monitor_id);
+    pointer_monitor
+        .or_else(|| super::window_management::focused_workspace_window(state).map(|(_, id)| id))
+        .or_else(|| {
+            let frontend = state.wayland.as_ref()?;
+            frontend
+                .ticker_output
+                .or_else(|| frontend.outputs.first().map(|output| output.id))
+                .and_then(|output| i64::try_from(output.0).ok())
+        })
 }
 
 fn adjust_brightness_for_pointer_output(state: &RuntimeState, increase: bool) {
@@ -2194,7 +2520,6 @@ fn process_flutter_keyboard_transition(
     time: u32,
 ) -> bool {
     let secure_locked = state.secure_session_locked();
-    let raw_keycode = keycode.raw();
     let keyboard = state
         .wayland
         .as_ref()
@@ -2202,59 +2527,31 @@ fn process_flutter_keyboard_transition(
         .seat
         .get_keyboard()
         .expect("seat has no keyboard");
-    let keyboard_grabbed = keyboard.is_grabbed();
-    let disposition = {
+    let consume_retired = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        let capture_new_press = matches!(key_state, KeyState::Pressed)
-            && (secure_locked
-                || (frontend.text_input.shell_captures_keyboard() && !keyboard_grabbed));
-        route_flutter_key_transition(
-            &mut frontend.flutter_keyboard_keys,
+        retired_key_consumes_transition(
             &mut frontend.retired_keyboard_keys,
-            raw_keycode,
+            keycode.raw(),
             key_state,
-            capture_new_press,
         )
     };
+    let secure_route_invalid = secure_locked
+        && !matches!(
+            keyboard.current_focus(),
+            Some(super::focus::KeyboardFocusTarget::Flutter)
+        );
     keyboard.input::<(), _>(
         state,
         keycode,
         key_state,
         SERIAL_COUNTER.next_serial(),
         time,
-        move |state, modifiers, key| match disposition {
-            FlutterKeyDisposition::Dispatch => {
-                let repeatable =
-                    matches!(key_state, KeyState::Pressed) && flutter_key_repeats(&key);
-                let unicode = if matches!(key_state, KeyState::Pressed) {
-                    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                    flutter_unicode_for_keysym(
-                        frontend.flutter_compose.as_mut(),
-                        key.modified_sym(),
-                    )
-                } else {
-                    key.modified_sym().key_char().map(u32::from).unwrap_or(0)
-                };
-                state.flutter_input.handle_keyboard_with_unicode(
-                    key.raw_code().raw(),
-                    key_state,
-                    modifiers,
-                    unicode,
-                );
-                if repeatable {
-                    start_flutter_repeat(state, raw_keycode);
-                } else if matches!(key_state, KeyState::Released)
-                    && state
-                        .wayland
-                        .as_ref()
-                        .is_some_and(|frontend| frontend.flutter_repeat_key == Some(raw_keycode))
-                {
-                    cancel_flutter_repeat(state);
-                }
+        move |_, _, _| {
+            if consume_retired || secure_route_invalid {
                 FilterResult::Intercept(())
+            } else {
+                FilterResult::Forward
             }
-            FlutterKeyDisposition::ConsumeRetired => FilterResult::Intercept(()),
-            FlutterKeyDisposition::Forward => FilterResult::Forward,
         },
     );
     synchronize_active_keyboard_layout(state, &keyboard);

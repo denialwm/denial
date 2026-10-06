@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -103,6 +104,8 @@ session_target="$ROOT/packaging/denial-session.target"
 for directive in \
   'BindsTo=graphical-session.target' \
   'Before=graphical-session.target' \
+  'Wants=graphical-session-pre.target' \
+  'After=graphical-session-pre.target' \
   'Wants=xdg-desktop-autostart.target' \
   'Before=xdg-desktop-autostart.target'; do
   grep -Fqx "$directive" "$session_target" \
@@ -209,6 +212,11 @@ install -Dm644 "$ROOT/packaging/denial-session.target" \
   "$denial_root/usr/lib/systemd/user/denial-session.target"
 install -Dm644 "$ROOT/packaging/arch/denial-portal.service" \
   "$denial_root/usr/lib/systemd/user/denial-portal.service"
+sh -n "$ROOT/packaging/denial-suspend-mode"
+install -Dm755 "$ROOT/packaging/denial-suspend-mode" \
+  "$denial_root/usr/lib/systemd/system-sleep/denial-suspend-mode"
+install -Dm755 "$ROOT/packaging/denial-suspend-mode" \
+  "$denial_root/usr/lib/elogind/system-sleep/denial-suspend-mode"
 install -d -m 0755 "$denial_root/usr/lib/denial/flutter/data"
 cp -a -- "$BUNDLE/data/flutter_assets" \
   "$denial_root/usr/lib/denial/flutter/data/flutter_assets"

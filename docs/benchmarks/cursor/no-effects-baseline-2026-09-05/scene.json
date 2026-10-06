@@ -1,0 +1,36 @@
+{
+  "user_description": "Blur and glass off; three Kitty windows running htop, btop, and an otherwise idle terminal. Layout and visual validation owned by the user.",
+  "appearance": {
+    "accentSource": "custom",
+    "allowClientCursorSurfaces": true,
+    "backdropBlurLevel": "good",
+    "backdropBlurPixelOpacityThreshold": 0.2,
+    "backdropBlurSigma": 6.0,
+    "cardOpacity": 0.47368421052631576,
+    "colorSchemePreference": "preferDark",
+    "cornerRadiusScale": 0.6,
+    "cursorSize": 32.0,
+    "cursorThemeId": "bibata_modern_ice",
+    "customAccentColor": 4294914373,
+    "focusedWindowBorderEnabled": false,
+    "focusedWindowOpacity": 1.0,
+    "glass": {
+      "blurSigma": 5.0,
+      "brightness": -0.1,
+      "dispersion": 0.4,
+      "edgeStrength": 1.0,
+      "lightAngle": 245.0,
+      "lightIntensity": 0.06,
+      "quality": 1.0,
+      "refraction": 1.0,
+      "saturation": 1.5,
+      "thickness": 35.0,
+      "tintStrength": 0.0
+    },
+    "panelOpacity": 0.75,
+    "transparencyMode": "off",
+    "unfocusedWindowOpacity": 1.0
+  },
+  "capture_pid": 21063,
+  "engine_commit": "56628c5de8550d1eb9391d0956ee942fd059cd4e"
+}

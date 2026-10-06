@@ -5,11 +5,15 @@
 //! block while reconnecting or waiting for hardware.
 
 use std::collections::HashMap;
+#[cfg(feature = "flutter")]
+use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt;
 use std::fs;
 use std::io;
+#[cfg(feature = "flutter")]
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Arc;
@@ -261,8 +265,89 @@ enum BrightnessCommand {
 
 #[cfg(feature = "flutter")]
 enum SessionCommand {
-    Suspend,
+    SetSuspendMode(crate::idle_policy::SuspendMode),
+    Power {
+        action: crate::idle_policy::PowerButtonAction,
+        interactive: bool,
+    },
     Stop,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SleepTransition {
+    Preparing,
+    Resumed,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Default)]
+struct SleepMonitorShared {
+    transitions: Mutex<VecDeque<SleepTransition>>,
+    delay_inhibitor: Mutex<Option<OwnedFd>>,
+    power_key_inhibitor: Mutex<Option<OwnedFd>>,
+    stop: AtomicBool,
+}
+
+#[cfg(feature = "flutter")]
+impl SleepMonitorShared {
+    fn publish(&self, transition: SleepTransition) {
+        let mut transitions = self
+            .transitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        const MAX_PENDING_TRANSITIONS: usize = 8;
+        if transitions.len() == MAX_PENDING_TRANSITIONS {
+            transitions.pop_front();
+        }
+        transitions.push_back(transition);
+    }
+
+    fn take_transition(&self) -> Option<SleepTransition> {
+        self.transitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
+    }
+
+    fn install_delay_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_delay_inhibitor(&self) -> bool {
+        self.delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
+    fn install_power_key_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .power_key_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_power_key_inhibitor(&self) {
+        self.power_key_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Release);
+        self.release_delay_inhibitor();
+        self.release_power_key_inhibitor();
+    }
+
+    fn stopping(&self) -> bool {
+        self.stop.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone)]
@@ -293,6 +378,8 @@ pub(super) struct SystemControls {
     brightness_commands: SyncSender<BrightnessCommand>,
     #[cfg(feature = "flutter")]
     session_commands: SyncSender<SessionCommand>,
+    #[cfg(feature = "flutter")]
+    suspend_mode: Mutex<Option<crate::idle_policy::SuspendMode>>,
     #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
     events: Receiver<SystemControlEvent>,
     events_pending: Arc<AtomicBool>,
@@ -300,6 +387,10 @@ pub(super) struct SystemControls {
     brightness_worker: Option<JoinHandle<()>>,
     #[cfg(feature = "flutter")]
     session_worker: Option<JoinHandle<()>>,
+    #[cfg(feature = "flutter")]
+    sleep_monitor: Arc<SleepMonitorShared>,
+    #[cfg(feature = "flutter")]
+    sleep_monitor_worker: Option<JoinHandle<()>>,
 }
 
 impl SystemControls {
@@ -351,17 +442,47 @@ impl SystemControls {
             }
         };
 
+        #[cfg(feature = "flutter")]
+        let sleep_monitor = Arc::new(SleepMonitorShared::default());
+        #[cfg(feature = "flutter")]
+        let sleep_monitor_worker = {
+            let monitor = Arc::clone(&sleep_monitor);
+            match thread::Builder::new()
+                .name("denial-sleep-monitor".into())
+                .spawn(move || {
+                    crate::cpu_scheduling::normalize_current_worker("sleep monitor");
+                    run_sleep_monitor(monitor);
+                }) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    let _ = audio_commands.send(AudioCommand::Stop);
+                    let _ = brightness_commands.send(BrightnessCommand::Stop);
+                    let _ = session_commands.send(SessionCommand::Stop);
+                    let _ = audio_worker.join();
+                    let _ = brightness_worker.join();
+                    let _ = session_worker.join();
+                    return Err(error);
+                }
+            }
+        };
+
         Ok(Self {
             audio_commands,
             brightness_commands,
             #[cfg(feature = "flutter")]
             session_commands,
+            #[cfg(feature = "flutter")]
+            suspend_mode: Mutex::new(None),
             events,
             events_pending,
             audio_worker: Some(audio_worker),
             brightness_worker: Some(brightness_worker),
             #[cfg(feature = "flutter")]
             session_worker: Some(session_worker),
+            #[cfg(feature = "flutter")]
+            sleep_monitor,
+            #[cfg(feature = "flutter")]
+            sleep_monitor_worker: Some(sleep_monitor_worker),
         })
     }
 
@@ -422,8 +543,55 @@ impl SystemControls {
     #[cfg(feature = "flutter")]
     pub(super) fn suspend(&self) -> bool {
         self.session_commands
-            .try_send(SessionCommand::Suspend)
+            .try_send(SessionCommand::Power {
+                action: crate::idle_policy::PowerButtonAction::Suspend,
+                interactive: false,
+            })
             .is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn power_button_action(
+        &self,
+        action: crate::idle_policy::PowerButtonAction,
+    ) -> bool {
+        action != crate::idle_policy::PowerButtonAction::Dpms
+            && self
+                .session_commands
+                .try_send(SessionCommand::Power {
+                    action,
+                    interactive: true,
+                })
+                .is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_suspend_mode(&self, mode: crate::idle_policy::SuspendMode) -> bool {
+        let Ok(mut current) = self.suspend_mode.lock() else {
+            return false;
+        };
+        if *current == Some(mode) {
+            return true;
+        }
+        if self
+            .session_commands
+            .try_send(SessionCommand::SetSuspendMode(mode))
+            .is_err()
+        {
+            return false;
+        }
+        *current = Some(mode);
+        true
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn take_sleep_transition(&self) -> Option<SleepTransition> {
+        self.sleep_monitor.take_transition()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn release_sleep_delay(&self) -> bool {
+        self.sleep_monitor.release_delay_inhibitor()
     }
 
     fn adjust_audio(&self, delta: f64) {
@@ -461,6 +629,8 @@ impl SystemControls {
 
 impl Drop for SystemControls {
     fn drop(&mut self) {
+        #[cfg(feature = "flutter")]
+        self.sleep_monitor.request_stop();
         let _ = self.audio_commands.send(AudioCommand::Stop);
         let _ = self.brightness_commands.send(BrightnessCommand::Stop);
         #[cfg(feature = "flutter")]
@@ -488,6 +658,13 @@ impl Drop for SystemControls {
             {
                 warn!("native session power worker panicked during shutdown");
             }
+            if self
+                .sleep_monitor_worker
+                .take()
+                .is_some_and(|worker| worker.join().is_err())
+            {
+                warn!("native sleep monitor worker panicked during shutdown");
+            }
         }
     }
 }
@@ -503,4 +680,4 @@ mod session;
 use audio::run_audio_worker;
 use brightness::run_brightness_worker;
 #[cfg(feature = "flutter")]
-use session::run_session_worker;
+use session::{run_session_worker, run_sleep_monitor};

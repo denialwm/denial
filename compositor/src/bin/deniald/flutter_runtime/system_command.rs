@@ -17,8 +17,10 @@ use tracing::{debug, info, warn};
 
 use crate::DEFAULT_QT_QPA_PLATFORMTHEME;
 use crate::settings::{
-    ApplicationEnvironment, load_application_environment, validate_desktop_file_id,
+    ApplicationEnvironment, DEFAULT_CURSOR_SIZE, load_application_environment, load_cursor_size,
+    validate_desktop_file_id,
 };
+use crate::x11_input_method::discover_xim_modifier;
 
 pub const CHANNEL: &CStr = c"denial/system_command";
 
@@ -40,6 +42,10 @@ const CANCEL_SCREENSHOT: u8 = 5;
 // to applications. WAYLAND_DISPLAY is installed explicitly below; all other
 // compositor/GPU bootstrap choices belong only to deniald.
 const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
+    "DENIAL_CPU_PLACEMENT",
+    "DENIAL_BIG_CPUS",
+    "DENIAL_LITTLE_CPUS",
+    denial_core::cpu_affinity::APPLICATION_CPUS_ENV,
     "AQ_DRM_DEVICES",
     "__EGL_VENDOR_LIBRARY_FILENAMES",
     "WLR_DRM_DEVICES",
@@ -64,6 +70,7 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "LISTEN_PID",
     "SYSTEMD_EXEC_PID",
     "DENIAL_NO_RT",
+    "DENIAL_LAUNCH_REQUEST_ID",
     "DENIA_LAUNCH_REQUEST_ID",
     "DENIAL_SOCKET",
     // This is useful for keeping compositor diagnostics machine-readable, but
@@ -352,6 +359,7 @@ impl SystemCommandHandler {
             .ok_or(DispatchError::WaylandUnavailable)?;
         let executable = launch.arguments[0].clone();
         let application_environment = self.application_environment();
+        let cursor_size = self.cursor_size();
         let pid = launch_application(
             &launch.arguments,
             launch.desktop_file_id.as_deref(),
@@ -360,6 +368,7 @@ impl SystemCommandHandler {
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            cursor_size,
             &application_environment,
         )?;
         info!(pid, executable, "launched application from Flutter shell");
@@ -382,6 +391,7 @@ impl SystemCommandHandler {
         }
         let executable = arguments[0].clone();
         let application_environment = self.application_environment();
+        let cursor_size = self.cursor_size();
         let pid = launch_application(
             &arguments,
             desktop_file_id,
@@ -390,6 +400,7 @@ impl SystemCommandHandler {
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            cursor_size,
             &application_environment,
         )?;
         info!(
@@ -405,6 +416,16 @@ impl SystemCommandHandler {
             Err(error) => {
                 warn!(%error, "ignoring invalid application environment overrides");
                 ApplicationEnvironment::default()
+            }
+        }
+    }
+
+    fn cursor_size(&self) -> u32 {
+        match load_cursor_size() {
+            Ok(cursor_size) => cursor_size,
+            Err(error) => {
+                warn!(%error, "using the default cursor size for application launch");
+                DEFAULT_CURSOR_SIZE
             }
         }
     }
@@ -593,6 +614,7 @@ fn launch_application(
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
+    cursor_size: u32,
     application_environment: &ApplicationEnvironment,
 ) -> Result<u32, DispatchError> {
     // Start the reaper first. If the system cannot create that one persistent
@@ -604,6 +626,15 @@ fn launch_application(
     let permit = LAUNCH_LIMITER
         .try_acquire()
         .ok_or(DispatchError::ApplicationLimitReached)?;
+    let discovered_xmodifiers = x11_display
+        .filter(|_| application_environment.allows_discovered_xmodifiers(desktop_file_id))
+        .and_then(|display| match discover_xim_modifier(display) {
+            Ok(modifier) => modifier,
+            Err(error) => {
+                debug!(%error, "could not discover Xwayland's active XIM server");
+                None
+            }
+        });
     let mut command = application_command(
         arguments,
         launch_request_id,
@@ -612,8 +643,10 @@ fn launch_application(
         x11_display,
         output_control_socket,
         std::env::var_os("QT_QPA_PLATFORMTHEME").as_deref(),
+        cursor_size,
         application_environment,
         desktop_file_id,
+        discovered_xmodifiers.as_deref().map(OsStr::new),
     );
     let child = command.spawn().map_err(DispatchError::Spawn)?;
     let pid = child.id();
@@ -664,8 +697,10 @@ fn application_command(
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
     qt_platform_theme: Option<&OsStr>,
+    cursor_size: u32,
     application_environment: &ApplicationEnvironment,
     desktop_file_id: Option<&str>,
+    discovered_xmodifiers: Option<&OsStr>,
 ) -> Command {
     let mut command = Command::new(&arguments[0]);
     // Command inherits the user session environment intentionally: PATH,
@@ -681,6 +716,7 @@ fn application_command(
         .env("XDG_SESSION_DESKTOP", "Denial")
         .env("XDG_SESSION_TYPE", "wayland")
         .env("DESKTOP_SESSION", "Denial")
+        .env("XCURSOR_SIZE", cursor_size.to_string())
         .env(
             "QT_QPA_PLATFORMTHEME",
             qt_platform_theme.unwrap_or_else(|| OsStr::new(DEFAULT_QT_QPA_PLATFORMTHEME)),
@@ -700,11 +736,14 @@ fn application_command(
     if let Some(socket) = output_control_socket {
         command.env("DENIAL_SOCKET", socket);
     }
+    crate::xcursor_sentinel::apply_to_command(&mut command);
     // These overrides affect only processes spawned by the compositor. Apply
     // them after Denial's inherited-session cleanup and endpoint defaults so
     // an explicit null can remove DISPLAY or another default deliberately.
     // Per-launch activation metadata below remains compositor-owned.
-    application_environment.apply(&mut command, desktop_file_id);
+    application_environment.apply(&mut command, desktop_file_id, discovered_xmodifiers);
+    // Internal tool metadata must never replace an application's restored mask.
+    command.env_remove(denial_core::cpu_affinity::APPLICATION_CPUS_ENV);
     // calloop's signalfd intentionally blocks the shutdown signals in every
     // compositor thread. A fork inherits that mask, so undo it in the child
     // between fork and exec; otherwise ordinary applications cannot receive
@@ -735,7 +774,10 @@ fn application_command(
         });
     }
     if let Some(request_id) = launch_request_id {
-        command.env("DENIA_LAUNCH_REQUEST_ID", request_id.get().to_string());
+        let request_id = request_id.get().to_string();
+        command
+            .env("DENIAL_LAUNCH_REQUEST_ID", &request_id)
+            .env("DENIA_LAUNCH_REQUEST_ID", request_id);
     }
     if let Some(token) = activation_token {
         command.env("XDG_ACTIVATION_TOKEN", token);

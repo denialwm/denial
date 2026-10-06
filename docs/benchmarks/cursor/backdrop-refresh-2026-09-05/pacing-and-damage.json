@@ -1,0 +1,148 @@
+{
+  "baseline-2026-09-04": {
+    "timing": {
+      "raster_over_2000_us": 3882,
+      "raster_over_3000_us": 3,
+      "raster_max_us": 3209,
+      "total_span_p95_us": 2604,
+      "total_span_p99_us": 2822
+    },
+    "tick_intervals": [
+      {
+        "ticks": 1798,
+        "intervals": 1797,
+        "longer_than_1_5_refresh_periods": 3,
+        "estimated_skipped_periods": 3,
+        "max_us": 33331
+      },
+      {
+        "ticks": 1800,
+        "intervals": 1799,
+        "longer_than_1_5_refresh_periods": 1,
+        "estimated_skipped_periods": 1,
+        "max_us": 33315
+      },
+      {
+        "ticks": 1800,
+        "intervals": 1799,
+        "longer_than_1_5_refresh_periods": 1,
+        "estimated_skipped_periods": 1,
+        "max_us": 33324
+      }
+    ],
+    "audit": {
+      "outputs": 5179.0,
+      "windows": 85,
+      "seconds": 86.346417767,
+      "full_frame_damage_outputs": 5178.0,
+      "full_buffer_damage_outputs": 5179.0,
+      "frame_damage_avg_pct": 99.98069125313768,
+      "buffer_damage_avg_pct": 100.0,
+      "gpu_flutter_render_avg_us": 8349.990942459934,
+      "full_frame_damage_outputs_per_second": 59.96774543644051,
+      "full_frame_damage_window_histogram": {
+        "59": 1,
+        "60": 5,
+        "61": 79
+      }
+    }
+  },
+  "snapshot-coverage-2026-09-04": {
+    "timing": {
+      "raster_over_2000_us": 84,
+      "raster_over_3000_us": 50,
+      "raster_max_us": 5945,
+      "total_span_p95_us": 1167,
+      "total_span_p99_us": 3379
+    },
+    "tick_intervals": [
+      {
+        "ticks": 1786,
+        "intervals": 1785,
+        "longer_than_1_5_refresh_periods": 15,
+        "estimated_skipped_periods": 15,
+        "max_us": 33335
+      },
+      {
+        "ticks": 1788,
+        "intervals": 1787,
+        "longer_than_1_5_refresh_periods": 13,
+        "estimated_skipped_periods": 13,
+        "max_us": 33326
+      },
+      {
+        "ticks": 1787,
+        "intervals": 1786,
+        "longer_than_1_5_refresh_periods": 14,
+        "estimated_skipped_periods": 14,
+        "max_us": 33329
+      }
+    ],
+    "audit": {
+      "outputs": 5206.0,
+      "windows": 86,
+      "seconds": 87.380714257,
+      "full_frame_damage_outputs": 100.0,
+      "full_buffer_damage_outputs": 147.0,
+      "frame_damage_avg_pct": 1.9913146645252628,
+      "buffer_damage_avg_pct": 2.9122455656430377,
+      "gpu_flutter_render_avg_us": 822.8128359585094,
+      "full_frame_damage_outputs_per_second": 1.1444172876166332,
+      "full_frame_damage_window_histogram": {
+        "0": 43,
+        "1": 1,
+        "2": 41,
+        "17": 1
+      }
+    }
+  },
+  "backdrop-refresh-2026-09-05": {
+    "timing": {
+      "raster_over_2000_us": 45,
+      "raster_over_3000_us": 11,
+      "raster_max_us": 3897,
+      "total_span_p95_us": 1240,
+      "total_span_p99_us": 1689
+    },
+    "tick_intervals": [
+      {
+        "ticks": 1786,
+        "intervals": 1785,
+        "longer_than_1_5_refresh_periods": 15,
+        "estimated_skipped_periods": 15,
+        "max_us": 33343
+      },
+      {
+        "ticks": 1786,
+        "intervals": 1785,
+        "longer_than_1_5_refresh_periods": 15,
+        "estimated_skipped_periods": 15,
+        "max_us": 33328
+      },
+      {
+        "ticks": 1789,
+        "intervals": 1788,
+        "longer_than_1_5_refresh_periods": 12,
+        "estimated_skipped_periods": 12,
+        "max_us": 33327
+      }
+    ],
+    "audit": {
+      "outputs": 5145.0,
+      "windows": 85,
+      "seconds": 86.345927086,
+      "full_frame_damage_outputs": 58.0,
+      "full_buffer_damage_outputs": 101.0,
+      "frame_damage_avg_pct": 1.1984458984210966,
+      "buffer_damage_avg_pct": 2.0525372230020755,
+      "gpu_flutter_render_avg_us": 752.7591613216715,
+      "full_frame_damage_outputs_per_second": 0.6717166860949024,
+      "full_frame_damage_window_histogram": {
+        "0": 42,
+        "1": 41,
+        "7": 1,
+        "10": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+out="$HOME/denial-arc-$(date +%Y%m%d-%H%M%S)"
+mkdir -m 700 "$out"
+
+journalctl -b -o short-precise --no-pager _COMM=deniald \
+  > "$out/deniald.log"
+
+sudo journalctl -b -k -o short-monotonic --no-pager \
+  > "$out/kernel.log"
+
+{
+  date -Ins
+  uname -a
+  deniald --version
+  denial-session --check
+  lspci -nnk
+  ls -l /dev/dri /dev/dri/by-path
+} > "$out/system.txt" 2>&1
+
+pid="$(pgrep -xo deniald || true)"
+if [ -n "$pid" ]; then
+  sudo ps -L -p "$pid" \
+    -o pid,tid,psr,stat,pcpu,comm,wchan:40 \
+    > "$out/deniald-threads.txt"
+
+  sudo sh -c '
+    for task in /proc/'"$pid"'/task/*; do
+      printf "\n### %s — " "$task"
+      cat "$task/comm"
+      cat "$task/stack"
+    done
+  ' > "$out/deniald-kernel-stacks.txt" 2>&1
+fi
+
+sudo sh -c '
+  for file in /sys/class/drm/card*/error \
+              /sys/class/devcoredump/devcd*/data; do
+    [ -r "$file" ] || continue
+    printf "\n### %s\n" "$file"
+    cat "$file"
+  done
+' > "$out/intel-gpu-error-state.txt" 2>&1
+
+tar -czf "$out.tar.gz" -C "$out" .
+echo "Diagnostic archive: $out.tar.gz"

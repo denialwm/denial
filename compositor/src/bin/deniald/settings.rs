@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -23,7 +24,10 @@ use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSna
 
 use super::window_layout::WindowLayoutKind;
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 21;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 28;
+pub(super) const MIN_WORKSPACE_COUNT: u8 = 2;
+pub(super) const MAX_WORKSPACE_COUNT: u8 = 9;
+pub(super) const DEFAULT_WORKSPACE_COUNT: u8 = 4;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
@@ -41,10 +45,32 @@ const DEFAULT_REPEAT_RATE_HZ: u32 = 25;
 pub(super) const MIN_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 0.05;
 pub(super) const MAX_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 5.0;
 const DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 1.0;
+pub(super) const MIN_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR: f64 = 0.25;
+pub(super) const MAX_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR: f64 = 4.0;
+const DEFAULT_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR: f64 = 1.0;
+pub(super) const MIN_SCROLLING_LAYOUT_WHEEL_SPEED: f64 = 0.25;
+pub(super) const MAX_SCROLLING_LAYOUT_WHEEL_SPEED: f64 = 4.0;
+const DEFAULT_SCROLLING_LAYOUT_WHEEL_SPEED: f64 = 1.0;
 pub(super) const MIN_MOUSE_SPEED: f64 = -1.0;
 pub(super) const MAX_MOUSE_SPEED: f64 = 1.0;
 const DEFAULT_MOUSE_SPEED: f64 = 0.0;
+const MIN_CURSOR_SIZE: u32 = 16;
+pub(super) const DEFAULT_CURSOR_SIZE: u32 = 32;
+const MAX_CURSOR_SIZE: u32 = 64;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// This is a backend policy, not a literal GTK_IM_MODULE value. GTK's Wayland
+// backend chooses its built-in input context automatically; Denial publishes
+// the X11 arm through XSettings so an Xwayland GTK client sees only `xim`.
+#[cfg(any(test, feature = "xwayland"))]
+const GTK_INPUT_METHOD_BACKEND_FALLBACK: &str = "wayland:xim";
+
+#[cfg(any(test, feature = "xwayland"))]
+pub(super) fn x11_gtk_input_method_backend_fallback() -> &'static str {
+    GTK_INPUT_METHOD_BACKEND_FALLBACK
+        .split_once(':')
+        .map(|(_, x11_backend)| x11_backend)
+        .expect("GTK input-method backend fallback must contain Wayland and X11 arms")
+}
 
 /// Environment overrides applied only to processes launched by Denial.
 ///
@@ -135,13 +161,37 @@ impl ApplicationEnvironment {
         );
     }
 
-    pub(super) fn apply(&self, command: &mut Command, desktop_file_id: Option<&str>) {
+    pub(super) fn allows_discovered_xmodifiers(&self, desktop_file_id: Option<&str>) -> bool {
+        self.override_for("XMODIFIERS", desktop_file_id).is_none()
+            && std::env::var_os("XMODIFIERS").is_none()
+    }
+
+    pub(super) fn apply(
+        &self,
+        command: &mut Command,
+        desktop_file_id: Option<&str>,
+        discovered_xmodifiers: Option<&OsStr>,
+    ) {
+        let inherited_xmodifiers = std::env::var_os("XMODIFIERS");
         apply_environment_overrides(command, &self.default_overrides);
         if let Some(overrides) = desktop_file_id
             .and_then(|desktop_file_id| self.application_overrides.get(desktop_file_id))
         {
             apply_environment_overrides(command, overrides);
         }
+        if self.override_for("XMODIFIERS", desktop_file_id).is_none()
+            && inherited_xmodifiers.is_none()
+            && let Some(discovered_xmodifiers) = discovered_xmodifiers
+        {
+            command.env("XMODIFIERS", discovered_xmodifiers);
+        }
+    }
+
+    fn override_for(&self, name: &str, desktop_file_id: Option<&str>) -> Option<&Option<String>> {
+        desktop_file_id
+            .and_then(|desktop_file_id| self.application_overrides.get(desktop_file_id))
+            .and_then(|overrides| overrides.get(name))
+            .or_else(|| self.default_overrides.get(name))
     }
 }
 
@@ -201,6 +251,15 @@ pub(super) fn load_application_environment() -> Result<ApplicationEnvironment, S
         return Ok(ApplicationEnvironment::default());
     };
     Ok(parse_document(&bytes)?.application_environment)
+}
+
+pub(super) fn load_cursor_size() -> Result<u32, SettingsError> {
+    let path = settings_path()?;
+    let Some(bytes) = read_settings_file(&path)? else {
+        return Ok(DEFAULT_CURSOR_SIZE);
+    };
+    let parsed = parse_document(&bytes)?;
+    parse_cursor_size(&parsed.document)
 }
 
 fn validate_environment_name(name: &str) -> Result<(), SettingsError> {
@@ -420,6 +479,7 @@ pub(super) struct TouchpadSettings {
     pub(super) tap_to_click_enabled: bool,
     pub(super) natural_scroll_enabled: bool,
     pub(super) scroll_speed_factor: f64,
+    pub(super) scrolling_layout_swipe_speed_factor: f64,
 }
 
 impl Default for TouchpadSettings {
@@ -428,6 +488,8 @@ impl Default for TouchpadSettings {
             tap_to_click_enabled: true,
             natural_scroll_enabled: false,
             scroll_speed_factor: DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR,
+            scrolling_layout_swipe_speed_factor:
+                DEFAULT_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR,
         }
     }
 }
@@ -440,6 +502,15 @@ impl TouchpadSettings {
         {
             return Err(SettingsError::Touchpad(format!(
                 "touchpad scroll speed factor must be within {MIN_TOUCHPAD_SCROLL_SPEED_FACTOR}..={MAX_TOUCHPAD_SCROLL_SPEED_FACTOR}"
+            )));
+        }
+        if !self.scrolling_layout_swipe_speed_factor.is_finite()
+            || !(MIN_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR
+                ..=MAX_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR)
+                .contains(&self.scrolling_layout_swipe_speed_factor)
+        {
+            return Err(SettingsError::Touchpad(format!(
+                "touchpad scrolling-layout swipe speed factor must be within {MIN_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR}..={MAX_TOUCHPAD_SCROLLING_LAYOUT_SWIPE_SPEED_FACTOR}"
             )));
         }
         Ok(())
@@ -634,11 +705,23 @@ impl SettingsManager {
         self.allow_client_cursor_surfaces
     }
 
+    pub(super) fn cursor_size(&self) -> u32 {
+        parse_cursor_size(&self.document).unwrap_or(DEFAULT_CURSOR_SIZE)
+    }
+
     pub(super) fn window_layout_kind(&self) -> WindowLayoutKind {
         // Authoritative documents are validated before load/commit. Keep the
         // fallback defensive for the safe in-memory defaults used after an
         // invalid file is deliberately left untouched.
         parse_window_layout_kind(&self.document).unwrap_or_default()
+    }
+
+    pub(super) fn scrolling_layout_wheel_settings(&self) -> ScrollingLayoutWheelSettings {
+        parse_scrolling_layout_wheel_settings(&self.document).unwrap_or_default()
+    }
+
+    pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
+        parse_workspace_settings(&self.document).unwrap_or_default()
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
@@ -703,7 +786,10 @@ impl SettingsManager {
         );
         let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
         let allow_client_cursor_surfaces = parse_allow_client_cursor_surfaces(&incoming)?;
+        parse_cursor_size(&incoming)?;
         parse_window_layout_kind(&incoming)?;
+        parse_scrolling_layout_wheel_settings(&incoming)?;
+        parse_workspace_settings(&incoming)?;
         self.prepare(
             incoming,
             self.keyboard.clone(),
@@ -783,6 +869,77 @@ impl SettingsManager {
         )
     }
 
+    /// Builds a normal settings transaction from a document changed outside
+    /// deniald. The revision stored in an editor's copy is deliberately
+    /// ignored: revisions serialize live writers, so only the active manager
+    /// may allocate the next one.
+    ///
+    /// Removing the document is treated as restoring defaults. Invalid files
+    /// remain untouched and the caller keeps the last known-good live state.
+    pub(super) fn prepare_external_reload(
+        &self,
+    ) -> Result<Option<PreparedSettingsUpdate>, SettingsError> {
+        let observed = read_settings_file(&self.path)?;
+        if observed == self.persisted_bytes {
+            return Ok(None);
+        }
+
+        let (
+            mut document,
+            keyboard,
+            mouse,
+            touchpad,
+            color_scheme_preference,
+            allow_client_cursor_surfaces,
+        ) = match observed.as_deref() {
+            Some(bytes) => {
+                let parsed = parse_document(bytes)?;
+                (
+                    parsed.document,
+                    parsed.keyboard,
+                    parsed.mouse,
+                    parsed.touchpad,
+                    parsed.color_scheme_preference,
+                    parsed.allow_client_cursor_surfaces,
+                )
+            }
+            None => {
+                let (
+                    document,
+                    _,
+                    keyboard,
+                    mouse,
+                    touchpad,
+                    color_scheme_preference,
+                    allow_client_cursor_surfaces,
+                ) = default_document();
+                (
+                    document,
+                    keyboard,
+                    mouse,
+                    touchpad,
+                    color_scheme_preference,
+                    allow_client_cursor_surfaces,
+                )
+            }
+        };
+        // Grammar validation is not enough for an external keymap edit. Do
+        // the installed-XKB preflight before any live input state is changed.
+        keyboard.compiled_layout_names()?;
+        document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
+        document.insert("revision".to_owned(), Value::from(self.next_revision()?));
+        self.prepare_against(
+            document,
+            keyboard,
+            mouse,
+            touchpad,
+            color_scheme_preference,
+            allow_client_cursor_surfaces,
+            observed,
+        )
+        .map(Some)
+    }
+
     pub(super) fn commit(
         &mut self,
         mut prepared: PreparedSettingsUpdate,
@@ -792,7 +949,7 @@ impl SettingsManager {
                 "prepared settings target does not match the active store".to_owned(),
             ));
         }
-        if read_settings_file(&self.path)? != self.persisted_bytes {
+        if read_settings_file(&self.path)? != prepared.expected_disk_bytes {
             return Err(SettingsError::Conflict);
         }
         fs::rename(&prepared.temporary, &self.path)?;
@@ -833,12 +990,33 @@ impl SettingsManager {
 
     fn prepare(
         &self,
+        document: Map<String, Value>,
+        keyboard: KeyboardSettings,
+        mouse: MouseSettings,
+        touchpad: TouchpadSettings,
+        color_scheme_preference: DesktopColorSchemePreference,
+        allow_client_cursor_surfaces: bool,
+    ) -> Result<PreparedSettingsUpdate, SettingsError> {
+        self.prepare_against(
+            document,
+            keyboard,
+            mouse,
+            touchpad,
+            color_scheme_preference,
+            allow_client_cursor_surfaces,
+            self.persisted_bytes.clone(),
+        )
+    }
+
+    fn prepare_against(
+        &self,
         mut document: Map<String, Value>,
         keyboard: KeyboardSettings,
         mouse: MouseSettings,
         touchpad: TouchpadSettings,
         color_scheme_preference: DesktopColorSchemePreference,
         allow_client_cursor_surfaces: bool,
+        expected_disk_bytes: Option<Vec<u8>>,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         let application_environment = ApplicationEnvironment::from_document(&document)?;
         application_environment.write_to_document(&mut document);
@@ -859,6 +1037,7 @@ impl SettingsManager {
             color_scheme_preference,
             allow_client_cursor_surfaces,
             bytes,
+            expected_disk_bytes,
             committed: false,
         })
     }
@@ -890,6 +1069,7 @@ pub(super) struct PreparedSettingsUpdate {
     color_scheme_preference: DesktopColorSchemePreference,
     allow_client_cursor_surfaces: bool,
     bytes: Vec<u8>,
+    expected_disk_bytes: Option<Vec<u8>>,
     committed: bool,
 }
 
@@ -925,6 +1105,86 @@ struct ParsedSettingsDocument {
     allow_client_cursor_surfaces: bool,
     application_environment: ApplicationEnvironment,
     migrated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum ScrollingLayoutWheelUpDirection {
+    #[default]
+    Left,
+    Right,
+}
+
+impl ScrollingLayoutWheelUpDirection {
+    fn from_settings_name(value: &str) -> Option<Self> {
+        match value {
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+
+    fn settings_name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ScrollingLayoutWheelSettings {
+    pub(super) speed: f64,
+    pub(super) up_direction: ScrollingLayoutWheelUpDirection,
+}
+
+impl Default for ScrollingLayoutWheelSettings {
+    fn default() -> Self {
+        Self {
+            speed: DEFAULT_SCROLLING_LAYOUT_WHEEL_SPEED,
+            up_direction: ScrollingLayoutWheelUpDirection::Left,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct WorkspaceSettings {
+    pub(super) enabled: bool,
+    pub(super) count: u8,
+    pub(super) switching_orientation: WorkspaceSwitchingOrientation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum WorkspaceSwitchingOrientation {
+    #[default]
+    Horizontal,
+    Vertical,
+}
+
+impl WorkspaceSwitchingOrientation {
+    fn from_settings_name(value: &str) -> Option<Self> {
+        match value {
+            "horizontal" => Some(Self::Horizontal),
+            "vertical" => Some(Self::Vertical),
+            _ => None,
+        }
+    }
+
+    fn settings_name(self) -> &'static str {
+        match self {
+            Self::Horizontal => "horizontal",
+            Self::Vertical => "vertical",
+        }
+    }
+}
+
+impl Default for WorkspaceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            count: DEFAULT_WORKSPACE_COUNT,
+            switching_orientation: WorkspaceSwitchingOrientation::Horizontal,
+        }
+    }
 }
 
 fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError> {
@@ -989,6 +1249,16 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         true
     };
     set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)?;
+    let had_cursor_size = document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .is_some_and(|appearance| appearance.contains_key("cursorSize"));
+    let cursor_size = if had_cursor_size {
+        parse_cursor_size(&document)?
+    } else {
+        DEFAULT_CURSOR_SIZE
+    };
+    set_cursor_size(&mut document, cursor_size)?;
     let had_window_layout = document
         .get("layout")
         .and_then(Value::as_object)
@@ -999,6 +1269,33 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         WindowLayoutKind::Stacking
     };
     set_window_layout_kind(&mut document, window_layout)?;
+    let had_scrolling_layout_wheel_settings = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .is_some_and(|layout| {
+            layout.contains_key("scrollingLayoutWheelSpeed")
+                && layout.contains_key("scrollingLayoutWheelUpDirection")
+        });
+    let scrolling_layout_wheel_settings = if had_scrolling_layout_wheel_settings {
+        parse_scrolling_layout_wheel_settings(&document)?
+    } else {
+        ScrollingLayoutWheelSettings::default()
+    };
+    set_scrolling_layout_wheel_settings(&mut document, scrolling_layout_wheel_settings)?;
+    let had_workspace_settings = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .is_some_and(|layout| {
+            layout.contains_key("workspacesEnabled")
+                && layout.contains_key("workspaceCount")
+                && layout.contains_key("workspaceSwitchingOrientation")
+        });
+    let workspace_settings = if had_workspace_settings {
+        parse_workspace_settings(&document)?
+    } else {
+        WorkspaceSettings::default()
+    };
+    set_workspace_settings(&mut document, workspace_settings)?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
@@ -1007,7 +1304,10 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         || !had_application_environment
         || !had_color_scheme_preference
         || !had_allow_client_cursor_surfaces
-        || !had_window_layout;
+        || !had_cursor_size
+        || !had_window_layout
+        || !had_scrolling_layout_wheel_settings
+        || !had_workspace_settings;
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
     document.insert(
@@ -1070,8 +1370,19 @@ fn default_document() -> (
         .expect("default appearance settings serialize");
     set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)
         .expect("default cursor surface setting serializes");
+    set_cursor_size(&mut document, DEFAULT_CURSOR_SIZE).expect("default cursor size serializes");
     set_window_layout_kind(&mut document, WindowLayoutKind::Stacking)
         .expect("default window layout setting serializes");
+    set_scrolling_layout_wheel_settings(&mut document, ScrollingLayoutWheelSettings::default())
+        .expect("default scrolling-layout wheel settings serialize");
+    set_workspace_settings(&mut document, WorkspaceSettings::default())
+        .expect("default workspace settings serialize");
+    // Seed only new documents; existing automatic panel placement stays intact.
+    document
+        .get_mut("layout")
+        .and_then(Value::as_object_mut)
+        .expect("default layout is an object")
+        .insert("systemBarSide".to_owned(), Value::String("top".to_owned()));
     (
         document,
         revision,
@@ -1155,6 +1466,43 @@ fn set_allow_client_cursor_surfaces(
     Ok(())
 }
 
+fn parse_cursor_size(document: &Map<String, Value>) -> Result<u32, SettingsError> {
+    let value = document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .and_then(|appearance| appearance.get("cursorSize"))
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "appearance.cursorSize is missing or is not a finite number".to_owned(),
+            )
+        })?;
+    if !(f64::from(MIN_CURSOR_SIZE)..=f64::from(MAX_CURSOR_SIZE)).contains(&value) {
+        return Err(SettingsError::Document(format!(
+            "appearance.cursorSize must be between {MIN_CURSOR_SIZE} and {MAX_CURSOR_SIZE}"
+        )));
+    }
+    Ok(value.round() as u32)
+}
+
+fn set_cursor_size(
+    document: &mut Map<String, Value>,
+    cursor_size: u32,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("appearance") {
+        document.insert("appearance".to_owned(), Value::Object(Map::new()));
+    }
+    let appearance = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            SettingsError::Document("settings appearance must be an object".to_owned())
+        })?;
+    appearance.insert("cursorSize".to_owned(), Value::from(cursor_size));
+    Ok(())
+}
+
 fn parse_window_layout_kind(
     document: &Map<String, Value>,
 ) -> Result<WindowLayoutKind, SettingsError> {
@@ -1185,6 +1533,127 @@ fn set_window_layout_kind(
     layout.insert(
         "windowLayout".to_owned(),
         Value::String(kind.settings_name().to_owned()),
+    );
+    Ok(())
+}
+
+fn parse_scrolling_layout_wheel_settings(
+    document: &Map<String, Value>,
+) -> Result<ScrollingLayoutWheelSettings, SettingsError> {
+    let layout = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .ok_or_else(|| SettingsError::Document("settings layout must be an object".to_owned()))?;
+    let speed = layout
+        .get("scrollingLayoutWheelSpeed")
+        .and_then(Value::as_f64)
+        .filter(|speed| {
+            speed.is_finite()
+                && (MIN_SCROLLING_LAYOUT_WHEEL_SPEED..=MAX_SCROLLING_LAYOUT_WHEEL_SPEED)
+                    .contains(speed)
+        })
+        .ok_or_else(|| {
+            SettingsError::Document(format!(
+                "layout.scrollingLayoutWheelSpeed must be within {MIN_SCROLLING_LAYOUT_WHEEL_SPEED}..={MAX_SCROLLING_LAYOUT_WHEEL_SPEED}"
+            ))
+        })?;
+    let up_direction = layout
+        .get("scrollingLayoutWheelUpDirection")
+        .and_then(Value::as_str)
+        .and_then(ScrollingLayoutWheelUpDirection::from_settings_name)
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "layout.scrollingLayoutWheelUpDirection must be left or right".to_owned(),
+            )
+        })?;
+    Ok(ScrollingLayoutWheelSettings {
+        speed,
+        up_direction,
+    })
+}
+
+fn set_scrolling_layout_wheel_settings(
+    document: &mut Map<String, Value>,
+    settings: ScrollingLayoutWheelSettings,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("layout") {
+        document.insert("layout".to_owned(), Value::Object(Map::new()));
+    }
+    let layout = document
+        .get_mut("layout")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| SettingsError::Document("settings layout must be an object".to_owned()))?;
+    layout.insert(
+        "scrollingLayoutWheelSpeed".to_owned(),
+        Value::from(settings.speed),
+    );
+    layout.insert(
+        "scrollingLayoutWheelUpDirection".to_owned(),
+        Value::String(settings.up_direction.settings_name().to_owned()),
+    );
+    Ok(())
+}
+
+fn parse_workspace_settings(
+    document: &Map<String, Value>,
+) -> Result<WorkspaceSettings, SettingsError> {
+    let layout = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .ok_or_else(|| SettingsError::Document("settings layout must be an object".to_owned()))?;
+    let enabled = layout
+        .get("workspacesEnabled")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "layout.workspacesEnabled is missing or is not a boolean".to_owned(),
+            )
+        })?;
+    let count = layout
+        .get("workspaceCount")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|value| (MIN_WORKSPACE_COUNT..=MAX_WORKSPACE_COUNT).contains(value))
+        .ok_or_else(|| {
+            SettingsError::Document(format!(
+                "layout.workspaceCount must be within {MIN_WORKSPACE_COUNT}..={MAX_WORKSPACE_COUNT}"
+            ))
+        })?;
+    let switching_orientation = layout
+        .get("workspaceSwitchingOrientation")
+        .and_then(Value::as_str)
+        .and_then(WorkspaceSwitchingOrientation::from_settings_name)
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "layout.workspaceSwitchingOrientation must be horizontal or vertical".to_owned(),
+            )
+        })?;
+    Ok(WorkspaceSettings {
+        enabled,
+        count,
+        switching_orientation,
+    })
+}
+
+fn set_workspace_settings(
+    document: &mut Map<String, Value>,
+    workspaces: WorkspaceSettings,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("layout") {
+        document.insert("layout".to_owned(), Value::Object(Map::new()));
+    }
+    let layout = document
+        .get_mut("layout")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| SettingsError::Document("settings layout must be an object".to_owned()))?;
+    layout.insert(
+        "workspacesEnabled".to_owned(),
+        Value::Bool(workspaces.enabled),
+    );
+    layout.insert("workspaceCount".to_owned(), Value::from(workspaces.count));
+    layout.insert(
+        "workspaceSwitchingOrientation".to_owned(),
+        Value::String(workspaces.switching_orientation.settings_name().to_owned()),
     );
     Ok(())
 }

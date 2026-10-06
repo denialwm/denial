@@ -1,5 +1,31 @@
 import 'package:flutter/widgets.dart';
 
+import '../models/display_layout.dart';
+
+typedef DesktopOutputPixelGrid = ({Rect logicalRect, double scale});
+
+/// Returns the physical-pixel grid for one output in desktop scene coordinates.
+///
+/// Flutter's ambient device-pixel ratio describes the complete atlas and is
+/// therefore not authoritative when outputs use different scales.
+DesktopOutputPixelGrid? desktopOutputPixelGridForMonitor(
+  DisplayLayout? layout,
+  int monitorId,
+) {
+  if (layout == null) {
+    return null;
+  }
+  for (final output in layout.outputs) {
+    if (output.monitorId == monitorId &&
+        output.scale.isFinite &&
+        output.scale > 0.0 &&
+        output.logicalRect.isFinite) {
+      return (logicalRect: output.logicalRect, scale: output.scale);
+    }
+  }
+  return null;
+}
+
 /// Aligns a desktop client's content geometry to the Flutter pixel grid.
 ///
 /// Wayland positions are expressed in whole logical pixels. At a fractional
@@ -15,6 +41,7 @@ Rect desktopPixelAlignedWindowFrame({
   required double contentInset,
   required double devicePixelRatio,
   required bool enabled,
+  Offset pixelGridOrigin = Offset.zero,
   bool alignSize = false,
 }) {
   if (!enabled ||
@@ -22,7 +49,9 @@ Rect desktopPixelAlignedWindowFrame({
       !contentInset.isFinite ||
       contentInset < 0.0 ||
       !devicePixelRatio.isFinite ||
-      devicePixelRatio <= 0.0) {
+      devicePixelRatio <= 0.0 ||
+      !pixelGridOrigin.dx.isFinite ||
+      !pixelGridOrigin.dy.isFinite) {
     return frame;
   }
 
@@ -30,11 +59,12 @@ Rect desktopPixelAlignedWindowFrame({
   if (contentRect.isEmpty) {
     return frame;
   }
-  double align(double value) =>
-      (value * devicePixelRatio).roundToDouble() / devicePixelRatio;
+  double align(double value, double origin) =>
+      ((value - origin) * devicePixelRatio).roundToDouble() / devicePixelRatio +
+      origin;
 
-  final alignedLeft = align(contentRect.left);
-  final alignedTop = align(contentRect.top);
+  final alignedLeft = align(contentRect.left, pixelGridOrigin.dx);
+  final alignedTop = align(contentRect.top, pixelGridOrigin.dy);
   if (!alignSize) {
     return frame.shift(
       Offset(alignedLeft - contentRect.left, alignedTop - contentRect.top),
@@ -44,8 +74,8 @@ Rect desktopPixelAlignedWindowFrame({
   final alignedContentRect = Rect.fromLTRB(
     alignedLeft,
     alignedTop,
-    align(contentRect.right),
-    align(contentRect.bottom),
+    align(contentRect.right, pixelGridOrigin.dx),
+    align(contentRect.bottom, pixelGridOrigin.dy),
   );
   if (alignedContentRect.isEmpty) {
     return frame;

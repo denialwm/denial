@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../config/startup_environment.dart';
+
 class RuntimePaths {
   RuntimePaths({required Map<String, String> environment})
     : environment = Map.unmodifiable(environment);
@@ -30,7 +32,7 @@ class RuntimePaths {
       environment['XDG_CACHE_HOME'] ?? p.join(homeDir, '.cache');
 
   String get wallpaperDirectory =>
-      environment['DENIA_WALLPAPER_DIR'] ??
+      denialEnvironmentValue(environment, 'DENIAL_WALLPAPER_DIR') ??
       p.join(homeDir, 'Pictures', 'Wallpapers');
 
   List<String> get dataDirs {
@@ -41,7 +43,7 @@ class RuntimePaths {
   }
 
   String get powerdControlSocketPath =>
-      environment['DENIA_POWERD_CONTROL_SOCKET'] ??
+      denialEnvironmentValue(environment, 'DENIAL_POWERD_CONTROL_SOCKET') ??
       '/run/denia-powerd/control.sock';
 
   Future<File> layoutFile() async {

@@ -26,6 +26,7 @@ export 'src/models/denial_drag_icon.dart';
 export 'src/models/denial_window.dart';
 export 'src/models/denial_window_snapshot.dart';
 export 'src/models/display_layout.dart';
+export 'src/models/power_button_action.dart';
 export 'src/models/shell_popup_placement.dart';
 export 'src/settings/settings_controller.dart'
     show shellSettingsProvider, ShellSettingsController;

@@ -4,10 +4,13 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
 import '../models/display_layout.dart';
+import '../models/power_button_action.dart';
 import '../models/shell_popup_placement.dart';
+import '../models/suspend_mode.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/tokens.dart';
 
 enum ShellAccentSource { wallpaper, custom }
@@ -40,11 +43,22 @@ enum MinimizedWindowPlacement { desktop, offscreen }
 
 /// Compositor geometry policy for ordinary, non-transient desktop windows.
 /// Each value maps to a Rust `WindowLayout` implementation.
-enum DesktopWindowLayout { stacking, dwindle }
+enum DesktopWindowLayout { stacking, dwindle, scrolling }
+
+enum ScrollingLayoutWheelUpDirection { left, right }
+
+enum WorkspaceSwitchingOrientation { horizontal, vertical }
+
+const int minimumWorkspaceCount = 2;
+const int maximumWorkspaceCount = 9;
+const int defaultWorkspaceCount = 4;
+const double scrollingLayoutWheelSpeedMinimum = 0.25;
+const double scrollingLayoutWheelSpeedMaximum = 4;
+const double scrollingLayoutWheelSpeedDefault = 1;
 
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
-const double clipboardTrayDefaultExtent = 250;
+const double clipboardTrayDefaultExtent = 160;
 const double launcherOverlayMinimumHeight = 200;
 
 enum ShellLocalePreference { system, english, simplifiedChinese }
@@ -80,12 +94,14 @@ class ShellAppearanceSettings {
     this.colorSchemePreference = DesktopColorSchemePreference.preferDark,
     this.accentSource = ShellAccentSource.wallpaper,
     this.customAccentColor = ShellBrandColors.defaultAccent,
-    this.cornerRadiusScale = ShellRoundness.normal,
-    this.panelOpacity = ShellOpacity.panel,
-    this.cardOpacity = ShellOpacity.card,
-    this.backdropBlurEnabled = true,
-    this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
-    this.backdropBlurOpacityThreshold = 0.2,
+    this.fontFamily = '',
+    this.cornerRadiusScale = 0.3,
+    this.panelOpacity = 0.75,
+    this.cardOpacity = 0.4421052631578947,
+    this.transparencyMode = ShellTransparencyMode.glass,
+    this.backdropBlurLevel = ShellBackdropBlurLevel.good,
+    this.backdropBlurOpacityThreshold = 0.65,
+    this.glass = const ShellGlassConfiguration(),
     this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
@@ -97,12 +113,14 @@ class ShellAppearanceSettings {
   final DesktopColorSchemePreference colorSchemePreference;
   final ShellAccentSource accentSource;
   final Color customAccentColor;
+  final String fontFamily;
   final double cornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
-  final bool backdropBlurEnabled;
+  final ShellTransparencyMode transparencyMode;
   final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
+  final ShellGlassConfiguration glass;
   final bool focusedWindowBorderEnabled;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
@@ -114,12 +132,14 @@ class ShellAppearanceSettings {
     DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
     Color? customAccentColor,
+    String? fontFamily,
     double? cornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
-    bool? backdropBlurEnabled,
+    ShellTransparencyMode? transparencyMode,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    ShellGlassConfiguration? glass,
     bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -132,13 +152,15 @@ class ShellAppearanceSettings {
           colorSchemePreference ?? this.colorSchemePreference,
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
+      fontFamily: fontFamily ?? this.fontFamily,
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
-      backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
+      transparencyMode: transparencyMode ?? this.transparencyMode,
       backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      glass: glass ?? this.glass,
       focusedWindowBorderEnabled:
           focusedWindowBorderEnabled ?? this.focusedWindowBorderEnabled,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
@@ -157,12 +179,14 @@ class ShellAppearanceSettings {
         other.colorSchemePreference == colorSchemePreference &&
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
+        other.fontFamily == fontFamily &&
         other.cornerRadiusScale == cornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
-        other.backdropBlurEnabled == backdropBlurEnabled &&
+        other.transparencyMode == transparencyMode &&
         other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
+        other.glass == glass &&
         other.focusedWindowBorderEnabled == focusedWindowBorderEnabled &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
@@ -176,12 +200,14 @@ class ShellAppearanceSettings {
     colorSchemePreference,
     accentSource,
     customAccentColor,
+    fontFamily,
     cornerRadiusScale,
     panelOpacity,
     cardOpacity,
-    backdropBlurEnabled,
+    transparencyMode,
     backdropBlurLevel,
     backdropBlurOpacityThreshold,
+    glass,
     focusedWindowBorderEnabled,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
@@ -241,16 +267,27 @@ class ShellAnimationSettings {
 class ShellLayoutSettings {
   const ShellLayoutSettings({
     this.windowLayout = DesktopWindowLayout.stacking,
-    this.systemBarSide,
+    this.scrollingLayoutWheelSpeed = scrollingLayoutWheelSpeedDefault,
+    this.scrollingLayoutWheelUpDirection = ScrollingLayoutWheelUpDirection.left,
+    this.workspacesEnabled = false,
+    this.workspaceCount = defaultWorkspaceCount,
+    this.workspaceSwitchingOrientation =
+        WorkspaceSwitchingOrientation.horizontal,
+    this.systemBarSide = SystemBarSide.top,
     this.systemBarOutputNames = const <String>[],
-    this.systemBarThickness = 32,
-    this.maximizePadding = 10,
-    this.minimizedWindowPlacement = MinimizedWindowPlacement.desktop,
-    this.clipboardTrayEdge = ClipboardTrayEdge.right,
+    this.systemBarThickness = 33,
+    this.maximizePadding = 8,
+    this.minimizedWindowPlacement = MinimizedWindowPlacement.offscreen,
+    this.clipboardTrayEdge = ClipboardTrayEdge.left,
     this.clipboardTrayExtent = clipboardTrayDefaultExtent,
   });
 
   final DesktopWindowLayout windowLayout;
+  final double scrollingLayoutWheelSpeed;
+  final ScrollingLayoutWheelUpDirection scrollingLayoutWheelUpDirection;
+  final bool workspacesEnabled;
+  final int workspaceCount;
+  final WorkspaceSwitchingOrientation workspaceSwitchingOrientation;
   final SystemBarSide? systemBarSide;
   final List<String> systemBarOutputNames;
   final double systemBarThickness;
@@ -261,6 +298,11 @@ class ShellLayoutSettings {
 
   ShellLayoutSettings copyWith({
     DesktopWindowLayout? windowLayout,
+    double? scrollingLayoutWheelSpeed,
+    ScrollingLayoutWheelUpDirection? scrollingLayoutWheelUpDirection,
+    bool? workspacesEnabled,
+    int? workspaceCount,
+    WorkspaceSwitchingOrientation? workspaceSwitchingOrientation,
     SystemBarSide? systemBarSide,
     bool clearSystemBarSide = false,
     List<String>? systemBarOutputNames,
@@ -272,6 +314,15 @@ class ShellLayoutSettings {
   }) {
     return ShellLayoutSettings(
       windowLayout: windowLayout ?? this.windowLayout,
+      scrollingLayoutWheelSpeed:
+          scrollingLayoutWheelSpeed ?? this.scrollingLayoutWheelSpeed,
+      scrollingLayoutWheelUpDirection:
+          scrollingLayoutWheelUpDirection ??
+          this.scrollingLayoutWheelUpDirection,
+      workspacesEnabled: workspacesEnabled ?? this.workspacesEnabled,
+      workspaceCount: workspaceCount ?? this.workspaceCount,
+      workspaceSwitchingOrientation:
+          workspaceSwitchingOrientation ?? this.workspaceSwitchingOrientation,
       systemBarSide: clearSystemBarSide
           ? null
           : systemBarSide ?? this.systemBarSide,
@@ -291,6 +342,12 @@ class ShellLayoutSettings {
   bool operator ==(Object other) {
     return other is ShellLayoutSettings &&
         other.windowLayout == windowLayout &&
+        other.scrollingLayoutWheelSpeed == scrollingLayoutWheelSpeed &&
+        other.scrollingLayoutWheelUpDirection ==
+            scrollingLayoutWheelUpDirection &&
+        other.workspacesEnabled == workspacesEnabled &&
+        other.workspaceCount == workspaceCount &&
+        other.workspaceSwitchingOrientation == workspaceSwitchingOrientation &&
         other.systemBarSide == systemBarSide &&
         listEquals(other.systemBarOutputNames, systemBarOutputNames) &&
         other.systemBarThickness == systemBarThickness &&
@@ -303,6 +360,11 @@ class ShellLayoutSettings {
   @override
   int get hashCode => Object.hash(
     windowLayout,
+    scrollingLayoutWheelSpeed,
+    scrollingLayoutWheelUpDirection,
+    workspacesEnabled,
+    workspaceCount,
+    workspaceSwitchingOrientation,
     systemBarSide,
     Object.hashAll(systemBarOutputNames),
     systemBarThickness,
@@ -443,12 +505,14 @@ class ShellLockScreenSettings {
 @immutable
 class ShellPowerSettings {
   const ShellPowerSettings({
+    this.powerButtonAction = PowerButtonAction.dpms,
     this.idleLockEnabled = true,
     this.idleLockTimeoutMinutes = 5,
     this.idleDpmsEnabled = true,
     this.idleDpmsTimeoutMinutes = 10,
     this.idleSuspendEnabled = false,
     this.idleSuspendTimeoutMinutes = 30,
+    this.suspendMode = SuspendMode.systemDefault,
   });
 
   static const int minimumIdleTimeoutMinutes = 1;
@@ -456,22 +520,27 @@ class ShellPowerSettings {
   static const int minimumIdleDpmsMinutes = minimumIdleTimeoutMinutes;
   static const int maximumIdleDpmsMinutes = maximumIdleTimeoutMinutes;
 
+  final PowerButtonAction powerButtonAction;
   final bool idleLockEnabled;
   final int idleLockTimeoutMinutes;
   final bool idleDpmsEnabled;
   final int idleDpmsTimeoutMinutes;
   final bool idleSuspendEnabled;
   final int idleSuspendTimeoutMinutes;
+  final SuspendMode suspendMode;
 
   ShellPowerSettings copyWith({
+    PowerButtonAction? powerButtonAction,
     bool? idleLockEnabled,
     int? idleLockTimeoutMinutes,
     bool? idleDpmsEnabled,
     int? idleDpmsTimeoutMinutes,
     bool? idleSuspendEnabled,
     int? idleSuspendTimeoutMinutes,
+    SuspendMode? suspendMode,
   }) {
     return ShellPowerSettings(
+      powerButtonAction: powerButtonAction ?? this.powerButtonAction,
       idleLockEnabled: idleLockEnabled ?? this.idleLockEnabled,
       idleLockTimeoutMinutes:
           idleLockTimeoutMinutes ?? this.idleLockTimeoutMinutes,
@@ -481,28 +550,33 @@ class ShellPowerSettings {
       idleSuspendEnabled: idleSuspendEnabled ?? this.idleSuspendEnabled,
       idleSuspendTimeoutMinutes:
           idleSuspendTimeoutMinutes ?? this.idleSuspendTimeoutMinutes,
+      suspendMode: suspendMode ?? this.suspendMode,
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is ShellPowerSettings &&
+        other.powerButtonAction == powerButtonAction &&
         other.idleLockEnabled == idleLockEnabled &&
         other.idleLockTimeoutMinutes == idleLockTimeoutMinutes &&
         other.idleDpmsEnabled == idleDpmsEnabled &&
         other.idleDpmsTimeoutMinutes == idleDpmsTimeoutMinutes &&
         other.idleSuspendEnabled == idleSuspendEnabled &&
-        other.idleSuspendTimeoutMinutes == idleSuspendTimeoutMinutes;
+        other.idleSuspendTimeoutMinutes == idleSuspendTimeoutMinutes &&
+        other.suspendMode == suspendMode;
   }
 
   @override
   int get hashCode => Object.hash(
+    powerButtonAction,
     idleLockEnabled,
     idleLockTimeoutMinutes,
     idleDpmsEnabled,
     idleDpmsTimeoutMinutes,
     idleSuspendEnabled,
     idleSuspendTimeoutMinutes,
+    suspendMode,
   );
 }
 
@@ -772,7 +846,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 21;
+  static const int schemaVersion = 28;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -836,6 +910,9 @@ class ShellSettings {
       if (appearance.customAccentColor != before.customAccentColor) {
         section['customAccentColor'] = appearance.customAccentColor.toARGB32();
       }
+      if (appearance.fontFamily != before.fontFamily) {
+        section['fontFamily'] = appearance.fontFamily;
+      }
       if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
         section['cornerRadiusScale'] = appearance.cornerRadiusScale;
       }
@@ -845,8 +922,8 @@ class ShellSettings {
       if (appearance.cardOpacity != before.cardOpacity) {
         section['cardOpacity'] = appearance.cardOpacity;
       }
-      if (appearance.backdropBlurEnabled != before.backdropBlurEnabled) {
-        section['backdropBlurEnabled'] = appearance.backdropBlurEnabled;
+      if (appearance.transparencyMode != before.transparencyMode) {
+        section['transparencyMode'] = appearance.transparencyMode.name;
       }
       if (appearance.backdropBlurLevel != before.backdropBlurLevel) {
         section['backdropBlurLevel'] = appearance.backdropBlurLevel.name;
@@ -856,6 +933,9 @@ class ShellSettings {
           before.backdropBlurOpacityThreshold) {
         section['backdropBlurPixelOpacityThreshold'] =
             appearance.backdropBlurOpacityThreshold;
+      }
+      if (appearance.glass != before.glass) {
+        section['glass'] = appearance.glass.toJson();
       }
       if (appearance.focusedWindowBorderEnabled !=
           before.focusedWindowBorderEnabled) {
@@ -887,6 +967,26 @@ class ShellSettings {
       final section = <String, Object?>{};
       if (layout.windowLayout != before.windowLayout) {
         section['windowLayout'] = layout.windowLayout.name;
+      }
+      if (layout.scrollingLayoutWheelSpeed !=
+          before.scrollingLayoutWheelSpeed) {
+        section['scrollingLayoutWheelSpeed'] = layout.scrollingLayoutWheelSpeed;
+      }
+      if (layout.scrollingLayoutWheelUpDirection !=
+          before.scrollingLayoutWheelUpDirection) {
+        section['scrollingLayoutWheelUpDirection'] =
+            layout.scrollingLayoutWheelUpDirection.name;
+      }
+      if (layout.workspacesEnabled != before.workspacesEnabled) {
+        section['workspacesEnabled'] = layout.workspacesEnabled;
+      }
+      if (layout.workspaceCount != before.workspaceCount) {
+        section['workspaceCount'] = layout.workspaceCount;
+      }
+      if (layout.workspaceSwitchingOrientation !=
+          before.workspaceSwitchingOrientation) {
+        section['workspaceSwitchingOrientation'] =
+            layout.workspaceSwitchingOrientation.name;
       }
       if (layout.systemBarSide != before.systemBarSide) {
         section['systemBarSide'] = layout.systemBarSide?.name;
@@ -976,6 +1076,9 @@ class ShellSettings {
     if (power != previous.power) {
       final before = previous.power;
       final section = <String, Object?>{};
+      if (power.powerButtonAction != before.powerButtonAction) {
+        section['powerButtonAction'] = power.powerButtonAction.name;
+      }
       if (power.idleLockEnabled != before.idleLockEnabled) {
         section['idleLockEnabled'] = power.idleLockEnabled;
       }
@@ -993,6 +1096,9 @@ class ShellSettings {
       }
       if (power.idleSuspendTimeoutMinutes != before.idleSuspendTimeoutMinutes) {
         section['idleSuspendTimeoutMinutes'] = power.idleSuspendTimeoutMinutes;
+      }
+      if (power.suspendMode != before.suspendMode) {
+        section['suspendMode'] = power.suspendMode.name;
       }
       patch['power'] = section;
     }
@@ -1014,14 +1120,16 @@ class ShellSettings {
         'colorSchemePreference': appearance.colorSchemePreference.name,
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
+        'fontFamily': appearance.fontFamily,
         'cornerRadiusScale': appearance.cornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
-        'backdropBlurEnabled': appearance.backdropBlurEnabled,
+        'transparencyMode': appearance.transparencyMode.name,
         'backdropBlurLevel': appearance.backdropBlurLevel.name,
         'backdropBlurSigma': appearance.backdropBlurLevel.sigma,
         'backdropBlurPixelOpacityThreshold':
             appearance.backdropBlurOpacityThreshold,
+        'glass': appearance.glass.toJson(),
         'focusedWindowBorderEnabled': appearance.focusedWindowBorderEnabled,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
@@ -1029,9 +1137,16 @@ class ShellSettings {
         'cursorThemeId': appearance.cursorThemeId,
         'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
       },
-      'layout': <String, Object>{
+      'layout': <String, Object?>{
         'windowLayout': layout.windowLayout.name,
-        if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
+        'scrollingLayoutWheelSpeed': layout.scrollingLayoutWheelSpeed,
+        'scrollingLayoutWheelUpDirection':
+            layout.scrollingLayoutWheelUpDirection.name,
+        'workspacesEnabled': layout.workspacesEnabled,
+        'workspaceCount': layout.workspaceCount,
+        'workspaceSwitchingOrientation':
+            layout.workspaceSwitchingOrientation.name,
+        'systemBarSide': layout.systemBarSide?.name,
         'systemBarOutputs': layout.systemBarOutputNames,
         'systemBarThickness': layout.systemBarThickness,
         'maximizePadding': layout.maximizePadding,
@@ -1059,12 +1174,14 @@ class ShellSettings {
         'showSystemStatus': lockScreen.showSystemStatus,
       },
       'power': <String, Object>{
+        'powerButtonAction': power.powerButtonAction.name,
         'idleLockEnabled': power.idleLockEnabled,
         'idleLockTimeoutMinutes': power.idleLockTimeoutMinutes,
         'idleDpmsEnabled': power.idleDpmsEnabled,
         'idleDpmsTimeoutMinutes': power.idleDpmsTimeoutMinutes,
         'idleSuspendEnabled': power.idleSuspendEnabled,
         'idleSuspendTimeoutMinutes': power.idleSuspendTimeoutMinutes,
+        'suspendMode': power.suspendMode.name,
       },
       'applicationEnvironment': applicationEnvironment.toJson(),
     };
@@ -1150,6 +1267,11 @@ class ShellSettings {
               idleSuspendTimeoutMinutes,
             )
             .toInt();
+    final legacyTransparencyMode = appearanceJson['backdropBlurEnabled'] is bool
+        ? (appearanceJson['backdropBlurEnabled'] as bool
+              ? ShellTransparencyMode.blur
+              : ShellTransparencyMode.off)
+        : defaults.appearance.transparencyMode;
     return ShellSettings(
       localization: ShellLocalizationSettings(
         locale: _enumValue(
@@ -1173,6 +1295,10 @@ class ShellSettings {
           appearanceJson['customAccentColor'],
           defaults.appearance.customAccentColor,
         ),
+        fontFamily: _fontFamily(
+          appearanceJson['fontFamily'],
+          defaults.appearance.fontFamily,
+        ),
         cornerRadiusScale: _number(
           appearanceJson['cornerRadiusScale'],
           legacyCornerRadiusScale,
@@ -1191,9 +1317,11 @@ class ShellSettings {
           ShellOpacity.minimumCard,
           1,
         ),
-        backdropBlurEnabled: appearanceJson['backdropBlurEnabled'] is bool
-            ? appearanceJson['backdropBlurEnabled'] as bool
-            : defaults.appearance.backdropBlurEnabled,
+        transparencyMode: _enumValue(
+          ShellTransparencyMode.values,
+          appearanceJson['transparencyMode'],
+          legacyTransparencyMode,
+        ),
         backdropBlurLevel: _enumValue(
           ShellBackdropBlurLevel.values,
           appearanceJson['backdropBlurLevel'],
@@ -1204,6 +1332,10 @@ class ShellSettings {
           defaults.appearance.backdropBlurOpacityThreshold,
           0,
           1,
+        ),
+        glass: ShellGlassConfiguration.fromJson(
+          appearanceJson['glass'],
+          defaults.appearance.glass,
         ),
         focusedWindowBorderEnabled:
             appearanceJson['focusedWindowBorderEnabled'] is bool
@@ -1242,10 +1374,37 @@ class ShellSettings {
           layoutJson['windowLayout'],
           defaults.layout.windowLayout,
         ),
-        systemBarSide: _nullableEnumValue(
-          SystemBarSide.values,
-          layoutJson['systemBarSide'],
+        scrollingLayoutWheelSpeed: _number(
+          layoutJson['scrollingLayoutWheelSpeed'],
+          defaults.layout.scrollingLayoutWheelSpeed,
+          scrollingLayoutWheelSpeedMinimum,
+          scrollingLayoutWheelSpeedMaximum,
         ),
+        scrollingLayoutWheelUpDirection: _enumValue(
+          ScrollingLayoutWheelUpDirection.values,
+          layoutJson['scrollingLayoutWheelUpDirection'],
+          defaults.layout.scrollingLayoutWheelUpDirection,
+        ),
+        workspacesEnabled: layoutJson['workspacesEnabled'] is bool
+            ? layoutJson['workspacesEnabled'] as bool
+            : defaults.layout.workspacesEnabled,
+        workspaceCount: _integer(
+          layoutJson['workspaceCount'],
+          defaults.layout.workspaceCount,
+          minimumWorkspaceCount,
+          maximumWorkspaceCount,
+        ),
+        workspaceSwitchingOrientation: _enumValue(
+          WorkspaceSwitchingOrientation.values,
+          layoutJson['workspaceSwitchingOrientation'],
+          defaults.layout.workspaceSwitchingOrientation,
+        ),
+        systemBarSide: layoutJson.isNotEmpty
+            ? _nullableEnumValue(
+                SystemBarSide.values,
+                layoutJson['systemBarSide'],
+              )
+            : defaults.layout.systemBarSide,
         systemBarOutputNames: List<String>.unmodifiable(outputNames),
         systemBarThickness: _number(
           layoutJson['systemBarThickness'],
@@ -1351,6 +1510,11 @@ class ShellSettings {
             : defaults.lockScreen.showSystemStatus,
       ),
       power: ShellPowerSettings(
+        powerButtonAction: _enumValue(
+          PowerButtonAction.values,
+          powerJson['powerButtonAction'],
+          defaults.power.powerButtonAction,
+        ),
         idleLockEnabled: powerJson['idleLockEnabled'] is bool
             ? powerJson['idleLockEnabled'] as bool
             : defaults.power.idleLockEnabled,
@@ -1363,6 +1527,11 @@ class ShellSettings {
             ? powerJson['idleSuspendEnabled'] as bool
             : defaults.power.idleSuspendEnabled,
         idleSuspendTimeoutMinutes: idleSuspendTimeoutMinutes,
+        suspendMode: _enumValue(
+          SuspendMode.values,
+          powerJson['suspendMode'],
+          defaults.power.suspendMode,
+        ),
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
         json['applicationEnvironment'],
@@ -1394,6 +1563,18 @@ class ShellSettings {
     power,
     applicationEnvironment,
   );
+}
+
+String _fontFamily(Object? value, String fallback) {
+  if (value is! String) {
+    return fallback;
+  }
+  final family = value.trim();
+  if (family.length > maximumShellFontFamilyLength ||
+      family.runes.any((rune) => rune < 0x20 || rune == 0x7f)) {
+    return fallback;
+  }
+  return family;
 }
 
 Map<String, Object> _placementToJson(ShellPopupPlacement placement) {

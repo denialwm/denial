@@ -730,3 +730,75 @@ BoxDecoration _desktopLockPanelDecoration({
     border: Border.all(color: accent.outline),
   );
 }
+
+/// Independent feedback also appears before the password panel is opened.
+class _LockFingerprintFeedback extends StatelessWidget {
+  const _LockFingerprintFeedback({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.shellColors;
+    return Positioned(
+      top: 76,
+      left: 24,
+      right: 24,
+      child: SafeArea(
+        bottom: false,
+        child: IgnorePointer(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 150),
+              child: visible
+                  ? Semantics(
+                      key: const ValueKey('fingerprint-rejected'),
+                      liveRegion: true,
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerHigh,
+                          borderRadius: context.shellTheme.borderRadius(16),
+                          border: Border.all(
+                            color: colors.performanceBad.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ExcludeSemantics(
+                              child: Icon(
+                                Icons.fingerprint_rounded,
+                                color: colors.performanceBad,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Text(
+                                context.l10n.lockFingerprintNotRecognized,
+                                style: ShellText.base.copyWith(
+                                  color: colors.textPrimary,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -8,7 +8,7 @@ import 'package:flutter/widgets.dart';
 /// Opt-in counters for the Dart-side stages of desktop window rendering.
 ///
 /// Enable these counters together with Denial's native render diagnostics by
-/// starting Denial with `DENIA_RENDER_AUDIT=1`. The timer does not schedule
+/// starting Denial with `DENIAL_RENDER_AUDIT=1`. The timer does not schedule
 /// Flutter frames; it only reports work that happened independently.
 class DesktopWindowRenderTelemetry {
   DesktopWindowRenderTelemetry._();

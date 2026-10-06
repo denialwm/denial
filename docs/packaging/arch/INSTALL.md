@@ -16,7 +16,7 @@ development package is installed only when requested.
 Review the repository-owned [`install.sh`](../../../install.sh), then run:
 
 ```sh
-sh -c 'if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'
+curl -fsSL https://install.denialwm.org | sh
 ```
 
 The installer downloads the public key from the published Denial repository,
@@ -131,7 +131,7 @@ reports the compositor, output, and Flutter UI state.
 
 Denial renders through its compositor-integrated Impeller GLES backend by
 default. If a GPU-driver issue requires the retained Skia/Ganesh fallback, add
-`DENIA_FLUTTER_RENDERER=skia` to `/etc/denial/session.conf` and restart the
+`DENIAL_FLUTTER_RENDERER=skia` to `/etc/denial/session.conf` and restart the
 Denial session. Removing the override returns to Impeller.
 
 The standard display-manager entry starts unlocked because the display manager

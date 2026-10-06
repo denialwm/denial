@@ -1,0 +1,16 @@
+{
+  "sensor": "jiiov-jv0307",
+  "output": "DSI-1",
+  "panel_name": "csot_nt37706_667_1220x2712_dsc_vdo_v3",
+  "panel_width": 1220,
+  "panel_height": 2712,
+  "x": 508,
+  "y": 2338,
+  "width": 204,
+  "height": 204,
+  "max_duration_ms": 10000,
+  "settle_ms": 100,
+  "illumination_property": "HBM",
+  "illumination_on": 2,
+  "illumination_off": 0
+}

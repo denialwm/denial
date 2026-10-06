@@ -20,6 +20,7 @@ class SystemTrayMenuEntry {
     required this.toggleState,
     required this.destructive,
     required this.children,
+    this.hasSubmenu = false,
   });
 
   final int id;
@@ -31,6 +32,9 @@ class SystemTrayMenuEntry {
   final int toggleState;
   final bool destructive;
   final List<SystemTrayMenuEntry> children;
+
+  /// Whether the exporter advertises children that can be fetched on demand.
+  final bool hasSubmenu;
 }
 
 @immutable

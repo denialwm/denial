@@ -59,6 +59,11 @@ expect_blocked \
   "$ROOT/tools/run-denial-promotion-no-build" \
     "$ROOT/tools/package-denial-rpm"
 expect_blocked \
+  'openSUSE RPM implicit staging' \
+  'requires DENIAL_PACKAGE_SKIP_STAGE=1' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/package-denial-opensuse-rpm"
+expect_blocked \
   'APK implicit adaptation' \
   'promotion requires DENIAL_ALPINE_PREPARED_STAGE_ROOT' \
   "$ROOT/tools/run-denial-promotion-no-build" \

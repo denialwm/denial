@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+ENGINE_SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
+NIX_ENGINE_LOCK="$ROOT/nix/flutter-engine-lock.json"
+FAKE_HASH='sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+JQ=''
+YQ_GO=''
+
+die() {
+  printf 'denial-nix: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+ensure_nix_maintenance_tools() {
+  local tools_path
+  require_command nix
+  tools_path="$(
+    nix build "$ROOT#denial-nix-maintenance-tools" \
+      --no-link --print-out-paths
+  )"
+  JQ="$tools_path/bin/jq"
+  YQ_GO="$tools_path/bin/yq"
+  [[ -x "$JQ" ]] || die "pinned jq executable is unavailable: $JQ"
+  [[ -x "$YQ_GO" ]] || die "pinned yq-go executable is unavailable: $YQ_GO"
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-nix verify-locks
+  tools/denial-nix refresh-pub-locks
+  tools/denial-nix refresh-engine-lock
+
+verify-locks
+  Verify that Nix's engine lock follows SOURCE_LOCK.json and that the checked-in
+  Pub JSON files describe their authoritative pubspec.lock files.
+
+refresh-pub-locks
+  Regenerate the three checked-in Pub JSON files. The Flutter source comes from
+  DENIAL_FLUTTER_SOURCE_ROOT, the canonical source tree, or the locked Nix
+  framework source in that order.
+
+refresh-engine-lock
+  Deliberately refetch the requested Flutter framework, depot_tools, and full
+  engine source closure with fake hashes, record Nix's verified hashes, and
+  verify the resulting source derivations. Run this after changing
+  prebuilt/flutter-engine/SOURCE_LOCK.json.
+EOF
+}
+
+canonical_json() {
+  "$JQ" --sort-keys . "$1"
+}
+
+verify_pub_lock() {
+  local source="$1"
+  local generated="$2"
+  local expected_hash
+  local source_hash
+  local source_json
+  local generated_json
+
+  expected_hash="$("$JQ" -er '.source_sha256' "$generated")"
+  source_hash="$(sha256sum "$source" | awk '{print $1}')"
+  [[ "$source_hash" == "$expected_hash" ]] \
+    || die "$source changed without regenerating $generated"
+
+  source_json="$(mktemp)"
+  generated_json="$(mktemp)"
+  "$YQ_GO" -o=json '.' "$source" | "$JQ" --sort-keys . >"$source_json"
+  "$JQ" 'del(.source_sha256)' "$generated" \
+    | "$JQ" --sort-keys . >"$generated_json"
+  cmp -s -- "$source_json" "$generated_json" \
+    || die "$generated does not exactly represent $source"
+  rm -f -- "$source_json" "$generated_json"
+}
+
+resolve_flutter_source() {
+  local candidate="${DENIAL_FLUTTER_SOURCE_ROOT:-}"
+  if [[ -n "$candidate" ]]; then
+    [[ -f "$candidate/pubspec.lock" ]] \
+      || die "DENIAL_FLUTTER_SOURCE_ROOT has no pubspec.lock: $candidate"
+    printf '%s\n' "$candidate"
+    return
+  fi
+  candidate='/mnt/exty/denial-flutter-fork-3.44.7'
+  if [[ -f "$candidate/pubspec.lock" ]]; then
+    printf '%s\n' "$candidate"
+    return
+  fi
+  require_command nix
+  nix build "$ROOT#denial-flutter-framework-source" \
+    --no-link --print-out-paths
+}
+
+write_pub_lock() {
+  local source="$1"
+  local destination="$2"
+  local source_hash
+  local temporary
+
+  source_hash="$(sha256sum "$source" | awk '{print $1}')"
+  temporary="$(mktemp -- "${destination}.XXXXXX")"
+  "$YQ_GO" -o=json '.' "$source" \
+    | "$JQ" --arg source_sha256 "$source_hash" \
+      '{source_sha256: $source_sha256} + .' >"$temporary"
+  chmod 0644 "$temporary"
+  mv -f -- "$temporary" "$destination"
+}
+
+write_flutter_pub_lock() {
+  local flutter_source="$1"
+  local dart_command="${DENIAL_NIX_DART:-}"
+  local flutter_revision
+  local source_hash
+  local temporary_root
+  local temporary_lock
+
+  if [[ -z "$dart_command" ]]; then
+    require_command nix
+    dart_command="$(
+      nix build "$ROOT#denial-flutter-dart" --no-link --print-out-paths
+    )/bin/dart"
+  fi
+  [[ -x "$dart_command" ]] || die "Dart executable is unavailable: $dart_command"
+  flutter_revision="$("$JQ" -er .flutter.revision "$ENGINE_SOURCE_LOCK")"
+  source_hash="$(sha256sum \
+    "$flutter_source/packages/flutter_tools/pubspec.yaml" | awk '{print $1}')"
+  temporary_root="$(mktemp -d)"
+  cp -- "$flutter_source/packages/flutter_tools/pubspec.yaml" \
+    "$temporary_root/pubspec.yaml"
+  (
+    cd "$temporary_root"
+    "$dart_command" pub get
+  )
+  temporary_lock="$(mktemp -- "$ROOT/nix/flutter-pubspec-lock.json.XXXXXX")"
+  "$YQ_GO" -o=json '.' "$temporary_root/pubspec.lock" \
+    | "$JQ" \
+      --arg flutter_revision "$flutter_revision" \
+      --arg source_pubspec_sha256 "$source_hash" \
+      '{
+        flutter_revision: $flutter_revision,
+        source_pubspec_sha256: $source_pubspec_sha256
+      } + .' >"$temporary_lock"
+  chmod 0644 "$temporary_lock"
+  mv -f -- "$temporary_lock" "$ROOT/nix/flutter-pubspec-lock.json"
+  rm -rf -- "$temporary_root"
+}
+
+refresh_pub_locks() {
+  local flutter_source
+  require_command awk
+  require_command sha256sum
+
+  flutter_source="$(resolve_flutter_source)"
+  write_pub_lock \
+    "$ROOT/dart_shell/pubspec.lock" \
+    "$ROOT/nix/dart_shell-pubspec-lock.json"
+  write_pub_lock \
+    "$ROOT/settings_app/pubspec.lock" \
+    "$ROOT/nix/settings_app-pubspec-lock.json"
+  write_flutter_pub_lock "$flutter_source"
+  printf 'Refreshed Nix Pub locks from their authoritative YAML files.\n'
+}
+
+verify_engine_lock() {
+  local engine_revision
+  local source_hash
+  engine_revision="$(tr -d '\n' <"$ROOT/prebuilt/flutter-engine/linux-x64-release/ENGINE_REVISION")"
+  source_hash="$(sha256sum "$ENGINE_SOURCE_LOCK" | awk '{print $1}')"
+  "$JQ" -e \
+    --arg engine_revision "$engine_revision" \
+    --arg fake "$FAKE_HASH" \
+    --arg source_hash "$source_hash" \
+    --slurpfile source "$ENGINE_SOURCE_LOCK" \
+    '.schema_version == 1
+      and .source_lock_sha256 == $source_hash
+      and .flutter.revision == $source[0].flutter.revision
+      and .skia.revision == $source[0].skia.revision
+      and .depot_tools.revision == $source[0].depot_tools.revision
+      and .engine.revision == $engine_revision
+      and ([
+        .flutter.hash,
+        .depot_tools.hash,
+        .engine.source_hash,
+        .dart.hash,
+        .swiftshader.hash,
+        .material_fonts.hash
+      ] | all(. != $fake and test("^sha256-[A-Za-z0-9+/]{43}=$")))' \
+    "$NIX_ENGINE_LOCK" >/dev/null \
+    || die 'nix/flutter-engine-lock.json does not match SOURCE_LOCK.json'
+}
+
+verify_locks() {
+  local flutter_source
+  require_command awk
+  require_command cmp
+  require_command sha256sum
+  require_command tr
+  verify_engine_lock
+  verify_pub_lock \
+    "$ROOT/dart_shell/pubspec.lock" \
+    "$ROOT/nix/dart_shell-pubspec-lock.json"
+  verify_pub_lock \
+    "$ROOT/settings_app/pubspec.lock" \
+    "$ROOT/nix/settings_app-pubspec-lock.json"
+  flutter_source="$(resolve_flutter_source)"
+  test "$(sha256sum \
+    "$flutter_source/packages/flutter_tools/pubspec.yaml" | awk '{print $1}')" = \
+    "$("$JQ" -er .source_pubspec_sha256 "$ROOT/nix/flutter-pubspec-lock.json")" \
+    || die 'Flutter tools pubspec.yaml changed without refreshing its Nix lock'
+  test "$("$JQ" -er .flutter_revision "$ROOT/nix/flutter-pubspec-lock.json")" = \
+    "$("$JQ" -er .flutter.revision "$ENGINE_SOURCE_LOCK")" \
+    || die 'Flutter tools Nix lock belongs to a different Flutter revision'
+  printf 'Nix engine and Pub locks are consistent.\n'
+}
+
+replace_engine_lock() {
+  local filter="$1"
+  shift
+  local temporary
+  temporary="$(mktemp -- "${NIX_ENGINE_LOCK}.XXXXXX")"
+  "$JQ" "$@" "$filter" "$NIX_ENGINE_LOCK" >"$temporary"
+  chmod 0644 "$temporary"
+  mv -f -- "$temporary" "$NIX_ENGINE_LOCK"
+}
+
+hash_from_expected_failure() {
+  local attribute="$1"
+  local output
+  local status
+  local hash
+
+  set +e
+  output="$(nix build "$ROOT#$attribute" --no-link --print-build-logs 2>&1)"
+  status=$?
+  set -e
+  ((status != 0)) \
+    || die "$attribute unexpectedly accepted the fake hash"
+  hash="$(sed -n 's/^[[:space:]]*got:[[:space:]]*\(sha256-[A-Za-z0-9+/=]*\).*$/\1/p' <<<"$output" | tail -n 1)"
+  [[ "$hash" =~ ^sha256-[A-Za-z0-9+/=]+$ ]] || {
+    printf '%s\n' "$output" >&2
+    die "could not extract the verified hash for $attribute"
+  }
+  printf '%s\n' "$hash"
+}
+
+refresh_engine_lock() {
+  local backup
+  local depot_hash
+  local engine_hash
+  local flutter_hash
+  local source_hash
+
+  require_command awk
+  require_command nix
+  require_command sed
+  require_command sha256sum
+  require_command tr
+  source_hash="$(sha256sum "$ENGINE_SOURCE_LOCK" | awk '{print $1}')"
+  backup="$(mktemp)"
+  cp -- "$NIX_ENGINE_LOCK" "$backup"
+  trap 'cp -- "$backup" "$NIX_ENGINE_LOCK"; rm -f -- "$backup"' EXIT
+
+  replace_engine_lock \
+    '.source_lock_sha256 = $source_hash
+      | .flutter.revision = $source[0].flutter.revision
+      | .flutter.hash = $fake
+      | .skia.revision = $source[0].skia.revision
+      | .depot_tools.revision = $source[0].depot_tools.revision
+      | .depot_tools.hash = $fake
+      | .engine.revision = $engine_revision
+      | .engine.source_hash = $fake' \
+    --arg source_hash "$source_hash" \
+    --arg fake "$FAKE_HASH" \
+    --arg engine_revision "$(tr -d '\n' <"$ROOT/prebuilt/flutter-engine/linux-x64-release/ENGINE_REVISION")" \
+    --slurpfile source "$ENGINE_SOURCE_LOCK"
+
+  printf 'Prefetching Flutter framework source for the requested revision...\n'
+  flutter_hash="$(hash_from_expected_failure denial-flutter-framework-source)"
+  replace_engine_lock '.flutter.hash = $hash' --arg hash "$flutter_hash"
+
+  printf 'Prefetching depot_tools for the requested revision...\n'
+  depot_hash="$(hash_from_expected_failure denial-flutter-depot-tools-source)"
+  replace_engine_lock '.depot_tools.hash = $hash' --arg hash "$depot_hash"
+
+  printf 'Prefetching the complete Flutter engine source closure...\n'
+  engine_hash="$(hash_from_expected_failure denial-flutter-engine-source)"
+  replace_engine_lock '.engine.source_hash = $hash' --arg hash "$engine_hash"
+
+  nix build "$ROOT#denial-flutter-framework-source" \
+    "$ROOT#denial-flutter-engine-source" --no-link --print-build-logs
+  verify_engine_lock
+  rm -f -- "$backup"
+  trap - EXIT
+  printf 'Refreshed and verified nix/flutter-engine-lock.json.\n'
+}
+
+case "${1:-}" in
+  verify-locks)
+    ensure_nix_maintenance_tools
+    verify_locks
+    ;;
+  refresh-pub-locks)
+    ensure_nix_maintenance_tools
+    refresh_pub_locks
+    ;;
+  refresh-engine-lock)
+    ensure_nix_maintenance_tools
+    refresh_engine_lock
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  '')
+    usage >&2
+    exit 2
+    ;;
+  *)
+    die "unknown command: $1"
+    ;;
+esac

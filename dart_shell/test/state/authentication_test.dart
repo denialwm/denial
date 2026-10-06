@@ -46,6 +46,74 @@ void main() {
     expect(service.beginCount, 1);
   });
 
+  testWidgets(
+    'fingerprint feedback preserves password input state and expires',
+    (tester) async {
+      final service = _FakeAuthenticationService();
+      addTearDown(service.dispose);
+      final container = ProviderContainer.test(
+        overrides: [authenticationServiceProvider.overrideWithValue(service)],
+      );
+      final controller = container.read(authenticationProvider.notifier);
+      service.emit(_state(locked: true, available: true));
+      service.emit(_prompt(attemptId: 17, sequence: 4, message: 'Password:'));
+      final prompt = container.read(authenticationProvider).prompt;
+      const rejected = AuthenticationPacket(
+        kind: AuthenticationPacketKind.fingerprintFeedback,
+        locked: true,
+        available: true,
+        busy: true,
+        rateLimited: false,
+        attemptId: 17,
+        argument: 0,
+        payload: 'no-match',
+      );
+      service.emit(rejected);
+      expect(
+        container.read(authenticationProvider).fingerprintRejected,
+        isTrue,
+      );
+      expect(container.read(authenticationProvider).prompt, same(prompt));
+      expect(container.read(authenticationProvider).busy, isTrue);
+      expect(container.read(authenticationProvider).locked, isTrue);
+      expect(container.read(authenticationProvider).rateLimited, isFalse);
+      controller.respond('still-valid');
+      expect(service.responses, ['still-valid']);
+      await tester.pump(const Duration(seconds: 3));
+      service.emit(rejected);
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        container.read(authenticationProvider).fingerprintRejected,
+        isTrue,
+      );
+      await tester.pump(const Duration(seconds: 2));
+      expect(
+        container.read(authenticationProvider).fingerprintRejected,
+        isFalse,
+      );
+      service.emit(rejected);
+      service.emit(
+        _result(
+          locked: false,
+          available: true,
+          attemptId: 17,
+          message: '',
+          success: true,
+        ),
+      );
+      expect(
+        container.read(authenticationProvider).fingerprintRejected,
+        isFalse,
+      );
+      service.emit(rejected);
+      expect(
+        container.read(authenticationProvider).fingerprintRejected,
+        isFalse,
+      );
+      expect(container.read(authenticationProvider).locked, isFalse);
+    },
+  );
+
   test('cancellation targets only the active native attempt', () {
     final service = _FakeAuthenticationService();
     addTearDown(service.dispose);

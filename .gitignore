@@ -39,3 +39,4 @@
 # Local profiling bytecode and retained engine comparison artifacts.
 /tools/__pycache__/
 /prebuilt/flutter-engine/*/libflutter_engine.so.before-*
+MOTO_WIFI_DEPLOY.md

@@ -3,6 +3,19 @@
 use super::*;
 use serde_json::json;
 
+pub(super) fn synchronize_flutter_window_commands(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    if events.secure_session_locked() {
+        runtime.drain_window_commands().for_each(drop);
+    } else {
+        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
+        wayland_frontend::apply_window_commands(events, commands)?;
+    }
+    Ok(())
+}
+
 pub(super) fn synchronize_flutter_window_management(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
@@ -11,7 +24,6 @@ pub(super) fn synchronize_flutter_window_management(
         events.pending_shell_actions.clear();
         events.pending_shortcut_launches.clear();
         while runtime.take_application_launch().is_some() {}
-        runtime.drain_window_commands().for_each(drop);
     } else {
         while let Some(target) = events.pending_shortcut_launches.pop_front() {
             let activation_token = events
@@ -50,43 +62,19 @@ pub(super) fn synchronize_flutter_window_management(
                 warn!(%error, "could not launch application requested by Flutter shell");
             }
         }
-        while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
-            runtime.send_shell_action(action, monitor_id)?;
+        while let Some(action) = events.pending_shell_actions.pop_front() {
+            runtime.send_shell_action(action.action, action.monitor_id, action.workspace_id)?;
         }
-        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
-        let mut wayland_commands = Vec::with_capacity(commands.len());
-        for command in commands {
-            let native_owned = command.window_id().is_some_and(|window_id| {
-                events
-                    .native_app_plugins
-                    .as_ref()
-                    .is_some_and(|manager| manager.owns_window(window_id))
-            });
-            if native_owned {
-                if let Some(manager) = events.native_app_plugins.as_mut()
-                    && let Err(error) = manager.apply_window_command(&command)
-                {
-                    warn!(%error, "native application plugin window command failed");
-                }
-            } else {
-                if matches!(command, wire::WindowCommand::Focus { .. })
-                    && let Some(manager) = events.native_app_plugins.as_mut()
-                    && let Err(error) = manager.clear_focus()
-                {
-                    warn!(%error, "could not clear native application focus");
-                }
-                wayland_commands.push(command);
-            }
-        }
-        wayland_frontend::apply_window_commands(events, wayland_commands);
     }
+    // Also drain here when handing off or replacing the Flutter runtime.
+    synchronize_flutter_window_commands(runtime, events)?;
     if events.pending_window_events.is_empty() {
         return Ok(());
     }
     let mut pending = events.pending_window_events.drain_events();
     for event in pending.drain(..) {
         if event.is_activation() {
-            // Native focus is last-writer-wins. An activation waiting for an
+            // Window focus is last-writer-wins. An activation waiting for an
             // older, bufferless window must not fire after focus moved away.
             events
                 .pending_unpublished_window_events
@@ -107,6 +95,7 @@ pub(super) fn synchronize_settings(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    synchronize_external_settings(events);
     if let Some(accent) = runtime.take_theme_accent() {
         events.resolved_theme_accent = DesktopAccentColor::from_srgb24(accent);
     }
@@ -149,6 +138,7 @@ pub(super) fn synchronize_settings(
                         .as_mut()
                         .ok_or("settings request has no Wayland frontend")?;
                     let previous_cursor_policy = frontend.settings.allow_client_cursor_surfaces();
+                    let previous_cursor_size = frontend.settings.cursor_size();
                     let result = frontend
                         .settings
                         .prepare_shell_update(expected_revision, &document)
@@ -158,6 +148,11 @@ pub(super) fn synchronize_settings(
                             != frontend.settings.allow_client_cursor_surfaces()
                     {
                         frontend.queue_cursor_policy_update();
+                    }
+                    if result.is_ok() && previous_cursor_size != frontend.settings.cursor_size() {
+                        if let Err(error) = frontend.publish_xwayland_settings() {
+                            warn!(%error, "could not update Xwayland cursor settings");
+                        }
                     }
                     result
                 };
@@ -340,6 +335,8 @@ pub(super) fn synchronize_settings(
                                         tap_to_click = next.tap_to_click_enabled,
                                         natural_scroll = next.natural_scroll_enabled,
                                         scroll_speed_factor = next.scroll_speed_factor,
+                                        scrolling_layout_swipe_speed_factor =
+                                            next.scrolling_layout_swipe_speed_factor,
                                         "applied persistent touchpad settings"
                                     );
                                     Ok(())
@@ -565,9 +562,164 @@ pub(super) fn synchronize_settings(
     if layout_changed {
         events.scene_sync.mark_dirty();
     }
+    let workspace_states = events.wayland.as_mut().and_then(|frontend| {
+        let settings = frontend.settings.workspace_settings();
+        if !frontend.set_workspace_settings(settings) {
+            return None;
+        }
+        frontend.rebuild_window_layout();
+        Some(frontend.workspace_state_snapshot())
+    });
+    if let Some(workspace_states) = workspace_states {
+        for (monitor_id, workspace_id) in workspace_states {
+            events.queue_workspace_action(monitor_id, workspace_id);
+        }
+        events.scene_sync.mark_dirty();
+    }
     publish_settings_document(events)?;
     synchronize_committed_theme(runtime, events)?;
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_external_settings(events: &mut RuntimeState) {
+    if !std::mem::take(&mut events.settings_external_change_pending) {
+        return;
+    }
+    let prepared = match events
+        .wayland
+        .as_ref()
+        .map(|frontend| frontend.settings.prepare_external_reload())
+    {
+        None | Some(Ok(None)) => return,
+        Some(Err(error)) => {
+            warn!(%error, "rejected externally edited Denial settings");
+            return;
+        }
+        Some(Ok(Some(prepared))) => prepared,
+    };
+
+    let (
+        previous_keyboard,
+        previous_mouse,
+        previous_touchpad,
+        previous_cursor_policy,
+        previous_cursor_size,
+    ) = {
+        let frontend = events.wayland.as_ref().expect("missing Wayland frontend");
+        (
+            frontend.settings.keyboard().clone(),
+            frontend.settings.mouse().clone(),
+            frontend.settings.touchpad().clone(),
+            frontend.settings.allow_client_cursor_surfaces(),
+            frontend.settings.cursor_size(),
+        )
+    };
+    let next_keyboard = prepared.keyboard().clone();
+    let next_mouse = prepared.mouse().clone();
+    let next_touchpad = prepared.touchpad().clone();
+    let keyboard_changed = next_keyboard != previous_keyboard;
+    let mouse_changed = next_mouse != previous_mouse;
+    let touchpad_changed = next_touchpad != previous_touchpad;
+    let mut keyboard_attempted = false;
+    let mut touchpad_attempted = false;
+    let mut mouse_attempted = false;
+
+    let apply = (|| -> Result<(), String> {
+        if keyboard_changed {
+            keyboard_attempted = true;
+            wayland_frontend::install_keyboard_settings(events, &next_keyboard)
+                .map_err(|error| error.to_string())?;
+        }
+        if touchpad_changed {
+            touchpad_attempted = true;
+            wayland_frontend::install_touchpad_settings(events, &next_touchpad)?;
+        }
+        if mouse_changed {
+            mouse_attempted = true;
+            wayland_frontend::install_mouse_settings(events, &next_mouse)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = apply {
+        rollback_external_native_settings(
+            events,
+            &previous_keyboard,
+            &previous_touchpad,
+            &previous_mouse,
+            keyboard_attempted,
+            touchpad_attempted,
+            mouse_attempted,
+        );
+        warn!(%error, "could not apply externally edited Denial settings");
+        return;
+    }
+
+    let commit = events
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .settings
+        .commit(prepared);
+    if let Err(error) = commit {
+        rollback_external_native_settings(
+            events,
+            &previous_keyboard,
+            &previous_touchpad,
+            &previous_mouse,
+            keyboard_attempted,
+            touchpad_attempted,
+            mouse_attempted,
+        );
+        warn!(%error, "externally edited Denial settings changed again before commit");
+        // The racing edit has its own inotify event, but explicitly retain a
+        // retry in case the events were coalesced into the dispatch we drained.
+        events.settings_external_change_pending = true;
+        return;
+    }
+
+    let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
+    if previous_cursor_policy != frontend.settings.allow_client_cursor_surfaces() {
+        frontend.queue_cursor_policy_update();
+    }
+    if previous_cursor_size != frontend.settings.cursor_size()
+        && let Err(error) = frontend.publish_xwayland_settings()
+    {
+        warn!(%error, "could not update Xwayland cursor settings");
+    }
+    // Even unchanged native sections carry the shared document revision.
+    frontend.keyboard_configuration_changed = true;
+    events.input_device_capabilities_changed = true;
+    info!(
+        revision = frontend.settings.revision(),
+        path = %frontend.settings.path().display(),
+        "applied externally edited Denial settings"
+    );
+}
+
+#[cfg(feature = "flutter")]
+fn rollback_external_native_settings(
+    events: &mut RuntimeState,
+    keyboard: &settings::KeyboardSettings,
+    touchpad: &settings::TouchpadSettings,
+    mouse: &settings::MouseSettings,
+    keyboard_attempted: bool,
+    touchpad_attempted: bool,
+    mouse_attempted: bool,
+) {
+    if mouse_attempted && let Err(error) = wayland_frontend::install_mouse_settings(events, mouse) {
+        warn!(%error, "could not roll back mouse settings after external edit failure");
+    }
+    if touchpad_attempted
+        && let Err(error) = wayland_frontend::install_touchpad_settings(events, touchpad)
+    {
+        warn!(%error, "could not roll back touchpad settings after external edit failure");
+    }
+    if keyboard_attempted
+        && let Err(error) = wayland_frontend::install_keyboard_settings(events, keyboard)
+    {
+        warn!(%error, "could not roll back keyboard settings after external edit failure");
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -664,6 +816,7 @@ fn synchronize_control_settings(
                     .and_then(|frontend| {
                         let previous_cursor_policy =
                             frontend.settings.allow_client_cursor_surfaces();
+                        let previous_cursor_size = frontend.settings.cursor_size();
                         frontend
                             .settings
                             .prepare_shell_update(expected_revision, &document)
@@ -675,6 +828,11 @@ fn synchronize_control_settings(
                             != frontend.settings.allow_client_cursor_surfaces()
                         {
                             frontend.queue_cursor_policy_update();
+                        }
+                        if previous_cursor_size != frontend.settings.cursor_size() {
+                            if let Err(error) = frontend.publish_xwayland_settings() {
+                                warn!(%error, "could not update Xwayland cursor settings");
+                            }
                         }
                         frontend.keyboard_configuration_changed = true;
                         frontend
@@ -832,6 +990,7 @@ fn control_input_snapshot(
         "tap_to_click_enabled": touchpad.tap_to_click_enabled,
         "natural_scroll_enabled": touchpad.natural_scroll_enabled,
         "scroll_speed_factor": touchpad.scroll_speed_factor,
+        "scrolling_layout_swipe_speed_factor": touchpad.scrolling_layout_swipe_speed_factor,
     }))
 }
 
@@ -960,7 +1119,7 @@ fn control_shortcut_snapshot(
     Ok(json!({
         "revision": manager.revision(),
         "shortcuts": manager.file().shortcuts,
-        "supported_actions": native_shortcut::ShortcutAction::ALL,
+        "supported_actions": &native_shortcut::ShortcutAction::ALL[..],
         "supported_inputs": inputs.into_iter().map(|input| json!({
             "canonical": input.canonical,
             "kind": shortcut_input_kind_name(input.kind),
@@ -1343,6 +1502,9 @@ pub(super) fn apply_resident_output_geometry(
     }
     events.output_control_dirty = true;
     *topology = staged_topology;
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.set_scrolling_layout_axes(&staged_configuration.scrolling_layout_axes);
+    }
     *configuration = staged_configuration;
     info!(
         outputs = scanouts.len(),
@@ -1363,7 +1525,6 @@ pub(super) fn synchronize_resident_flutter_geometry_state(
     events
         .flutter_input
         .resize_preserving_state(atlas.pixel_size);
-    events.native_plugin_default_size = (atlas.pixel_size.width, atlas.pixel_size.height);
     events.synchronize_flutter_pointer_position();
     events.scene_sync.mark_dirty();
 }

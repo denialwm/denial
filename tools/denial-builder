@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 RUNNER_SOURCE="${ROOT}/packaging/arch/runner"
+NIX_CACHE_CONFIG="${ROOT}/nix/cachix-cache.json"
 
 readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
 readonly SSH_TARGET="${DENIAL_BUILDER_SSH:-192.168.1.18}"
@@ -86,6 +87,7 @@ install_host() {
   trap cleanup_stage EXIT
 
   scp \
+    "$NIX_CACHE_CONFIG" \
     "${RUNNER_SOURCE}/runner.env" \
     "${RUNNER_SOURCE}/denial-actions-runner-arm" \
     "${RUNNER_SOURCE}/denial-actions-runner-cleanup" \
@@ -115,13 +117,24 @@ doctor_host() {
     || fail "unexpected remote staging path: $remote_stage"
   trap cleanup_stage EXIT
 
-  scp \
-    "${ROOT}/tools/denial-release" \
-    "${SSH_TARGET}:${remote_stage}/denial-release"
+  # Keep the repository-relative layout expected by denial-release.
   # remote_stage is accepted only after the fixed /tmp prefix check above.
   # shellcheck disable=SC2029
   ssh "$SSH_TARGET" \
-    /usr/bin/chmod 0755 "$remote_stage" "${remote_stage}/denial-release"
+    /usr/bin/install -d -m 0755 \
+      "${remote_stage}/tools" \
+      "${remote_stage}/nix"
+  scp \
+    "${ROOT}/tools/denial-release" \
+    "${SSH_TARGET}:${remote_stage}/tools/denial-release"
+  scp \
+    "$NIX_CACHE_CONFIG" \
+    "${SSH_TARGET}:${remote_stage}/nix/cachix-cache.json"
+  # remote_stage is accepted only after the fixed /tmp prefix check above.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" \
+    /usr/bin/chmod 0755 "$remote_stage" \
+      "${remote_stage}/tools/denial-release"
 
   # remote_stage is accepted only after the fixed /tmp prefix check above.
   # shellcheck disable=SC2029
@@ -134,7 +147,7 @@ doctor_host() {
         PATH=/usr/local/bin:/usr/bin \
         LANG=C.UTF-8 \
         DENIAL_BUILDER_ROOT=/srv/denial-builder \
-        "${remote_stage}/denial-release" doctor
+        "${remote_stage}/tools/denial-release" doctor
 
   cleanup_stage
   remote_stage=''

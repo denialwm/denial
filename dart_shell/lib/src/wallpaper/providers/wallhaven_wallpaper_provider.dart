@@ -8,7 +8,8 @@ import 'package:path/path.dart' as p;
 import '../wallpaper.dart';
 import '../wallpaper_provider.dart';
 
-class WallhavenWallpaperProvider implements WallpaperProvider {
+class WallhavenWallpaperProvider
+    implements WallpaperProvider, WallpaperImageServerProvider {
   WallhavenWallpaperProvider({
     required this._downloadDirectory,
     String apiKey = '',
@@ -19,6 +20,8 @@ class WallhavenWallpaperProvider implements WallpaperProvider {
   static final Uri _searchEndpoint = Uri.parse(
     'https://wallhaven.cc/api/v1/search',
   );
+  static final Uri _imageServerEndpoint = Uri.parse('https://w.wallhaven.cc/');
+  static const Duration _availabilityTimeout = Duration(seconds: 8);
   static const Duration _requestTimeout = Duration(seconds: 30);
   static const Duration _downloadTimeout = Duration(seconds: 60);
   static const int _maximumSearchBytes = 2 * 1024 * 1024;
@@ -38,6 +41,24 @@ class WallhavenWallpaperProvider implements WallpaperProvider {
 
   @override
   String get displayName => 'Wallhaven';
+
+  @override
+  Future<void> checkImageServerAvailability() async {
+    final request = await _httpClient
+        .headUrl(_imageServerEndpoint)
+        .timeout(_availabilityTimeout);
+    request.headers
+      ..set(HttpHeaders.userAgentHeader, 'denial-wallpaper-provider/1.0')
+      ..set(HttpHeaders.acceptHeader, 'image/*');
+    final response = await request.close().timeout(_availabilityTimeout);
+    await response.drain<void>().timeout(_availabilityTimeout);
+    if (response.statusCode >= HttpStatus.internalServerError) {
+      throw HttpException(
+        'Wallhaven image server returned HTTP ${response.statusCode}',
+        uri: _imageServerEndpoint,
+      );
+    }
+  }
 
   @override
   Future<WallpaperPage> search(WallpaperQuery query) async {

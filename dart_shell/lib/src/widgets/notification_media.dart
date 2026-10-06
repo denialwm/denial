@@ -16,20 +16,23 @@ class NotificationIconRequest {
   const NotificationIconRequest({
     required this.appIcon,
     required this.desktopEntry,
+    required this.appName,
   });
 
   final String appIcon;
   final String desktopEntry;
+  final String appName;
 
   @override
   bool operator ==(Object other) {
     return other is NotificationIconRequest &&
         other.appIcon == appIcon &&
-        other.desktopEntry == desktopEntry;
+        other.desktopEntry == desktopEntry &&
+        other.appName == appName;
   }
 
   @override
-  int get hashCode => Object.hash(appIcon, desktopEntry);
+  int get hashCode => Object.hash(appIcon, desktopEntry, appName);
 }
 
 final notificationIconPathProvider =
@@ -39,6 +42,7 @@ final notificationIconPathProvider =
         () => repository.resolveNotificationIcon(
           appIcon: request.appIcon,
           desktopEntry: request.desktopEntry,
+          appName: request.appName,
         ),
       );
     }, isAutoDispose: true);
@@ -86,7 +90,9 @@ class NotificationAppIcon extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (notification.appIcon.isEmpty && notification.desktopEntry.isEmpty) {
+    if (notification.appIcon.isEmpty &&
+        notification.desktopEntry.isEmpty &&
+        notification.appName.isEmpty) {
       return const AppIconImage(iconPath: null);
     }
     final resolved = ref.watch(
@@ -94,6 +100,7 @@ class NotificationAppIcon extends ConsumerWidget {
         NotificationIconRequest(
           appIcon: notification.appIcon,
           desktopEntry: notification.desktopEntry,
+          appName: notification.appName,
         ),
       ),
     );
@@ -122,7 +129,13 @@ class NotificationArtwork extends ConsumerWidget {
     final imagePath = _localImagePath(notification.imagePath);
     Widget content;
     if (preferContentImage && image != null) {
-      content = _RawNotificationImage(image: image);
+      content = Stack(
+        fit: StackFit.expand,
+        children: [
+          NotificationAppIcon(notification: notification),
+          _RawNotificationImage(image: image),
+        ],
+      );
     } else if (preferContentImage && imagePath != null) {
       final cacheSize = (size * MediaQuery.devicePixelRatioOf(context))
           .ceil()
@@ -145,12 +158,14 @@ class NotificationArtwork extends ConsumerWidget {
       content = NotificationAppIcon(notification: notification);
     }
 
-    return RepaintBoundary(
-      child: SizedBox.square(
-        dimension: size,
-        child: ClipRRect(
-          borderRadius: context.shellTheme.borderRadius(size * 0.24),
-          child: content,
+    return ExcludeSemantics(
+      child: RepaintBoundary(
+        child: SizedBox.square(
+          dimension: size,
+          child: ClipRRect(
+            borderRadius: context.shellTheme.borderRadius(size * 0.24),
+            child: content,
+          ),
         ),
       ),
     );

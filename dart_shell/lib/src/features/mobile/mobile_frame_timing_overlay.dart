@@ -1,4 +1,3 @@
-import 'package:denial_dart_shell/denial.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,21 +9,14 @@ class MobileFrameTimingOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final options = ref.watch(shellFrameTimingOptionsProvider);
-    if (!options.showOverlay) {
+    if (!ref.watch(shellFrameTimingOverlayProvider)) {
       return const SizedBox.shrink();
     }
-    final windows = ref.watch(
-      shellControllerProvider.select((state) => state.windows),
-    );
-    return Align(
+    return const Align(
       alignment: Alignment.topLeft,
       child: Padding(
-        padding: const EdgeInsets.only(top: 12, left: 12),
-        child: ShellFrameTimingOverlayStack(
-          windows: windows,
-          showImportedTextureCharts: options.showImportedTextureCharts,
-        ),
+        padding: EdgeInsets.only(top: 12, left: 12),
+        child: ShellFrameTimeOverlay(),
       ),
     );
   }

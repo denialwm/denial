@@ -15,6 +15,8 @@ import '../models/keyboard_configuration.dart';
 import '../models/output_configuration.dart';
 import '../models/shortcut_configuration.dart';
 import '../models/system_tray_item.dart';
+import '../models/power_button_action.dart';
+import '../models/suspend_mode.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -36,6 +38,11 @@ enum DenialShellAction {
   clientPointerPressed,
   wallpaper,
   openSettings,
+  workspaceChanged,
+  focusLeft,
+  focusRight,
+  focusUp,
+  focusDown,
 }
 
 class DenialShellActionEvent {
@@ -44,12 +51,14 @@ class DenialShellActionEvent {
     required this.monitorId,
     required this.requestId,
     required this.textureId,
+    required this.workspaceId,
   });
 
   final DenialShellAction action;
   final int? monitorId;
   final int requestId;
   final int? textureId;
+  final int? workspaceId;
 }
 
 class DenialAudioState {
@@ -114,6 +123,20 @@ class DenialBrightnessState {
   final bool completesRead;
 }
 
+class DenialSoftwareDimmingState {
+  const DenialSoftwareDimmingState({
+    required this.monitorId,
+    required this.level,
+    required this.supported,
+    this.completesRead = false,
+  });
+
+  final int monitorId;
+  final double level;
+  final bool supported;
+  final bool completesRead;
+}
+
 class DenialTextInputState {
   const DenialTextInputState({
     required this.active,
@@ -121,6 +144,7 @@ class DenialTextInputState {
     required this.legacy,
     required this.contentHint,
     required this.contentPurpose,
+    this.activationSerial = 0,
   });
 
   final bool active;
@@ -128,6 +152,7 @@ class DenialTextInputState {
   final bool legacy;
   final int contentHint;
   final int contentPurpose;
+  final int activationSerial;
 }
 
 class DenialSettingsDocument {
@@ -141,6 +166,7 @@ class DenialBridge {
   static const String _hapticsChannel = 'denial/haptics';
   static const String _audioChannel = 'denial/audio';
   static const String _brightnessChannel = 'denial/brightness';
+  static const String _softwareDimmingChannel = 'denial/software_dimming';
   static const String _idlePolicyChannel = 'denial/idle_policy';
   static const String _displayPowerChannel = 'denial/display_power';
   static const String _systemCommandChannel = 'denial/system_command';
@@ -151,6 +177,8 @@ class DenialBridge {
   static const String _audioStreamsStateChannel = 'denial/audio_streams_state';
   static const String _audioDevicesStateChannel = 'denial/audio_devices_state';
   static const String _brightnessStateChannel = 'denial/brightness_state';
+  static const String _softwareDimmingStateChannel =
+      'denial/software_dimming_state';
   static final Uint8List _hapticPrewarmPayload = Uint8List.fromList(const <int>[
     0,
   ]);
@@ -192,6 +220,10 @@ class DenialBridge {
       _handleBrightnessStateMessage,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _softwareDimmingStateChannel,
+      _handleSoftwareDimmingStateMessage,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       denialUiDevelopmentStateChannel,
       _handleUiDevelopmentStateMessage,
     );
@@ -217,6 +249,7 @@ class DenialBridge {
   _pendingShortcutValidationRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
   final Map<int, Set<Completer<double?>>> _pendingBrightnessReads = {};
+  final Map<int, Set<Completer<double?>>> _pendingSoftwareDimmingReads = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
   final StreamController<DenialShellActionEvent> _shellActions =
@@ -237,6 +270,8 @@ class DenialBridge {
       StreamController<List<DenialAudioDevice>>.broadcast(sync: true);
   final StreamController<DenialBrightnessState> _brightnessStates =
       StreamController<DenialBrightnessState>.broadcast(sync: true);
+  final StreamController<DenialSoftwareDimmingState> _softwareDimmingStates =
+      StreamController<DenialSoftwareDimmingState>.broadcast(sync: true);
   final StreamController<DesktopNotificationEvent> _notificationEvents =
       StreamController<DesktopNotificationEvent>.broadcast(sync: true);
   final StreamController<XEmbedTrayEvent> _xembedTrayEvents =
@@ -284,6 +319,8 @@ class DenialBridge {
       _audioDeviceStates.stream;
   Stream<DenialBrightnessState> get brightnessStates =>
       _brightnessStates.stream;
+  Stream<DenialSoftwareDimmingState> get softwareDimmingStates =>
+      _softwareDimmingStates.stream;
   Stream<DesktopNotificationEvent> get notificationEvents =>
       _notificationEvents.stream;
   Stream<XEmbedTrayEvent> get xembedTrayEvents => _xembedTrayEvents.stream;
@@ -524,6 +561,10 @@ class DenialBridge {
       null,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _softwareDimmingStateChannel,
+      null,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       denialUiDevelopmentStateChannel,
       null,
     );
@@ -584,6 +625,14 @@ class DenialBridge {
       }
     }
     _pendingBrightnessReads.clear();
+    for (final pending in _pendingSoftwareDimmingReads.values) {
+      for (final completer in pending) {
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      }
+    }
+    _pendingSoftwareDimmingReads.clear();
     _onWindowsChanged = null;
     _onWindowSnapshot = null;
     _onWindowActivated = null;
@@ -597,6 +646,7 @@ class DenialBridge {
     unawaited(_audioStreamStates.close());
     unawaited(_audioDeviceStates.close());
     unawaited(_brightnessStates.close());
+    unawaited(_softwareDimmingStates.close());
     unawaited(_notificationEvents.close());
     unawaited(_xembedTrayEvents.close());
     unawaited(_uiDevelopmentStates.close());
@@ -749,12 +799,16 @@ class DenialBridge {
   Future<DisplayLayout?> configureSystemBar({
     required SystemBarSide side,
     required List<int> monitorIds,
+    required double systemBarThickness,
+    required double maximizePadding,
   }) {
     final requestId = _nextRequestId++;
     final bytes = _wireCodec.encodeSystemBarConfiguration(
       requestId: requestId,
       side: side,
       monitorIds: monitorIds,
+      systemBarThickness: systemBarThickness,
+      maximizePadding: maximizePadding,
     );
     if (bytes == null) {
       return Future<DisplayLayout?>.value(null);
@@ -1370,6 +1424,39 @@ class DenialBridge {
     );
   }
 
+  void switchWorkspace({required int monitorId, required int workspaceId}) {
+    if (monitorId < 0 || workspaceId < 1 || workspaceId > 9) {
+      return;
+    }
+    _sendWire(
+      _wireCodec.encodeWindowRequest(
+        wire.WindowRequestKind.SwitchWorkspace,
+        monitorId: monitorId,
+        workspaceId: workspaceId,
+      ),
+    );
+  }
+
+  void moveWindowToWorkspace(
+    DenialWindow window, {
+    int? monitorId,
+    required int workspaceId,
+    bool follow = true,
+  }) {
+    if (window.windowId <= 0 || workspaceId < 1 || workspaceId > 9) {
+      return;
+    }
+    _sendWire(
+      _wireCodec.encodeWindowRequest(
+        wire.WindowRequestKind.MoveWindowToWorkspace,
+        windowId: window.windowId,
+        monitorId: monitorId ?? -1,
+        workspaceId: workspaceId,
+        flags: follow ? 1 : 0,
+      ),
+    );
+  }
+
   void configureWindow(
     DenialWindow window,
     Rect contentRect, {
@@ -1412,6 +1499,10 @@ class DenialBridge {
     }
 
     _sendWire(_wireCodec.encodeKeyboardKey(key, ctrl: ctrl));
+  }
+
+  void dismissKeyboardPanel(int activationSerial) {
+    _sendWire(_wireCodec.encodeKeyboardPanelDismissal(activationSerial));
   }
 
   void pressKeyboardKey(String key) {
@@ -1579,14 +1670,114 @@ class DenialBridge {
         ?.catchError((Object _) => null);
   }
 
+  Future<double?> readSoftwareDimmingLevel({required int monitorId}) async {
+    if (monitorId <= 0) return null;
+    if (!useControlSocket) {
+      return _readSoftwareDimmingLevelFromPlatform(monitorId);
+    }
+    try {
+      final result = await _sendControlRequest(
+        'software_dimming.get',
+        parameters: <String, Object>{'monitor_id': monitorId},
+      );
+      final returnedMonitor = result['monitor_id'];
+      final value = result['level'];
+      final supported = result['supported'];
+      if (returnedMonitor is! int || value is! num || supported is! bool) {
+        return null;
+      }
+      final level = value.toDouble().clamp(0.0, 1.0);
+      if (!_softwareDimmingStates.isClosed) {
+        _softwareDimmingStates.add(
+          DenialSoftwareDimmingState(
+            monitorId: returnedMonitor,
+            level: level,
+            supported: supported,
+            completesRead: true,
+          ),
+        );
+      }
+      return supported ? level : null;
+    } on Object {
+      // A standalone Settings process has no compositor-owned platform
+      // channel. Treat an older control socket as unsupported instead of
+      // leaving a platform-channel read pending until its timeout.
+      return null;
+    }
+  }
+
+  Future<double?> _readSoftwareDimmingLevelFromPlatform(int monitorId) {
+    final completer = Completer<double?>();
+    final pending = _pendingSoftwareDimmingReads.putIfAbsent(
+      monitorId,
+      () => <Completer<double?>>{},
+    );
+    pending.add(completer);
+    _sendSoftwareDimmingPlatformRequest(
+      command: 0,
+      monitorId: monitorId,
+      percent: 100,
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        final current = _pendingSoftwareDimmingReads[monitorId];
+        current?.remove(completer);
+        if (current?.isEmpty ?? false) {
+          _pendingSoftwareDimmingReads.remove(monitorId);
+        }
+        return null;
+      },
+    );
+  }
+
+  bool setSoftwareDimming({required int monitorId, required double level}) {
+    if (monitorId <= 0) return false;
+    final percent = (level.clamp(0.0, 1.0) * 100).round();
+    if (!useControlSocket) {
+      _sendSoftwareDimmingPlatformRequest(
+        command: 1,
+        monitorId: monitorId,
+        percent: percent,
+      );
+      return true;
+    }
+    unawaited(
+      _sendControlRequest(
+        'software_dimming.set',
+        parameters: <String, Object>{
+          'monitor_id': monitorId,
+          'percent': percent,
+        },
+      ).catchError((Object _) => <String, Object?>{}),
+    );
+    return true;
+  }
+
+  void _sendSoftwareDimmingPlatformRequest({
+    required int command,
+    required int monitorId,
+    required int percent,
+  }) {
+    final data = ByteData(10)
+      ..setUint8(0, command)
+      ..setInt64(1, monitorId, Endian.little)
+      ..setUint8(9, percent.clamp(0, 100));
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_softwareDimmingChannel, data)
+        ?.catchError((Object _) => null);
+  }
+
   /// Configures the compositor-owned lock, DPMS, and suspend idle policy.
   void setIdlePolicy({
+    required PowerButtonAction powerButtonAction,
     required bool lockEnabled,
     required Duration lockTimeout,
     required bool dpmsEnabled,
     required Duration dpmsTimeout,
     required bool suspendEnabled,
     required Duration suspendTimeout,
+    required SuspendMode suspendMode,
   }) {
     final lockMilliseconds = lockTimeout.inMilliseconds;
     final dpmsMilliseconds = dpmsTimeout.inMilliseconds;
@@ -1603,8 +1794,10 @@ class DenialBridge {
         (dpmsEnabled ? 2 : 0) |
         (suspendEnabled ? 4 : 0);
     final data = ByteData(32)
-      ..setUint8(0, 1)
+      ..setUint8(0, 3)
       ..setUint8(1, flags)
+      ..setUint8(2, suspendMode.wireValue)
+      ..setUint8(3, powerButtonAction.wireValue)
       ..setUint64(8, lockMilliseconds, Endian.little)
       ..setUint64(16, dpmsMilliseconds, Endian.little)
       ..setUint64(24, suspendMilliseconds, Endian.little);
@@ -2500,6 +2693,35 @@ class DenialBridge {
     return null;
   }
 
+  Future<ByteData?> _handleSoftwareDimmingStateMessage(ByteData? data) async {
+    if (data == null || data.lengthInBytes < 10) {
+      return null;
+    }
+    final monitorId = data.getInt64(0, Endian.little);
+    if (monitorId <= 0 || _softwareDimmingStates.isClosed) {
+      return null;
+    }
+    final level = data.getUint8(8).clamp(0, 100) / 100.0;
+    final supported = data.getUint8(9) != 0;
+    final pending = _pendingSoftwareDimmingReads.remove(monitorId);
+    _softwareDimmingStates.add(
+      DenialSoftwareDimmingState(
+        monitorId: monitorId,
+        level: level,
+        supported: supported,
+        completesRead: pending?.isNotEmpty ?? false,
+      ),
+    );
+    if (pending != null) {
+      for (final completer in pending) {
+        if (!completer.isCompleted) {
+          completer.complete(supported ? level : null);
+        }
+      }
+    }
+    return null;
+  }
+
   Future<ByteData?> _handleUiDevelopmentStateMessage(ByteData? data) async {
     final state = _uiDevelopmentProtocol.decodeState(data);
     if (state != null && !_uiDevelopmentStates.isClosed) {
@@ -2562,6 +2784,12 @@ class DenialBridge {
             DenialShellAction.clientPointerPressed,
           wire.ShellActionKind.Wallpaper => DenialShellAction.wallpaper,
           wire.ShellActionKind.OpenSettings => DenialShellAction.openSettings,
+          wire.ShellActionKind.WorkspaceChanged =>
+            DenialShellAction.workspaceChanged,
+          wire.ShellActionKind.FocusLeft => DenialShellAction.focusLeft,
+          wire.ShellActionKind.FocusRight => DenialShellAction.focusRight,
+          wire.ShellActionKind.FocusUp => DenialShellAction.focusUp,
+          wire.ShellActionKind.FocusDown => DenialShellAction.focusDown,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -2572,6 +2800,11 @@ class DenialBridge {
                   : null,
               requestId: decoded.requestId,
               textureId: payload.textureId > 0 ? payload.textureId : null,
+              workspaceId:
+                  payload.action == wire.ShellActionKind.WorkspaceChanged &&
+                      payload.workspaceId > 0
+                  ? payload.workspaceId
+                  : null,
             ),
           );
         }
@@ -2609,6 +2842,7 @@ class DenialBridge {
               legacy: payload.legacy,
               contentHint: payload.contentHint,
               contentPurpose: payload.contentPurpose,
+              activationSerial: payload.activationSerial,
             ),
           );
         }
@@ -2794,6 +3028,7 @@ class DenialBridge {
       final action = switch (event.action) {
         wire.WindowActionKind.Minimize => DenialWindowAction.minimize,
         wire.WindowActionKind.Maximize => DenialWindowAction.maximize,
+        wire.WindowActionKind.Fullscreen => DenialWindowAction.fullscreen,
         wire.WindowActionKind.Restore => DenialWindowAction.restore,
         wire.WindowActionKind.ToggleMaximize =>
           DenialWindowAction.toggleMaximize,

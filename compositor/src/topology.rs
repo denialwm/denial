@@ -107,9 +107,9 @@ impl OutputTransform {
     pub const fn native_to_logical(self, x: f64, y: f64) -> (f64, f64) {
         match self {
             Self::Normal => (x, y),
-            Self::Rotate90 => (y, 1.0 - x),
+            Self::Rotate90 => (1.0 - y, x),
             Self::Rotate180 => (1.0 - x, 1.0 - y),
-            Self::Rotate270 => (1.0 - y, x),
+            Self::Rotate270 => (y, 1.0 - x),
             Self::Flipped => (1.0 - x, y),
             Self::Flipped90 => (y, x),
             Self::Flipped180 => (x, 1.0 - y),
@@ -525,9 +525,9 @@ impl OutputProjection {
         // wl_output, but Flutter applies them before KMS sees the buffer.
         let (scale_x, skew_x, translate_x, skew_y, scale_y, translate_y) = match output.transform {
             OutputTransform::Normal => (1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
-            OutputTransform::Rotate90 => (0.0, -1.0, height, 1.0, 0.0, 0.0),
+            OutputTransform::Rotate90 => (0.0, 1.0, 0.0, -1.0, 0.0, width),
             OutputTransform::Rotate180 => (-1.0, 0.0, width, 0.0, -1.0, height),
-            OutputTransform::Rotate270 => (0.0, 1.0, 0.0, -1.0, 0.0, width),
+            OutputTransform::Rotate270 => (0.0, -1.0, height, 1.0, 0.0, 0.0),
             OutputTransform::Flipped => (-1.0, 0.0, width, 0.0, 1.0, 0.0),
             OutputTransform::Flipped90 => (0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
             OutputTransform::Flipped180 => (1.0, 0.0, 0.0, 0.0, -1.0, height),
@@ -638,4 +638,68 @@ impl AtlasPlan {
 
 fn scaled_edge(value: f64, scale: f64) -> u32 {
     (value * scale).round().clamp(0.0, u32::MAX as f64) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transformed_output(transform: OutputTransform) -> OutputSpec {
+        OutputSpec {
+            id: OutputId(1),
+            name: "test".into(),
+            position: LogicalPoint::new(0, 0),
+            mode: PixelSize::new(300, 200),
+            scale_120: SCALE_BASE,
+            refresh_millihz: 60_000,
+            transform,
+        }
+    }
+
+    fn project(transform: OutputTransform, x: f64, y: f64) -> (f64, f64) {
+        let output = transformed_output(transform);
+        let size = output.transformed_pixel_size();
+        let projection = OutputProjection::for_output(
+            &output,
+            PixelRect {
+                x: 0,
+                y: 0,
+                width: size.width,
+                height: size.height,
+            },
+        );
+        (
+            projection.scale_x * x + projection.skew_x * y + projection.translate_x,
+            projection.skew_y * x + projection.scale_y * y + projection.translate_y,
+        )
+    }
+
+    #[test]
+    fn output_projection_uses_wayland_counter_clockwise_rotation() {
+        assert_eq!(project(OutputTransform::Rotate90, 0.0, 0.0), (0.0, 200.0));
+        assert_eq!(project(OutputTransform::Rotate90, 200.0, 0.0), (0.0, 0.0));
+        assert_eq!(
+            project(OutputTransform::Rotate90, 0.0, 300.0),
+            (300.0, 200.0)
+        );
+
+        assert_eq!(project(OutputTransform::Rotate270, 0.0, 0.0), (300.0, 0.0));
+        assert_eq!(
+            project(OutputTransform::Rotate270, 200.0, 0.0),
+            (300.0, 200.0)
+        );
+        assert_eq!(project(OutputTransform::Rotate270, 0.0, 300.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn absolute_input_inverts_wayland_output_rotation() {
+        assert_eq!(
+            OutputTransform::Rotate90.native_to_logical(0.75, 0.75),
+            (0.25, 0.75)
+        );
+        assert_eq!(
+            OutputTransform::Rotate270.native_to_logical(0.25, 0.25),
+            (0.25, 0.75)
+        );
+    }
 }

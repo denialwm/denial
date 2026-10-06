@@ -28,7 +28,9 @@ const MAX_CONFIGURATION_VALUE_BYTES: usize = 256;
 const TEXT_EDIT_SLACK_UTF16_UNITS: usize = 32;
 
 const KEY_BACKSPACE: u32 = 14;
+const KEY_TAB: u32 = 15;
 const KEY_ENTER: u32 = 28;
+const KEY_KPENTER: u32 = 96;
 const KEY_HOME: u32 = 102;
 const KEY_LEFT: u32 = 105;
 const KEY_RIGHT: u32 = 106;
@@ -291,7 +293,7 @@ impl TextInputPlugin {
             KEY_HOME => client.model.move_cursor_to_beginning(),
             KEY_BACKSPACE => client.model.backspace(),
             KEY_DELETE => client.model.delete(),
-            KEY_ENTER => {
+            KEY_ENTER | KEY_KPENTER => {
                 if client.input_type == MULTILINE && client.model.add_code_point(u32::from('\n')) {
                     update_editing_state(
                         client,
@@ -304,7 +306,13 @@ impl TextInputPlugin {
                 message_count += 1;
                 false
             }
-            _ if code_point != 0 => client.model.add_code_point(code_point),
+            // Flutter receives the raw key event before this text-input
+            // update, so navigation keys such as Tab can still move focus.
+            // They must not also become invisible editable text.
+            KEY_TAB => false,
+            _ if char::from_u32(code_point).is_some_and(|character| !character.is_control()) => {
+                client.model.add_code_point(code_point)
+            }
             _ => false,
         };
         if changed {
@@ -1098,4 +1106,72 @@ fn is_leading_surrogate(code_unit: u16) -> bool {
 
 fn is_trailing_surrogate(code_unit: u16) -> bool {
     (0xdc00..=0xdfff).contains(&code_unit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn configured_plugin(input_type: &str, input_action: &str) -> TextInputPlugin {
+        let mut plugin = TextInputPlugin::default();
+        let set_client = format!(
+            r#"{{"method":"{SET_CLIENT}","args":[7,{{"inputAction":"{input_action}","inputType":{{"name":"{input_type}"}}}}]}}"#,
+        );
+        assert_eq!(
+            plugin.handle_platform_message(set_client.as_bytes()),
+            b"[null]"
+        );
+        assert_eq!(
+            plugin.handle_platform_message(
+                br#"{"method":"TextInput.setEditingState","args":{"text":"secret","selectionBase":6,"selectionExtent":6}}"#,
+            ),
+            b"[null]",
+        );
+        plugin
+    }
+
+    fn assert_action(message: &[u8], expected: &str) {
+        let decoded: Value = serde_json::from_slice(message).unwrap();
+        assert_eq!(decoded["method"], PERFORM_ACTION);
+        assert_eq!(decoded["args"][1], expected);
+    }
+
+    #[test]
+    fn enter_and_keypad_enter_submit_without_editing_single_line_text() {
+        for keycode in [KEY_ENTER, KEY_KPENTER] {
+            let mut plugin =
+                configured_plugin("TextInputType.visiblePassword", "TextInputAction.done");
+            let messages = plugin.on_key_pressed(keycode, u32::from('\r'));
+            assert_eq!(messages.len(), 1);
+            assert_action(&messages[0], "TextInputAction.done");
+            assert_eq!(
+                plugin.client.unwrap().model.text,
+                "secret".encode_utf16().collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn control_keys_do_not_become_editable_text() {
+        for (keycode, code_point) in [(KEY_TAB, u32::from('\t')), (1, 0x1b), (30, 0x7f)] {
+            let mut plugin =
+                configured_plugin("TextInputType.visiblePassword", "TextInputAction.done");
+            assert!(plugin.on_key_pressed(keycode, code_point).is_empty());
+            assert_eq!(
+                plugin.client.unwrap().model.text,
+                "secret".encode_utf16().collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn keypad_enter_preserves_multiline_newline_behavior() {
+        let mut plugin = configured_plugin(MULTILINE, "TextInputAction.newline");
+        let messages = plugin.on_key_pressed(KEY_KPENTER, u32::from('\r'));
+        assert_eq!(messages.len(), 2);
+        let update: Value = serde_json::from_slice(&messages[0]).unwrap();
+        assert_eq!(update["method"], UPDATE_EDITING_STATE);
+        assert_eq!(update["args"][1]["text"], "secret\n");
+        assert_action(&messages[1], "TextInputAction.newline");
+    }
 }

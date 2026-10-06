@@ -7,6 +7,9 @@ readonly RUNNER_HOME='/var/lib/denial-builder'
 readonly RUNNER_STATE='/srv/denial-builder'
 readonly BUILD_CACHE_ROOT="${RUNNER_STATE}/cache"
 readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
+readonly NIX_CONFIG_FILE='/etc/nix/nix.conf'
+readonly NIX_CACHE_CONFIG_FILE='/etc/nix/denial-cache.conf'
+readonly NIX_CACHE_INCLUDE='include /etc/nix/denial-cache.conf'
 
 fail() {
   printf 'install-host: %s\n' "$*" >&2
@@ -25,6 +28,7 @@ source_dir="$(readlink -f -- "$1")"
 [[ -d "$source_dir" ]] || fail "source directory does not exist: $source_dir"
 
 for source_file in \
+  cachix-cache.json \
   runner.env \
   denial-actions-runner-arm \
   denial-actions-runner-cleanup \
@@ -49,11 +53,70 @@ source "${source_dir}/runner.env"
   "https://github.com/actions/runner/releases/download/v${DENIAL_ACTIONS_RUNNER_VERSION}/${DENIAL_ACTIONS_RUNNER_FILENAME}" ]] \
   || fail 'runner URL is not the expected official release URL'
 for required_command in \
-  awk bsdtar cmp curl getent install mktemp mv readlink runuser sha256sum \
-  systemctl useradd usermod; do
+  awk bsdtar cmp curl getent grep install jq mktemp mv nix readlink runuser \
+  sha256sum systemctl useradd usermod; do
   command -v "$required_command" >/dev/null 2>&1 \
     || fail "missing host command: $required_command"
 done
+
+jq -e '
+  .schema_version == 1
+  and .name == "denial"
+  and .uri == "https://denial.cachix.org"
+  and (.public_key | test("^denial\\.cachix\\.org-1:[A-Za-z0-9+/]{43}=$"))
+' "${source_dir}/cachix-cache.json" >/dev/null \
+  || fail 'invalid Denial Cachix configuration'
+cache_name="$(jq -er '.name' "${source_dir}/cachix-cache.json")"
+cache_uri="$(jq -er '.uri' "${source_dir}/cachix-cache.json")"
+cache_public_key="$(jq -er '.public_key' "${source_dir}/cachix-cache.json")"
+[[ -f "$NIX_CONFIG_FILE" && ! -L "$NIX_CONFIG_FILE" ]] \
+  || fail "Nix configuration must be a regular file: $NIX_CONFIG_FILE"
+
+nix_cache_config_changed=0
+nix_cache_candidate="$(mktemp /etc/nix/denial-cache.conf.XXXXXX)"
+cleanup_nix_cache_candidate() {
+  if [[ "${nix_cache_candidate:-}" == /etc/nix/denial-cache.conf.* ]]; then
+    rm -f -- "$nix_cache_candidate"
+  fi
+}
+trap cleanup_nix_cache_candidate EXIT
+{
+  printf '%s\n' \
+    '# Managed by the Denial owner-operated runner installer.' \
+    'extra-experimental-features = nix-command flakes' \
+    "extra-substituters = ${cache_uri}" \
+    "extra-trusted-public-keys = ${cache_public_key}"
+} >"$nix_cache_candidate"
+chmod 0644 "$nix_cache_candidate"
+chown root:root "$nix_cache_candidate"
+if [[ -f "$NIX_CACHE_CONFIG_FILE" ]] \
+  && cmp -s -- "$nix_cache_candidate" "$NIX_CACHE_CONFIG_FILE"; then
+  rm -f -- "$nix_cache_candidate"
+else
+  mv -f -- "$nix_cache_candidate" "$NIX_CACHE_CONFIG_FILE"
+  nix_cache_config_changed=1
+fi
+nix_cache_candidate=''
+trap - EXIT
+
+if ! grep -Fxq "$NIX_CACHE_INCLUDE" "$NIX_CONFIG_FILE"; then
+  printf '\n%s\n' "$NIX_CACHE_INCLUDE" >>"$NIX_CONFIG_FILE"
+  nix_cache_config_changed=1
+fi
+if ((nix_cache_config_changed)); then
+  systemctl restart nix-daemon.service
+fi
+
+configured_substituters="$(
+  nix --extra-experimental-features nix-command config show substituters
+)"
+configured_public_keys="$(
+  nix --extra-experimental-features nix-command config show trusted-public-keys
+)"
+[[ " $configured_substituters " == *" ${cache_uri} "* ]] \
+  || fail "Nix did not load the ${cache_name} Cachix substituter"
+[[ " $configured_public_keys " == *" ${cache_public_key} "* ]] \
+  || fail "Nix did not load the ${cache_name} Cachix public key"
 
 if getent passwd "$RUNNER_USER" >/dev/null; then
   actual_home="$(getent passwd "$RUNNER_USER" | awk -F: '{print $6}')"

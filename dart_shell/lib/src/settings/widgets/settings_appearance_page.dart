@@ -7,6 +7,7 @@ import '../../settings/shell_settings.dart';
 import '../../theme/backdrop_blur_level.dart';
 import '../../theme/cursor_theme_repository.dart';
 import '../../theme/cursor_themes.dart';
+import '../../theme/glass_configuration.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
@@ -14,6 +15,7 @@ import '../../wallpaper/wallpaper.dart';
 import '../../wallpaper/widgets/wallpaper_image.dart';
 import '../../widgets/shell_cursor.dart';
 import 'settings_controls.dart';
+import 'settings_glass_tuning_controls.dart';
 
 const settingsWallpaperTriggerKey = ValueKey<String>(
   'settings-wallpaper-trigger',
@@ -23,6 +25,9 @@ const settingsAccentColorTriggerKey = ValueKey<String>(
 );
 const settingsColorSchemeControlKey = ValueKey<String>(
   'settings-color-scheme-control',
+);
+const settingsFontFamilyControlKey = ValueKey<String>(
+  'settings-font-family-control',
 );
 const settingsBackdropBlurToggleKey = ValueKey<String>(
   'settings-backdrop-blur-toggle',
@@ -52,12 +57,16 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onColorSchemePreferenceChanged,
     required this.onAccentSourceChanged,
     required this.onOpenAccentPicker,
+    required this.fontFamilies,
+    required this.fontCatalogLoading,
+    required this.onFontFamilyChanged,
     required this.onCornerRadiusScaleChanged,
     required this.onPanelOpacityChanged,
     required this.onCardOpacityChanged,
-    required this.onBackdropBlurEnabledChanged,
+    required this.onTransparencyModeChanged,
     required this.onBackdropBlurLevelChanged,
     required this.onBackdropBlurOpacityThresholdChanged,
+    required this.onGlassChanged,
     required this.onFocusedWindowBorderEnabledChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
@@ -80,12 +89,16 @@ class SettingsAppearancePage extends StatelessWidget {
   onColorSchemePreferenceChanged;
   final ValueChanged<ShellAccentSource> onAccentSourceChanged;
   final VoidCallback onOpenAccentPicker;
+  final List<String> fontFamilies;
+  final bool fontCatalogLoading;
+  final ValueChanged<String> onFontFamilyChanged;
   final ValueChanged<double> onCornerRadiusScaleChanged;
   final ValueChanged<double> onPanelOpacityChanged;
   final ValueChanged<double> onCardOpacityChanged;
-  final ValueChanged<bool> onBackdropBlurEnabledChanged;
+  final ValueChanged<ShellTransparencyMode> onTransparencyModeChanged;
   final ValueChanged<ShellBackdropBlurLevel> onBackdropBlurLevelChanged;
   final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
+  final ValueChanged<ShellGlassConfiguration> onGlassChanged;
   final ValueChanged<bool> onFocusedWindowBorderEnabledChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
@@ -198,47 +211,101 @@ class SettingsAppearancePage extends StatelessWidget {
               ),
             ),
             SettingsSection(
-              title: l10n.settingsBackdropBlur,
+              title: l10n.settingsTypographyTitle,
+              child: SettingsSelect<String>(
+                key: settingsFontFamilyControlKey,
+                label: l10n.settingsFontFamily,
+                description: fontCatalogLoading
+                    ? l10n.settingsFontCatalogLoading
+                    : l10n.settingsFontDescription,
+                value: settings.fontFamily,
+                choices: <SettingsChoice<String>>[
+                  SettingsChoice('', l10n.settingsFontSystemDefault),
+                  for (final family in _fontFamilyChoices(
+                    fontFamilies,
+                    settings.fontFamily,
+                  ))
+                    SettingsChoice(family, _fontFamilyLabel(family)),
+                ],
+                onChanged: onFontFamilyChanged,
+              ),
+            ),
+            SettingsSection(
+              title: l10n.settingsTransparencyTitle,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SettingsToggle(
+                  SettingsSegmentedControl<ShellTransparencyMode>(
                     key: settingsBackdropBlurToggleKey,
-                    label: l10n.settingsBackdropBlurEnabled,
-                    description: l10n.settingsBackdropBlurEnabledDescription,
-                    value: settings.backdropBlurEnabled,
-                    onChanged: onBackdropBlurEnabledChanged,
-                  ),
-                  const SizedBox(height: 12),
-                  SettingsSlider(
-                    key: settingsBackdropBlurSliderKey,
-                    label: l10n.settingsBackdropBlurIntensity,
-                    value: settings.backdropBlurLevel.index.toDouble(),
-                    minimum: 0,
-                    maximum: ShellBackdropBlurLevel.values.length - 1,
-                    divisions: ShellBackdropBlurLevel.values.length - 1,
-                    enabled: settings.backdropBlurEnabled,
-                    valueLabel: _backdropBlurLevelLabel(
-                      l10n,
-                      settings.backdropBlurLevel,
-                    ),
-                    onChanged: (value) => onBackdropBlurLevelChanged(
-                      ShellBackdropBlurLevel.values[value.round()],
-                    ),
+                    value: settings.transparencyMode,
+                    choices: <SettingsChoice<ShellTransparencyMode>>[
+                      SettingsChoice(
+                        ShellTransparencyMode.off,
+                        l10n.settingsTransparencyOff,
+                      ),
+                      SettingsChoice(
+                        ShellTransparencyMode.blur,
+                        l10n.settingsTransparencyBlur,
+                      ),
+                      SettingsChoice(
+                        ShellTransparencyMode.glass,
+                        l10n.settingsTransparencyGlass,
+                      ),
+                    ],
+                    onChanged: onTransparencyModeChanged,
                   ),
                   const SizedBox(height: 8),
-                  SettingsSlider(
-                    key: settingsBackdropBlurOpacityThresholdKey,
-                    label: l10n.settingsBackdropBlurOpacityThreshold,
-                    value: settings.backdropBlurOpacityThreshold,
-                    minimum: 0,
-                    maximum: 1,
-                    divisions: 100,
-                    enabled: settings.backdropBlurEnabled,
-                    valueLabel: l10n.settingsPercent(
-                      (settings.backdropBlurOpacityThreshold * 100).round(),
+                  Text(
+                    _transparencyDescription(l10n, settings.transparencyMode),
+                    style: ShellText.base.copyWith(
+                      color: ShellTheme.colorsOf(context).textSecondary,
+                      fontSize: 11,
+                      height: 1.4,
                     ),
-                    onChanged: onBackdropBlurOpacityThresholdChanged,
                   ),
+                  if (settings.transparencyMode == ShellTransparencyMode.blur)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: SettingsSlider(
+                        key: settingsBackdropBlurSliderKey,
+                        label: l10n.settingsBackdropBlurIntensity,
+                        value: settings.backdropBlurLevel.index.toDouble(),
+                        minimum: 0,
+                        maximum: ShellBackdropBlurLevel.values.length - 1,
+                        divisions: ShellBackdropBlurLevel.values.length - 1,
+                        valueLabel: _backdropBlurLevelLabel(
+                          l10n,
+                          settings.backdropBlurLevel,
+                        ),
+                        onChanged: (value) => onBackdropBlurLevelChanged(
+                          ShellBackdropBlurLevel.values[value.round()],
+                        ),
+                      ),
+                    ),
+                  if (settings.transparencyMode == ShellTransparencyMode.glass)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _GlassControls(
+                        configuration: settings.glass,
+                        onChanged: onGlassChanged,
+                      ),
+                    ),
+                  if (settings.transparencyMode != ShellTransparencyMode.off)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SettingsSlider(
+                        key: settingsBackdropBlurOpacityThresholdKey,
+                        label: l10n.settingsBackdropBlurOpacityThreshold,
+                        value: settings.backdropBlurOpacityThreshold,
+                        minimum: 0,
+                        maximum: 1,
+                        divisions: 100,
+                        valueLabel: l10n.settingsPercent(
+                          (settings.backdropBlurOpacityThreshold * 100).round(),
+                        ),
+                        onChanged: onBackdropBlurOpacityThresholdChanged,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -258,31 +325,34 @@ class SettingsAppearancePage extends StatelessWidget {
                     ),
                     onChanged: onCornerRadiusScaleChanged,
                   ),
-                  const SizedBox(height: 8),
-                  SettingsSlider(
-                    label: l10n.settingsPanelOpacity,
-                    value: settings.panelOpacity,
-                    minimum: ShellOpacity.minimumPanel,
-                    maximum: 1,
-                    divisions: 95,
-                    valueLabel: l10n.settingsPercent(
-                      (settings.panelOpacity * 100).round(),
+                  if (settings.transparencyMode !=
+                      ShellTransparencyMode.glass) ...[
+                    const SizedBox(height: 8),
+                    SettingsSlider(
+                      label: l10n.settingsPanelOpacity,
+                      value: settings.panelOpacity,
+                      minimum: ShellOpacity.minimumPanel,
+                      maximum: 1,
+                      divisions: 95,
+                      valueLabel: l10n.settingsPercent(
+                        (settings.panelOpacity * 100).round(),
+                      ),
+                      onChanged: onPanelOpacityChanged,
                     ),
-                    onChanged: onPanelOpacityChanged,
-                  ),
-                  const SizedBox(height: 8),
-                  SettingsSlider(
-                    key: settingsCardOpacitySliderKey,
-                    label: l10n.settingsCardOpacity,
-                    value: settings.cardOpacity,
-                    minimum: ShellOpacity.minimumCard,
-                    maximum: 1,
-                    divisions: 95,
-                    valueLabel: l10n.settingsPercent(
-                      (settings.cardOpacity * 100).round(),
+                    const SizedBox(height: 8),
+                    SettingsSlider(
+                      key: settingsCardOpacitySliderKey,
+                      label: l10n.settingsCardOpacity,
+                      value: settings.cardOpacity,
+                      minimum: ShellOpacity.minimumCard,
+                      maximum: 1,
+                      divisions: 95,
+                      valueLabel: l10n.settingsPercent(
+                        (settings.cardOpacity * 100).round(),
+                      ),
+                      onChanged: onCardOpacityChanged,
                     ),
-                    onChanged: onCardOpacityChanged,
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -342,6 +412,25 @@ class SettingsAppearancePage extends StatelessWidget {
       ],
     );
   }
+}
+
+List<String> _fontFamilyChoices(
+  List<String> availableFamilies,
+  String selectedFamily,
+) {
+  if (selectedFamily.isEmpty || availableFamilies.contains(selectedFamily)) {
+    return availableFamilies;
+  }
+  final choices = <String>[...availableFamilies, selectedFamily];
+  choices.sort((first, second) {
+    final folded = first.toLowerCase().compareTo(second.toLowerCase());
+    return folded != 0 ? folded : first.compareTo(second);
+  });
+  return choices;
+}
+
+String _fontFamilyLabel(String family) {
+  return family == ShellText.systemBarFontFamily ? 'JetBrains Mono' : family;
 }
 
 class _CursorSettings extends StatefulWidget {
@@ -673,6 +762,198 @@ class _CursorThemeCardState extends State<_CursorThemeCard> {
           ),
         ),
       ),
+    );
+  }
+}
+
+String _transparencyDescription(
+  AppLocalizations l10n,
+  ShellTransparencyMode mode,
+) {
+  return switch (mode) {
+    ShellTransparencyMode.off => l10n.settingsTransparencyOffDescription,
+    ShellTransparencyMode.blur => l10n.settingsTransparencyBlurDescription,
+    ShellTransparencyMode.glass => l10n.settingsTransparencyGlassDescription,
+  };
+}
+
+class _GlassControls extends StatelessWidget {
+  const _GlassControls({required this.configuration, required this.onChanged});
+
+  final ShellGlassConfiguration configuration;
+  final ValueChanged<ShellGlassConfiguration> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    String percent(double value) => l10n.settingsPercent((value * 100).round());
+    String signedPercent(double value) {
+      final amount = (value * 100).round();
+      return '${amount > 0 ? '+' : ''}$amount%';
+    }
+
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(l10n.settingsGlassAppearance, style: ShellText.base),
+        ),
+        const SizedBox(height: 8),
+        SettingsSegmentedControl<ShellGlassAppearance>(
+          key: const ValueKey('settings-glass-appearance'),
+          value: configuration.appearance,
+          choices: [
+            SettingsChoice(
+              ShellGlassAppearance.dark,
+              l10n.settingsColorSchemeDark,
+            ),
+            SettingsChoice(
+              ShellGlassAppearance.light,
+              l10n.settingsColorSchemeLight,
+            ),
+          ],
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(appearance: value)),
+        ),
+        const SizedBox(height: 12),
+        SettingsSlider(
+          key: const ValueKey('settings-glass-transparency'),
+          label: l10n.settingsGlassTransparency,
+          value: 1 - configuration.opacity,
+          minimum: 0,
+          maximum: 1,
+          divisions: 100,
+          valueLabel: percent(1 - configuration.opacity),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(opacity: 1 - value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassFrost,
+          value: configuration.blurSigma,
+          minimum: ShellGlassConfiguration.minimumBlurSigma,
+          maximum: ShellGlassConfiguration.maximumBlurSigma,
+          divisions: 30,
+          valueLabel: l10n.settingsPixels(configuration.blurSigma.round()),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(blurSigma: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassQuality,
+          value: configuration.quality,
+          minimum: ShellGlassConfiguration.minimumQuality,
+          maximum: ShellGlassConfiguration.maximumQuality,
+          divisions: 3,
+          valueLabel: percent(configuration.quality),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(quality: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassThickness,
+          value: configuration.thickness,
+          minimum: ShellGlassConfiguration.minimumThickness,
+          maximum: ShellGlassConfiguration.maximumThickness,
+          divisions: 44,
+          valueLabel: l10n.settingsPixels(configuration.thickness.round()),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(thickness: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassRefraction,
+          value: configuration.refraction,
+          minimum: ShellGlassConfiguration.minimumRefraction,
+          maximum: ShellGlassConfiguration.maximumRefraction,
+          divisions: 100,
+          valueLabel: percent(configuration.refraction),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(refraction: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassDispersion,
+          value: configuration.dispersion,
+          minimum: ShellGlassConfiguration.minimumDispersion,
+          maximum: ShellGlassConfiguration.maximumDispersion,
+          divisions: 100,
+          valueLabel: percent(configuration.dispersion),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(dispersion: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassSaturation,
+          value: configuration.saturation,
+          minimum: ShellGlassConfiguration.minimumSaturation,
+          maximum: ShellGlassConfiguration.maximumSaturation,
+          divisions: 150,
+          valueLabel: percent(configuration.saturation),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(saturation: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassAccentTint,
+          value: configuration.tintStrength,
+          minimum: ShellGlassConfiguration.minimumTintStrength,
+          maximum: ShellGlassConfiguration.maximumTintStrength,
+          divisions: 40,
+          valueLabel: percent(configuration.tintStrength),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(tintStrength: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassBrightness,
+          value: configuration.brightness,
+          minimum: ShellGlassConfiguration.minimumBrightness,
+          maximum: ShellGlassConfiguration.maximumBrightness,
+          divisions: 40,
+          valueLabel: signedPercent(configuration.brightness),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(brightness: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassLightAngle,
+          value: configuration.lightAngle,
+          minimum: ShellGlassConfiguration.minimumLightAngle,
+          maximum: ShellGlassConfiguration.maximumLightAngle,
+          divisions: 72,
+          valueLabel: '${configuration.lightAngle.round()}°',
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(lightAngle: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassLightIntensity,
+          value: configuration.lightIntensity,
+          minimum: ShellGlassConfiguration.minimumLightIntensity,
+          maximum: ShellGlassConfiguration.maximumLightIntensity,
+          divisions: 150,
+          valueLabel: percent(configuration.lightIntensity),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(lightIntensity: value)),
+        ),
+        const SizedBox(height: 8),
+        SettingsSlider(
+          label: l10n.settingsGlassEdgeStrength,
+          value: configuration.edgeStrength,
+          minimum: ShellGlassConfiguration.minimumEdgeStrength,
+          maximum: ShellGlassConfiguration.maximumEdgeStrength,
+          divisions: 150,
+          valueLabel: percent(configuration.edgeStrength),
+          onChanged: (value) =>
+              onChanged(configuration.copyWith(edgeStrength: value)),
+        ),
+        const SizedBox(height: 12),
+        SettingsGlassTuningControls(
+          configuration: configuration,
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 }

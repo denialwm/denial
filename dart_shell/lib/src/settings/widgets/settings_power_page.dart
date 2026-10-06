@@ -5,12 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
+import '../../models/power_button_action.dart';
+import '../../models/suspend_mode.dart';
+import '../../state/session_power.dart';
+import '../../state/suspend_modes.dart';
 import '../../state/upower.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../shell_settings.dart';
 import 'settings_battery_section.dart';
 import 'settings_controls.dart';
+import 'settings_power_button_action_selector.dart';
+import 'settings_suspend_mode_selector.dart';
 
 const settingsIdleDpmsToggleKey = ValueKey<String>('settings-idle-dpms-toggle');
 const settingsIdleDpmsTimeoutKey = ValueKey<String>(
@@ -26,6 +32,10 @@ const settingsIdleSuspendToggleKey = ValueKey<String>(
 const settingsIdleSuspendTimeoutKey = ValueKey<String>(
   'settings-idle-suspend-timeout',
 );
+const settingsSuspendModeKey = ValueKey<String>('settings-suspend-mode');
+const settingsPowerButtonActionKey = ValueKey<String>(
+  'settings-power-button-action',
+);
 
 class SettingsPowerPage extends ConsumerWidget {
   const SettingsPowerPage({
@@ -36,6 +46,8 @@ class SettingsPowerPage extends ConsumerWidget {
     required this.onDpmsTimeoutChanged,
     required this.onSuspendEnabledChanged,
     required this.onSuspendTimeoutChanged,
+    required this.onSuspendModeChanged,
+    required this.onPowerButtonActionChanged,
     required this.onReset,
     super.key,
   });
@@ -47,6 +59,8 @@ class SettingsPowerPage extends ConsumerWidget {
   final ValueChanged<int> onDpmsTimeoutChanged;
   final ValueChanged<bool> onSuspendEnabledChanged;
   final ValueChanged<int> onSuspendTimeoutChanged;
+  final ValueChanged<SuspendMode> onSuspendModeChanged;
+  final ValueChanged<PowerButtonAction> onPowerButtonActionChanged;
   final VoidCallback onReset;
 
   @override
@@ -54,6 +68,12 @@ class SettingsPowerPage extends ConsumerWidget {
     final l10n = context.l10n;
     final upower = ref.watch(upowerProvider);
     final upowerController = ref.read(upowerProvider.notifier);
+    final suspendModes = ref.watch(suspendModeCapabilitiesProvider);
+    final sessionPower = ref.watch(sessionPowerProvider);
+    final hibernateAvailable = sessionPower
+        .availabilityFor(SessionPowerAction.hibernate)
+        .permission
+        .canRequest;
     return SettingsPageLayout(
       icon: Icons.power_settings_new_rounded,
       eyebrow: l10n.settingsPowerSection,
@@ -69,14 +89,27 @@ class SettingsPowerPage extends ConsumerWidget {
                 upowerController.setChargeThresholdEnabled(battery, enabled),
               ),
             ),
-            _idlePolicySection(context),
+            SettingsSection(
+              title: l10n.settingsPowerButtonTitle,
+              leading: _PowerButtonIcon(accent: ShellTheme.of(context).accent),
+              child: SettingsPowerButtonActionSelector(
+                key: settingsPowerButtonActionKey,
+                value: settings.powerButtonAction,
+                hibernateAvailable: hibernateAvailable,
+                onChanged: onPowerButtonActionChanged,
+              ),
+            ),
+            _idlePolicySection(context, suspendModes),
           ],
         ),
       ],
     );
   }
 
-  Widget _idlePolicySection(BuildContext context) {
+  Widget _idlePolicySection(
+    BuildContext context,
+    AsyncValue<SuspendModeCapabilities> suspendModes,
+  ) {
     final l10n = context.l10n;
     final lockMaximum = settings.idleSuspendTimeoutMinutes;
     final suspendMinimum = settings.idleDpmsTimeoutMinutes;
@@ -130,6 +163,15 @@ class SettingsPowerPage extends ConsumerWidget {
             maximum: ShellPowerSettings.maximumIdleTimeoutMinutes,
             onEnabledChanged: onSuspendEnabledChanged,
             onTimeoutChanged: onSuspendTimeoutChanged,
+          ),
+          const SizedBox(height: 18),
+          SettingsSuspendModeSelector(
+            key: settingsSuspendModeKey,
+            capabilities:
+                suspendModes.asData?.value ??
+                const SuspendModeCapabilities.unavailable(),
+            preferredMode: settings.suspendMode,
+            onChanged: onSuspendModeChanged,
           ),
           const SizedBox(height: 18),
           const _IdleInhibitNotice(),
@@ -213,6 +255,27 @@ class _PowerIcon extends StatelessWidget {
       child: SizedBox.square(
         dimension: 42,
         child: Icon(Icons.bedtime_outlined, size: 20, color: accent),
+      ),
+    );
+  }
+}
+
+class _PowerButtonIcon extends StatelessWidget {
+  const _PowerButtonIcon({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: accent.withAlpha(34),
+        shape: BoxShape.circle,
+        border: Border.all(color: accent.withAlpha(92)),
+      ),
+      child: SizedBox.square(
+        dimension: 42,
+        child: Icon(Icons.power_rounded, size: 20, color: accent),
       ),
     );
   }

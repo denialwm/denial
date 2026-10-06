@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[path = "presentation_clock/feedback.rs"]
+mod feedback;
+pub(super) use feedback::FeedbackClock;
+
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
 pub(super) struct PageFlipCompletion {
@@ -15,6 +19,7 @@ pub(super) struct PageFlipCompletion {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PresentedOutput {
     pub(super) id: OutputId,
+    pub(super) logical_sequence: u64,
     pub(super) observed_at: Instant,
     pub(super) presented_at: Option<Duration>,
     pub(super) sequence: Option<u64>,

@@ -9,6 +9,7 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
+import '../widgets/retained_translation.dart';
 import 'controllers/application_recents_controller.dart';
 import 'controllers/home_grid_controller.dart';
 import 'controllers/home_grid_layout.dart';
@@ -21,6 +22,8 @@ import 'widgets/home_tiles.dart';
 import 'widgets/page_dots.dart';
 
 part 'home_surface_view.dart';
+part 'home_pager.dart';
+part 'home_drag_overlay.dart';
 part 'home_surface_models.dart';
 
 class HomeSurface extends ConsumerStatefulWidget {
@@ -28,6 +31,7 @@ class HomeSurface extends ConsumerStatefulWidget {
     super.key,
     this.active = true,
     this.interactive = true,
+    this.contentOpacity,
     this.useShellLaunchTransition = false,
   });
 
@@ -39,6 +43,10 @@ class HomeSurface extends ConsumerStatefulWidget {
   /// Whether pointer events may reach launcher content. The launcher can stay
   /// visible behind shell-owned transitions without accepting accidental taps.
   final bool interactive;
+
+  /// Fades icons, widgets and page indicators independently of the backdrop.
+  /// The animation updates composited opacity without rebuilding the grid.
+  final Animation<double>? contentOpacity;
 
   /// Coordinates launches with the integrated shell's placeholder and window
   /// matching. The standalone launcher leaves this off and starts apps
@@ -189,10 +197,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
   }
 
-  Future<void> _launchApp(HomeGridItem item) async {
+  Future<void> _launchApp(HomeGridItem item, Rect sourceRect) async {
     final localApp = item.localApp;
     if (localApp != null) {
-      _launchLocalApp(localApp);
+      _launchLocalApp(localApp, sourceRect);
       return;
     }
 
@@ -223,6 +231,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
         window: existingWindow,
         appName: app.name,
         iconPath: app.iconPath,
+        sourceRect: sourceRect,
       );
       return;
     }
@@ -241,7 +250,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
   }
 
-  void _launchLocalApp(LocalFlutterApplication app) {
+  void _launchLocalApp(LocalFlutterApplication app, Rect sourceRect) {
     ref
         .read(applicationRecentsProvider.notifier)
         .record(localApplicationRecentId(app.id));
@@ -279,6 +288,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
               window: window,
               appName: title,
               iconPath: null,
+              sourceRect: sourceRect,
             );
         launcher.launch(
           app.id,
@@ -531,7 +541,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     if (_resizeModeIndex == null) {
       return;
     }
-    if (details.offsetFromOrigin.distance < 12) {
+    if (details.offsetFromOrigin.distance < 28) {
       return;
     }
 
@@ -995,11 +1005,22 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
 
   @override
   Widget build(BuildContext context) {
+    // Page changes happen midway through a swipe. Only the dots need that
+    // signal; rebuilding both visible icon grids here disrupts the gesture.
+    final contents = ref.watch(
+      homeGridControllerProvider.select(
+        (value) => (
+          slots: value.asData?.value.slots,
+          draggingSourceIndex: value.asData?.value.draggingSourceIndex,
+          hasError: value.hasError,
+        ),
+      ),
+    );
     return _HomeSurfaceView(
       owner: this,
       active: widget.active,
       interactive: widget.interactive,
-      gridAsync: ref.watch(homeGridControllerProvider),
+      contents: contents,
     );
   }
 }

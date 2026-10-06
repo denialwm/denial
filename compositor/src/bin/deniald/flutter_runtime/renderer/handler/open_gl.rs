@@ -32,6 +32,9 @@ impl Drop for RenderAuditCallbackTimer<'_> {
 
 impl OpenGlHandler for FlutterGlHandler {
     fn make_current(&self) -> bool {
+        if self.shutdown_started.load(Ordering::Acquire) {
+            return false;
+        }
         let _audit_timer = RenderAuditCallbackTimer::new(
             self.render_audit.as_ref(),
             RenderAuditStage::ContextMakeCurrent,
@@ -45,17 +48,43 @@ impl OpenGlHandler for FlutterGlHandler {
                 lock(audit).record_raster_start(Instant::now());
             }
             debug_assert!(lock(&self.sampled_buffer_release_fence).is_none());
+            lock(&self.raster_sampled_feedback).clear();
             lock(&self.broker).begin_transaction();
         }
         current
     }
 
     fn clear_current(&self) -> bool {
-        lock(&self.render_context).clear_current()
+        let mut render_context = lock(&self.render_context);
+        if render_context.context.is_current() {
+            return render_context.clear_current();
+        }
+        drop(render_context);
+
+        let mut resource_context = lock(&self.resource_context);
+        if resource_context.context.is_current() {
+            return resource_context.clear_current();
+        }
+
+        // Flutter may pair clear_current with a failed make-current callback.
+        // In that case this thread owns neither Denial context and there is
+        // nothing to release.
+        true
     }
 
     fn make_resource_current(&self) -> bool {
+        if self.shutdown_started.load(Ordering::Acquire) {
+            return false;
+        }
         lock(&self.resource_context).make_current()
+    }
+
+    fn begin_shutdown(&self) {
+        self.shutdown_started.store(true, Ordering::Release);
+    }
+
+    fn shutdown_on_render_thread(&self) -> bool {
+        self.destroy_targets()
     }
 
     fn raster_idle(&self) {
@@ -71,6 +100,7 @@ impl OpenGlHandler for FlutterGlHandler {
         // the transaction had no present callback it supplies the missing
         // REQUESTED/RASTERIZING -> IDLE transition.
         let ready = lock(&self.broker).finish_transaction();
+        lock(&self.raster_sampled_feedback).clear();
         let previous = self.finish_producer_frame();
         if !ready.is_empty() {
             let sampled = self.seal_sampled_buffers();
@@ -133,16 +163,37 @@ impl OpenGlHandler for FlutterGlHandler {
             self.render_audit.as_ref(),
             RenderAuditStage::BackingStore,
         );
-        let size = PixelSize::new(
-            u32::try_from(request.width).ok()?,
-            u32::try_from(request.height).ok()?,
-        );
-        let framebuffer = match lock(&self.broker).acquire(request.view_id, size) {
+        let (Ok(width), Ok(height)) = (u32::try_from(request.width), u32::try_from(request.height))
+        else {
+            error!(
+                render_view_id = request.view_id,
+                width = request.width,
+                height = request.height,
+                reason = "invalid_dimensions",
+                "could not acquire Flutter embedder backing store"
+            );
+            return None;
+        };
+        let size = PixelSize::new(width, height);
+        let (acquisition, transaction) = {
+            let mut broker = lock(&self.broker);
+            let acquisition = broker.acquire(request.view_id, size);
+            (acquisition, broker.transaction)
+        };
+        let framebuffer = match acquisition {
             Ok(framebuffer) => framebuffer,
             Err(blocked) => {
                 if let Some(audit) = &self.render_audit {
                     lock(audit).record_target_blocked(blocked);
                 }
+                error!(
+                    render_view_id = request.view_id,
+                    width = size.width,
+                    height = size.height,
+                    transaction,
+                    reason = ?blocked,
+                    "could not acquire Flutter embedder backing store"
+                );
                 // Every independently clocked output can temporarily retain a
                 // scanning generation, an atomic submission awaiting page flip,
                 // and a newer ready generation. Exhaustion remains ordinary
@@ -237,6 +288,7 @@ impl OpenGlHandler for FlutterGlHandler {
         *pending = Some(PendingOutputPresentation {
             view_id: view.view_id,
             framebuffer: view.backing_store.framebuffer,
+            presentation_time_nanos: view.presentation_time_nanos,
         });
         // The external-view callback identifies the physical backing store.
         // Exact frame and buffer damage arrive immediately afterwards through
@@ -277,12 +329,33 @@ impl OpenGlHandler for FlutterGlHandler {
             // thread, where issuing GL/EGL destruction calls is forbidden. A
             // raster present owns the render context, so reclaim those queued
             // resources even when no further external texture is populated.
-            self.destroy_retired_external_bindings();
+            {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentRetire,
+                );
+                self.destroy_retired_external_bindings();
+            }
             if let Some(gpu_timing) = &self.gpu_timing {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentGpuMarkers,
+                );
                 lock(gpu_timing).mark_flutter_complete(framebuffer);
             }
-            if !self.blit_to_scanout(framebuffer) {
+            let blit_ok = {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentBlit,
+                );
+                self.blit_to_scanout(framebuffer)
+            };
+            if !blit_ok {
                 if let Some(gpu_timing) = &self.gpu_timing {
+                    let _stage = RenderAuditCallbackTimer::new(
+                        self.render_audit.as_ref(),
+                        RenderAuditStage::PresentGpuMarkers,
+                    );
                     lock(gpu_timing).finish(framebuffer);
                 }
                 let sampled = self.seal_sampled_buffers();
@@ -295,17 +368,41 @@ impl OpenGlHandler for FlutterGlHandler {
                 return false;
             }
             if let Some(gpu_timing) = &self.gpu_timing {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentGpuMarkers,
+                );
                 lock(gpu_timing).finish(framebuffer);
             }
             let context = lock(&self.render_context);
-            let fence = match EGLFence::create(context.context.display()) {
+            let created_fence = {
+                let _stage = RenderAuditCallbackTimer::new(
+                    self.render_audit.as_ref(),
+                    RenderAuditStage::PresentFenceCreate,
+                );
+                EGLFence::create(context.context.display())
+            };
+            let fence = match created_fence {
                 Ok(fence) => {
                     // The fence follows Flutter's render commands. Flushing
                     // publishes the native sync_file without waiting for GPU
                     // completion on the raster thread.
                     // SAFETY: present runs with the raster context current.
-                    unsafe { (self.gl.flush)() };
-                    match fence.export() {
+                    {
+                        let _stage = RenderAuditCallbackTimer::new(
+                            self.render_audit.as_ref(),
+                            RenderAuditStage::PresentFlush,
+                        );
+                        unsafe { (self.gl.flush)() };
+                    }
+                    let exported_fence = {
+                        let _stage = RenderAuditCallbackTimer::new(
+                            self.render_audit.as_ref(),
+                            RenderAuditStage::PresentFenceExport,
+                        );
+                        fence.export()
+                    };
+                    match exported_fence {
                         Ok(fence) => Some(fence),
                         Err(error) => {
                             let reason = format!(
@@ -345,6 +442,19 @@ impl OpenGlHandler for FlutterGlHandler {
                     return false;
                 }
             };
+            let _publish_stage = RenderAuditCallbackTimer::new(
+                self.render_audit.as_ref(),
+                RenderAuditStage::PresentPublish,
+            );
+            if let Some(fence) = fence.as_ref()
+                && let Err(error) = self
+                    .gpu_deadline_hints
+                    .set(fence.as_fd(), pending.presentation_time_nanos)
+            {
+                // This is an optional scheduling hint. Its failure never
+                // changes fence ownership or blocks normal presentation.
+                debug!(%error, "GPU presentation deadline hints unavailable");
+            }
             if let Some(audit) = &self.render_audit {
                 lock(audit).record_present(
                     view_id,
@@ -376,13 +486,15 @@ impl OpenGlHandler for FlutterGlHandler {
             };
             *lock(&self.sampled_buffer_release_fence) = release_fence;
             let rendered_at = self.render_audit.as_ref().map(|_| Instant::now());
-            if !lock(&self.broker).mark_ready(
+            let sampled_feedback = std::mem::take(&mut *lock(&self.raster_sampled_feedback));
+            if !lock(&self.broker).mark_ready_with_feedback(
                 view_id,
                 framebuffer,
                 frame.frame_damage,
                 frame.buffer_damage,
                 fence,
                 rendered_at,
+                sampled_feedback,
             ) {
                 error!(
                     view_id,
@@ -439,6 +551,15 @@ impl OpenGlHandler for FlutterGlHandler {
         !self.prepare_external_texture_without_gl(texture_id)
     }
 
+    fn external_texture_presentation(
+        &self,
+        texture_id: i64,
+    ) -> Option<denial_flutter_engine::ExternalTexturePresentation> {
+        let sources = lock(&self.external_texture_sources);
+        let presentation = sources.get(&texture_id)?.presentation;
+        (presentation.width > 0.0).then_some(presentation)
+    }
+
     fn populate_external_texture(
         &self,
         texture_id: i64,
@@ -476,6 +597,7 @@ impl OpenGlHandler for FlutterGlHandler {
             if let Some(buffer_guard) = prepared.sampled_buffer {
                 self.record_sampled_buffer(texture_id, prepared.source_generation, buffer_guard);
             }
+            self.record_sampled_feedback(prepared.feedback);
             self.mark_external_texture_sampled(texture_id, prepared.source_generation);
             return true;
         }
@@ -487,6 +609,7 @@ impl OpenGlHandler for FlutterGlHandler {
             return false;
         };
         let source_generation = source.generation();
+        let feedback = source.feedback();
         let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
             warn!(
                 texture_id,
@@ -499,7 +622,8 @@ impl OpenGlHandler for FlutterGlHandler {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard,
-                revision,
+                revision: _,
+                feedback: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
@@ -604,65 +728,18 @@ impl OpenGlHandler for FlutterGlHandler {
                 if name == 0 {
                     return false;
                 }
-                if buffer_guard
-                    .as_ref()
-                    .is_some_and(ExternalBufferGuard::is_native)
-                {
-                    let (retained, copied) = if let Some(retained) =
-                        self.cached_retained_native_binding(texture_id, revision)
-                    {
-                        (retained, false)
-                    } else {
-                        let retained =
-                            match self.retain_native_texture(name, dmabuf_width, dmabuf_height) {
-                                Ok(retained) => retained,
-                                Err(error) => {
-                                    warn!(
-                                        %error,
-                                        texture_id,
-                                        revision,
-                                        "could not retain native dma-buf for Flutter"
-                                    );
-                                    return false;
-                                }
-                            };
-                        self.cache_retained_native_binding(
-                            texture_id,
-                            revision,
-                            Arc::clone(&retained),
-                        );
-                        self.destroy_retired_external_bindings();
-                        (retained, true)
-                    };
-                    let name = retained.texture();
-                    if name == 0 {
-                        return false;
-                    }
-                    let sampled_buffer = copied.then(|| buffer_guard.clone()).flatten();
-                    (
-                        width,
-                        height,
-                        name,
-                        ExternalTextureLeaseResource::Retained {
-                            _binding: retained,
-                            _resource_permit: lease_permit,
-                        },
-                        sampled_buffer,
-                    )
-                } else {
-                    let sampled_buffer = buffer_guard.clone();
-                    (
-                        width,
-                        height,
-                        name,
-                        ExternalTextureLeaseResource::Dmabuf {
-                            _binding: binding,
-                            _buffer_guard: buffer_guard,
-                            _resource_permit: lease_permit,
-                        },
-                        sampled_buffer,
-                    )
-                }
+                let sampled_buffer = buffer_guard.clone();
+                (
+                    width,
+                    height,
+                    name,
+                    ExternalTextureLeaseResource::Dmabuf {
+                        _binding: binding,
+                        _buffer_guard: buffer_guard,
+                        _resource_permit: lease_permit,
+                    },
+                    sampled_buffer,
+                )
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();
@@ -801,6 +878,7 @@ impl OpenGlHandler for FlutterGlHandler {
         if let Some(buffer_guard) = sampled_buffer {
             self.record_sampled_buffer(texture_id, source_generation, buffer_guard);
         }
+        self.record_sampled_feedback(feedback);
         self.mark_external_texture_sampled(texture_id, source_generation);
         true
     }

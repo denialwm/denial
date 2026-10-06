@@ -10,6 +10,7 @@ import '../platform/denial_bridge.dart';
 import '../settings/settings_controller.dart';
 import '../state/shell_controller.dart';
 import '../theme/shell_color_scheme.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -70,6 +71,8 @@ class _DenialSettingsStandaloneContentState
   final AssetBundle _packageAssets = _DenialShellPackageAssetBundle();
   Color? _lightMaterialThemeAccent;
   Color? _darkMaterialThemeAccent;
+  String? _lightMaterialThemeFontFamily;
+  String? _darkMaterialThemeFontFamily;
   ThemeData? _lightMaterialTheme;
   ThemeData? _darkMaterialTheme;
 
@@ -117,15 +120,20 @@ class _DenialSettingsStandaloneContentState
     final selectedTheme = ShellThemeData(
       colors: selectedColors,
       accent: accent,
+      fontFamily: appearance.fontFamily,
       cornerRadiusScale: appearance.cornerRadiusScale,
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
-      backdropBlurEnabled: false,
+      transparencyMode: ShellTransparencyMode.off,
       focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
     );
-    final materialThemes = _materialThemesFor(accent, selectedTheme.brightness);
+    final materialThemes = _materialThemesFor(
+      accent,
+      appearance.fontFamily,
+      selectedTheme.brightness,
+    );
     return DefaultAssetBundle(
       bundle: _packageAssets,
       child: AnimatedShellTheme(
@@ -179,39 +187,71 @@ class _DenialSettingsStandaloneContentState
 
   ({ThemeData light, ThemeData dark}) _materialThemesFor(
     Color accent,
+    String fontFamily,
     Brightness activeBrightness,
   ) {
     // Keep the inactive theme available for MaterialApp, but do not rebuild it
     // for every color-wheel event. It is refreshed when that mode is selected.
     if (activeBrightness == Brightness.light) {
-      _refreshLightMaterialTheme(accent);
-      _darkMaterialTheme ??= _buildMaterialTheme(ShellColorScheme.dark, accent);
+      _refreshLightMaterialTheme(accent, fontFamily);
+      _darkMaterialTheme ??= _buildMaterialTheme(
+        ShellColorScheme.dark,
+        accent,
+        fontFamily,
+      );
       _darkMaterialThemeAccent ??= accent;
+      _darkMaterialThemeFontFamily ??= fontFamily;
     } else {
-      _refreshDarkMaterialTheme(accent);
+      _refreshDarkMaterialTheme(accent, fontFamily);
       _lightMaterialTheme ??= _buildMaterialTheme(
         ShellColorScheme.light,
         accent,
+        fontFamily,
       );
       _lightMaterialThemeAccent ??= accent;
+      _lightMaterialThemeFontFamily ??= fontFamily;
     }
     return (light: _lightMaterialTheme!, dark: _darkMaterialTheme!);
   }
 
-  void _refreshLightMaterialTheme(Color accent) {
-    if (_lightMaterialThemeAccent == accent) return;
+  void _refreshLightMaterialTheme(Color accent, String fontFamily) {
+    if (_lightMaterialThemeAccent == accent &&
+        _lightMaterialThemeFontFamily == fontFamily) {
+      return;
+    }
     _lightMaterialThemeAccent = accent;
-    _lightMaterialTheme = _buildMaterialTheme(ShellColorScheme.light, accent);
+    _lightMaterialThemeFontFamily = fontFamily;
+    _lightMaterialTheme = _buildMaterialTheme(
+      ShellColorScheme.light,
+      accent,
+      fontFamily,
+    );
   }
 
-  void _refreshDarkMaterialTheme(Color accent) {
-    if (_darkMaterialThemeAccent == accent) return;
+  void _refreshDarkMaterialTheme(Color accent, String fontFamily) {
+    if (_darkMaterialThemeAccent == accent &&
+        _darkMaterialThemeFontFamily == fontFamily) {
+      return;
+    }
     _darkMaterialThemeAccent = accent;
-    _darkMaterialTheme = _buildMaterialTheme(ShellColorScheme.dark, accent);
+    _darkMaterialThemeFontFamily = fontFamily;
+    _darkMaterialTheme = _buildMaterialTheme(
+      ShellColorScheme.dark,
+      accent,
+      fontFamily,
+    );
   }
 
-  ThemeData _buildMaterialTheme(ShellColorScheme colors, Color accent) {
-    return ShellThemeData(colors: colors, accent: accent).toMaterialTheme();
+  ThemeData _buildMaterialTheme(
+    ShellColorScheme colors,
+    Color accent,
+    String fontFamily,
+  ) {
+    return ShellThemeData(
+      colors: colors,
+      accent: accent,
+      fontFamily: fontFamily,
+    ).toMaterialTheme();
   }
 }
 

@@ -1,11 +1,11 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
-import '../../input/input_layout.dart';
 import '../../localization/denial_localizations.dart';
 import '../../services/network_backend.dart';
 import '../../state/bluetooth.dart';
@@ -14,109 +14,99 @@ import '../../state/network_connectivity.dart';
 import '../../state/quick_settings.dart';
 import '../../state/shell_controller.dart';
 import '../../state/system_status.dart';
+import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
+import '../connectivity/mobile_data_tile.dart';
 import '../session/power_session_surface.dart';
 import '../shell_backdrop_blur.dart';
 import '../shell_surface_host.dart';
 import 'quick_settings_tiles.dart';
 import 'range_bar.dart';
-import 'status_glyphs.dart';
+import 'mobile_notification_history.dart';
+import 'shade_backdrop_scene.dart';
+import 'shade_dismiss_gesture.dart';
+import 'shade_expansion_motion.dart';
+import 'shade_reference_geometry.dart';
 
-/// The sliding quick-settings panel. [progress] is `0` when fully hidden and
-/// `1` when fully open; the panel translates in from the top edge accordingly.
+enum ShadePage { notifications, quickSettings }
+
+EdgeInsets _divideInsets(EdgeInsets insets, double divisor) => EdgeInsets.only(
+  left: insets.left / divisor,
+  top: insets.top / divisor,
+  right: insets.right / divisor,
+  bottom: insets.bottom / divisor,
+);
+
+/// ColorOS-style split notification and control-center shade. [progress] is
+/// `0` when hidden and `1` when open. The originating half of the status bar
+/// selects a page; a horizontal swipe switches pages once fully expanded.
 class QuickSettingsShade extends ConsumerWidget {
-  const QuickSettingsShade({super.key, required this.progress});
+  const QuickSettingsShade({
+    super.key,
+    required this.progress,
+    this.active = true,
+    this.closed = false,
+    this.page = ShadePage.quickSettings,
+    this.onPageChanged,
+  });
 
-  final double progress;
+  final Animation<double> progress;
+  final bool active;
+  final bool closed;
+  final ShadePage page;
+  final ValueChanged<ShadePage>? onPageChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(shellControllerProvider.notifier);
-    final size = MediaQuery.sizeOf(context);
-    final linearProgress = progress.clamp(0.0, 1.0).toDouble();
-    final panelHeight = math
-        .min(size.height * 0.74, ShellMetrics.quickSettingsPanelHeight)
-        .toDouble();
 
     return IgnorePointer(
-      ignoring: linearProgress < 0.02,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: controller.closeQuickSettings,
-            child: const SizedBox.expand(),
-          ),
-          Transform.translate(
-            offset: Offset(0.0, -panelHeight * (1.0 - linearProgress)),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Focus(
-                autofocus: true,
-                onKeyEvent: (_, event) {
-                  if (event is KeyDownEvent &&
-                      event.logicalKey == LogicalKeyboardKey.escape) {
-                    controller.closeQuickSettings();
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {},
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: panelHeight,
-                    child: const _ControlPanel(),
+      ignoring: !active,
+      child: ShadeBackdropScene(
+        progress: progress,
+        child: BackdropGroup(
+          child: ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ShadeDismissGesture(
+                  progress: progress,
+                  child: const SizedBox.expand(),
+                ),
+                _FullScreenShade(
+                  progress: progress,
+                  child: Focus(
+                    autofocus: active,
+                    canRequestFocus: active,
+                    onKeyEvent: (_, event) {
+                      if (event is KeyDownEvent &&
+                          event.logicalKey == LogicalKeyboardKey.escape) {
+                        controller.closeQuickSettings();
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {},
+                      child: _ColorOsReferenceViewport(
+                        child: ColorOsShadeContentTranslation(
+                          progress: progress,
+                          child: _ShadeChrome(
+                            progress: progress,
+                            closed: closed,
+                            active: active,
+                            page: page,
+                            onPageChanged: onPageChanged,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ControlPanel extends StatelessWidget {
-  const _ControlPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    final padding = MediaQuery.paddingOf(context);
-    final theme = ShellTheme.of(context);
-
-    return RepaintBoundary(
-      child: ShellBackdropBlur(
-        blur: theme.effectivePanelOpacity < 1.0,
-        borderRadius: BorderRadius.vertical(
-          bottom: Radius.circular(theme.panelRadius),
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: theme.panelGradient(
-              context.shellColors.panelBackground,
-              context.shellColors.panelBackgroundBottom,
-            ),
-            border: Border(
-              bottom: BorderSide(color: context.shellColors.hairline, width: 1),
-            ),
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, padding.top + 18, 20, 12),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ShadeHeader(),
-                SizedBox(height: 12),
-                Expanded(child: _ControlContents()),
-                SizedBox(height: 8),
-                Center(child: _ShadeHandle()),
               ],
             ),
           ),
@@ -126,29 +116,428 @@ class _ControlPanel extends StatelessWidget {
   }
 }
 
-class _ControlContents extends StatelessWidget {
-  const _ControlContents();
+class _FullScreenShade extends StatelessWidget {
+  const _FullScreenShade({required this.progress, required this.child});
+
+  final Animation<double> progress;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      primary: false,
-      padding: EdgeInsets.zero,
-      children: const [
-        _QuickSettingsTilesSection(),
-        SizedBox(height: 14),
-        _BrightnessRangeBar(),
-        SizedBox(height: 10),
-        _VolumeRangeBar(),
-        SizedBox(height: 12),
-        _ShadePowerFooter(),
+    final theme = ShellTheme.of(context);
+    final background = AnimatedBuilder(
+      animation: progress,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: theme.panelGradient(
+            context.shellColors.panelBackground,
+            context.shellColors.panelBackgroundBottom,
+          ),
+        ),
+      ),
+      builder: (context, background) => Opacity(
+        opacity: ColorOsShadeMotion.blurFraction(progress.value),
+        child: background,
+      ),
+    );
+    return RepaintBoundary(
+      child: ShadeBackdropRegion(
+        occludesNotifications: false,
+        borderRadius: BorderRadius.zero,
+        child: AnimatedBuilder(
+          animation: progress,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(child: background),
+              child,
+            ],
+          ),
+          builder: (context, composedShade) {
+            final blur = ColorOsShadeMotion.blurFraction(progress.value);
+            return ShellBackdropBlur(
+              grouped: true,
+              blur:
+                  !ShadeBackdropScene.sharesBlur(context) &&
+                  theme.effectivePanelOpacity < 1.0,
+              strength: blur,
+              separateChild: true,
+              borderRadius: BorderRadius.zero,
+              child: composedShade!,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ShadeChrome extends StatelessWidget {
+  const _ShadeChrome({
+    required this.progress,
+    required this.closed,
+    required this.active,
+    required this.page,
+    required this.onPageChanged,
+  });
+
+  final Animation<double> progress;
+  final bool closed;
+  final bool active;
+  final ShadePage page;
+  final ValueChanged<ShadePage>? onPageChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.paddingOf(context);
+    final headerTop = math.max(40.0, padding.top);
+    const statusHeight = 18.0;
+    const statusToContentGap = 12.0;
+    final contentTop = headerTop + statusHeight + statusToContentGap;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          top: contentTop,
+          child: _ShadePager(
+            progress: progress,
+            closed: closed,
+            active: active,
+            page: page,
+            onPageChanged: onPageChanged,
+          ),
+        ),
       ],
     );
   }
 }
 
+class _ShadePager extends StatefulWidget {
+  const _ShadePager({
+    required this.progress,
+    required this.closed,
+    required this.active,
+    required this.page,
+    required this.onPageChanged,
+  });
+
+  final Animation<double> progress;
+  final bool closed;
+  final bool active;
+  final ShadePage page;
+  final ValueChanged<ShadePage>? onPageChanged;
+
+  @override
+  State<_ShadePager> createState() => _ShadePagerState();
+}
+
+class _ShadePagerState extends State<_ShadePager>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _settle;
+  Animation<double>? _settleValue;
+  double _dragFraction = 0;
+  bool _dragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _settle = AnimationController(vsync: this, duration: Motion.cardSettle)
+      ..addListener(() {
+        final animation = _settleValue;
+        if (animation != null) setState(() => _dragFraction = animation.value);
+      });
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShadePager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      _settle.stop();
+      _settleValue = null;
+      _dragFraction = 0;
+      _dragging = false;
+      return;
+    }
+    if (oldWidget.page != widget.page && !_settle.isAnimating) {
+      _dragFraction = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _settle.dispose();
+    super.dispose();
+  }
+
+  int _index(ShadePage page, TextDirection direction) =>
+      direction == TextDirection.ltr
+      ? (page == ShadePage.notifications ? 0 : 1)
+      : (page == ShadePage.quickSettings ? 0 : 1);
+
+  ShadePage _pageAt(int index, TextDirection direction) =>
+      direction == TextDirection.ltr
+      ? (index == 0 ? ShadePage.notifications : ShadePage.quickSettings)
+      : (index == 0 ? ShadePage.quickSettings : ShadePage.notifications);
+
+  void _startHorizontalDrag(DragStartDetails _) {
+    if (widget.progress.value < 0.98) return;
+    _settle.stop();
+    _settleValue = null;
+    _dragFraction = 0;
+    _dragging = true;
+  }
+
+  void _updateHorizontalDrag(
+    DragUpdateDetails details,
+    double width,
+    TextDirection direction,
+  ) {
+    if (!_dragging || width <= 0) return;
+    final index = _index(widget.page, direction);
+    final next = _dragFraction + details.delta.dx / width;
+    setState(() {
+      _dragFraction = next
+          .clamp(index == 0 ? -1.0 : 0.0, index == 0 ? 0.0 : 1.0)
+          .toDouble();
+    });
+  }
+
+  void _endHorizontalDrag(
+    DragEndDetails details,
+    double width,
+    TextDirection direction,
+  ) {
+    if (!_dragging) return;
+    _dragging = false;
+    final index = _index(widget.page, direction);
+    final velocity = details.primaryVelocity ?? 0;
+    final displacement = _dragFraction.abs() * width;
+    final referenceScale = colorOsShadeScaleForViewport(
+      MediaQuery.sizeOf(context),
+    );
+    final fling =
+        velocity.abs() >= 250 * referenceScale &&
+        displacement >= 30 * referenceScale;
+    final towardNext = fling ? velocity < 0 : _dragFraction < 0;
+    final change = displacement >= 90 * referenceScale || fling;
+    final targetIndex = change
+        ? (index + (towardNext ? 1 : -1)).clamp(0, 1)
+        : index;
+    final changing = targetIndex != index;
+    final target = changing ? (targetIndex > index ? -1.0 : 1.0) : 0.0;
+    _settleValue = Tween<double>(
+      begin: _dragFraction,
+      end: target,
+    ).animate(CurvedAnimation(parent: _settle, curve: Motion.standard));
+    _settle.duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : Motion.cardSettle;
+    _settle
+      ..value = 0
+      ..forward().whenComplete(() {
+        if (!mounted) return;
+        if (changing) {
+          widget.onPageChanged?.call(_pageAt(targetIndex, direction));
+        }
+        setState(() {
+          _dragFraction = 0;
+          _settleValue = null;
+        });
+      });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final direction = Directionality.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final currentIndex = _index(widget.page, direction);
+        Widget buildPage(ShadePage page) {
+          final index = _index(page, direction);
+          final isCurrent = index == currentIndex;
+          final position = index - currentIndex + _dragFraction;
+          return Positioned(
+            left: position * width,
+            top: 0,
+            bottom: 0,
+            width: width,
+            child: IgnorePointer(
+              ignoring: !isCurrent,
+              child: ExcludeSemantics(
+                excluding: !isCurrent,
+                child: page == ShadePage.quickSettings
+                    ? _ControlCenterPage(progress: widget.progress)
+                    : _NotificationCenterPage(
+                        progress: widget.progress,
+                        closed: widget.closed,
+                        active: widget.active && isCurrent,
+                      ),
+              ),
+            ),
+          );
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: _startHorizontalDrag,
+          onHorizontalDragUpdate: (details) =>
+              _updateHorizontalDrag(details, width, direction),
+          onHorizontalDragEnd: (details) =>
+              _endHorizontalDrag(details, width, direction),
+          onHorizontalDragCancel: () => _endHorizontalDrag(
+            DragEndDetails(primaryVelocity: 0),
+            width,
+            direction,
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              buildPage(ShadePage.notifications),
+              buildPage(ShadePage.quickSettings),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ColorOsReferenceViewport extends StatelessWidget {
+  const _ColorOsReferenceViewport({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewport = Size(constraints.maxWidth, constraints.maxHeight);
+        final scale = colorOsShadeScaleForViewport(viewport);
+        final referenceSize = Size(
+          viewport.width / scale,
+          viewport.height / scale,
+        );
+        final media = MediaQuery.of(context);
+        final referenceMedia = media.copyWith(
+          size: referenceSize,
+          devicePixelRatio: media.devicePixelRatio * scale,
+          textScaler: TextScaler.linear(media.textScaler.scale(1) / scale),
+          padding: _divideInsets(media.padding, scale),
+          viewPadding: _divideInsets(media.viewPadding, scale),
+          viewInsets: _divideInsets(media.viewInsets, scale),
+          systemGestureInsets: _divideInsets(media.systemGestureInsets, scale),
+        );
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Transform.scale(
+              scale: scale,
+              alignment: Alignment.topLeft,
+              child: SizedBox.fromSize(
+                size: referenceSize,
+                child: MediaQuery(
+                  data: referenceMedia,
+                  child: ShadeReferenceGeometry(scale: scale, child: child),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ControlCenterPage extends StatelessWidget {
+  const _ControlCenterPage({required this.progress});
+
+  final Animation<double> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.paddingOf(context);
+    return ShadeDismissGesture(
+      progress: progress,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 0),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 32,
+              child: ColorOsShadeElementReveal(
+                progress: progress,
+                threshold: ColorOsShadeMotion.firstElementThreshold,
+                fade: false,
+                child: const _ShadeQuickEntrance(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: SingleChildScrollView(
+                primary: false,
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 24),
+                child: RepaintBoundary(
+                  child: _QuickSettingsTilesSection(progress: progress),
+                ),
+              ),
+            ),
+            SizedBox(height: math.max(4, padding.bottom)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationCenterPage extends ConsumerWidget {
+  const _NotificationCenterPage({
+    required this.progress,
+    required this.closed,
+    required this.active,
+  });
+
+  final Animation<double> progress;
+  final bool closed;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final padding = MediaQuery.paddingOf(context);
+    final empty = ref.watch(
+      desktopNotificationsProvider.select((state) => state.history.isEmpty),
+    );
+    return ShadeDismissGesture(
+      progress: progress,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 0),
+        child: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  MobileNotificationHistory(
+                    progress: progress,
+                    closed: closed,
+                    active: active,
+                  ),
+                  if (empty) const _EmptyNotifications(),
+                ],
+              ),
+            ),
+            SizedBox(height: math.max(4, padding.bottom)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _QuickSettingsTilesSection extends ConsumerWidget {
-  const _QuickSettingsTilesSection();
+  const _QuickSettingsTilesSection({required this.progress});
+
+  final Animation<double> progress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -186,6 +575,10 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
         bluetooth.available &&
         !bluetooth.powerChanging;
     return QuickSettingsTiles(
+      expansionProgress: progress,
+      mobileDataTile: const MobileDataTile(),
+      brightnessControl: const _BrightnessRangeBar(),
+      volumeControl: const _VolumeRangeBar(),
       wifi:
           networkSnapshot.wirelessEnabled &&
           networkSnapshot.wifiDeviceAvailable,
@@ -237,14 +630,14 @@ class _BrightnessRangeBar extends ConsumerWidget {
       quickSettingsProvider.select((state) => state.brightness),
     );
     final controller = ref.read(quickSettingsProvider.notifier);
-    return RangeBar(
+    return VerticalRangeBar(
+      translucentTrack: true,
       icon: Icons.brightness_6_rounded,
       value: brightness,
       activeColor: ShellTheme.of(context).accent,
       inactiveColor: context.shellColors.brightnessTrack,
       onChanged: controller.setBrightness,
       onChangeEnd: controller.commitBrightness,
-      height: 56,
     );
   }
 }
@@ -258,7 +651,8 @@ class _VolumeRangeBar extends ConsumerWidget {
       quickSettingsProvider.select((state) => state.volume),
     );
     final controller = ref.read(quickSettingsProvider.notifier);
-    return RangeBar(
+    return VerticalRangeBar(
+      translucentTrack: true,
       icon: Icons.volume_up_rounded,
       value: volume,
       activeColor: ShellTheme.of(context).accent,
@@ -266,136 +660,78 @@ class _VolumeRangeBar extends ConsumerWidget {
       onChangeStart: controller.beginVolumeInteraction,
       onChanged: controller.setVolume,
       onChangeEnd: controller.commitVolume,
-      height: 56,
     );
   }
 }
 
-class _ShadePowerFooter extends ConsumerWidget {
-  const _ShadePowerFooter();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return ShadeFooter(onOpenPower: () => showPowerSessionSurface(ref));
-  }
-}
-
-class _ShadeHeader extends ConsumerWidget {
-  const _ShadeHeader();
+class _ShadeQuickEntrance extends ConsumerWidget {
+  const _ShadeQuickEntrance();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final battery = ref.watch(batteryProvider);
     final l10n = context.l10n;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              localizedTime(context, now),
-              softWrap: false,
-              style: ShellText.shadeClock,
-            ),
-            const SizedBox(height: 7),
-            Text(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
               l10n.quickSettingsDate(_weekday(now.weekday, l10n), now.day),
-              softWrap: false,
-              style: ShellText.shadeDate,
-            ),
-          ],
-        ),
-        const Spacer(),
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: _StatusPill(child: StatusCluster(battery: battery)),
-        ),
-      ],
-    );
-  }
-
-  String _weekday(int weekday, AppLocalizations l10n) => switch (weekday) {
-    DateTime.monday => l10n.weekdayMonday,
-    DateTime.tuesday => l10n.weekdayTuesday,
-    DateTime.wednesday => l10n.weekdayWednesday,
-    DateTime.thursday => l10n.weekdayThursday,
-    DateTime.friday => l10n.weekdayFriday,
-    DateTime.saturday => l10n.weekdaySaturday,
-    _ => l10n.weekdaySunday,
-  };
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: context.shellColors.surfaceContainer,
-        borderRadius: context.shellTheme.borderRadius(22),
-        border: Border.all(color: context.shellColors.hairlineSoft),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _ShadeHandle extends ConsumerWidget {
-  const _ShadeHandle();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.read(shellControllerProvider.notifier);
-    return Semantics(
-      button: true,
-      label: context.l10n.quickSettingsClose,
-      child: FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.click,
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              controller.closeQuickSettings();
-              return null;
-            },
-          ),
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: controller.closeQuickSettings,
-          onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
-          onVerticalDragUpdate: (details) =>
-              controller.updateQuickSettingsDrag(Offset(0.0, details.delta.dy)),
-          onVerticalDragEnd: (details) =>
-              controller.endQuickSettingsDrag(details.primaryVelocity ?? 0.0),
-          onVerticalDragCancel: () => controller.endQuickSettingsDrag(0.0),
-          child: SizedBox(
-            width: 72,
-            height: 24,
-            child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: context.shellColors.textTertiary,
-                  borderRadius: context.shellTheme.borderRadius(2),
-                ),
-                child: const SizedBox(width: 44, height: 4),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: ShellText.base.copyWith(
+                color: context.shellColors.panelText,
+                fontSize: 14,
+                height: 1,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
+          ShadeActions(onOpenPower: () => showPowerSessionSurface(ref)),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyNotifications extends StatelessWidget {
+  const _EmptyNotifications();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.notifications_none_rounded,
+              size: 32 * ShadeReferenceGeometry.inverseScaleOf(context),
+              color: context.shellColors.textTertiary,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              context.l10n.notificationsNone,
+              style: ShellText.base.copyWith(
+                color: context.shellColors.textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
+
+String _weekday(int weekday, AppLocalizations l10n) => switch (weekday) {
+  DateTime.monday => l10n.weekdayMonday,
+  DateTime.tuesday => l10n.weekdayTuesday,
+  DateTime.wednesday => l10n.weekdayWednesday,
+  DateTime.thursday => l10n.weekdayThursday,
+  DateTime.friday => l10n.weekdayFriday,
+  DateTime.saturday => l10n.weekdaySaturday,
+  _ => l10n.weekdaySunday,
+};

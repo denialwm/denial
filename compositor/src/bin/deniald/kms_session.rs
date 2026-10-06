@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[derive(Debug)]
+pub(super) struct KmsResumeError(String);
+
+impl std::fmt::Display for KmsResumeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "could not restore pre-pause KMS state: {}",
+            self.0
+        )
+    }
+}
+
+impl Error for KmsResumeError {}
+
 pub(super) trait ScanoutFramebufferSource {
     fn plane_state(&self, scanout: &Scanout) -> Result<PlaneState<'static>, Box<dyn Error>>;
 }
@@ -67,14 +82,16 @@ pub(super) fn service_session_lifecycle(
         return Ok(());
     }
 
-    drm.activate(false)?;
-    rebase_kms_scanouts(
-        drm,
-        scanouts,
-        framebuffers,
-        events,
-        "libseat reactivated the KMS session",
-    )
+    let resume = drm.activate(false).map_err(Into::into).and_then(|()| {
+        rebase_kms_scanouts(
+            drm,
+            scanouts,
+            framebuffers,
+            events,
+            "libseat reactivated the KMS session",
+        )
+    });
+    resume.map_err(|error: Box<dyn Error>| KmsResumeError(error.to_string()).into())
 }
 
 /// Establishes a synchronous scanout baseline after the DRM event stream can
@@ -93,7 +110,8 @@ pub(super) fn rebase_kms_scanouts(
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         scanout
             .surface
-            .test_state([framebuffers.plane_state(scanout)?], true)?;
+            .test_state([framebuffers.plane_state(scanout)?], true)
+            .map_err(|error| format!("{} resume TEST_ONLY failed: {error}", scanout.output.name))?;
     }
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         // Atomic modeset commits are synchronous here. Do not request a

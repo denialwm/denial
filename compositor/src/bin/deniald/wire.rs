@@ -4,7 +4,7 @@
 //! bounded and verified before it is inspected; generated unchecked accessors
 //! never see bytes supplied directly by Flutter.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::CStr;
 use std::fmt;
@@ -19,9 +19,12 @@ use super::native_shortcut::{
 use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
-use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
+use super::options::{
+    MAX_MAXIMIZE_PADDING, MAX_SYSTEM_BAR_THICKNESS, SystemBarOptions, SystemBarSide,
+    WorkAreaOptions,
+};
 use super::settings::{KeyboardLayout, KeyboardSettings, MouseSettings, TouchpadSettings};
-use super::xembed_tray::{
+use super::xembed_tray_protocol::{
     XEmbedTrayAction, XEmbedTrayCommand, XEmbedTrayEvent, XEmbedTrayEventKind,
 };
 
@@ -53,6 +56,17 @@ mod encode;
 
 use decode::validate_notification_event;
 use encode::{encode_display_layout, encode_windows_response};
+
+#[cfg(test)]
+pub(super) fn validate_cursor_state(state: &CursorStateDescription) -> Result<(), WireError> {
+    encode::validate_cursor_state(state)
+}
+
+pub(super) fn validate_cursor_state_payload(
+    state: &CursorStateDescription,
+) -> Result<(), WireError> {
+    encode::validate_cursor_state_payload(state)
+}
 
 pub const TO_NATIVE_CHANNEL: &str = "denial/wire/to_native";
 pub const TO_FLUTTER_CHANNEL: &CStr = c"denial/wire/to_flutter";
@@ -122,6 +136,16 @@ pub enum WindowCommand {
         exact: bool,
         layout_drop: bool,
     },
+    SwitchWorkspace {
+        monitor_id: i64,
+        workspace_id: u8,
+    },
+    MoveToWorkspace {
+        window_id: u64,
+        monitor_id: Option<i64>,
+        workspace_id: u8,
+        follow: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -133,6 +157,9 @@ pub enum KeyboardKeyPhase {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeyboardCommand {
+    DismissPanel {
+        activation_serial: u64,
+    },
     Text(String),
     Key {
         key: String,
@@ -206,9 +233,11 @@ impl WindowCommand {
     pub fn window_id(&self) -> Option<u64> {
         match self {
             Self::CreateLocal { .. } => None,
+            Self::SwitchWorkspace { .. } => None,
             Self::Close { window_id }
             | Self::Focus { window_id }
-            | Self::Configure { window_id, .. } => Some(*window_id),
+            | Self::Configure { window_id, .. }
+            | Self::MoveToWorkspace { window_id, .. } => Some(*window_id),
         }
     }
 }
@@ -217,6 +246,7 @@ impl WindowCommand {
 pub enum WindowAction {
     Minimize,
     Maximize,
+    Fullscreen,
     Restore,
     // Retained for wire compatibility and explicit UI toggles. Native
     // shortcuts use idempotent Maximize/Restore transitions.
@@ -244,6 +274,11 @@ pub enum ShellAction {
     ClientPointerPressed,
     Wallpaper,
     OpenSettings,
+    WorkspaceChanged,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -276,6 +311,11 @@ impl ShellAction {
             Self::ClientPointerPressed => fb::ShellActionKind::ClientPointerPressed,
             Self::Wallpaper => fb::ShellActionKind::Wallpaper,
             Self::OpenSettings => fb::ShellActionKind::OpenSettings,
+            Self::WorkspaceChanged => fb::ShellActionKind::WorkspaceChanged,
+            Self::FocusLeft => fb::ShellActionKind::FocusLeft,
+            Self::FocusRight => fb::ShellActionKind::FocusRight,
+            Self::FocusUp => fb::ShellActionKind::FocusUp,
+            Self::FocusDown => fb::ShellActionKind::FocusDown,
         }
     }
 }
@@ -312,6 +352,7 @@ impl WindowAction {
         match self {
             Self::Minimize => fb::WindowActionKind::Minimize,
             Self::Maximize => fb::WindowActionKind::Maximize,
+            Self::Fullscreen => fb::WindowActionKind::Fullscreen,
             Self::Restore => fb::WindowActionKind::Restore,
             Self::ToggleMaximize => fb::WindowActionKind::ToggleMaximize,
             Self::ToggleFullscreen => fb::WindowActionKind::ToggleFullscreen,
@@ -461,6 +502,23 @@ pub enum SurfaceRoleDescription {
 pub enum WindowContentKind {
     SurfaceTree,
     LocalFlutter,
+    LayerShellBackground,
+    LayerShellBottom,
+    LayerShellTop,
+    LayerShellOverlay,
+    PopupSurface,
+}
+
+impl WindowContentKind {
+    pub const fn is_layer_shell(self) -> bool {
+        matches!(
+            self,
+            Self::LayerShellBackground
+                | Self::LayerShellBottom
+                | Self::LayerShellTop
+                | Self::LayerShellOverlay
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -475,6 +533,11 @@ impl WindowContentKind {
         match self {
             Self::SurfaceTree => fb::WindowContentKind::SurfaceTree,
             Self::LocalFlutter => fb::WindowContentKind::LocalFlutter,
+            Self::LayerShellBackground => fb::WindowContentKind::LayerShellBackground,
+            Self::LayerShellBottom => fb::WindowContentKind::LayerShellBottom,
+            Self::LayerShellTop => fb::WindowContentKind::LayerShellTop,
+            Self::LayerShellOverlay => fb::WindowContentKind::LayerShellOverlay,
+            Self::PopupSurface => fb::WindowContentKind::PopupSurface,
         }
     }
 }
@@ -522,6 +585,12 @@ pub struct WindowDescription {
     pub geometry_width: f64,
     pub geometry_height: f64,
     pub monitor_id: i64,
+    pub workspace_id: i64,
+    pub transient_parent_id: u64,
+    pub minimized: bool,
+    pub fullscreen: bool,
+    pub maximized: bool,
+    pub pinned: bool,
     pub transform: u32,
     pub scale_120: u32,
     pub content_x: f64,
@@ -607,6 +676,7 @@ pub struct WireBridge {
     windows: Vec<WindowDescription>,
     windows_revision: Option<u64>,
     restored_window_ids: Vec<u64>,
+    active_workspaces: BTreeMap<i64, u8>,
     // Flutter copies platform-channel payloads during the synchronous engine
     // call. Keep one builder alive here and lend its finished tail until the
     // next mutable bridge operation, eliminating both builder churn and the
@@ -632,6 +702,15 @@ impl WireBridge {
         work_area: WorkAreaOptions,
     ) -> Result<Self, WireError> {
         validate_topology(snapshot, atlas)?;
+        let active_workspaces = snapshot
+            .outputs
+            .iter()
+            .map(|output| {
+                monitor_id(output.id)
+                    .map(|monitor_id| (monitor_id, 1))
+                    .ok_or(WireError::Topology("monitor id exceeds i64"))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(Self {
             snapshot: snapshot.clone(),
             atlas: atlas.clone(),
@@ -639,6 +718,7 @@ impl WireBridge {
             windows: Vec::new(),
             windows_revision: None,
             restored_window_ids: Vec::new(),
+            active_workspaces,
             outbound_builder: FlatBufferBuilder::with_capacity(1024),
             pending_input_layout: None,
             input_layout_scratch: InputLayoutSnapshot::default(),
@@ -655,7 +735,10 @@ impl WireBridge {
     }
 
     pub fn window_ids(&self) -> impl Iterator<Item = u64> + '_ {
-        self.windows.iter().map(|window| window.window_id)
+        self.windows
+            .iter()
+            .filter(|window| !window.content_kind.is_layer_shell())
+            .map(|window| window.window_id)
     }
 
     pub fn window_descriptions(&self) -> &[WindowDescription] {

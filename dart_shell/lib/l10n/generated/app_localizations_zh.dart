@@ -9,6 +9,9 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get homeResizeWidget => '调整小组件大小';
+
+  @override
   String get actionCancel => '取消';
 
   @override
@@ -620,29 +623,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String frameAppRendering(String title) {
-    return '应用 · $title · 渲染';
-  }
-
-  @override
-  String frameAppWaiting(String title) {
-    return '应用 · $title · 等待';
-  }
-
-  @override
-  String frameImportedStats(
-    String average,
-    String maximum,
-    int overBudget,
-    int samples,
-  ) {
-    return '平均 $average  最大 $maximum  超预算 $overBudget  样本 $samples';
-  }
-
-  @override
-  String get frameImportedStatsUnavailable => '平均 --.-  最大 --.-  超预算 -  样本 -';
-
-  @override
   String frameMilliseconds(String value) {
     return '约 $value 毫秒';
   }
@@ -998,6 +978,16 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String outputSoftwareDimmingSemantics(String outputName) {
+    return '$outputName 软件调光';
+  }
+
+  @override
+  String outputSoftwareDimmingUnavailable(String outputName) {
+    return '$outputName 软件调光（不可用）';
+  }
+
+  @override
   String get outputVolumeSemantics => '输出音量';
 
   @override
@@ -1308,6 +1298,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAutomaticIdleTitle => '自动空闲操作';
 
   @override
+  String get settingsPowerButtonTitle => '电源按钮';
+
+  @override
+  String get settingsPowerButtonAction => '操作';
+
+  @override
+  String get settingsPowerButtonDescription => '选择按下实体电源按钮时执行的操作。';
+
+  @override
+  String get settingsPowerButtonSuspend => '挂起';
+
+  @override
+  String get settingsPowerButtonHibernate => '休眠';
+
+  @override
+  String get settingsPowerButtonHibernateUnavailable => '休眠（不可用）';
+
+  @override
+  String get settingsPowerButtonDpms => '关闭显示器（DPMS）';
+
+  @override
+  String get settingsPowerButtonPowerOff => '关机';
+
+  @override
   String get settingsAutomaticLockToggle => '自动锁定';
 
   @override
@@ -1319,6 +1333,25 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get settingsAutomaticSuspendToggleDescription =>
       '长时间无活动后在内存中保留会话并进入低功耗状态。';
+
+  @override
+  String get settingsSuspendMode => '挂起模式';
+
+  @override
+  String get settingsSuspendModeDescription =>
+      '选择 Linux 在挂起时如何保持内存供电。Denial 活动期间的每次挂起都会使用此设置。';
+
+  @override
+  String get settingsSuspendModeS2idle => '挂起到空闲（s2idle）';
+
+  @override
+  String get settingsSuspendModeShallow => '待机（shallow）';
+
+  @override
+  String get settingsSuspendModeDeep => '挂起到内存（deep）';
+
+  @override
+  String get settingsSuspendModeUnavailable => '不可用';
 
   @override
   String get settingsAvailable => '可用';
@@ -1510,6 +1543,70 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
 
   @override
+  String get settingsGlassAppearance => '玻璃外观';
+
+  @override
+  String get settingsGlassTransparency => '所有玻璃表面的透明度';
+
+  @override
+  String get settingsTransparencyTitle => '透明材质';
+
+  @override
+  String get settingsTypographyTitle => '字体';
+
+  @override
+  String get settingsTransparencyOff => '关闭';
+
+  @override
+  String get settingsTransparencyBlur => '模糊';
+
+  @override
+  String get settingsTransparencyGlass => '玻璃';
+
+  @override
+  String get settingsTransparencyOffDescription => '透明表面不处理其后的桌面内容。';
+
+  @override
+  String get settingsTransparencyBlurDescription => '使用 Denial 当前的快速高斯背景模糊。';
+
+  @override
+  String get settingsTransparencyGlassDescription =>
+      '通过磨砂、强调色染色的透镜折射清晰桌面，并添加定向边缘光。';
+
+  @override
+  String get settingsGlassFrost => '磨砂';
+
+  @override
+  String get settingsGlassQuality => '渲染质量';
+
+  @override
+  String get settingsGlassThickness => '光学厚度';
+
+  @override
+  String get settingsGlassRefraction => '折射';
+
+  @override
+  String get settingsGlassDispersion => '色散';
+
+  @override
+  String get settingsGlassSaturation => '饱和度';
+
+  @override
+  String get settingsGlassAccentTint => '强调色染色';
+
+  @override
+  String get settingsGlassBrightness => '明度';
+
+  @override
+  String get settingsGlassLightAngle => '光照方向';
+
+  @override
+  String get settingsGlassLightIntensity => '光照强度';
+
+  @override
+  String get settingsGlassEdgeStrength => '边缘高光';
+
+  @override
   String get settingsBackdropDimming => '背景变暗';
 
   @override
@@ -1579,7 +1676,52 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsColorPickerDone => '完成';
 
   @override
-  String get settingsColorPickerInstructions => '拖动以选择颜色。使用方向键进行微调。';
+  String get settingsColorPickerInstructions => '可直观选择，也可输入精确的颜色值。';
+
+  @override
+  String get settingsColorInputTitle => '颜色值';
+
+  @override
+  String get settingsColorInputRgb => 'RGB';
+
+  @override
+  String get settingsColorInputHsl => 'HSL';
+
+  @override
+  String get settingsColorInputHex => 'HEX';
+
+  @override
+  String get settingsColorInputRed => '红色';
+
+  @override
+  String get settingsColorInputGreen => '绿色';
+
+  @override
+  String get settingsColorInputBlue => '蓝色';
+
+  @override
+  String get settingsColorInputHue => '色相';
+
+  @override
+  String get settingsColorInputSaturation => '饱和度';
+
+  @override
+  String get settingsColorInputLightness => '亮度';
+
+  @override
+  String get settingsColorInputHexValue => '十六进制颜色';
+
+  @override
+  String get settingsColorInputNudgeHint => '使用 ↑↓ 微调 · 按住 Shift 调整 10';
+
+  @override
+  String get settingsColorInputRgbError => 'RGB 值须在 0 到 255 之间。';
+
+  @override
+  String get settingsColorInputHslError => 'H 须为 0–360，S/L 须为 0–100。';
+
+  @override
+  String get settingsColorInputHexError => '请输入 3 位或 6 位十六进制数。';
 
   @override
   String get settingsColorPickerReset => '重置';
@@ -1691,6 +1833,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDisplayArrangementTitle => '显示器配置';
 
   @override
+  String get settingsDisplayEnabled => '使用此显示器';
+
+  @override
+  String get settingsDisplayEnabledDescription => '将此显示器纳入桌面。必须至少启用一个显示器。';
+
+  @override
   String get settingsDisplayBrightnessDescription => '调节主显示器亮度。';
 
   @override
@@ -1731,7 +1879,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsDisplayPrimaryHint =>
-      'Shell 界面会在主显示器上打开。自动模式会使用刷新率最高的已连接显示器。';
+      'Shell 界面会在主显示器上打开。自动模式会使用刷新率最高的已启用显示器。';
 
   @override
   String get settingsDisplayRefreshRate => '刷新率';
@@ -1746,16 +1894,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDisplayRotationNormal => '横向';
 
   @override
-  String get settingsDisplayRotation90 => '顺时针 90°';
+  String get settingsDisplayRotation90 => '逆时针 90°';
 
   @override
   String get settingsDisplayRotation180 => '倒置';
 
   @override
-  String get settingsDisplayRotation270 => '逆时针 90°';
+  String get settingsDisplayRotation270 => '顺时针 90°';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxis => '滚动布局轴';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisDescription =>
+      '选择滚动窗口在此显示器上的排列方向。';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisAuto => '自动（跟随旋转）';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisHorizontal => '横向';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisVertical => '纵向';
 
   @override
   String get settingsDisplayScale => '缩放';
+
+  @override
+  String get settingsDisplayScaleInvalid => '请输入 50 到 600 之间的数值。';
+
+  @override
+  String get settingsDisplayScalePreset => '预设';
+
+  @override
+  String get settingsDisplayScaleRange =>
+      '输入 50–600%。数值会舍入到最接近的受支持缩放比例。低于 100% 时画面可能较柔和。';
 
   @override
   String get settingsDisplayVariableRefreshRate => '可变刷新率 (VRR)';
@@ -1794,6 +1968,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsFocusedWindows => '聚焦窗口';
+
+  @override
+  String get settingsFontCatalogLoading => '正在查找已安装的字体…';
+
+  @override
+  String get settingsFontDescription => '在整个 Denial Shell 中使用系统默认字体或已安装的字体。';
+
+  @override
+  String get settingsFontFamily => '字体系列';
+
+  @override
+  String get settingsFontSystemDefault => '系统默认';
 
   @override
   String get settingsFocusedWindowBorder => '高亮聚焦窗口边框';
@@ -1948,6 +2134,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsTouchpadScrollSpeed => '手指滚动速度';
+
+  @override
+  String get settingsTouchpadScrollingLayoutSwipeSpeed => '滚动布局滑动速度';
 
   @override
   String get settingsMousePointerSpeed => '鼠标指针速度';
@@ -2126,6 +2315,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
 
   @override
+  String get settingsShortcutGestureFourFingerSwipeLeft => '四指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeRight => '四指向右轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeUp => '四指向上轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeDown => '四指向下轻扫';
+
+  @override
   String get settingsShortcutInputCategoryModifier => '修饰键';
 
   @override
@@ -2195,6 +2396,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionToggleFullscreen => '进入或退出全屏';
 
   @override
+  String get settingsShortcutActionToggleWindowAlwaysOnTop => '置顶或取消置顶窗口';
+
+  @override
   String get settingsShortcutActionReleasePointer => '释放指针';
 
   @override
@@ -2246,6 +2450,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionSwapDown => '向下交换窗口';
 
   @override
+  String get settingsShortcutActionPreviousWorkspace => '上一个工作区';
+
+  @override
+  String get settingsShortcutActionNextWorkspace => '下一个工作区';
+
+  @override
+  String get settingsShortcutActionMoveToPreviousWorkspace => '将窗口移至上一个工作区';
+
+  @override
+  String get settingsShortcutActionMoveToNextWorkspace => '将窗口移至下一个工作区';
+
+  @override
+  String settingsShortcutActionSwitchWorkspace(int workspace) {
+    return '切换到工作区 $workspace';
+  }
+
+  @override
+  String settingsShortcutActionMoveToWorkspace(int workspace) {
+    return '将窗口移至工作区 $workspace';
+  }
+
+  @override
   String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
 
   @override
@@ -2256,7 +2482,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowLayoutDescription =>
-      '堆叠允许窗口自由移动和重叠。平铺使用动态二叉树排列窗口，并让临时窗口保持浮动。';
+      '堆叠允许窗口相互重叠。平铺动态划分桌面。滚动平铺将窗口排列成跟随焦点的长带；其方向可按显示器配置，默认跟随显示器旋转。';
 
   @override
   String get settingsWindowLayoutDwindle => '平铺';
@@ -2265,7 +2491,65 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsWindowLayoutStacking => '堆叠';
 
   @override
+  String get settingsWindowLayoutScrolling => '滚动平铺';
+
+  @override
   String get settingsWindowLayoutTitle => '窗口布局';
+
+  @override
+  String get settingsScrollingLayoutWheelTitle => 'Super + 鼠标滚轮';
+
+  @override
+  String get settingsScrollingLayoutWheelDescription =>
+      '按住 Super 并滚动鼠标滚轮来移动窗口带。';
+
+  @override
+  String get settingsScrollingLayoutWheelSpeed => '滚轮速度';
+
+  @override
+  String get settingsScrollingLayoutWheelUpDirection => '滚轮向上移动';
+
+  @override
+  String get settingsScrollingLayoutWheelUpLeft => '向左';
+
+  @override
+  String get settingsScrollingLayoutWheelUpRight => '向右';
+
+  @override
+  String get settingsWorkspacesTitle => 'Workspaces';
+
+  @override
+  String get settingsWorkspacesEnable => 'Enable workspaces';
+
+  @override
+  String get settingsWorkspacesDescription =>
+      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
+
+  @override
+  String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String get settingsWorkspaceSwitchingOrientation => '切换方向';
+
+  @override
+  String get settingsWorkspaceSwitchingHorizontal => '水平';
+
+  @override
+  String get settingsWorkspaceSwitchingVertical => '垂直';
+
+  @override
+  String workspaceLabel(int workspace) {
+    return 'Workspace $workspace';
+  }
+
+  @override
+  String get workspaceActive => 'active';
+
+  @override
+  String get workspaceOccupied => 'occupied';
+
+  @override
+  String get workspaceEmpty => 'empty';
 
   @override
   String get settingsLiveBadge => '实时';
@@ -3071,6 +3355,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wallpaperFinding => '正在查找壁纸…';
 
   @override
+  String wallpaperFolderHint(String directory) {
+    return '将您自己的壁纸添加到 $directory。';
+  }
+
+  @override
+  String get wallpaperImageServerUnavailable => '在线壁纸不可用。本地壁纸仍可使用。';
+
+  @override
   String get wallpaperMobileBackToSelection => '返回壁纸选择';
 
   @override
@@ -3301,5 +3593,170 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String windowUntitled(int windowId) {
     return '窗口 $windowId';
+  }
+
+  @override
+  String get settingsGlassAdvanced => '玻璃效果调节';
+
+  @override
+  String get settingsGlassReset => '重置玻璃效果';
+
+  @override
+  String get settingsGlassTuningDescription => '更改会立即生效。默认值保留原有的玻璃效果。';
+
+  @override
+  String get settingsGlassBevelWidth => '斜边宽度';
+
+  @override
+  String get settingsGlassRefractionDepth => '折射深度';
+
+  @override
+  String get settingsGlassRimWidth => '高光宽度';
+
+  @override
+  String get settingsGlassRimFalloff => '高光衰减';
+
+  @override
+  String get settingsGlassOppositeLight => '对侧边缘光照';
+
+  @override
+  String settingsGlassRimPixels(String width) {
+    return '$width 像素';
+  }
+
+  @override
+  String get lockFingerprintNotRecognized => '未识别指纹';
+
+  @override
+  String get fingerprintSection => '指纹';
+
+  @override
+  String get fingerprintPasswordPrompt => '请输入 sudo 密码以管理指纹。';
+
+  @override
+  String get fingerprintSudoPassword => 'sudo 密码';
+
+  @override
+  String get fingerprintContinue => '继续';
+
+  @override
+  String get fingerprintDescription => '使用已录入的指纹解锁 Denial。';
+
+  @override
+  String get fingerprintEmptyTitle => '尚未录入指纹';
+
+  @override
+  String get fingerprintEmptyDescription => '在下方选择手指，录入第一个指纹。';
+
+  @override
+  String get fingerprintChooseFinger => '要录入的手指';
+
+  @override
+  String get fingerprintEnroll => '录入指纹';
+
+  @override
+  String get fingerprintAdd => '添加指纹';
+
+  @override
+  String get fingerprintAuthenticationFailed => '密码验证失败，请重试。';
+
+  @override
+  String get fingerprintExpired => '请重新输入密码以继续。';
+
+  @override
+  String get fingerprintPreparing => '正在准备指纹读取器…';
+
+  @override
+  String get fingerprintTouchSensor => '用所选手指触碰传感器，然后抬起。';
+
+  @override
+  String get fingerprintEnrolled => '指纹已录入，现在可以用它解锁 Denial。';
+
+  @override
+  String get fingerprintCancelled => '已取消录入。';
+
+  @override
+  String get fingerprintDuplicate => '此指纹已录入，请选择另一根手指。';
+
+  @override
+  String get fingerprintRetry => '抬起手指，调整位置后再次触碰传感器。';
+
+  @override
+  String get fingerprintUnavailable => '无法完成指纹管理，请检查读取器后重试。';
+
+  @override
+  String fingerprintProgress(int completed, int total) {
+    return '已完成 $completed/$total 次扫描';
+  }
+
+  @override
+  String get fingerprintLeftThumb => '左拇指';
+
+  @override
+  String get fingerprintLeftIndex => '左食指';
+
+  @override
+  String get fingerprintLeftMiddle => '左中指';
+
+  @override
+  String get fingerprintLeftRing => '左无名指';
+
+  @override
+  String get fingerprintLeftLittle => '左小指';
+
+  @override
+  String get fingerprintRightThumb => '右拇指';
+
+  @override
+  String get fingerprintRightIndex => '右食指';
+
+  @override
+  String get fingerprintRightMiddle => '右中指';
+
+  @override
+  String get fingerprintRightRing => '右无名指';
+
+  @override
+  String get fingerprintRightLittle => '右小指';
+
+  @override
+  String get mobileData => '移动数据';
+
+  @override
+  String get mobileConnected => '已连接';
+
+  @override
+  String get mobileDisconnected => '未连接';
+
+  @override
+  String get mobileUnavailable => '移动网络不可用';
+
+  @override
+  String get mobileChangeFailed => '无法更改移动数据';
+
+  @override
+  String get simPinTitle => '解锁 SIM 卡';
+
+  @override
+  String get simPinLabel => 'SIM PIN';
+
+  @override
+  String get simPinUnlock => '解锁 SIM 卡';
+
+  @override
+  String get simPinLater => '稍后';
+
+  @override
+  String get simPinFailed => '无法解锁 SIM 卡。请检查 PIN 和剩余尝试次数。';
+
+  @override
+  String get simPukRequired => 'SIM 卡需要 PUK。请联系运营商。';
+
+  @override
+  String get simLocked => 'SIM 卡已锁定';
+
+  @override
+  String simPinRetries(int count) {
+    return '剩余 $count 次尝试';
   }
 }

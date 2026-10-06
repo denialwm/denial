@@ -1,5 +1,9 @@
 {
   "@@locale": "en",
+  "homeResizeWidget": "Resize widget",
+  "@homeResizeWidget": {
+    "description": "Accessible label for a home widget resize handle."
+  },
   "actionCancel": "Cancel",
   "@actionCancel": {
     "description": "English UI text for actionCancel."
@@ -921,46 +925,6 @@
       }
     }
   },
-  "frameAppRendering": "APP · {title} · RENDER",
-  "@frameAppRendering": {
-    "description": "English UI text for frameAppRendering.",
-    "placeholders": {
-      "title": {
-        "type": "String"
-      }
-    }
-  },
-  "frameAppWaiting": "APP · {title} · WAIT",
-  "@frameAppWaiting": {
-    "description": "English UI text for frameAppWaiting.",
-    "placeholders": {
-      "title": {
-        "type": "String"
-      }
-    }
-  },
-  "frameImportedStats": "AVG {average}  MAX {maximum}  OVER {overBudget}  N {samples}",
-  "@frameImportedStats": {
-    "description": "English UI text for frameImportedStats.",
-    "placeholders": {
-      "average": {
-        "type": "String"
-      },
-      "maximum": {
-        "type": "String"
-      },
-      "overBudget": {
-        "type": "int"
-      },
-      "samples": {
-        "type": "int"
-      }
-    }
-  },
-  "frameImportedStatsUnavailable": "AVG --.-  MAX --.-  OVER -  N -",
-  "@frameImportedStatsUnavailable": {
-    "description": "English UI text for frameImportedStatsUnavailable."
-  },
   "frameMilliseconds": "~{value} ms",
   "@frameMilliseconds": {
     "description": "English UI text for frameMilliseconds.",
@@ -1501,6 +1465,24 @@
       }
     }
   },
+  "outputSoftwareDimmingSemantics": "{outputName} software dimming",
+  "@outputSoftwareDimmingSemantics": {
+    "description": "Accessible label for an output gamma-LUT dimming slider.",
+    "placeholders": {
+      "outputName": {
+        "type": "String"
+      }
+    }
+  },
+  "outputSoftwareDimmingUnavailable": "{outputName} software dimming (unavailable)",
+  "@outputSoftwareDimmingUnavailable": {
+    "description": "Label for an output that has no usable DRM gamma LUT.",
+    "placeholders": {
+      "outputName": {
+        "type": "String"
+      }
+    }
+  },
   "outputVolumeSemantics": "Output volume",
   "@outputVolumeSemantics": {
     "description": "English UI text for outputVolumeSemantics."
@@ -1939,6 +1921,38 @@
   "@settingsAutomaticIdleTitle": {
     "description": "Title for the coordinated idle lock, display power, and suspend settings."
   },
+  "settingsPowerButtonTitle": "Power button",
+  "@settingsPowerButtonTitle": {
+    "description": "Title for physical power button behavior settings."
+  },
+  "settingsPowerButtonAction": "Action",
+  "@settingsPowerButtonAction": {
+    "description": "Label for the physical power button action selector."
+  },
+  "settingsPowerButtonDescription": "Choose what happens when you press the physical power button.",
+  "@settingsPowerButtonDescription": {
+    "description": "Explanation for the physical power button action selector."
+  },
+  "settingsPowerButtonSuspend": "Suspend",
+  "@settingsPowerButtonSuspend": {
+    "description": "Power button action that suspends the system."
+  },
+  "settingsPowerButtonHibernate": "Hibernate",
+  "@settingsPowerButtonHibernate": {
+    "description": "Power button action that hibernates the system."
+  },
+  "settingsPowerButtonHibernateUnavailable": "Hibernate (unavailable)",
+  "@settingsPowerButtonHibernateUnavailable": {
+    "description": "Disabled persisted hibernate action when hibernation is unavailable."
+  },
+  "settingsPowerButtonDpms": "Turn off displays (DPMS)",
+  "@settingsPowerButtonDpms": {
+    "description": "Power button action that toggles compositor-owned display power."
+  },
+  "settingsPowerButtonPowerOff": "Power off",
+  "@settingsPowerButtonPowerOff": {
+    "description": "Power button action that powers off the system."
+  },
   "settingsAutomaticLockToggle": "Lock automatically",
   "@settingsAutomaticLockToggle": {
     "description": "Toggle for automatically locking the session after inactivity."
@@ -1954,6 +1968,30 @@
   "settingsAutomaticSuspendToggleDescription": "Keep the session in memory and enter low power after extended inactivity.",
   "@settingsAutomaticSuspendToggleDescription": {
     "description": "Description for automatic system suspend."
+  },
+  "settingsSuspendMode": "Suspend mode",
+  "@settingsSuspendMode": {
+    "description": "Label for choosing the kernel memory sleep mode."
+  },
+  "settingsSuspendModeDescription": "Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.",
+  "@settingsSuspendModeDescription": {
+    "description": "Explanation for the kernel memory sleep mode selector."
+  },
+  "settingsSuspendModeS2idle": "Suspend to idle (s2idle)",
+  "@settingsSuspendModeS2idle": {
+    "description": "Friendly label for the Linux s2idle memory sleep mode."
+  },
+  "settingsSuspendModeShallow": "Standby (shallow)",
+  "@settingsSuspendModeShallow": {
+    "description": "Friendly label for the Linux shallow memory sleep mode."
+  },
+  "settingsSuspendModeDeep": "Suspend to RAM (deep)",
+  "@settingsSuspendModeDeep": {
+    "description": "Friendly label for the Linux deep memory sleep mode."
+  },
+  "settingsSuspendModeUnavailable": "Unavailable",
+  "@settingsSuspendModeUnavailable": {
+    "description": "Disabled suspend mode selector value when Linux exposes no memory sleep mode."
   },
   "settingsAvailable": "Available",
   "@settingsAvailable": {
@@ -2225,6 +2263,90 @@
   "@settingsBackdropBlurOpacityThreshold": {
     "description": "Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered."
   },
+  "settingsGlassAppearance": "Glass appearance",
+  "@settingsGlassAppearance": {
+    "description": "Dark or light appearance for glass surfaces."
+  },
+  "settingsGlassTransparency": "Transparency of all glass surfaces",
+  "@settingsGlassTransparency": {
+    "description": "Shared transparency slider for all shell glass panels and cards."
+  },
+  "settingsTransparencyTitle": "Transparency material",
+  "@settingsTransparencyTitle": {
+    "description": "Title for choosing the visual material behind translucent shell surfaces."
+  },
+  "settingsTypographyTitle": "Typography",
+  "@settingsTypographyTitle": {
+    "description": "Title for shell typography appearance settings."
+  },
+  "settingsTransparencyOff": "Off",
+  "@settingsTransparencyOff": {
+    "description": "Transparency material choice that disables backdrop processing."
+  },
+  "settingsTransparencyBlur": "Blur",
+  "@settingsTransparencyBlur": {
+    "description": "Transparency material choice for the existing backdrop blur."
+  },
+  "settingsTransparencyGlass": "Glass",
+  "@settingsTransparencyGlass": {
+    "description": "Transparency material choice for Denial's native glass effect."
+  },
+  "settingsTransparencyOffDescription": "Leave translucent surfaces clear without processing the desktop behind them.",
+  "@settingsTransparencyOffDescription": {
+    "description": "Description of the disabled transparency material."
+  },
+  "settingsTransparencyBlurDescription": "Use Denial’s current fast Gaussian backdrop blur.",
+  "@settingsTransparencyBlurDescription": {
+    "description": "Description of the existing blur material."
+  },
+  "settingsTransparencyGlassDescription": "Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.",
+  "@settingsTransparencyGlassDescription": {
+    "description": "Description of the native glass material."
+  },
+  "settingsGlassFrost": "Frost",
+  "@settingsGlassFrost": {
+    "description": "Glass setting controlling the backdrop blur radius."
+  },
+  "settingsGlassQuality": "Render quality",
+  "@settingsGlassQuality": {
+    "description": "Glass setting controlling intermediate texture resolution."
+  },
+  "settingsGlassThickness": "Optical thickness",
+  "@settingsGlassThickness": {
+    "description": "Glass setting controlling the width of the refractive edge."
+  },
+  "settingsGlassRefraction": "Refraction",
+  "@settingsGlassRefraction": {
+    "description": "Glass setting controlling background displacement."
+  },
+  "settingsGlassDispersion": "Color dispersion",
+  "@settingsGlassDispersion": {
+    "description": "Glass setting controlling chromatic separation."
+  },
+  "settingsGlassSaturation": "Saturation",
+  "@settingsGlassSaturation": {
+    "description": "Glass setting controlling backdrop color saturation."
+  },
+  "settingsGlassAccentTint": "Accent tint",
+  "@settingsGlassAccentTint": {
+    "description": "Glass setting controlling how much of the shell accent is mixed into the material."
+  },
+  "settingsGlassBrightness": "Luminosity",
+  "@settingsGlassBrightness": {
+    "description": "Glass setting controlling adaptive brightening or darkening."
+  },
+  "settingsGlassLightAngle": "Light direction",
+  "@settingsGlassLightAngle": {
+    "description": "Glass setting controlling the angle of the simulated key light."
+  },
+  "settingsGlassLightIntensity": "Light intensity",
+  "@settingsGlassLightIntensity": {
+    "description": "Glass setting controlling directional lighting strength."
+  },
+  "settingsGlassEdgeStrength": "Edge shine",
+  "@settingsGlassEdgeStrength": {
+    "description": "Glass setting controlling rim and caustic highlights."
+  },
   "settingsBackdropDimming": "Backdrop dimming",
   "@settingsBackdropDimming": {
     "description": "English UI text for settingsBackdropDimming."
@@ -2317,9 +2439,69 @@
   "@settingsColorPickerDone": {
     "description": "Button label that closes the color picker."
   },
-  "settingsColorPickerInstructions": "Drag to choose a color. Use the arrow keys for fine adjustments.",
+  "settingsColorPickerInstructions": "Choose visually or enter exact color values.",
   "@settingsColorPickerInstructions": {
-    "description": "Pointer and keyboard instructions displayed below the color wheel."
+    "description": "Instructions displayed between the color wheel and exact color-value editor."
+  },
+  "settingsColorInputTitle": "Color values",
+  "@settingsColorInputTitle": {
+    "description": "Heading for exact color-value input controls."
+  },
+  "settingsColorInputRgb": "RGB",
+  "@settingsColorInputRgb": {
+    "description": "Label for RGB color-value input mode."
+  },
+  "settingsColorInputHsl": "HSL",
+  "@settingsColorInputHsl": {
+    "description": "Label for HSL color-value input mode."
+  },
+  "settingsColorInputHex": "HEX",
+  "@settingsColorInputHex": {
+    "description": "Label for hexadecimal color-value input mode."
+  },
+  "settingsColorInputRed": "Red",
+  "@settingsColorInputRed": {
+    "description": "Label for the red RGB channel input."
+  },
+  "settingsColorInputGreen": "Green",
+  "@settingsColorInputGreen": {
+    "description": "Label for the green RGB channel input."
+  },
+  "settingsColorInputBlue": "Blue",
+  "@settingsColorInputBlue": {
+    "description": "Label for the blue RGB channel input."
+  },
+  "settingsColorInputHue": "Hue",
+  "@settingsColorInputHue": {
+    "description": "Label for the HSL hue input."
+  },
+  "settingsColorInputSaturation": "Saturation",
+  "@settingsColorInputSaturation": {
+    "description": "Label for the HSL saturation input."
+  },
+  "settingsColorInputLightness": "Lightness",
+  "@settingsColorInputLightness": {
+    "description": "Label for the HSL lightness input."
+  },
+  "settingsColorInputHexValue": "Hex color",
+  "@settingsColorInputHexValue": {
+    "description": "Label for the exact hexadecimal color input."
+  },
+  "settingsColorInputNudgeHint": "Use ↑↓ to nudge · Hold Shift for 10",
+  "@settingsColorInputNudgeHint": {
+    "description": "Keyboard hint below exact color channel inputs."
+  },
+  "settingsColorInputRgbError": "Use RGB values from 0 to 255.",
+  "@settingsColorInputRgbError": {
+    "description": "Validation error for out-of-range RGB color values."
+  },
+  "settingsColorInputHslError": "Use H 0–360 and S/L 0–100.",
+  "@settingsColorInputHslError": {
+    "description": "Validation error for out-of-range HSL color values."
+  },
+  "settingsColorInputHexError": "Use 3 or 6 hex digits.",
+  "@settingsColorInputHexError": {
+    "description": "Validation error for an invalid hexadecimal color value."
   },
   "settingsColorPickerReset": "Reset",
   "@settingsColorPickerReset": {
@@ -2466,6 +2648,14 @@
   "@settingsDisplayArrangementTitle": {
     "description": "Heading for output modes, scale, rotation, and arrangement."
   },
+  "settingsDisplayEnabled": "Use this display",
+  "@settingsDisplayEnabled": {
+    "description": "Label for including a connected monitor in the desktop."
+  },
+  "settingsDisplayEnabledDescription": "Include this monitor in the desktop. At least one display must remain enabled.",
+  "@settingsDisplayEnabledDescription": {
+    "description": "Explanation shown below the monitor enable toggle."
+  },
   "settingsDisplayBrightnessDescription": "Adjust the main display brightness.",
   "@settingsDisplayBrightnessDescription": {
     "description": "English UI text for settingsDisplayBrightnessDescription."
@@ -2512,8 +2702,12 @@
   "@settingsDisplayPosition": {
     "description": "Logical position of one monitor in the desktop layout.",
     "placeholders": {
-      "x": { "type": "int" },
-      "y": { "type": "int" }
+      "x": {
+        "type": "int"
+      },
+      "y": {
+        "type": "int"
+      }
     }
   },
   "settingsDisplayPrimary": "Primary display",
@@ -2524,7 +2718,7 @@
   "@settingsDisplayPrimaryAutomatic": {
     "description": "Choice that lets the compositor select the primary display by refresh rate."
   },
-  "settingsDisplayPrimaryHint": "Shell surfaces open on the primary display. Automatic uses the connected display with the highest refresh rate.",
+  "settingsDisplayPrimaryHint": "Shell surfaces open on the primary display. Automatic uses the enabled display with the highest refresh rate.",
   "@settingsDisplayPrimaryHint": {
     "description": "Explains the primary display selector and its automatic fallback."
   },
@@ -2544,7 +2738,7 @@
   "@settingsDisplayRotationNormal": {
     "description": "Label for an unrotated monitor."
   },
-  "settingsDisplayRotation90": "90° clockwise",
+  "settingsDisplayRotation90": "90° counterclockwise",
   "@settingsDisplayRotation90": {
     "description": "Label for a monitor rotated by 90 degrees."
   },
@@ -2552,13 +2746,45 @@
   "@settingsDisplayRotation180": {
     "description": "Label for a monitor rotated by 180 degrees."
   },
-  "settingsDisplayRotation270": "90° counterclockwise",
+  "settingsDisplayRotation270": "90° clockwise",
   "@settingsDisplayRotation270": {
     "description": "Label for a monitor rotated by 270 degrees."
+  },
+  "settingsDisplayScrollingLayoutAxis": "Scrolling layout axis",
+  "@settingsDisplayScrollingLayoutAxis": {
+    "description": "Label for choosing the scrolling window layout axis on one monitor."
+  },
+  "settingsDisplayScrollingLayoutAxisDescription": "Choose how scrolling windows are arranged on this display.",
+  "@settingsDisplayScrollingLayoutAxisDescription": {
+    "description": "Explanation shown beside the per-monitor scrolling layout axis selector."
+  },
+  "settingsDisplayScrollingLayoutAxisAuto": "Automatic (follows rotation)",
+  "@settingsDisplayScrollingLayoutAxisAuto": {
+    "description": "Choice that derives the scrolling layout axis from the monitor rotation."
+  },
+  "settingsDisplayScrollingLayoutAxisHorizontal": "Horizontal",
+  "@settingsDisplayScrollingLayoutAxisHorizontal": {
+    "description": "Choice that forces a horizontal scrolling window strip."
+  },
+  "settingsDisplayScrollingLayoutAxisVertical": "Vertical",
+  "@settingsDisplayScrollingLayoutAxisVertical": {
+    "description": "Choice that forces a vertical scrolling window strip."
   },
   "settingsDisplayScale": "Scale",
   "@settingsDisplayScale": {
     "description": "Label for the monitor scale selector."
+  },
+  "settingsDisplayScaleInvalid": "Enter a value from 50 to 600.",
+  "@settingsDisplayScaleInvalid": {
+    "description": "Validation error for a monitor scale outside the editable percentage range."
+  },
+  "settingsDisplayScalePreset": "Presets",
+  "@settingsDisplayScalePreset": {
+    "description": "Label for the common monitor scale preset selector."
+  },
+  "settingsDisplayScaleRange": "Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.",
+  "@settingsDisplayScaleRange": {
+    "description": "Guidance shown below the editable monitor scale percentage."
   },
   "settingsDisplayVariableRefreshRate": "Variable refresh rate (VRR)",
   "@settingsDisplayVariableRefreshRate": {
@@ -2580,7 +2806,9 @@
   "@settingsDisplayZoomLevel": {
     "description": "Accessibility label for the current monitor canvas zoom.",
     "placeholders": {
-      "percent": { "type": "int" }
+      "percent": {
+        "type": "int"
+      }
     }
   },
   "settingsDisplayZoomOut": "Zoom out",
@@ -2599,7 +2827,9 @@
   "@settingsMonitorSemantics": {
     "description": "Accessibility label for one monitor tile.",
     "placeholders": {
-      "name": { "type": "String" }
+      "name": {
+        "type": "String"
+      }
     }
   },
   "settingsEdgeDistance": "Edge distance",
@@ -2609,6 +2839,22 @@
   "settingsFocusedWindows": "Focused windows",
   "@settingsFocusedWindows": {
     "description": "English UI text for settingsFocusedWindows."
+  },
+  "settingsFontCatalogLoading": "Finding installed fonts…",
+  "@settingsFontCatalogLoading": {
+    "description": "Description shown while the shell font catalog is loading."
+  },
+  "settingsFontDescription": "Use the system default or an installed font across the Denial shell.",
+  "@settingsFontDescription": {
+    "description": "Explanation for the shell font family selector."
+  },
+  "settingsFontFamily": "Font family",
+  "@settingsFontFamily": {
+    "description": "Label for the shell font family selector."
+  },
+  "settingsFontSystemDefault": "System default",
+  "@settingsFontSystemDefault": {
+    "description": "Option that restores the platform's default font family."
   },
   "settingsFocusedWindowBorder": "Highlight the focused window border",
   "@settingsFocusedWindowBorder": {
@@ -2809,6 +3055,10 @@
   "settingsTouchpadScrollSpeed": "Finger scroll speed",
   "@settingsTouchpadScrollSpeed": {
     "description": "Label for the continuous touchpad scroll speed slider."
+  },
+  "settingsTouchpadScrollingLayoutSwipeSpeed": "Scrolling layout swipe speed",
+  "@settingsTouchpadScrollingLayoutSwipeSpeed": {
+    "description": "Label for the continuous three-finger scrolling-layout swipe speed slider."
   },
   "settingsMousePointerSpeed": "Mouse pointer speed",
   "@settingsMousePointerSpeed": {
@@ -3064,6 +3314,22 @@
   "@settingsShortcutGestureThreeFingerSwipeRight": {
     "description": "Friendly display name for the three-finger swipe-right gesture."
   },
+  "settingsShortcutGestureFourFingerSwipeLeft": "Four-finger swipe left",
+  "@settingsShortcutGestureFourFingerSwipeLeft": {
+    "description": "Friendly display name for the four-finger swipe-left gesture."
+  },
+  "settingsShortcutGestureFourFingerSwipeRight": "Four-finger swipe right",
+  "@settingsShortcutGestureFourFingerSwipeRight": {
+    "description": "Friendly display name for the four-finger swipe-right gesture."
+  },
+  "settingsShortcutGestureFourFingerSwipeUp": "Four-finger swipe up",
+  "@settingsShortcutGestureFourFingerSwipeUp": {
+    "description": "Friendly display name for the four-finger swipe-up gesture."
+  },
+  "settingsShortcutGestureFourFingerSwipeDown": "Four-finger swipe down",
+  "@settingsShortcutGestureFourFingerSwipeDown": {
+    "description": "Friendly display name for the four-finger swipe-down gesture."
+  },
   "settingsShortcutInputCategoryModifier": "Modifier",
   "@settingsShortcutInputCategoryModifier": {
     "description": "Supported shortcut input category."
@@ -3156,6 +3422,10 @@
   "@settingsShortcutActionToggleFullscreen": {
     "description": "Display name for the toggle fullscreen shortcut action."
   },
+  "settingsShortcutActionToggleWindowAlwaysOnTop": "Toggle always on top",
+  "@settingsShortcutActionToggleWindowAlwaysOnTop": {
+    "description": "Display name for the shortcut action that pins or unpins the focused window above other windows."
+  },
   "settingsShortcutActionReleasePointer": "Release pointer",
   "@settingsShortcutActionReleasePointer": {
     "description": "Display name for the release pointer shortcut action."
@@ -3224,6 +3494,40 @@
   "@settingsShortcutActionSwapDown": {
     "description": "Display name for swapping a tiled window downward."
   },
+  "settingsShortcutActionPreviousWorkspace": "Previous workspace",
+  "@settingsShortcutActionPreviousWorkspace": {
+    "description": "Display name for switching to the previous monitor-local workspace."
+  },
+  "settingsShortcutActionNextWorkspace": "Next workspace",
+  "@settingsShortcutActionNextWorkspace": {
+    "description": "Display name for switching to the next monitor-local workspace."
+  },
+  "settingsShortcutActionMoveToPreviousWorkspace": "Move window to previous workspace",
+  "@settingsShortcutActionMoveToPreviousWorkspace": {
+    "description": "Display name for moving the focused window to the previous workspace."
+  },
+  "settingsShortcutActionMoveToNextWorkspace": "Move window to next workspace",
+  "@settingsShortcutActionMoveToNextWorkspace": {
+    "description": "Display name for moving the focused window to the next workspace."
+  },
+  "settingsShortcutActionSwitchWorkspace": "Switch to workspace {workspace}",
+  "@settingsShortcutActionSwitchWorkspace": {
+    "description": "Display name for switching directly to a numbered workspace.",
+    "placeholders": {
+      "workspace": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsShortcutActionMoveToWorkspace": "Move window to workspace {workspace}",
+  "@settingsShortcutActionMoveToWorkspace": {
+    "description": "Display name for moving the focused window to a numbered workspace.",
+    "placeholders": {
+      "workspace": {
+        "type": "int"
+      }
+    }
+  },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
     "description": "English UI text for settingsLayoutDescription."
@@ -3236,9 +3540,9 @@
   "@settingsLayoutTitle": {
     "description": "English UI text for settingsLayoutTitle."
   },
-  "settingsWindowLayoutDescription": "Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.",
+  "settingsWindowLayoutDescription": "Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip; its axis is configured per display and follows rotation by default.",
   "@settingsWindowLayoutDescription": {
-    "description": "Explains the difference between stacking and tiling window layouts."
+    "description": "Explains the available desktop window layouts."
   },
   "settingsWindowLayoutDwindle": "Tiling",
   "@settingsWindowLayoutDwindle": {
@@ -3248,9 +3552,86 @@
   "@settingsWindowLayoutStacking": {
     "description": "Label for the freely overlapping window layout."
   },
+  "settingsWindowLayoutScrolling": "Scrolling",
+  "@settingsWindowLayoutScrolling": {
+    "description": "Label for the focus-following adaptive-axis scrolling layout."
+  },
   "settingsWindowLayoutTitle": "Window layout",
   "@settingsWindowLayoutTitle": {
     "description": "Title for choosing how desktop windows are arranged."
+  },
+  "settingsScrollingLayoutWheelTitle": "Super + mouse wheel",
+  "@settingsScrollingLayoutWheelTitle": {
+    "description": "Heading for mouse-wheel navigation in the scrolling window layout."
+  },
+  "settingsScrollingLayoutWheelDescription": "Hold Super and turn the mouse wheel to scroll the window strip.",
+  "@settingsScrollingLayoutWheelDescription": {
+    "description": "Explains the scrolling-layout mouse-wheel shortcut."
+  },
+  "settingsScrollingLayoutWheelSpeed": "Wheel speed",
+  "@settingsScrollingLayoutWheelSpeed": {
+    "description": "Label for the scrolling-layout mouse-wheel speed slider."
+  },
+  "settingsScrollingLayoutWheelUpDirection": "Wheel up moves",
+  "@settingsScrollingLayoutWheelUpDirection": {
+    "description": "Label for choosing the scrolling-layout direction of a wheel-up gesture."
+  },
+  "settingsScrollingLayoutWheelUpLeft": "Left",
+  "@settingsScrollingLayoutWheelUpLeft": {
+    "description": "Choice that maps mouse-wheel up to leftward scrolling-layout travel."
+  },
+  "settingsScrollingLayoutWheelUpRight": "Right",
+  "@settingsScrollingLayoutWheelUpRight": {
+    "description": "Choice that maps mouse-wheel up to rightward scrolling-layout travel."
+  },
+  "settingsWorkspacesTitle": "Workspaces",
+  "@settingsWorkspacesTitle": {
+    "description": "Heading for monitor-local workspace settings."
+  },
+  "settingsWorkspacesEnable": "Enable workspaces",
+  "@settingsWorkspacesEnable": {
+    "description": "Toggle which enables monitor-local workspaces."
+  },
+  "settingsWorkspacesDescription": "Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.",
+  "@settingsWorkspacesDescription": {
+    "description": "Explanation of Denial's monitor-local workspace model."
+  },
+  "settingsWorkspaceCount": "Workspace count",
+  "@settingsWorkspaceCount": {
+    "description": "Label for the number of workspaces per monitor."
+  },
+  "settingsWorkspaceSwitchingOrientation": "Switching direction",
+  "@settingsWorkspaceSwitchingOrientation": {
+    "description": "Label for choosing the direction of workspace transition motion."
+  },
+  "settingsWorkspaceSwitchingHorizontal": "Horizontal",
+  "@settingsWorkspaceSwitchingHorizontal": {
+    "description": "Label for horizontal workspace transition motion."
+  },
+  "settingsWorkspaceSwitchingVertical": "Vertical",
+  "@settingsWorkspaceSwitchingVertical": {
+    "description": "Label for vertical workspace transition motion."
+  },
+  "workspaceLabel": "Workspace {workspace}",
+  "@workspaceLabel": {
+    "description": "Accessible and visible label for a numbered workspace.",
+    "placeholders": {
+      "workspace": {
+        "type": "int"
+      }
+    }
+  },
+  "workspaceActive": "active",
+  "@workspaceActive": {
+    "description": "Accessible workspace state for the currently active workspace."
+  },
+  "workspaceOccupied": "occupied",
+  "@workspaceOccupied": {
+    "description": "Accessible workspace state when ordinary windows are present."
+  },
+  "workspaceEmpty": "empty",
+  "@workspaceEmpty": {
+    "description": "Accessible workspace state when no ordinary windows are present."
   },
   "settingsLiveBadge": "LIVE",
   "@settingsLiveBadge": {
@@ -4363,6 +4744,19 @@
   "@wallpaperFinding": {
     "description": "English UI text for wallpaperFinding."
   },
+  "wallpaperFolderHint": "Add your own wallpapers to {directory}.",
+  "@wallpaperFolderHint": {
+    "description": "Hint identifying the folder scanned for manually added wallpapers.",
+    "placeholders": {
+      "directory": {
+        "type": "String"
+      }
+    }
+  },
+  "wallpaperImageServerUnavailable": "Online wallpapers are unavailable. Local wallpapers still work.",
+  "@wallpaperImageServerUnavailable": {
+    "description": "Warning shown when the remote wallpaper image server cannot be reached."
+  },
   "wallpaperMobileBackToSelection": "Back to wallpaper selection",
   "@wallpaperMobileBackToSelection": {
     "description": "Accessibility label for leaving mobile wallpaper positioning."
@@ -4708,5 +5102,234 @@
         "type": "int"
       }
     }
+  },
+  "settingsGlassAdvanced": "Glass tuning",
+  "@settingsGlassAdvanced": {
+    "description": "Glass appearance tuning: Advanced."
+  },
+  "settingsGlassReset": "Reset glass",
+  "@settingsGlassReset": {
+    "description": "Glass appearance tuning: Reset."
+  },
+  "settingsGlassTuningDescription": "Changes apply immediately. The defaults preserve the original glass effect.",
+  "@settingsGlassTuningDescription": {
+    "description": "Glass appearance tuning: TuningDescription."
+  },
+  "settingsGlassBevelWidth": "Bevel width",
+  "@settingsGlassBevelWidth": {
+    "description": "Glass appearance tuning: BevelWidth."
+  },
+  "settingsGlassRefractionDepth": "Refraction depth",
+  "@settingsGlassRefractionDepth": {
+    "description": "Glass appearance tuning: RefractionDepth."
+  },
+  "settingsGlassRimWidth": "Highlight width",
+  "@settingsGlassRimWidth": {
+    "description": "Glass appearance tuning: RimWidth."
+  },
+  "settingsGlassRimFalloff": "Highlight falloff",
+  "@settingsGlassRimFalloff": {
+    "description": "Glass appearance tuning: RimFalloff."
+  },
+  "settingsGlassOppositeLight": "Opposite-edge light",
+  "@settingsGlassOppositeLight": {
+    "description": "Glass appearance tuning: OppositeLight."
+  },
+  "settingsGlassRimPixels": "{width} px",
+  "@settingsGlassRimPixels": {
+    "description": "Width of the glass highlight in pixels, including fractional values.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      }
+    }
+  },
+  "lockFingerprintNotRecognized": "Fingerprint not recognized",
+  "@lockFingerprintNotRecognized": {
+    "description": "Brief lock screen feedback when a fingerprint does not match."
+  },
+  "fingerprintSection": "Fingerprint",
+  "@fingerprintSection": {
+    "description": "Fingerprint settings: fingerprintSection"
+  },
+  "fingerprintPasswordPrompt": "Enter your sudo password to manage fingerprints.",
+  "@fingerprintPasswordPrompt": {
+    "description": "Fingerprint settings: fingerprintPasswordPrompt"
+  },
+  "fingerprintSudoPassword": "Sudo password",
+  "@fingerprintSudoPassword": {
+    "description": "Fingerprint settings: fingerprintSudoPassword"
+  },
+  "fingerprintContinue": "Continue",
+  "@fingerprintContinue": {
+    "description": "Fingerprint settings: fingerprintContinue"
+  },
+  "fingerprintDescription": "Use your enrolled fingers to unlock Denial.",
+  "@fingerprintDescription": {
+    "description": "Fingerprint settings: fingerprintDescription"
+  },
+  "fingerprintEmptyTitle": "No fingerprints enrolled",
+  "@fingerprintEmptyTitle": {
+    "description": "Fingerprint settings: fingerprintEmptyTitle"
+  },
+  "fingerprintEmptyDescription": "Choose a finger below to enroll your first fingerprint.",
+  "@fingerprintEmptyDescription": {
+    "description": "Fingerprint settings: fingerprintEmptyDescription"
+  },
+  "fingerprintChooseFinger": "Finger to enroll",
+  "@fingerprintChooseFinger": {
+    "description": "Fingerprint settings: fingerprintChooseFinger"
+  },
+  "fingerprintEnroll": "Enroll fingerprint",
+  "@fingerprintEnroll": {
+    "description": "Fingerprint settings: fingerprintEnroll"
+  },
+  "fingerprintAdd": "Add fingerprint",
+  "@fingerprintAdd": {
+    "description": "Fingerprint settings: fingerprintAdd"
+  },
+  "fingerprintAuthenticationFailed": "Password verification failed. Try again.",
+  "@fingerprintAuthenticationFailed": {
+    "description": "Fingerprint settings: fingerprintAuthenticationFailed"
+  },
+  "fingerprintExpired": "Enter your password again to continue.",
+  "@fingerprintExpired": {
+    "description": "Fingerprint settings: fingerprintExpired"
+  },
+  "fingerprintPreparing": "Preparing the fingerprint reader…",
+  "@fingerprintPreparing": {
+    "description": "Fingerprint settings: fingerprintPreparing"
+  },
+  "fingerprintTouchSensor": "Touch and lift your selected finger on the sensor.",
+  "@fingerprintTouchSensor": {
+    "description": "Fingerprint settings: fingerprintTouchSensor"
+  },
+  "fingerprintEnrolled": "Fingerprint enrolled. You can now use it to unlock Denial.",
+  "@fingerprintEnrolled": {
+    "description": "Fingerprint settings: fingerprintEnrolled"
+  },
+  "fingerprintCancelled": "Enrollment cancelled.",
+  "@fingerprintCancelled": {
+    "description": "Fingerprint settings: fingerprintCancelled"
+  },
+  "fingerprintDuplicate": "This fingerprint is already enrolled. Choose another finger.",
+  "@fingerprintDuplicate": {
+    "description": "Fingerprint settings: fingerprintDuplicate"
+  },
+  "fingerprintRetry": "Lift your finger and touch the sensor again, adjusting its position.",
+  "@fingerprintRetry": {
+    "description": "Fingerprint settings: fingerprintRetry"
+  },
+  "fingerprintUnavailable": "Fingerprint management could not complete. Check the reader and try again.",
+  "@fingerprintUnavailable": {
+    "description": "Fingerprint settings: fingerprintUnavailable"
+  },
+  "fingerprintProgress": "{completed} of {total} scans",
+  "@fingerprintProgress": {
+    "description": "Fingerprint settings: fingerprintProgress",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "fingerprintLeftThumb": "Left thumb",
+  "@fingerprintLeftThumb": {
+    "description": "Fingerprint settings: fingerprintLeftThumb"
+  },
+  "fingerprintLeftIndex": "Left index finger",
+  "@fingerprintLeftIndex": {
+    "description": "Fingerprint settings: fingerprintLeftIndex"
+  },
+  "fingerprintLeftMiddle": "Left middle finger",
+  "@fingerprintLeftMiddle": {
+    "description": "Fingerprint settings: fingerprintLeftMiddle"
+  },
+  "fingerprintLeftRing": "Left ring finger",
+  "@fingerprintLeftRing": {
+    "description": "Fingerprint settings: fingerprintLeftRing"
+  },
+  "fingerprintLeftLittle": "Left little finger",
+  "@fingerprintLeftLittle": {
+    "description": "Fingerprint settings: fingerprintLeftLittle"
+  },
+  "fingerprintRightThumb": "Right thumb",
+  "@fingerprintRightThumb": {
+    "description": "Fingerprint settings: fingerprintRightThumb"
+  },
+  "fingerprintRightIndex": "Right index finger",
+  "@fingerprintRightIndex": {
+    "description": "Fingerprint settings: fingerprintRightIndex"
+  },
+  "fingerprintRightMiddle": "Right middle finger",
+  "@fingerprintRightMiddle": {
+    "description": "Fingerprint settings: fingerprintRightMiddle"
+  },
+  "fingerprintRightRing": "Right ring finger",
+  "@fingerprintRightRing": {
+    "description": "Fingerprint settings: fingerprintRightRing"
+  },
+  "fingerprintRightLittle": "Right little finger",
+  "@fingerprintRightLittle": {
+    "description": "Fingerprint settings: fingerprintRightLittle"
+  },
+  "mobileData": "Mobile data",
+  "mobileConnected": "Connected",
+  "mobileDisconnected": "Not connected",
+  "mobileUnavailable": "Mobile network unavailable",
+  "mobileChangeFailed": "Unable to change mobile data",
+  "simPinTitle": "Unlock SIM",
+  "simPinLabel": "SIM PIN",
+  "simPinUnlock": "Unlock SIM",
+  "simPinLater": "Later",
+  "simPinFailed": "SIM could not be unlocked. Check your PIN and remaining attempts.",
+  "simPukRequired": "SIM requires a PUK. Contact your carrier.",
+  "simLocked": "SIM locked",
+  "simPinRetries": "{count} attempts remaining",
+  "@simPinRetries": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@mobileData": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@mobileConnected": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@mobileDisconnected": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@mobileUnavailable": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@mobileChangeFailed": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPinTitle": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPinLabel": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPinUnlock": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPinLater": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPinFailed": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simPukRequired": {
+    "description": "Mobile connectivity and SIM authentication UI."
+  },
+  "@simLocked": {
+    "description": "Mobile connectivity and SIM authentication UI."
   }
 }

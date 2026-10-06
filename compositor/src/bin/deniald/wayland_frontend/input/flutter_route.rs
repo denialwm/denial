@@ -1,5 +1,6 @@
 //! Flutter-owned touch, pointer, gesture, and axis dispatch.
 
+use super::super::focus::request_keyboard_focus;
 use super::*;
 
 #[cfg(feature = "flutter")]
@@ -382,53 +383,6 @@ pub(super) fn process_flutter_input_event(
                     software_keyboard_owns_touch(frontend.input_layout.as_ref(), scene_position),
                 )
             };
-            let native_target = (!secure_locked)
-                .then(|| {
-                    state.native_app_plugins.as_ref().and_then(|manager| {
-                        manager.native_window_at(scene_position.x, scene_position.y)
-                    })
-                })
-                .flatten();
-            if let Some(host_id) = native_target {
-                let routed = state
-                    .native_app_plugins
-                    .as_mut()
-                    .expect("native touch target lost its plugin manager")
-                    .touch_down(
-                        host_id,
-                        slot,
-                        scene_position.x,
-                        scene_position.y,
-                        touch_event.time_usec().saturating_mul(1_000),
-                    );
-                if let Err(error) = routed {
-                    warn!(%error, host_id, slot, "native application touch-down routing failed");
-                    return false;
-                }
-                let keyboard = state
-                    .wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .seat
-                    .get_keyboard()
-                    .expect("seat has no keyboard");
-                keyboard.set_focus(
-                    state,
-                    Option::<super::super::KeyboardFocusTarget>::None,
-                    serial,
-                );
-                state
-                    .wayland
-                    .as_mut()
-                    .expect("missing Wayland frontend")
-                    .text_input
-                    .note_client_touch();
-                state
-                    .pending_window_events
-                    .push(PendingWindowEvent::Activated(host_id));
-                state.scene_sync.mark_dirty();
-                return false;
-            }
             let gesture = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 let target = (!secure_locked)
@@ -522,22 +476,6 @@ pub(super) fn process_flutter_input_event(
                 );
                 (position, position - frontend.atlas_origin)
             };
-            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
-                manager.touch_motion(
-                    slot,
-                    scene_position.x,
-                    scene_position.y,
-                    touch_event.time_usec().saturating_mul(1_000),
-                )
-            });
-            match native_routed {
-                Some(Ok(true)) => return false,
-                Some(Err(error)) => {
-                    warn!(%error, slot, "native application touch-motion routing failed");
-                    return false;
-                }
-                Some(Ok(false)) | None => {}
-            }
             let gesture = state
                 .wayland
                 .as_mut()
@@ -606,17 +544,6 @@ pub(super) fn process_flutter_input_event(
             event: touch_event, ..
         } => {
             let slot = i32::from(touch_event.slot());
-            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
-                manager.touch_up(slot, touch_event.time_usec().saturating_mul(1_000))
-            });
-            match native_routed {
-                Some(Ok(true)) => return false,
-                Some(Err(error)) => {
-                    warn!(%error, slot, "native application touch-up routing failed");
-                    return false;
-                }
-                Some(Ok(false)) | None => {}
-            }
             let gesture = state
                 .wayland
                 .as_mut()
@@ -693,17 +620,6 @@ pub(super) fn process_flutter_input_event(
             event: touch_event, ..
         } => {
             let slot = i32::from(touch_event.slot());
-            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
-                manager.touch_cancel(slot, touch_event.time_usec().saturating_mul(1_000))
-            });
-            match native_routed {
-                Some(Ok(true)) => return false,
-                Some(Err(error)) => {
-                    warn!(%error, slot, "native application touch-cancel routing failed");
-                    return false;
-                }
-                Some(Ok(false)) | None => {}
-            }
             let gesture = state
                 .wayland
                 .as_mut()
@@ -982,10 +898,55 @@ pub(super) fn pointer_constraint_reactivation_suppressed(
     }
 }
 
+#[cfg(feature = "flutter")]
+fn route_super_scrolling_layout_wheel<E: PointerAxisEvent<LibinputInputBackend>>(
+    state: &mut RuntimeState,
+    event: &E,
+) -> bool {
+    if event.source() != AxisSource::Wheel
+        || !state.flutter_active
+        || state.secure_session_locked()
+        || !state.native_escape_shortcut.super_pressed()
+    {
+        return false;
+    }
+    let shell_owns_scene = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.input_layout.as_ref())
+        .is_some_and(InputLayoutSnapshot::exclusive_shell);
+    if shell_owns_scene {
+        return false;
+    }
+    let vertical_delta = logical_axis_scroll_delta(
+        AxisSource::Wheel,
+        event.amount(Axis::Vertical),
+        event.amount_v120(Axis::Vertical),
+        1.0,
+    );
+    if vertical_delta == 0.0
+        || !state
+            .wayland
+            .as_ref()
+            .is_some_and(WaylandFrontend::can_scroll_layout_horizontally)
+    {
+        return false;
+    }
+
+    state.native_escape_shortcut.note_pointer_axis();
+    update_mouse_wheel_layout_scroll(state, vertical_delta);
+    finish_horizontal_layout_scroll(state, false, None);
+    true
+}
+
 pub(super) fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
     state: &mut RuntimeState,
     event: &E,
 ) {
+    #[cfg(feature = "flutter")]
+    if route_super_scrolling_layout_wheel(state, event) {
+        return;
+    }
     let source = event.source();
     let horizontal_amount = event.amount(Axis::Horizontal);
     let vertical_amount = event.amount(Axis::Vertical);
@@ -1045,15 +1006,30 @@ pub(super) fn activate_client_route(
     serial: Serial,
 ) -> bool {
     let Some(target_window) = route.window.as_ref() else {
+        if let Some(layer_root) = route.layer_root.as_ref() {
+            let keyboard_focus = state
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .layer_keyboard_focus_for_surface(layer_root);
+            if let Some(keyboard_focus) = keyboard_focus {
+                let keyboard = state
+                    .wayland
+                    .as_ref()
+                    .expect("missing Wayland frontend")
+                    .seat
+                    .get_keyboard()
+                    .expect("seat has no keyboard");
+                if keyboard.current_focus().as_ref() != Some(&keyboard_focus) {
+                    request_keyboard_focus(state, &keyboard, Some(keyboard_focus), serial);
+                }
+            }
+        }
         // Input-method candidate surfaces receive pointer/touch input without
-        // stealing the keyboard focus from the editor they serve.
+        // stealing the keyboard focus from the editor they serve. Layer-shell
+        // surfaces use their committed keyboard-interactivity mode above.
         return false;
     };
-    if let Some(manager) = state.native_app_plugins.as_mut()
-        && let Err(error) = manager.clear_focus()
-    {
-        warn!(%error, "could not clear native application focus");
-    }
     let keyboard = state
         .wayland
         .as_ref()
@@ -1061,6 +1037,16 @@ pub(super) fn activate_client_route(
         .seat
         .get_keyboard()
         .expect("seat has no keyboard");
+    let Some(keyboard_focus) = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .keyboard_focus_for_window(target_window)
+    else {
+        // Client-owned popup windows still receive the pointer/touch event,
+        // but must not replace their managed owner's activation or focus.
+        return false;
+    };
     let scene_changed = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         let mut changed = frontend.space.elements().next_back() != Some(target_window);
@@ -1076,16 +1062,8 @@ pub(super) fn activate_client_route(
         }
         changed
     };
-    let Some(keyboard_focus) = state
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .keyboard_focus_for_window(target_window)
-    else {
-        return scene_changed;
-    };
     if keyboard.current_focus().as_ref() != Some(&keyboard_focus) {
-        keyboard.set_focus(state, Some(keyboard_focus), serial);
+        request_keyboard_focus(state, &keyboard, Some(keyboard_focus), serial);
         state
             .pending_window_events
             .push(PendingWindowEvent::Activated(route.region.window_id));
@@ -1104,16 +1082,24 @@ pub(super) fn release_client_geometry_for_shell_grab(
     let target = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         let root = frontend.window_root_surface(window);
-        let restore = root.as_ref().and_then(|surface| {
-            frontend
-                .shell_maximize_restore_geometries
-                .remove(&surface.id())
-                .or_else(|| frontend.restore_window_geometries.remove(&surface.id()))
+        let (restore, shell_owned) = root.as_ref().map_or((None, false), |surface| {
+            let surface_id = surface.id();
+            let presentation = frontend.take_shell_presentation(&surface_id);
+            let shell_owned = presentation.is_some();
+            let restore = presentation
+                .map(|presentation| presentation.normal_geometry())
+                .or_else(|| {
+                    frontend
+                        .window_record_for_surface(&surface_id)
+                        .and_then(|record| record.layout_restore_geometry)
+                })
+                .or_else(|| frontend.take_restore_geometry(&surface_id));
+            (restore, shell_owned)
         });
         if let Some(restore) = restore {
             frontend.set_window_geometry_target(window, restore);
             Some(restore)
-        } else if client_constraints_cleared {
+        } else if client_constraints_cleared || shell_owned {
             Some(frontend.window_geometry_target(window))
         } else {
             None
@@ -1122,9 +1108,20 @@ pub(super) fn release_client_geometry_for_shell_grab(
     let Some(target) = target else {
         return;
     };
-    if let Some(toplevel) = window.toplevel() {
-        toplevel.with_pending_state(|pending| pending.size = Some(target.size));
-        toplevel.send_pending_configure();
+    if let Some(window) = super::super::managed_window::ManagedWindow::new(window) {
+        window.prepare_shell_geometry(target);
+    }
+    if state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .window_is_layout_managed(window)
+    {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .arrange_layout_windows();
     }
     state.scene_sync.mark_dirty();
 }
@@ -1204,23 +1201,25 @@ pub(super) fn begin_super_pointer_grab(
     let Some(window) = route.window.clone() else {
         return false;
     };
-    // Match the C++ compositor contract: only Flutter's shell-fullscreen lock
-    // suppresses SUPER+LMB/RMB. Client XDG/EWMH state is released so a game can
-    // be pulled out of its own maximize/fullscreen state by the compositor.
+    // The published fullscreen state suppresses SUPER+LMB/RMB. Every other
+    // client or shell geometry constraint is released before selecting the
+    // common managed-layout or floating grab implementation.
     if route.region.geometry_locked() {
         return false;
     }
+    release_client_geometry_for_shell_grab(state, &window);
     let layout_managed = state
         .wayland
         .as_ref()
         .expect("missing Wayland frontend")
         .window_is_layout_managed(&window);
     if layout_managed {
-        let (position, geometry) = {
+        let (position, geometry, scrolling_resize_axis) = {
             let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
             (
                 frontend.pointer_location,
                 frontend.window_geometry_target(&window),
+                frontend.scrolling_resize_axis_for_window(&window),
             )
         };
         let start_data = GrabStartData {
@@ -1229,6 +1228,11 @@ pub(super) fn begin_super_pointer_grab(
             location: position,
         };
         activate_client_route(state, route, serial);
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .set_compositor_pointer_grab_active(true);
         super::super::queue_transient_window_placement(
             state,
             &window,
@@ -1249,14 +1253,16 @@ pub(super) fn begin_super_pointer_grab(
         match action {
             SuperPointerAction::Move => pointer.set_grab(
                 state,
-                TileSwapGrab::new(start_data, window, geometry),
+                TileMoveGrab::new(start_data, window, geometry),
                 serial,
                 Focus::Clear,
             ),
             SuperPointerAction::Resize => {
+                let edges =
+                    LayoutResizeEdges::from_pointer(position, geometry, scrolling_resize_axis);
                 pointer.set_grab(
                     state,
-                    TileResizeGrab::new(start_data, window, LayoutResizeEdges::all()),
+                    TileResizeGrab::new(start_data, window, edges),
                     serial,
                     Focus::Clear,
                 );
@@ -1264,7 +1270,6 @@ pub(super) fn begin_super_pointer_grab(
         }
         return true;
     }
-    release_client_geometry_for_shell_grab(state, &window);
     let (position, initial_location, geometry) = {
         let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
         (
@@ -1280,6 +1285,11 @@ pub(super) fn begin_super_pointer_grab(
     };
 
     activate_client_route(state, route, serial);
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .set_compositor_pointer_grab_active(true);
     let pointer = state
         .wayland
         .as_ref()
@@ -1313,34 +1323,33 @@ pub(super) fn begin_super_pointer_grab(
                 WindowPlacementPhase::Begin,
                 WindowPlacementChange::Resize,
             );
-            if let Some(toplevel) = window.toplevel().cloned() {
-                toplevel.with_pending_state(|pending| {
-                    pending.states.set(xdg_toplevel::State::Resizing);
-                });
-                toplevel.send_pending_configure();
-                pointer.set_grab(
-                    state,
-                    ResizeSurfaceGrab::new_compositor(
-                        start_data,
-                        window,
-                        toplevel,
-                        edges,
-                        initial_location,
-                        geometry.size,
-                    ),
-                    serial,
-                    Focus::Clear,
-                );
-            } else if let Some(x11) = window.x11_surface().cloned() {
-                pointer.set_grab(
-                    state,
-                    X11ResizeSurfaceGrab::new_compositor(start_data, window, x11, edges, geometry),
-                    serial,
-                    Focus::Clear,
-                );
-            } else {
+            let prepared = state.wayland.as_ref().is_some_and(|frontend| {
+                if !frontend.window_accepts_grab_updates(&window) {
+                    return false;
+                }
+                frontend.prepare_window_interactive_resize(&window, geometry.size, false);
+                true
+            });
+            if !prepared {
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .set_compositor_pointer_grab_active(false);
                 return false;
             }
+            pointer.set_grab(
+                state,
+                ResizeSurfaceGrab::new_compositor(
+                    start_data,
+                    window,
+                    edges,
+                    initial_location,
+                    geometry.size,
+                ),
+                serial,
+                Focus::Clear,
+            );
         }
     }
     true
@@ -1352,6 +1361,8 @@ pub(super) fn process_wayland_keyboard_transition(
     key_state: KeyState,
     time: u32,
 ) {
+    #[cfg(not(feature = "flutter"))]
+    focus_exclusive_layer_for_keyboard_event(state);
     let keyboard = state
         .wayland
         .as_ref()

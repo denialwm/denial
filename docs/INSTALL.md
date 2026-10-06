@@ -3,9 +3,10 @@
 Denial publishes signed first-party x86-64 repositories for Arch Linux and
 CachyOS, Debian 13 (trixie), Ubuntu 24.04 LTS (noble), and Fedora 44. Alpine
 Linux 3.24 receives signed direct APK downloads from each GitHub Release;
-NixOS 26.05 and Void Linux are runtime-tested but do not have first-party
-binary packages yet. Every published package set uses the permanent
-release-key fingerprint:
+NixOS 26.05 has a first-party source flake and module, and Void Linux is
+runtime-tested without a first-party package. openSUSE Tumbleweed has a native
+local RPM adapter but no published package lane yet. Every published binary
+package set uses the permanent release-key fingerprint:
 
 ```text
 AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
@@ -13,6 +14,12 @@ AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
 
 ARM64 (AArch64) is fully supported, but first-party ARM64 binaries are not
 published yet. ARM64 users should follow the [source build guide](BUILDING.md).
+
+> [!WARNING]
+> Denial does not guarantee compatibility with systems that were originally
+> installed with KDE. KDE applications, background services, and desktop
+> integrations left by a KDE installation can cause numerous issues in a
+> Denial session.
 
 For Arch, CachyOS, Debian, Ubuntu, or Fedora, review the repository-owned
 [`install.sh`](../install.sh), then run:
@@ -46,6 +53,14 @@ sudo apt update && sudo apt install denial
 ```sh
 sudo dnf install denial
 ```
+
+### openSUSE Tumbleweed
+
+openSUSE currently has a source-to-local-RPM adapter rather than a published
+Zypper repository or GitHub Release binary. Build the package pair with
+`tools/denial-pc opensuse-package`, then install both local RPMs together.
+See the [openSUSE package guide](../packaging/opensuse/README.md) for the build
+requirements, output path, and command.
 
 ### Alpine Linux 3.24
 
@@ -84,6 +99,14 @@ doas apk add --allow-untrusted \
 above authenticate the exact files with Denial's pinned OpenPGP release key
 before installation. A future native APK repository will remove this manual
 boundary.
+
+### NixOS 26.05
+
+Use the in-repository package and `programs.denial` module. They build the
+compositor, locked Flutter engine, shell, and Settings from source, register
+the display-manager session and portals, and do not require `/usr/bin`
+compatibility links. See the [NixOS installation guide](../packaging/nixos/README.md)
+for the flake configuration and current architecture support.
 
 The package manager installs the exactly compatible
 `denial-flutter-engine` package as a dependency. The optional

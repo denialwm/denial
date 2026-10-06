@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 if (($# != 3)); then
   printf 'Usage: verify-denial-package-payload FORMAT PACKAGE EXPECTED_ROOT\n' >&2

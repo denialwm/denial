@@ -10,6 +10,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../color_format.dart';
 import 'hsv_color_wheel.dart';
+import 'settings_color_value_editor.dart';
 
 const settingsAccentColorPickerKey = ValueKey<String>(
   'settings-accent-color-picker',
@@ -40,7 +41,6 @@ class SettingsAccentColorPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Focus(
       autofocus: true,
       onKeyEvent: (_, event) {
@@ -60,39 +60,44 @@ class SettingsAccentColorPicker extends StatelessWidget {
             child: ColoredBox(color: context.shellColors.overviewScrim),
           ),
           LayoutBuilder(
-            builder: (context, constraints) {
-              final panelWidth = math.min(360.0, constraints.maxWidth - 32.0);
-              final panelHeight = math.min(410.0, constraints.maxHeight - 32.0);
-              final wheelSize = math.max(
-                128.0,
-                math.min(220.0, panelHeight - 174.0),
-              );
-              return Center(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {},
-                  child: SizedBox(
-                    width: panelWidth,
-                    height: panelHeight,
-                    child: _ColorPickerPanel(
-                      color: color,
-                      wheelSize: wheelSize,
-                      onChanged: onChanged,
-                      onReset: onReset,
-                      onClose: onClose,
-                      title: title ?? l10n.settingsColorPickerTitle,
-                      routeLabel:
-                          routeLabel ?? l10n.settingsColorPickerRouteLabel,
-                      wheelSemanticsLabel:
-                          wheelSemanticsLabel ??
-                          l10n.settingsColorWheelSemanticsLabel,
-                    ),
-                  ),
-                ),
-              );
-            },
+            builder: (context, constraints) =>
+                _buildPanel(context, constraints),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPanel(BuildContext context, BoxConstraints constraints) {
+    final l10n = context.l10n;
+    final panelWidth = math.min(
+      400.0,
+      math.max(0.0, constraints.maxWidth - 32.0),
+    );
+    final panelHeight = math.min(
+      560.0,
+      math.max(0.0, constraints.maxHeight - 32.0),
+    );
+    final wheelSize = math.max(0.0, math.min(210.0, panelWidth - 56.0));
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        child: SizedBox(
+          width: panelWidth,
+          height: panelHeight,
+          child: _ColorPickerPanel(
+            color: color,
+            wheelSize: wheelSize,
+            onChanged: onChanged,
+            onReset: onReset,
+            onClose: onClose,
+            title: title ?? l10n.settingsColorPickerTitle,
+            routeLabel: routeLabel ?? l10n.settingsColorPickerRouteLabel,
+            wheelSemanticsLabel:
+                wheelSemanticsLabel ?? l10n.settingsColorWheelSemanticsLabel,
+          ),
+        ),
       ),
     );
   }
@@ -121,8 +126,6 @@ class _ColorPickerPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hex = formatOpaqueColorHex(color);
-    final l10n = context.l10n;
     final theme = ShellTheme.of(context);
     return Semantics(
       scopesRoute: true,
@@ -139,54 +142,70 @@ class _ColorPickerPanel extends StatelessWidget {
         child: FocusTraversalGroup(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-            child: Column(
-              children: [
-                _PickerHeader(
-                  color: color,
-                  hex: hex,
-                  title: title,
-                  onClose: onClose,
-                ),
-                const SizedBox(height: 12),
-                SizedBox.square(
-                  dimension: wheelSize,
-                  child: HsvColorWheel(
-                    color: color,
-                    onChanged: onChanged,
-                    semanticsLabel: wheelSemanticsLabel,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  l10n.settingsColorPickerInstructions,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: ShellText.cardTitle.copyWith(
-                    color: context.shellColors.textTertiary,
-                    fontSize: 10,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _PickerButton(
-                      key: settingsAccentColorResetKey,
-                      label: l10n.settingsColorPickerReset,
-                      onPressed: onReset,
-                    ),
-                    const Spacer(),
-                    _PickerButton(
-                      label: l10n.settingsColorPickerDone,
-                      prominent: true,
-                      onPressed: onClose,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            child: _buildContent(context),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    final l10n = context.l10n;
+    return Column(
+      children: <Widget>[
+        _PickerHeader(
+          color: color,
+          hex: formatOpaqueColorHex(color),
+          title: title,
+          onClose: onClose,
+        ),
+        const SizedBox(height: 12),
+        Expanded(child: _buildScrollableBody(context)),
+        const SizedBox(height: 12),
+        Row(
+          children: <Widget>[
+            _PickerButton(
+              key: settingsAccentColorResetKey,
+              label: l10n.settingsColorPickerReset,
+              onPressed: onReset,
+            ),
+            const Spacer(),
+            _PickerButton(
+              label: l10n.settingsColorPickerDone,
+              prominent: true,
+              onPressed: onClose,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScrollableBody(BuildContext context) {
+    final l10n = context.l10n;
+    return SingleChildScrollView(
+      child: Column(
+        children: <Widget>[
+          SizedBox.square(
+            dimension: wheelSize,
+            child: HsvColorWheel(
+              color: color,
+              onChanged: onChanged,
+              semanticsLabel: wheelSemanticsLabel,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            l10n.settingsColorPickerInstructions,
+            textAlign: TextAlign.center,
+            style: ShellText.cardTitle.copyWith(
+              color: context.shellColors.textTertiary,
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SettingsColorValueEditor(color: color, onChanged: onChanged),
+        ],
       ),
     );
   }
