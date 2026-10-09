@@ -31,6 +31,31 @@ pub mod protocol {
 
 use protocol::server::denial_insets_manager_v1::{self, DenialInsetsManagerV1};
 
+#[cfg(test)]
+#[path = "insets/tests.rs"]
+mod tests;
+
+fn configure_mobile_toplevel(toplevel: &ToplevelSurface, size: Size<i32, Logical>) {
+    toplevel.with_pending_state(|pending| {
+        pending.size = Some(size);
+        pending.states.unset(xdg_toplevel::State::Fullscreen);
+        pending.states.unset(xdg_toplevel::State::Maximized);
+        // Mobile clients fill their assigned rectangle, including dialogs and
+        // clients managing their own insets. Leave unrelated state bits alone.
+        for edge in [
+            xdg_toplevel::State::TiledLeft,
+            xdg_toplevel::State::TiledRight,
+            xdg_toplevel::State::TiledTop,
+            xdg_toplevel::State::TiledBottom,
+        ] {
+            pending.states.set(edge);
+        }
+    });
+    // Smithay compares with the last sent/acked state and filters unsupported
+    // tiled states for legacy clients. Reconciliation must not force a configure.
+    toplevel.send_pending_configure();
+}
+
 /// Matches the mobile status bar's logical height. Output scaling is applied
 /// by the ordinary client configure/viewport and native texture projection.
 pub(super) const MOBILE_STATUS_INSET: i32 = 48;
@@ -146,16 +171,13 @@ impl WaylandFrontend {
         let Some(target) = self.mobile_window_geometry(window) else {
             return;
         };
+        if let Some(toplevel) = window.toplevel() {
+            configure_mobile_toplevel(toplevel, target.size);
+        }
+        // An unchanged geometry target can still need a state-only configure.
+        // Avoid rewriting geometry/authority when only XDG state has changed.
         if self.exact_window_geometry(window) == Some(target) {
             return;
-        }
-        if let Some(toplevel) = window.toplevel() {
-            toplevel.with_pending_state(|pending| {
-                pending.size = Some(target.size);
-                pending.states.unset(xdg_toplevel::State::Fullscreen);
-                pending.states.unset(xdg_toplevel::State::Maximized);
-            });
-            toplevel.send_pending_configure();
         }
         self.set_window_geometry_target_with_authority(
             window,

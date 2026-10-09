@@ -38,16 +38,24 @@ For either trusted branch, the owner-operated x86-64 runner:
 3. builds the Nix package and checks, using the public Denial Cachix cache for
    substitution and retaining the exact output paths for an explicit upload;
 4. bootstraps the pinned Flutter and Rust toolchains;
-5. builds or reuses optimized, profile, and JIT Flutter Engine artifacts from
-   the exact locked Denial Flutter and Skia fork commits;
-6. builds the Flutter integration bundle;
-7. runs the Rust and Flutter test suites;
+5. builds or reuses the native release Flutter Engine from the exact locked
+   Denial Flutter and Skia fork commits;
+6. builds the release Flutter integration bundle;
+7. runs the Dart-only SDK tests, first-party plugin and Plugin Manager checks,
+   release-path Rust compositor tests, and the Flutter tool's non-pausing
+   adapter tests;
 8. builds and internally validates the two required runtime packages and the
    optional Plugin Manager package as Arch, Debian, RPM, and Alpine archives,
-   plus the optional Arch UI-development package;
+   without the paused legacy UI-development package;
 9. records package metadata, host inputs, checksums, toolchain versions, and
    build logs; and
 10. uploads the unsigned candidate artifact and the explicit Nix closures.
+
+Routine branch validation does not build debug/profile engines or run the
+development-engine Flutter shell/widget suite. Those remain separately
+authorized scopes. A release-only source-lock refresh records the actual
+older debug/profile input identities in the paused UI-development manifest;
+it does not claim those retained binaries came from the new release lock.
 
 A separate GitHub-hosted Arch job downloads that artifact and independently
 checks its source identity, checksums, all twelve native archives, package ownership

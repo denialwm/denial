@@ -13,6 +13,7 @@ import '../providers/local_wallpaper_provider.dart';
 import '../providers/wallhaven_wallpaper_provider.dart';
 import '../wallpaper.dart';
 import '../wallpaper_provider.dart';
+import '../wallpaper_pagination.dart';
 
 final localWallpaperSourceProvider = Provider<WallpaperProvider>((ref) {
   final paths = ref.watch(runtimePathsProvider);
@@ -79,6 +80,9 @@ class WallpaperExperienceState {
     required this.downloadProgress,
     required this.error,
     required this.imageServerAvailability,
+    this.page = 1,
+    this.lastPage,
+    this.hasMore = false,
   });
 
   factory WallpaperExperienceState.initial({WallpaperAssignment? assignment}) {
@@ -111,6 +115,9 @@ class WallpaperExperienceState {
   final Size targetPixelSize;
   final List<WallpaperCandidate> candidates;
   final String query;
+  final int page;
+  final int? lastPage;
+  final bool hasMore;
   final bool loading;
   final String? downloadingKey;
   final double downloadProgress;
@@ -135,6 +142,10 @@ class WallpaperExperienceState {
     Size? targetPixelSize,
     List<WallpaperCandidate>? candidates,
     String? query,
+    int? page,
+    int? lastPage,
+    bool clearLastPage = false,
+    bool? hasMore,
     bool? loading,
     String? downloadingKey,
     bool clearDownloadingKey = false,
@@ -156,6 +167,9 @@ class WallpaperExperienceState {
       targetPixelSize: targetPixelSize ?? this.targetPixelSize,
       candidates: candidates ?? this.candidates,
       query: query ?? this.query,
+      page: page ?? this.page,
+      lastPage: clearLastPage ? null : lastPage ?? this.lastPage,
+      hasMore: hasMore ?? this.hasMore,
       loading: loading ?? this.loading,
       downloadingKey: clearDownloadingKey
           ? null
@@ -177,6 +191,9 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     );
     _store = ref.watch(wallpaperStoreProvider);
     _sourceResults.clear();
+    _pagination = WallpaperPagination(_sources.map((source) => source.id));
+    _requestedSearch = null;
+    _searchTimer?.cancel();
     _searchTimer = null;
     _storeEventTimer?.cancel();
     unawaited(_storeSubscription?.cancel());
@@ -211,6 +228,8 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
 
   late List<WallpaperProvider> _sources;
   late WallpaperStore _store;
+  late WallpaperPagination _pagination;
+  ({String text, int page, Size target})? _requestedSearch;
   late int _buildGeneration;
   final Map<String, List<WallpaperCandidate>> _sourceResults =
       <String, List<WallpaperCandidate>>{};
@@ -230,6 +249,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       query: '',
       clearError: true,
     );
+    _resetPagination();
     unawaited(_search(''));
     unawaited(_checkImageServers());
   }
@@ -247,6 +267,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       targetPixelSize: targetPixelSize,
       clearError: true,
     );
+    _resetPagination();
     unawaited(_search(state.query));
   }
 
@@ -291,7 +312,13 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       return;
     }
     _searchTimer?.cancel();
-    state = state.copyWith(selectorVisible: false, clearError: true);
+    _searchGeneration += 1;
+    _requestedSearch = null;
+    state = state.copyWith(
+      selectorVisible: false,
+      loading: false,
+      clearError: true,
+    );
   }
 
   void setQuery(String query) {
@@ -299,7 +326,8 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       return;
     }
     state = state.copyWith(query: query, clearError: true);
-    _searchTimer?.cancel();
+    // Invalidate in-flight results immediately, not when debounce expires.
+    _resetPagination();
     final generation = _buildGeneration;
     _searchTimer = Timer(_searchDebounce, () {
       if (isBuildGenerationActive(generation)) {
@@ -315,8 +343,43 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
 
   void retryOnlineWallpapers() {
     _searchTimer?.cancel();
-    unawaited(_search(state.query));
+    unawaited(_search(state.query, force: !state.loading));
     unawaited(_checkImageServers());
+  }
+
+  void previousPage() => _selectPage(state.page - 1);
+
+  void nextPage() {
+    if (state.hasMore && state.error == null) _selectPage(state.page + 1);
+  }
+
+  void _selectPage(int page) {
+    if (!state.selectorVisible ||
+        state.loading ||
+        page < 1 ||
+        page == state.page ||
+        (state.lastPage != null && page > state.lastPage!)) {
+      return;
+    }
+    _searchTimer?.cancel();
+    unawaited(_search(state.query, page: page));
+  }
+
+  void _resetPagination() {
+    _searchTimer?.cancel();
+    _searchTimer = null;
+    _searchGeneration += 1;
+    _requestedSearch = null;
+    _pagination.reset();
+    _sourceResults.clear();
+    state = state.copyWith(
+      page: 1,
+      clearLastPage: true,
+      hasMore: false,
+      loading: true,
+      candidates: const <WallpaperCandidate>[],
+      clearError: true,
+    );
   }
 
   void reportError(String message) {
@@ -442,12 +505,29 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     }
   }
 
-  Future<void> _search(String rawQuery) async {
+  Future<void> _search(
+    String rawQuery, {
+    int? page,
+    bool force = false,
+    bool allowPageCorrection = true,
+  }) async {
+    final requestedPage = page ?? state.page;
+    final request = (
+      text: rawQuery.trim(),
+      page: requestedPage,
+      target: state.targetPixelSize,
+    );
+    if (!force && request == _requestedSearch) return;
+    _searchTimer?.cancel();
+    _searchTimer = null;
+    _requestedSearch = request;
     final buildGeneration = _buildGeneration;
     final searchGeneration = ++_searchGeneration;
     _sourceResults.clear();
     state = state.copyWith(
+      page: requestedPage,
       loading: true,
+      hasMore: false,
       candidates: const <WallpaperCandidate>[],
       clearError: true,
     );
@@ -459,42 +539,98 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       return;
     }
 
-    var pending = _sources.length;
+    final sources = _sources
+        .where((source) => _pagination.shouldRequest(source.id, requestedPage))
+        .toList(growable: false);
+    var pending = sources.length;
     final errors = <Object>[];
     final query = WallpaperQuery(
-      text: rawQuery.trim(),
-      page: 1,
+      text: request.text,
+      page: requestedPage,
       limit: 24,
-      targetPixelSize: state.targetPixelSize,
+      targetPixelSize: request.target,
     );
-    for (final source in _sources) {
+    void publish() {
+      if (!isBuildGenerationActive(buildGeneration) ||
+          searchGeneration != _searchGeneration) {
+        return;
+      }
+      final combined = <WallpaperCandidate>[
+        for (final orderedSource in _sources)
+          ...?_sourceResults[orderedSource.id],
+      ];
+      final lastPage = _pagination.lastPage;
+      // A library/listing can shrink between requests. Correct once only,
+      // after every source has completed; never fetch all intervening pages.
+      if (pending == 0 &&
+          errors.isEmpty &&
+          lastPage != null &&
+          requestedPage > lastPage) {
+        if (allowPageCorrection) {
+          unawaited(
+            _search(
+              rawQuery,
+              page: lastPage,
+              force: true,
+              allowPageCorrection: false,
+            ),
+          );
+        } else {
+          // If the listing shrinks again, stop automatic requests. Retry is
+          // explicit and targets the newly valid page, never "page 5 of 1".
+          state = state.copyWith(
+            page: lastPage,
+            lastPage: lastPage,
+            loading: false,
+            hasMore: false,
+            candidates: const <WallpaperCandidate>[],
+            error: 'The wallpaper listing changed; please retry',
+          );
+        }
+        return;
+      }
+      state = state.copyWith(
+        candidates: List<WallpaperCandidate>.unmodifiable(combined),
+        loading: pending > 0,
+        lastPage: lastPage,
+        clearLastPage: lastPage == null,
+        hasMore: pending == 0 && _pagination.hasMore(requestedPage),
+        // A failed online page must stay retryable even when local items load.
+        error: pending == 0 && errors.isNotEmpty
+            ? _friendlyError(errors.last)
+            : null,
+        clearError: !(pending == 0 && errors.isNotEmpty),
+      );
+    }
+
+    if (sources.isEmpty) publish();
+    for (final source in sources) {
       unawaited(() async {
         try {
-          final page = await source.search(query);
+          final result = await source.search(query);
           if (!isBuildGenerationActive(buildGeneration) ||
               searchGeneration != _searchGeneration) {
             return;
           }
-          _sourceResults[source.id] = page.items;
+          if (result.page != requestedPage) {
+            throw const FormatException('Unexpected wallpaper page');
+          }
+          _sourceResults[source.id] = result.items;
+          _pagination.record(
+            source.id,
+            WallpaperPageInfo(
+              page: result.page,
+              hasMore: result.hasMore,
+              lastPage: result.lastPage,
+            ),
+          );
         } on Object catch (error) {
           errors.add(error);
         } finally {
           if (isBuildGenerationActive(buildGeneration) &&
               searchGeneration == _searchGeneration) {
             pending -= 1;
-            final combined = <WallpaperCandidate>[
-              for (final orderedSource in _sources)
-                ...?_sourceResults[orderedSource.id],
-            ];
-            state = state.copyWith(
-              candidates: List<WallpaperCandidate>.unmodifiable(combined),
-              loading: pending > 0,
-              error: pending == 0 && combined.isEmpty && errors.isNotEmpty
-                  ? _friendlyError(errors.last)
-                  : null,
-              clearError:
-                  !(pending == 0 && combined.isEmpty && errors.isNotEmpty),
-            );
+            publish();
           }
         }
       }());

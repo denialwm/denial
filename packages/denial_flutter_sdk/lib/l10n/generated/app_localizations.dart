@@ -6413,6 +6413,60 @@ abstract class AppLocalizations {
   /// **'Online wallpapers are unavailable. Local wallpapers still work.'**
   String get wallpaperImageServerUnavailable;
 
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous wallpaper page'**
+  String get wallpaperPreviousPage;
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Next wallpaper page'**
+  String get wallpaperNextPage;
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page}'**
+  String wallpaperPageNumber(int page);
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} of {total}'**
+  String wallpaperPageOfTotal(int page, int total);
+
+  /// Accessibility label for the wallpaper selector's strip/gallery layout switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview layout'**
+  String get wallpaperLayout;
+
+  /// Wallpaper selector layout option that shows each wallpaper uncropped in a grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get wallpaperLayoutGallery;
+
+  /// Accessibility label for switching the wallpaper selector to its uncropped gallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Show full wallpaper previews'**
+  String get wallpaperLayoutGalleryDescription;
+
+  /// Wallpaper selector layout option that shows narrow cropped strips.
+  ///
+  /// In en, this message translates to:
+  /// **'Strips'**
+  String get wallpaperLayoutStrips;
+
+  /// Accessibility label for switching the wallpaper selector to its default narrow strips.
+  ///
+  /// In en, this message translates to:
+  /// **'Show cropped wallpaper strips'**
+  String get wallpaperLayoutStripsDescription;
+
   /// Accessibility label for leaving mobile wallpaper positioning.
   ///
   /// In en, this message translates to:
@@ -7187,6 +7241,12 @@ abstract class AppLocalizations {
   /// **'Reset window height'**
   String get settingsShortcutActionResetWindowHeight;
 
+  /// Shortcut action label: reset window width.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset window width'**
+  String get settingsShortcutActionResetWindowWidth;
+
   /// Appearance card heading for color scheme and accent.
   ///
   /// In en, this message translates to:
@@ -7714,6 +7774,941 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Temporarily locked'**
   String get polkitLocked;
+
+  /// Plugin Manager: AppTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial Plugins'**
+  String get pluginsAppTitle;
+
+  /// Plugin Manager: Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugins'**
+  String get pluginsTitle;
+
+  /// Plugin Manager: Installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed'**
+  String get pluginsInstalled;
+
+  /// Plugin Manager: Discover.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover'**
+  String get pluginsDiscover;
+
+  /// Plugin Manager: Activity.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get pluginsActivity;
+
+  /// Plugin Manager: Library.
+  ///
+  /// In en, this message translates to:
+  /// **'Library'**
+  String get pluginsLibrary;
+
+  /// Plugin Manager: Preferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences'**
+  String get pluginsPreferences;
+
+  /// Plugin Manager: SearchInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Search installed'**
+  String get pluginsSearchInstalled;
+
+  /// Plugin Manager: Search.
+  ///
+  /// In en, this message translates to:
+  /// **'Search plugins'**
+  String get pluginsSearch;
+
+  /// Plugin Manager: ClearSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get pluginsClearSearch;
+
+  /// Plugin Manager: AddTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a plugin from a repository link'**
+  String get pluginsAddTooltip;
+
+  /// Plugin Manager: AddToolbar.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Plugin'**
+  String get pluginsAddToolbar;
+
+  /// Plugin Manager: MoreActions.
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get pluginsMoreActions;
+
+  /// Plugin Manager: Refresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get pluginsRefresh;
+
+  /// Plugin Manager: InstalledTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed plugins'**
+  String get pluginsInstalledTitle;
+
+  /// Plugin Manager: InstalledDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the plugins that make up your desktop.'**
+  String get pluginsInstalledDescription;
+
+  /// Plugin Manager: NoneInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugins installed'**
+  String get pluginsNoneInstalled;
+
+  /// Plugin Manager: NoneInstalledDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover plugins for your desktop, or add one using a repository link.'**
+  String get pluginsNoneInstalledDescription;
+
+  /// Plugin Manager: DiscoverAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover Plugins'**
+  String get pluginsDiscoverAction;
+
+  /// Plugin Manager: UseDefaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Denial defaults'**
+  String get pluginsUseDefaults;
+
+  /// Plugin Manager: NoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching plugins'**
+  String get pluginsNoMatches;
+
+  /// Plugin Manager: NoMatchesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another name or clear your search.'**
+  String get pluginsNoMatchesDescription;
+
+  /// Plugin Manager: AutomaticTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Included automatically'**
+  String get pluginsAutomaticTitle;
+
+  /// Plugin Manager: AutomaticDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'These keep your selected plugins working.'**
+  String get pluginsAutomaticDescription;
+
+  /// Plugin Manager: DiscoverMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover more plugins'**
+  String get pluginsDiscoverMore;
+
+  /// Plugin Manager: PreparingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your desktop'**
+  String get pluginsPreparingDesktop;
+
+  /// Plugin Manager: PreparingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial is getting everything ready. You can leave this window open or come back later.'**
+  String get pluginsPreparingDescription;
+
+  /// Plugin Manager: TryAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get pluginsTryAgain;
+
+  /// Plugin Manager: FallbackDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize your desktop with this plugin.'**
+  String get pluginsFallbackDescription;
+
+  /// Plugin Manager: Selected.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get pluginsSelected;
+
+  /// Plugin Manager: NotSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not selected'**
+  String get pluginsNotSelected;
+
+  /// Plugin Manager: DesktopOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop options'**
+  String get pluginsDesktopOptions;
+
+  /// Plugin Manager: DesktopOptionsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates, compatibility and recovery'**
+  String get pluginsDesktopOptionsDescription;
+
+  /// Plugin Manager: CheckUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for plugin updates'**
+  String get pluginsCheckUpdates;
+
+  /// Plugin Manager: CheckCompatibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Check compatibility'**
+  String get pluginsCheckCompatibility;
+
+  /// Plugin Manager: Undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo last change'**
+  String get pluginsUndo;
+
+  /// Plugin Manager: Restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore default desktop'**
+  String get pluginsRestore;
+
+  /// Plugin Manager: CheckSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your selection'**
+  String get pluginsCheckSelection;
+
+  /// Plugin Manager: StartupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved plugins could not start'**
+  String get pluginsStartupFailed;
+
+  /// Plugin Manager: ChangeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Change couldn’t be completed'**
+  String get pluginsChangeFailed;
+
+  /// Plugin Manager: SelectionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Your selection has changed'**
+  String get pluginsSelectionChanged;
+
+  /// Plugin Manager: Paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Your plugins are paused'**
+  String get pluginsPaused;
+
+  /// Plugin Manager: PendingReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending actions are ready'**
+  String get pluginsPendingReady;
+
+  /// Plugin Manager: PreparingSupport.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing plugin support'**
+  String get pluginsPreparingSupport;
+
+  /// Plugin Manager: ViewDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'View details'**
+  String get pluginsViewDetails;
+
+  /// Plugin Manager: Discard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get pluginsDiscard;
+
+  /// Plugin Manager: SwitchNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch now'**
+  String get pluginsSwitchNow;
+
+  /// Plugin Manager: DismissError.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss error'**
+  String get pluginsDismissError;
+
+  /// Plugin Manager: InProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get pluginsInProgress;
+
+  /// Plugin Manager: DiscoverTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover plugins'**
+  String get pluginsDiscoverTitle;
+
+  /// Plugin Manager: DiscoverDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Add new features and make your desktop your own.'**
+  String get pluginsDiscoverDescription;
+
+  /// Plugin Manager: NothingFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing found yet'**
+  String get pluginsNothingFound;
+
+  /// Plugin Manager: NothingFoundDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another search, or add a plugin using its repository link.'**
+  String get pluginsNothingFoundDescription;
+
+  /// Plugin Manager: Official.
+  ///
+  /// In en, this message translates to:
+  /// **'Made for Denial'**
+  String get pluginsOfficial;
+
+  /// Plugin Manager: Community.
+  ///
+  /// In en, this message translates to:
+  /// **'From the community'**
+  String get pluginsCommunity;
+
+  /// Plugin Manager: RefreshDiscoveries.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh discoveries'**
+  String get pluginsRefreshDiscoveries;
+
+  /// Plugin Manager: NoCommunity.
+  ///
+  /// In en, this message translates to:
+  /// **'No community plugins are listed yet. Add a plugin using its repository link.'**
+  String get pluginsNoCommunity;
+
+  /// Plugin Manager: AddRepository.
+  ///
+  /// In en, this message translates to:
+  /// **'Add from a repository'**
+  String get pluginsAddRepository;
+
+  /// Plugin Manager: AddRepositoryDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a Git link to install a plugin from its developer.'**
+  String get pluginsAddRepositoryDescription;
+
+  /// Plugin Manager: AddLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Add from a link'**
+  String get pluginsAddLink;
+
+  /// Plugin Manager: DiscoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Some discoveries couldn’t be loaded. Try refreshing again.'**
+  String get pluginsDiscoveryFailed;
+
+  /// Plugin Manager: ByDenial.
+  ///
+  /// In en, this message translates to:
+  /// **'By Denial'**
+  String get pluginsByDenial;
+
+  /// Plugin Manager: CommunityPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Community plugin'**
+  String get pluginsCommunityPlugin;
+
+  /// Plugin Manager: SelectedDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected for your desktop'**
+  String get pluginsSelectedDesktop;
+
+  /// Plugin Manager: Select.
+  ///
+  /// In en, this message translates to:
+  /// **'Select plugin'**
+  String get pluginsSelect;
+
+  /// Plugin Manager: RecentActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent activity'**
+  String get pluginsRecentActivity;
+
+  /// Plugin Manager: ActivityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Installation progress and changes to your desktop.'**
+  String get pluginsActivityDescription;
+
+  /// Plugin Manager: NoActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'No activity yet'**
+  String get pluginsNoActivity;
+
+  /// Plugin Manager: NoActivityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin installations and desktop changes will appear here.'**
+  String get pluginsNoActivityDescription;
+
+  /// Plugin Manager: Completed.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get pluginsCompleted;
+
+  /// Plugin Manager: NeedsAttention.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs attention'**
+  String get pluginsNeedsAttention;
+
+  /// Plugin Manager: NoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugin package candidates were found in this repository.'**
+  String get pluginsNoCandidates;
+
+  /// Plugin Manager: BringNew.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring something new.'**
+  String get pluginsBringNew;
+
+  /// Plugin Manager: TrustDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.'**
+  String get pluginsTrustDescription;
+
+  /// Plugin Manager: LocalDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Local package or repository directory'**
+  String get pluginsLocalDirectory;
+
+  /// Plugin Manager: RepositoryLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Repository link'**
+  String get pluginsRepositoryLink;
+
+  /// Plugin Manager: AdvancedOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced options'**
+  String get pluginsAdvancedOptions;
+
+  /// Plugin Manager: GitRef.
+  ///
+  /// In en, this message translates to:
+  /// **'Branch, tag, or commit (optional)'**
+  String get pluginsGitRef;
+
+  /// Plugin Manager: LocalDevelopment.
+  ///
+  /// In en, this message translates to:
+  /// **'Local development'**
+  String get pluginsLocalDevelopment;
+
+  /// Plugin Manager: UseLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a local development checkout'**
+  String get pluginsUseLocal;
+
+  /// Plugin Manager: Choose.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a plugin'**
+  String get pluginsChoose;
+
+  /// Plugin Manager: IncludeDependencies.
+  ///
+  /// In en, this message translates to:
+  /// **'We’ll include anything this plugin needs automatically.'**
+  String get pluginsIncludeDependencies;
+
+  /// Plugin Manager: Finding.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding plugins…'**
+  String get pluginsFinding;
+
+  /// Plugin Manager: Find.
+  ///
+  /// In en, this message translates to:
+  /// **'Find plugins'**
+  String get pluginsFind;
+
+  /// Plugin Manager: Add.
+  ///
+  /// In en, this message translates to:
+  /// **'Add plugin'**
+  String get pluginsAdd;
+
+  /// Plugin Manager: YourPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'Your plugins'**
+  String get pluginsYourPlugins;
+
+  /// Plugin Manager: LogLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The build log could not be loaded.'**
+  String get pluginsLogLoadFailed;
+
+  /// Plugin Manager: TechnicalDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Technical details'**
+  String get pluginsTechnicalDetails;
+
+  /// Plugin Manager: BuildLog.
+  ///
+  /// In en, this message translates to:
+  /// **'Build log'**
+  String get pluginsBuildLog;
+
+  /// Plugin Manager: NoBuildOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'No build output was recorded.'**
+  String get pluginsNoBuildOutput;
+
+  /// Plugin Manager: Close.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get pluginsClose;
+
+  /// Plugin Manager: Done.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get pluginsDone;
+
+  /// Plugin Manager: Apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply plugins'**
+  String get pluginsApply;
+
+  /// Plugin Manager: Build.
+  ///
+  /// In en, this message translates to:
+  /// **'Build plugins'**
+  String get pluginsBuild;
+
+  /// Plugin Manager: CheckChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your changes'**
+  String get pluginsCheckChanges;
+
+  /// Plugin Manager: Enable.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable plugin'**
+  String get pluginsEnable;
+
+  /// Plugin Manager: Disable.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable plugin'**
+  String get pluginsDisable;
+
+  /// Plugin Manager: Update.
+  ///
+  /// In en, this message translates to:
+  /// **'Update plugins'**
+  String get pluginsUpdate;
+
+  /// Plugin Manager: Rebuild.
+  ///
+  /// In en, this message translates to:
+  /// **'Rebuild plugins'**
+  String get pluginsRebuild;
+
+  /// Plugin Manager: Setup.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up plugins'**
+  String get pluginsSetup;
+
+  /// Plugin Manager: ChooseDefaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose default plugins'**
+  String get pluginsChooseDefaults;
+
+  /// Plugin Manager: ActivityFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin activity'**
+  String get pluginsActivityFallback;
+
+  /// Plugin Manager: Working.
+  ///
+  /// In en, this message translates to:
+  /// **'Working on your changes'**
+  String get pluginsWorking;
+
+  /// Plugin Manager: ApplyChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply changes'**
+  String get pluginsApplyChanges;
+
+  /// Plugin Manager: ApplyPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply pending actions'**
+  String get pluginsApplyPending;
+
+  /// Plugin Manager: ApplySelectionUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply your selection changes and pending updates to your desktop.'**
+  String get pluginsApplySelectionUpdates;
+
+  /// Plugin Manager: ApplySelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply your plugin selection changes to your desktop.'**
+  String get pluginsApplySelection;
+
+  /// Plugin Manager: ApplyUnchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.'**
+  String get pluginsApplyUnchanged;
+
+  /// Plugin Manager: StaleSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'The selection changed elsewhere. Discard your draft to load the latest selection.'**
+  String get pluginsStaleSelection;
+
+  /// Plugin Manager: Updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial was updated.'**
+  String get pluginsUpdated;
+
+  /// Plugin Manager: FailureEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.'**
+  String get pluginsFailureEngine;
+
+  /// Plugin Manager: FailureVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.'**
+  String get pluginsFailureVersion;
+
+  /// Plugin Manager: FailurePanel.
+  ///
+  /// In en, this message translates to:
+  /// **'More than one desktop panel is selected. Keep one enabled, then apply again.'**
+  String get pluginsFailurePanel;
+
+  /// Plugin Manager: FailureConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.'**
+  String get pluginsFailureConflict;
+
+  /// Plugin Manager: FailureMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'A required desktop feature is missing. Enable a plugin that provides it, then apply again.'**
+  String get pluginsFailureMissing;
+
+  /// Plugin Manager: FailureLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Log out and back into Denial once to finish the update. Your choices are saved.'**
+  String get pluginsFailureLogin;
+
+  /// Plugin Manager: FailureWorker.
+  ///
+  /// In en, this message translates to:
+  /// **'The background operation stopped unexpectedly. Check Activity before trying again.'**
+  String get pluginsFailureWorker;
+
+  /// Plugin Manager: FailureDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'A download failed. Check your connection and try again.'**
+  String get pluginsFailureDownload;
+
+  /// Plugin Manager: FailureGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'This change could not be completed. Open details to see the cause.'**
+  String get pluginsFailureGeneric;
+
+  /// Plugin Manager: ToolsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin tools are temporarily unavailable. Retrying automatically.'**
+  String get pluginsToolsUnavailable;
+
+  /// Plugin Manager: DartCompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'Compatible Dart is required'**
+  String get pluginsDartCompatible;
+
+  /// Plugin Manager: DartRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Dart is required'**
+  String get pluginsDartRequired;
+
+  /// Plugin Manager: ToolsAttention.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin tools need attention'**
+  String get pluginsToolsAttention;
+
+  /// Plugin Manager: SetupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparation could not finish. See Activity for details, then try again.'**
+  String get pluginsSetupFailed;
+
+  /// Plugin Manager: WaitingStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to start'**
+  String get pluginsWaitingStart;
+
+  /// Plugin Manager: CloseWhileWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'You can close this window. We’ll keep going.'**
+  String get pluginsCloseWhileWorking;
+
+  /// Plugin Manager: PreparingPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your plugins'**
+  String get pluginsPreparingPlugins;
+
+  /// Plugin Manager: CheckingCompatibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking plugin compatibility'**
+  String get pluginsCheckingCompatibility;
+
+  /// Plugin Manager: PreparingBuild.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your desktop build'**
+  String get pluginsPreparingBuild;
+
+  /// Plugin Manager: CompilingSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Compiling Dart sources'**
+  String get pluginsCompilingSources;
+
+  /// Plugin Manager: Optimizing.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimizing and generating native code'**
+  String get pluginsOptimizing;
+
+  /// Plugin Manager: PreparingAssets.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing assets'**
+  String get pluginsPreparingAssets;
+
+  /// Plugin Manager: LoadingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading your saved desktop'**
+  String get pluginsLoadingDesktop;
+
+  /// Plugin Manager: CompilingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Compiling your desktop'**
+  String get pluginsCompilingDesktop;
+
+  /// Plugin Manager: VerifyingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying your desktop'**
+  String get pluginsVerifyingDesktop;
+
+  /// Plugin Manager: SwitchingPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching when you pause'**
+  String get pluginsSwitchingPause;
+
+  /// Plugin Manager: ApplyingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying and checking your desktop'**
+  String get pluginsApplyingDesktop;
+
+  /// Plugin Manager: VerifyingTools.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying plugin tools'**
+  String get pluginsVerifyingTools;
+
+  /// Plugin Manager: PreparingTools.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing plugin tools'**
+  String get pluginsPreparingTools;
+
+  /// Plugin Manager: ConfigurationDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.'**
+  String get pluginsConfigurationDescription;
+
+  /// Plugin Manager: SelectedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{0 selected} =1{1 selected} other{{count} selected}}'**
+  String pluginsSelectedCount(int count);
+
+  /// Plugin Manager: SwitchSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} plugin'**
+  String pluginsSwitchSemantics(String name);
+
+  /// Plugin Manager: CandidateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} · {path}'**
+  String pluginsCandidateLabel(String name, String path);
+
+  /// Plugin Manager: StepsComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} steps complete'**
+  String pluginsStepsComplete(int completed, int total);
+
+  /// Plugin Manager: Step.
+  ///
+  /// In en, this message translates to:
+  /// **'Step {step} of {total} · {label}'**
+  String pluginsStep(int step, int total, String label);
+
+  /// Plugin Manager: Elapsed.
+  ///
+  /// In en, this message translates to:
+  /// **'{stage} · {clock} elapsed'**
+  String pluginsElapsed(String stage, String clock);
+
+  /// Plugin Manager: InstalledVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial {version} is installed.'**
+  String pluginsInstalledVersion(String version);
+
+  /// Plugin Manager: RebuildDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'{introduction} Rebuild your plugins to bring them back, with all their settings. No need to log out.'**
+  String pluginsRebuildDescription(String introduction);
+
+  /// Plugin Manager: DartIncompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'Dart {installed} is installed, but Denial requires {constraint}. Install a compatible Dart package and make sure dart is available in PATH, then try again.'**
+  String pluginsDartIncompatible(String installed, String constraint);
+
+  /// Plugin Manager: DartInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install Dart with your system package manager. Denial recommends Dart {expected}. Make sure dart is available in PATH, then try again.'**
+  String pluginsDartInstall(String expected);
+
+  /// Plugin Manager: ProviderConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'{feature} is provided by {plugins}. {owner} accepts at most {maximum} providers. Disable extra plugins before applying.'**
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  );
+
+  /// Plugin Manager: ProviderMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'{owner} needs at least {minimum} providers for {feature}. Enable a compatible plugin before applying.'**
+  String pluginsProviderMissing(String owner, int minimum, String feature);
+
+  /// Plugin Manager: InvalidDeclaration.
+  ///
+  /// In en, this message translates to:
+  /// **'{plugins} has invalid compatibility declarations. Open details to see the cause.'**
+  String pluginsInvalidDeclaration(String plugins);
+
+  /// Plugin Manager compatibility declaration or preflight failure summary.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin compatibility information needs attention. Check your selection and open details before applying again.'**
+  String get pluginsFailureDeclaration;
+
+  /// Plugin Manager: DesktopFeature.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get pluginsDesktopFeature;
 }
 
 class _AppLocalizationsDelegate

@@ -241,6 +241,8 @@ generated.ShortcutActionKind _shortcutActionToWire(
       generated.ShortcutActionKind.ResizeShrinkHeight,
     DenialShortcutAction.resetWindowHeight =>
       generated.ShortcutActionKind.ResetWindowHeight,
+    DenialShortcutAction.resetWindowWidth =>
+      generated.ShortcutActionKind.ResetWindowWidth,
     DenialShortcutAction.toggleVerticalMaximize =>
       generated.ShortcutActionKind.ToggleVerticalMaximize,
     DenialShortcutAction.windowSwitcher =>
@@ -353,6 +355,8 @@ DenialShortcutAction _shortcutActionFromWire(
       DenialShortcutAction.resizeShrinkHeight,
     generated.ShortcutActionKind.ResetWindowHeight =>
       DenialShortcutAction.resetWindowHeight,
+    generated.ShortcutActionKind.ResetWindowWidth =>
+      DenialShortcutAction.resetWindowWidth,
     generated.ShortcutActionKind.ToggleVerticalMaximize =>
       DenialShortcutAction.toggleVerticalMaximize,
     generated.ShortcutActionKind.WindowSwitcher =>
@@ -656,6 +660,9 @@ bool _finiteWindow(DenialWindow window) {
       window.opacity.isFinite &&
       window.opacity >= 0.0 &&
       window.opacity <= 1.0 &&
+      (window.pet == null ||
+          (window.pet!.anchor.isFinite &&
+              (window.pet!.held?.share.isFinite ?? true))) &&
       (window.surfaceLayers.isEmpty ||
           (window.contentWidth > 0.0 && window.contentHeight > 0.0));
 }

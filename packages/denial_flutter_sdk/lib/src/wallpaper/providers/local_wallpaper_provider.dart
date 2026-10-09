@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:path/path.dart' as p;
 
@@ -76,11 +77,16 @@ class LocalWallpaperProvider implements WallpaperProvider {
     if (defaultItem != null) {
       items.insert(0, defaultItem);
     }
-    final limited = items.take(query.limit).toList(growable: false);
+    final page = math.max(1, query.page);
+    final limit = math.max(1, query.limit);
+    final start = (page - 1) * limit;
+    final limited = items.skip(start).take(limit).toList(growable: false);
+    final lastPage = math.max(1, (items.length / limit).ceil());
     return WallpaperPage(
       items: limited,
-      page: query.page,
-      hasMore: items.length > limited.length,
+      page: page,
+      hasMore: page < lastPage,
+      lastPage: lastPage,
     );
   }
 

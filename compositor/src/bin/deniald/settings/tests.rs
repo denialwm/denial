@@ -741,3 +741,125 @@ fn keyboard_resize_step_defaults_and_validates_on_load_and_update() {
     );
     assert_eq!(fs::read(&path).unwrap(), bytes);
 }
+
+#[test]
+fn rotation_lock_captures_applied_orientation_and_survives_restart() {
+    let directory = TemporaryDirectory::new("rotation-lock");
+    let path = directory.settings_path();
+    let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    manager.rotation_lock_supported = true;
+    manager.current_sensor_rotation = OutputTransform::Rotate270;
+    let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    let mut request = document.clone();
+    request["rotationLock"] = serde_json::json!({"enabled": true, "orientation": 90});
+    let prepared = manager
+        .prepare_shell_update(manager.revision(), &request.to_string())
+        .unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(
+        manager.locked_sensor_rotation(),
+        Some(OutputTransform::Rotate270)
+    );
+    assert_eq!(
+        SettingsManager::load_path(path.clone())
+            .unwrap()
+            .locked_sensor_rotation(),
+        Some(OutputTransform::Rotate270)
+    );
+    // Native-only snapshot metadata is not persisted or trusted from the shell.
+    let saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(saved.get("rotationLockSupported").is_none());
+    let mut legacy_request = request.clone();
+    legacy_request
+        .as_object_mut()
+        .unwrap()
+        .remove("rotationLock");
+    let prepared = manager
+        .prepare_shell_update(manager.revision(), &legacy_request.to_string())
+        .unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(
+        manager.locked_sensor_rotation(),
+        Some(OutputTransform::Rotate270)
+    );
+    manager.current_sensor_rotation = OutputTransform::Rotate90;
+    request["rotationLock"] = serde_json::json!({"enabled": true, "orientation": 180});
+    let prepared = manager
+        .prepare_shell_update(manager.revision(), &request.to_string())
+        .unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(
+        manager.locked_sensor_rotation(),
+        Some(OutputTransform::Rotate270)
+    );
+    request["rotationLock"] = serde_json::json!({"enabled": false});
+    let prepared = manager
+        .prepare_shell_update(manager.revision(), &request.to_string())
+        .unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(manager.locked_sensor_rotation(), None);
+    request["rotationLock"] = serde_json::json!({"enabled": true});
+    let prepared = manager
+        .prepare_shell_update(manager.revision(), &request.to_string())
+        .unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(
+        manager.locked_sensor_rotation(),
+        Some(OutputTransform::Rotate90)
+    );
+}
+
+#[test]
+fn rotation_lock_invalid_settings_and_revision_conflicts_are_safe() {
+    let directory = TemporaryDirectory::new("rotation-lock-invalid");
+    let mut manager = SettingsManager::load_path(directory.settings_path()).unwrap();
+    assert_eq!(manager.locked_sensor_rotation(), None);
+    let mut document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    document["rotationLock"] = serde_json::json!({"enabled": "yes"});
+    assert!(
+        manager
+            .prepare_shell_update(manager.revision(), &document.to_string())
+            .is_err()
+    );
+    document["rotationLock"] = serde_json::json!({"enabled": true});
+    assert!(
+        manager
+            .prepare_shell_update(manager.revision() + 1, &document.to_string())
+            .is_err()
+    );
+    assert_eq!(manager.locked_sensor_rotation(), None);
+    for invalid in [
+        serde_json::json!(45),
+        serde_json::json!(-90),
+        serde_json::json!("90"),
+    ] {
+        document["rotationLock"] = serde_json::json!({"enabled": true, "orientation": invalid});
+        assert!(parse_document(document.to_string().as_bytes()).is_err());
+    }
+    let bytes = document.to_string().into_bytes();
+    fs::write(manager.path(), &bytes).unwrap();
+    manager = SettingsManager::load_path(manager.path().to_path_buf()).unwrap();
+    assert_eq!(manager.locked_sensor_rotation(), None);
+    assert_eq!(fs::read(manager.path()).unwrap(), bytes);
+}
+
+#[test]
+fn rotation_lock_external_enable_captures_current_not_editor_orientation() {
+    let directory = TemporaryDirectory::new("rotation-lock-editor");
+    let mut manager = SettingsManager::load_path(directory.settings_path()).unwrap();
+    manager.current_sensor_rotation = OutputTransform::Rotate180;
+    let mut document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    document["rotationLock"] = serde_json::json!({"enabled": true, "orientation": 0});
+    fs::write(manager.path(), document.to_string()).unwrap();
+    let prepared = manager.prepare_external_reload().unwrap().unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(
+        manager.locked_sensor_rotation(),
+        Some(OutputTransform::Rotate180)
+    );
+    document["rotationLock"] = serde_json::json!({"enabled": false, "orientation": 0});
+    fs::write(manager.path(), document.to_string()).unwrap();
+    let prepared = manager.prepare_external_reload().unwrap().unwrap();
+    manager.commit(prepared).unwrap();
+    assert_eq!(manager.locked_sensor_rotation(), None);
+}

@@ -197,6 +197,7 @@ pub(super) enum ShortcutAction {
     ResizeGrowHeight,
     ResizeShrinkHeight,
     ResetWindowHeight,
+    ResetWindowWidth,
     WindowSwitcher,
     OpenClipboard,
     CaptureRegion,
@@ -249,7 +250,7 @@ pub(super) enum ShortcutAction {
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 59] = [
+    pub(super) const ALL: [Self; 60] = [
         Self::OpenApplications,
         Self::OpenDashboard,
         Self::OpenSettings,
@@ -266,6 +267,7 @@ impl ShortcutAction {
         Self::ResizeGrowHeight,
         Self::ResizeShrinkHeight,
         Self::ResetWindowHeight,
+        Self::ResetWindowWidth,
         Self::ToggleMaximize,
         Self::ToggleFullscreen,
         Self::ToggleWindowAlwaysOnTop,
@@ -2226,6 +2228,7 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::ResizeGrowHeight => Self::RequestResize(KeyboardResize::GrowHeight),
             ShortcutAction::ResizeShrinkHeight => Self::RequestResize(KeyboardResize::ShrinkHeight),
             ShortcutAction::ResetWindowHeight => Self::RequestResize(KeyboardResize::ResetHeight),
+            ShortcutAction::ResetWindowWidth => Self::RequestResize(KeyboardResize::ResetWidth),
             ShortcutAction::WindowSwitcher => Self::RequestWindowSwitcherNext,
             ShortcutAction::OpenClipboard => Self::RequestClipboard,
             ShortcutAction::CaptureRegion => Self::RequestScreenshotRegion,
@@ -2378,6 +2381,44 @@ mod tests {
             engine.observe_gesture(ShortcutGesture::FourFingerSwipeUp),
             ShortcutDisposition::PluginAction(id.into())
         );
+    }
+
+    #[test]
+    fn reset_width_roundtrips_binds_without_defaults_and_does_not_repeat() {
+        let action: ShortcutAction = serde_json::from_str("\"resetWindowWidth\"").unwrap();
+        assert_eq!(action, ShortcutAction::ResetWindowWidth);
+        assert_eq!(
+            serde_json::to_string(&action).unwrap(),
+            "\"resetWindowWidth\""
+        );
+        assert!(ShortcutAction::ALL.contains(&action));
+        let target = ShortcutTarget::DenialAction { action };
+        let defaults = default_shortcut_file();
+        assert!(
+            !defaults
+                .shortcuts
+                .iter()
+                .any(|binding| binding.target == target)
+        );
+        let mut file = defaults;
+        file.shortcuts.push(ShortcutBinding {
+            shortcut: "Super+R".into(),
+            target,
+        });
+        let mut engine = ShortcutEngine::from_file(&file).unwrap();
+        engine.observe(KEY_LEFT_META, true);
+        assert_eq!(
+            engine.observe(19, true),
+            ShortcutDisposition::RequestResize(KeyboardResize::ResetWidth)
+        );
+        assert_eq!(engine.observe(19, false), ShortcutDisposition::Consume);
+        assert!(
+            !ShortcutDisposition::RequestResize(KeyboardResize::ResetWidth).repeats_with_timer()
+        );
+        let encoded = serde_json::to_string(&file).unwrap();
+        let mut decoded: ShortcutFile = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(migrate_shortcut_file(&mut decoded).unwrap(), None);
+        assert_eq!(decoded.shortcuts, file.shortcuts);
     }
 
     #[test]

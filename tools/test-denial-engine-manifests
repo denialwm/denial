@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Metadata refresh regressions using disposable inputs; no engine build."""
+import importlib.machinery
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import re
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+root = Path(__file__).resolve().parents[1]
+loader = importlib.machinery.SourceFileLoader("engine_manifests", str(root / "tools/refresh-denial-engine-manifests"))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+
+class MetadataTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.repo = Path(self.temporary.name)
+        for relative in ("prebuilt/flutter-engine/SOURCE_LOCK.json",
+                         "compositor/flutter-engine/src/sys.rs",
+                         "packaging/arch/flutter-engine/manifest.json",
+                         "packaging/arch/flutter-engine/PKGBUILD",
+                         "packaging/arch/ui-development/manifest.json",
+                         "packaging/arch/ui-development/PKGBUILD"):
+            destination = self.repo / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / relative, destination)
+        self.lock = json.loads((self.repo / "prebuilt/flutter-engine/SOURCE_LOCK.json").read_text())
+        for mode in ("release", "debug", "profile"):
+            directory = self.repo / f"prebuilt/flutter-engine/linux-x64-{mode}"
+            directory.mkdir()
+            revision = self.lock["flutter"]["revision"] if mode == "release" else "0" * 40
+            (directory / "args.gn").write_text(
+                f'engine_version = "{revision}"\nskia_version = "{self.lock["skia"]["revision"]}"\n'
+                f'content_hash = "{"1" * 40}"\nis_debug = false\n')
+            (directory / "libflutter_engine.so").write_bytes(b"\x7fELF\x02\x01" + b"\0" * 12 + b"\x3e\0")
+            (directory / "libflutter_engine.so.sha256").write_text(
+                module.digest(directory / "libflutter_engine.so") + "  libflutter_engine.so\n")
+        self.flutter = self.repo / "flutter"
+        header = self.flutter / "engine/src/flutter/shell/platform/embedder/embedder.h"
+        header.parent.mkdir(parents=True)
+        header.write_text("header fixture\n")
+        self.skia = self.repo / "skia"
+
+    def command(self, *args):
+        if args[0] == "git":
+            if "status" in args:
+                return ""
+            name = "flutter" if args[2] == str(self.flutter) else "skia"
+            return self.lock[name]["revision"]
+        if args[0] == "readelf":
+            return "Build ID: " + "2" * 40
+        return "1" * 40
+
+    def refresh(self, check=False):
+        with patch.object(module, "command", side_effect=self.command):
+            module.refresh(self.repo, self.flutter, self.skia, check)
+
+    def test_refresh_and_check_are_idempotent(self):
+        self.refresh()
+        self.refresh(check=True)
+
+    def test_legacy_engines_are_not_relabelled(self):
+        self.refresh()
+        manifest = json.loads((self.repo / "packaging/arch/ui-development/manifest.json").read_text())
+        self.assertFalse(manifest["publication"]["enabled"])
+        self.assertFalse(manifest["assurances"]["development_engines_match_source_lock"])
+        self.assertEqual(manifest["artifact_provenance"]["debug"]["flutter_fork_revision"], "0" * 40)
+
+    def test_checksum_mismatch_rejected_before_writes(self):
+        manifest = self.repo / "packaging/arch/flutter-engine/manifest.json"
+        before = manifest.read_bytes()
+        (self.repo / "prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so").write_bytes(b"bad")
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            self.refresh()
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_wrong_graph_rejected(self):
+        args = self.repo / "prebuilt/flutter-engine/linux-x64-release/args.gn"
+        args.write_text(args.read_text().replace(self.lock["flutter"]["revision"], "3" * 40))
+        with self.assertRaisesRegex(ValueError, "Flutter lock"):
+            self.refresh()
+
+    def test_stale_metadata_check_does_not_write(self):
+        self.refresh()
+        path = self.repo / "packaging/arch/flutter-engine/manifest.json"
+        original = path.read_text()
+        path.write_text(original + " ")
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.refresh(check=True)
+        self.assertEqual(path.read_text(), original + " ")
+
+
+class CacheManifestTests(unittest.TestCase):
+    def test_cache_describes_only_built_modes(self):
+        script = (root / "tools/denial-flutter-engine").read_text()
+        match = re.search(r"'(\{\n.*?\})' >\"\$staging/manifest.json\"", script, re.S)
+        # The filtered manifest has its output redirection on a separate line.
+        if match is None:
+            match = re.search(r"'(\{\n.*?with_entries\(.*?\))' \\\n    >\"\$staging/manifest.json\"", script, re.S)
+        self.assertIsNotNone(match)
+        for modes in (["release"], ["release", "debug", "profile"]):
+            args = ["jq", "-n", "--argjson", "modes", json.dumps(modes)]
+            for key in ("cache_key", "source_lock_sha256", "flutter_revision", "skia_revision",
+                        "release_sha256", "debug_sha256", "profile_sha256"):
+                args += ["--arg", key, key]
+            manifest = json.loads(subprocess.check_output(args + [match[1]], text=True))
+            self.assertEqual(set(manifest["artifacts"]), set(modes))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -19,6 +19,7 @@ import '../widgets/desktop_visibility_transition.dart';
 import '../widgets/desktop_window_close_animation.dart';
 import '../widgets/desktop_window_emphasis_transition.dart';
 import '../widgets/desktop_window_reveal.dart';
+import 'desktop_held_pets.dart';
 import 'desktop_overview_preview_interaction.dart';
 import 'desktop_pixel_alignment.dart';
 import 'desktop_texture_resize.dart';
@@ -165,6 +166,7 @@ class DesktopWindowFrame extends ConsumerWidget {
     required this.onOverviewDragUpdate,
     required this.onOverviewDragEnd,
     required this.onOverviewDragCancel,
+    this.heldPets = const <DenialWindow>[],
   });
 
   final DenialWindow window;
@@ -194,6 +196,10 @@ class DesktopWindowFrame extends ConsumerWidget {
   final ValueChanged<Offset> onOverviewDragUpdate;
   final VoidCallback onOverviewDragEnd;
   final VoidCallback onOverviewDragCancel;
+
+  /// The pets the window holds (denial-pet-v1), back to front. They are drawn
+  /// with the window, inside every transform that moves it.
+  final List<DenialWindow> heldPets;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -362,86 +368,108 @@ class DesktopWindowFrame extends ConsumerWidget {
                   duration: minimizeEffectDuration,
                   curve: minimizeCurve,
                   scale: minimized ? 0.84 : 1.0,
-                  child: AnimatedDesktopPresentationOpacity(
-                    duration: minimizeEffectDuration,
-                    curve: minimizeCurve,
+                  child: DesktopHeldPets(
+                    window: window,
+                    pets: heldPets,
+                    frameBorder: placement.frameBorder,
+                    frameRadius: windowRadius,
+                    drawsServerFrame: drawsServerFrame,
                     opacity: desktopWindowPresentationOpacity(
                       transparencyMode: theme.transparencyMode,
                       minimized: minimized,
                       desktopWidget: desktopWidget,
-                      windowOpacity: windowOpacity,
+                      windowOpacity: 1.0,
                     ),
-                    child: DesktopWindowRepaintBoundary(
-                      outset: drawsServerFrame
-                          ? DesktopWindowShadowPainter.shadowOutset
-                          : 0,
-                      child: DesktopOverviewPreviewInteraction(
-                        overviewActive: overviewActive,
-                        overview: overview,
+                    duration: minimizeEffectDuration,
+                    curve: minimizeCurve,
+                    filterQuality: transformed || resizing
+                        ? FilterQuality.medium
+                        : FilterQuality.none,
+                    presentationScale: devicePixelRatio,
+                    pixelGridOrigin: pixelGridOrigin,
+                    child: AnimatedDesktopPresentationOpacity(
+                      duration: minimizeEffectDuration,
+                      curve: minimizeCurve,
+                      opacity: desktopWindowPresentationOpacity(
+                        transparencyMode: theme.transparencyMode,
+                        minimized: minimized,
                         desktopWidget: desktopWidget,
-                        dragging: placement.dragging,
-                        selected: selected,
-                        label: desktopWidget
-                            ? context.l10n.desktopRestoreWindow(
-                                localizedWindowTitle(context, window),
-                              )
-                            : context.l10n.desktopActivateWindow(
-                                localizedWindowTitle(context, window),
-                              ),
-                        onTap: onOverviewTap,
-                        onClose: onOverviewClose,
-                        onDragStart: onOverviewDragStart,
-                        onDragUpdate: onOverviewDragUpdate,
-                        onDragEnd: onOverviewDragEnd,
-                        onDragCancel: onOverviewDragCancel,
-                        child: Builder(
-                          builder: (context) {
-                            final client = _DesktopWindowContent(
-                              window: window,
-                              allowDirectLayers:
-                                  !transformed && !resizing && !minimized,
-                              smooth: transformed || resizing,
-                              active: active && !minimized,
-                              borderRadius: BorderRadius.circular(windowRadius),
-                              frameWidth: drawsServerFrame
-                                  ? DesktopMetrics.frameBorder
-                                  : 0,
-                              frameColor: Color.alphaBlend(
-                                desktopWindowBorderColor(
+                        windowOpacity: windowOpacity,
+                      ),
+                      child: DesktopWindowRepaintBoundary(
+                        outset: drawsServerFrame
+                            ? DesktopWindowShadowPainter.shadowOutset
+                            : 0,
+                        child: DesktopOverviewPreviewInteraction(
+                          overviewActive: overviewActive,
+                          overview: overview,
+                          desktopWidget: desktopWidget,
+                          dragging: placement.dragging,
+                          selected: selected,
+                          label: desktopWidget
+                              ? context.l10n.desktopRestoreWindow(
+                                  localizedWindowTitle(context, window),
+                                )
+                              : context.l10n.desktopActivateWindow(
+                                  localizedWindowTitle(context, window),
+                                ),
+                          onTap: onOverviewTap,
+                          onClose: onOverviewClose,
+                          onDragStart: onOverviewDragStart,
+                          onDragUpdate: onOverviewDragUpdate,
+                          onDragEnd: onOverviewDragEnd,
+                          onDragCancel: onOverviewDragCancel,
+                          child: Builder(
+                            builder: (context) {
+                              final client = _DesktopWindowContent(
+                                window: window,
+                                allowDirectLayers:
+                                    !transformed && !resizing && !minimized,
+                                smooth: transformed || resizing,
+                                active: active && !minimized,
+                                borderRadius: BorderRadius.circular(
+                                  windowRadius,
+                                ),
+                                frameWidth: drawsServerFrame
+                                    ? DesktopMetrics.frameBorder
+                                    : 0,
+                                frameColor: Color.alphaBlend(
+                                  desktopWindowBorderColor(
+                                    pinned: window.pinned,
+                                    active: active,
+                                    theme: theme,
+                                    inactiveColor:
+                                        context.shellColors.hairlineWindow,
+                                  ),
+                                  context.shellColors.windowFrameSurface,
+                                ),
+                                localLayoutSize: window.isLocalFlutter
+                                    ? placement.contentRect.size
+                                    : null,
+                                presentationScale: devicePixelRatio,
+                                pixelGridOrigin: pixelGridOrigin,
+                              );
+                              if (!drawsServerFrame) {
+                                return client;
+                              }
+                              return DesktopWindowFrameLayers(
+                                drawFrame: false,
+                                windowId: window.objectId,
+                                devicePixelRatio: devicePixelRatio,
+                                radius: windowRadius,
+                                frameColor:
+                                    context.shellColors.windowFrameSurface,
+                                borderColor: desktopWindowBorderColor(
                                   pinned: window.pinned,
                                   active: active,
                                   theme: theme,
                                   inactiveColor:
                                       context.shellColors.hairlineWindow,
                                 ),
-                                context.shellColors.windowFrameSurface,
-                              ),
-                              localLayoutSize: window.isLocalFlutter
-                                  ? placement.contentRect.size
-                                  : null,
-                              presentationScale: devicePixelRatio,
-                              pixelGridOrigin: pixelGridOrigin,
-                            );
-                            if (!drawsServerFrame) {
-                              return client;
-                            }
-                            return DesktopWindowFrameLayers(
-                              drawFrame: false,
-                              windowId: window.objectId,
-                              devicePixelRatio: devicePixelRatio,
-                              radius: windowRadius,
-                              frameColor:
-                                  context.shellColors.windowFrameSurface,
-                              borderColor: desktopWindowBorderColor(
-                                pinned: window.pinned,
-                                active: active,
-                                theme: theme,
-                                inactiveColor:
-                                    context.shellColors.hairlineWindow,
-                              ),
-                              child: client,
-                            );
-                          },
+                                child: client,
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -696,7 +724,7 @@ class _DesktopAnimatedWindowPositionState
     if (oldWidget.dragging && !widget.dragging) {
       final translation = ref
           .read(desktopLiveWindowPlacementsProvider)
-          .takeSettleTranslation(widget.placementObjectId);
+          .settleTranslation(widget.placementObjectId);
       _dragReleaseAnimationOrigin = translation == null
           ? null
           : oldWidget.rect.shift(translation);

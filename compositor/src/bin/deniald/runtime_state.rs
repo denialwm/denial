@@ -267,6 +267,9 @@ impl RuntimeState {
     pub(super) fn note_user_activity(&mut self) {
         let requests = self.idle_policy.note_activity(Instant::now());
         self.queue_idle_power_requests(requests);
+        if let Some(frontend) = self.wayland.as_mut() {
+            frontend.note_idle_activity();
+        }
     }
 
     pub(super) fn queue_idle_power_requests(

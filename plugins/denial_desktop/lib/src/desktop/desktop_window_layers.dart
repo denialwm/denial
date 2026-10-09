@@ -13,6 +13,9 @@ import 'desktop_popup_surface_layers.dart';
 import 'desktop_window_frame.dart';
 import 'desktop_workspace.dart';
 
+/// [heldLayers] are the pets each window holds, keyed by the window's object
+/// id (see `desktopHeldLayersByWindow`). Each window's frame draws its own,
+/// inside the transforms that move it.
 List<Widget> buildDesktopWindowLayers({
   bool desktopVisible = false,
   required List<DesktopWindowPlacement> placements,
@@ -43,6 +46,7 @@ List<Widget> buildDesktopWindowLayers({
   required ValueChanged<DenialWindow> onCancelOverviewDrag,
   Map<int, Rect> overviewEntryFrames = const <int, Rect>{},
   Map<int, Rect> overviewDepartingFrames = const <int, Rect>{},
+  Map<int, List<DenialWindow>> heldLayers = const <int, List<DenialWindow>>{},
 }) {
   final layers = <Widget>[];
   for (final placement in placements) {
@@ -166,6 +170,11 @@ List<Widget> buildDesktopWindowLayers({
         : !placement.minimized && placement.z == topZ;
     final selected =
         overview && desktop.overview?.selectedObjectId == placement.objectId;
+    // Held pets, like popups, are absent from a desktop widget and from a
+    // window leaving a closing workspace overview.
+    final held = desktopWidget || departing
+        ? const <DenialWindow>[]
+        : heldLayers[placement.objectId] ?? const <DenialWindow>[];
     layers.add(
       DesktopWindowFrame(
         key: windowFrameKeys.putIfAbsent(placement.objectId, () => GlobalKey()),
@@ -193,6 +202,7 @@ List<Widget> buildDesktopWindowLayers({
         onOverviewDragUpdate: (delta) => onUpdateOverviewDrag(window, delta),
         onOverviewDragEnd: () => onEndOverviewDrag(window),
         onOverviewDragCancel: () => onCancelOverviewDrag(window),
+        heldPets: held,
       ),
     );
     if (!desktopWidget && !departing) {

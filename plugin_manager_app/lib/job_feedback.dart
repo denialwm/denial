@@ -68,42 +68,59 @@ String legacyBuildLog(String error) {
             .trim();
 }
 
-String failureSummary(String error) {
+enum FailureKind {
+  engine,
+  version,
+  declaration,
+  panel,
+  conflict,
+  missing,
+  login,
+  worker,
+  download,
+  generic,
+  toolsUnavailable,
+}
+
+FailureKind failureKind(String error) {
   error = failureCause(error);
+  if (error.contains('Plugin tools are temporarily unavailable')) {
+    return FailureKind.toolsUnavailable;
+  }
   if (error.contains('plugin bundle needs a different engine')) {
-    return 'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.';
+    return FailureKind.engine;
   }
   if (error.contains('plugin bundle source does not match installed Denial')) {
-    return 'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.';
+    return FailureKind.version;
   }
   if (error.contains("before applying.") ||
       error.contains("compatibility declarations")) {
-    return error;
+    return FailureKind.declaration;
   }
   if (error.contains('#ShellPanel; found') &&
       !error.contains('found 0 providers')) {
-    return 'More than one desktop panel is selected. Keep one enabled, then apply again.';
+    return FailureKind.panel;
   }
   if (RegExp(r'found (?:[2-9]|[1-9][0-9]+) providers').hasMatch(error)) {
-    return 'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.';
+    return FailureKind.conflict;
   }
   if (error.contains('found 0 providers') ||
       error.contains('has no provider') ||
       error.contains('no provider is enabled')) {
-    return 'A required desktop feature is missing. Enable a plugin that provides it, then apply again.';
+    return FailureKind.missing;
   }
   if (error.contains('Log out and back')) {
-    return 'Log out and back into Denial once to finish the update. Your choices are saved.';
+    return FailureKind.login;
   }
   if (error.contains('worker exited')) {
-    return 'The background operation stopped unexpectedly. Check Activity before trying again.';
+    return FailureKind.worker;
   }
   if (error.contains('SocketException') ||
       error.contains('Could not resolve host') ||
       error.contains('Connection timed out')) {
-    return 'A download failed. Check your connection and try again.';
+    return FailureKind.download;
   }
-  return 'This change could not be completed. Open details to see the cause.';
+  return FailureKind.generic;
 }
 
 class OperationProgress {
@@ -143,20 +160,12 @@ class OperationProgress {
   final int? completed;
   final int? total;
   double? get fraction => completed == null ? null : completed! / total!;
-  String get stageDescription => total == null
-      ? 'You can close this window. We’ll keep going.'
-      : completed == total
-      ? 'Completed'
-      : 'Step ${completed! + 1} of $total · $label';
-  String get description => descriptionAt(DateTime.now());
-  String descriptionAt(DateTime now) {
-    if (started == null || completed == total && total != null) {
-      return stageDescription;
-    }
+
+  /// Elapsed time is data; localized prose and stable semantics belong to UI.
+  String? elapsedClockAt(DateTime now) {
+    if (started == null || completed == total && total != null) return null;
     final seconds = now.difference(started!).inSeconds.clamp(0, 1 << 30);
-    final clock =
-        '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
-    return '$stageDescription · $clock elapsed';
+    return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
   }
 }
 

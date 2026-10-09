@@ -5,6 +5,18 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
+/// The name announced for [candidate] by the selector's strips and gallery.
+String wallpaperCandidateLabel(
+  BuildContext context,
+  WallpaperCandidate candidate,
+) {
+  return candidate.id == 'default'
+      ? context.l10n.wallpaperDefault
+      : candidate.width > 0 && candidate.height > 0
+      ? context.l10n.wallpaperDimensions(candidate.width, candidate.height)
+      : candidate.label;
+}
+
 class WallpaperStrip extends StatefulWidget {
   const WallpaperStrip({
     super.key,
@@ -33,13 +45,7 @@ class _WallpaperStripState extends State<WallpaperStrip>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final accent = ShellTheme.of(context).accentPalette;
-    final candidate = widget.candidate;
-    final label = candidate.id == 'default'
-        ? context.l10n.wallpaperDefault
-        : candidate.width > 0 && candidate.height > 0
-        ? context.l10n.wallpaperDimensions(candidate.width, candidate.height)
-        : candidate.label;
+    final label = wallpaperCandidateLabel(context, widget.candidate);
     return LayoutBuilder(
       builder: (context, constraints) {
         final cacheHeight =
@@ -68,46 +74,60 @@ class _WallpaperStripState extends State<WallpaperStrip>
                       filterQuality: FilterQuality.high,
                       gaplessPlayback: true,
                       excludeFromSemantics: true,
-                      errorBuilder: (context, error, stackTrace) => ColoredBox(
-                        color: context.shellColors.surfaceContainerHigh,
-                        child: Icon(
-                          Icons.broken_image_rounded,
-                          color: context.shellColors.textTertiary,
-                        ),
-                      ),
+                      errorBuilder: (context, error, stackTrace) =>
+                          const WallpaperTilePlaceholder(
+                            icon: Icons.broken_image_rounded,
+                          ),
                     )
                   else
-                    ColoredBox(
-                      color: context.shellColors.surfaceContainerHigh,
-                      child: Icon(
-                        Icons.image_rounded,
-                        color: context.shellColors.textTertiary,
-                      ),
-                    ),
+                    const WallpaperTilePlaceholder(icon: Icons.image_rounded),
                   if (widget.downloading)
-                    ColoredBox(
-                      color: context.shellColors.overviewScrim,
-                      child: Center(
-                        child: SizedBox.square(
-                          dimension: 42,
-                          child: CircularProgressIndicator(
-                            value: widget.downloadProgress > 0.0
-                                ? widget.downloadProgress
-                                : null,
-                            color: accent.primary,
-                            backgroundColor:
-                                context.shellColors.surfaceContainerHighest,
-                            strokeWidth: 4,
-                          ),
-                        ),
-                      ),
-                    ),
+                    WallpaperDownloadOverlay(progress: widget.downloadProgress),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Fills a wallpaper tile whose preview is missing or failed to decode.
+class WallpaperTilePlaceholder extends StatelessWidget {
+  const WallpaperTilePlaceholder({super.key, required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: context.shellColors.surfaceContainerHigh,
+      child: Icon(icon, color: context.shellColors.textTertiary),
+    );
+  }
+}
+
+class WallpaperDownloadOverlay extends StatelessWidget {
+  const WallpaperDownloadOverlay({super.key, required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: context.shellColors.overviewScrim,
+      child: Center(
+        child: SizedBox.square(
+          dimension: 42,
+          child: CircularProgressIndicator(
+            value: progress > 0.0 ? progress : null,
+            color: ShellTheme.of(context).accentPalette.primary,
+            backgroundColor: context.shellColors.surfaceContainerHighest,
+            strokeWidth: 4,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -4,6 +4,8 @@
 # requires zwlr-layer-shell. Denial does not expose layer-shell yet, so use a
 # regular xdg-shell Zenity window instead. In dmenu mode, xdpw writes its valid
 # sources to the chooser's stdin and reads the selected source from stdout.
+# xdpw waits synchronously for the chooser. Prevent GTK from calling back into
+# the portal while it is waiting, which can deadlock screen-capture setup.
 [screencast]
 chooser_type=dmenu
-chooser_cmd=zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320
+chooser_cmd=GDK_DEBUG=no-portals zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320

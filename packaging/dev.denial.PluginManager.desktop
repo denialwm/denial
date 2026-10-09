@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Plugins
+Name[zh_CN]=插件
 Comment=Manage Denial desktop plugins
+Comment[zh_CN]=管理 Denial 桌面插件
 Exec=/usr/bin/denial-plugin-manager
 TryExec=/usr/bin/denial-plugin-manager
 Icon=preferences-desktop

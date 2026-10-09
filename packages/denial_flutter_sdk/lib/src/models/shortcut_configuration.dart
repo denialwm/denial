@@ -9,6 +9,7 @@ enum DenialShortcutAction {
   resizeGrowHeight,
   resizeShrinkHeight,
   resetWindowHeight,
+  resetWindowWidth,
 
   windowSwitcher,
   openClipboard,

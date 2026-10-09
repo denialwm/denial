@@ -440,6 +440,101 @@ fn configure_window_distinguishes_layout_drops_from_exact_geometry() {
     ));
 }
 
+fn pet_request(args: fb::PetRequestArgs) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let request = fb::PetRequest::create(&mut builder, &args);
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 4,
+            request_id: 0,
+            payload_type: fb::Payload::PetRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn pet_requests_carry_the_shells_hold_and_velocity() {
+    let mut bridge = bridge();
+    let hold = pet_request(fb::PetRequestArgs {
+        kind: fb::PetRequestKind::Hold,
+        pet_id: 5,
+        window_id: 9,
+        hold: 1,
+        share: 0.25,
+        ..Default::default()
+    });
+    let free = pet_request(fb::PetRequestArgs {
+        kind: fb::PetRequestKind::Hold,
+        pet_id: 5,
+        ..Default::default()
+    });
+    let carried = pet_request(fb::PetRequestArgs {
+        kind: fb::PetRequestKind::Carried,
+        pet_id: 5,
+        velocity_x: -120.0,
+        velocity_y: 30.5,
+        ..Default::default()
+    });
+    for request in [&hold, &free, &carried] {
+        assert!(bridge.handle(request).unwrap().is_none());
+    }
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![
+            WindowCommand::HoldPet {
+                pet_id: 5,
+                hold: Some((9, 1, 0.25)),
+            },
+            WindowCommand::HoldPet {
+                pet_id: 5,
+                hold: None,
+            },
+            WindowCommand::CarryPet {
+                pet_id: 5,
+                velocity_x: -120.0,
+                velocity_y: 30.5,
+            },
+        ]
+    );
+}
+
+#[test]
+fn pet_requests_reject_malformed_values() {
+    let mut bridge = bridge();
+    let rejected = [
+        // No pet.
+        fb::PetRequestArgs {
+            kind: fb::PetRequestKind::Carried,
+            ..Default::default()
+        },
+        // A share beyond the edge.
+        fb::PetRequestArgs {
+            kind: fb::PetRequestKind::Hold,
+            pet_id: 5,
+            window_id: 9,
+            hold: 1,
+            share: 1.5,
+            ..Default::default()
+        },
+        // An endless velocity.
+        fb::PetRequestArgs {
+            kind: fb::PetRequestKind::Carried,
+            pet_id: 5,
+            velocity_x: f64::INFINITY,
+            ..Default::default()
+        },
+    ];
+    for args in rejected {
+        assert!(bridge.handle(&pet_request(args)).is_err());
+    }
+    assert_eq!(bridge.drain_window_commands().count(), 0);
+}
+
 fn input_layout(
     shell_regions: &[fb::WireRect],
     windows: &[fb::InputWindowRegion],
@@ -939,6 +1034,7 @@ fn scene_window(id: u64) -> WindowDescription {
         opacity: 1.0,
         content_kind: WindowContentKind::SurfaceTree,
         opacity_class: WindowOpacityClass::FullyOpaque,
+        pet: None,
     }
 }
 
@@ -1127,4 +1223,87 @@ fn plugin_action_transport_preserves_catalog_ids_and_generations() {
     assert_eq!(invocation.generation(), 42);
     assert_eq!(invocation.id(), Some("external.run"));
     assert_eq!(invocation.monitor_id(), 9);
+}
+
+#[test]
+fn reset_width_shortcut_schema_decodes_and_encodes_without_changing_height_id() {
+    assert_eq!(fb::ShortcutActionKind::ResetWindowHeight.0, 58);
+    assert_eq!(fb::ShortcutActionKind::ResetWindowWidth.0, 59);
+    let mut bridge = bridge();
+    let mut builder = FlatBufferBuilder::new();
+    let text = builder.create_string("Super+R");
+    let target = fb::ShortcutDenialActionTarget::create(
+        &mut builder,
+        &fb::ShortcutDenialActionTargetArgs {
+            action: fb::ShortcutActionKind::ResetWindowWidth,
+        },
+    );
+    let binding = fb::ShortcutBinding::create(
+        &mut builder,
+        &fb::ShortcutBindingArgs {
+            shortcut: Some(text),
+            target_type: fb::ShortcutTarget::ShortcutDenialActionTarget,
+            target: Some(target.as_union_value()),
+        },
+    );
+    let request = fb::SettingsRequest::create(
+        &mut builder,
+        &fb::SettingsRequestArgs {
+            kind: fb::SettingsRequestKind::ValidateShortcut,
+            shortcut: Some(binding),
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 1,
+            request_id: 17,
+            payload_type: fb::Payload::SettingsRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    assert!(bridge.handle(builder.finished_data()).unwrap().is_none());
+    let binding = ShortcutBinding {
+        shortcut: "Super+R".into(),
+        target: ShortcutTarget::DenialAction {
+            action: ShortcutAction::ResetWindowWidth,
+        },
+    };
+    assert_eq!(
+        bridge.drain_settings_commands().collect::<Vec<_>>(),
+        vec![SettingsCommand::ValidateShortcut {
+            request_id: 17,
+            shortcut: binding.clone(),
+            existing_shortcut: None,
+        }]
+    );
+    let bytes = bridge
+        .encode_shortcut_configuration_response(
+            17,
+            1,
+            &[binding],
+            &[],
+            &crate::plugin_actions::ActionCatalog::default(),
+            None,
+        )
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let configuration = envelope
+        .payload_as_settings_response()
+        .unwrap()
+        .shortcuts()
+        .unwrap();
+    assert_eq!(
+        configuration
+            .shortcuts()
+            .unwrap()
+            .get(0)
+            .target_as_shortcut_denial_action_target()
+            .unwrap()
+            .action(),
+        fb::ShortcutActionKind::ResetWindowWidth
+    );
 }

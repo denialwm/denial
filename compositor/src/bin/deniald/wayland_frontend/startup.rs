@@ -41,9 +41,13 @@ impl WaylandFrontend {
         #[cfg(feature = "flutter")]
         insets::init(&display_handle);
         #[cfg(feature = "flutter")]
+        pet::init(&display_handle);
+        #[cfg(feature = "flutter")]
         crate::fingerprint_presentation::init(&display_handle);
         #[cfg(feature = "flutter")]
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
+        #[cfg(feature = "flutter")]
+        let idle_notifier = idle_notify::new(&display_handle, loop_handle.clone());
         let output_power = OutputPowerManager::new(&display_handle);
         let gamma_control = gamma_control::GammaControlManager::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
@@ -55,7 +59,7 @@ impl WaylandFrontend {
             info!("advertising linux-drm-syncobj-v1 explicit synchronization");
             Some(DrmSyncobjState::new::<RuntimeState>(
                 &display_handle,
-                drm_device,
+                drm_device.clone(),
             ))
         } else {
             warn!("DRM syncobj eventfd is unavailable; retaining implicit DMA-BUF synchronization");
@@ -148,13 +152,11 @@ impl WaylandFrontend {
                 .ok_or("Wayland output is missing from the atlas plan")?;
             let output = Output::new(
                 spec.name.clone(),
-                PhysicalProperties {
-                    size: (0, 0).into(),
-                    subpixel: Subpixel::Unknown,
-                    make: "Denial".into(),
-                    model: spec.name.clone(),
-                    serial_number: format!("connector-{}", spec.id.0),
-                },
+                output_metadata::resolve(
+                    output_metadata::read(&drm_device, spec.id, &spec.name),
+                    None,
+                    &spec.name,
+                ),
             );
             configure_output(&output, spec)?;
             let global = output.create_global::<RuntimeState>(&display_handle);
@@ -274,6 +276,7 @@ impl WaylandFrontend {
         }
         let libinput = init_libinput(event_loop, session.clone(), seat_name)?;
         Ok(Self {
+            output_metadata_device: drm_device,
             start_time: Instant::now(),
             socket_name,
             loop_handle,
@@ -472,6 +475,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             frame_timeline,
             #[cfg(feature = "flutter")]
+            pets: Default::default(),
+            #[cfg(feature = "flutter")]
             mobile_shell: denial_core::environment::var("DENIAL_SHELL_PROFILE").as_deref()
                 == Ok("mobile"),
             #[cfg(feature = "flutter")]
@@ -480,6 +485,8 @@ impl WaylandFrontend {
             idle_inhibition_dirty: true,
             #[cfg(feature = "flutter")]
             idle_inhibition_cached: false,
+            #[cfg(feature = "flutter")]
+            idle_notifier,
             output_power,
             gamma_control,
             screencopy,

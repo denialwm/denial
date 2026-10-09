@@ -1169,6 +1169,8 @@ impl WaylandFrontend {
                 .map(|window| (window.window_id, window))
                 .collect::<HashMap<_, _>>()
         });
+        // Pets whose windows went go back to their own place first.
+        self.settle_pets();
         let mut windows = std::mem::take(&mut self.scene_windows_scratch);
         let mut textures = std::mem::take(&mut self.scene_textures_scratch);
         textures.clear();
@@ -1476,6 +1478,7 @@ impl WaylandFrontend {
                 surfaces: layers,
                 content_kind: client_surface_content_kind(protocol_facts.override_redirect),
                 opacity_class,
+                pet: None,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1582,6 +1585,7 @@ impl WaylandFrontend {
                 surfaces,
                 content_kind: WindowContentKind::LocalFlutter,
                 opacity_class: WindowOpacityClass::FullyOpaque,
+                pet: None,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1720,8 +1724,12 @@ impl WaylandFrontend {
                     },
                 );
                 let local_geometry = layer.geometry();
-                let global_location =
-                    saturating_point_add(output.logical_geometry.loc, layer_geometry.loc);
+                let arranged = Rectangle::new(
+                    saturating_point_add(output.logical_geometry.loc, layer_geometry.loc),
+                    layer_geometry.size,
+                );
+                // A pet may be dragged, dropped or held away from its margins.
+                let (global_location, pet) = self.pet_presentation(&layer, arranged);
                 let description = WindowDescription {
                     object_id: stable_id,
                     surface_id: stable_id,
@@ -1739,8 +1747,8 @@ impl WaylandFrontend {
                     texture_source_y,
                     texture_source_width,
                     texture_source_height,
-                    geometry_x: f64::from(global_location.x) - self.atlas_origin.x,
-                    geometry_y: f64::from(global_location.y) - self.atlas_origin.y,
+                    geometry_x: global_location.x - self.atlas_origin.x,
+                    geometry_y: global_location.y - self.atlas_origin.y,
                     geometry_width: f64::from(layer_geometry.size.w),
                     geometry_height: f64::from(layer_geometry.size.h),
                     monitor_id: i64::try_from(output.id.0).unwrap_or(-1),
@@ -1762,6 +1770,7 @@ impl WaylandFrontend {
                     surfaces: layers,
                     content_kind: layer_shell_content_kind(layer.layer()),
                     opacity_class: WindowOpacityClass::ContentTranslucent,
+                    pet,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;
@@ -1903,6 +1912,7 @@ impl WaylandFrontend {
                     surfaces: layers,
                     content_kind: WindowContentKind::PopupSurface,
                     opacity_class: WindowOpacityClass::ContentTranslucent,
+                    pet: None,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;

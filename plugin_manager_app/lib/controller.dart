@@ -55,10 +55,7 @@ class ManagerController extends ChangeNotifier {
     ...object(state['declarations']),
   });
   List<Map<String, Object?>> get compatibilityIssues => [
-    if (draft.stale)
-      {
-        'message': 'The selection changed elsewhere. Discard your draft to load the latest selection.',
-      },
+    if (draft.stale) {'code': 'stale_selection'},
     ...objects(preflight['issues']),
   ];
   bool get canApply =>
@@ -88,26 +85,6 @@ class ManagerController extends ChangeNotifier {
   /// Plugins asked for it, so the shell switches as soon as it is built.
   List<String> get applyOperation =>
       pendingRebuild != null ? const ['rebuild', '--now'] : const ['apply'];
-
-  String? get applyLabel => !needsApply
-      ? null
-      : pendingRebuild != null
-      ? 'Rebuild plugins'
-      : draft.dirty
-      ? 'Apply changes'
-      : 'Apply pending actions';
-
-  String get applyDescription {
-    if (pendingRebuild case final rebuild?) {
-      return '${rebuildIntroduction(rebuild)} Rebuild your plugins to bring '
-          'them back, with all their settings. No need to log out.';
-    }
-    return draft.dirty
-        ? selectionNeedsApply(state)
-              ? 'Apply your selection changes and pending updates to your desktop.'
-              : 'Apply your plugin selection changes to your desktop.'
-        : 'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.';
-  }
 
   void _schedulePoll() {
     _timer?.cancel();

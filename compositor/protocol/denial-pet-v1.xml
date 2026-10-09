@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_pet_v1">
+  <copyright>
+    Copyright 2026 Denial contributors
+    SPDX-License-Identifier: MIT
+  </copyright>
+  <description summary="desktop pets that the user can give to a window">
+    A pet is a layer surface the user can drag onto a window's edge or
+    corner. The window then carries it: the pet moves, hides and shows with
+    the window until the window lets go of it.
+
+    The compositor and its shell do all the geometry. A pet says which point
+    of it holds on, what may hold it and how it is stacked; it never learns
+    where any window is, how big, which one or whose. It is given a window
+    only where the user drops it, after a drag the compositor runs from a
+    press on the pet, so it cannot probe for windows by itself. While held,
+    its layer surface's anchors and margins are ignored, so it cannot move
+    itself.
+
+    Version 2 lets a pet watch the pointer: it learns which way the pointer
+    is from it, never how far.
+
+    Version 3 tells a pet how fast the user drags it, so it can sway as it
+    is carried about. With it, the pet can work out roughly where it was
+    dropped, and so roughly where the window that holds it is.
+  </description>
+
+  <interface name="denial_pet_manager_v1" version="3">
+    <description summary="turns layer surfaces into pets"/>
+    <enum name="error">
+      <entry name="role" value="1"
+             summary="the wl_surface is not a layer surface"/>
+      <entry name="already_constructed" value="2"
+             summary="the wl_surface already has a pet object"/>
+    </enum>
+    <request name="get_pet">
+      <description summary="make a layer surface a pet">
+        The surface must have the zwlr_layer_surface_v1 role. Until the pet
+        is held, the layer surface is placed by its own anchors and margins
+        as before.
+      </description>
+      <arg name="id" type="new_id" interface="denial_pet_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="release this manager binding">
+        Existing pet objects remain valid.
+      </description>
+    </request>
+  </interface>
+
+  <interface name="denial_pet_v1" version="3">
+    <description summary="a layer surface the user can give to a window"/>
+    <enum name="hold">
+      <description summary="what can hold a pet">
+        Edges and corners of a window's frame as the user sees it, including
+        any decorations the compositor draws. Each is a single bit, so that
+        set_holds can take several.
+      </description>
+      <entry name="top" value="1" summary="a window's top edge"/>
+      <entry name="bottom" value="2" summary="a window's bottom edge"/>
+      <entry name="left" value="4" summary="a window's left edge"/>
+      <entry name="right" value="8" summary="a window's right edge"/>
+      <entry name="top_left" value="16" summary="a window's top left corner"/>
+      <entry name="top_right" value="32" summary="a window's top right corner"/>
+      <entry name="bottom_left" value="64" summary="a window's bottom left corner"/>
+      <entry name="bottom_right" value="128" summary="a window's bottom right corner"/>
+    </enum>
+    <enum name="stacking">
+      <entry name="above" value="0"
+             summary="just above its window, below the window's popups"/>
+      <entry name="below" value="1"
+             summary="just below its window, which hides what of the pet it covers"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="the surface is a plain layer surface again">
+        A held pet is let go and goes back to its anchors and margins.
+      </description>
+    </request>
+    <request name="set_anchor">
+      <description summary="the point of the pet that holds on">
+        In surface-local logical coordinates. A window holds the pet by this
+        point, so it stays put when the surface resizes; it is also the point
+        that snaps to a window while the user drags the pet. It takes effect
+        at once. The default is the middle of the surface's bottom edge.
+      </description>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+    </request>
+    <request name="set_holds">
+      <description summary="what may hold the pet">
+        A bitfield of hold values, or-ed together. The default is none: the
+        pet is never held. It applies to the next drag. Unknown bits are
+        ignored.
+      </description>
+      <arg name="holds" type="uint"/>
+    </request>
+    <request name="set_stacking">
+      <description summary="how the pet is stacked while held">
+        The default is above.
+      </description>
+      <arg name="stacking" type="uint" enum="stacking"/>
+    </request>
+    <request name="move">
+      <description summary="the user drags the pet">
+        Send this from a pointer button press on the pet, with the press's
+        serial. The compositor then moves the pet with the pointer, and the
+        pet gets no pointer events until the button is released. A serial
+        that is not a current press on the pet is ignored. The drag ends in
+        a placed or a held event.
+      </description>
+      <arg name="seat" type="object" interface="wl_seat"/>
+      <arg name="serial" type="uint"/>
+    </request>
+    <request name="watch_pointer" since="2">
+      <description summary="the pet wants to know where the pointer is">
+        From now on the pet is sent pointer events: which way the pointer is
+        from its anchor, about once a second, when that changes.
+      </description>
+    </request>
+    <request name="ignore_pointer" since="2">
+      <description summary="the pet stops watching the pointer">
+        No more pointer events are sent. Watching is off by default.
+      </description>
+    </request>
+
+    <event name="placed">
+      <description summary="the user let the pet go free">
+        Where the pet's top left now is, in logical pixels from its output's
+        top left; it may be outside that output, on another one. The pet
+        stays there until it sets new layer surface anchors or margins, and
+        should set ones that keep it there.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+    </event>
+    <event name="held">
+      <description summary="the user let the pet go on a window">
+        Which kind of hold has it: one of the values it accepts. Nothing more
+        is told about the window.
+      </description>
+      <arg name="hold" type="uint" enum="hold"/>
+    </event>
+    <event name="carried">
+      <description summary="its window, or the user, is moving it">
+        The velocity at which the held pet moves on screen because its window
+        moves, resizes or is animated, in logical pixels per second, x to the
+        right and y down. Sent while it changes, at most once a frame or so;
+        zero when it stops.
+
+        Before version 3, nothing is sent while the user drags the pet. From
+        version 3, it is also sent while the user drags it, as the pointer
+        moves it, and zero before it is placed or held. With it the pet can
+        work out roughly where it was dropped.
+      </description>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+    </event>
+    <event name="released">
+      <description summary="its window let go of the pet">
+        The window closed, maximized or went fullscreen. The pet is back at
+        its anchors and margins.
+      </description>
+    </event>
+    <event name="pointer" since="2">
+      <description summary="which way the pointer is">
+        The direction from the pet's anchor to the pointer, as the user sees
+        them: a unit vector, x to the right and y down. Never how far it is,
+        so the pet cannot tell where the pointer is. Sent while the pet
+        watches the pointer, at most about once a second, when the direction
+        has changed. Nothing is sent while the user drags the pet, or while
+        the pointer is on its anchor.
+      </description>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+    </event>
+  </interface>
+</protocol>

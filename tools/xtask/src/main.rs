@@ -1339,6 +1339,7 @@ fn build_ui_workspace_template(
         "plugins/denial_desktop",
         "plugins/denial_launcher",
         "plugins/denial_clock",
+        "plugins/denial_pets",
         "docs/UI_DEVELOPMENT.md",
         "protocol/generated/dart",
     ]);

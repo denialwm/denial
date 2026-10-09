@@ -1,5 +1,5 @@
 {
-  "source_sha256": "7082190d29e181d2af8203093da5c0b7e535bca5b464b4d3f6cddcf5c14fd5c9",
+  "source_sha256": "197b40e8fbe08df5bf759bb17cf72b66715f6f23084ba1373ec513cc98ac1b2a",
   "packages": {
     "_fe_analyzer_shared": {
       "dependency": "transitive",
@@ -191,6 +191,15 @@
       "dependency": "direct main",
       "description": {
         "path": "../plugins/denial_launcher",
+        "relative": true
+      },
+      "source": "path",
+      "version": "0.0.0"
+    },
+    "denial_pets": {
+      "dependency": "direct main",
+      "description": {
+        "path": "../plugins/denial_pets",
         "relative": true
       },
       "source": "path",

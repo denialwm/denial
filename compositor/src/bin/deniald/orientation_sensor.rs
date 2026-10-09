@@ -39,6 +39,22 @@ impl Orientation {
         }
     }
 
+    /// Service loss and unknown readings are not an instruction to return to
+    /// natural orientation. Keep the last valid reading for later unlocking.
+    pub(super) fn update_rotation(self, latest: &mut OutputTransform) {
+        if self != Self::Undefined {
+            *latest = self.output_rotation();
+        }
+    }
+
+    /// Coalescing must not let a service-loss marker erase a valid reading
+    /// already queued during the same calloop dispatch.
+    pub(super) fn update_pending(self, pending: &mut Option<Self>) {
+        if self != Self::Undefined {
+            *pending = Some(self);
+        }
+    }
+
     fn parse(value: &str) -> Self {
         match value {
             "normal" => Self::Normal,
@@ -48,6 +64,15 @@ impl Orientation {
             _ => Self::Undefined,
         }
     }
+}
+
+/// Select policy independently of renderer readiness: deferred applications
+/// still retain the latest observation, while a lock retains the applied one.
+pub(super) fn select_rotation(
+    latest: OutputTransform,
+    locked: Option<OutputTransform>,
+) -> OutputTransform {
+    locked.unwrap_or(latest)
 }
 
 pub(super) struct OrientationSensor {
@@ -161,6 +186,31 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_lock_coalescing_keeps_valid_reading_before_service_loss() {
+        let mut pending = None;
+        Orientation::Undefined.update_pending(&mut pending);
+        assert_eq!(pending, None);
+        Orientation::LeftUp.update_pending(&mut pending);
+        Orientation::RightUp.update_pending(&mut pending);
+        Orientation::Undefined.update_pending(&mut pending);
+        assert_eq!(pending, Some(Orientation::RightUp));
+    }
+
+    #[test]
+    fn rotation_lock_keeps_latest_valid_reading_for_unlock() {
+        let frozen = OutputTransform::Rotate90;
+        let mut latest = frozen;
+        Orientation::BottomUp.update_rotation(&mut latest);
+        assert_eq!(select_rotation(latest, Some(frozen)), frozen);
+        Orientation::RightUp.update_rotation(&mut latest);
+        Orientation::Undefined.update_rotation(&mut latest);
+        assert_eq!(select_rotation(latest, Some(frozen)), frozen);
+        assert_eq!(select_rotation(latest, None), OutputTransform::Rotate270);
+        Orientation::Normal.update_rotation(&mut latest);
+        assert_eq!(select_rotation(latest, None), OutputTransform::Normal);
+    }
 
     #[test]
     fn physical_edge_orientation_uses_wayland_rotation_direction() {

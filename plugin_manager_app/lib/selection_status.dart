@@ -23,13 +23,13 @@ Map<String, Object?>? pluginRebuild(Map<String, Object?> state) {
       : null;
 }
 
-/// Plain words for the update the plugins are rebuilt for. A development
-/// build identity is never presented as a release.
-String rebuildIntroduction(Map<String, Object?> rebuild) {
+/// The release version the plugins are rebuilt for, or null for a development
+/// build. Presentation supplies the localized update introduction.
+String? rebuildVersion(Map<String, Object?> rebuild) {
   final version = rebuild['version'];
   return version is String && RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version)
-      ? 'Denial $version is installed.'
-      : 'Denial was updated.';
+      ? version
+      : null;
 }
 
 bool selectionNeedsApply(Map<String, Object?> state) {

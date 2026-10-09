@@ -1,3 +1,5 @@
+use super::output_metadata;
+use std::collections::BTreeMap;
 use std::error::Error;
 
 use denial_core::topology::{
@@ -5,7 +7,7 @@ use denial_core::topology::{
 };
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::desktop::{Window, layer_map_for_output};
-use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
+use smithay::output::{Mode, Output, Scale};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Size, Transform};
@@ -182,6 +184,17 @@ impl WaylandFrontend {
         self.arrange_layout_windows();
     }
 
+    /// Native identity can change without any mode/CRTC/layout change (late
+    /// EDID or a different monitor on the same connector).
+    pub fn output_metadata_changed(&self) -> bool {
+        self.outputs.iter().any(|entry| {
+            output_metadata::read(&self.output_metadata_device, entry.id, &entry.connector)
+                .is_some_and(|native| {
+                    !output_metadata::same(&entry.output.physical_properties(), &native)
+                })
+        })
+    }
+
     pub fn update_topology(
         &mut self,
         snapshot: &TopologySnapshot,
@@ -232,35 +245,85 @@ impl WaylandFrontend {
             })
             .collect::<Vec<_>>();
 
+        // Read once per reconciliation, including retained connector IDs. A
+        // monitor replacement or late EDID must not keep stale immutable data.
+        let metadata = snapshot
+            .outputs
+            .iter()
+            .map(|spec| {
+                (
+                    spec.id,
+                    output_metadata::resolve(
+                        output_metadata::read(&self.output_metadata_device, spec.id, &spec.name),
+                        self.outputs
+                            .iter()
+                            .find(|entry| entry.id == spec.id && entry.connector == spec.name)
+                            .map(|entry| entry.output.physical_properties()),
+                        &spec.name,
+                    ),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let mut replacements = BTreeMap::new();
+        let mut retired_outputs = Vec::new();
         let mut index = 0;
         while index < self.outputs.len() {
             let current = &self.outputs[index];
-            let retained = snapshot
-                .outputs
-                .iter()
-                .any(|spec| spec.id == current.id && spec.name == current.connector);
+            let retained = snapshot.outputs.iter().any(|spec| {
+                spec.id == current.id
+                    && spec.name == current.connector
+                    && output_metadata::same(
+                        &current.output.physical_properties(),
+                        &metadata[&spec.id],
+                    )
+            });
             if retained {
                 index += 1;
                 continue;
             }
 
+            let metadata_only = snapshot
+                .outputs
+                .iter()
+                .any(|spec| spec.id == current.id && spec.name == current.connector);
             let removed_id = current.id;
-            self.fail_output_power(removed_id);
-            self.gamma_control_failed(removed_id);
+            if !metadata_only {
+                self.fail_output_power(removed_id);
+                self.gamma_control_failed(removed_id);
+            }
             self.fail_screencopies_for_output(removed_id);
             let removed = self.outputs.swap_remove(index);
             {
                 let mut map = layer_map_for_output(&removed.output);
                 let layers = map.layers().cloned().collect::<Vec<_>>();
-                for layer in layers {
-                    map.unmap_layer(&layer);
-                    layer.layer_surface().send_close();
+                for layer in &layers {
+                    map.unmap_layer(layer);
+                    if !metadata_only {
+                        layer.layer_surface().send_close();
+                    }
+                }
+                if metadata_only {
+                    replacements.insert(removed_id, (removed.powered, layers));
                 }
             }
             removed.output.leave_all();
             self.space.unmap_output(&removed.output);
+            // Keep disabled globals alive briefly for in-flight binds.
             self.display_handle
-                .remove_global::<RuntimeState>(removed.global);
+                .disable_global::<RuntimeState>(removed.global.clone());
+            let display = self.display_handle.clone();
+            let global = removed.global;
+            self.loop_handle.insert_source(
+                smithay::reexports::calloop::timer::Timer::from_duration(
+                    std::time::Duration::from_secs(5),
+                ),
+                move |_, _, _| {
+                    display.remove_global::<RuntimeState>(global.clone());
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                },
+            )?;
+            retired_outputs.push(removed.output.clone());
             info!(output = removed.output.name(), "removed Wayland output");
         }
 
@@ -286,20 +349,21 @@ impl WaylandFrontend {
                 continue;
             }
 
-            let output = Output::new(
-                spec.name.clone(),
-                PhysicalProperties {
-                    size: (0, 0).into(),
-                    subpixel: Subpixel::Unknown,
-                    make: "Denial".into(),
-                    model: spec.name.clone(),
-                    serial_number: format!("connector-{}", spec.id.0),
-                },
-            );
+            let output = Output::new(spec.name.clone(), metadata[&spec.id].clone());
             configure_output(&output, spec)?;
             let global = output.create_global::<RuntimeState>(&self.display_handle);
             self.space
                 .map_output(&output, (spec.position.x, spec.position.y));
+            let powered = if let Some((powered, layers)) = replacements.remove(&spec.id) {
+                // Smithay's physical properties are immutable. Rebind the
+                // global, but don't treat new metadata as a physical unplug.
+                for layer in layers {
+                    layer_map_for_output(&output).map_layer(&layer)?;
+                }
+                powered
+            } else {
+                true
+            };
             info!(output = spec.name, "added Wayland output");
             self.outputs.push(WaylandOutput {
                 id: spec.id,
@@ -310,7 +374,7 @@ impl WaylandFrontend {
                 logical_geometry: output_logical_bounds(spec),
                 capture_source,
                 capture_size,
-                powered: true,
+                powered,
             });
         }
         self.outputs.sort_by_key(|entry| entry.id);
@@ -364,6 +428,28 @@ impl WaylandFrontend {
                     &new_output_geometries,
                 )
             };
+            // A replacement global can leave fullscreen state referring to
+            // the retired wl_output even when logical geometry is unchanged.
+            if let Some(toplevel) = record.window.toplevel() {
+                let mut retired_fullscreen_reference = false;
+                toplevel.with_pending_state(|pending| {
+                    if pending
+                        .fullscreen_output
+                        .as_ref()
+                        .is_some_and(|old| retired_outputs.iter().any(|output| output.owns(old)))
+                    {
+                        pending.fullscreen_output = None;
+                        retired_fullscreen_reference = true;
+                    }
+                });
+                if retired_fullscreen_reference && target == record.geometry {
+                    if toplevel.is_initial_configure_sent() {
+                        toplevel.send_configure();
+                    } else {
+                        toplevel.send_pending_configure();
+                    }
+                }
+            }
             if target == record.geometry {
                 continue;
             }

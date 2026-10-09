@@ -125,7 +125,7 @@ fn start_orientation_sensor(
                 .handle()
                 .insert_source(source, |event, _, state: &mut RuntimeState| {
                     if let ChannelEvent::Msg(orientation) = event {
-                        state.pending_orientation = Some(orientation);
+                        orientation.update_pending(&mut state.pending_orientation);
                     }
                 })?;
             Ok(Some(sensor))
@@ -2198,7 +2198,14 @@ fn apply_pending_sensor_orientation(
     events: &mut RuntimeState,
     now: Instant,
 ) -> Result<(), Box<dyn Error>> {
-    if pending_sensor_rotation == output_configuration.sensor_rotation
+    let requested_rotation = orientation_sensor::select_rotation(
+        pending_sensor_rotation,
+        events
+            .wayland
+            .as_ref()
+            .and_then(|frontend| frontend.settings.locked_sensor_rotation()),
+    );
+    if requested_rotation == output_configuration.sensor_rotation
         || scheduler.has_pending_scanout_work()
         || flutter.as_ref().is_none_or(|runtime| {
             runtime.output_rotation_animation_active()
@@ -2215,14 +2222,17 @@ fn apply_pending_sensor_orientation(
         swapchain,
         topology,
         output_configuration,
-        pending_sensor_rotation,
+        requested_rotation,
         events,
         flutter
             .as_mut()
             .ok_or("Flutter runtime disappeared during automatic orientation")?,
     )?;
     if let Some(pending) = active_output_confirmation.as_mut() {
-        pending.rollback_configuration.sensor_rotation = pending_sensor_rotation;
+        pending.rollback_configuration.sensor_rotation = requested_rotation;
+    }
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.settings.current_sensor_rotation = output_configuration.sensor_rotation;
     }
     frame_scheduler.reconfigure(scanouts, now);
     Ok(())
@@ -2638,8 +2648,11 @@ pub(super) fn run_flutter_event_loop(
                 .idle_policy
                 .next_deadline()
                 .is_some_and(|deadline| iteration_now >= deadline);
+        if let Some(frontend) = events.wayland.as_mut() {
+            frontend.settings.current_sensor_rotation = output_configuration.sensor_rotation;
+        }
         if let Some(orientation) = events.pending_orientation.take() {
-            pending_sensor_rotation = orientation.output_rotation();
+            orientation.update_rotation(&mut pending_sensor_rotation);
             debug!(?orientation, rotation = ?pending_sensor_rotation, "observed device orientation");
         }
         if acknowledge_render_events(
@@ -2886,7 +2899,15 @@ pub(super) fn run_flutter_event_loop(
                 &mut events,
                 event_loop,
             )? {
-                OutputTopologyObservation::Stable => {}
+                OutputTopologyObservation::Stable => {
+                    // EDID may arrive late or change with no mode/CRTC change.
+                    // Publish it without rebuilding KMS/Flutter scanouts.
+                    if let Some(frontend) = events.wayland.as_mut()
+                        && frontend.output_metadata_changed()
+                    {
+                        frontend.update_topology(&topology.snapshot())?;
+                    }
+                }
                 OutputTopologyObservation::WaitingForOutputs => continue,
                 OutputTopologyObservation::Reconfigure(observed) => {
                     apply_observed_output_topology(

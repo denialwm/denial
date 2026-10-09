@@ -8,3 +8,5 @@ plugins:
     default: true
   - path: denial_clock
     default: true
+  - path: denial_pets
+    default: true

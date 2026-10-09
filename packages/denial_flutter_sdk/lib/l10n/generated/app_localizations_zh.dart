@@ -3436,6 +3436,37 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wallpaperImageServerUnavailable => '在线壁纸不可用。本地壁纸仍可使用。';
 
   @override
+  String get wallpaperPreviousPage => '上一页壁纸';
+
+  @override
+  String get wallpaperNextPage => '下一页壁纸';
+
+  @override
+  String wallpaperPageNumber(int page) {
+    return '第 $page 页';
+  }
+
+  @override
+  String wallpaperPageOfTotal(int page, int total) {
+    return '第 $page 页，共 $total 页';
+  }
+
+  @override
+  String get wallpaperLayout => '预览布局';
+
+  @override
+  String get wallpaperLayoutGallery => '画廊';
+
+  @override
+  String get wallpaperLayoutGalleryDescription => '显示完整壁纸预览';
+
+  @override
+  String get wallpaperLayoutStrips => '条带';
+
+  @override
+  String get wallpaperLayoutStripsDescription => '显示裁剪的壁纸条带';
+
+  @override
   String get wallpaperMobileBackToSelection => '返回壁纸选择';
 
   @override
@@ -3849,6 +3880,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionResetWindowHeight => '重置窗口高度';
 
   @override
+  String get settingsShortcutActionResetWindowWidth => '重置窗口宽度';
+
+  @override
   String get settingsAppearanceTheme => '主题';
 
   @override
@@ -4117,4 +4151,504 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get polkitLocked => '已暂时锁定';
+
+  @override
+  String get pluginsAppTitle => 'Denial 插件';
+
+  @override
+  String get pluginsTitle => '插件';
+
+  @override
+  String get pluginsInstalled => '已安装';
+
+  @override
+  String get pluginsDiscover => '发现';
+
+  @override
+  String get pluginsActivity => '活动';
+
+  @override
+  String get pluginsLibrary => '插件库';
+
+  @override
+  String get pluginsPreferences => '偏好设置';
+
+  @override
+  String get pluginsSearchInstalled => '搜索已安装的插件';
+
+  @override
+  String get pluginsSearch => '搜索插件';
+
+  @override
+  String get pluginsClearSearch => '清除搜索';
+
+  @override
+  String get pluginsAddTooltip => '通过仓库链接添加插件';
+
+  @override
+  String get pluginsAddToolbar => '添加插件';
+
+  @override
+  String get pluginsMoreActions => '更多操作';
+
+  @override
+  String get pluginsRefresh => '刷新';
+
+  @override
+  String get pluginsInstalledTitle => '已安装的插件';
+
+  @override
+  String get pluginsInstalledDescription => '选择组成桌面的插件。';
+
+  @override
+  String get pluginsNoneInstalled => '尚未安装插件';
+
+  @override
+  String get pluginsNoneInstalledDescription => '发现适合桌面的插件，或通过仓库链接添加插件。';
+
+  @override
+  String get pluginsDiscoverAction => '发现插件';
+
+  @override
+  String get pluginsUseDefaults => '使用 Denial 默认插件';
+
+  @override
+  String get pluginsNoMatches => '没有匹配的插件';
+
+  @override
+  String get pluginsNoMatchesDescription => '请尝试其他名称，或清除搜索。';
+
+  @override
+  String get pluginsAutomaticTitle => '自动包含';
+
+  @override
+  String get pluginsAutomaticDescription => '这些依赖确保所选插件正常运行。';
+
+  @override
+  String get pluginsDiscoverMore => '发现更多插件';
+
+  @override
+  String get pluginsPreparingDesktop => '正在准备桌面';
+
+  @override
+  String get pluginsPreparingDescription =>
+      'Denial 正在完成准备工作。你可以保持此窗口打开，也可以稍后再回来。';
+
+  @override
+  String get pluginsTryAgain => '重试';
+
+  @override
+  String get pluginsFallbackDescription => '使用此插件自定义桌面。';
+
+  @override
+  String get pluginsSelected => '已选择';
+
+  @override
+  String get pluginsNotSelected => '未选择';
+
+  @override
+  String get pluginsDesktopOptions => '桌面选项';
+
+  @override
+  String get pluginsDesktopOptionsDescription => '更新、兼容性与恢复';
+
+  @override
+  String get pluginsCheckUpdates => '检查插件更新';
+
+  @override
+  String get pluginsCheckCompatibility => '检查兼容性';
+
+  @override
+  String get pluginsUndo => '撤销上次更改';
+
+  @override
+  String get pluginsRestore => '恢复默认桌面';
+
+  @override
+  String get pluginsCheckSelection => '请检查所选插件';
+
+  @override
+  String get pluginsStartupFailed => '已保存的插件无法启动';
+
+  @override
+  String get pluginsChangeFailed => '无法完成更改';
+
+  @override
+  String get pluginsSelectionChanged => '所选插件已更改';
+
+  @override
+  String get pluginsPaused => '插件已暂停';
+
+  @override
+  String get pluginsPendingReady => '待处理操作已就绪';
+
+  @override
+  String get pluginsPreparingSupport => '正在准备插件支持';
+
+  @override
+  String get pluginsViewDetails => '查看详情';
+
+  @override
+  String get pluginsDiscard => '放弃更改';
+
+  @override
+  String get pluginsSwitchNow => '立即切换';
+
+  @override
+  String get pluginsDismissError => '关闭错误提示';
+
+  @override
+  String get pluginsInProgress => '正在进行';
+
+  @override
+  String get pluginsDiscoverTitle => '发现插件';
+
+  @override
+  String get pluginsDiscoverDescription => '添加新功能，打造属于自己的桌面。';
+
+  @override
+  String get pluginsNothingFound => '尚未找到插件';
+
+  @override
+  String get pluginsNothingFoundDescription => '请尝试其他搜索，或通过仓库链接添加插件。';
+
+  @override
+  String get pluginsOfficial => '为 Denial 打造';
+
+  @override
+  String get pluginsCommunity => '来自社区';
+
+  @override
+  String get pluginsRefreshDiscoveries => '刷新插件列表';
+
+  @override
+  String get pluginsNoCommunity => '尚无社区插件。你可以通过仓库链接添加插件。';
+
+  @override
+  String get pluginsAddRepository => '从仓库添加';
+
+  @override
+  String get pluginsAddRepositoryDescription => '使用 Git 链接安装开发者提供的插件。';
+
+  @override
+  String get pluginsAddLink => '通过链接添加';
+
+  @override
+  String get pluginsDiscoveryFailed => '部分插件信息无法加载，请尝试刷新。';
+
+  @override
+  String get pluginsByDenial => '由 Denial 提供';
+
+  @override
+  String get pluginsCommunityPlugin => '社区插件';
+
+  @override
+  String get pluginsSelectedDesktop => '已为桌面选择';
+
+  @override
+  String get pluginsSelect => '选择插件';
+
+  @override
+  String get pluginsRecentActivity => '最近活动';
+
+  @override
+  String get pluginsActivityDescription => '安装进度与桌面更改。';
+
+  @override
+  String get pluginsNoActivity => '暂无活动';
+
+  @override
+  String get pluginsNoActivityDescription => '插件安装与桌面更改将显示在这里。';
+
+  @override
+  String get pluginsCompleted => '已完成';
+
+  @override
+  String get pluginsNeedsAttention => '需要处理';
+
+  @override
+  String get pluginsNoCandidates => '此仓库中未找到可安装的插件包。';
+
+  @override
+  String get pluginsBringNew => '为桌面添加新功能。';
+
+  @override
+  String get pluginsTrustDescription => '粘贴仓库链接以查找插件。插件将成为桌面的一部分，请选择你信任的代码。';
+
+  @override
+  String get pluginsLocalDirectory => '本地软件包或仓库目录';
+
+  @override
+  String get pluginsRepositoryLink => '仓库链接';
+
+  @override
+  String get pluginsAdvancedOptions => '高级选项';
+
+  @override
+  String get pluginsGitRef => '分支、标签或提交（可选）';
+
+  @override
+  String get pluginsLocalDevelopment => '本地开发';
+
+  @override
+  String get pluginsUseLocal => '使用本地开发源码';
+
+  @override
+  String get pluginsChoose => '选择插件';
+
+  @override
+  String get pluginsIncludeDependencies => '我们会自动包含此插件所需的依赖。';
+
+  @override
+  String get pluginsFinding => '正在查找插件…';
+
+  @override
+  String get pluginsFind => '查找插件';
+
+  @override
+  String get pluginsAdd => '添加插件';
+
+  @override
+  String get pluginsYourPlugins => '你的插件';
+
+  @override
+  String get pluginsLogLoadFailed => '无法加载构建日志。';
+
+  @override
+  String get pluginsTechnicalDetails => '技术详情';
+
+  @override
+  String get pluginsBuildLog => '构建日志';
+
+  @override
+  String get pluginsNoBuildOutput => '未记录构建输出。';
+
+  @override
+  String get pluginsClose => '关闭';
+
+  @override
+  String get pluginsDone => '完成';
+
+  @override
+  String get pluginsApply => '应用插件';
+
+  @override
+  String get pluginsBuild => '构建插件';
+
+  @override
+  String get pluginsCheckChanges => '检查更改';
+
+  @override
+  String get pluginsEnable => '启用插件';
+
+  @override
+  String get pluginsDisable => '禁用插件';
+
+  @override
+  String get pluginsUpdate => '更新插件';
+
+  @override
+  String get pluginsRebuild => '重新构建插件';
+
+  @override
+  String get pluginsSetup => '设置插件';
+
+  @override
+  String get pluginsChooseDefaults => '选择默认插件';
+
+  @override
+  String get pluginsActivityFallback => '插件活动';
+
+  @override
+  String get pluginsWorking => '正在处理更改';
+
+  @override
+  String get pluginsApplyChanges => '应用更改';
+
+  @override
+  String get pluginsApplyPending => '应用待处理操作';
+
+  @override
+  String get pluginsApplySelectionUpdates => '将所选插件的更改和待处理更新应用到桌面。';
+
+  @override
+  String get pluginsApplySelection => '将所选插件的更改应用到桌面。';
+
+  @override
+  String get pluginsApplyUnchanged => '开关状态未更改。待处理的插件更新需要应用到桌面。';
+
+  @override
+  String get pluginsStaleSelection => '所选插件已在其他地方更改。请放弃当前更改以加载最新选择。';
+
+  @override
+  String get pluginsUpdated => 'Denial 已更新。';
+
+  @override
+  String get pluginsFailureEngine =>
+      '已应用的插件已保存，但当前会话使用了不同的 Flutter 引擎。请使用引擎匹配的 Denial 会话重新加载插件。';
+
+  @override
+  String get pluginsFailureVersion =>
+      '已保存的插件是为其他 Denial 版本构建的。请使用与当前安装版本匹配的构建工具重新构建。';
+
+  @override
+  String get pluginsFailurePanel => '选择了多个桌面面板。请只保留一个启用，然后重新应用。';
+
+  @override
+  String get pluginsFailureConflict => '多个插件提供了相同功能。请选择一个，然后重新应用。详情中列出了冲突的插件。';
+
+  @override
+  String get pluginsFailureMissing => '缺少必需的桌面功能。请启用提供该功能的插件，然后重新应用。';
+
+  @override
+  String get pluginsFailureLogin => '请注销并重新登录 Denial 以完成更新。你的选择已保存。';
+
+  @override
+  String get pluginsFailureWorker => '后台操作意外停止。请先查看活动记录，再重试。';
+
+  @override
+  String get pluginsFailureDownload => '下载失败。请检查网络连接并重试。';
+
+  @override
+  String get pluginsFailureGeneric => '无法完成此更改。请打开详情查看原因。';
+
+  @override
+  String get pluginsToolsUnavailable => '插件工具暂时不可用，正在自动重试。';
+
+  @override
+  String get pluginsDartCompatible => '需要兼容的 Dart 版本';
+
+  @override
+  String get pluginsDartRequired => '需要 Dart';
+
+  @override
+  String get pluginsToolsAttention => '插件工具需要处理';
+
+  @override
+  String get pluginsSetupFailed => '准备工作未能完成。请查看活动记录中的详情，然后重试。';
+
+  @override
+  String get pluginsWaitingStart => '等待开始';
+
+  @override
+  String get pluginsCloseWhileWorking => '你可以关闭此窗口，操作会继续进行。';
+
+  @override
+  String get pluginsPreparingPlugins => '正在准备插件';
+
+  @override
+  String get pluginsCheckingCompatibility => '正在检查插件兼容性';
+
+  @override
+  String get pluginsPreparingBuild => '正在准备桌面构建';
+
+  @override
+  String get pluginsCompilingSources => '正在编译 Dart 源码';
+
+  @override
+  String get pluginsOptimizing => '正在优化并生成本机代码';
+
+  @override
+  String get pluginsPreparingAssets => '正在准备资源';
+
+  @override
+  String get pluginsLoadingDesktop => '正在加载已保存的桌面';
+
+  @override
+  String get pluginsCompilingDesktop => '正在编译桌面';
+
+  @override
+  String get pluginsVerifyingDesktop => '正在验证桌面';
+
+  @override
+  String get pluginsSwitchingPause => '将在你暂停操作时切换';
+
+  @override
+  String get pluginsApplyingDesktop => '正在应用并检查桌面';
+
+  @override
+  String get pluginsVerifyingTools => '正在验证插件工具';
+
+  @override
+  String get pluginsPreparingTools => '正在准备插件工具';
+
+  @override
+  String get pluginsConfigurationDescription =>
+      '从插件库中选择插件，再统一应用更改。Denial 会为桌面准备所需的一切。\n\n你也可以通过仓库链接添加插件。之前正常运行的桌面仍可在桌面菜单中恢复。';
+
+  @override
+  String pluginsSelectedCount(int count) {
+    return '已选择 $count 个插件';
+  }
+
+  @override
+  String pluginsSwitchSemantics(String name) {
+    return '$name 插件';
+  }
+
+  @override
+  String pluginsCandidateLabel(String name, String path) {
+    return '$name · $path';
+  }
+
+  @override
+  String pluginsStepsComplete(int completed, int total) {
+    return '已完成 $completed / $total 步';
+  }
+
+  @override
+  String pluginsStep(int step, int total, String label) {
+    return '第 $step / $total 步 · $label';
+  }
+
+  @override
+  String pluginsElapsed(String stage, String clock) {
+    return '$stage · 已用时 $clock';
+  }
+
+  @override
+  String pluginsInstalledVersion(String version) {
+    return '已安装 Denial $version。';
+  }
+
+  @override
+  String pluginsRebuildDescription(String introduction) {
+    return '$introduction 重新构建插件即可恢复插件及其所有设置，无需注销。';
+  }
+
+  @override
+  String pluginsDartIncompatible(String installed, String constraint) {
+    return '已安装 Dart $installed，但 Denial 要求 $constraint。请安装兼容的 Dart 软件包，并确保 PATH 中可以找到 dart，然后重试。';
+  }
+
+  @override
+  String pluginsDartInstall(String expected) {
+    return '请使用系统软件包管理器安装 Dart。Denial 推荐 Dart $expected。请确保 PATH 中可以找到 dart，然后重试。';
+  }
+
+  @override
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  ) {
+    return '$plugins 都提供了$feature。$owner 最多接受 $maximum 个提供者。请禁用多余的插件后再应用。';
+  }
+
+  @override
+  String pluginsProviderMissing(String owner, int minimum, String feature) {
+    return '$owner 需要至少 $minimum 个$feature提供者。请启用兼容的插件后再应用。';
+  }
+
+  @override
+  String pluginsInvalidDeclaration(String plugins) {
+    return '$plugins 的兼容性声明无效。请打开详情查看原因。';
+  }
+
+  @override
+  String get pluginsFailureDeclaration => '插件兼容性信息需要处理。请检查所选插件并查看详情，然后重新应用。';
+
+  @override
+  String get pluginsDesktopFeature => '桌面';
 }

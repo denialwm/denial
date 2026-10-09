@@ -1249,10 +1249,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 58;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 59;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 59] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 60] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1312,6 +1312,7 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 59] = [
   ShortcutActionKind::ResizeGrowHeight,
   ShortcutActionKind::ResizeShrinkHeight,
   ShortcutActionKind::ResetWindowHeight,
+  ShortcutActionKind::ResetWindowWidth,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1378,9 +1379,10 @@ impl ShortcutActionKind {
   pub const ResizeGrowHeight: Self = Self(56);
   pub const ResizeShrinkHeight: Self = Self(57);
   pub const ResetWindowHeight: Self = Self(58);
+  pub const ResetWindowWidth: Self = Self(59);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 58;
+  pub const ENUM_MAX: u8 = 59;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1441,6 +1443,7 @@ impl ShortcutActionKind {
     Self::ResizeGrowHeight,
     Self::ResizeShrinkHeight,
     Self::ResetWindowHeight,
+    Self::ResetWindowWidth,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1504,6 +1507,7 @@ impl ShortcutActionKind {
       Self::ResizeGrowHeight => Some("ResizeGrowHeight"),
       Self::ResizeShrinkHeight => Some("ResizeShrinkHeight"),
       Self::ResetWindowHeight => Some("ResetWindowHeight"),
+      Self::ResetWindowWidth => Some("ResetWindowWidth"),
       _ => None,
     }
   }
@@ -2577,12 +2581,97 @@ impl flatbuffers::SimpleToVerifyInSlice for ShortcutTarget {}
 pub struct ShortcutTargetUnionTableOffset {}
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MIN_PAYLOAD: u8 = 0;
+pub const ENUM_MIN_PET_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 21;
+pub const ENUM_MAX_PET_REQUEST_KIND: u8 = 1;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 22] = [
+pub const ENUM_VALUES_PET_REQUEST_KIND: [PetRequestKind; 2] = [
+  PetRequestKind::Hold,
+  PetRequestKind::Carried,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct PetRequestKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl PetRequestKind {
+  pub const Hold: Self = Self(0);
+  pub const Carried: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Hold,
+    Self::Carried,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Hold => Some("Hold"),
+      Self::Carried => Some("Carried"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for PetRequestKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for PetRequestKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for PetRequestKind {
+    type Output = PetRequestKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for PetRequestKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for PetRequestKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for PetRequestKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PAYLOAD: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PAYLOAD: u8 = 22;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PAYLOAD: [Payload; 23] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -2605,6 +2694,7 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 22] = [
   Payload::CursorState,
   Payload::PluginActionCatalog,
   Payload::PluginActionInvocation,
+  Payload::PetRequest,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2634,9 +2724,10 @@ impl Payload {
   pub const CursorState: Self = Self(19);
   pub const PluginActionCatalog: Self = Self(20);
   pub const PluginActionInvocation: Self = Self(21);
+  pub const PetRequest: Self = Self(22);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 21;
+  pub const ENUM_MAX: u8 = 22;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -2660,6 +2751,7 @@ impl Payload {
     Self::CursorState,
     Self::PluginActionCatalog,
     Self::PluginActionInvocation,
+    Self::PetRequest,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -2686,6 +2778,7 @@ impl Payload {
       Self::CursorState => Some("CursorState"),
       Self::PluginActionCatalog => Some("PluginActionCatalog"),
       Self::PluginActionInvocation => Some("PluginActionInvocation"),
+      Self::PetRequest => Some("PetRequest"),
       _ => None,
     }
   }
@@ -4122,6 +4215,15 @@ impl<'a> Window<'a> {
   pub const VT_FULLSCREEN: flatbuffers::VOffsetT = 82;
   pub const VT_MAXIMIZED: flatbuffers::VOffsetT = 84;
   pub const VT_TRANSIENT_PARENT_ID: flatbuffers::VOffsetT = 86;
+  pub const VT_HELD_BY_WINDOW_ID: flatbuffers::VOffsetT = 88;
+  pub const VT_HELD_HOLD: flatbuffers::VOffsetT = 90;
+  pub const VT_HELD_SHARE: flatbuffers::VOffsetT = 92;
+  pub const VT_PET_ANCHOR_X: flatbuffers::VOffsetT = 94;
+  pub const VT_PET_ANCHOR_Y: flatbuffers::VOffsetT = 96;
+  pub const VT_PET_BELOW: flatbuffers::VOffsetT = 98;
+  pub const VT_PET: flatbuffers::VOffsetT = 100;
+  pub const VT_PET_HOLDS: flatbuffers::VOffsetT = 102;
+  pub const VT_PET_DRAGGED: flatbuffers::VOffsetT = 104;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4133,6 +4235,10 @@ impl<'a> Window<'a> {
     args: &'args WindowArgs<'args>
   ) -> flatbuffers::WIPOffset<Window<'bldr>> {
     let mut builder = WindowBuilder::new(_fbb);
+    builder.add_pet_anchor_y(args.pet_anchor_y);
+    builder.add_pet_anchor_x(args.pet_anchor_x);
+    builder.add_held_share(args.held_share);
+    builder.add_held_by_window_id(args.held_by_window_id);
     builder.add_transient_parent_id(args.transient_parent_id);
     builder.add_workspace_id(args.workspace_id);
     builder.add_content_height(args.content_height);
@@ -4156,6 +4262,8 @@ impl<'a> Window<'a> {
     builder.add_window_id(args.window_id);
     builder.add_surface_id(args.surface_id);
     builder.add_object_id(args.object_id);
+    builder.add_pet_holds(args.pet_holds);
+    builder.add_held_hold(args.held_hold);
     builder.add_opacity(args.opacity);
     if let Some(x) = args.surfaces { builder.add_surfaces(x); }
     builder.add_status_color_argb(args.status_color_argb);
@@ -4165,6 +4273,9 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_pet_dragged(args.pet_dragged);
+    builder.add_pet(args.pet);
+    builder.add_pet_below(args.pet_below);
     builder.add_maximized(args.maximized);
     builder.add_fullscreen(args.fullscreen);
     builder.add_minimized(args.minimized);
@@ -4473,6 +4584,69 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(Window::VT_TRANSIENT_PARENT_ID, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn held_by_window_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(Window::VT_HELD_BY_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn held_hold(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(Window::VT_HELD_HOLD, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn held_share(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Window::VT_HELD_SHARE, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_anchor_x(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Window::VT_PET_ANCHOR_X, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_anchor_y(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Window::VT_PET_ANCHOR_Y, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_below(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_PET_BELOW, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn pet(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_PET, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_holds(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(Window::VT_PET_HOLDS, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_dragged(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_PET_DRAGGED, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -4524,6 +4698,15 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<bool>("fullscreen", Self::VT_FULLSCREEN, false)?
      .visit_field::<bool>("maximized", Self::VT_MAXIMIZED, false)?
      .visit_field::<u64>("transient_parent_id", Self::VT_TRANSIENT_PARENT_ID, false)?
+     .visit_field::<u64>("held_by_window_id", Self::VT_HELD_BY_WINDOW_ID, false)?
+     .visit_field::<u32>("held_hold", Self::VT_HELD_HOLD, false)?
+     .visit_field::<f64>("held_share", Self::VT_HELD_SHARE, false)?
+     .visit_field::<f64>("pet_anchor_x", Self::VT_PET_ANCHOR_X, false)?
+     .visit_field::<f64>("pet_anchor_y", Self::VT_PET_ANCHOR_Y, false)?
+     .visit_field::<bool>("pet_below", Self::VT_PET_BELOW, false)?
+     .visit_field::<bool>("pet", Self::VT_PET, false)?
+     .visit_field::<u32>("pet_holds", Self::VT_PET_HOLDS, false)?
+     .visit_field::<bool>("pet_dragged", Self::VT_PET_DRAGGED, false)?
      .finish();
     Ok(())
   }
@@ -4571,6 +4754,15 @@ pub struct WindowArgs<'a> {
     pub fullscreen: bool,
     pub maximized: bool,
     pub transient_parent_id: u64,
+    pub held_by_window_id: u64,
+    pub held_hold: u32,
+    pub held_share: f64,
+    pub pet_anchor_x: f64,
+    pub pet_anchor_y: f64,
+    pub pet_below: bool,
+    pub pet: bool,
+    pub pet_holds: u32,
+    pub pet_dragged: bool,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -4618,6 +4810,15 @@ impl<'a> Default for WindowArgs<'a> {
       fullscreen: false,
       maximized: false,
       transient_parent_id: 0,
+      held_by_window_id: 0,
+      held_hold: 0,
+      held_share: 0.0,
+      pet_anchor_x: 0.0,
+      pet_anchor_y: 0.0,
+      pet_below: false,
+      pet: false,
+      pet_holds: 0,
+      pet_dragged: false,
     }
   }
 }
@@ -4796,6 +4997,42 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<u64>(Window::VT_TRANSIENT_PARENT_ID, transient_parent_id, 0);
   }
   #[inline]
+  pub fn add_held_by_window_id(&mut self, held_by_window_id: u64) {
+    self.fbb_.push_slot::<u64>(Window::VT_HELD_BY_WINDOW_ID, held_by_window_id, 0);
+  }
+  #[inline]
+  pub fn add_held_hold(&mut self, held_hold: u32) {
+    self.fbb_.push_slot::<u32>(Window::VT_HELD_HOLD, held_hold, 0);
+  }
+  #[inline]
+  pub fn add_held_share(&mut self, held_share: f64) {
+    self.fbb_.push_slot::<f64>(Window::VT_HELD_SHARE, held_share, 0.0);
+  }
+  #[inline]
+  pub fn add_pet_anchor_x(&mut self, pet_anchor_x: f64) {
+    self.fbb_.push_slot::<f64>(Window::VT_PET_ANCHOR_X, pet_anchor_x, 0.0);
+  }
+  #[inline]
+  pub fn add_pet_anchor_y(&mut self, pet_anchor_y: f64) {
+    self.fbb_.push_slot::<f64>(Window::VT_PET_ANCHOR_Y, pet_anchor_y, 0.0);
+  }
+  #[inline]
+  pub fn add_pet_below(&mut self, pet_below: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_PET_BELOW, pet_below, false);
+  }
+  #[inline]
+  pub fn add_pet(&mut self, pet: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_PET, pet, false);
+  }
+  #[inline]
+  pub fn add_pet_holds(&mut self, pet_holds: u32) {
+    self.fbb_.push_slot::<u32>(Window::VT_PET_HOLDS, pet_holds, 0);
+  }
+  #[inline]
+  pub fn add_pet_dragged(&mut self, pet_dragged: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_PET_DRAGGED, pet_dragged, false);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -4855,6 +5092,15 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("fullscreen", &self.fullscreen());
       ds.field("maximized", &self.maximized());
       ds.field("transient_parent_id", &self.transient_parent_id());
+      ds.field("held_by_window_id", &self.held_by_window_id());
+      ds.field("held_hold", &self.held_hold());
+      ds.field("held_share", &self.held_share());
+      ds.field("pet_anchor_x", &self.pet_anchor_x());
+      ds.field("pet_anchor_y", &self.pet_anchor_y());
+      ds.field("pet_below", &self.pet_below());
+      ds.field("pet", &self.pet());
+      ds.field("pet_holds", &self.pet_holds());
+      ds.field("pet_dragged", &self.pet_dragged());
       ds.finish()
   }
 }
@@ -11126,6 +11372,205 @@ impl core::fmt::Debug for PluginActionInvocation<'_> {
       ds.finish()
   }
 }
+pub enum PetRequestOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PetRequest<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PetRequest<'a> {
+  type Inner = PetRequest<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PetRequest<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_PET_ID: flatbuffers::VOffsetT = 6;
+  pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 8;
+  pub const VT_HOLD: flatbuffers::VOffsetT = 10;
+  pub const VT_SHARE: flatbuffers::VOffsetT = 12;
+  pub const VT_VELOCITY_X: flatbuffers::VOffsetT = 14;
+  pub const VT_VELOCITY_Y: flatbuffers::VOffsetT = 16;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PetRequest { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PetRequestArgs
+  ) -> flatbuffers::WIPOffset<PetRequest<'bldr>> {
+    let mut builder = PetRequestBuilder::new(_fbb);
+    builder.add_velocity_y(args.velocity_y);
+    builder.add_velocity_x(args.velocity_x);
+    builder.add_share(args.share);
+    builder.add_window_id(args.window_id);
+    builder.add_pet_id(args.pet_id);
+    builder.add_hold(args.hold);
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> PetRequestKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<PetRequestKind>(PetRequest::VT_KIND, Some(PetRequestKind::Hold)).unwrap()}
+  }
+  #[inline]
+  pub fn pet_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PetRequest::VT_PET_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn window_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PetRequest::VT_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn hold(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(PetRequest::VT_HOLD, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn share(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(PetRequest::VT_SHARE, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn velocity_x(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(PetRequest::VT_VELOCITY_X, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn velocity_y(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(PetRequest::VT_VELOCITY_Y, Some(0.0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for PetRequest<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<PetRequestKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<u64>("pet_id", Self::VT_PET_ID, false)?
+     .visit_field::<u64>("window_id", Self::VT_WINDOW_ID, false)?
+     .visit_field::<u32>("hold", Self::VT_HOLD, false)?
+     .visit_field::<f64>("share", Self::VT_SHARE, false)?
+     .visit_field::<f64>("velocity_x", Self::VT_VELOCITY_X, false)?
+     .visit_field::<f64>("velocity_y", Self::VT_VELOCITY_Y, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PetRequestArgs {
+    pub kind: PetRequestKind,
+    pub pet_id: u64,
+    pub window_id: u64,
+    pub hold: u32,
+    pub share: f64,
+    pub velocity_x: f64,
+    pub velocity_y: f64,
+}
+impl<'a> Default for PetRequestArgs {
+  #[inline]
+  fn default() -> Self {
+    PetRequestArgs {
+      kind: PetRequestKind::Hold,
+      pet_id: 0,
+      window_id: 0,
+      hold: 0,
+      share: 0.0,
+      velocity_x: 0.0,
+      velocity_y: 0.0,
+    }
+  }
+}
+
+pub struct PetRequestBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PetRequestBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: PetRequestKind) {
+    self.fbb_.push_slot::<PetRequestKind>(PetRequest::VT_KIND, kind, PetRequestKind::Hold);
+  }
+  #[inline]
+  pub fn add_pet_id(&mut self, pet_id: u64) {
+    self.fbb_.push_slot::<u64>(PetRequest::VT_PET_ID, pet_id, 0);
+  }
+  #[inline]
+  pub fn add_window_id(&mut self, window_id: u64) {
+    self.fbb_.push_slot::<u64>(PetRequest::VT_WINDOW_ID, window_id, 0);
+  }
+  #[inline]
+  pub fn add_hold(&mut self, hold: u32) {
+    self.fbb_.push_slot::<u32>(PetRequest::VT_HOLD, hold, 0);
+  }
+  #[inline]
+  pub fn add_share(&mut self, share: f64) {
+    self.fbb_.push_slot::<f64>(PetRequest::VT_SHARE, share, 0.0);
+  }
+  #[inline]
+  pub fn add_velocity_x(&mut self, velocity_x: f64) {
+    self.fbb_.push_slot::<f64>(PetRequest::VT_VELOCITY_X, velocity_x, 0.0);
+  }
+  #[inline]
+  pub fn add_velocity_y(&mut self, velocity_y: f64) {
+    self.fbb_.push_slot::<f64>(PetRequest::VT_VELOCITY_Y, velocity_y, 0.0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PetRequestBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PetRequestBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PetRequest<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PetRequest<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PetRequest");
+      ds.field("kind", &self.kind());
+      ds.field("pet_id", &self.pet_id());
+      ds.field("window_id", &self.window_id());
+      ds.field("hold", &self.hold());
+      ds.field("share", &self.share());
+      ds.field("velocity_x", &self.velocity_x());
+      ds.field("velocity_y", &self.velocity_y());
+      ds.finish()
+  }
+}
 pub enum EnvelopeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -11517,6 +11962,21 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_pet_request(&self) -> Option<PetRequest<'a>> {
+    if self.payload_type() == Payload::PetRequest {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { PetRequest::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -11552,6 +12012,7 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::CursorState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CursorState>>("Payload::CursorState", pos),
           Payload::PluginActionCatalog => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PluginActionCatalog>>("Payload::PluginActionCatalog", pos),
           Payload::PluginActionInvocation => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PluginActionInvocation>>("Payload::PluginActionInvocation", pos),
+          Payload::PetRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PetRequest>>("Payload::PetRequest", pos),
           _ => Ok(()),
         }
      })?
@@ -11769,6 +12230,13 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::PluginActionInvocation => {
           if let Some(x) = self.payload_as_plugin_action_invocation() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::PetRequest => {
+          if let Some(x) = self.payload_as_pet_request() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

@@ -62,6 +62,8 @@ String _nativeShortcutActionLabel(
       l10n.settingsShortcutActionResizeShrinkHeight,
     DenialShortcutAction.resetWindowHeight =>
       l10n.settingsShortcutActionResetWindowHeight,
+    DenialShortcutAction.resetWindowWidth =>
+      l10n.settingsShortcutActionResetWindowWidth,
     DenialShortcutAction.toggleVerticalMaximize =>
       l10n.settingsShortcutActionToggleVerticalMaximize,
     DenialShortcutAction.windowSwitcher =>
@@ -173,6 +175,7 @@ IconData _nativeShortcutActionIcon(DenialShortcutAction action) {
     DenialShortcutAction.resizeGrowHeight => Icons.height_rounded,
     DenialShortcutAction.resizeShrinkHeight => Icons.height_rounded,
     DenialShortcutAction.resetWindowHeight => Icons.height_rounded,
+    DenialShortcutAction.resetWindowWidth => Icons.swap_horiz_rounded,
     DenialShortcutAction.toggleVerticalMaximize => Icons.height_rounded,
     DenialShortcutAction.windowSwitcher => Icons.flip_to_front_rounded,
     DenialShortcutAction.openClipboard => Icons.content_paste_rounded,

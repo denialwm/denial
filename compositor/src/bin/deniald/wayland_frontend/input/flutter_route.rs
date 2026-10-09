@@ -1141,11 +1141,19 @@ pub(super) fn release_client_geometry_for_shell_grab(
 
     let target = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        // The layout owns a tiled window's geometry and places it again below.
+        // The geometry it had before it was tiled is kept for when it leaves
+        // the layout and is never its size meanwhile: told that size first, a
+        // client that draws every configure showed one frame at it.
+        let layout_managed = frontend.window_is_layout_managed(window);
         let root = frontend.window_root_surface(window);
         let (restore, shell_owned) = root.as_ref().map_or((None, false), |surface| {
             let surface_id = surface.id();
             let presentation = frontend.take_shell_presentation(&surface_id);
             let shell_owned = presentation.is_some();
+            if layout_managed {
+                return (Some(frontend.window_geometry_target(window)), shell_owned);
+            }
             let restore = presentation
                 .map(|presentation| presentation.normal_geometry())
                 .or_else(|| {
@@ -1168,20 +1176,16 @@ pub(super) fn release_client_geometry_for_shell_grab(
     let Some(target) = target else {
         return;
     };
+    // A tiled window's client is told only where the layout puts it.
+    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+    let target = if frontend.window_is_layout_managed(window) {
+        frontend.arrange_layout_windows();
+        frontend.window_geometry_target(window)
+    } else {
+        target
+    };
     if let Some(window) = super::super::managed_window::ManagedWindow::new(window) {
         window.prepare_shell_geometry(target);
-    }
-    if state
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .window_is_layout_managed(window)
-    {
-        state
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .arrange_layout_windows();
     }
     state.scene_sync.mark_dirty();
 }
@@ -1274,12 +1278,11 @@ pub(super) fn begin_super_pointer_grab(
         .expect("missing Wayland frontend")
         .window_is_layout_managed(&window);
     if layout_managed {
-        let (position, geometry, scrolling_resize_axis) = {
+        let (position, geometry) = {
             let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
             (
                 frontend.pointer_location,
                 frontend.window_geometry_target(&window),
-                frontend.scrolling_resize_axis_for_window(&window),
             )
         };
         let start_data = GrabStartData {
@@ -1318,8 +1321,9 @@ pub(super) fn begin_super_pointer_grab(
                 Focus::Clear,
             ),
             SuperPointerAction::Resize => {
-                let edges =
-                    LayoutResizeEdges::from_pointer(position, geometry, scrolling_resize_axis);
+                // Both physical axes are interactive. The layout decides whether
+                // this is a shared boundary or a lone tile's trailing cross edge.
+                let edges = LayoutResizeEdges::from_pointer(position, geometry, None);
                 pointer.set_grab(
                     state,
                     TileResizeGrab::new(start_data, window, edges),

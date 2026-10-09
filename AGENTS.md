@@ -108,6 +108,33 @@ before asking the user to log out, when compatible with the running engine.
 Successful activation persists the selection for the next login; building alone
 does not select the new bundle.
 
+## Test-device deployment failures: no automatic rollback
+
+For authorized deployments to dedicated test devices, including Moto, `.188`,
+and `.18`, ordinary runtime, integration, verification, or service-activation
+failures are diagnostic outcomes, not triggers for automatic rollback. Do not
+switch the engine, shell bundle, compositor, service configuration, or selected
+revision back to a previous version merely because the candidate fails to start
+or work correctly. Retain the candidate, logs, source/configuration provenance,
+and previous versions and backups. Report the failure and request the Doctor's
+approval before switching back; an explicit Doctor-directed rollback is allowed.
+
+Report separately what is staged/installed, what revision the service or bundle
+selection points to, what is actually running (or that nothing is running), and
+where the retained previous versions/backups are. Retaining an installed
+candidate does not mean it is selected or active. If activation fails, preserve
+the current state for diagnosis rather than silently restoring the old selection
+or claiming the new revision is running.
+
+This test-device default takes precedence over generic deployment rollback
+advice. It does not change the personal-workstation session restrictions above
+or establish a general production policy, and it does not authorize otherwise
+unrequested deployments or activations. If an operation genuinely threatens
+irreversible data loss or device damage, STOP that operation and ask the Doctor
+how to proceed. Do not ignore safety gates, wipe the device, or delete backups
+to keep a candidate in place; stopping a dangerous operation is not permission
+to switch back without approval.
+
 ## User-owned visual validation and test triggers
 
 The user performs all visual validation. Never capture or inspect screenshots,
@@ -153,6 +180,73 @@ downloaded toolchains and native build output outside the checkout by default.
 All `tools/denial-pc` commands must run outside the sandbox as required by
 `AGENTS.md`.
 
+## The engine during development
+
+The engine is built from the canonical Flutter and Skia forks as they are on
+disk, uncommitted changes included, in the one cached Ninja output: only what
+changed rebuilds. Nothing needs to be committed, locked or checked out first.
+
+| To | Run |
+| --- | --- |
+| Prepare only the current host's release engine | [Host release engine only](#host-release-engine-only) |
+| Build everything: engine, shell, Settings, compositor | `tools/denial-pc build` |
+| Build the engine and the shell only | `tools/denial-pc bundle` |
+| Deploy everything to a lab host | `tools/denial-lab-deploy USER@HOST` |
+| Try an engine change for one login | `tools/denial-pc engine-test-build`, `engine-test-check`, `engine-test-arm` |
+
+- Never make or use a lock-pinned projection, or any other copy of the forks,
+  on a development machine. Runtime deployment must be a compatible
+  combination; preparing an engine alone does not authorize building or
+  deploying the other components. A push carries everything local, so the
+  whole local combination must be validated before pushing.
+- `tools/denial-flutter-engine build`, `refresh-metadata` and `verify` are
+  for CI and releases: they use the commits pinned in `SOURCE_LOCK.json`.
+- The Flutter shell tests (`tools/denial-pc test`, `flutter-test`) also use
+  the pinned commits and need the forks clean at them. While the forks are
+  ahead of the lock, validate with `sdk-test`, `plugin-check` and
+  `compositor-test`.
+- Before pushing Denial, commit in the forks, advance the lock to their HEADs
+  and run `tools/denial-flutter-engine refresh-metadata` once.
+
+### Host release engine only
+
+When the user requests a local engine update or preparation for a session
+restart, the default scope is **only the RELEASE engine for the current
+machine's native architecture**. On this workstation that is x86-64 and
+`denial_host_release`. Reuse an already completed, matching engine and its
+necessary compiler prerequisites; verify architecture, release arguments,
+source provenance, and its local checksum before rebuilding anything.
+
+ARM/cross builds, debug/profile engines, development-engine tests, shell or
+Settings assembly, compositor builds, full application/distribution builds,
+and plugin-kit preparation each require separately requested scope. They are
+not implicit engine prerequisites. Do not use `tools/denial-pc build`,
+`bundle`, `refresh`, `tools/denial-flutter-engine prepare-app-build`, or
+`prepare-development-sdk` as an engine-only shortcut: they prepare more than
+the requested engine. The plugin-kit checker's lock-pinned policy is a
+separate tooling issue, not an engine-only readiness gate; do not bypass it
+with forged metadata, lock changes, or a pinned projection.
+
+For an existing, correctly configured native release graph, build just
+`libflutter_engine.so` with `/usr/bin/ninja` in the cached output. The exact
+minimal command and graph-provenance check are in
+[docs/BUILDING.md](docs/BUILDING.md#host-release-engine-only). Generate a graph
+with `tools/denial-flutter-engine prepare-graph` only when needed; it uses the
+canonical trees as they are on disk without compiling application targets.
+Missing compiler prerequisites, if genuinely needed, must be prepared as
+specific host-release targets, not by broadening to other architectures or
+build modes.
+
+**Engine ready is not gallery/bundle ready or active.** An existing shell,
+Settings app, or selected plugin bundle may still require different engine
+or AOT inputs. State that compatibility issue and its actual next step
+separately; do not silently build those components or promise that a restart
+alone makes an old UI compatible. Never overwrite an engine mapped by a
+running process. Reuse safe existing staging when available; installation or
+activation must preserve rollback backups, follow the test-device failure policy,
+and respect the user-owned local-session checkpoint above. Engine preparation
+does not authorize logout, restart, deployment, or arming an engine test.
+
 Bootstrap the pinned official Flutter SDK and Rust dependencies:
 
 ```sh
@@ -178,7 +272,7 @@ Flutter suite and therefore has the same explicit development-engine boundary.
 The compositor binary is written to
 `$XDG_CACHE_HOME/denial/pc-build/rust/release/deniald` by default. The Flutter
 bundle is written to `dart_shell/build/linux/x64/release/bundle`.
-`tools/denial-pc` builds its AOT assets directly with the locked Denial Flutter
+`tools/denial-pc` builds its AOT assets directly with the local Denial Flutter
 fork and packages the locally rebuilt raw embedder library; normal builds do
 not use a third-party platform runner or a C++ Linux runner.
 
@@ -201,16 +295,22 @@ root. Make source changes, run source-formatting work, and create commits only
 in these canonical roots. `DENIAL_FLUTTER_SOURCE_ROOT` and
 `DENIAL_SKIA_SOURCE_ROOT` may relocate the pair, but both must be set together.
 The local cache contains build output and artifacts, not another source tree.
-An isolated builder without the canonical pair may retain a detached,
-lock-pinned source projection; never edit it because tooling may replace it.
+An isolated builder without the canonical pair, such as CI, may retain a
+detached, lock-pinned source projection; never edit it because tooling may
+replace it.
 
-`prebuilt/flutter-engine/SOURCE_LOCK.json` is the sole source authority for an
-engine build. Treat it as immutable for that build: dirty canonical worktrees
-and arbitrary local revisions are not inputs. Commit changes in the canonical
-forks, then deliberately advance the lock to their exact commits. CI has no
-editable persistent fork. Verified artifacts, dependencies, compatible build
-outputs, and detached locked projections may be cached, but cached source is
-never authoritative.
+During development these forks are used as they are on disk
+([The engine during development](#the-engine-during-development)). The engine
+built from them is checked against its own checksum
+(`libflutter_engine.so.local.sha256`), not the committed one.
+
+`prebuilt/flutter-engine/SOURCE_LOCK.json` records the engine a push goes
+with, and is the sole source authority for CI and release builds (`build`,
+`refresh-metadata`, `verify`) and the development-engine tests. Before pushing
+Denial, commit in the forks and advance the lock to their HEADs: the engine
+that was deployed and tested. CI has no editable persistent fork. Verified artifacts,
+dependencies, compatible build outputs, and detached locked projections may be
+cached, but cached source is never authoritative.
 
 The generated `libflutter_engine.so` files are ignored by Git. Their expected
 checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.
@@ -218,8 +318,8 @@ checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.
 fork checkouts, and keeps a revision-keyed artifact cache plus stable
 mode-specific Ninja outputs. An unchanged lock and build configuration is a
 verified no-op; changed commits rebuild only targets invalidated by Ninja.
-Routine builds use `build`, which also stages the verified cache artifacts
-below `prebuilt/` for `tools/denial-pc`. Immediately after deliberately
+CI and release builds use `build`, which also stages the verified cache
+artifacts below `prebuilt/`. Immediately after deliberately
 advancing `SOURCE_LOCK.json`, run
 `tools/denial-flutter-engine refresh-metadata` once instead: it regenerates
 the release mode's tracked `args.gn` and canonical checksum, builds the
@@ -233,7 +333,9 @@ Before committing a lock advance, refresh both package manifests and run
 Before pushing Denial, verify every locked fork commit exists on its remote.
 
 Iterate on local engine experiments before advancing the source lock or
-running that full release procedure. Use only the release-engine fast path:
+running that full release procedure. For an explicitly requested isolated
+one-login experiment (not ordinary engine-only preparation), use the
+release-engine fast path:
 
 ```sh
 tools/denial-pc engine-test-build
@@ -241,12 +343,12 @@ tools/denial-pc engine-test-check
 tools/denial-pc engine-test-arm
 ```
 
-This builds the current clean canonical Flutter checkout with the existing
+This builds the canonical Flutter checkout as it is on disk with the existing
 release Ninja output, copies the known-good shell bundle into a revisioned,
 read-only cache directory, verifies the experimental engine ABI and AOT data,
 and arms it for the next `Denial (development)` login only. The launcher
 consumes the test flag before starting `deniald`, so a later login returns to
-the pinned known-good engine automatically. Use
+the normal bundle's engine automatically. Use
 `tools/denial-pc engine-test-cancel` to disarm it. Never copy or install an
 experimental `libflutter_engine.so` over the normal bundle, and especially
 never overwrite a library mapped by the running Denial process; truncating a
@@ -255,9 +357,12 @@ and run the full metadata refresh only after the isolated engine is accepted.
 
 Engine change checklist (avoids slow refreshes and retries):
 
-- Commit in the fork, then build only the needed targets, such as the affected
-  `*_unittests`, in the existing output
+- Edit in the fork (no commit is needed to build or deploy), then build only
+  the needed targets, such as the affected `*_unittests`, in the existing output
   `${XDG_CACHE_HOME:-~/.cache}/denial/flutter-engine/build/out/denial_host_release`.
+- Unit tests and the isolated experiment workflow below need separately
+  requested scope; a local restart request alone needs only the host release
+  engine described above.
 - Engine C++ or shader changes that need visual validation go through
   `engine-test-build`, `engine-test-check` and `engine-test-arm` for each
   attempt. This applies to fixes too, not only experiments, and to follow-up
@@ -287,10 +392,10 @@ forks and temporary repositories; never rely on the host's global Git config.
 
 For direct engine builds, put `flutter/third_party/depot_tools` on `PATH` for
 `vpython3`, but invoke `/usr/bin/ninja` explicitly to bypass its Python wrapper.
-On an interactive or otherwise non-dedicated machine, leave at least one and
-preferably two logical CPUs free while compiling (normally use at most
-`nproc - 2`). Using every available CPU is reserved for a dedicated build
-machine.
+On an interactive or otherwise non-dedicated machine, leave four logical CPUs
+free while compiling (use at most `nproc - 4`): the user's own work, such as a
+game, and Synthia need them. Using every available CPU is reserved for a
+dedicated build machine.
 
 The Flutter embedder ABI is committed as generated Rust in
 `compositor/flutter-engine/src/sys.rs`, stamped with the coupled revisions from

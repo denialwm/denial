@@ -653,6 +653,7 @@ fn create_window_snapshot<'a>(
         let surface_layers = builder.create_vector(&surface_layers);
         let title = builder.create_string(&description.title);
         let app_id = builder.create_string(&description.app_id);
+        let held = description.pet.and_then(|pet| pet.held);
         windows.push(fb::Window::create(
             builder,
             &fb::WindowArgs {
@@ -696,6 +697,15 @@ fn create_window_snapshot<'a>(
                 opacity: description.opacity,
                 content_kind: description.content_kind.wire(),
                 opacity_class: description.opacity_class.wire(),
+                held_by_window_id: held.map_or(0, |(window_id, _, _)| window_id),
+                held_hold: held.map_or(0, |(_, hold, _)| hold),
+                held_share: held.map_or(0.0, |(_, _, share)| share),
+                pet_anchor_x: description.pet.map_or(0.0, |pet| pet.anchor_x),
+                pet_anchor_y: description.pet.map_or(0.0, |pet| pet.anchor_y),
+                pet_below: description.pet.is_some_and(|pet| pet.below),
+                pet: description.pet.is_some(),
+                pet_holds: description.pet.map_or(0, |pet| pet.holds),
+                pet_dragged: description.pet.is_some_and(|pet| pet.dragged),
                 ..Default::default()
             },
         ));
@@ -1351,6 +1361,7 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::ResizeGrowHeight => fb::ShortcutActionKind::ResizeGrowHeight,
         ShortcutAction::ResizeShrinkHeight => fb::ShortcutActionKind::ResizeShrinkHeight,
         ShortcutAction::ResetWindowHeight => fb::ShortcutActionKind::ResetWindowHeight,
+        ShortcutAction::ResetWindowWidth => fb::ShortcutActionKind::ResetWindowWidth,
         ShortcutAction::WindowSwitcher => fb::ShortcutActionKind::WindowSwitcher,
         ShortcutAction::OpenClipboard => fb::ShortcutActionKind::OpenClipboard,
         ShortcutAction::CaptureRegion => fb::ShortcutActionKind::CaptureRegion,

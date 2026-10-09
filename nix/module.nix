@@ -111,8 +111,9 @@ in
           # Denial does not expose layer-shell yet, so slurp cannot be used as
           # the chooser. Keep this absolute: the wlr portal does not inherit
           # the interactive session's PATH on NixOS.
+          # xdpw waits for the chooser, so GTK must not call back into portals.
           chooser_type = "dmenu";
-          chooser_cmd = "${pkgs.zenity}/bin/zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320";
+          chooser_cmd = "GDK_DEBUG=no-portals ${pkgs.zenity}/bin/zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320";
         };
       };
       extraPortals = [

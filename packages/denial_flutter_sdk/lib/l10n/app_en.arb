@@ -4823,6 +4823,55 @@
   "@wallpaperImageServerUnavailable": {
     "description": "Warning shown when the remote wallpaper image server cannot be reached."
   },
+  "wallpaperPreviousPage": "Previous wallpaper page",
+  "@wallpaperPreviousPage": {
+    "description": "Wallpaper catalog pagination control."
+  },
+  "wallpaperNextPage": "Next wallpaper page",
+  "@wallpaperNextPage": {
+    "description": "Wallpaper catalog pagination control."
+  },
+  "wallpaperPageNumber": "Page {page}",
+  "@wallpaperPageNumber": {
+    "description": "Wallpaper catalog pagination control.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "wallpaperPageOfTotal": "Page {page} of {total}",
+  "@wallpaperPageOfTotal": {
+    "description": "Wallpaper catalog pagination control.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "wallpaperLayout": "Preview layout",
+  "@wallpaperLayout": {
+    "description": "Accessibility label for the wallpaper selector's strip/gallery layout switch."
+  },
+  "wallpaperLayoutGallery": "Gallery",
+  "@wallpaperLayoutGallery": {
+    "description": "Wallpaper selector layout option that shows each wallpaper uncropped in a grid."
+  },
+  "wallpaperLayoutGalleryDescription": "Show full wallpaper previews",
+  "@wallpaperLayoutGalleryDescription": {
+    "description": "Accessibility label for switching the wallpaper selector to its uncropped gallery."
+  },
+  "wallpaperLayoutStrips": "Strips",
+  "@wallpaperLayoutStrips": {
+    "description": "Wallpaper selector layout option that shows narrow cropped strips."
+  },
+  "wallpaperLayoutStripsDescription": "Show cropped wallpaper strips",
+  "@wallpaperLayoutStripsDescription": {
+    "description": "Accessibility label for switching the wallpaper selector to its default narrow strips."
+  },
   "wallpaperMobileBackToSelection": "Back to wallpaper selection",
   "@wallpaperMobileBackToSelection": {
     "description": "Accessibility label for leaving mobile wallpaper positioning."
@@ -5418,6 +5467,10 @@
   "@settingsShortcutActionResetWindowHeight": {
     "description": "Shortcut action label: reset window height."
   },
+  "settingsShortcutActionResetWindowWidth": "Reset window width",
+  "@settingsShortcutActionResetWindowWidth": {
+    "description": "Shortcut action label: reset window width."
+  },
   "settingsAppearanceTheme": "Theme",
   "@settingsAppearanceTheme": {
     "description": "Appearance card heading for color scheme and accent."
@@ -5750,5 +5803,724 @@
   "polkitClose": "Close",
   "@polkitClose": {"description": "Authentication prompt text."},
   "polkitLocked": "Temporarily locked",
-  "@polkitLocked": {"description": "Authentication prompt text."}
+  "@polkitLocked": {"description": "Authentication prompt text."},
+  "pluginsAppTitle": "Denial Plugins",
+  "@pluginsAppTitle": {
+    "description": "Plugin Manager: AppTitle."
+  },
+  "pluginsTitle": "Plugins",
+  "@pluginsTitle": {
+    "description": "Plugin Manager: Title."
+  },
+  "pluginsInstalled": "Installed",
+  "@pluginsInstalled": {
+    "description": "Plugin Manager: Installed."
+  },
+  "pluginsDiscover": "Discover",
+  "@pluginsDiscover": {
+    "description": "Plugin Manager: Discover."
+  },
+  "pluginsActivity": "Activity",
+  "@pluginsActivity": {
+    "description": "Plugin Manager: Activity."
+  },
+  "pluginsLibrary": "Library",
+  "@pluginsLibrary": {
+    "description": "Plugin Manager: Library."
+  },
+  "pluginsPreferences": "Preferences",
+  "@pluginsPreferences": {
+    "description": "Plugin Manager: Preferences."
+  },
+  "pluginsSearchInstalled": "Search installed",
+  "@pluginsSearchInstalled": {
+    "description": "Plugin Manager: SearchInstalled."
+  },
+  "pluginsSearch": "Search plugins",
+  "@pluginsSearch": {
+    "description": "Plugin Manager: Search."
+  },
+  "pluginsClearSearch": "Clear search",
+  "@pluginsClearSearch": {
+    "description": "Plugin Manager: ClearSearch."
+  },
+  "pluginsAddTooltip": "Add a plugin from a repository link",
+  "@pluginsAddTooltip": {
+    "description": "Plugin Manager: AddTooltip."
+  },
+  "pluginsAddToolbar": "Add Plugin",
+  "@pluginsAddToolbar": {
+    "description": "Plugin Manager: AddToolbar."
+  },
+  "pluginsMoreActions": "More actions",
+  "@pluginsMoreActions": {
+    "description": "Plugin Manager: MoreActions."
+  },
+  "pluginsRefresh": "Refresh",
+  "@pluginsRefresh": {
+    "description": "Plugin Manager: Refresh."
+  },
+  "pluginsInstalledTitle": "Installed plugins",
+  "@pluginsInstalledTitle": {
+    "description": "Plugin Manager: InstalledTitle."
+  },
+  "pluginsInstalledDescription": "Choose the plugins that make up your desktop.",
+  "@pluginsInstalledDescription": {
+    "description": "Plugin Manager: InstalledDescription."
+  },
+  "pluginsNoneInstalled": "No plugins installed",
+  "@pluginsNoneInstalled": {
+    "description": "Plugin Manager: NoneInstalled."
+  },
+  "pluginsNoneInstalledDescription": "Discover plugins for your desktop, or add one using a repository link.",
+  "@pluginsNoneInstalledDescription": {
+    "description": "Plugin Manager: NoneInstalledDescription."
+  },
+  "pluginsDiscoverAction": "Discover Plugins",
+  "@pluginsDiscoverAction": {
+    "description": "Plugin Manager: DiscoverAction."
+  },
+  "pluginsUseDefaults": "Use Denial defaults",
+  "@pluginsUseDefaults": {
+    "description": "Plugin Manager: UseDefaults."
+  },
+  "pluginsNoMatches": "No matching plugins",
+  "@pluginsNoMatches": {
+    "description": "Plugin Manager: NoMatches."
+  },
+  "pluginsNoMatchesDescription": "Try another name or clear your search.",
+  "@pluginsNoMatchesDescription": {
+    "description": "Plugin Manager: NoMatchesDescription."
+  },
+  "pluginsAutomaticTitle": "Included automatically",
+  "@pluginsAutomaticTitle": {
+    "description": "Plugin Manager: AutomaticTitle."
+  },
+  "pluginsAutomaticDescription": "These keep your selected plugins working.",
+  "@pluginsAutomaticDescription": {
+    "description": "Plugin Manager: AutomaticDescription."
+  },
+  "pluginsDiscoverMore": "Discover more plugins",
+  "@pluginsDiscoverMore": {
+    "description": "Plugin Manager: DiscoverMore."
+  },
+  "pluginsPreparingDesktop": "Preparing your desktop",
+  "@pluginsPreparingDesktop": {
+    "description": "Plugin Manager: PreparingDesktop."
+  },
+  "pluginsPreparingDescription": "Denial is getting everything ready. You can leave this window open or come back later.",
+  "@pluginsPreparingDescription": {
+    "description": "Plugin Manager: PreparingDescription."
+  },
+  "pluginsTryAgain": "Try again",
+  "@pluginsTryAgain": {
+    "description": "Plugin Manager: TryAgain."
+  },
+  "pluginsFallbackDescription": "Customize your desktop with this plugin.",
+  "@pluginsFallbackDescription": {
+    "description": "Plugin Manager: FallbackDescription."
+  },
+  "pluginsSelected": "Selected",
+  "@pluginsSelected": {
+    "description": "Plugin Manager: Selected."
+  },
+  "pluginsNotSelected": "Not selected",
+  "@pluginsNotSelected": {
+    "description": "Plugin Manager: NotSelected."
+  },
+  "pluginsDesktopOptions": "Desktop options",
+  "@pluginsDesktopOptions": {
+    "description": "Plugin Manager: DesktopOptions."
+  },
+  "pluginsDesktopOptionsDescription": "Updates, compatibility and recovery",
+  "@pluginsDesktopOptionsDescription": {
+    "description": "Plugin Manager: DesktopOptionsDescription."
+  },
+  "pluginsCheckUpdates": "Check for plugin updates",
+  "@pluginsCheckUpdates": {
+    "description": "Plugin Manager: CheckUpdates."
+  },
+  "pluginsCheckCompatibility": "Check compatibility",
+  "@pluginsCheckCompatibility": {
+    "description": "Plugin Manager: CheckCompatibility."
+  },
+  "pluginsUndo": "Undo last change",
+  "@pluginsUndo": {
+    "description": "Plugin Manager: Undo."
+  },
+  "pluginsRestore": "Restore default desktop",
+  "@pluginsRestore": {
+    "description": "Plugin Manager: Restore."
+  },
+  "pluginsCheckSelection": "Check your selection",
+  "@pluginsCheckSelection": {
+    "description": "Plugin Manager: CheckSelection."
+  },
+  "pluginsStartupFailed": "Saved plugins could not start",
+  "@pluginsStartupFailed": {
+    "description": "Plugin Manager: StartupFailed."
+  },
+  "pluginsChangeFailed": "Change couldn’t be completed",
+  "@pluginsChangeFailed": {
+    "description": "Plugin Manager: ChangeFailed."
+  },
+  "pluginsSelectionChanged": "Your selection has changed",
+  "@pluginsSelectionChanged": {
+    "description": "Plugin Manager: SelectionChanged."
+  },
+  "pluginsPaused": "Your plugins are paused",
+  "@pluginsPaused": {
+    "description": "Plugin Manager: Paused."
+  },
+  "pluginsPendingReady": "Pending actions are ready",
+  "@pluginsPendingReady": {
+    "description": "Plugin Manager: PendingReady."
+  },
+  "pluginsPreparingSupport": "Preparing plugin support",
+  "@pluginsPreparingSupport": {
+    "description": "Plugin Manager: PreparingSupport."
+  },
+  "pluginsViewDetails": "View details",
+  "@pluginsViewDetails": {
+    "description": "Plugin Manager: ViewDetails."
+  },
+  "pluginsDiscard": "Discard",
+  "@pluginsDiscard": {
+    "description": "Plugin Manager: Discard."
+  },
+  "pluginsSwitchNow": "Switch now",
+  "@pluginsSwitchNow": {
+    "description": "Plugin Manager: SwitchNow."
+  },
+  "pluginsDismissError": "Dismiss error",
+  "@pluginsDismissError": {
+    "description": "Plugin Manager: DismissError."
+  },
+  "pluginsInProgress": "In progress",
+  "@pluginsInProgress": {
+    "description": "Plugin Manager: InProgress."
+  },
+  "pluginsDiscoverTitle": "Discover plugins",
+  "@pluginsDiscoverTitle": {
+    "description": "Plugin Manager: DiscoverTitle."
+  },
+  "pluginsDiscoverDescription": "Add new features and make your desktop your own.",
+  "@pluginsDiscoverDescription": {
+    "description": "Plugin Manager: DiscoverDescription."
+  },
+  "pluginsNothingFound": "Nothing found yet",
+  "@pluginsNothingFound": {
+    "description": "Plugin Manager: NothingFound."
+  },
+  "pluginsNothingFoundDescription": "Try another search, or add a plugin using its repository link.",
+  "@pluginsNothingFoundDescription": {
+    "description": "Plugin Manager: NothingFoundDescription."
+  },
+  "pluginsOfficial": "Made for Denial",
+  "@pluginsOfficial": {
+    "description": "Plugin Manager: Official."
+  },
+  "pluginsCommunity": "From the community",
+  "@pluginsCommunity": {
+    "description": "Plugin Manager: Community."
+  },
+  "pluginsRefreshDiscoveries": "Refresh discoveries",
+  "@pluginsRefreshDiscoveries": {
+    "description": "Plugin Manager: RefreshDiscoveries."
+  },
+  "pluginsNoCommunity": "No community plugins are listed yet. Add a plugin using its repository link.",
+  "@pluginsNoCommunity": {
+    "description": "Plugin Manager: NoCommunity."
+  },
+  "pluginsAddRepository": "Add from a repository",
+  "@pluginsAddRepository": {
+    "description": "Plugin Manager: AddRepository."
+  },
+  "pluginsAddRepositoryDescription": "Use a Git link to install a plugin from its developer.",
+  "@pluginsAddRepositoryDescription": {
+    "description": "Plugin Manager: AddRepositoryDescription."
+  },
+  "pluginsAddLink": "Add from a link",
+  "@pluginsAddLink": {
+    "description": "Plugin Manager: AddLink."
+  },
+  "pluginsDiscoveryFailed": "Some discoveries couldn’t be loaded. Try refreshing again.",
+  "@pluginsDiscoveryFailed": {
+    "description": "Plugin Manager: DiscoveryFailed."
+  },
+  "pluginsByDenial": "By Denial",
+  "@pluginsByDenial": {
+    "description": "Plugin Manager: ByDenial."
+  },
+  "pluginsCommunityPlugin": "Community plugin",
+  "@pluginsCommunityPlugin": {
+    "description": "Plugin Manager: CommunityPlugin."
+  },
+  "pluginsSelectedDesktop": "Selected for your desktop",
+  "@pluginsSelectedDesktop": {
+    "description": "Plugin Manager: SelectedDesktop."
+  },
+  "pluginsSelect": "Select plugin",
+  "@pluginsSelect": {
+    "description": "Plugin Manager: Select."
+  },
+  "pluginsRecentActivity": "Recent activity",
+  "@pluginsRecentActivity": {
+    "description": "Plugin Manager: RecentActivity."
+  },
+  "pluginsActivityDescription": "Installation progress and changes to your desktop.",
+  "@pluginsActivityDescription": {
+    "description": "Plugin Manager: ActivityDescription."
+  },
+  "pluginsNoActivity": "No activity yet",
+  "@pluginsNoActivity": {
+    "description": "Plugin Manager: NoActivity."
+  },
+  "pluginsNoActivityDescription": "Plugin installations and desktop changes will appear here.",
+  "@pluginsNoActivityDescription": {
+    "description": "Plugin Manager: NoActivityDescription."
+  },
+  "pluginsCompleted": "Completed",
+  "@pluginsCompleted": {
+    "description": "Plugin Manager: Completed."
+  },
+  "pluginsNeedsAttention": "Needs attention",
+  "@pluginsNeedsAttention": {
+    "description": "Plugin Manager: NeedsAttention."
+  },
+  "pluginsNoCandidates": "No plugin package candidates were found in this repository.",
+  "@pluginsNoCandidates": {
+    "description": "Plugin Manager: NoCandidates."
+  },
+  "pluginsBringNew": "Bring something new.",
+  "@pluginsBringNew": {
+    "description": "Plugin Manager: BringNew."
+  },
+  "pluginsTrustDescription": "Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.",
+  "@pluginsTrustDescription": {
+    "description": "Plugin Manager: TrustDescription."
+  },
+  "pluginsLocalDirectory": "Local package or repository directory",
+  "@pluginsLocalDirectory": {
+    "description": "Plugin Manager: LocalDirectory."
+  },
+  "pluginsRepositoryLink": "Repository link",
+  "@pluginsRepositoryLink": {
+    "description": "Plugin Manager: RepositoryLink."
+  },
+  "pluginsAdvancedOptions": "Advanced options",
+  "@pluginsAdvancedOptions": {
+    "description": "Plugin Manager: AdvancedOptions."
+  },
+  "pluginsGitRef": "Branch, tag, or commit (optional)",
+  "@pluginsGitRef": {
+    "description": "Plugin Manager: GitRef."
+  },
+  "pluginsLocalDevelopment": "Local development",
+  "@pluginsLocalDevelopment": {
+    "description": "Plugin Manager: LocalDevelopment."
+  },
+  "pluginsUseLocal": "Use a local development checkout",
+  "@pluginsUseLocal": {
+    "description": "Plugin Manager: UseLocal."
+  },
+  "pluginsChoose": "Choose a plugin",
+  "@pluginsChoose": {
+    "description": "Plugin Manager: Choose."
+  },
+  "pluginsIncludeDependencies": "We’ll include anything this plugin needs automatically.",
+  "@pluginsIncludeDependencies": {
+    "description": "Plugin Manager: IncludeDependencies."
+  },
+  "pluginsFinding": "Finding plugins…",
+  "@pluginsFinding": {
+    "description": "Plugin Manager: Finding."
+  },
+  "pluginsFind": "Find plugins",
+  "@pluginsFind": {
+    "description": "Plugin Manager: Find."
+  },
+  "pluginsAdd": "Add plugin",
+  "@pluginsAdd": {
+    "description": "Plugin Manager: Add."
+  },
+  "pluginsYourPlugins": "Your plugins",
+  "@pluginsYourPlugins": {
+    "description": "Plugin Manager: YourPlugins."
+  },
+  "pluginsLogLoadFailed": "The build log could not be loaded.",
+  "@pluginsLogLoadFailed": {
+    "description": "Plugin Manager: LogLoadFailed."
+  },
+  "pluginsTechnicalDetails": "Technical details",
+  "@pluginsTechnicalDetails": {
+    "description": "Plugin Manager: TechnicalDetails."
+  },
+  "pluginsBuildLog": "Build log",
+  "@pluginsBuildLog": {
+    "description": "Plugin Manager: BuildLog."
+  },
+  "pluginsNoBuildOutput": "No build output was recorded.",
+  "@pluginsNoBuildOutput": {
+    "description": "Plugin Manager: NoBuildOutput."
+  },
+  "pluginsClose": "Close",
+  "@pluginsClose": {
+    "description": "Plugin Manager: Close."
+  },
+  "pluginsDone": "Done",
+  "@pluginsDone": {
+    "description": "Plugin Manager: Done."
+  },
+  "pluginsApply": "Apply plugins",
+  "@pluginsApply": {
+    "description": "Plugin Manager: Apply."
+  },
+  "pluginsBuild": "Build plugins",
+  "@pluginsBuild": {
+    "description": "Plugin Manager: Build."
+  },
+  "pluginsCheckChanges": "Check your changes",
+  "@pluginsCheckChanges": {
+    "description": "Plugin Manager: CheckChanges."
+  },
+  "pluginsEnable": "Enable plugin",
+  "@pluginsEnable": {
+    "description": "Plugin Manager: Enable."
+  },
+  "pluginsDisable": "Disable plugin",
+  "@pluginsDisable": {
+    "description": "Plugin Manager: Disable."
+  },
+  "pluginsUpdate": "Update plugins",
+  "@pluginsUpdate": {
+    "description": "Plugin Manager: Update."
+  },
+  "pluginsRebuild": "Rebuild plugins",
+  "@pluginsRebuild": {
+    "description": "Plugin Manager: Rebuild."
+  },
+  "pluginsSetup": "Set up plugins",
+  "@pluginsSetup": {
+    "description": "Plugin Manager: Setup."
+  },
+  "pluginsChooseDefaults": "Choose default plugins",
+  "@pluginsChooseDefaults": {
+    "description": "Plugin Manager: ChooseDefaults."
+  },
+  "pluginsActivityFallback": "Plugin activity",
+  "@pluginsActivityFallback": {
+    "description": "Plugin Manager: ActivityFallback."
+  },
+  "pluginsWorking": "Working on your changes",
+  "@pluginsWorking": {
+    "description": "Plugin Manager: Working."
+  },
+  "pluginsApplyChanges": "Apply changes",
+  "@pluginsApplyChanges": {
+    "description": "Plugin Manager: ApplyChanges."
+  },
+  "pluginsApplyPending": "Apply pending actions",
+  "@pluginsApplyPending": {
+    "description": "Plugin Manager: ApplyPending."
+  },
+  "pluginsApplySelectionUpdates": "Apply your selection changes and pending updates to your desktop.",
+  "@pluginsApplySelectionUpdates": {
+    "description": "Plugin Manager: ApplySelectionUpdates."
+  },
+  "pluginsApplySelection": "Apply your plugin selection changes to your desktop.",
+  "@pluginsApplySelection": {
+    "description": "Plugin Manager: ApplySelection."
+  },
+  "pluginsApplyUnchanged": "Your switches are unchanged. Pending plugin updates need to be applied to your desktop.",
+  "@pluginsApplyUnchanged": {
+    "description": "Plugin Manager: ApplyUnchanged."
+  },
+  "pluginsStaleSelection": "The selection changed elsewhere. Discard your draft to load the latest selection.",
+  "@pluginsStaleSelection": {
+    "description": "Plugin Manager: StaleSelection."
+  },
+  "pluginsUpdated": "Denial was updated.",
+  "@pluginsUpdated": {
+    "description": "Plugin Manager: Updated."
+  },
+  "pluginsFailureEngine": "Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.",
+  "@pluginsFailureEngine": {
+    "description": "Plugin Manager: FailureEngine."
+  },
+  "pluginsFailureVersion": "Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.",
+  "@pluginsFailureVersion": {
+    "description": "Plugin Manager: FailureVersion."
+  },
+  "pluginsFailurePanel": "More than one desktop panel is selected. Keep one enabled, then apply again.",
+  "@pluginsFailurePanel": {
+    "description": "Plugin Manager: FailurePanel."
+  },
+  "pluginsFailureConflict": "Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.",
+  "@pluginsFailureConflict": {
+    "description": "Plugin Manager: FailureConflict."
+  },
+  "pluginsFailureMissing": "A required desktop feature is missing. Enable a plugin that provides it, then apply again.",
+  "@pluginsFailureMissing": {
+    "description": "Plugin Manager: FailureMissing."
+  },
+  "pluginsFailureLogin": "Log out and back into Denial once to finish the update. Your choices are saved.",
+  "@pluginsFailureLogin": {
+    "description": "Plugin Manager: FailureLogin."
+  },
+  "pluginsFailureWorker": "The background operation stopped unexpectedly. Check Activity before trying again.",
+  "@pluginsFailureWorker": {
+    "description": "Plugin Manager: FailureWorker."
+  },
+  "pluginsFailureDownload": "A download failed. Check your connection and try again.",
+  "@pluginsFailureDownload": {
+    "description": "Plugin Manager: FailureDownload."
+  },
+  "pluginsFailureGeneric": "This change could not be completed. Open details to see the cause.",
+  "@pluginsFailureGeneric": {
+    "description": "Plugin Manager: FailureGeneric."
+  },
+  "pluginsToolsUnavailable": "Plugin tools are temporarily unavailable. Retrying automatically.",
+  "@pluginsToolsUnavailable": {
+    "description": "Plugin Manager: ToolsUnavailable."
+  },
+  "pluginsDartCompatible": "Compatible Dart is required",
+  "@pluginsDartCompatible": {
+    "description": "Plugin Manager: DartCompatible."
+  },
+  "pluginsDartRequired": "Dart is required",
+  "@pluginsDartRequired": {
+    "description": "Plugin Manager: DartRequired."
+  },
+  "pluginsToolsAttention": "Plugin tools need attention",
+  "@pluginsToolsAttention": {
+    "description": "Plugin Manager: ToolsAttention."
+  },
+  "pluginsSetupFailed": "Preparation could not finish. See Activity for details, then try again.",
+  "@pluginsSetupFailed": {
+    "description": "Plugin Manager: SetupFailed."
+  },
+  "pluginsWaitingStart": "Waiting to start",
+  "@pluginsWaitingStart": {
+    "description": "Plugin Manager: WaitingStart."
+  },
+  "pluginsCloseWhileWorking": "You can close this window. We’ll keep going.",
+  "@pluginsCloseWhileWorking": {
+    "description": "Plugin Manager: CloseWhileWorking."
+  },
+  "pluginsPreparingPlugins": "Preparing your plugins",
+  "@pluginsPreparingPlugins": {
+    "description": "Plugin Manager: PreparingPlugins."
+  },
+  "pluginsCheckingCompatibility": "Checking plugin compatibility",
+  "@pluginsCheckingCompatibility": {
+    "description": "Plugin Manager: CheckingCompatibility."
+  },
+  "pluginsPreparingBuild": "Preparing your desktop build",
+  "@pluginsPreparingBuild": {
+    "description": "Plugin Manager: PreparingBuild."
+  },
+  "pluginsCompilingSources": "Compiling Dart sources",
+  "@pluginsCompilingSources": {
+    "description": "Plugin Manager: CompilingSources."
+  },
+  "pluginsOptimizing": "Optimizing and generating native code",
+  "@pluginsOptimizing": {
+    "description": "Plugin Manager: Optimizing."
+  },
+  "pluginsPreparingAssets": "Preparing assets",
+  "@pluginsPreparingAssets": {
+    "description": "Plugin Manager: PreparingAssets."
+  },
+  "pluginsLoadingDesktop": "Loading your saved desktop",
+  "@pluginsLoadingDesktop": {
+    "description": "Plugin Manager: LoadingDesktop."
+  },
+  "pluginsCompilingDesktop": "Compiling your desktop",
+  "@pluginsCompilingDesktop": {
+    "description": "Plugin Manager: CompilingDesktop."
+  },
+  "pluginsVerifyingDesktop": "Verifying your desktop",
+  "@pluginsVerifyingDesktop": {
+    "description": "Plugin Manager: VerifyingDesktop."
+  },
+  "pluginsSwitchingPause": "Switching when you pause",
+  "@pluginsSwitchingPause": {
+    "description": "Plugin Manager: SwitchingPause."
+  },
+  "pluginsApplyingDesktop": "Applying and checking your desktop",
+  "@pluginsApplyingDesktop": {
+    "description": "Plugin Manager: ApplyingDesktop."
+  },
+  "pluginsVerifyingTools": "Verifying plugin tools",
+  "@pluginsVerifyingTools": {
+    "description": "Plugin Manager: VerifyingTools."
+  },
+  "pluginsPreparingTools": "Preparing plugin tools",
+  "@pluginsPreparingTools": {
+    "description": "Plugin Manager: PreparingTools."
+  },
+  "pluginsConfigurationDescription": "Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.",
+  "@pluginsConfigurationDescription": {
+    "description": "Plugin Manager: ConfigurationDescription."
+  },
+  "pluginsSelectedCount": "{count, plural, =0{0 selected} =1{1 selected} other{{count} selected}}",
+  "@pluginsSelectedCount": {
+    "description": "Plugin Manager: SelectedCount.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pluginsSwitchSemantics": "{name} plugin",
+  "@pluginsSwitchSemantics": {
+    "description": "Plugin Manager: SwitchSemantics.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsCandidateLabel": "{name} · {path}",
+  "@pluginsCandidateLabel": {
+    "description": "Plugin Manager: CandidateLabel.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsStepsComplete": "{completed} of {total} steps complete",
+  "@pluginsStepsComplete": {
+    "description": "Plugin Manager: StepsComplete.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "pluginsStep": "Step {step} of {total} · {label}",
+  "@pluginsStep": {
+    "description": "Plugin Manager: Step.",
+    "placeholders": {
+      "step": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsElapsed": "{stage} · {clock} elapsed",
+  "@pluginsElapsed": {
+    "description": "Plugin Manager: Elapsed.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "clock": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsInstalledVersion": "Denial {version} is installed.",
+  "@pluginsInstalledVersion": {
+    "description": "Plugin Manager: InstalledVersion.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsRebuildDescription": "{introduction} Rebuild your plugins to bring them back, with all their settings. No need to log out.",
+  "@pluginsRebuildDescription": {
+    "description": "Plugin Manager: RebuildDescription.",
+    "placeholders": {
+      "introduction": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsDartIncompatible": "Dart {installed} is installed, but Denial requires {constraint}. Install a compatible Dart package and make sure dart is available in PATH, then try again.",
+  "@pluginsDartIncompatible": {
+    "description": "Plugin Manager: DartIncompatible.",
+    "placeholders": {
+      "installed": {
+        "type": "String"
+      },
+      "constraint": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsDartInstall": "Install Dart with your system package manager. Denial recommends Dart {expected}. Make sure dart is available in PATH, then try again.",
+  "@pluginsDartInstall": {
+    "description": "Plugin Manager: DartInstall.",
+    "placeholders": {
+      "expected": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsProviderConflict": "{feature} is provided by {plugins}. {owner} accepts at most {maximum} providers. Disable extra plugins before applying.",
+  "@pluginsProviderConflict": {
+    "description": "Plugin Manager: ProviderConflict.",
+    "placeholders": {
+      "feature": {
+        "type": "String"
+      },
+      "plugins": {
+        "type": "String"
+      },
+      "owner": {
+        "type": "String"
+      },
+      "maximum": {
+        "type": "int"
+      }
+    }
+  },
+  "pluginsProviderMissing": "{owner} needs at least {minimum} providers for {feature}. Enable a compatible plugin before applying.",
+  "@pluginsProviderMissing": {
+    "description": "Plugin Manager: ProviderMissing.",
+    "placeholders": {
+      "owner": {
+        "type": "String"
+      },
+      "minimum": {
+        "type": "int"
+      },
+      "feature": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsInvalidDeclaration": "{plugins} has invalid compatibility declarations. Open details to see the cause.",
+  "@pluginsInvalidDeclaration": {
+    "description": "Plugin Manager: InvalidDeclaration.",
+    "placeholders": {
+      "plugins": {
+        "type": "String"
+      }
+    }
+  },
+  "pluginsFailureDeclaration": "Plugin compatibility information needs attention. Check your selection and open details before applying again.",
+  "@pluginsFailureDeclaration": {
+    "description": "Plugin Manager compatibility declaration or preflight failure summary."
+  },
+  "pluginsDesktopFeature": "Desktop",
+  "@pluginsDesktopFeature": {
+    "description": "Plugin Manager: DesktopFeature."
+  }
+
 }

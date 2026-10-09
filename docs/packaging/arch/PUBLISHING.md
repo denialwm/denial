@@ -403,7 +403,7 @@ sources of truth. The exact release inputs are the immutable commits in
 `prebuilt/flutter-engine/SOURCE_LOCK.json`:
 
 - Flutter: [`denialwm/flutter`](https://github.com/denialwm/flutter),
-  branch `denial/3.47.5-r1`, exact commit in `.flutter.revision`;
+  branch `denial/3.47.5`, exact commit in `.flutter.revision`;
 - Skia: [`denialwm/skia`](https://github.com/denialwm/skia),
   branch `denial/3.47.5-r1`, exact commit in `.skia.revision`.
 
@@ -411,6 +411,12 @@ The engine portions of these histories were independently verified on
 2026-07-25; the three Flutter framework/tool commits were migrated and tested
 on 2026-07-29. The branches are movable review references. Build and release
 inputs use the immutable commit IDs in the lock, never an unpinned branch name.
+
+On 2026-10-09 the Flutter publication branch was corrected from
+`denia/3.47.5` to `denial/3.47.5`, preserving the lineage already pinned on
+`main`. The older divergent Flutter `denial/3.47.5-r1` remains intact as a
+historical reference; its optimization/API set is not merged into the current
+lineage. Skia continues to use its separate `denial/3.47.5-r1` branch.
 
 The
 [engine validation report](../../flutter-engine/3.47.5/VALIDATION.md)

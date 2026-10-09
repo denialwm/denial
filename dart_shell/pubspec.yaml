@@ -15,6 +15,8 @@ dependencies:
     path: ../packages/denial_flutter_sdk
   denial_launcher:
     path: ../plugins/denial_launcher
+  denial_pets:
+    path: ../plugins/denial_pets
   denial_top_bar:
     path: ../plugins/denial_top_bar
   flutter:

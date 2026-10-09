@@ -156,6 +156,13 @@ packages:
       relative: true
     source: path
     version: "0.0.0"
+  denial_pets:
+    dependency: "direct main"
+    description:
+      path: "../plugins/denial_pets"
+      relative: true
+    source: path
+    version: "0.0.0"
   denial_sdk:
     dependency: "direct dev"
     description:

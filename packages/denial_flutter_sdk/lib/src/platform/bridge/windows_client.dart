@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
+import '../../models/denial_pet.dart';
 import '../../models/denial_window.dart';
 import '../../models/denial_window_event.dart';
 import '../../models/denial_window_snapshot.dart';
@@ -128,6 +129,23 @@ final class BridgeWindowsClient {
         workspaceId: workspaceId,
       ),
     );
+  }
+
+  /// Names the hold a pet the user drags takes if let go now, or none.
+  /// Native keeps it only if the pet accepts it and the window may hold
+  /// pets, and applies the latest one when the drag ends.
+  void holdPet(int petId, DenialPetHold? hold) {
+    if (_context.codec.encodePetHold(petId, hold) case final bytes?) {
+      _context.sendWire(bytes);
+    }
+  }
+
+  /// Tells native how fast a held pet moves on screen, in logical px/s, so
+  /// the pet can feel it. Zero when it stops.
+  void carryPet(int petId, Offset velocity) {
+    if (_context.codec.encodePetCarried(petId, velocity) case final bytes?) {
+      _context.sendWire(bytes);
+    }
   }
 
   void moveWindowToWorkspace(

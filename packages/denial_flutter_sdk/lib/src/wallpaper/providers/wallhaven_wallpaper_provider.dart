@@ -106,17 +106,36 @@ class WallhavenWallpaperProvider
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Invalid Wallhaven response');
     }
-    final items = parseSearchResponse(
-      decoded,
-      providerId: id,
-      targetAspectRatio: query.targetAspectRatio,
-    ).take(query.limit).toList(growable: false);
-    final meta = decoded['meta'];
-    final lastPage = meta is Map<String, dynamic> ? meta['last_page'] : null;
+    return parsePageResponse(decoded, query: query, providerId: id);
+  }
+
+  static WallpaperPage parsePageResponse(
+    Map<String, dynamic> response, {
+    required WallpaperQuery query,
+    required String providerId,
+  }) {
+    final meta = response['meta'];
+    final requestedPage = math.max(1, query.page);
+    final currentPage = meta is Map ? meta['current_page'] : null;
+    final rawLastPage = meta is Map ? meta['last_page'] : null;
+    if (response['data'] is! List ||
+        currentPage is! int ||
+        currentPage != requestedPage ||
+        rawLastPage is! int ||
+        rawLastPage < 0) {
+      throw const FormatException('Invalid Wallhaven pagination response');
+    }
+    // Empty listings may report zero pages; the picker still has page 1.
+    final lastPage = math.max(1, rawLastPage);
     return WallpaperPage(
-      items: items,
-      page: query.page,
-      hasMore: lastPage is num && query.page < lastPage.toInt(),
+      items: parseSearchResponse(
+        response,
+        providerId: providerId,
+        targetAspectRatio: query.targetAspectRatio,
+      ).take(math.max(1, query.limit)).toList(growable: false),
+      page: currentPage,
+      hasMore: currentPage < lastPage,
+      lastPage: lastPage,
     );
   }
 

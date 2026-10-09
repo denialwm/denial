@@ -1,5 +1,7 @@
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:flutter/material.dart';
 
+import 'localized_feedback.dart';
 import 'backend.dart';
 import 'controller.dart';
 import 'presentation.dart';
@@ -17,6 +19,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
   List<Map<String, Object?>> candidates = [];
   String? selected;
   String? error;
+  bool noCandidates = false;
   bool loading = false;
   bool local = false;
   @override
@@ -30,6 +33,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
     setState(() {
       loading = true;
       error = null;
+      noCandidates = false;
       candidates = [];
       selected = null;
     });
@@ -47,7 +51,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
             ? candidates.single['path']! as String
             : null;
         if (candidates.isEmpty) {
-          error = 'No plugin package candidates were found in this repository.';
+          noCandidates = true;
         }
       });
     } catch (failure) {
@@ -60,7 +64,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     icon: const Icon(Icons.add_link_rounded),
-    title: const Text('Bring something new.'),
+    title: Text(context.l10n.pluginsBringNew),
     scrollable: true,
     content: SizedBox(
       width: 520,
@@ -69,9 +73,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.',
-            ),
+            Text(context.l10n.pluginsTrustDescription),
             const SizedBox(height: 20),
             TextField(
               controller: url,
@@ -79,8 +81,8 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
               enabled: !loading,
               decoration: InputDecoration(
                 labelText: local
-                    ? 'Local package or repository directory'
-                    : 'Repository link',
+                    ? context.l10n.pluginsLocalDirectory
+                    : context.l10n.pluginsRepositoryLink,
               ),
               onChanged: (_) => setState(() {
                 selected = null;
@@ -90,14 +92,14 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
             const SizedBox(height: 12),
             if (!local)
               ExpansionTile(
-                title: const Text('Advanced options'),
+                title: Text(context.l10n.pluginsAdvancedOptions),
                 tilePadding: EdgeInsets.zero,
                 children: [
                   TextField(
                     controller: ref,
                     enabled: !loading,
-                    decoration: const InputDecoration(
-                      labelText: 'Branch, tag, or commit (optional)',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.pluginsGitRef,
                     ),
                     onChanged: (_) => setState(() {
                       selected = null;
@@ -107,12 +109,12 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
                 ],
               ),
             ExpansionTile(
-              title: const Text('Local development'),
+              title: Text(context.l10n.pluginsLocalDevelopment),
               tilePadding: EdgeInsets.zero,
               children: [
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Use a local development checkout'),
+                  title: Text(context.l10n.pluginsUseLocal),
                   value: local,
                   onChanged: loading
                       ? null
@@ -125,23 +127,38 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
               ],
             ),
             if (loading) const LinearProgressIndicator(),
-            if (error != null)
+            if (error != null || noCandidates)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                child: SelectableText(error!),
+                child: SelectableText(
+                  noCandidates
+                      ? context.l10n.pluginsNoCandidates
+                      : localizedFailureSummary(context.l10n, error!),
+                ),
+              ),
+            if (error != null)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text(context.l10n.pluginsTechnicalDetails),
+                children: [SelectableText(error!)],
               ),
             if (candidates.isNotEmpty) ...[
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: selected,
-                decoration: const InputDecoration(labelText: 'Choose a plugin'),
+                decoration: InputDecoration(
+                  labelText: context.l10n.pluginsChoose,
+                ),
                 isExpanded: true,
                 items: [
                   for (final item in candidates)
                     DropdownMenuItem(
                       value: item['path']! as String,
                       child: Text(
-                        '${pluginTitle(item['name']! as String)} · ${item['path']}',
+                        context.l10n.pluginsCandidateLabel(
+                          pluginTitle(item['name']! as String),
+                          item['path']! as String,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -149,9 +166,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
                 onChanged: (value) => setState(() => selected = value),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'We’ll include anything this plugin needs automatically.',
-              ),
+              Text(context.l10n.pluginsIncludeDependencies),
             ],
           ],
         ),
@@ -160,12 +175,14 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
+        child: Text(context.l10n.actionCancel),
       ),
       if (candidates.isEmpty)
         FilledButton(
           onPressed: loading || url.text.trim().isEmpty ? null : inspect,
-          child: Text(loading ? 'Finding plugins…' : 'Find plugins'),
+          child: Text(
+            loading ? context.l10n.pluginsFinding : context.l10n.pluginsFind,
+          ),
         ),
       if (candidates.isNotEmpty)
         FilledButton(
@@ -187,7 +204,7 @@ class _RepositoryDialogState extends State<RepositoryDialog> {
                   });
                   Navigator.pop(context);
                 },
-          child: const Text('Add plugin'),
+          child: Text(context.l10n.pluginsAdd),
         ),
     ],
   );
@@ -200,20 +217,15 @@ class ConfigurationDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AlertDialog(
     icon: const Icon(Icons.extension_outlined),
-    title: const Text('Your plugins'),
-    content: const SizedBox(
+    title: Text(context.l10n.pluginsYourPlugins),
+    content: SizedBox(
       width: 440,
-      child: Text(
-        'Choose plugins from your library, then apply your changes together. '
-        'Denial takes care of preparing everything your desktop needs.\n\n'
-        'You can also add plugins using a repository link. '
-        'Previous working desktops remain available in the desktop menu.',
-      ),
+      child: Text(context.l10n.pluginsConfigurationDescription),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Done'),
+        child: Text(context.l10n.pluginsDone),
       ),
     ],
   );

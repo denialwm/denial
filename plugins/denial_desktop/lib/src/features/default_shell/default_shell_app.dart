@@ -1,6 +1,7 @@
 import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/launcher.dart';
+import 'package:denial_flutter_sdk/pets.dart';
 
 import '../../core/denial_shell.dart';
 
@@ -32,6 +33,8 @@ class DenialShellApp extends StatelessWidget {
     this.desktopWorkArea,
     this.desktopLauncher,
     this.actions = const [],
+    this.desktopPetHolds,
+    this.desktopPetShadows,
     super.key,
   });
 
@@ -39,6 +42,8 @@ class DenialShellApp extends StatelessWidget {
   final ShellWorkArea? desktopWorkArea;
   final ShellLauncher? desktopLauncher;
   final List<ShellAction> actions;
+  final ShellPetHolds? desktopPetHolds;
+  final ShellPetShadows? desktopPetShadows;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +52,8 @@ class DenialShellApp extends StatelessWidget {
         desktopSurfacesProvider.overrideWithValue(desktopSurfaces),
         desktopLauncherProvider.overrideWithValue(desktopLauncher),
         desktopActionsProvider.overrideWithValue(actions),
+        desktopPetHoldsProvider.overrideWithValue(desktopPetHolds),
+        desktopPetShadowsProvider.overrideWithValue(desktopPetShadows),
       ],
       child: DenialShell(
         desktopWorkArea: desktopWorkArea,

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../input/input_layout.dart';
 import '../models/denial_cursor_state.dart';
 import '../models/denial_drag_icon.dart';
+import '../models/denial_pet.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -296,6 +297,15 @@ class DenialBridge {
 
   void switchWorkspace({required int monitorId, required int workspaceId}) =>
       _windows.switchWorkspace(monitorId: monitorId, workspaceId: workspaceId);
+
+  /// Names the hold a desktop pet the user drags takes if let go now, or
+  /// none. See `ShellPetHolds`.
+  void holdPet(int petId, DenialPetHold? hold) => _windows.holdPet(petId, hold);
+
+  /// Tells native how fast a held desktop pet moves on screen, in logical
+  /// px/s, its window's animations included. Zero when it stops.
+  void carryPet(int petId, Offset velocity) =>
+      _windows.carryPet(petId, velocity);
 
   void moveWindowToWorkspace(
     DenialWindow window, {

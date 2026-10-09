@@ -15,6 +15,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 
 import 'desktop_workspace.dart';
+import 'desktop_held_layers.dart';
 import 'desktop_input_surface_index.dart';
 
 class DesktopInputLayoutPublisher extends ConsumerStatefulWidget {
@@ -144,6 +145,7 @@ class _DesktopInputLayoutPublisherState
     final layerSurfaces = _surfaceIndex!.positioned;
     final backgroundLayerSurfaces = _surfaceIndex!.background;
     final foregroundLayerSurfaces = _surfaceIndex!.foreground;
+    final heldLayerSurfaces = _surfaceIndex!.held;
     final desktop = source.desktop;
     final interactions = source.interactions;
 
@@ -224,6 +226,31 @@ class _DesktopInputLayoutPublisherState
             shellRegions = _subtractFromAll(shellRegions, visiblePopupRect);
           }
         }
+        for (final layer
+            in heldLayerSurfaces[placement.objectId] ??
+                const <DenialWindow>[]) {
+          final heldRect = desktopHeldLayerRect(
+            layer: layer,
+            window: window,
+            contentRect: visualContentRect,
+            frameBorder: placement.frameBorder,
+          );
+          if (heldRect == null) {
+            continue;
+          }
+          for (final rect in <Rect>[
+            heldRect,
+            for (final popup in layer.popupRoots)
+              layer.mapSurfaceRect(popup, heldRect),
+          ]) {
+            final visibleRect = outputClip == null
+                ? rect
+                : rect.intersect(outputClip);
+            if (!visibleRect.isEmpty) {
+              shellRegions = _subtractFromAll(shellRegions, visibleRect);
+            }
+          }
+        }
       }
     }
     for (final region in interactions.childRegions) {
@@ -288,18 +315,34 @@ class _DesktopInputLayoutPublisherState
       }
       visibleSurfaceIds.addAll(window.mainVisibleSurfaceIds);
     }
+    // Each window owns one z block of zStride values. From the bottom up it
+    // holds the regions of the pets it holds below itself (one per popup and
+    // one per root), its main region, the regions of the pets it holds above
+    // itself, and a value per surface layer for its popups: the order its
+    // frame draws them in.
     final zStride = placements.fold<int>(2, (stride, placement) {
-      final layers = windowsById[placement.objectId]!.surfaceLayers.length + 2;
-      return math.max(stride, layers);
+      final held =
+          heldLayerSurfaces[placement.objectId] ?? const <DenialWindow>[];
+      final block =
+          _heldLayerRegionCount(held, below: true) +
+          windowsById[placement.objectId]!.surfaceLayers.length +
+          2 +
+          _heldLayerRegionCount(held, below: false);
+      return math.max(stride, block);
     });
     // The wire hit tester consumes the first matching window. Build this list
     // in its final topmost-first order so the codec normally needs neither a
     // defensive copy nor another sort.
     for (var index = placements.length - 1; index >= 0; index--) {
       final placement = placements[index];
+      final held =
+          heldLayerSurfaces[placement.objectId] ?? const <DenialWindow>[];
       if (interactions.capturesFullScene) {
         final window = windowsById[placement.objectId]!;
         visibleSurfaceIds.addAll(window.visibleSurfaceIds);
+        for (final layer in held) {
+          visibleSurfaceIds.addAll(layer.visibleSurfaceIds);
+        }
         _configureWindowGeometry(
           window,
           placement.contentRect,
@@ -309,10 +352,34 @@ class _DesktopInputLayoutPublisherState
       }
       final window = windowsById[placement.objectId]!;
       visibleSurfaceIds.addAll(window.visibleSurfaceIds);
+      for (final layer in held) {
+        visibleSurfaceIds.addAll(layer.visibleSurfaceIds);
+      }
       final visualContentRect = placement.contentRect;
       final sourceRect = window.contentCoordinateRect;
       final outputClip = outputClipFor(placement);
       final baseZ = index * zStride;
+      final mainZ = baseZ + _heldLayerRegionCount(held, below: true);
+      final popupZ = mainZ + _heldLayerRegionCount(held, below: false);
+      Rect? heldLayerRect(DenialWindow layer) => desktopHeldLayerRect(
+        layer: layer,
+        window: window,
+        contentRect: visualContentRect,
+        frameBorder: placement.frameBorder,
+      );
+      // Held pets are hit like layer surfaces, but at their window's place
+      // and clipped like its regions.
+      inputWindows.addAll(
+        desktopLayerInputRegions(
+          [
+            for (final layer in held)
+              if (!(layer.pet?.below ?? false)) layer,
+          ],
+          zBand: mainZ,
+          rectOf: heldLayerRect,
+          clipRect: outputClip,
+        ),
+      );
       final popupRoots = window.popupRootsFrontToBack;
       for (final popup in popupRoots) {
         final popupRect = window.mapSurfaceRect(popup, visualContentRect);
@@ -345,7 +412,7 @@ class _DesktopInputLayoutPublisherState
             surfaceId: popup.surfaceId,
             rect: popupGeometry.rect,
             sourceRect: popupGeometry.sourceRect,
-            z: baseZ + popup.compositionOrder + 1,
+            z: popupZ + popup.compositionOrder + 1,
             geometryLocked: placement.fullscreen,
           ),
         );
@@ -367,11 +434,22 @@ class _DesktopInputLayoutPublisherState
             surfaceId: window.objectId,
             rect: contentGeometry.rect,
             sourceRect: contentGeometry.sourceRect,
-            z: baseZ,
+            z: mainZ,
             geometryLocked: placement.fullscreen,
           ),
         );
       }
+      inputWindows.addAll(
+        desktopLayerInputRegions(
+          [
+            for (final layer in held)
+              if (layer.pet?.below ?? false) layer,
+          ],
+          zBand: baseZ - 1,
+          rectOf: heldLayerRect,
+          clipRect: outputClip,
+        ),
+      );
       _configureWindowGeometry(
         window,
         placement.contentRect,
@@ -428,10 +506,18 @@ class _DesktopInputLayoutPublisherState
   }
 }
 
+/// Topmost-first input regions of layer surfaces and their popups, with
+/// unique z values just above [zBand]: one per popup and one per root.
+///
+/// A layer is placed at its own geometry unless [rectOf] gives its rectangle,
+/// as for a layer held by a window; a null rectangle leaves the layer out.
+/// [clipRect] clips every region, mapping its source rectangle to match.
 List<InputWindowRegion> desktopLayerInputRegions(
   List<DenialWindow> surfaces, {
   required int zBand,
   bool enabled = true,
+  Rect? Function(DenialWindow surface)? rectOf,
+  Rect? clipRect,
 }) {
   if (!enabled) {
     return const <InputWindowRegion>[];
@@ -442,9 +528,17 @@ List<InputWindowRegion> desktopLayerInputRegions(
       surfaces.fold<int>(0, (count, surface) {
         return count + surface.popupRoots.length + 1;
       });
+  ({Rect rect, Rect sourceRect})? clipped(Rect rect, Rect sourceRect) =>
+      clipRect == null
+      ? (rect: rect, sourceRect: sourceRect)
+      : desktopClipInputGeometryToRect(
+          rect: rect,
+          sourceRect: sourceRect,
+          clipRect: clipRect,
+        );
   for (var index = surfaces.length - 1; index >= 0; index -= 1) {
     final surface = surfaces[index];
-    final geometry = surface.geometry;
+    final geometry = rectOf == null ? surface.geometry : rectOf(surface);
     if (geometry == null) {
       continue;
     }
@@ -453,28 +547,34 @@ List<InputWindowRegion> desktopLayerInputRegions(
       if (popupRect.isEmpty) {
         continue;
       }
+      final popupGeometry = clipped(
+        popupRect,
+        Rect.fromLTWH(0.0, 0.0, popup.surfaceWidth, popup.surfaceHeight),
+      );
+      if (popupGeometry == null) {
+        continue;
+      }
       regions.add(
         InputWindowRegion(
           window: surface,
           surfaceId: popup.surfaceId,
-          rect: popupRect,
-          sourceRect: Rect.fromLTWH(
-            0.0,
-            0.0,
-            popup.surfaceWidth,
-            popup.surfaceHeight,
-          ),
+          rect: popupGeometry.rect,
+          sourceRect: popupGeometry.sourceRect,
           z: nextZ--,
           geometryLocked: true,
         ),
       );
     }
+    final rootGeometry = clipped(geometry, surface.contentCoordinateRect);
+    if (rootGeometry == null) {
+      continue;
+    }
     regions.add(
       InputWindowRegion(
         window: surface,
         surfaceId: surface.objectId,
-        rect: geometry,
-        sourceRect: surface.contentCoordinateRect,
+        rect: rootGeometry.rect,
+        sourceRect: rootGeometry.sourceRect,
         z: nextZ--,
         geometryLocked: true,
       ),
@@ -482,6 +582,16 @@ List<InputWindowRegion> desktopLayerInputRegions(
   }
   return regions;
 }
+
+/// The z values [desktopLayerInputRegions] takes for the layers of [held]
+/// that a window holds on the side [below].
+int _heldLayerRegionCount(List<DenialWindow> held, {required bool below}) =>
+    held.fold<int>(
+      0,
+      (count, layer) => (layer.pet?.below ?? false) == below
+          ? count + layer.popupRoots.length + 1
+          : count,
+    );
 
 class _DesktopInputLayoutSource {
   const _DesktopInputLayoutSource({

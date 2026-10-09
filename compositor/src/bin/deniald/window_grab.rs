@@ -387,6 +387,85 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
     }
 }
 
+/// The user dragging a desktop pet (`denial-pet-v1`), from a press on it.
+/// Denial moves the layer itself while the shell names what would hold it;
+/// the pet gets no pointer events until it is let go, and then hears only
+/// where.
+#[cfg(feature = "flutter")]
+pub(super) struct PetMoveGrab {
+    start_data: GrabStartData<RuntimeState>,
+    surface: WlSurface,
+    /// Where the pet is held, from its top left.
+    hold: Point<f64, Logical>,
+}
+
+#[cfg(feature = "flutter")]
+impl PetMoveGrab {
+    pub(super) fn new(
+        start_data: GrabStartData<RuntimeState>,
+        surface: WlSurface,
+        hold: Point<f64, Logical>,
+    ) -> Self {
+        Self {
+            start_data,
+            surface,
+            hold,
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl PointerGrab<RuntimeState> for PetMoveGrab {
+    fn motion(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        handle.motion(data, None, event);
+        if !event.location.x.is_finite() || !event.location.y.is_finite() {
+            return;
+        }
+        let dragged = data
+            .wayland
+            .as_mut()
+            .and_then(|frontend| frontend.drag_pet(&self.surface, event.location - self.hold));
+        match dragged {
+            Some(id) => data.scene_sync.mark_window_dirty(id),
+            // No longer a pet, or no longer mapped.
+            None => handle.unset_grab(self, data, event.serial, event.time, true),
+        }
+    }
+
+    fn button(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        event: &ButtonEvent,
+    ) {
+        handle.button(data, event);
+        if event.state == ButtonState::Released
+            && !handle.current_pressed().contains(&self.start_data.button)
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    forward_pointer_events!();
+
+    fn start_data(&self) -> &GrabStartData<RuntimeState> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut RuntimeState) {
+        if let Some(frontend) = data.wayland.as_mut() {
+            frontend.drop_pet(&self.surface);
+        }
+        data.scene_sync.mark_dirty();
+    }
+}
+
 /// Compositor-owned SUPER+drag for managed layouts.
 ///
 /// The layout leaf remains authoritative while Flutter paints the dragged

@@ -18,9 +18,7 @@ void main() {
   });
   check(
     'Missing Dart prompts package installation',
-    missing.title == 'Dart is required' &&
-        missing.description.contains('recommends Dart 3.13.4') &&
-        missing.description.contains('PATH'),
+    missing.problem == SetupProblem.missingDart && missing.expected == '3.13.4',
   );
 
   final incompatible = SetupNotice.fromState({
@@ -34,13 +32,13 @@ void main() {
   });
   check(
     'Incompatible Dart names both versions',
-    incompatible.title == 'Compatible Dart is required' &&
-        incompatible.description.contains('4.0.0') &&
-        incompatible.description.contains('>=3.13.0 <4.0.0'),
+    incompatible.problem == SetupProblem.incompatibleDart &&
+        incompatible.installed == '4.0.0' &&
+        incompatible.constraint == '>=3.13.0 <4.0.0',
   );
 
   check(
     'Other setup failures retain generic recovery',
-    SetupNotice.fromState(const {}).title == 'Plugin tools need attention',
+    SetupNotice.fromState(const {}).problem == SetupProblem.tools,
   );
 }

@@ -3604,6 +3604,39 @@ class AppLocalizationsEn extends AppLocalizations {
       'Online wallpapers are unavailable. Local wallpapers still work.';
 
   @override
+  String get wallpaperPreviousPage => 'Previous wallpaper page';
+
+  @override
+  String get wallpaperNextPage => 'Next wallpaper page';
+
+  @override
+  String wallpaperPageNumber(int page) {
+    return 'Page $page';
+  }
+
+  @override
+  String wallpaperPageOfTotal(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get wallpaperLayout => 'Preview layout';
+
+  @override
+  String get wallpaperLayoutGallery => 'Gallery';
+
+  @override
+  String get wallpaperLayoutGalleryDescription =>
+      'Show full wallpaper previews';
+
+  @override
+  String get wallpaperLayoutStrips => 'Strips';
+
+  @override
+  String get wallpaperLayoutStripsDescription =>
+      'Show cropped wallpaper strips';
+
+  @override
   String get wallpaperMobileBackToSelection => 'Back to wallpaper selection';
 
   @override
@@ -4036,6 +4069,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutActionResetWindowHeight => 'Reset window height';
 
   @override
+  String get settingsShortcutActionResetWindowWidth => 'Reset window width';
+
+  @override
   String get settingsAppearanceTheme => 'Theme';
 
   @override
@@ -4320,4 +4356,542 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get polkitLocked => 'Temporarily locked';
+
+  @override
+  String get pluginsAppTitle => 'Denial Plugins';
+
+  @override
+  String get pluginsTitle => 'Plugins';
+
+  @override
+  String get pluginsInstalled => 'Installed';
+
+  @override
+  String get pluginsDiscover => 'Discover';
+
+  @override
+  String get pluginsActivity => 'Activity';
+
+  @override
+  String get pluginsLibrary => 'Library';
+
+  @override
+  String get pluginsPreferences => 'Preferences';
+
+  @override
+  String get pluginsSearchInstalled => 'Search installed';
+
+  @override
+  String get pluginsSearch => 'Search plugins';
+
+  @override
+  String get pluginsClearSearch => 'Clear search';
+
+  @override
+  String get pluginsAddTooltip => 'Add a plugin from a repository link';
+
+  @override
+  String get pluginsAddToolbar => 'Add Plugin';
+
+  @override
+  String get pluginsMoreActions => 'More actions';
+
+  @override
+  String get pluginsRefresh => 'Refresh';
+
+  @override
+  String get pluginsInstalledTitle => 'Installed plugins';
+
+  @override
+  String get pluginsInstalledDescription =>
+      'Choose the plugins that make up your desktop.';
+
+  @override
+  String get pluginsNoneInstalled => 'No plugins installed';
+
+  @override
+  String get pluginsNoneInstalledDescription =>
+      'Discover plugins for your desktop, or add one using a repository link.';
+
+  @override
+  String get pluginsDiscoverAction => 'Discover Plugins';
+
+  @override
+  String get pluginsUseDefaults => 'Use Denial defaults';
+
+  @override
+  String get pluginsNoMatches => 'No matching plugins';
+
+  @override
+  String get pluginsNoMatchesDescription =>
+      'Try another name or clear your search.';
+
+  @override
+  String get pluginsAutomaticTitle => 'Included automatically';
+
+  @override
+  String get pluginsAutomaticDescription =>
+      'These keep your selected plugins working.';
+
+  @override
+  String get pluginsDiscoverMore => 'Discover more plugins';
+
+  @override
+  String get pluginsPreparingDesktop => 'Preparing your desktop';
+
+  @override
+  String get pluginsPreparingDescription =>
+      'Denial is getting everything ready. You can leave this window open or come back later.';
+
+  @override
+  String get pluginsTryAgain => 'Try again';
+
+  @override
+  String get pluginsFallbackDescription =>
+      'Customize your desktop with this plugin.';
+
+  @override
+  String get pluginsSelected => 'Selected';
+
+  @override
+  String get pluginsNotSelected => 'Not selected';
+
+  @override
+  String get pluginsDesktopOptions => 'Desktop options';
+
+  @override
+  String get pluginsDesktopOptionsDescription =>
+      'Updates, compatibility and recovery';
+
+  @override
+  String get pluginsCheckUpdates => 'Check for plugin updates';
+
+  @override
+  String get pluginsCheckCompatibility => 'Check compatibility';
+
+  @override
+  String get pluginsUndo => 'Undo last change';
+
+  @override
+  String get pluginsRestore => 'Restore default desktop';
+
+  @override
+  String get pluginsCheckSelection => 'Check your selection';
+
+  @override
+  String get pluginsStartupFailed => 'Saved plugins could not start';
+
+  @override
+  String get pluginsChangeFailed => 'Change couldn’t be completed';
+
+  @override
+  String get pluginsSelectionChanged => 'Your selection has changed';
+
+  @override
+  String get pluginsPaused => 'Your plugins are paused';
+
+  @override
+  String get pluginsPendingReady => 'Pending actions are ready';
+
+  @override
+  String get pluginsPreparingSupport => 'Preparing plugin support';
+
+  @override
+  String get pluginsViewDetails => 'View details';
+
+  @override
+  String get pluginsDiscard => 'Discard';
+
+  @override
+  String get pluginsSwitchNow => 'Switch now';
+
+  @override
+  String get pluginsDismissError => 'Dismiss error';
+
+  @override
+  String get pluginsInProgress => 'In progress';
+
+  @override
+  String get pluginsDiscoverTitle => 'Discover plugins';
+
+  @override
+  String get pluginsDiscoverDescription =>
+      'Add new features and make your desktop your own.';
+
+  @override
+  String get pluginsNothingFound => 'Nothing found yet';
+
+  @override
+  String get pluginsNothingFoundDescription =>
+      'Try another search, or add a plugin using its repository link.';
+
+  @override
+  String get pluginsOfficial => 'Made for Denial';
+
+  @override
+  String get pluginsCommunity => 'From the community';
+
+  @override
+  String get pluginsRefreshDiscoveries => 'Refresh discoveries';
+
+  @override
+  String get pluginsNoCommunity =>
+      'No community plugins are listed yet. Add a plugin using its repository link.';
+
+  @override
+  String get pluginsAddRepository => 'Add from a repository';
+
+  @override
+  String get pluginsAddRepositoryDescription =>
+      'Use a Git link to install a plugin from its developer.';
+
+  @override
+  String get pluginsAddLink => 'Add from a link';
+
+  @override
+  String get pluginsDiscoveryFailed =>
+      'Some discoveries couldn’t be loaded. Try refreshing again.';
+
+  @override
+  String get pluginsByDenial => 'By Denial';
+
+  @override
+  String get pluginsCommunityPlugin => 'Community plugin';
+
+  @override
+  String get pluginsSelectedDesktop => 'Selected for your desktop';
+
+  @override
+  String get pluginsSelect => 'Select plugin';
+
+  @override
+  String get pluginsRecentActivity => 'Recent activity';
+
+  @override
+  String get pluginsActivityDescription =>
+      'Installation progress and changes to your desktop.';
+
+  @override
+  String get pluginsNoActivity => 'No activity yet';
+
+  @override
+  String get pluginsNoActivityDescription =>
+      'Plugin installations and desktop changes will appear here.';
+
+  @override
+  String get pluginsCompleted => 'Completed';
+
+  @override
+  String get pluginsNeedsAttention => 'Needs attention';
+
+  @override
+  String get pluginsNoCandidates =>
+      'No plugin package candidates were found in this repository.';
+
+  @override
+  String get pluginsBringNew => 'Bring something new.';
+
+  @override
+  String get pluginsTrustDescription =>
+      'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.';
+
+  @override
+  String get pluginsLocalDirectory => 'Local package or repository directory';
+
+  @override
+  String get pluginsRepositoryLink => 'Repository link';
+
+  @override
+  String get pluginsAdvancedOptions => 'Advanced options';
+
+  @override
+  String get pluginsGitRef => 'Branch, tag, or commit (optional)';
+
+  @override
+  String get pluginsLocalDevelopment => 'Local development';
+
+  @override
+  String get pluginsUseLocal => 'Use a local development checkout';
+
+  @override
+  String get pluginsChoose => 'Choose a plugin';
+
+  @override
+  String get pluginsIncludeDependencies =>
+      'We’ll include anything this plugin needs automatically.';
+
+  @override
+  String get pluginsFinding => 'Finding plugins…';
+
+  @override
+  String get pluginsFind => 'Find plugins';
+
+  @override
+  String get pluginsAdd => 'Add plugin';
+
+  @override
+  String get pluginsYourPlugins => 'Your plugins';
+
+  @override
+  String get pluginsLogLoadFailed => 'The build log could not be loaded.';
+
+  @override
+  String get pluginsTechnicalDetails => 'Technical details';
+
+  @override
+  String get pluginsBuildLog => 'Build log';
+
+  @override
+  String get pluginsNoBuildOutput => 'No build output was recorded.';
+
+  @override
+  String get pluginsClose => 'Close';
+
+  @override
+  String get pluginsDone => 'Done';
+
+  @override
+  String get pluginsApply => 'Apply plugins';
+
+  @override
+  String get pluginsBuild => 'Build plugins';
+
+  @override
+  String get pluginsCheckChanges => 'Check your changes';
+
+  @override
+  String get pluginsEnable => 'Enable plugin';
+
+  @override
+  String get pluginsDisable => 'Disable plugin';
+
+  @override
+  String get pluginsUpdate => 'Update plugins';
+
+  @override
+  String get pluginsRebuild => 'Rebuild plugins';
+
+  @override
+  String get pluginsSetup => 'Set up plugins';
+
+  @override
+  String get pluginsChooseDefaults => 'Choose default plugins';
+
+  @override
+  String get pluginsActivityFallback => 'Plugin activity';
+
+  @override
+  String get pluginsWorking => 'Working on your changes';
+
+  @override
+  String get pluginsApplyChanges => 'Apply changes';
+
+  @override
+  String get pluginsApplyPending => 'Apply pending actions';
+
+  @override
+  String get pluginsApplySelectionUpdates =>
+      'Apply your selection changes and pending updates to your desktop.';
+
+  @override
+  String get pluginsApplySelection =>
+      'Apply your plugin selection changes to your desktop.';
+
+  @override
+  String get pluginsApplyUnchanged =>
+      'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.';
+
+  @override
+  String get pluginsStaleSelection =>
+      'The selection changed elsewhere. Discard your draft to load the latest selection.';
+
+  @override
+  String get pluginsUpdated => 'Denial was updated.';
+
+  @override
+  String get pluginsFailureEngine =>
+      'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.';
+
+  @override
+  String get pluginsFailureVersion =>
+      'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.';
+
+  @override
+  String get pluginsFailurePanel =>
+      'More than one desktop panel is selected. Keep one enabled, then apply again.';
+
+  @override
+  String get pluginsFailureConflict =>
+      'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.';
+
+  @override
+  String get pluginsFailureMissing =>
+      'A required desktop feature is missing. Enable a plugin that provides it, then apply again.';
+
+  @override
+  String get pluginsFailureLogin =>
+      'Log out and back into Denial once to finish the update. Your choices are saved.';
+
+  @override
+  String get pluginsFailureWorker =>
+      'The background operation stopped unexpectedly. Check Activity before trying again.';
+
+  @override
+  String get pluginsFailureDownload =>
+      'A download failed. Check your connection and try again.';
+
+  @override
+  String get pluginsFailureGeneric =>
+      'This change could not be completed. Open details to see the cause.';
+
+  @override
+  String get pluginsToolsUnavailable =>
+      'Plugin tools are temporarily unavailable. Retrying automatically.';
+
+  @override
+  String get pluginsDartCompatible => 'Compatible Dart is required';
+
+  @override
+  String get pluginsDartRequired => 'Dart is required';
+
+  @override
+  String get pluginsToolsAttention => 'Plugin tools need attention';
+
+  @override
+  String get pluginsSetupFailed =>
+      'Preparation could not finish. See Activity for details, then try again.';
+
+  @override
+  String get pluginsWaitingStart => 'Waiting to start';
+
+  @override
+  String get pluginsCloseWhileWorking =>
+      'You can close this window. We’ll keep going.';
+
+  @override
+  String get pluginsPreparingPlugins => 'Preparing your plugins';
+
+  @override
+  String get pluginsCheckingCompatibility => 'Checking plugin compatibility';
+
+  @override
+  String get pluginsPreparingBuild => 'Preparing your desktop build';
+
+  @override
+  String get pluginsCompilingSources => 'Compiling Dart sources';
+
+  @override
+  String get pluginsOptimizing => 'Optimizing and generating native code';
+
+  @override
+  String get pluginsPreparingAssets => 'Preparing assets';
+
+  @override
+  String get pluginsLoadingDesktop => 'Loading your saved desktop';
+
+  @override
+  String get pluginsCompilingDesktop => 'Compiling your desktop';
+
+  @override
+  String get pluginsVerifyingDesktop => 'Verifying your desktop';
+
+  @override
+  String get pluginsSwitchingPause => 'Switching when you pause';
+
+  @override
+  String get pluginsApplyingDesktop => 'Applying and checking your desktop';
+
+  @override
+  String get pluginsVerifyingTools => 'Verifying plugin tools';
+
+  @override
+  String get pluginsPreparingTools => 'Preparing plugin tools';
+
+  @override
+  String get pluginsConfigurationDescription =>
+      'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.';
+
+  @override
+  String pluginsSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count selected',
+      one: '1 selected',
+      zero: '0 selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String pluginsSwitchSemantics(String name) {
+    return '$name plugin';
+  }
+
+  @override
+  String pluginsCandidateLabel(String name, String path) {
+    return '$name · $path';
+  }
+
+  @override
+  String pluginsStepsComplete(int completed, int total) {
+    return '$completed of $total steps complete';
+  }
+
+  @override
+  String pluginsStep(int step, int total, String label) {
+    return 'Step $step of $total · $label';
+  }
+
+  @override
+  String pluginsElapsed(String stage, String clock) {
+    return '$stage · $clock elapsed';
+  }
+
+  @override
+  String pluginsInstalledVersion(String version) {
+    return 'Denial $version is installed.';
+  }
+
+  @override
+  String pluginsRebuildDescription(String introduction) {
+    return '$introduction Rebuild your plugins to bring them back, with all their settings. No need to log out.';
+  }
+
+  @override
+  String pluginsDartIncompatible(String installed, String constraint) {
+    return 'Dart $installed is installed, but Denial requires $constraint. Install a compatible Dart package and make sure dart is available in PATH, then try again.';
+  }
+
+  @override
+  String pluginsDartInstall(String expected) {
+    return 'Install Dart with your system package manager. Denial recommends Dart $expected. Make sure dart is available in PATH, then try again.';
+  }
+
+  @override
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  ) {
+    return '$feature is provided by $plugins. $owner accepts at most $maximum providers. Disable extra plugins before applying.';
+  }
+
+  @override
+  String pluginsProviderMissing(String owner, int minimum, String feature) {
+    return '$owner needs at least $minimum providers for $feature. Enable a compatible plugin before applying.';
+  }
+
+  @override
+  String pluginsInvalidDeclaration(String plugins) {
+    return '$plugins has invalid compatibility declarations. Open details to see the cause.';
+  }
+
+  @override
+  String get pluginsFailureDeclaration =>
+      'Plugin compatibility information needs attention. Check your selection and open details before applying again.';
+
+  @override
+  String get pluginsDesktopFeature => 'Desktop';
 }

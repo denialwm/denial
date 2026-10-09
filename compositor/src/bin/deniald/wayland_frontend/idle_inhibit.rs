@@ -82,6 +82,8 @@ impl WaylandFrontend {
         });
         self.idle_inhibition_cached = inhibited;
         self.idle_inhibition_dirty = false;
+        // Idle clients see the same inhibition as Denial's own display power.
+        self.idle_notifier.set_is_inhibited(inhibited);
         inhibited
     }
 }

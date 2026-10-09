@@ -1,5 +1,7 @@
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:flutter/material.dart';
 
+import 'localized_feedback.dart';
 import 'backend.dart';
 import 'job_feedback.dart';
 
@@ -20,7 +22,7 @@ class OperationDetailsDialog extends StatefulWidget {
 
 class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
   String? log;
-  String? logError;
+  bool logFailed = false;
   bool loading = false;
   Future<void> loadLog(bool expanded) async {
     if (!expanded || log != null || loading) return;
@@ -36,12 +38,12 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
       if (mounted) {
         setState(() {
           log = result['log'] as String? ?? '';
-          logError = null;
+          logFailed = false;
         });
       }
     } catch (_) {
       if (mounted) {
-        setState(() => logError = 'The build log could not be loaded.');
+        setState(() => logFailed = true);
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -56,7 +58,7 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
         Icons.error_outline_rounded,
         color: Theme.of(context).colorScheme.error,
       ),
-      title: const Text('Change couldn’t be completed'),
+      title: Text(context.l10n.pluginsChangeFailed),
       content: SizedBox(
         width: 600,
         child: SingleChildScrollView(
@@ -64,11 +66,11 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(failureSummary(cause)),
+              Text(localizedFailureSummary(context.l10n, cause)),
               const SizedBox(height: 16),
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
-                title: const Text('Technical details'),
+                title: Text(context.l10n.pluginsTechnicalDetails),
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
@@ -82,7 +84,7 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
               ),
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
-                title: const Text('Build log'),
+                title: Text(context.l10n.pluginsBuildLog),
                 onExpansionChanged: loadLog,
                 children: [
                   if (loading)
@@ -91,10 +93,11 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: SelectableText(
-                        logError ??
-                            (log?.trim().isNotEmpty == true
-                                ? log!
-                                : 'No build output was recorded.'),
+                        logFailed
+                            ? context.l10n.pluginsLogLoadFailed
+                            : (log?.trim().isNotEmpty == true
+                                  ? log!
+                                  : context.l10n.pluginsNoBuildOutput),
                         style: Theme.of(context).textTheme.bodySmall
                             ?.copyWith(fontFamily: 'monospace'),
                       ),
@@ -108,7 +111,7 @@ class _OperationDetailsDialogState extends State<OperationDetailsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
+          child: Text(context.l10n.pluginsClose),
         ),
       ],
     );

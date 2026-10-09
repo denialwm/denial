@@ -5,9 +5,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/denial-architecture.sh
 source "$SCRIPT_DIR/lib/denial-architecture.sh"
+# shellcheck source=lib/denial-local-engine.sh
+source "$SCRIPT_DIR/lib/denial-local-engine.sh"
 denial_arch_configure
 SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
-CACHE_SCHEMA='3'
+CACHE_SCHEMA='4'
 CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/flutter-engine}"
 CANONICAL_FLUTTER_SOURCE='/mnt/exty/denial-flutter-fork-3.44.7'
 CANONICAL_SKIA_SOURCE='/mnt/exty/denial-skia-fork-3.44.7'
@@ -20,12 +22,19 @@ VPYTHON_CACHE_ROOT="$CACHE_ROOT/vpython"
 CHECKOUT=''
 SKIA_CHECKOUT=''
 SOURCE_MODE=''
+# Development builds take external source trees as they are on disk, at any
+# commit and with uncommitted changes (AGENTS.md). Release builds never do.
+LOCAL_SOURCES=0
+# The trees in use are not exactly the locked commits.
+LOCAL_ENGINE=0
+LOCAL_FLUTTER_STATE=''
+LOCAL_SKIA_STATE=''
 AVAILABLE_CPUS="$(nproc)"
 if [[ "${GITHUB_ACTIONS:-}" == true \
   || "${DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER:-0}" == 1 ]]; then
   DEFAULT_BUILD_JOBS="$AVAILABLE_CPUS"
-elif ((AVAILABLE_CPUS > 2)); then
-  DEFAULT_BUILD_JOBS=$((AVAILABLE_CPUS - 2))
+elif ((AVAILABLE_CPUS > 4)); then
+  DEFAULT_BUILD_JOBS=$((AVAILABLE_CPUS - 4))
 else
   DEFAULT_BUILD_JOBS=1
 fi
@@ -92,18 +101,23 @@ Usage:
   tools/denial-flutter-engine build [--github-env FILE]
   tools/denial-flutter-engine flutter-test [-- FLUTTER_TEST_ARGS...]
   tools/denial-flutter-engine prepare-app-build
+  tools/denial-flutter-engine prepare-graph
   tools/denial-flutter-engine prepare-development-sdk
   tools/denial-flutter-engine refresh-metadata
   tools/denial-flutter-engine verify [--github-env FILE]
 
 Commands:
   cache-key  Print the immutable cache key for the locked source and GN args.
-  build      Reuse/build the release engine and stage it for local use.
+  build      Reuse/build the locked release engine and stage it (CI, releases).
   flutter-test
              Build the lock-matched debug flutter_tester and run the shell tests.
              Arguments after -- are forwarded to flutter test.
   prepare-app-build
-             Build lock-matched release platform, AOT, and Linux GTK artifacts.
+             Build release platform, AOT, and Linux GTK artifacts. With local
+             source trees, from those trees as they are on disk.
+  prepare-graph
+             Generate the release Ninja graph from the source trees in use,
+             as prepare-app-build does, without building.
   prepare-development-sdk
              Build the lock-matched SDK, platform, compiler, and profile
              artifacts shipped for editable UI development.
@@ -137,13 +151,20 @@ pair. The builder validates these trees but never fetches, checks out, or
 synchronizes them. When neither canonical tree exists, the builder retains its
 managed checkout fallback for isolated CI builders.
 
-Interactive machines leave two logical CPUs free by default. GitHub Actions
+During development, build with tools/denial-pc build (or bundle) and deploy
+with tools/denial-lab-deploy. Through prepare-app-build they build the local
+trees as they are on disk, uncommitted changes included, in the cached Ninja
+output, and stage that engine with its own checksum. Nothing needs to be
+committed or locked first. The release commands (build, refresh-metadata,
+verify) and the development-engine tests use the locked commits, clean.
+
+Interactive machines leave four logical CPUs free by default. GitHub Actions
 and explicitly dedicated builders may use every available CPU.
 
 All generated engine modes are Slimpeller builds: Impeller is required and the
 Ganesh and Graphite rendering backends are not compiled.
 
-Routine builds must use `build`. `refresh-metadata` is the one-time maintainer
+CI and release builds use `build`. `refresh-metadata` is the one-time maintainer
 operation for a controlled Flutter/Skia lock advance; it intentionally updates
 tracked args.gn and libflutter_engine.so.sha256 files.
 EOF
@@ -327,7 +348,16 @@ normalize_generated_args() {
     rm -f -- "$normalized"
     fail "could not normalize $mode GN arguments"
   fi
-  if ! cmp -s "$normalized" "$expected"; then
+  if ((LOCAL_ENGINE)); then
+    # A local engine names its own revision and content hash; every other
+    # argument is the release one.
+    if ! cmp -s \
+      <(grep -Ev '^(engine_version|content_hash) = ' "$normalized") \
+      <(grep -Ev '^(engine_version|content_hash) = ' "$expected"); then
+      rm -f -- "$normalized"
+      fail "$mode GN arguments of the local trees differ from $expected beyond the engine revision"
+    fi
+  elif ! cmp -s "$normalized" "$expected"; then
     rm -f -- "$normalized"
     fail "$mode GN arguments differ from $expected; after a deliberate source-lock advance run '$0 refresh-metadata'"
   fi
@@ -363,7 +393,7 @@ validate_source_lock() {
   jq -e '
     .schema_version == 1
     and .flutter.repository == "https://github.com/denialwm/flutter.git"
-    and .flutter.branch == "denial/3.47.5-r1"
+    and .flutter.branch == "denial/3.47.5"
     and (.flutter.revision | test("^[0-9a-f]{40}$"))
     and (.flutter.upstream_revision | test("^[0-9a-f]{40}$"))
     and .skia.repository == "https://github.com/denialwm/skia.git"
@@ -447,6 +477,8 @@ stage_artifacts() {
     source="$artifact_dir/$mode/libflutter_engine.so"
     destination="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so"
     install -m 0755 -- "$source" "$destination"
+    # The locked engine is checked against the committed checksum again.
+    rm -f -- "$destination.local.sha256"
   done
   printf 'Staged verified Flutter engines into prebuilt/ for local builds: %s\n' "$key"
 }
@@ -473,14 +505,21 @@ write_github_env() {
   } >>"$destination"
 }
 
+require_checkout() {
+  local label="$1"
+  local checkout="$2"
+
+  [[ "$(git -C "$checkout" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
+    == true ]] \
+    || fail "$label source is not a Git checkout: $checkout"
+}
+
 require_clean_checkout() {
   local label="$1"
   local checkout="$2"
   local status
 
-  [[ "$(git -C "$checkout" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
-    == true ]] \
-    || fail "$label source is not a Git checkout: $checkout"
+  require_checkout "$label" "$checkout"
   git -C "$checkout" diff --quiet --ignore-submodules=all \
     || fail "$label source has tracked modifications: $checkout"
   git -C "$checkout" diff --cached --quiet --ignore-submodules=all \
@@ -539,12 +578,23 @@ validate_external_sources() {
   skia_revision="$(lock_value '.skia.revision')"
   depot_revision="$(lock_value '.depot_tools.revision')"
 
-  require_clean_checkout 'Flutter' "$CHECKOUT"
-  [[ "$(git -C "$CHECKOUT" rev-parse HEAD)" == "$flutter_revision" ]] \
-    || fail "Flutter source does not match SOURCE_LOCK.json: $CHECKOUT"
-  require_clean_checkout 'Skia' "$SKIA_CHECKOUT"
-  [[ "$(git -C "$SKIA_CHECKOUT" rev-parse HEAD)" == "$skia_revision" ]] \
-    || fail "Skia source does not match SOURCE_LOCK.json: $SKIA_CHECKOUT"
+  if ((LOCAL_SOURCES)); then
+    require_checkout 'Flutter' "$CHECKOUT"
+    require_checkout 'Skia' "$SKIA_CHECKOUT"
+    LOCAL_FLUTTER_STATE="$(denial_local_state "$CHECKOUT")"
+    LOCAL_SKIA_STATE="$(denial_local_state "$SKIA_CHECKOUT")"
+    [[ "$LOCAL_FLUTTER_STATE" == "$flutter_revision" \
+      && "$LOCAL_SKIA_STATE" == "$skia_revision" ]] \
+      || LOCAL_ENGINE=1
+  fi
+  if ((!LOCAL_ENGINE)); then
+    require_clean_checkout 'Flutter' "$CHECKOUT"
+    [[ "$(git -C "$CHECKOUT" rev-parse HEAD)" == "$flutter_revision" ]] \
+      || fail "Flutter source does not match SOURCE_LOCK.json: $CHECKOUT"
+    require_clean_checkout 'Skia' "$SKIA_CHECKOUT"
+    [[ "$(git -C "$SKIA_CHECKOUT" rev-parse HEAD)" == "$skia_revision" ]] \
+      || fail "Skia source does not match SOURCE_LOCK.json: $SKIA_CHECKOUT"
+  fi
 
   [[ -L "$nested_skia" ]] \
     || fail "Flutter's nested Skia path is not a symlink: $nested_skia"
@@ -555,6 +605,12 @@ validate_external_sources() {
   [[ "$nested_skia_real" == "$skia_real" ]] \
     || fail "Flutter's nested Skia resolves to $nested_skia_real, expected $skia_real"
 
+  if ((LOCAL_ENGINE)); then
+    printf 'Using the local Flutter and Skia trees as they are on disk:\n'
+    printf '  Flutter %s at %s\n  Skia    %s at %s\n' \
+      "$LOCAL_FLUTTER_STATE" "$CHECKOUT" "$LOCAL_SKIA_STATE" "$SKIA_CHECKOUT"
+    return
+  fi
   [[ "$(git -C "$checkout_depot" rev-parse HEAD 2>/dev/null || true)" \
     == "$depot_revision" ]] \
     || fail "Flutter's synchronized depot_tools does not match SOURCE_LOCK.json: $checkout_depot"
@@ -856,6 +912,7 @@ build_artifacts() {
     --arg release_sha256 "$(expected_engine_sha256 release)" \
     --arg debug_sha256 "$(expected_engine_sha256 debug)" \
     --arg profile_sha256 "$(expected_engine_sha256 profile)" \
+    --argjson modes "$(printf '%s\n' "${MODES[@]}" | jq -R . | jq -s .)" \
     '{
       schema_version: 1,
       cache_key: $cache_key,
@@ -869,7 +926,8 @@ build_artifacts() {
         debug: {sha256: $debug_sha256},
         profile: {sha256: $profile_sha256}
       }
-    }' >"$staging/manifest.json"
+    } | .artifacts |= with_entries(select(.key as $mode | $modes | index($mode)))' \
+    >"$staging/manifest.json"
   chmod 0600 "$staging/manifest.json"
   mv -- "$staging" "$artifact_dir"
   ARTIFACT_STAGING=''
@@ -1082,31 +1140,19 @@ run_flutter_tests() {
   )
 }
 
-prepare_app_build() {
-  local build_root
-  local checkout_depot
-  local expected_args
-  local llvm_objcopy
+# Generates the release Ninja graph in its one output directory from the
+# source trees in use. Generated again from the same trees with the same
+# arguments, it keeps what is built; from other trees, everything rebuilds.
+generate_release_graph() {
+  local build_root="$CHECKOUT/engine/src"
+  local checkout_depot="$build_root/flutter/third_party/depot_tools"
+  local expected_args="$NATIVE_RELEASE_ENGINE_DIR/args.gn"
   local output
-  local source_state
   local target
 
-  install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT" "$BUILD_ROOT"
-  exec 9>"$CACHE_ROOT/build.lock"
-  flock 9
-  source_state="$(file_sha256 "$SOURCE_LOCK")"
-  prepare_checkout "$source_state"
   target="$(engine_target release)"
-
-  build_root="$CHECKOUT/engine/src"
-  checkout_depot="$build_root/flutter/third_party/depot_tools"
-  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
   output="$BUILD_ROOT/out/$target"
-  expected_args="$NATIVE_RELEASE_ENGINE_DIR/args.gn"
-  [[ -x "$llvm_objcopy" ]] \
-    || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
-
-  printf 'Generating lock-matched Flutter application build graph\n'
+  printf 'Generating the Flutter application build graph\n'
   (
     cd "$build_root"
     PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
@@ -1127,6 +1173,41 @@ prepare_app_build() {
       VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       ./flutter/third_party/gn/gn gen --check "$output"
   )
+}
+
+# Takes the build lock and the source trees for a development build.
+prepare_local_sources() {
+  install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT" "$BUILD_ROOT"
+  exec 9>"$CACHE_ROOT/build.lock"
+  flock 9
+  LOCAL_SOURCES=1
+  prepare_checkout "$(file_sha256 "$SOURCE_LOCK")"
+}
+
+prepare_graph() {
+  prepare_local_sources
+  generate_release_graph
+}
+
+prepare_app_build() {
+  local build_root
+  local checkout_depot
+  local llvm_objcopy
+  local local_sha256="$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.local.sha256"
+  local output
+  local target
+
+  prepare_local_sources
+  target="$(engine_target release)"
+
+  build_root="$CHECKOUT/engine/src"
+  checkout_depot="$build_root/flutter/third_party/depot_tools"
+  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
+  output="$BUILD_ROOT/out/$target"
+  [[ -x "$llvm_objcopy" ]] \
+    || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
+
+  generate_release_graph
   PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
     DEPOT_TOOLS_UPDATE=0 \
     VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
@@ -1162,7 +1243,10 @@ prepare_app_build() {
     "$llvm_objcopy"
   verify_engine_exports "$output/libflutter_engine.so" \
     || fail 'release engine is missing a required embedder export'
-  if [[ -f "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.sha256" ]]; then
+  # The local engine is the truth during development: it is checked against
+  # its own checksum, not the committed one.
+  if ((!LOCAL_ENGINE)) \
+    && [[ -f "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.sha256" ]]; then
     [[ "$(file_sha256 "$output/libflutter_engine.so")" \
       == "$(awk 'NR == 1 { print $1 }' "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.sha256")" ]] \
       || fail "release engine checksum differs from committed metadata; after a deliberate source-lock advance run '$0 refresh-metadata'"
@@ -1171,8 +1255,17 @@ prepare_app_build() {
   install -m 0755 -- \
     "$output/libflutter_engine.so" \
     "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so"
-  printf 'Staged native %s release engine for the application bundle.\n' \
-    "$DENIAL_FLUTTER_PLATFORM"
+  if ((LOCAL_ENGINE)); then
+    printf '%s  libflutter_engine.so\n' \
+      "$(file_sha256 "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so")" \
+      >"$local_sha256"
+    printf 'Staged the local %s release engine (Flutter %.12s, Skia %.12s) for the application bundle.\n' \
+      "$DENIAL_FLUTTER_PLATFORM" "$LOCAL_FLUTTER_STATE" "$LOCAL_SKIA_STATE"
+  else
+    rm -f -- "$local_sha256"
+    printf 'Staged native %s release engine for the application bundle.\n' \
+      "$DENIAL_FLUTTER_PLATFORM"
+  fi
 }
 
 prepare_development_sdk() {
@@ -1317,6 +1410,11 @@ main() {
       [[ -z "$github_env" ]] \
         || fail 'prepare-app-build does not accept --github-env'
       prepare_app_build
+      ;;
+    prepare-graph)
+      [[ -z "$github_env" ]] \
+        || fail 'prepare-graph does not accept --github-env'
+      prepare_graph
       ;;
     prepare-development-sdk)
       [[ -z "$github_env" ]] \

@@ -51,14 +51,27 @@ Future<void> main(List<String> args) async {
         final id = (client.stdout as String).trim();
         ManagerStore.validateId(id);
         final store = ManagerStore(state);
-        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        // Source workers cold-load the manager and analyzer graph in a new VM.
+        // This checks detached lifetime, not JIT startup performance; retain
+        // the tighter bound for the production AOT worker.
+        final deadline = DateTime.now().add(
+          Duration(seconds: compiled ? 10 : 30),
+        );
         Map<String, Object?> job;
         do {
           await Future<void>.delayed(const Duration(milliseconds: 25));
           job = store.jobs().single;
         } while ({'queued', 'running'}.contains(job['phase']) &&
             DateTime.now().isBefore(deadline));
-        expect(job['phase'], 'succeeded', reason: jsonEncode(job));
+        expect(
+          job['phase'],
+          'succeeded',
+          reason: jsonEncode({
+            'compiled': compiled,
+            'job': job,
+            'spawn': store.read('jobs/$id.spawn'),
+          }),
+        );
         expect((job['result'] as Map)['operation'], 'plan');
         expect((job['result'] as Map)['workerPid'], isNot(pid));
       }

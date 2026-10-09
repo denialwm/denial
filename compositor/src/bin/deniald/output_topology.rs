@@ -997,6 +997,48 @@ mod tests {
     }
 
     #[test]
+    fn rotation_lock_offset_preserves_manual_baseline_and_reconnected_panels() {
+        let mut configuration = RuntimeOutputConfiguration {
+            primary_output: None,
+            positions: BTreeMap::new(),
+            modes: BTreeMap::new(),
+            scales_120: BTreeMap::new(),
+            transforms: BTreeMap::new(),
+            scrolling_layout_axes: BTreeMap::new(),
+            sensor_rotation: OutputTransform::Rotate270,
+            vrr_outputs: BTreeSet::new(),
+            disabled_outputs: BTreeSet::new(),
+            lid_closed: false,
+        };
+        // The native frozen offset applies to internal panels, including a
+        // panel that reconnects later; never rotate an external monitor.
+        assert_eq!(
+            configuration.effective_transform("DSI-1"),
+            OutputTransform::Rotate270
+        );
+        assert_eq!(
+            configuration.effective_transform("eDP-2"),
+            OutputTransform::Rotate270
+        );
+        assert_eq!(
+            configuration.effective_transform("HDMI-A-1"),
+            OutputTransform::Normal
+        );
+        let requested = OutputTransform::Rotate180;
+        let baseline = configuration.baseline_transform("DSI-1", requested);
+        configuration
+            .transforms
+            .insert("DSI-1".to_owned(), baseline);
+        assert_eq!(configuration.effective_transform("DSI-1"), requested);
+        assert_eq!(configuration.sensor_rotation, OutputTransform::Rotate270);
+        let reconnected = configuration.clone();
+        assert_eq!(reconnected.effective_transform("DSI-1"), requested);
+        // Unlocking resumes device rotation atop the saved manual baseline.
+        configuration.sensor_rotation = OutputTransform::Normal;
+        assert_eq!(configuration.effective_transform("DSI-1"), baseline);
+    }
+
+    #[test]
     fn lone_connected_output_is_rebased_without_mutating_stored_coordinates() {
         let stored = output(
             "eDP-1",

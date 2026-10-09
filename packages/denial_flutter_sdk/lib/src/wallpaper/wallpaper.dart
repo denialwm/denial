@@ -405,9 +405,11 @@ class WallpaperPage {
     required this.items,
     required this.page,
     required this.hasMore,
+    this.lastPage,
   });
 
   final List<WallpaperCandidate> items;
   final int page;
   final bool hasMore;
+  final int? lastPage;
 }

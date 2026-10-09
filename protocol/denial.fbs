@@ -189,7 +189,8 @@ enum ShortcutActionKind : ubyte {
   ResizeShrinkWidth = 55,
   ResizeGrowHeight = 56,
   ResizeShrinkHeight = 57,
-  ResetWindowHeight = 58
+  ResetWindowHeight = 58,
+  ResetWindowWidth = 59
 }
 
 enum ShortcutInputKind : ubyte {
@@ -411,6 +412,29 @@ table Window {
   // Stable object identity of this toplevel's transient parent. Zero means
   // the window is not part of a transient family. Appended for compatibility.
   transient_parent_id:ulong;
+  // Appended for compatibility. A layer surface that a window holds
+  // (denial-pet-v1) is drawn and hit with that window rather than in its
+  // layer's plane. held_by_window_id is the window's object id, zero when
+  // nothing holds the layer. held_hold is the protocol's hold value: an edge
+  // or a corner of the window's visible frame. held_share is the layer's
+  // place along an edge, from its left or top end, as a share of the edge.
+  // While the pet is dragged these name the hold it takes if let go now.
+  // geometry_x/y carries the compositor's own estimate of a held place, for
+  // receivers that ignore these fields, and follows the pointer while the
+  // pet is dragged.
+  held_by_window_id:ulong;
+  held_hold:uint;
+  held_share:double;
+  // The point a pet holds on by, in its own logical coordinates, and whether
+  // it stacks just below its window while held instead of just above it.
+  pet_anchor_x:double;
+  pet_anchor_y:double;
+  pet_below:bool;
+  // Whether the layer is a pet, the protocol holds it accepts, or-ed, and
+  // whether the user is dragging it.
+  pet:bool;
+  pet_holds:uint;
+  pet_dragged:bool;
 }
 
 table WindowSnapshot {
@@ -798,6 +822,32 @@ table PluginActionInvocation {
   monitor_id:long = -1;
 }
 
+// The shell's decisions about desktop pets (denial-pet-v1). Native checks
+// each against the pet and the window, and tells the pet only what the
+// protocol allows.
+enum PetRequestKind : ubyte {
+  // While the user drags a pet: the hold it takes if let go now, or none
+  // when window_id is zero. Native applies the latest one when the drag ends.
+  Hold = 0,
+  // A held pet moves on screen at velocity_x/y logical px/s, as the shell
+  // shows it, its window's animations included. Zero when it stops.
+  Carried = 1
+}
+
+table PetRequest {
+  kind:PetRequestKind = Hold;
+  // The pet layer's object id.
+  pet_id:ulong;
+  // Hold only: the window's object id, one protocol hold value and the place
+  // along an edge, from its left or top end, as a share of it.
+  window_id:ulong;
+  hold:uint;
+  share:double;
+  // Carried only.
+  velocity_x:double;
+  velocity_y:double;
+}
+
 union Payload {
   InputLayout,
   WindowSnapshot,
@@ -819,7 +869,8 @@ union Payload {
   ThemeState,
   CursorState,
   PluginActionCatalog,
-  PluginActionInvocation
+  PluginActionInvocation,
+  PetRequest
 }
 
 table Envelope {

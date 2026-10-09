@@ -245,6 +245,12 @@ where
         false
     }
 
+    /// Supply optional client maximum hints for standalone scrolling geometry.
+    /// Zero means unconstrained. Other layouts retain their existing policy.
+    fn update_maximum_size(&mut self, _window: &WindowId, _maximum: Size<i32, Logical>) -> bool {
+        false
+    }
+
     /// Supply the area used by protocol-aware maximization. Fixed layouts
     /// ignore it; scrolling expands the column to this full padded work area
     /// without removing it from the strip.
@@ -1226,6 +1232,7 @@ where
 /// Quarter-turned outputs rotate the strip while tile splits remain physical.
 #[derive(Clone, Debug)]
 struct ScrollingLayout<WindowId> {
+    maximum_sizes: Vec<(WindowId, Size<i32, Logical>)>,
     rows: HashMap<LayoutSpace, ScrollingRow<WindowId>>,
     minimum_sizes: Vec<(WindowId, Size<i32, Logical>)>,
 }
@@ -1234,6 +1241,7 @@ impl<WindowId> Default for ScrollingLayout<WindowId> {
     fn default() -> Self {
         Self {
             rows: HashMap::new(),
+            maximum_sizes: Vec::new(),
             minimum_sizes: Vec::new(),
         }
     }
@@ -1257,6 +1265,9 @@ struct ScrollingRow<WindowId> {
 
 #[derive(Clone, Debug)]
 struct ScrollingColumn<WindowId> {
+    /// Manual lone-tile cross-axis size in logical pixels. None is automatic/full.
+    /// Grouping clears this; maximize only temporarily overrides it.
+    cross_extent: Option<i32>,
     root: DwindleNode<WindowId>,
     active: WindowId,
     width_fraction: f64,
@@ -1267,6 +1278,7 @@ struct ScrollingColumn<WindowId> {
 struct ExtractedScrollingLeaf<WindowId> {
     window: WindowId,
     column_width_fraction: f64,
+    cross_extent: Option<i32>,
     maximized: bool,
 }
 
@@ -1287,6 +1299,7 @@ where
 {
     fn single(window: WindowId, width_fraction: f64) -> Self {
         Self {
+            cross_extent: None,
             root: DwindleNode::Window(window.clone()),
             active: window,
             width_fraction,
@@ -1304,7 +1317,111 @@ where
         window: WindowId,
         direction: LayoutDirection,
     ) -> bool {
-        self.root.split_window_beside(target, window, direction)
+        let inserted = self.root.split_window_beside(target, window, direction);
+        if inserted {
+            self.cross_extent = None;
+        }
+        inserted
+    }
+
+    fn cross_axis(axis: LayoutAxis) -> LayoutAxis {
+        match axis {
+            LayoutAxis::Horizontal => LayoutAxis::Vertical,
+            LayoutAxis::Vertical => LayoutAxis::Horizontal,
+        }
+    }
+
+    fn bounded_cross_extent(
+        &self,
+        geometry: Rectangle<i32, Logical>,
+        axis: LayoutAxis,
+        requested: i32,
+        minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
+    ) -> i32 {
+        let cross = Self::cross_axis(axis);
+        let minimum = cross
+            .main_size(layout_minimum_size(minimum_sizes, &self.active))
+            .max(1);
+        let maximum = maximum_sizes
+            .iter()
+            .find(|(window, _)| window == &self.active)
+            .map_or(0, |(_, size)| cross.main_size(*size));
+        let available = cross.main_extent(geometry).max(1);
+        let upper = if maximum > 0 {
+            available.min(maximum)
+        } else {
+            available
+        };
+        requested.clamp(minimum, upper.max(minimum))
+    }
+
+    /// The same rectangle feeds arrangement and both resize paths. Never apply
+    /// lone sizing to a split tree: its shared boundaries still fill the column.
+    fn geometry(
+        &self,
+        geometry: Rectangle<i32, Logical>,
+        axis: LayoutAxis,
+        minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
+    ) -> Rectangle<i32, Logical> {
+        if self.maximized || self.root.leaf_count() != 1 {
+            return geometry;
+        }
+        let cross = Self::cross_axis(axis);
+        let extent = self.bounded_cross_extent(
+            geometry,
+            axis,
+            self.cross_extent
+                .unwrap_or_else(|| cross.main_extent(geometry)),
+            minimum_sizes,
+            maximum_sizes,
+        );
+        let mut geometry = geometry;
+        match cross {
+            LayoutAxis::Horizontal => geometry.size.w = extent,
+            LayoutAxis::Vertical => geometry.size.h = extent,
+        }
+        geometry
+    }
+
+    fn resize_cross_axis(
+        &mut self,
+        change: LayoutSizeChange,
+        geometry: Rectangle<i32, Logical>,
+        axis: LayoutAxis,
+        minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
+    ) -> bool {
+        let next = match change {
+            LayoutSizeChange::Reset => None,
+            LayoutSizeChange::Adjust(delta) if delta.is_finite() && delta != 0.0 => {
+                let current = Self::cross_axis(axis).main_extent(self.geometry(
+                    geometry,
+                    axis,
+                    minimum_sizes,
+                    maximum_sizes,
+                ));
+                let requested = (f64::from(current) + delta)
+                    .round()
+                    .clamp(1.0, f64::from(i32::MAX)) as i32;
+                let next = self.bounded_cross_extent(
+                    geometry,
+                    axis,
+                    requested,
+                    minimum_sizes,
+                    maximum_sizes,
+                );
+                if next == current {
+                    return false;
+                }
+                Some(next)
+            }
+            LayoutSizeChange::Adjust(_) => return false,
+        };
+        let changed = self.cross_extent != next;
+        self.cross_extent = next;
+        changed
     }
 
     fn main_minimum(
@@ -1568,6 +1685,7 @@ where
         let active_index = self.active_index();
         let was_active = self.active.as_ref() == Some(window);
         let column_width_fraction = self.columns[column_index].width_fraction;
+        let cross_extent = self.columns[column_index].cross_extent;
         let maximized = self.columns[column_index].maximized;
         let removes_column = self.columns[column_index].root.leaf_count() == 1;
 
@@ -1607,6 +1725,7 @@ where
         Some(ExtractedScrollingLeaf {
             window: window.clone(),
             column_width_fraction,
+            cross_extent,
             maximized,
         })
     }
@@ -1774,6 +1893,7 @@ where
         &mut self,
         request: &LayoutKeyboardResizeRequest<WindowId>,
         minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
     ) -> bool {
         let Some(index) = self.position(&request.window) else {
             return false;
@@ -1798,9 +1918,15 @@ where
             self.needs_reveal |= changed;
             return changed;
         }
-        // An unsplit tile fills the cross axis. Only its strip extent is free.
         if request.axis != axis {
-            return false;
+            return self.columns[index].root.leaf_count() == 1
+                && self.columns[index].resize_cross_axis(
+                    request.change,
+                    geometry,
+                    axis,
+                    minimum_sizes,
+                    maximum_sizes,
+                );
         }
         let work_extent = axis.main_extent(request.work_area).max(1);
         let next = match request.change {
@@ -1833,6 +1959,7 @@ where
         &mut self,
         request: &LayoutResizeRequest<WindowId>,
         minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
     ) -> bool {
         let Some(column_index) = self.position(&request.window) else {
             return false;
@@ -1846,8 +1973,14 @@ where
         };
         let column_extent = self.widths(request.work_area, gap, minimum_sizes, axis)[column_index]
             .clamp(1, i64::from(i32::MAX)) as i32;
-        let column_geometry =
+        let full_column_geometry =
             axis.tile_geometry(column_area, axis.main_location(column_area), column_extent);
+        let column_geometry = self.columns[column_index].geometry(
+            full_column_geometry,
+            axis,
+            minimum_sizes,
+            maximum_sizes,
+        );
         self.prepare_arrange(request.work_area, gap, axis, minimum_sizes);
         // Measure the selected leaf, since a column can contain main-axis splits.
         // Its opposite border, rather than the column's center, is the anchor.
@@ -1893,6 +2026,26 @@ where
             LayoutAxis::Vertical => resized.vertical,
         };
         let mut changed = resized.changed;
+        if !self.columns[column_index].maximized
+            && self.columns[column_index].root.leaf_count() == 1
+        {
+            // Like niri's topmost tile: leading cross-edge drags are ignored.
+            let (trailing, leading, delta) = match axis {
+                LayoutAxis::Horizontal => {
+                    (request.edges.bottom, request.edges.top, request.delta_y)
+                }
+                LayoutAxis::Vertical => (request.edges.right, request.edges.left, request.delta_x),
+            };
+            if trailing && !leading {
+                changed |= self.columns[column_index].resize_cross_axis(
+                    LayoutSizeChange::Adjust(delta),
+                    full_column_geometry,
+                    axis,
+                    minimum_sizes,
+                    maximum_sizes,
+                );
+            }
+        }
         if !main_boundary_resized
             && main_delta.is_finite()
             && main_extent > 0
@@ -1916,7 +2069,12 @@ where
                 .clamp(1, i64::from(i32::MAX)) as i32;
             let after = leaf_geometry(
                 &self.columns[column_index],
-                axis.tile_geometry(column_area, axis.main_location(column_area), next_extent),
+                self.columns[column_index].geometry(
+                    axis.tile_geometry(column_area, axis.main_location(column_area), next_extent),
+                    axis,
+                    minimum_sizes,
+                    maximum_sizes,
+                ),
             );
             let fixed_border = |geometry| {
                 i64::from(axis.main_location(geometry))
@@ -1942,6 +2100,7 @@ where
         work_area: Rectangle<i32, Logical>,
         requested_gap: i32,
         minimum_sizes: &[(WindowId, Size<i32, Logical>)],
+        maximum_sizes: &[(WindowId, Size<i32, Logical>)],
     ) -> Vec<LayoutPlacement<WindowId>> {
         if self.columns.is_empty() {
             return Vec::new();
@@ -1967,7 +2126,12 @@ where
             } else {
                 work_area
             };
-            let column_geometry = axis.tile_geometry(column_area, location, width);
+            let column_geometry = column.geometry(
+                axis.tile_geometry(column_area, location, width),
+                axis,
+                minimum_sizes,
+                maximum_sizes,
+            );
             let column_minimum = column
                 .root
                 .minimum_size(column_geometry, gap, minimum_sizes);
@@ -2033,6 +2197,7 @@ where
         }
         if removed {
             remove_layout_minimum_size(&mut self.minimum_sizes, window);
+            remove_layout_minimum_size(&mut self.maximum_sizes, window);
         }
         removed
     }
@@ -2082,11 +2247,28 @@ where
     fn clear(&mut self) {
         self.rows.clear();
         self.minimum_sizes.clear();
+        self.maximum_sizes.clear();
     }
 
     fn update_minimum_size(&mut self, window: &WindowId, minimum: Size<i32, Logical>) -> bool {
         self.contains(window)
             && update_layout_minimum_size(&mut self.minimum_sizes, window, minimum)
+    }
+
+    fn update_maximum_size(&mut self, window: &WindowId, maximum: Size<i32, Logical>) -> bool {
+        if !self.contains(window) {
+            return false;
+        }
+        let maximum = Size::from((maximum.w.max(0), maximum.h.max(0)));
+        if let Some((_, current)) = self.maximum_sizes.iter_mut().find(|(id, _)| id == window) {
+            if *current == maximum {
+                return false;
+            }
+            *current = maximum;
+        } else {
+            self.maximum_sizes.push((window.clone(), maximum));
+        }
+        true
     }
 
     fn rebuild(&mut self, insertions: Vec<LayoutInsertion<WindowId>>) {
@@ -2116,8 +2298,10 @@ where
                         root,
                         mut active,
                         width_fraction,
+                        cross_extent,
                         maximized,
                     } = column;
+                    let previous_count = root.leaf_count();
                     let root = root.retained(&|window| {
                         insertions.iter().any(|insertion| {
                             insertion.space == space && insertion.window == *window
@@ -2126,10 +2310,16 @@ where
                     if !root.contains(&active) {
                         active = root.last_window().clone();
                     }
+                    let cross_extent = if previous_count == root.leaf_count() {
+                        cross_extent
+                    } else {
+                        None
+                    };
                     Some(ScrollingColumn {
                         root,
                         active,
                         width_fraction,
+                        cross_extent,
                         maximized,
                     })
                 })
@@ -2233,6 +2423,9 @@ where
                 && matches!(&row.columns[first_index].root, DwindleNode::Window(_))
                 && matches!(&row.columns[second_index].root, DwindleNode::Window(_))
             {
+                let first_cross = row.columns[first_index].cross_extent;
+                row.columns[first_index].cross_extent = row.columns[second_index].cross_extent;
+                row.columns[second_index].cross_extent = first_cross;
                 let first_width = row.columns[first_index].width_fraction;
                 row.columns[first_index].width_fraction = row.columns[second_index].width_fraction;
                 row.columns[second_index].width_fraction = first_width;
@@ -2368,6 +2561,8 @@ where
         {
             return false;
         }
+        let preserve_cross_extent = source_space == destination_space
+            && source_row.columns[source_index].root.leaf_count() == 1;
         let extracted = self
             .rows
             .get_mut(&source_space)
@@ -2381,10 +2576,12 @@ where
             .get_mut(&destination_space)
             .expect("target column must remain after extracting the source");
         let index = row.position(target).expect("located scrolling target") + usize::from(!before);
-        row.columns.insert(
-            index,
-            ScrollingColumn::single(extracted.window.clone(), extracted.column_width_fraction),
-        );
+        let mut column =
+            ScrollingColumn::single(extracted.window.clone(), extracted.column_width_fraction);
+        if preserve_cross_extent {
+            column.cross_extent = extracted.cross_extent;
+        }
+        row.columns.insert(index, column);
         row.active = Some(extracted.window);
         row.scroll_origin = None;
         row.needs_reveal = true;
@@ -2465,7 +2662,7 @@ where
         else {
             return false;
         };
-        row.resize_from_keyboard(&request, &self.minimum_sizes)
+        row.resize_from_keyboard(&request, &self.minimum_sizes, &self.maximum_sizes)
     }
 
     fn resize(&mut self, request: LayoutResizeRequest<WindowId>) -> bool {
@@ -2476,7 +2673,7 @@ where
         else {
             return false;
         };
-        row.resize(&request, &self.minimum_sizes)
+        row.resize(&request, &self.minimum_sizes, &self.maximum_sizes)
     }
 
     fn prepare_arrange(
@@ -2533,7 +2730,7 @@ where
         gap: i32,
     ) -> Vec<LayoutPlacement<WindowId>> {
         self.rows.get(&space).map_or_else(Vec::new, |row| {
-            row.arrange(work_area, gap, &self.minimum_sizes)
+            row.arrange(work_area, gap, &self.minimum_sizes, &self.maximum_sizes)
         })
     }
 }
@@ -3426,7 +3623,7 @@ mod tests {
             } else {
                 LayoutAxis::Horizontal
             };
-            assert!(!keyboard_resize(
+            assert!(keyboard_resize(
                 &mut layout,
                 1,
                 area,
@@ -4099,6 +4296,390 @@ mod tests {
         assert_eq!(placements[0].geometry.size.w, 355);
         assert_eq!(placements[1].window, 1);
         assert_eq!(placements[1].geometry.size.w, 235);
+    }
+
+    fn lone_scrolling(axis: LayoutAxis) -> (ScrollingLayout<u64>, Rectangle<i32, Logical>) {
+        let mut layout = ScrollingLayout::<u64>::default();
+        let area = rect(100, 40, 1000, 600);
+        layout.insert(LayoutInsertion {
+            window: 1,
+            space: OUTPUT,
+            anchor: None,
+        });
+        prepare_scrolling(&mut layout, area, 10, axis);
+        (layout, area)
+    }
+
+    #[test]
+    fn scrolling_lone_cross_resize_is_fixed_leading_aligned_and_resettable() {
+        for axis in [LayoutAxis::Horizontal, LayoutAxis::Vertical] {
+            let (mut layout, area) = lone_scrolling(axis);
+            let cross = ScrollingColumn::<u64>::cross_axis(axis);
+            let full = layout.arrange(OUTPUT, area, 10)[0].geometry;
+            assert!(keyboard_resize(
+                &mut layout,
+                1,
+                area,
+                10,
+                cross,
+                LayoutSizeChange::Adjust(-150.0)
+            ));
+            let reduced = layout.arrange(OUTPUT, area, 10)[0].geometry;
+            assert_eq!(reduced.loc, full.loc);
+            assert_eq!(axis.main_extent(reduced), axis.main_extent(full));
+            assert_eq!(cross.main_extent(reduced), cross.main_extent(full) - 150);
+            let larger_area = rect(100, 40, 1500, 900);
+            prepare_scrolling(&mut layout, larger_area, 10, axis);
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, larger_area, 10)[0].geometry),
+                cross.main_extent(reduced)
+            );
+            assert!(keyboard_resize(
+                &mut layout,
+                1,
+                larger_area,
+                10,
+                cross,
+                LayoutSizeChange::Reset
+            ));
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, larger_area, 10)[0].geometry),
+                cross.main_extent(larger_area)
+            );
+            assert!(!keyboard_resize(
+                &mut layout,
+                1,
+                larger_area,
+                10,
+                cross,
+                LayoutSizeChange::Reset
+            ));
+        }
+    }
+
+    #[test]
+    fn scrolling_lone_pointer_cross_resize_accepts_only_trailing_edge() {
+        for axis in [LayoutAxis::Horizontal, LayoutAxis::Vertical] {
+            let (mut layout, area) = lone_scrolling(axis);
+            let cross = ScrollingColumn::<u64>::cross_axis(axis);
+            let original = layout.arrange(OUTPUT, area, 10);
+            let mut request = LayoutResizeRequest {
+                window: 1,
+                work_area: area,
+                gap: 10,
+                delta_x: -120.0,
+                delta_y: -120.0,
+                edges: if axis == LayoutAxis::Horizontal {
+                    LayoutResizeEdges {
+                        top: true,
+                        ..Default::default()
+                    }
+                } else {
+                    LayoutResizeEdges {
+                        left: true,
+                        ..Default::default()
+                    }
+                },
+            };
+            assert!(!layout.resize(request.clone()));
+            assert_eq!(layout.arrange(OUTPUT, area, 10), original);
+            request.edges = if axis == LayoutAxis::Horizontal {
+                LayoutResizeEdges {
+                    bottom: true,
+                    ..Default::default()
+                }
+            } else {
+                LayoutResizeEdges {
+                    right: true,
+                    ..Default::default()
+                }
+            };
+            assert!(layout.resize(request));
+            let resized = layout.arrange(OUTPUT, area, 10)[0].geometry;
+            assert_eq!(resized.loc, original[0].geometry.loc);
+            assert_eq!(
+                cross.main_extent(resized),
+                cross.main_extent(original[0].geometry) - 120
+            );
+        }
+    }
+
+    #[test]
+    fn scrolling_lone_cross_constraints_bound_geometry_and_do_not_hide_steps() {
+        for axis in [LayoutAxis::Horizontal, LayoutAxis::Vertical] {
+            let (mut layout, area) = lone_scrolling(axis);
+            let cross = ScrollingColumn::<u64>::cross_axis(axis);
+            let size = |extent| {
+                if axis == LayoutAxis::Horizontal {
+                    Size::from((1, extent))
+                } else {
+                    Size::from((extent, 1))
+                }
+            };
+            layout.update_minimum_size(&1, size(200));
+            layout.update_maximum_size(&1, size(400));
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                400
+            );
+            assert!(keyboard_resize(
+                &mut layout,
+                1,
+                area,
+                10,
+                cross,
+                LayoutSizeChange::Adjust(-10000.0)
+            ));
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                200
+            );
+            assert!(!keyboard_resize(
+                &mut layout,
+                1,
+                area,
+                10,
+                cross,
+                LayoutSizeChange::Adjust(-10000.0)
+            ));
+            assert!(keyboard_resize(
+                &mut layout,
+                1,
+                area,
+                10,
+                cross,
+                LayoutSizeChange::Adjust(20.0)
+            ));
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                220
+            );
+            for delta in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0] {
+                assert!(!keyboard_resize(
+                    &mut layout,
+                    1,
+                    area,
+                    10,
+                    cross,
+                    LayoutSizeChange::Adjust(delta)
+                ));
+            }
+            assert!(layout.resize(LayoutResizeRequest {
+                window: 1,
+                work_area: area,
+                gap: 10,
+                delta_x: 10000.0,
+                delta_y: 10000.0,
+                edges: if axis == LayoutAxis::Horizontal {
+                    LayoutResizeEdges {
+                        bottom: true,
+                        ..Default::default()
+                    }
+                } else {
+                    LayoutResizeEdges {
+                        right: true,
+                        ..Default::default()
+                    }
+                },
+            }));
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                400
+            );
+            assert_eq!(layout.rows[&OUTPUT].columns[0].cross_extent, Some(400));
+            layout.update_maximum_size(&1, size(100)); // Conflicting hints: minimum wins.
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                200
+            );
+            layout.update_minimum_size(&1, size(2000)); // Impossible work-area minimum.
+            assert_eq!(
+                cross.main_extent(layout.arrange(OUTPUT, area, 10)[0].geometry),
+                2000
+            );
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn scrolling_keyboard_width_reset_clears_rotated_cross_size_without_remapping_height_reset() {
+        use super::super::keyboard_resize::{KeyboardResize, ResizeStep};
+        let (mut layout, area) = lone_scrolling(LayoutAxis::Vertical);
+        assert!(keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Horizontal,
+            LayoutSizeChange::Adjust(-150.0)
+        ));
+        assert!(keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Vertical,
+            LayoutSizeChange::Adjust(-60.0)
+        ));
+        let (axis, change) = KeyboardResize::ResetHeight.layout_change(area, ResizeStep::default());
+        assert!(keyboard_resize(&mut layout, 1, area, 10, axis, change));
+        assert_eq!(
+            layout.arrange(OUTPUT, area, 10)[0].geometry.size,
+            Size::from((850, 360))
+        );
+        let (axis, change) = KeyboardResize::ResetWidth.layout_change(area, ResizeStep::default());
+        assert!(keyboard_resize(&mut layout, 1, area, 10, axis, change));
+        assert_eq!(
+            layout.arrange(OUTPUT, area, 10)[0].geometry.size,
+            Size::from((1000, 360))
+        );
+        assert!(!keyboard_resize(&mut layout, 1, area, 10, axis, change));
+    }
+
+    #[test]
+    fn scrolling_lone_cross_extent_rotates_and_maximize_restores_it() {
+        let (mut layout, area) = lone_scrolling(LayoutAxis::Horizontal);
+        assert!(keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Vertical,
+            LayoutSizeChange::Adjust(-150.0)
+        ));
+        let reduced = layout.arrange(OUTPUT, area, 10);
+        let preview = layout.snapshot();
+        assert!(layout.set_maximized(&1, true));
+        assert_eq!(layout.arrange(OUTPUT, area, 10)[0].geometry, area);
+        assert!(!keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Vertical,
+            LayoutSizeChange::Reset
+        ));
+        assert!(layout.set_maximized(&1, false));
+        prepare_scrolling(&mut layout, area, 10, LayoutAxis::Horizontal);
+        assert_eq!(layout.arrange(OUTPUT, area, 10), reduced);
+        assert_eq!(preview.arrange(OUTPUT, area, 10), reduced);
+        prepare_scrolling(&mut layout, area, 10, LayoutAxis::Vertical);
+        assert_eq!(layout.arrange(OUTPUT, area, 10)[0].geometry.size.w, 450);
+        prepare_scrolling(
+            &mut layout,
+            rect(100, 40, 300, 600),
+            10,
+            LayoutAxis::Vertical,
+        );
+        assert_eq!(
+            layout.arrange(OUTPUT, rect(100, 40, 300, 600), 10)[0]
+                .geometry
+                .size
+                .w,
+            300
+        );
+        prepare_scrolling(&mut layout, area, 10, LayoutAxis::Vertical);
+        assert_eq!(layout.arrange(OUTPUT, area, 10)[0].geometry.size.w, 450);
+    }
+
+    #[test]
+    fn scrolling_lone_group_and_ungroup_clear_overrides_but_keep_shared_boundary_resize() {
+        let (mut layout, area) = lone_scrolling(LayoutAxis::Horizontal);
+        layout.insert(LayoutInsertion {
+            window: 2,
+            space: OUTPUT,
+            anchor: None,
+        });
+        prepare_scrolling(&mut layout, area, 10, LayoutAxis::Horizontal);
+        for window in [1, 2] {
+            assert!(keyboard_resize(
+                &mut layout,
+                window,
+                area,
+                10,
+                LayoutAxis::Vertical,
+                LayoutSizeChange::Adjust(-150.0)
+            ));
+        }
+        assert!(layout.move_beside(&2, &1, LayoutDirection::Down));
+        assert_eq!(layout.arrange(OUTPUT, area, 10)[0].geometry.size.h, 295);
+        assert!(keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Vertical,
+            LayoutSizeChange::Adjust(60.0)
+        ));
+        let grouped = layout.arrange(OUTPUT, area, 10);
+        assert_eq!(grouped[0].geometry.size.h, 355);
+        assert_eq!(grouped[1].geometry.size.h, 235);
+        assert!(layout.move_to_column(&2, &1, false));
+        assert!(
+            layout
+                .arrange(OUTPUT, area, 10)
+                .iter()
+                .all(|p| p.geometry.size.h == 600)
+        );
+        assert!(layout.move_beside(&2, &1, LayoutDirection::Right));
+        assert!(layout.remove(&2));
+        assert_eq!(layout.arrange(OUTPUT, area, 10)[0].geometry.size.h, 600);
+    }
+
+    #[test]
+    fn scrolling_lone_reorder_and_rebuild_preserve_override_but_workspace_move_resets() {
+        let (mut layout, area) = lone_scrolling(LayoutAxis::Horizontal);
+        for window in [2, 3] {
+            layout.insert(LayoutInsertion {
+                window,
+                space: OUTPUT,
+                anchor: None,
+            });
+        }
+        prepare_scrolling(&mut layout, area, 10, LayoutAxis::Horizontal);
+        assert!(keyboard_resize(
+            &mut layout,
+            1,
+            area,
+            10,
+            LayoutAxis::Vertical,
+            LayoutSizeChange::Adjust(-150.0)
+        ));
+        assert!(layout.move_to_column(&1, &3, false));
+        let height = |layout: &ScrollingLayout<u64>, space| {
+            layout
+                .arrange(space, area, 10)
+                .into_iter()
+                .find(|p| p.window == 1)
+                .unwrap()
+                .geometry
+                .size
+                .h
+        };
+        assert_eq!(height(&layout, OUTPUT), 450);
+        layout.rebuild(
+            [1, 2, 3]
+                .into_iter()
+                .map(|window| LayoutInsertion {
+                    window,
+                    space: OUTPUT,
+                    anchor: None,
+                })
+                .collect(),
+        );
+        assert_eq!(height(&layout, OUTPUT), 450);
+        assert!(!layout.move_to_space(&1, OUTPUT));
+        assert_eq!(height(&layout, OUTPUT), 450);
+        assert!(layout.move_to_space(&1, SECOND_OUTPUT));
+        layout.prepare_arrange(SECOND_OUTPUT, area, 10, LayoutAxis::Horizontal);
+        assert_eq!(height(&layout, SECOND_OUTPUT), 600);
+        assert!(layout.remove(&1));
+        layout.insert(LayoutInsertion {
+            window: 1,
+            space: SECOND_OUTPUT,
+            anchor: None,
+        });
+        assert_eq!(height(&layout, SECOND_OUTPUT), 600);
     }
 
     #[test]

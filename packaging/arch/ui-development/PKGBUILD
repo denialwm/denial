@@ -21,9 +21,9 @@ provides=('denial-ui-development-engine=3.47.5.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('be4e905625417dac398d7f8d2a8117a17048d4c97b72ea9989bb66d39a26c270')
+sha256sums=('c0755938746d42fca21eb9a2ff71c8dac1248054ca62efa285f1be821668d137')
 
-_flutter_revision='8ccaca769f497d5cb5e376e12d7e053d6adb6b2d'
+_flutter_revision='d9c0f91faefa7850131473a5c51d68950eeb40f2'
 _dart_revision='b530c21f7de367b94fb04787bfed9d8e989d75e8'
 _engine_sha256='0103c4b53ddb75538a20008914ae442d66aa688fd0db10435c1aa918bf17024b'
 _profile_engine_sha256='82569727237b13b6f2db06fc98db1cdb8f17fd6c30681c87d18652b23b7573fd'

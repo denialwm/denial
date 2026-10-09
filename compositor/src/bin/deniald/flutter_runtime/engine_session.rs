@@ -263,6 +263,7 @@ impl FlutterRuntime {
             resource_cache_max_mib =
                 factory.project.resource_cache_max_bytes_threshold / (1024 * 1024),
             output_targets = render_outputs.len(),
+            render_completion = host.engine().supports_render_completion(),
             "started Rust Flutter embedder with native physical-output raster targets"
         );
         Ok(Self {

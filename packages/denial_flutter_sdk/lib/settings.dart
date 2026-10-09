@@ -76,3 +76,5 @@ export 'src/settings/shell_settings.dart'
         scrollingLayoutWheelSpeedDefault,
         scrollingLayoutWheelSpeedMaximum,
         scrollingLayoutWheelSpeedMinimum;
+export 'src/settings/rotation_lock.dart'
+    show RotationLockController, RotationLockState, rotationLockProvider;

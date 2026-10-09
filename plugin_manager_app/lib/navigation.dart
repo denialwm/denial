@@ -1,10 +1,11 @@
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 import 'package:flutter/material.dart';
 
-const destinations = [
-  (Icons.widgets_outlined, 'Installed'),
-  (Icons.explore_outlined, 'Discover'),
-  (Icons.history_rounded, 'Activity'),
+List<(IconData, String)> destinations(BuildContext context) => [
+  (Icons.widgets_outlined, context.l10n.pluginsInstalled),
+  (Icons.explore_outlined, context.l10n.pluginsDiscover),
+  (Icons.history_rounded, context.l10n.pluginsActivity),
 ];
 
 class PluginNavigation extends StatelessWidget {
@@ -44,10 +45,10 @@ class PluginNavigation extends StatelessWidget {
         child: Row(
           mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
           children: [
-            Icon(destinations[index].$1, size: 19),
+            Icon(destinations(context)[index].$1, size: 19),
             const SizedBox(width: 12),
             Text(
-              destinations[index].$2,
+              destinations(context)[index].$2,
               style: TextStyle(
                 fontWeight: index == selected
                     ? FontWeight.w600
@@ -72,7 +73,8 @@ class PluginNavigation extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
-                for (var i = 0; i < destinations.length; i++) item(context, i),
+                for (var i = 0; i < destinations(context).length; i++)
+                  item(context, i),
               ],
             ),
           );
@@ -87,7 +89,7 @@ class PluginNavigation extends StatelessWidget {
                   const Icon(Icons.extension_outlined, size: 23),
                   const SizedBox(width: 12),
                   Text(
-                    'Plugins',
+                    context.l10n.pluginsTitle,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       letterSpacing: -.3,
@@ -102,14 +104,14 @@ class PluginNavigation extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 4, 24, 8),
                     child: Text(
-                      'Library',
+                      context.l10n.pluginsLibrary,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: context.applicationColors.secondary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
-                  for (var i = 0; i < destinations.length; i++)
+                  for (var i = 0; i < destinations(context).length; i++)
                     item(context, i),
                 ],
               ),
@@ -124,7 +126,7 @@ class PluginNavigation extends StatelessWidget {
                 ),
                 onPressed: onPreferences,
                 icon: const Icon(Icons.tune_rounded, size: 18),
-                label: const Text('Preferences'),
+                label: Text(context.l10n.pluginsPreferences),
               ),
             ),
           ],
@@ -162,12 +164,14 @@ class PluginToolbar extends StatelessWidget {
     focusNode: searchFocus,
     onChanged: (_) => onSearch(),
     decoration: InputDecoration(
-      hintText: destination == 0 ? 'Search installed' : 'Search plugins',
+      hintText: destination == 0
+          ? context.l10n.pluginsSearchInstalled
+          : context.l10n.pluginsSearch,
       prefixIcon: const Icon(Icons.search_rounded, size: 18),
       suffixIcon: search.text.isEmpty
           ? null
           : IconButton(
-              tooltip: 'Clear search',
+              tooltip: context.l10n.pluginsClearSearch,
               onPressed: () {
                 search.clear();
                 onSearch();
@@ -197,7 +201,7 @@ class PluginToolbar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Tooltip(
-            message: 'Add a plugin from a repository link',
+            message: context.l10n.pluginsAddTooltip,
             child: TextButton.icon(
               style: TextButton.styleFrom(
                 foregroundColor: context.applicationColors.foreground,
@@ -206,7 +210,7 @@ class PluginToolbar extends StatelessWidget {
               ),
               onPressed: onAdd,
               icon: const Icon(Icons.add_rounded, size: 19),
-              label: const Text('Add Plugin'),
+              label: Text(context.l10n.pluginsAddToolbar),
             ),
           ),
           SizedBox(
@@ -217,7 +221,7 @@ class PluginToolbar extends StatelessWidget {
             ),
           ),
           PopupMenuButton<String>(
-            tooltip: 'More actions',
+            tooltip: context.l10n.pluginsMoreActions,
             icon: const Icon(Icons.more_horiz_rounded, size: 21),
             onSelected: (value) {
               switch (value) {
@@ -230,7 +234,10 @@ class PluginToolbar extends StatelessWidget {
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+              PopupMenuItem(
+                value: 'refresh',
+                child: Text(context.l10n.pluginsRefresh),
+              ),
               if (applyLabel != null)
                 PopupMenuItem(
                   value: 'apply',
@@ -241,7 +248,7 @@ class PluginToolbar extends StatelessWidget {
               PopupMenuItem(
                 value: 'preferences',
                 enabled: onPreferences != null,
-                child: const Text('Preferences'),
+                child: Text(context.l10n.pluginsPreferences),
               ),
             ],
           ),

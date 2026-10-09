@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import 'denial_pet.dart';
 import 'surface_occlusion.dart';
 
 enum DenialWindowContentKind {
@@ -189,6 +190,7 @@ class DenialWindow {
     this.surfaceLayers = const <DenialSurfaceLayer>[],
     this.contentKind = DenialWindowContentKind.surfaceTree,
     this.opacityClass = DenialWindowOpacityClass.contentTranslucent,
+    this.pet,
   });
 
   final int objectId;
@@ -233,6 +235,18 @@ class DenialWindow {
   final List<DenialSurfaceLayer> surfaceLayers;
   final DenialWindowContentKind contentKind;
   final DenialWindowOpacityClass opacityClass;
+
+  /// What the shell knows of this layer surface if it is a desktop pet
+  /// (denial-pet-v1); null for anything else.
+  final DenialPet? pet;
+
+  /// The window holding this layer surface, if it is a pet one holds. A held
+  /// pet is drawn and hit with that window instead of in its layer's plane.
+  /// While the pet is dragged, this is the hold it takes if let go now.
+  DenialPetHold? get heldBy => isLayerShell ? pet?.held : null;
+
+  /// Whether a window holds this layer surface; see [heldBy].
+  bool get isHeld => heldBy != null;
 
   bool get isLocalFlutter =>
       contentKind == DenialWindowContentKind.localFlutter;
@@ -432,7 +446,9 @@ class DenialWindow {
         other.suppressAnimations == suppressAnimations &&
         other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
         other.serverSideDecorated == serverSideDecorated &&
-        other.contentKind == contentKind;
+        other.contentKind == contentKind &&
+        other.heldBy?.windowId == heldBy?.windowId &&
+        other.pet?.below == pet?.below;
   }
 
   /// Whether every field that can change the composed desktop scene matches.
@@ -482,6 +498,7 @@ class DenialWindow {
         other.contentHeight == contentHeight &&
         other.contentKind == contentKind &&
         other.opacityClass == opacityClass &&
+        other.pet == pet &&
         listEquals(other.surfaceLayers, surfaceLayers);
   }
 
@@ -535,6 +552,7 @@ class DenialWindow {
     contentWidth,
     contentHeight,
     contentKind,
+    pet,
     ...surfaceLayers,
   ]);
 }

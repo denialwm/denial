@@ -318,34 +318,44 @@ class MobileConnectivityMarks extends ConsumerWidget {
         .watch(networkConnectivityProvider)
         .snapshot
         .connectedNetwork;
-    final mobile =
-        ref.watch(mobileNetworkProvider).value ?? const MobileNetworkSnapshot();
+    final discovery = ref.watch(mobileNetworkProvider);
+    final lastMobile = discovery.value ?? const MobileNetworkSnapshot();
+    final mobile = discovery.isLoading || discovery.hasError
+        ? lastMobile.unavailable()
+        : lastMobile;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Semantics(
-          label: mobile.connected
-              ? context.l10n.mobileConnected
-              : context.l10n.mobileDisconnected,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SignalGlyph(
-                active: mobile.registered,
-                strength: mobile.strength,
-                scale: 1.25 * scale,
-                color: color,
-              ),
-              if (!mobile.connected)
-                Icon(
-                  Icons.priority_high_rounded,
-                  size: 12 * scale,
+        // Hide only a confirmed absent SIM. Discovery/loading failure remains
+        // visible as unavailable; modem and WWAN policy are not SIM presence.
+        if (mobile.showCellular) ...[
+          Semantics(
+            label: mobile.cellularWorking
+                ? context.l10n.mobileConnected
+                : mobile.simPresence == MobileSimPresence.unknown ||
+                      !mobile.managerAvailable
+                ? context.l10n.mobileUnavailable
+                : context.l10n.mobileDisconnected,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SignalGlyph(
+                  active: mobile.cellularWorking,
+                  strength: mobile.strength,
+                  scale: 1.25 * scale,
                   color: color,
                 ),
-            ],
+                if (!mobile.cellularWorking)
+                  Icon(
+                    Icons.priority_high_rounded,
+                    size: 12 * scale,
+                    color: color,
+                  ),
+              ],
+            ),
           ),
-        ),
-        SizedBox(width: 7 * scale),
+          SizedBox(width: 7 * scale),
+        ],
         WifiMark(
           active: wifi != null,
           strength: wifi?.strength ?? 0,

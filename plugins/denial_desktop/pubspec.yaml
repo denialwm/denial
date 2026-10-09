@@ -37,5 +37,13 @@ denial_plugin:
     label: App launcher
     min: 0
     max: 1
+  - contract: package:denial_flutter_sdk/pets.dart#ShellPetHolds
+    label: Pet holds
+    min: 0
+    max: 1
+  - contract: package:denial_flutter_sdk/pets.dart#ShellPetShadows
+    label: Pet shadows
+    min: 0
+    max: 1
 flutter:
   uses-material-design: true

@@ -3,44 +3,13 @@ import 'dart:async';
 import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'mobile_network_snapshot.dart';
+
+export 'mobile_network_snapshot.dart';
+
 const modemManagerName = 'org.freedesktop.ModemManager1';
 const networkManagerName = 'org.freedesktop.NetworkManager';
 const modemInterface = '$modemManagerName.Modem';
-
-class MobileNetworkSnapshot {
-  const MobileNetworkSnapshot({
-    this.modemPath,
-    this.simPath,
-    this.unlockRequired = 0,
-    this.pinRetries,
-    this.strength = 0,
-    this.registered = false,
-    this.connected = false,
-    this.enabled = false,
-    this.hardwareEnabled = false,
-    this.managerAvailable = false,
-    this.operatorName = '',
-  });
-
-  final String? modemPath;
-  final String? simPath;
-  final int unlockRequired;
-  final int? pinRetries;
-  final int strength;
-  final bool registered;
-  final bool connected;
-  final bool enabled;
-  final bool hardwareEnabled;
-  final bool managerAvailable;
-  final String operatorName;
-  bool get pinRequired => unlockRequired == 2 && simPath != null;
-  // PIN2/PUK2 protect supplementary SIM functions, not normal modem use.
-  // ModemManager permits initialization and registration with these locks.
-  bool get locked =>
-      unlockRequired > 1 && unlockRequired != 3 && unlockRequired != 5;
-  bool get canToggle =>
-      managerAvailable && hardwareEnabled && modemPath != null;
-}
 
 final mobileNetworkServiceProvider = Provider<MobileNetworkService>((ref) {
   final service = MobileNetworkService();
@@ -159,9 +128,25 @@ class MobileNetworkService {
         final retries =
             (p['UnlockRetries'] as DBusDict?)?.children[DBusUint32(lock)];
         final sim = (p['Sim'] as DBusObjectPath?)?.value;
+        final slots = (p['SimSlots'] as DBusArray?)?.children
+            .map((slot) => slot.asObjectPath().value)
+            .toList();
+        final failedReason =
+            (p['StateFailedReason'] as DBusUint32?)?.value ?? 0;
+        final path = entry.key.asObjectPath().value;
         modems.add(
           MobileNetworkSnapshot(
-            modemPath: entry.key.asObjectPath().value,
+            modemPath: path,
+            simPresence: mobileSimPresence(
+              simPath: sim,
+              simSlots: slots,
+              unlockRequired: lock,
+              state: state,
+              failedReason: failedReason,
+              previous: current.modemPath == path
+                  ? current.simPresence
+                  : MobileSimPresence.unknown,
+            ),
             simPath: sim == '/' ? null : sim,
             unlockRequired: lock,
             pinRetries: retries is DBusUint32 ? retries.value : null,
@@ -178,22 +163,9 @@ class MobileNetworkService {
           ),
         );
       }
-      // A locked SIM takes priority so every pending PIN can be handled. Once
-      // unlocked, prefer a connected modem, then stable object-path ordering.
-      modems.sort((a, b) {
-        int rank(MobileNetworkSnapshot s) => s.pinRequired
-            ? 3
-            : s.connected
-            ? 2
-            : s.registered
-            ? 1
-            : 0;
-        final order = rank(b).compareTo(rank(a));
-        return order != 0 ? order : a.modemPath!.compareTo(b.modemPath!);
-      });
-      snapshot = modems.firstOrNull ?? const MobileNetworkSnapshot();
+      snapshot = selectMobileNetworkSnapshot(modems, previous: current);
     } on Object {
-      snapshot = const MobileNetworkSnapshot();
+      snapshot = current.unavailable();
     }
     if (!_disposed) {
       current = snapshot;

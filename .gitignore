@@ -19,8 +19,10 @@
 
 # Locally rebuilt Flutter Embedder library. Its sources, build recipe, and
 # expected checksum are tracked; the generated architecture-specific binary
-# is not.
+# is not. Nor is the checksum of a local engine, built from the local
+# Flutter and Skia trees rather than the locked commits.
 /prebuilt/flutter-engine/*/libflutter_engine.so
+/prebuilt/flutter-engine/*/libflutter_engine.so.local.sha256
 
 # In-tree makepkg output. Denial's packaging tool normally places all of this
 # under its external build root, but direct makepkg invocations must not dirty

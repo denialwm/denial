@@ -10,6 +10,7 @@ pub(super) enum KeyboardResize {
     GrowHeight,
     ShrinkHeight,
     ResetHeight,
+    ResetWidth,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -77,6 +78,7 @@ impl KeyboardResize {
             Self::ShrinkWidth => (LayoutAxis::Horizontal, -1),
             Self::GrowHeight => (LayoutAxis::Vertical, 1),
             Self::ShrinkHeight => (LayoutAxis::Vertical, -1),
+            Self::ResetWidth => return (LayoutAxis::Horizontal, LayoutSizeChange::Reset),
             Self::ResetHeight => return (LayoutAxis::Vertical, LayoutSizeChange::Reset),
         };
         (
@@ -106,6 +108,10 @@ impl KeyboardResize {
                     step.pixels(work_area.size.h) * if self == Self::GrowHeight { 1 } else { -1 };
                 current.size.h =
                     constrain_dimension(current.size.h.saturating_add(delta), minimum.h, maximum.h);
+            }
+            Self::ResetWidth => {
+                current.loc.x = work_area.loc.x;
+                current.size.w = constrain_dimension(work_area.size.w, minimum.w, maximum.w);
             }
             Self::ResetHeight => {
                 current.loc.y = work_area.loc.y;
@@ -183,5 +189,29 @@ mod tests {
             reset
         );
         assert_eq!(ResizeStep::Percent(0.01).pixels(100), 1);
+    }
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn width_reset_is_physical_constrained_and_idempotent() {
+        use super::super::window_layout::{LayoutAxis, LayoutSizeChange};
+        let current = Rectangle::new((1200, 90).into(), (500, 400).into());
+        let work = Rectangle::new((1000, 30).into(), (1000, 800).into());
+        let min = Size::from((450, 350));
+        let max = Size::from((750, 450));
+        let reset =
+            KeyboardResize::ResetWidth.geometry(current, work, min, max, ResizeStep::default());
+        assert_eq!(reset, Rectangle::new((1000, 90).into(), (750, 400).into()));
+        assert_eq!(
+            KeyboardResize::ResetWidth.geometry(reset, work, min, max, ResizeStep::default()),
+            reset
+        );
+        assert_eq!(
+            KeyboardResize::ResetWidth.layout_change(work, ResizeStep::default()),
+            (LayoutAxis::Horizontal, LayoutSizeChange::Reset)
+        );
+        assert_eq!(
+            KeyboardResize::ResetHeight.layout_change(work, ResizeStep::default()),
+            (LayoutAxis::Vertical, LayoutSizeChange::Reset)
+        );
     }
 }

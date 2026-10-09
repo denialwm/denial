@@ -540,6 +540,7 @@ impl FlutterGlHandler {
         requests: &[OutputFrameRequest],
         views: &mut Vec<i64>,
         lock_frame_token: u64,
+        completion_id: Option<u64>,
     ) {
         views.clear();
         let mut broker = lock(&self.broker);
@@ -547,7 +548,7 @@ impl FlutterGlHandler {
         for request in requests {
             let mut request = *request;
             request.lock_frame_token = lock_frame_token;
-            if let Some(view) = broker.authorize(request, now) {
+            if let Some(view) = broker.authorize(request, now, completion_id) {
                 views.push(view);
             }
         }
@@ -570,6 +571,18 @@ impl FlutterGlHandler {
 
     pub(in crate::flutter_runtime) fn cancel_output_authorizations(&self, render_view_ids: &[i64]) {
         lock(&self.broker).cancel_authorizations(render_view_ids);
+    }
+
+    pub(in crate::flutter_runtime) fn begin_output_authorization(&self, completion_id: u64) {
+        lock(&self.broker).begin_authorization(completion_id);
+    }
+
+    pub(in crate::flutter_runtime) fn complete_output_authorization(&self, completion_id: u64) {
+        if lock(&self.broker).complete_authorization(completion_id) > 0 {
+            // A no-scene or skipped request has no present callback to wake the
+            // event loop. Keep its dirty work pending for the next output tick.
+            self.notify_frame_ready();
+        }
     }
 
     pub(in crate::flutter_runtime) fn release_output(
@@ -895,6 +908,10 @@ impl FlutterGlHandler {
             return true;
         }
         lock(&self.ready_frames).extend(frames);
+        self.notify_frame_ready()
+    }
+
+    fn notify_frame_ready(&self) -> bool {
         if !self.frame_ready_wakeup.begin() {
             return true;
         }

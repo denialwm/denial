@@ -1,8 +1,17 @@
-final class SetupNotice {
-  const SetupNotice({required this.title, required this.description});
+enum SetupProblem { missingDart, incompatibleDart, tools }
 
-  final String title;
-  final String description;
+/// Read-only setup facts. User-facing descriptions use SDK localizations.
+final class SetupNotice {
+  const SetupNotice(
+    this.problem, {
+    this.installed,
+    this.constraint,
+    this.expected,
+  });
+  final SetupProblem problem;
+  final String? installed;
+  final String? constraint;
+  final String? expected;
 
   static SetupNotice fromState(Map<String, Object?> state) {
     final dart = state['dart'];
@@ -12,22 +21,15 @@ final class SetupNotice {
       final installed = dart['version'] as String?;
       if (installed != null && constraint != null) {
         return SetupNotice(
-          title: 'Compatible Dart is required',
-          description:
-              'Dart $installed is installed, but Denial requires $constraint. Install a compatible Dart package and make sure dart is available in PATH, then try again.',
+          SetupProblem.incompatibleDart,
+          installed: installed,
+          constraint: constraint,
         );
       }
       if (expected != null) {
-        return SetupNotice(
-          title: 'Dart is required',
-          description:
-              'Install Dart with your system package manager. Denial recommends Dart $expected. Make sure dart is available in PATH, then try again.',
-        );
+        return SetupNotice(SetupProblem.missingDart, expected: expected);
       }
     }
-    return const SetupNotice(
-      title: 'Plugin tools need attention',
-      description: 'Preparation could not finish. See Activity for details, then try again.',
-    );
+    return const SetupNotice(SetupProblem.tools);
   }
 }

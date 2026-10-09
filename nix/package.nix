@@ -84,6 +84,7 @@ let
       "plugins/denial_desktop"
       "plugins/denial_launcher"
       "plugins/denial_clock"
+      "plugins/denial_pets"
       "protocol"
     ];
     sourceLockHash = builtins.hashFile "sha256" (src.origSrc + "/dart_shell/pubspec.lock");
@@ -115,6 +116,7 @@ let
       "plugins/denial_desktop"
       "plugins/denial_launcher"
       "plugins/denial_clock"
+      "plugins/denial_pets"
       "protocol"
       "settings_app"
     ];
@@ -151,6 +153,7 @@ let
       "plugins/denial_desktop"
       "plugins/denial_launcher"
       "plugins/denial_clock"
+      "plugins/denial_pets"
       "plugins/builtins.yaml"
       "protocol/generated/dart"
       "compositor/src/lib.rs"

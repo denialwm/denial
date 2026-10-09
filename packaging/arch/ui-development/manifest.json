@@ -19,13 +19,13 @@
     "dart_version": "3.13.4",
     "dart_revision": "b530c21f7de367b94fb04787bfed9d8e989d75e8",
     "flutter_repository": "https://github.com/denialwm/flutter.git",
-    "flutter_fork_revision": "8ccaca769f497d5cb5e376e12d7e053d6adb6b2d",
+    "flutter_fork_revision": "d9c0f91faefa7850131473a5c51d68950eeb40f2",
     "skia_repository": "https://github.com/denialwm/skia.git",
     "skia_fork_revision": "5b495e3e15a59ee76af882d83316d351654c1e88"
   },
   "source_lock": {
     "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
-    "sha256": "d4f9fe3b21eea50e7b22177e97a09c9933b095967ccacea5e3e33275ec428583"
+    "sha256": "fe890823a8c86ec41815f9a5994335a7f9a12d440aeab0e229c1d13022e2e47f"
   },
   "artifacts": {
     "debug_engine_sha256": "0103c4b53ddb75538a20008914ae442d66aa688fd0db10435c1aa918bf17024b",
@@ -78,6 +78,25 @@
     "non_pausing_editor_attach_tested": false,
     "offline_source_closure": false,
     "reproducible_package": false,
-    "independently_reproduced": false
+    "independently_reproduced": false,
+    "development_engines_match_source_lock": false
+  },
+  "artifact_provenance": {
+    "debug": {
+      "flutter_fork_revision": "f8489afa8ca81e9b91d494ffa0a30bdb6bd076d5",
+      "skia_fork_revision": "5b495e3e15a59ee76af882d83316d351654c1e88",
+      "engine_content_hash": "e946e7b781ceadff25dc1a62c6b7e813e0aa8b8e",
+      "matches_current_source_lock": false
+    },
+    "profile": {
+      "flutter_fork_revision": "f8489afa8ca81e9b91d494ffa0a30bdb6bd076d5",
+      "skia_fork_revision": "5b495e3e15a59ee76af882d83316d351654c1e88",
+      "engine_content_hash": "e946e7b781ceadff25dc1a62c6b7e813e0aa8b8e",
+      "matches_current_source_lock": false
+    }
+  },
+  "publication": {
+    "enabled": false,
+    "reason": "Legacy UI-development publication remains paused pending an explicitly authorized matched development-engine refresh and package validation."
   }
 }

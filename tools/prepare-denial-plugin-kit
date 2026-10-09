@@ -14,12 +14,143 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 from urllib.parse import unquote, urljoin, urlparse
 
 
 def digest(file):
     with file.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+COMPILER_INPUTS = [
+    'gen_snapshot', 'font-subset', 'impellerc', 'icudtl.dat',
+    'flutter_patched_sdk', 'flutter_linux', 'libflutter_linux_gtk.so',
+    'shader_lib', 'gen/const_finder.dart.snapshot',
+]
+
+
+DISPOSABLE_INPUTS = (
+    '.git', '.dart_tool', 'build', '*.d', '*.pyc', '__pycache__',
+    'pubspec_overrides.yaml', '.flutter-plugins*',
+    # Ignored local cursor reference; its license forbids redistribution.
+    'yangyang_xuanling',
+)
+
+
+def input_digest(path, *, copied=False):
+    """The same complete, sorted tree encoding as ManagerStore.treeDigest."""
+    if not path.is_dir():
+        return digest(path)
+    result = hashlib.sha256()
+    entries = []
+    def visit(directory):
+        children = list(directory.iterdir())
+        ignored = shutil.ignore_patterns(*DISPOSABLE_INPUTS)(
+            str(directory), [entry.name for entry in children]) if copied else set()
+        for entry in children:
+            if entry.name in ignored:
+                continue
+            entries.append(entry)
+            if entry.is_dir() and not entry.is_symlink():
+                visit(entry)
+    visit(path)
+    # Dart sorts full path strings, not pathlib's component tuples. A sibling
+    # ui.dart must sort before ui/compositing.dart ('.' precedes '/').
+    for entry in sorted(entries, key=str):
+        result.update(str(entry.relative_to(path)).encode() + b'\0')
+        if entry.is_symlink():
+            value = f'link:{os.readlink(entry)}\n'
+        elif entry.is_file():
+            value = f'file:{digest(entry)}\n'
+        else:
+            value = 'directory\n'
+        result.update(value.encode())
+    return result.hexdigest()
+
+
+def checkout_identity(path):
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(path), *args])
+    changes = hashlib.sha256(git('diff', '--binary', 'HEAD'))
+    untracked = git('ls-files', '-z', '--others', '--exclude-standard')
+    for name in sorted(filter(None, untracked.split(b'\0'))):
+        changes.update(name + b'\0')
+        changes.update(input_digest(path / os.fsdecode(name)).encode())
+    dirty = bool(git('status', '--porcelain=v1', '--untracked-files=normal'))
+    return {'path': str(path), 'revision': git('rev-parse', 'HEAD').decode().strip(),
+            'dirty_sha256': changes.hexdigest() if dirty else None}
+
+
+def development_provenance(root, flutter, engine, platform, version):
+    """Attest an up-to-date canonical release graph, not arbitrary cached bytes."""
+    expected_flutter = Path(os.environ.get(
+        'DENIAL_FLUTTER_SOURCE_ROOT', '/mnt/exty/denial-flutter-fork-3.44.7')).resolve()
+    expected_skia = Path(os.environ.get(
+        'DENIAL_SKIA_SOURCE_ROOT', '/mnt/exty/denial-skia-fork-3.44.7')).resolve()
+    if bool(os.environ.get('DENIAL_FLUTTER_SOURCE_ROOT')) != bool(
+            os.environ.get('DENIAL_SKIA_SOURCE_ROOT')):
+        raise ValueError('relocated development forks must be set together')
+    if flutter != expected_flutter:
+        raise ValueError('development kit must use the canonical Flutter checkout')
+    skia = (flutter / 'engine/src/flutter/third_party/skia').resolve()
+    if skia != expected_skia:
+        raise ValueError('development kit must use the canonical Skia checkout')
+    sources = {'flutter': checkout_identity(flutter), 'skia': checkout_identity(skia),
+               'denial': checkout_identity(root)}
+    if version['frameworkRevision'] != sources['flutter']['revision']:
+        raise ValueError('Flutter metadata must declare its actual checkout revision')
+    graph = (engine / 'build.ninja').read_text()
+    match = re.search(r'^  command = .* --root=([^ ]+) .*', graph, re.M)
+    if not match or (engine / match[1]).resolve() != (flutter / 'engine/src').resolve():
+        raise ValueError('release graph was not generated from the canonical Flutter tree')
+    arguments = (engine / 'args.gn').read_text()
+    def gn(name):
+        values = re.findall(r'^' + name + r'\s*=\s*(.+)$', arguments, re.M)
+        return values[-1].strip().strip('"') if values else None
+    cpu = {'linux-x64': 'x64', 'linux-arm64': 'arm64'}[platform]
+    for name, wanted in {'host_cpu': cpu, 'target_cpu': cpu, 'target_os': 'linux',
+                         'is_debug': 'false', 'flutter_runtime_mode': 'release',
+                         'dart_runtime_mode': 'release'}.items():
+        if gn(name) != wanted:
+            raise ValueError(f'development kit requires native release {name}={wanted}')
+    for name, wanted in {'engine_version': sources['flutter']['revision'],
+                         'skia_version': sources['skia']['revision']}.items():
+        if gn(name) != wanted:
+            raise ValueError(f'release graph has stale {name}')
+    # Only inspect the existing graph. A missing/stale prerequisite is a scoped
+    # build decision for the caller, never an implicit engine/compiler rebuild.
+    ready = subprocess.check_output([
+        '/usr/bin/ninja', '-n', '-C', str(engine), 'libflutter_engine.so',
+        'gen_snapshot', 'flutter_patched_sdk/platform_strong.dill',
+        'flutter/sky/packages/sky_engine:sky_engine',
+        'gen/const_finder.dart.snapshot', 'font-subset', 'impellerc',
+        'libflutter_linux_gtk.so'], text=True)
+    if not ready.rstrip().endswith('ninja: no work to do.'):
+        raise ValueError('development release compiler graph needs work; prepare only its required targets')
+    checksum = root / f'prebuilt/flutter-engine/{platform}-release/libflutter_engine.so.local.sha256'
+    engine_sha = digest(engine / 'libflutter_engine.so')
+    if not checksum.is_file() or checksum.read_text().split()[0] != engine_sha:
+        raise ValueError('development engine differs from its local checksum')
+    header = subprocess.check_output(['readelf', '-h', str(engine / 'libflutter_engine.so')],
+                                    text=True, env={**os.environ, 'LC_ALL': 'C'})
+    machine = {'linux-x64': 'Advanced Micro Devices X86-64', 'linux-arm64': 'AArch64'}[platform]
+    if not re.search(r'Machine:\s+' + re.escape(machine) + r'\s*$', header, re.M):
+        raise ValueError('development engine ELF architecture differs from target')
+    notes = subprocess.check_output(['readelf', '-n', str(engine / 'libflutter_engine.so')],
+                                    text=True, env={**os.environ, 'LC_ALL': 'C'})
+    build_id = re.search(r'Build ID: ([0-9a-f]+)', notes)
+    if not build_id:
+        raise ValueError('development engine lacks its ELF build identity')
+    return {'schema': 1, 'mode': 'development', 'sources': sources,
+            'framework_revision': sources['flutter']['revision'],
+            'engine_sha256': engine_sha, 'engine_build_id': build_id[1],
+            'platform': platform, 'engine_target': engine.name,
+            'args_gn_sha256': digest(engine / 'args.gn'),
+            'compiler_inputs': {name: input_digest(engine / name, copied=True) for name in COMPILER_INPUTS},
+            'sky_engine_sha256': input_digest(engine / 'gen/dart-pkg/sky_engine', copied=True),
+            'dart_sdk_version': (flutter / 'bin/cache/dart-sdk/version').read_text().strip(),
+            'frontend_server_sha256': digest(flutter / 'bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot')}
 
 
 DEVELOPMENT_ONLY_TREES = {
@@ -31,9 +162,7 @@ def copy(source, destination, *, omit_development=False):
     destination.parent.mkdir(parents=True, exist_ok=True)
     if source.is_dir():
         source_root = source.resolve()
-        disposable = shutil.ignore_patterns(
-            '.git', '.dart_tool', 'build', '*.d', '*.pyc', '__pycache__',
-            'pubspec_overrides.yaml', '.flutter-plugins*')
+        disposable = shutil.ignore_patterns(*DISPOSABLE_INPUTS)
 
         def ignored(directory, names):
             result = set(disposable(directory, names))
@@ -74,6 +203,9 @@ def prune_compiled_tool_dependency(package):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--flutter-root', type=Path, required=True)
+    parser.add_argument('--provenance', choices=['locked-release', 'development'],
+                        default='locked-release',
+                        help='Development attests canonical local release inputs; default enforces SOURCE_LOCK')
     parser.add_argument('--engine-root', type=Path, required=True)
     parser.add_argument(
         '--engine-source-root',
@@ -91,6 +223,10 @@ def main():
         help='Packager-attested Flutter revision when SDK metadata is synthetic',
     )
     args = parser.parse_args()
+    if args.provenance == 'development' and (
+            args.flutter_revision is not None or args.source_revision is not None or
+            os.environ.get('CI', '').lower() in {'1', 'true'}):
+        parser.error('development provenance is for local checkouts, not CI or packager attestations')
     root = args.source_root.resolve()
     flutter = args.flutter_root.resolve()
     engine = args.engine_root.resolve() / 'out' / args.engine_target
@@ -103,25 +239,39 @@ def main():
         parser.error(f'Flutter version metadata is missing: {version_file}')
     version = json.loads(version_file.read_text())
     locked_flutter_revision = lock['flutter']['revision']
-    if (args.flutter_revision is not None and
+    provenance = None
+    if args.provenance == 'development':
+        try:
+            provenance = development_provenance(root, flutter, engine, args.platform, version)
+        except (ValueError, OSError, subprocess.CalledProcessError) as error:
+            parser.error(str(error))
+    elif (args.flutter_revision is not None and
             args.flutter_revision != locked_flutter_revision):
         parser.error('packager Flutter revision differs from SOURCE_LOCK.json')
-    if (version['frameworkRevision'] != locked_flutter_revision and
+    if (provenance is None and version['frameworkRevision'] != locked_flutter_revision and
             args.flutter_revision != locked_flutter_revision):
         parser.error('Flutter revision differs from SOURCE_LOCK.json')
     release = root / f'prebuilt/flutter-engine/{args.platform}-release'
-    expected = (release / 'libflutter_engine.so.sha256').read_text().split()[0]
+    expected = (provenance['engine_sha256'] if provenance else
+                (release / 'libflutter_engine.so.sha256').read_text().split()[0])
     if digest(engine / 'libflutter_engine.so') != expected:
         parser.error('local engine differs from the pinned release engine')
     output.mkdir(parents=True)
     runtime = output / 'runtime'
     for path in ['packages/denial_sdk', 'packages/denial_flutter_sdk',
-                 'plugins/denial_top_bar', 'plugins/denial_desktop', 'plugins/denial_launcher', 'plugins/denial_clock',
+                 'plugins/denial_top_bar', 'plugins/denial_desktop', 'plugins/denial_launcher', 'plugins/denial_clock', 'plugins/denial_pets',
                  'plugins/builtins.yaml', 'protocol/generated/dart', 'LICENSE',
                  'prebuilt/flutter-engine/SOURCE_LOCK.json']:
         copy(root / path, runtime / path, omit_development=True)
-    for name in ['libflutter_engine.so.sha256', 'LICENSE.flutter', 'LICENSE.third_party']:
+    for name in ['LICENSE.flutter', 'LICENSE.third_party']:
         copy(release / name, runtime / f'prebuilt/flutter-engine/{args.platform}-release' / name)
+    if provenance:
+        (runtime / f'prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so.sha256').write_text(
+            f'{expected}  libflutter_engine.so\n')
+    else:
+        copy(
+            release / 'libflutter_engine.so.sha256',
+            runtime / f'prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so.sha256')
     copy(engine / 'libflutter_engine.so', runtime / f'prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so')
     generation = re.search(r'FLUTTER_ENGINE_ABI: &str = "([^"]+)"',
                            (root / 'compositor/src/lib.rs').read_text()).group(1)
@@ -136,6 +286,8 @@ def main():
             for file in sorted(runtime.rglob('*')) if file.is_file()
         }, sort_keys=True).encode()).hexdigest(),
     }
+    if provenance:
+        identity['build_provenance'] = provenance
     (runtime / '.denial-ui-source.json').write_text(json.dumps(identity, indent=2) + '\n')
     sdk = output / 'flutter'
     dart_version = (flutter / 'bin/cache/dart-sdk/version').read_text().strip()
@@ -173,8 +325,9 @@ def main():
     # revision. The explicit packager attestation above ties that wrapper to
     # SOURCE_LOCK.json; publish the actual revision in the relocatable kit so
     # every later plugin plan and build can verify it normally.
-    version['frameworkRevision'] = locked_flutter_revision
-    version['repositoryUrl'] = lock['flutter']['repository']
+    if provenance is None:
+        version['frameworkRevision'] = locked_flutter_revision
+        version['repositoryUrl'] = lock['flutter']['repository']
     version_target = sdk / 'bin/cache/flutter.version.json'
     version_replacement = version_target.with_suffix('.json.new')
     version_replacement.write_text(json.dumps(version, indent=2) + '\n')
@@ -219,9 +372,7 @@ exec "$FLUTTER_ROOT/bin/cache/dart-sdk/bin/dart" \\
 ''')
     wrapper.chmod(0o755)
     target_engine = output / 'engine/out' / args.engine_target
-    for path in ['gen_snapshot', 'font-subset', 'impellerc', 'icudtl.dat',
-                 'flutter_patched_sdk', 'flutter_linux', 'libflutter_linux_gtk.so',
-                 'shader_lib', 'gen/const_finder.dart.snapshot']:
+    for path in COMPILER_INPUTS:
         copy(engine / path, target_engine / path)
     (target_engine / 'libflutter_engine.so').symlink_to(
         f'../../../runtime/prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so')
@@ -242,6 +393,10 @@ exec "$FLUTTER_ROOT/bin/cache/dart-sdk/bin/dart" \\
                 'dartVersion': dart_version,
                 'dartConstraint': dart_constraint,
                 'identity': identity, 'files': files, 'links': links}
+    if provenance:
+        # Detect source/output movement during copying and tool compilation.
+        if development_provenance(root, flutter, engine, args.platform, version) != provenance:
+            sys.exit('development sources/compiler changed while preparing the kit; retain it and retry in a new directory')
     encoded = json.dumps(manifest, sort_keys=True, indent=2) + '\n'
     (output / 'kit.json').write_text(encoded)
     print(f'Prepared plugin build inputs at {output} ({hashlib.sha256(encoded.encode()).hexdigest()})')

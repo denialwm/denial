@@ -63,6 +63,9 @@ ready point so a backend never inherits an unset or stale Wayland socket.
 Because the default `xdg-desktop-portal-wlr` chooser starts `slurp`, Denial
 provides a Zenity chooser instead. Zenity uses a regular xdg-shell window and
 returns the monitor selected by the user without depending on layer-shell.
+The chooser runs with `GDK_DEBUG=no-portals` scoped to its process. The wlr
+backend waits synchronously for the chooser, so GTK portal calls from that
+chooser can create a circular wait and time out OBS capture-session setup.
 
 ## Current limitations
 

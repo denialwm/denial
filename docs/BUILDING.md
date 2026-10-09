@@ -16,6 +16,116 @@ An ARM64 build uses the same locked Denial, Flutter, and Skia sources with an
 architecture-matched Flutter engine and shell bundle; do not reuse the x86-64
 engine artifacts on ARM64. First-party ARM64 packages are not published yet.
 
+## Building with your local engine
+
+During development, the Flutter engine is built from the two fork trees as
+they are on disk, uncommitted changes included, and the build cache is kept:
+only what changed is rebuilt.
+
+| To | Run |
+| --- | --- |
+| Prepare only the current host's release engine | [Host release engine only](#host-release-engine-only) |
+| Build everything: engine, shell, Settings, compositor | `tools/denial-pc build` |
+| Build the engine and the shell only | `tools/denial-pc bundle` |
+| The same, then reload the shell in the running session | `tools/denial-pc refresh` |
+| Deploy everything to a lab host | `tools/denial-lab-deploy USER@HOST` |
+| Try an engine change for one login | `tools/denial-pc engine-test-build`, then `engine-test-check` and `engine-test-arm` |
+
+Nothing needs to be committed, locked or checked out first, and no other
+source tree is needed. Each build says which trees it used; `+…` is a hash of
+their uncommitted changes:
+
+```text
+Using the local Flutter and Skia trees as they are on disk:
+  Flutter 48e0f675…+40df9477… at /mnt/exty/denial-flutter-fork-3.44.7
+  Skia    5b495e3e… at /mnt/exty/denial-skia-fork-3.44.7
+```
+
+Not for development:
+
+- `tools/denial-flutter-engine build`, `refresh-metadata` and `verify` use the
+  commits pinned in `prebuilt/flutter-engine/SOURCE_LOCK.json`. They are for
+  CI and releases.
+- The Flutter shell tests (`tools/denial-pc test` and `flutter-test`) run on
+  a debug engine from those pinned commits, and need the forks clean at them.
+  While the forks are ahead of the lock, test with `sdk-test`, `plugin-check`
+  and `compositor-test`.
+- Never make a lock-pinned copy of the forks to get around either. A push
+  carries everything local, so the complete local combination must be
+  validated before pushing, not built implicitly for an engine-only request.
+
+Before pushing, commit in the forks, advance the lock to their HEADs, and run
+`tools/denial-flutter-engine refresh-metadata` once
+([Pinned Flutter generation](#pinned-flutter-generation)).
+
+### Host release engine only
+
+A local engine update or session-restart preparation defaults to **the
+current host's native RELEASE engine only**. Reuse a completed matching
+engine and necessary compiler prerequisites rather than rebuilding them.
+ARM/cross outputs, debug/profile, development-engine tests, shell/Settings,
+compositor, full application/distribution and plugin-kit builds are separate
+scopes, not engine prerequisites. `denial-pc build`, `bundle`, and `refresh`,
+and `denial-flutter-engine prepare-app-build` prepare broader targets and
+must not be used for this request.
+
+On the current x86-64 workstation, the minimal incremental engine command
+from the repository root is:
+
+```sh
+cache="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/denial/flutter-engine}"
+flutter="${DENIAL_FLUTTER_SOURCE_ROOT:-/mnt/exty/denial-flutter-fork-3.44.7}"
+jobs="$(nproc)"; jobs="$((jobs > 4 ? jobs - 4 : 1))"
+flock "$cache/build.lock" env \
+  PATH="$flutter/engine/src/flutter/third_party/depot_tools:$PATH" \
+  DEPOT_TOOLS_UPDATE=0 \
+  /usr/bin/ninja -C "$cache/build/out/denial_host_release" \
+  -j "$jobs" libflutter_engine.so
+```
+
+This selects only the engine target and its actual dependencies. It does not
+assemble, install, or activate an application bundle. Use `-n` with Ninja for
+a lightweight readiness check when the engine already exists; a matching
+`no work to do` result needs no compilation. Coordinate the shared cache
+lock with other builds. The command is for this native x86-64 host, not an
+instruction to also build ARM; a native ARM host uses its own architecture
+mapping from `tools/lib/denial-architecture.sh`.
+
+Before reuse, check the ELF architecture, `args.gn` host/target CPU and
+release runtime modes, local SHA-256, and canonical Flutter/Skia source
+state, including uncommitted changes. Check graph provenance with
+`denial_engine_output_root` from `tools/lib/denial-local-engine.sh`; it must
+resolve to the selected canonical Flutter tree's `engine/src`. If the graph
+is missing, points elsewhere, or needs new configuration, first run
+`tools/denial-flutter-engine prepare-graph`. That generates only the native
+release graph, without an engine or application build. Do not switch to
+the lock-pinned `build`/`verify` path for a development engine. If a required
+host compiler artifact is absent, select its specific release target;
+do not rebuild completed compilers or add cross/debug/profile targets.
+
+**Engine ready does not mean gallery/bundle compatible or active.** A shell,
+Settings app or selected plugin bundle built against another engine may
+still be incompatible. Report its actual next step separately; do not make
+extra builds implicit or assume restarting alone fixes it. Reuse existing
+safe staging and never truncate an engine mapped by any running process.
+Installation/activation must preserve previous versions and rollback backups.
+For authorized test-device deployments, follow the
+[no automatic rollback policy](../AGENTS.md#test-device-deployment-failures-no-automatic-rollback),
+including when service activation fails: retain the candidate and diagnostic
+evidence, report installed/selected/running state separately, and ask the Doctor
+before switching back. Local workstation activation still waits at the standard
+user-owned session checkpoint. This command neither authorizes a restart/logout
+nor arms an isolated engine test.
+
+Plugin-kit preparation is a separate scope, not an engine readiness gate.
+For an explicitly requested kit, `prepare-denial-plugin-kit --provenance
+development` verifies the canonical native release graph without building it,
+and records actual fork revisions, dirty-input hashes and compiler inventory.
+Its default `locked-release` mode still requires the source lock and committed
+engine checksum. Never change the source lock, spoof metadata, or create a
+pinned source projection to prepare a development kit. See
+[plugin build-input provenance](PLUGIN_DEVELOPMENT.md#build-input-provenance).
+
 ## Quick start
 
 Validate or provision the pinned Flutter SDK and fetch Rust dependencies:
@@ -151,10 +261,16 @@ source tree belongs in that cache. An isolated builder without the canonical
 pair may retain a detached, lock-pinned source projection. Never patch or
 commit such a projection; tooling may replace it.
 
-The lock's exact Flutter and Skia commits are the immutable authority for one
-build. Canonical working-tree changes do not enter a build until they are
-committed and the lock is deliberately advanced. CI never inherits a
-developer checkout; it validates or provisions a detached projection of the
+During development the canonical trees are used as they are on disk
+([Building with your local engine](#building-with-your-local-engine)). The
+engine built from them is checked against its own checksum
+(`libflutter_engine.so.local.sha256`) rather than the committed one. One GN
+output serves every build; a build from another tree regenerates it first.
+
+The lock's exact Flutter and Skia commits are the immutable authority for CI
+and release builds. Before pushing, commit in the forks and advance the lock
+to their HEADs, so that what is pushed is what was tested. CI never inherits
+a developer checkout; it validates or provisions a detached projection of the
 lock. Only verified artifacts, dependencies, compatible build outputs, and
 locked projections may be reused across jobs.
 
@@ -173,21 +289,34 @@ do not run `bindgen`. Arch packaging uses the verified output selected by that
 tool, so the engine package and Denial package always derive from the same
 checked input.
 
-There are two deliberately separate commands:
+For CI and releases there are two deliberately separate commands:
 
 ```sh
-# Routine build or deployment; unchanged engines are an exact cache hit.
+# Build or reuse the locked engine; an unchanged lock is an exact cache hit.
 tools/denial-flutter-engine build
 
 # Run exactly once after deliberately advancing SOURCE_LOCK.json.
 tools/denial-flutter-engine refresh-metadata
+
+# Refresh package declarations from verified lock-matched release inputs.
+tools/refresh-denial-engine-manifests
+tools/refresh-denial-engine-manifests --check
 ```
 
-`refresh-metadata` regenerates every mode's tracked `args.gn` and canonical
-checksum in one transaction, incrementally rebuilds invalidated targets,
-populates the new revision-keyed cache entry, and stages all verified engines
-below `prebuilt/`. Do not invoke the routine `build` command and manually fix
-successive release, debug, and profile checksum failures during a lock advance.
+`refresh-metadata` regenerates the release mode's tracked `args.gn` and
+canonical checksum, incrementally rebuilds invalidated release targets,
+populates the new revision-keyed cache entry, and stages the verified release
+engine below `prebuilt/`. Debug and profile modes are included only with the
+separately requested `DENIAL_FLUTTER_ENGINE_DEVELOPMENT_MODES=1` scope.
+Do not invoke the routine `build` command and manually fix successive mode
+checksum failures during a lock advance.
+
+The manifest helper derives source, GN, header, engine and build-ID hashes,
+then updates both package manifests and their PKGBUILD manifest checksums.
+It requires clean canonical forks at the lock and a checksum-verified native
+release engine. The paused legacy UI-development package records its retained
+debug/profile engines' actual source identities separately; a release-only
+refresh does not rebuild them or claim they match the new source lock.
 
 During a controlled engine upgrade, regenerate and check the committed
 bindings with:

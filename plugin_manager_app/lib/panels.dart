@@ -1,6 +1,8 @@
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 import 'package:flutter/material.dart';
 
+import 'localized_feedback.dart';
 import 'backend.dart';
 import 'controller.dart';
 import 'presentation.dart';
@@ -41,15 +43,15 @@ class SelectionPanel extends StatelessWidget {
         : <String>[];
     return PageBody(
       children: [
-        const PageIntro(
-          title: 'Installed plugins',
-          description: 'Choose the plugins that make up your desktop.',
+        PageIntro(
+          title: context.l10n.pluginsInstalledTitle,
+          description: context.l10n.pluginsInstalledDescription,
         ),
         if (known.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
-              '${controller.roots.length} selected',
+              context.l10n.pluginsSelectedCount(controller.roots.length),
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: context.applicationColors.secondary),
             ),
@@ -57,8 +59,8 @@ class SelectionPanel extends StatelessWidget {
         if (known.isEmpty)
           EmptyState(
             icon: Icons.widgets_outlined,
-            title: 'No plugins installed',
-            description: 'Discover plugins for your desktop, or add one using a repository link.',
+            title: context.l10n.pluginsNoneInstalled,
+            description: context.l10n.pluginsNoneInstalledDescription,
             action: Wrap(
               spacing: 12,
               runSpacing: 8,
@@ -66,21 +68,21 @@ class SelectionPanel extends StatelessWidget {
               children: [
                 FilledButton(
                   onPressed: onDiscover,
-                  child: const Text('Discover Plugins'),
+                  child: Text(context.l10n.pluginsDiscoverAction),
                 ),
                 if (controller.configured)
                   TextButton(
                     onPressed: controller.busy ? null : controller.useDefaults,
-                    child: const Text('Use Denial defaults'),
+                    child: Text(context.l10n.pluginsUseDefaults),
                   ),
               ],
             ),
           )
         else if (entries.isEmpty)
-          const EmptyState(
+          EmptyState(
             icon: Icons.search_off_rounded,
-            title: 'No matching plugins',
-            description: 'Try another name or clear your search.',
+            title: context.l10n.pluginsNoMatches,
+            description: context.l10n.pluginsNoMatchesDescription,
           )
         else
           for (final entry in entries)
@@ -98,8 +100,8 @@ class SelectionPanel extends StatelessWidget {
             tilePadding: EdgeInsets.zero,
             shape: const Border(),
             collapsedShape: const Border(),
-            title: const Text('Included automatically'),
-            subtitle: const Text('These keep your selected plugins working.'),
+            title: Text(context.l10n.pluginsAutomaticTitle),
+            subtitle: Text(context.l10n.pluginsAutomaticDescription),
             children: [
               for (final name in required)
                 ListTile(
@@ -124,7 +126,7 @@ class SelectionPanel extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onDiscover,
               icon: const Icon(Icons.explore_outlined, size: 18),
-              label: const Text('Discover more plugins'),
+              label: Text(context.l10n.pluginsDiscoverMore),
             ),
           ),
         ],
@@ -157,7 +159,9 @@ class _SetupCard extends StatelessWidget {
                 ],
                 Expanded(
                   child: Text(
-                    controller.busy ? 'Preparing your desktop' : notice.title,
+                    controller.busy
+                        ? context.l10n.pluginsPreparingDesktop
+                        : setupTitle(context.l10n, notice),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -166,8 +170,8 @@ class _SetupCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               controller.busy
-                  ? 'Denial is getting everything ready. You can leave this window open or come back later.'
-                  : notice.description,
+                  ? context.l10n.pluginsPreparingDescription
+                  : setupDescription(context.l10n, notice),
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: context.applicationColors.secondary,
                 height: 1.5,
@@ -179,7 +183,7 @@ class _SetupCard extends StatelessWidget {
             else
               TextButton(
                 onPressed: () => controller.submit(['initialize']),
-                child: const Text('Try again'),
+                child: Text(context.l10n.pluginsTryAgain),
               ),
           ],
         ),
@@ -219,7 +223,7 @@ class _CollectionEntry extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   plugin['description'] as String? ??
-                      'Customize your desktop with this plugin.',
+                      context.l10n.pluginsFallbackDescription,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: context.applicationColors.secondary,
                     height: 1.5,
@@ -227,7 +231,9 @@ class _CollectionEntry extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  selected ? 'Selected' : 'Not selected',
+                  selected
+                      ? context.l10n.pluginsSelected
+                      : context.l10n.pluginsNotSelected,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: selected
                         ? Theme.of(context).colorScheme.primary
@@ -239,7 +245,7 @@ class _CollectionEntry extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Semantics(
-            label: '${pluginTitle(name)} plugin',
+            label: context.l10n.pluginsSwitchSemantics(pluginTitle(name)),
             child: Switch(
               value: selected,
               onChanged: controller.busy
@@ -266,11 +272,11 @@ class _DesktopOptions extends StatelessWidget {
       shape: const Border(),
       collapsedShape: const Border(),
       title: Text(
-        'Desktop options',
+        context.l10n.pluginsDesktopOptions,
         style: Theme.of(context).textTheme.bodyMedium,
       ),
       subtitle: Text(
-        'Updates, compatibility and recovery',
+        context.l10n.pluginsDesktopOptionsDescription,
         style: Theme.of(context).textTheme.bodySmall,
       ),
       children: [
@@ -282,7 +288,7 @@ class _DesktopOptions extends StatelessWidget {
               onPressed: !controller.canApply
                   ? null
                   : () => controller.submit(['update']),
-              child: const Text('Check for plugin updates'),
+              child: Text(context.l10n.pluginsCheckUpdates),
             ),
             TextButton(
               onPressed:
@@ -291,19 +297,19 @@ class _DesktopOptions extends StatelessWidget {
                       !controller.configured
                   ? null
                   : () => controller.submit(['plan']),
-              child: const Text('Check compatibility'),
+              child: Text(context.l10n.pluginsCheckCompatibility),
             ),
             TextButton(
               onPressed: controller.busy || native['can_revert'] != true
                   ? null
                   : () => controller.submit(['revert']),
-              child: const Text('Undo last change'),
+              child: Text(context.l10n.pluginsUndo),
             ),
             TextButton(
               onPressed: controller.busy || native['available'] == false
                   ? null
                   : () => controller.submit(['restore']),
-              child: const Text('Restore default desktop'),
+              child: Text(context.l10n.pluginsRestore),
             ),
           ],
         ),
@@ -343,20 +349,20 @@ class ApplyBar extends StatelessWidget {
     final blocked = !busy && issues.isNotEmpty;
     final failed = !busy && error != null;
     final label = blocked
-        ? 'Check your selection'
+        ? context.l10n.pluginsCheckSelection
         : failed
         ? controller.startupError != null
-              ? 'Saved plugins could not start'
-              : 'Change couldn’t be completed'
+              ? context.l10n.pluginsStartupFailed
+              : context.l10n.pluginsChangeFailed
         : busy
-        ? progress.label
+        ? progressLabel(context.l10n, progress.label)
         : controller.configured
         ? controller.draft.dirty
-              ? 'Your selection has changed'
+              ? context.l10n.pluginsSelectionChanged
               : controller.pendingRebuild != null
-              ? 'Your plugins are paused'
-              : 'Pending actions are ready'
-        : 'Preparing plugin support';
+              ? context.l10n.pluginsPaused
+              : context.l10n.pluginsPendingReady
+        : context.l10n.pluginsPreparingSupport;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: LayoutBuilder(
@@ -402,11 +408,16 @@ class ApplyBar extends StatelessWidget {
                         Text(
                           blocked
                               ? issues
-                                    .map((issue) => issue['message'])
+                                    .map(
+                                      (issue) => compatibilitySummary(
+                                        context.l10n,
+                                        issue,
+                                      ),
+                                    )
                                     .join('\n\n')
                               : failed
-                              ? failureSummary(error)
-                              : controller.applyDescription,
+                              ? localizedFailureSummary(context.l10n, error)
+                              : applyDescription(context.l10n, controller),
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: context.applicationColors.secondary,
@@ -422,22 +433,36 @@ class ApplyBar extends StatelessWidget {
             spacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              if (blocked && issues.any((issue) => issue['message'] is String))
+                TextButton(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => OperationDetailsDialog(
+                      error: issues
+                          .map((issue) => issue['message'])
+                          .whereType<String>()
+                          .join('\n\n'),
+                      backend: controller.backend,
+                    ),
+                  ),
+                  child: Text(context.l10n.pluginsViewDetails),
+                ),
               if (failed)
                 TextButton(
                   onPressed: () => showDetails(context, error),
-                  child: const Text('View details'),
+                  child: Text(context.l10n.pluginsViewDetails),
                 ),
               if (controller.draft.dirty)
                 TextButton(
                   onPressed: busy ? null : controller.discardDraft,
-                  child: const Text('Discard'),
+                  child: Text(context.l10n.pluginsDiscard),
                 ),
               if (controller.rebuildWaitsForPause)
                 FilledButton(
                   onPressed: controller.switchRequested
                       ? null
                       : controller.switchNow,
-                  child: const Text('Switch now'),
+                  child: Text(context.l10n.pluginsSwitchNow),
                 )
               else if (controller.needsApply)
                 FilledButton.icon(
@@ -446,11 +471,11 @@ class ApplyBar extends StatelessWidget {
                       : () => controller.submit(controller.applyOperation),
                   icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                   iconAlignment: IconAlignment.end,
-                  label: Text(controller.applyLabel!),
+                  label: Text(applyLabel(context.l10n, controller)!),
                 ),
               if (failed && controller.startupError == null)
                 IconButton(
-                  tooltip: 'Dismiss error',
+                  tooltip: context.l10n.pluginsDismissError,
                   onPressed: controller.dismissError,
                   icon: const Icon(Icons.close_rounded, size: 18),
                 ),
@@ -480,11 +505,14 @@ class ApplyBar extends StatelessWidget {
                     context,
                     inset: 24,
                   ),
-                  semanticsLabel: progress.stageDescription,
+                  semanticsLabel: progressStage(context.l10n, progress),
                   // Stage counts are not an elapsed-time percentage.
                   semanticsValue: progress.total == null
-                      ? 'In progress'
-                      : '${progress.completed} of ${progress.total} steps complete',
+                      ? context.l10n.pluginsInProgress
+                      : context.l10n.pluginsStepsComplete(
+                          progress.completed!,
+                          progress.total!,
+                        ),
                 ),
               ],
             ],
@@ -516,27 +544,27 @@ class BrowsePanel extends StatelessWidget {
         .toList();
     return PageBody(
       children: [
-        const PageIntro(
-          title: 'Discover plugins',
-          description: 'Add new features and make your desktop your own.',
+        PageIntro(
+          title: context.l10n.pluginsDiscoverTitle,
+          description: context.l10n.pluginsDiscoverDescription,
         ),
         if (builtins.isEmpty && community.isEmpty && query.trim().isNotEmpty)
-          const EmptyState(
+          EmptyState(
             icon: Icons.search_off_rounded,
-            title: 'Nothing found yet',
-            description: 'Try another search, or add a plugin using its repository link.',
+            title: context.l10n.pluginsNothingFound,
+            description: context.l10n.pluginsNothingFoundDescription,
           ),
         if (builtins.isNotEmpty) ...[
-          const SectionHeading('Made for Denial'),
+          SectionHeading(context.l10n.pluginsOfficial),
           PluginGrid(plugins: builtins, controller: controller, official: true),
           const SizedBox(height: 20),
         ],
         if (community.isNotEmpty || query.trim().isEmpty) ...[
           SectionHeading(
-            'From the community',
+            context.l10n.pluginsCommunity,
             trailing: controller.catalog['configured'] == true
                 ? IconButton(
-                    tooltip: 'Refresh discoveries',
+                    tooltip: context.l10n.pluginsRefreshDiscoveries,
                     onPressed: controller.busy
                         ? null
                         : () => controller.submit(['refresh-catalog']),
@@ -549,7 +577,7 @@ class BrowsePanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 24),
               child: Text(
-                'No community plugins are listed yet. Add a plugin using its repository link.',
+                context.l10n.pluginsNoCommunity,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: context.applicationColors.secondary,
                   height: 1.6,
@@ -565,12 +593,12 @@ class BrowsePanel extends StatelessWidget {
               const Icon(Icons.add_link_rounded, size: 28),
               const SizedBox(height: 16),
               Text(
-                'Add from a repository',
+                context.l10n.pluginsAddRepository,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
               Text(
-                'Use a Git link to install a plugin from its developer.',
+                context.l10n.pluginsAddRepositoryDescription,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: context.applicationColors.secondary,
                   height: 1.6,
@@ -580,17 +608,15 @@ class BrowsePanel extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: controller.busy ? null : onAdd,
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Add from a link'),
+                label: Text(context.l10n.pluginsAddLink),
               ),
             ],
           ),
         ),
         if ((catalog['errors'] as List? ?? []).isNotEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 16),
-            child: Text(
-              'Some discoveries couldn’t be loaded. Try refreshing again.',
-            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(context.l10n.pluginsDiscoveryFailed),
           ),
       ],
     );
@@ -682,7 +708,9 @@ class PluginCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      official ? 'By Denial' : 'Community plugin',
+                      official
+                          ? context.l10n.pluginsByDenial
+                          : context.l10n.pluginsCommunityPlugin,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: context.applicationColors.secondary,
                       ),
@@ -695,7 +723,7 @@ class PluginCard extends StatelessWidget {
           const SizedBox(height: 20),
           Text(
             plugin['description'] as String? ??
-                'Customize your desktop with this plugin.',
+                context.l10n.pluginsFallbackDescription,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: context.applicationColors.secondary,
               height: 1.6,
@@ -711,7 +739,7 @@ class PluginCard extends StatelessWidget {
                   color: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
-                const Flexible(child: Text('Selected for your desktop')),
+                Flexible(child: Text(context.l10n.pluginsSelectedDesktop)),
               ],
             )
           else
@@ -720,7 +748,7 @@ class PluginCard extends StatelessWidget {
                   ? null
                   : () => controller.enable(plugin),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Select plugin'),
+              label: Text(context.l10n.pluginsSelect),
             ),
         ],
       ),
@@ -734,16 +762,15 @@ class ActivityPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => PageBody(
     children: [
-      const PageIntro(
-        title: 'Recent activity',
-        description: 'Installation progress and changes to your desktop.',
+      PageIntro(
+        title: context.l10n.pluginsRecentActivity,
+        description: context.l10n.pluginsActivityDescription,
       ),
       if (controller.jobs.isEmpty)
-        const EmptyState(
+        EmptyState(
           icon: Icons.history_rounded,
-          title: 'No activity yet',
-          description:
-              'Plugin installations and desktop changes will appear here.',
+          title: context.l10n.pluginsNoActivity,
+          description: context.l10n.pluginsNoActivityDescription,
         ),
       for (final job in controller.jobs)
         Padding(
@@ -786,16 +813,17 @@ class _ActivityEntry extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      operationTitle(job['operation'] as String?),
+                      operationTitle(context.l10n, job['operation'] as String?),
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 5),
                     Text(
                       switch (job['phase']) {
-                        'succeeded' => 'Completed',
-                        'failed' || 'interrupted' => 'Needs attention',
-                        'queued' => 'Waiting',
-                        _ => 'In progress',
+                        'succeeded' => context.l10n.pluginsCompleted,
+                        'failed' ||
+                        'interrupted' => context.l10n.pluginsNeedsAttention,
+                        'queued' => context.l10n.statusWaiting,
+                        _ => context.l10n.pluginsInProgress,
                       },
                       style: Theme.of(context).textTheme.bodySmall
                           ?.copyWith(color: color),
@@ -813,10 +841,12 @@ class _ActivityEntry extends StatelessWidget {
           ],
           if (job['error'] != null) ...[
             const SizedBox(height: 16),
-            Text(failureSummary(job['error']! as String)),
+            Text(
+              localizedFailureSummary(context.l10n, job['error']! as String),
+            ),
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: const Text('Technical details'),
+              title: Text(context.l10n.pluginsTechnicalDetails),
               children: [SelectableText(failureCause(job['error']! as String))],
             ),
           ],

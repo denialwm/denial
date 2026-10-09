@@ -13,6 +13,9 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import 'wallpaper_darkness_control.dart';
+import 'wallpaper_gallery.dart';
+import 'wallpaper_layout_switch.dart';
+import 'wallpaper_pagination_controls.dart';
 import 'wallpaper_search_controls.dart';
 import 'wallpaper_span_controls.dart';
 import 'wallpaper_strip.dart';
@@ -92,6 +95,9 @@ class _WallpaperSelectorSurfaceState
     extends ConsumerState<WallpaperSelectorSurface> {
   static const int _selectorImageCacheBytes = 256 * 1024 * 1024;
 
+  /// Bottom edge of the close button and layout switch, plus a gap.
+  static const double _topControlsBottom = 28.0 + 46.0 + 14.0;
+
   late PageController _pageController;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode(debugLabel: 'wallpaper-search');
@@ -137,8 +143,23 @@ class _WallpaperSelectorSurfaceState
         : (stripWidth / widget.displaySize.width).clamp(0.12, 0.28);
     return PageController(
       initialPage: math.max(0, initialPage),
+      keepPage: false,
       viewportFraction: viewportFraction,
     );
+  }
+
+  void _selectLayout(WallpaperSelectorLayout layout) {
+    if (layout == ref.read(wallpaperSelectorLayoutProvider)) {
+      return;
+    }
+    if (layout == WallpaperSelectorLayout.strips) {
+      // The gallery has detached the strips, so their controller can be
+      // replaced to reopen them at the last wallpaper the user focused.
+      final oldController = _pageController;
+      _pageController = _newPageController(initialPage: _focusedIndex);
+      oldController.dispose();
+    }
+    ref.read(wallpaperSelectorLayoutProvider.notifier).select(layout);
   }
 
   void _handleSearchChanged() {
@@ -270,6 +291,18 @@ class _WallpaperSelectorSurfaceState
     return spanRect.size * maximumScale;
   }
 
+  /// Gallery cells follow the display the wallpaper will cover, falling back
+  /// to this selector's own display until a target size is known.
+  double _galleryAspectRatio(Size targetPixelSize) {
+    if (targetPixelSize.width > 0.0 && targetPixelSize.height > 0.0) {
+      return targetPixelSize.width / targetPixelSize.height;
+    }
+    if (widget.displaySize.width > 0.0 && widget.displaySize.height > 0.0) {
+      return widget.displaySize.width / widget.displaySize.height;
+    }
+    return WallpaperGalleryLayout.defaultAspectRatio;
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.escape) {
@@ -309,6 +342,21 @@ class _WallpaperSelectorSurfaceState
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      wallpaperControllerProvider.select(
+        (state) => (state.query, state.page, state.targetPixelSize),
+      ),
+      (_, _) {
+        // A catalog page/query is a new result set in either preview layout.
+        // Dispose after detachment, not while the old PageView is attached.
+        final oldController = _pageController;
+        _focusedIndex = 0;
+        _pageController = _newPageController();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          oldController.dispose();
+        });
+      },
+    );
     final l10n = context.l10n;
     final state = ref.watch(wallpaperControllerProvider);
     final displayLayout = ref.watch(displayLayoutProvider);
@@ -331,6 +379,13 @@ class _WallpaperSelectorSurfaceState
     final carouselHeight = (widget.displaySize.height * 0.64)
         .clamp(240.0, maximumCarouselHeight)
         .toDouble();
+    final layout = ref.watch(wallpaperSelectorLayoutProvider);
+    // The gallery spans the full width, so it starts below the top controls
+    // that the narrow strips are allowed to pass beside.
+    final tilesTop = layout == WallpaperSelectorLayout.gallery
+        ? math.max(carouselTop, _topControlsBottom)
+        : carouselTop;
+    final tilesHeight = carouselTop + carouselHeight - tilesTop;
 
     return Focus(
       autofocus: true,
@@ -345,8 +400,8 @@ class _WallpaperSelectorSurfaceState
           Positioned(
             left: 0,
             right: 0,
-            top: carouselTop,
-            height: carouselHeight,
+            top: tilesTop,
+            height: tilesHeight,
             child: IgnorePointer(
               ignoring: _adjustingWallpaper,
               child: RepaintBoundary(
@@ -363,6 +418,27 @@ class _WallpaperSelectorSurfaceState
                       ? WallpaperEmptyState(
                           loading: state.loading,
                           error: state.error,
+                        )
+                      : layout == WallpaperSelectorLayout.gallery
+                      ? WallpaperGallery(
+                          key: ValueKey((
+                            'desktop-wallpaper-gallery',
+                            state.query,
+                            state.page,
+                            state.targetPixelSize,
+                          )),
+                          candidates: candidates,
+                          targetAspectRatio: _galleryAspectRatio(
+                            state.targetPixelSize,
+                          ),
+                          initialIndex: _focusedIndex,
+                          current: state.current,
+                          downloadingKey: state.downloadingKey,
+                          downloadProgress: state.downloadProgress,
+                          onTapUp: (index, origin) {
+                            _focusedIndex = index;
+                            _applyCandidate(candidates[index], origin);
+                          },
                         )
                       : PageView.builder(
                           controller: _pageController,
@@ -397,6 +473,43 @@ class _WallpaperSelectorSurfaceState
                             );
                           },
                         ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 32,
+            left: 28,
+            right: 28 + 46 + 12,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    WallpaperLayoutSwitch(
+                      value: layout,
+                      onChanged: _selectLayout,
+                    ),
+                    const SizedBox(width: 16),
+                    WallpaperPaginationControls(
+                      page: state.page,
+                      lastPage: state.lastPage,
+                      loading: state.loading,
+                      hasMore: state.hasMore,
+                      hasError: state.error != null,
+                      onPrevious: ref
+                          .read(wallpaperControllerProvider.notifier)
+                          .previousPage,
+                      onNext: ref
+                          .read(wallpaperControllerProvider.notifier)
+                          .nextPage,
+                      onRetry: ref
+                          .read(wallpaperControllerProvider.notifier)
+                          .retryOnlineWallpapers,
+                    ),
+                  ],
                 ),
               ),
             ),

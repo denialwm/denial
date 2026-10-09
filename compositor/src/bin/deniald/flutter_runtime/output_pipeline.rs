@@ -6,6 +6,16 @@ use std::sync::atomic::AtomicU64;
 // Capture revisions describe scene content, not the repair work required by a
 // reused buffer. Keep them unique across renderer/topology generations too.
 static NEXT_CAPTURE_REVISION: AtomicU64 = AtomicU64::new(1);
+static NEXT_RENDER_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(super) fn next_render_request_id() -> u64 {
+    loop {
+        let id = NEXT_RENDER_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+        if id != 0 {
+            return id;
+        }
+    }
+}
 
 fn next_capture_revision() -> u64 {
     loop {
@@ -76,12 +86,14 @@ pub(super) struct OutputBufferPool {
 pub(super) struct AuthorizedOutputRequest {
     pub(super) request: OutputFrameRequest,
     pub(super) authorized_at: Instant,
+    pub(super) completion_id: Option<u64>,
 }
 
 #[derive(Debug)]
 pub(super) struct OutputBufferBroker {
     pub(super) pools: Vec<OutputBufferPool>,
     pub(super) transaction: u64,
+    active_completion_id: Option<u64>,
     pub(super) next_screenshot: Option<(OutputId, u64)>,
 }
 
@@ -162,6 +174,7 @@ impl OutputBufferBroker {
         Ok(Self {
             pools,
             transaction: 0,
+            active_completion_id: None,
             next_screenshot: None,
         })
     }
@@ -201,7 +214,12 @@ impl OutputBufferBroker {
             })
     }
 
-    pub(super) fn authorize(&mut self, request: OutputFrameRequest, now: Instant) -> Option<i64> {
+    pub(super) fn authorize(
+        &mut self,
+        request: OutputFrameRequest,
+        now: Instant,
+        completion_id: Option<u64>,
+    ) -> Option<i64> {
         if request.dirty_serial == 0 || !self.target_available(request.tick.output) {
             return None;
         }
@@ -212,6 +230,7 @@ impl OutputBufferBroker {
         pool.authorized_request = Some(AuthorizedOutputRequest {
             request,
             authorized_at: now,
+            completion_id,
         });
         Some(pool.render_view_id.get())
     }
@@ -228,8 +247,9 @@ impl OutputBufferBroker {
         let mut expired = 0;
         for pool in &mut self.pools {
             let should_expire = pool.authorized_request.is_some_and(|authorization| {
-                now.saturating_duration_since(authorization.authorized_at)
-                    >= authorization.request.tick.interval.saturating_mul(2)
+                authorization.completion_id.is_none()
+                    && now.saturating_duration_since(authorization.authorized_at)
+                        >= authorization.request.tick.interval.saturating_mul(2)
             });
             if should_expire {
                 pool.authorized_request = None;
@@ -237,6 +257,27 @@ impl OutputBufferBroker {
             }
         }
         expired
+    }
+
+    pub(super) fn begin_authorization(&mut self, completion_id: u64) {
+        self.active_completion_id = Some(completion_id);
+    }
+
+    pub(super) fn complete_authorization(&mut self, completion_id: u64) -> usize {
+        if self.active_completion_id == Some(completion_id) {
+            self.active_completion_id = None;
+        }
+        let mut released = 0;
+        for pool in &mut self.pools {
+            if pool
+                .authorized_request
+                .is_some_and(|authorization| authorization.completion_id == Some(completion_id))
+            {
+                pool.authorized_request = None;
+                released += 1;
+            }
+        }
+        released
     }
 
     pub(super) fn acquire(
@@ -259,6 +300,11 @@ impl OutputBufferBroker {
         let Some(authorization) = pool.authorized_request else {
             return Err(RenderTargetBlocked::MissingAuthorization);
         };
+        if authorization.completion_id.is_some()
+            && authorization.completion_id != self.active_completion_id
+        {
+            return Err(RenderTargetBlocked::MissingAuthorization);
+        }
         if pool
             .slots
             .iter()
@@ -513,6 +559,55 @@ mod capture_tests {
     use crate::frame_scheduler::FrameTick;
 
     #[test]
+    fn delayed_render_waits_for_matching_completion_instead_of_expiring() {
+        let output = OutputId(7);
+        let view = RenderViewId::for_output(output).unwrap();
+        let size = PixelSize::new(64, 64);
+        let mut broker = OutputBufferBroker::new([OutputPoolDescriptor {
+            output_id: output,
+            render_view_id: view,
+            configuration_generation: 1,
+            size,
+            initial_scanout: 0,
+            framebuffers: &[11, 12, 13],
+        }])
+        .unwrap();
+        let now = Instant::now();
+        let request = OutputFrameRequest {
+            tick: FrameTick {
+                output,
+                sequence: 1,
+                nominal_interval: Duration::from_micros(4167),
+                interval: Duration::from_micros(4167),
+                render_deadline: now,
+                presentation_target: now + Duration::from_micros(4167),
+            },
+            dirty_serial: 1,
+            lock_frame_token: 0,
+            fingerprint_epoch: 0,
+        };
+        assert_eq!(broker.authorize(request, now, Some(41)), Some(view.get()));
+        assert_eq!(
+            broker.expire_authorizations(now + Duration::from_secs(1)),
+            0
+        );
+        assert!(!broker.target_available(output));
+        assert_eq!(
+            broker.acquire(view.get(), size),
+            Err(RenderTargetBlocked::MissingAuthorization)
+        );
+        broker.begin_authorization(41);
+        assert!(broker.acquire(view.get(), size).is_ok());
+        broker.begin_transaction(); // Abandoned raster work is retired normally.
+        assert!(broker.target_available(output));
+        assert_eq!(broker.authorize(request, now, Some(42)), Some(view.get()));
+        assert_eq!(broker.complete_authorization(41), 0);
+        assert!(!broker.target_available(output));
+        assert_eq!(broker.complete_authorization(42), 1);
+        assert!(broker.target_available(output));
+    }
+
+    #[test]
     fn repair_repaint_preserves_scene_revision_after_discarded_ready_frame() {
         let output = OutputId(7);
         let view = RenderViewId::for_output(output).unwrap();
@@ -549,7 +644,7 @@ mod capture_tests {
                 lock_frame_token: 0,
                 fingerprint_epoch: 0,
             };
-            assert_eq!(broker.authorize(request, now), Some(view.get()));
+            assert_eq!(broker.authorize(request, now, None), Some(view.get()));
             let framebuffer = broker.acquire(view.get(), size).unwrap();
             assert!(broker.mark_ready_with_feedback(
                 view.get(),

@@ -1,3 +1,4 @@
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 import 'package:flutter/material.dart';
 
@@ -8,38 +9,22 @@ String pluginTitle(String name) => name
     .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
     .join(' ');
 
-String operationTitle(String? operation) => switch (operation) {
-  'apply' || 'activate' => 'Apply plugins',
-  'build' => 'Build plugins',
-  'plan' => 'Check your changes',
-  'add' || 'enable' => 'Enable plugin',
-  'remove' => 'Disable plugin',
-  'update' => 'Update plugins',
-  'rebuild' => 'Rebuild plugins',
-  'restore' => 'Restore default desktop',
-  'revert' => 'Undo last change',
-  'prepare' => 'Set up plugins',
-  'defaults' => 'Choose default plugins',
-  'refresh-catalog' => 'Refresh discoveries',
-  _ => 'Plugin activity',
-};
-
-String progressTitle(String? message) {
-  final text = message ?? '';
-  if (text.contains('cached') || text.contains('Reusing')) {
-    return 'Getting your saved desktop ready';
-  }
-  if (text.contains('Compiling')) return 'Preparing your desktop';
-  if (text.contains('Discovering')) {
-    return 'Checking that your plugins work together';
-  }
-  if (text.contains('Pub') || text.startsWith('Resolving')) {
-    return 'Getting everything your plugins need';
-  }
-  if (text.contains('sealing')) return 'Finishing up';
-  if (text.contains('Snapshotting')) return 'Preparing your changes';
-  return 'Working on your changes';
-}
+String operationTitle(AppLocalizations l10n, String? operation) =>
+    switch (operation) {
+      'apply' || 'activate' => l10n.pluginsApply,
+      'build' => l10n.pluginsBuild,
+      'plan' => l10n.pluginsCheckChanges,
+      'add' || 'enable' => l10n.pluginsEnable,
+      'remove' => l10n.pluginsDisable,
+      'update' => l10n.pluginsUpdate,
+      'rebuild' => l10n.pluginsRebuild,
+      'restore' => l10n.pluginsRestore,
+      'revert' => l10n.pluginsUndo,
+      'prepare' => l10n.pluginsSetup,
+      'defaults' => l10n.pluginsChooseDefaults,
+      'refresh-catalog' => l10n.pluginsRefreshDiscoveries,
+      _ => l10n.pluginsActivityFallback,
+    };
 
 class PageIntro extends StatelessWidget {
   const PageIntro({required this.title, required this.description, super.key});

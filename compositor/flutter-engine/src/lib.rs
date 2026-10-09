@@ -6,6 +6,7 @@ use std::ffi::{CStr, CString, c_void};
 use std::fmt;
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Arc;
@@ -221,6 +222,43 @@ impl fmt::Display for EngineError {
 
 impl Error for EngineError {}
 
+type RenderOutputsWithCompletion = unsafe extern "C" fn(
+    sys::FlutterEngine,
+    *const i64,
+    usize,
+    *const i64,
+    usize,
+    bool,
+    u64,
+    u64,
+    u64,
+    unsafe extern "C" fn(u64, bool, *mut c_void),
+    *mut c_void,
+) -> sys::FlutterEngineResult;
+
+struct RenderCallbacks {
+    begin: Box<dyn Fn(u64) + Send>,
+    complete: Box<dyn FnOnce(u64) + Send>,
+}
+
+unsafe extern "C" fn render_outputs_progress(
+    transaction_id: u64,
+    completed: bool,
+    data: *mut c_void,
+) {
+    if completed {
+        // SAFETY: completion occurs exactly once, after all raster uses of the
+        // ticket, including requests producing no scene and shutdown paths.
+        let callbacks = unsafe { Box::from_raw(data.cast::<RenderCallbacks>()) };
+        let _ = catch_unwind(AssertUnwindSafe(|| (callbacks.complete)(transaction_id)));
+    } else {
+        // SAFETY: begin runs serially on the raster thread while the ticket is
+        // retained. Its final completion cannot run until that use finishes.
+        let callbacks = unsafe { &*data.cast::<RenderCallbacks>() };
+        let _ = catch_unwind(AssertUnwindSafe(|| (callbacks.begin)(transaction_id)));
+    }
+}
+
 pub struct EngineLibrary {
     table: sys::FlutterEngineProcTable,
     set_render_outputs: unsafe extern "C" fn(
@@ -242,6 +280,7 @@ pub struct EngineLibrary {
         u64,
         u64,
     ) -> sys::FlutterEngineResult,
+    render_outputs_with_completion: Option<RenderOutputsWithCompletion>,
     set_external_texture_gl_state_callback: unsafe extern "C" fn(
         sys::FlutterEngine,
         Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
@@ -307,6 +346,16 @@ impl EngineLibrary {
             *library
                 .get::<RenderOutputs>(b"DenialFlutterEngineRenderOutputs\0")
                 .map_err(LoadError::Symbol)?
+        };
+        // SAFETY: this additive extension has the signature above. Keeping it
+        // optional lets an isolated engine experiment retain the pinned ABI.
+        let render_outputs_with_completion = unsafe {
+            library
+                .get::<RenderOutputsWithCompletion>(
+                    b"DenialFlutterEngineRenderOutputsWithCompletion\0",
+                )
+                .ok()
+                .map(|function| *function)
         };
         type SetRenderOutputs = unsafe extern "C" fn(
             sys::FlutterEngine,
@@ -386,6 +435,7 @@ impl EngineLibrary {
             request_frame_for_external_textures,
             schedule_frame_for_external_textures,
             render_outputs,
+            render_outputs_with_completion,
             set_external_texture_gl_state_callback,
             set_texture_presentation_callback,
             _library: library,
@@ -913,6 +963,57 @@ impl RunningEngine {
                 frame_target_nanos,
             )
         })
+    }
+
+    pub fn supports_render_completion(&self) -> bool {
+        self.library.render_outputs_with_completion.is_some()
+    }
+
+    /// Begin identifies the actual raster transaction; completion follows its
+    /// work, including requests producing no scene, on any engine thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_outputs_with_completion(
+        &self,
+        render_view_ids: &[i64],
+        texture_ids: &[i64],
+        rebuild_scene: bool,
+        frame_start_nanos: u64,
+        frame_target_nanos: u64,
+        transaction_id: u64,
+        begin: impl Fn(u64) + Send + 'static,
+        completion: impl FnOnce(u64) + Send + 'static,
+    ) -> Result<(), EngineError> {
+        let function = self
+            .library
+            .render_outputs_with_completion
+            .expect("render completion support was checked before authorization");
+        let data = Box::into_raw(Box::new(RenderCallbacks {
+            begin: Box::new(begin),
+            complete: Box::new(completion),
+        }));
+        // SAFETY: the engine synchronously copies the slices. On success it
+        // owns `data` until its final completion, joined before engine shutdown.
+        let result = unsafe {
+            function(
+                self.handle,
+                render_view_ids.as_ptr(),
+                render_view_ids.len(),
+                texture_ids.as_ptr(),
+                texture_ids.len(),
+                rebuild_scene,
+                frame_start_nanos,
+                frame_target_nanos,
+                transaction_id,
+                render_outputs_progress,
+                data.cast(),
+            )
+        };
+        if result != sys::FlutterEngineResult_kSuccess {
+            // SAFETY: the extension guarantees no callback on submission error;
+            // ownership of the completion box therefore remains with us.
+            drop(unsafe { Box::from_raw(data) });
+        }
+        check_result("RenderOutputsWithCompletion", result)
     }
 
     pub fn shutdown(mut self) -> Result<(), EngineError> {

@@ -73,6 +73,7 @@ export 'src/services/mobile_network_service.dart'
     show
         MobileNetworkService,
         MobileNetworkSnapshot,
+        MobileSimPresence,
         mobileNetworkProvider,
         mobileNetworkServiceProvider;
 export 'src/services/network_backend.dart'

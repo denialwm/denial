@@ -37,7 +37,7 @@ let
   };
   cfg = evaluated.config;
   hostPkgs = evaluated.pkgs;
-  expectedChooser = "${hostPkgs.zenity}/bin/zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320";
+  expectedChooser = "GDK_DEBUG=no-portals ${hostPkgs.zenity}/bin/zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320";
   disabledIntegrations = nixosSystem {
     inherit (pkgs.stdenv.hostPlatform) system;
     modules = [

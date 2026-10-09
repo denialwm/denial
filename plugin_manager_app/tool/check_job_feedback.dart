@@ -74,7 +74,7 @@ void main() {
   });
   check(
     'Bar counts completed stages',
-    progress.fraction == .4 && progress.description.startsWith('Step 3 of 5'),
+    progress.fraction == .4 && progress.completed == 2 && progress.total == 5,
   );
   final timed = OperationProgress.fromJob({
     'progress': {
@@ -86,13 +86,11 @@ void main() {
   });
   check(
     'Elapsed time keeps increasing during a quiet compiler',
-    timed
-        .descriptionAt(DateTime.parse('2026-09-28T12:01:05Z'))
-        .endsWith('1:05 elapsed'),
+    timed.elapsedClockAt(DateTime.parse('2026-09-28T12:01:05Z')) == '1:05',
   );
   check(
     'Phase text remains stable for accessibility',
-    !timed.stageDescription.contains('elapsed'),
+    timed.label == 'Compiling Dart sources' && timed.completed == 2,
   );
   final nextPhase = OperationProgress.fromJob({
     'progress': {
@@ -104,15 +102,11 @@ void main() {
   });
   check(
     'Elapsed time resets for the new compilation substep',
-    nextPhase
-        .descriptionAt(DateTime.parse('2026-09-28T12:01:07Z'))
-        .endsWith('0:02 elapsed'),
+    nextPhase.elapsedClockAt(DateTime.parse('2026-09-28T12:01:07Z')) == '0:02',
   );
   check(
     'Future clock values never produce negative elapsed time',
-    timed
-        .descriptionAt(DateTime.parse('2026-09-28T11:59:59Z'))
-        .endsWith('0:00 elapsed'),
+    timed.elapsedClockAt(DateTime.parse('2026-09-28T11:59:59Z')) == '0:00',
   );
   check(
     'Unknown progress is indeterminate',
@@ -120,14 +114,35 @@ void main() {
   );
   check(
     'Panel conflict explains how to recover',
-    failureSummary(
-      'requires package:denial_flutter_sdk/panels.dart#ShellPanel; found 2 providers',
-    ).contains('Keep one enabled'),
+    failureKind(
+          'requires package:denial_flutter_sdk/panels.dart#ShellPanel; found 2 providers',
+        ) ==
+        FailureKind.panel,
   );
   check(
     'Other conflicts remain generic',
-    failureSummary('requires Feature; found 10 providers')
-        .contains('Multiple plugins'),
+    failureKind('requires Feature; found 10 providers') == FailureKind.conflict,
+  );
+  check(
+    'Unavailable tools keep retry classification',
+    failureKind(
+          'Plugin tools are temporarily unavailable. Retrying automatically.',
+        ) ==
+        FailureKind.toolsUnavailable,
+  );
+  check(
+    'Unknown errors keep generic classification',
+    failureKind('an unrecognized future error') == FailureKind.generic,
+  );
+  check(
+    'Completed progress stops the elapsed clock',
+    OperationProgress(
+          'Completed',
+          5,
+          5,
+          started: DateTime.utc(2026),
+        ).elapsedClockAt(DateTime.utc(2026, 2)) ==
+        null,
   );
   const raw =
       'Operation failed (1). Snapshotting\nResolving packages\ndenial-plugins: requires package:denial_flutter_sdk/panels.dart#ShellPanel; found 2 providers';

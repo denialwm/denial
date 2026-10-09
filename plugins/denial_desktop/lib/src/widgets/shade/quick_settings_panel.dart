@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
 import '../../state/quick_settings.dart';
@@ -574,47 +575,76 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
         bluetooth.serviceAvailable &&
         bluetooth.available &&
         !bluetooth.powerChanging;
-    return QuickSettingsTiles(
-      expansionProgress: progress,
-      mobileDataTile: const MobileDataTile(),
-      brightnessControl: const _BrightnessRangeBar(),
-      volumeControl: const _VolumeRangeBar(),
-      wifi:
-          networkSnapshot.wirelessEnabled &&
-          networkSnapshot.wifiDeviceAvailable,
-      wifiSubtitle: wifiStatusLabel(network, l10n),
-      wifiEnabled: wifiToggleEnabled,
-      wifiBusy: network.radioChanging,
-      bluetooth: bluetooth.powered && bluetooth.available,
-      bluetoothSubtitle: bluetoothStatusLabel(bluetooth, l10n),
-      bluetoothEnabled: bluetoothToggleEnabled,
-      bluetoothBusy: bluetooth.powerChanging,
-      dnd: notificationPolicy.doNotDisturb,
-      dndReady: notificationPolicy.loaded,
-      profile: profile,
-      onToggleWifi: networkController.toggleWireless,
-      onOpenWifi: () {
-        ref
-            .read(shellPopupControllerProvider.notifier)
-            .show(
-              keyName: 'wifi-details',
-              debugLabel: 'Wi-Fi details',
-              builder: (_, handle) => WifiDetailSurface(onClose: handle.close),
-            );
-      },
-      onToggleBluetooth: bluetoothController.togglePower,
-      onOpenBluetooth: () {
-        ref
-            .read(shellPopupControllerProvider.notifier)
-            .show(
-              keyName: 'bluetooth-details',
-              debugLabel: 'Bluetooth details',
-              builder: (_, handle) =>
-                  BluetoothDetailSurface(onClose: handle.close),
-            );
-      },
-      onToggleDnd: notificationController.toggleDoNotDisturb,
-      onCycleProfile: quickSettingsController.cycleProfile,
+    final rotationLock = ref.watch(rotationLockProvider);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        QuickSettingsTiles(
+          expansionProgress: progress,
+          mobileDataTile: const MobileDataTile(),
+          brightnessControl: const _BrightnessRangeBar(),
+          volumeControl: const _VolumeRangeBar(),
+          wifi:
+              networkSnapshot.wirelessEnabled &&
+              networkSnapshot.wifiDeviceAvailable,
+          wifiSubtitle: wifiStatusLabel(network, l10n),
+          wifiEnabled: wifiToggleEnabled,
+          wifiBusy: network.radioChanging,
+          bluetooth: bluetooth.powered && bluetooth.available,
+          bluetoothSubtitle: bluetoothStatusLabel(bluetooth, l10n),
+          bluetoothEnabled: bluetoothToggleEnabled,
+          bluetoothBusy: bluetooth.powerChanging,
+          dnd: notificationPolicy.doNotDisturb,
+          dndReady: notificationPolicy.loaded,
+          profile: profile,
+          onToggleWifi: networkController.toggleWireless,
+          onOpenWifi: () {
+            ref
+                .read(shellPopupControllerProvider.notifier)
+                .show(
+                  keyName: 'wifi-details',
+                  debugLabel: 'Wi-Fi details',
+                  builder: (_, handle) =>
+                      WifiDetailSurface(onClose: handle.close),
+                );
+          },
+          onToggleBluetooth: bluetoothController.togglePower,
+          onOpenBluetooth: () {
+            ref
+                .read(shellPopupControllerProvider.notifier)
+                .show(
+                  keyName: 'bluetooth-details',
+                  debugLabel: 'Bluetooth details',
+                  builder: (_, handle) =>
+                      BluetoothDetailSurface(onClose: handle.close),
+                );
+          },
+          onToggleDnd: notificationController.toggleDoNotDisturb,
+          onCycleProfile: quickSettingsController.cycleProfile,
+        ),
+        if (rotationLock.supported) ...[
+          const SizedBox(height: QuickSettingsGridMetrics.gutter),
+          SizedBox(
+            height: QuickSettingsGridMetrics.capsule,
+            child: QuickTile(
+              icon: rotationLock.locked
+                  ? Icons.screen_lock_rotation_rounded
+                  : Icons.screen_rotation_rounded,
+              title: l10n.quickSettingsRotation,
+              subtitle: rotationLock.error != null
+                  ? l10n.commonError
+                  : (rotationLock.locked
+                        ? l10n.quickSettingsLocked
+                        : l10n.quickSettingsAutomatic),
+              active: rotationLock.locked,
+              enabled: !rotationLock.busy,
+              busy: rotationLock.busy,
+              wide: true,
+              onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

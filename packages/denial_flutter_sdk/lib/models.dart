@@ -29,6 +29,8 @@ export 'src/models/denial_window.dart'
         DenialWindow,
         DenialWindowContentKind,
         DenialWindowOpacityClass;
+export 'src/models/denial_pet.dart'
+    show DenialPet, DenialPetHold, DenialWindowHold;
 export 'src/models/denial_window_event.dart'
     show
         DenialWindowActionEvent,

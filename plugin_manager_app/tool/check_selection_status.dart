@@ -111,10 +111,8 @@ void main() {
   };
   if (pluginRebuild(updated)?['bundle'] != '/new' ||
       compositionStartupError(updated) != null ||
-      rebuildIntroduction(pluginRebuild(updated)!) !=
-          'Denial 0.3.0 is installed.' ||
-      rebuildIntroduction({'version': 'development'}) !=
-          'Denial was updated.') {
+      rebuildVersion(pluginRebuild(updated)!) != '0.3.0' ||
+      rebuildVersion({'version': 'development'}) != null) {
     throw StateError('An update waits for a rebuild and is not a failure');
   }
   stdout.writeln('PASS An update waits for a rebuild and is not a failure');

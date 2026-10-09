@@ -65,6 +65,7 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
         repo = case / 'repo'
         (repo / 'tools/lib').mkdir(parents=True)
         for relative in ('tools/denial-pc', 'tools/lib/denial-architecture.sh',
+                         'tools/lib/denial-local-engine.sh',
                          'prebuilt/flutter-engine/SOURCE_LOCK.json',
                          'packaging/arch/dev.denial.Settings.desktop',
                          'packaging/dev.denial.Welcome.desktop'):

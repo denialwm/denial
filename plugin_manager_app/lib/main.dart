@@ -1,3 +1,5 @@
+import 'package:denial_flutter_sdk/localization.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 
 import 'dart:async';
@@ -26,6 +28,7 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
   ShellThemeData theme = const ShellThemeData(
     transparencyMode: ShellTransparencyMode.glass,
   );
+  ShellLocalizationSettings localization = const ShellLocalizationSettings();
   StreamSubscription<FileSystemEvent>? watcher;
   Timer? debounce;
   late final File preferences;
@@ -85,7 +88,15 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
         transparencyMode: transparencyMode,
         glass: glass,
       );
-      if (mounted) setState(() => theme = resolved);
+      // Use the same persisted locale preference and generated delegates as
+      // Welcome/Settings. A null override lets MaterialApp follow the system.
+      final resolvedLocalization = ShellSettings.fromJson(data).localization;
+      if (mounted) {
+        setState(() {
+          theme = resolved;
+          localization = resolvedLocalization;
+        });
+      }
     } on FileSystemException {
       // The app also works before the user has saved any preferences.
     } on FormatException {
@@ -109,7 +120,10 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
   Widget build(BuildContext context) => ShellTheme(
     data: theme,
     child: MaterialApp(
-      title: 'Denial Plugins',
+      onGenerateTitle: (context) => context.l10n.pluginsAppTitle,
+      locale: localization.localeOverride,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       color: _rootBackground,
       builder: (context, child) =>
           ColoredBox(color: _rootBackground, child: child),

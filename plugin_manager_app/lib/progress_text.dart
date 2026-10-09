@@ -1,3 +1,7 @@
+import 'package:denial_flutter_sdk/localization.dart';
+
+import 'localized_feedback.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -34,8 +38,11 @@ class _ProgressTextState extends State<ProgressText> {
 
   @override
   Widget build(BuildContext context) => Semantics(
-    label: widget.progress.stageDescription,
+    label: progressStage(context.l10n, widget.progress),
     excludeSemantics: true,
-    child: Text(widget.progress.description, style: widget.style),
+    child: Text(
+      progressDescription(context.l10n, widget.progress, DateTime.now()),
+      style: widget.style,
+    ),
   );
 }

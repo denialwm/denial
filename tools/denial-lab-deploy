@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-local-engine.sh
+source "$SCRIPT_DIR/lib/denial-local-engine.sh"
 TARGET="${1:-192.168.1.183}"
 SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
 export FLUTTER_GIT_URL="$(jq -er '.flutter.repository' "$SOURCE_LOCK")"
@@ -43,12 +45,15 @@ sh -n "$SUSPEND_MODE_HOOK"
     printf 'denial-lab-deploy: Flutter launcher is missing: %s\n' "$FLUTTER" >&2
     exit 1
 }
-[[ -f "$ENGINE_OUT/args.gn" ]] || {
-    printf 'denial-lab-deploy: local engine output is missing: %s\n' "$ENGINE_OUT" >&2
+# Everything local is deployed together: the Flutter and Skia trees as they
+# are on disk, uncommitted changes included, with this working tree
+# (AGENTS.md).
+denial_prepare_engine_output "$ROOT/tools/denial-flutter-engine" "$FLUTTER_ROOT" "$ENGINE_OUT" || {
+    printf 'denial-lab-deploy: could not generate the engine output from %s\n' "$FLUTTER_ROOT" >&2
     exit 1
 }
-[[ -z "$(git -C "$FLUTTER_ROOT" status --porcelain)" ]] || {
-    printf 'denial-lab-deploy: Flutter source must be clean: %s\n' "$FLUTTER_ROOT" >&2
+[[ -f "$ENGINE_OUT/args.gn" ]] || {
+    printf 'denial-lab-deploy: local engine output is missing: %s\n' "$ENGINE_OUT" >&2
     exit 1
 }
 
@@ -67,11 +72,15 @@ rust_schema="$({
 }
 
 cpu_count="$(getconf _NPROCESSORS_ONLN)"
-jobs="${DENIAL_BUILD_JOBS:-$((cpu_count > 2 ? cpu_count - 2 : 1))}"
+jobs="${DENIAL_BUILD_JOBS:-$((cpu_count > 4 ? cpu_count - 4 : 1))}"
 revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD)"
 parent_revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD^)"
+# The Flutter tree's uncommitted changes. Its engine's are in the engine's
+# checksum; its framework's are not, so they key the shell themselves.
+flutter_changes="$(denial_local_changes "$FLUTTER_ROOT")"
 depot_tools="$FLUTTER_ROOT/engine/src/flutter/third_party/depot_tools"
-printf 'Synchronizing cached engine artifacts for %.12s...\n' "$revision"
+printf 'Synchronizing cached engine artifacts for %.12s%s...\n' \
+    "$revision" "${flutter_changes:++$flutter_changes}"
 PATH="$depot_tools:$PATH" /usr/bin/ninja -C "$ENGINE_OUT" -j "$jobs" \
     libflutter_engine.so flutter_patched_sdk
 engine="$ENGINE_OUT/libflutter_engine.so"
@@ -130,6 +139,8 @@ source_fingerprint_for_revision() {
         printf '%s\n' "$shell_source_manifest"
         printf 'flutter=%s\nengine=%s\nschema=%s\n' \
             "$source_revision" "$engine_sha" "$dart_schema"
+        [[ -z "$flutter_changes" ]] \
+            || printf 'flutter-changes=%s\n' "$flutter_changes"
     } | sha256sum | cut -d' ' -f1
 }
 source_fingerprint="$(source_fingerprint_for_revision "$revision")"
@@ -170,13 +181,16 @@ for candidate in "$ARTIFACT_STORE/"*; do
             == "$(source_fingerprint_for_revision "$candidate_revision")" ]]; then
         candidate_shell_current=true
     elif [[ "$candidate_revision" == "$parent_revision" \
+        && -z "$flutter_changes" \
+        && ! -e "$candidate/FLUTTER_CHANGES" \
         && -z "$(
             find "${shell_source_inputs[@]}" -type f \
                 -newer "$candidate/SHA256SUMS" -print -quit
         )" ]]; then
         # The immediately previous engine artifact is safe to adopt when no
-        # application source changed after it was packaged. The AOT loader
-        # check below independently verifies it against the new engine.
+        # application source changed after it was packaged, and neither it
+        # nor this build has uncommitted Flutter changes. The AOT loader check
+        # below independently verifies it against the new engine.
         candidate_shell_current=true
     fi
     if $candidate_shell_current \
@@ -370,6 +384,8 @@ else
             | xargs -0 sha256sum >SHA256SUMS
     )
     printf '%s\n' "$revision" >"$staged/FLUTTER_REVISION"
+    [[ -z "$flutter_changes" ]] \
+        || printf '%s\n' "$flutter_changes" >"$staged/FLUTTER_CHANGES"
     printf '%s\n' "$dart_schema" >"$staged/SETTINGS_SCHEMA"
     printf '%s\n' "$source_fingerprint" >"$staged/SOURCE_FINGERPRINT"
     printf '%s\n' "$settings_source_fingerprint" >"$staged/SETTINGS_SOURCE_FINGERPRINT"

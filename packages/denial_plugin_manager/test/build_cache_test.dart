@@ -12,6 +12,7 @@ void main() {
   late String engineRoot;
   late String checksum;
   var compilations = 0;
+  var versionRevision = 'revision';
 
   File put(String relative, String text) {
     final file = File(p.join(root.path, relative));
@@ -76,6 +77,7 @@ void main() {
     });
     config.writeAsStringSync(jsonEncode(packages));
     compilations = 0;
+    versionRevision = 'revision';
   });
   tearDown(() {
     Process.runSync('chmod', ['-R', 'u+w', root.path]);
@@ -122,7 +124,7 @@ void main() {
         store,
         run: (executable, arguments, {workingDirectory, onOutput}) async {
           if (executable == flutter && arguments.first == '--version') {
-            return jsonEncode({'frameworkRevision': 'revision'});
+            return jsonEncode({'frameworkRevision': versionRevision});
           }
           if (executable == flutter && arguments.first == 'assemble') {
             compilations++;
@@ -195,6 +197,122 @@ void main() {
       'plugin asset',
     );
   });
+
+  void developmentPlan(String id) {
+    plan(id);
+    versionRevision = 'a' * 40;
+    put('engine/out/release/flutter_linux/header.h', 'header');
+    put('engine/out/release/libflutter_linux_gtk.so', 'GTK engine');
+    put('flutter/bin/cache/pkg/sky_engine/lib/ui.dart', 'Denial dart:ui');
+    put('flutter/bin/cache/dart-sdk/version', '3.13.4');
+    final frontend = put(
+      'flutter/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot',
+      'frontend',
+    );
+    const inputs = [
+      'gen_snapshot',
+      'font-subset',
+      'impellerc',
+      'icudtl.dat',
+      'flutter_patched_sdk',
+      'flutter_linux',
+      'libflutter_linux_gtk.so',
+      'shader_lib',
+      'gen/const_finder.dart.snapshot',
+    ];
+    final identity = {
+      'build_provenance': {
+        'schema': 1,
+        'mode': 'development',
+        'platform': 'linux-x64',
+        'engine_target': 'release',
+        'args_gn_sha256': 'b' * 64,
+        'engine_build_id': 'c' * 40,
+        'engine_sha256': checksum,
+        'framework_revision': versionRevision,
+        'sources': {
+          for (final name in ['flutter', 'skia', 'denial'])
+            name: {
+              'path': '/canonical/$name',
+              'revision': versionRevision,
+              'dirty_sha256': name == 'flutter' ? 'd' * 64 : null,
+            },
+        },
+        'compiler_inputs': {
+          for (final name in inputs)
+            name:
+                Directory(p.join(engineRoot, 'out/release', name)).existsSync()
+                ? treeDigest(Directory(p.join(engineRoot, 'out/release', name)))
+                : fileDigest(p.join(engineRoot, 'out/release', name)),
+        },
+        'sky_engine_sha256': treeDigest(
+          Directory(p.join(root.path, 'flutter/bin/cache/pkg/sky_engine')),
+        ),
+        'dart_sdk_version': '3.13.4',
+        'frontend_server_sha256': fileDigest(frontend.path),
+      },
+    };
+    store.write('candidates/$id/plan.json', {
+      ...store.read('candidates/$id/plan.json'),
+      'sourceIdentity': identity,
+    });
+    put('runtime/.denial-ui-source.json', jsonEncode(identity));
+  }
+
+  test('legacy/release revision verification remains strict', () async {
+    plan('locked');
+    versionRevision = 'different';
+    await expectLater(build('locked'), throwsA(isA<CompositionException>()));
+    expect(compilations, 0);
+  });
+
+  test('explicit development identity compiles an ahead/dirty fork', () async {
+    developmentPlan('dev');
+    final result = await build('dev');
+    expect((result['manifest'] as Map)['framework_revision'], 'a' * 40);
+    expect(
+      (result['manifest'] as Map)['source_identity'],
+      store.read('candidates/dev/plan.json')['sourceIdentity'],
+    );
+    expect(compilations, 1);
+  });
+
+  for (final changed in [
+    'gen_snapshot',
+    'flutter_patched_sdk/kernel',
+    'sky_engine',
+    'frontend',
+    'marker',
+    'revision',
+    'mode',
+  ]) {
+    test('development rejects changed $changed before assembly', () async {
+      developmentPlan('changed');
+      switch (changed) {
+        case 'sky_engine':
+          put('flutter/bin/cache/pkg/sky_engine/lib/ui.dart', 'upstream UI');
+        case 'frontend':
+          put(
+            'flutter/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot',
+            'other frontend',
+          );
+        case 'marker':
+          put('runtime/.denial-ui-source.json', '{}');
+        case 'revision':
+          versionRevision = 'e' * 40;
+        case 'mode':
+          final value = store.read('candidates/changed/plan.json');
+          ((value['sourceIdentity'] as Map)['build_provenance']
+                  as Map)['mode'] =
+              'ignore';
+          store.write('candidates/changed/plan.json', value);
+        default:
+          put('engine/out/release/$changed', 'other input');
+      }
+      await expectLater(build('changed'), throwsA(isA<CompositionException>()));
+      expect(compilations, 0);
+    });
+  }
 
   test(
     'damaged output and a cache index pointing at another composition miss',

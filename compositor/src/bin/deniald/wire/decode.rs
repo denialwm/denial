@@ -129,6 +129,20 @@ impl WireBridge {
                     .ok_or(WireError::Payload)?;
                 self.handle_window_request(envelope.request_id(), request)
             }
+            fb::Payload::PetRequest => {
+                if envelope.request_id() != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let request = envelope
+                    .payload_as_pet_request()
+                    .ok_or(WireError::Payload)?;
+                self.pending_window_commands
+                    .push_back(decode_pet_request(request)?);
+                Ok(None)
+            }
             fb::Payload::NONE => Err(WireError::Payload),
             payload => Err(WireError::Direction(payload)),
         }
@@ -823,6 +837,7 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::ResizeGrowHeight => Ok(ShortcutAction::ResizeGrowHeight),
         fb::ShortcutActionKind::ResizeShrinkHeight => Ok(ShortcutAction::ResizeShrinkHeight),
         fb::ShortcutActionKind::ResetWindowHeight => Ok(ShortcutAction::ResetWindowHeight),
+        fb::ShortcutActionKind::ResetWindowWidth => Ok(ShortcutAction::ResetWindowWidth),
         fb::ShortcutActionKind::ToggleVerticalMaximize => {
             Ok(ShortcutAction::ToggleVerticalMaximize)
         }
@@ -1141,4 +1156,40 @@ fn decode_input_rect(rect: &fb::WireRect) -> Result<InputRect, WireError> {
         return Err(WireError::Geometry);
     }
     Ok(rect)
+}
+
+/// A shell decision about a desktop pet. Whether the pet accepts it is
+/// native's to check against live state; this checks only its form.
+fn decode_pet_request(request: fb::PetRequest<'_>) -> Result<WindowCommand, WireError> {
+    let pet_id = request.pet_id();
+    if pet_id == 0 {
+        return Err(WireError::Identity);
+    }
+    match request.kind() {
+        fb::PetRequestKind::Hold => {
+            let hold = match request.window_id() {
+                0 => None,
+                window_id => {
+                    let share = request.share();
+                    if !share.is_finite() || !(0.0..=1.0).contains(&share) {
+                        return Err(WireError::Geometry);
+                    }
+                    Some((window_id, request.hold(), share))
+                }
+            };
+            Ok(WindowCommand::HoldPet { pet_id, hold })
+        }
+        fb::PetRequestKind::Carried => {
+            let (velocity_x, velocity_y) = (request.velocity_x(), request.velocity_y());
+            if !velocity_x.is_finite() || !velocity_y.is_finite() {
+                return Err(WireError::Geometry);
+            }
+            Ok(WindowCommand::CarryPet {
+                pet_id,
+                velocity_x,
+                velocity_y,
+            })
+        }
+        _ => Err(WireError::Enumeration),
+    }
 }

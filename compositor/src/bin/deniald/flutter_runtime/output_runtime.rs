@@ -303,10 +303,9 @@ impl FlutterRuntime {
         &self,
         action: impl FnOnce(PendingFrame, &mut dyn FnMut(OutputId) -> bool) -> T,
     ) -> T {
-        // Output authorization is a bounded per-output queue reservation, not
-        // a global raster lock. A framework frame can legitimately consume
-        // OnVsync without producing a raster task, so expire an unclaimed
-        // reservation after two of that output's own intervals.
+        // Completion-aware engines acknowledge the actual work, including a
+        // framework frame with no raster task. Only the pinned legacy engine
+        // needs the old expiry fallback during isolated engine validation.
         let pending = PendingFrame {
             flutter_requested: self.handler.has_pending_vsync(),
         };
@@ -389,11 +388,19 @@ impl FlutterRuntime {
         for request in &mut tagged_requests {
             request.fingerprint_epoch = self.fingerprint_scene.render_epoch(request.tick.output);
         }
+        let completion_id = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine()
+            .supports_render_completion()
+            .then(output_pipeline::next_render_request_id);
         self.handler.authorize_outputs(
             &tagged_requests,
             &mut self.render_view_scratch,
             self.lock_frame_gate
                 .render_token(self.authentication.locked_epoch()),
+            completion_id,
         );
         if self.render_view_scratch.is_empty() {
             return Ok(false);
@@ -498,13 +505,29 @@ impl FlutterRuntime {
         let (frame_start_nanos, frame_target_nanos) =
             timeline_vsync_timestamps(now_nanos, observation_delay, target_after_deadline);
 
-        if let Err(error) = engine.render_outputs(
-            &self.render_view_scratch,
-            &self.render_texture_scratch,
-            flutter_tick.is_some(),
-            frame_start_nanos,
-            frame_target_nanos,
-        ) {
+        let render_result = if let Some(completion_id) = completion_id {
+            let handler = self.handler.clone();
+            let begin_handler = self.handler.clone();
+            engine.render_outputs_with_completion(
+                &self.render_view_scratch,
+                &self.render_texture_scratch,
+                flutter_tick.is_some(),
+                frame_start_nanos,
+                frame_target_nanos,
+                completion_id,
+                move |id| begin_handler.begin_output_authorization(id),
+                move |id| handler.complete_output_authorization(id),
+            )
+        } else {
+            engine.render_outputs(
+                &self.render_view_scratch,
+                &self.render_texture_scratch,
+                flutter_tick.is_some(),
+                frame_start_nanos,
+                frame_target_nanos,
+            )
+        };
+        if let Err(error) = render_result {
             if let Some(baton) = baton {
                 self.handler.restore_vsync(baton);
             }

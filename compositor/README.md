@@ -252,7 +252,10 @@ transfer on the GPU for compatible screen recorders and PipeWire portal
 backends. The Flutter Settings app also configures a
 compositor-owned inactivity timeout. Mouse, keyboard, touch, tablet and Linux
 joystick activity reset it; visible clients can keep displays awake with
-`zwp_idle_inhibit_manager_v1`, as media players do during playback. DPMS-off
+`zwp_idle_inhibit_manager_v1`, as media players do during playback. The same
+activity feeds `ext-idle-notify-v1`, so clients such as desktop pets learn
+when the user goes idle and comes back; its idle notifications honour those
+inhibitors, and its input-idle ones (version 2) ignore them. DPMS-off
 outputs remain in the logical desktop while their KMS pipeline is disabled;
 waking them restores a complete scanout atlas without rebuilding the Wayland
 topology. A Vulkan Wayland client has been validated through DP-5

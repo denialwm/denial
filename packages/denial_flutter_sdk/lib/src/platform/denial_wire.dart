@@ -17,6 +17,7 @@ import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/shortcut_configuration.dart';
 import '../models/system_tray_item.dart' as tray_model;
+import '../models/denial_pet.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 
@@ -109,6 +110,44 @@ class DenialWireCodec {
       actionsJson: jsonEncode(actions),
     ),
   );
+
+  /// The hold a pet the user drags takes if let go now, or none.
+  Uint8List? encodePetHold(int petId, DenialPetHold? hold) {
+    if (petId <= 0 ||
+        (hold != null &&
+            (hold.windowId <= 0 ||
+                !hold.share.isFinite ||
+                hold.share < 0.0 ||
+                hold.share > 1.0))) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.PetRequest,
+      generated.PetRequestObjectBuilder(
+        kind: generated.PetRequestKind.Hold,
+        petId: petId,
+        windowId: hold?.windowId ?? 0,
+        hold: hold?.hold.value ?? 0,
+        share: hold?.share ?? 0.0,
+      ),
+    );
+  }
+
+  /// How fast a held pet moves on screen, in logical px/s.
+  Uint8List? encodePetCarried(int petId, Offset velocity) {
+    if (petId <= 0 || !velocity.isFinite) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.PetRequest,
+      generated.PetRequestObjectBuilder(
+        kind: generated.PetRequestKind.Carried,
+        petId: petId,
+        velocityX: velocity.dx,
+        velocityY: velocity.dy,
+      ),
+    );
+  }
 
   Uint8List? encodeThemeAccent(int argb) {
     if (argb < 0 || argb > 0xffffffff) {
@@ -1501,6 +1540,23 @@ class DenialWireCodec {
           generated.WindowOpacityClass.ContentTranslucent =>
             DenialWindowOpacityClass.contentTranslucent,
         },
+        pet: window.pet
+            ? DenialPet(
+                holds: window.petHolds,
+                anchor: Offset(window.petAnchorX, window.petAnchorY),
+                below: window.petBelow,
+                dragged: window.petDragged,
+                held: switch (DenialWindowHold.fromValue(window.heldHold)) {
+                  final hold? when window.heldByWindowId != 0 => DenialPetHold(
+                    windowId: window.heldByWindowId,
+                    hold: hold,
+                    share: window.heldShare,
+                  ),
+                  // A hold this shell does not know leaves the pet free.
+                  _ => null,
+                },
+              )
+            : null,
       );
       // FlatBuffers getters parse their field on each access. Validate the
       // materialized snapshot so geometry and layer fields are read only once.

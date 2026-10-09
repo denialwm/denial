@@ -574,7 +574,8 @@ enum ShortcutActionKind {
   ResizeShrinkWidth(55),
   ResizeGrowHeight(56),
   ResizeShrinkHeight(57),
-  ResetWindowHeight(58);
+  ResetWindowHeight(58),
+  ResetWindowWidth(59);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -640,6 +641,7 @@ enum ShortcutActionKind {
       case 56: return ShortcutActionKind.ResizeGrowHeight;
       case 57: return ShortcutActionKind.ResizeShrinkHeight;
       case 58: return ShortcutActionKind.ResetWindowHeight;
+      case 59: return ShortcutActionKind.ResetWindowWidth;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -648,7 +650,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 58;
+  static const int maxValue = 59;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 
@@ -1077,6 +1079,40 @@ class _ShortcutTargetTypeIdReader extends fb.Reader<ShortcutTargetTypeId> {
       ShortcutTargetTypeId.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum PetRequestKind {
+  Hold(0),
+  Carried(1);
+
+  final int value;
+  const PetRequestKind(this.value);
+
+  factory PetRequestKind.fromValue(int value) {
+    switch (value) {
+      case 0: return PetRequestKind.Hold;
+      case 1: return PetRequestKind.Carried;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static PetRequestKind? _createOrNull(int? value) =>
+      value == null ? null : PetRequestKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 1;
+  static const fb.Reader<PetRequestKind> reader = _PetRequestKindReader();
+}
+
+class _PetRequestKindReader extends fb.Reader<PetRequestKind> {
+  const _PetRequestKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  PetRequestKind read(fb.BufferContext bc, int offset) =>
+      PetRequestKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum PayloadTypeId {
   NONE(0),
   InputLayout(1),
@@ -1099,7 +1135,8 @@ enum PayloadTypeId {
   ThemeState(18),
   CursorState(19),
   PluginActionCatalog(20),
-  PluginActionInvocation(21);
+  PluginActionInvocation(21),
+  PetRequest(22);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -1128,6 +1165,7 @@ enum PayloadTypeId {
       case 19: return PayloadTypeId.CursorState;
       case 20: return PayloadTypeId.PluginActionCatalog;
       case 21: return PayloadTypeId.PluginActionInvocation;
+      case 22: return PayloadTypeId.PetRequest;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -1136,7 +1174,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 21;
+  static const int maxValue = 22;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -1896,10 +1934,19 @@ class Window {
   bool get fullscreen => const fb.BoolReader().vTableGet(_bc, _bcOffset, 82, false);
   bool get maximized => const fb.BoolReader().vTableGet(_bc, _bcOffset, 84, false);
   int get transientParentId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 86, 0);
+  int get heldByWindowId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 88, 0);
+  int get heldHold => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 90, 0);
+  double get heldShare => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 92, 0.0);
+  double get petAnchorX => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 94, 0.0);
+  double get petAnchorY => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 96, 0.0);
+  bool get petBelow => const fb.BoolReader().vTableGet(_bc, _bcOffset, 98, false);
+  bool get pet => const fb.BoolReader().vTableGet(_bc, _bcOffset, 100, false);
+  int get petHolds => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 102, 0);
+  bool get petDragged => const fb.BoolReader().vTableGet(_bc, _bcOffset, 104, false);
 
   @override
   String toString() {
-    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}, workspaceId: ${workspaceId}, minimized: ${minimized}, fullscreen: ${fullscreen}, maximized: ${maximized}, transientParentId: ${transientParentId}}';
+    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}, workspaceId: ${workspaceId}, minimized: ${minimized}, fullscreen: ${fullscreen}, maximized: ${maximized}, transientParentId: ${transientParentId}, heldByWindowId: ${heldByWindowId}, heldHold: ${heldHold}, heldShare: ${heldShare}, petAnchorX: ${petAnchorX}, petAnchorY: ${petAnchorY}, petBelow: ${petBelow}, pet: ${pet}, petHolds: ${petHolds}, petDragged: ${petDragged}}';
   }
 }
 
@@ -1917,7 +1964,7 @@ class WindowBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(42);
+    fbBuilder.startTable(51);
   }
 
   int addObjectId(int? objectId) {
@@ -2088,6 +2135,42 @@ class WindowBuilder {
     fbBuilder.addUint64(41, transientParentId);
     return fbBuilder.offset;
   }
+  int addHeldByWindowId(int? heldByWindowId) {
+    fbBuilder.addUint64(42, heldByWindowId);
+    return fbBuilder.offset;
+  }
+  int addHeldHold(int? heldHold) {
+    fbBuilder.addUint32(43, heldHold);
+    return fbBuilder.offset;
+  }
+  int addHeldShare(double? heldShare) {
+    fbBuilder.addFloat64(44, heldShare);
+    return fbBuilder.offset;
+  }
+  int addPetAnchorX(double? petAnchorX) {
+    fbBuilder.addFloat64(45, petAnchorX);
+    return fbBuilder.offset;
+  }
+  int addPetAnchorY(double? petAnchorY) {
+    fbBuilder.addFloat64(46, petAnchorY);
+    return fbBuilder.offset;
+  }
+  int addPetBelow(bool? petBelow) {
+    fbBuilder.addBool(47, petBelow);
+    return fbBuilder.offset;
+  }
+  int addPet(bool? pet) {
+    fbBuilder.addBool(48, pet);
+    return fbBuilder.offset;
+  }
+  int addPetHolds(int? petHolds) {
+    fbBuilder.addUint32(49, petHolds);
+    return fbBuilder.offset;
+  }
+  int addPetDragged(bool? petDragged) {
+    fbBuilder.addBool(50, petDragged);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2137,6 +2220,15 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
   final bool? _fullscreen;
   final bool? _maximized;
   final int? _transientParentId;
+  final int? _heldByWindowId;
+  final int? _heldHold;
+  final double? _heldShare;
+  final double? _petAnchorX;
+  final double? _petAnchorY;
+  final bool? _petBelow;
+  final bool? _pet;
+  final int? _petHolds;
+  final bool? _petDragged;
 
   WindowObjectBuilder({
     int? objectId,
@@ -2181,6 +2273,15 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     bool? fullscreen,
     bool? maximized,
     int? transientParentId,
+    int? heldByWindowId,
+    int? heldHold,
+    double? heldShare,
+    double? petAnchorX,
+    double? petAnchorY,
+    bool? petBelow,
+    bool? pet,
+    int? petHolds,
+    bool? petDragged,
   })
       : _objectId = objectId,
         _objectKind = objectKind,
@@ -2223,7 +2324,16 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         _minimized = minimized,
         _fullscreen = fullscreen,
         _maximized = maximized,
-        _transientParentId = transientParentId;
+        _transientParentId = transientParentId,
+        _heldByWindowId = heldByWindowId,
+        _heldHold = heldHold,
+        _heldShare = heldShare,
+        _petAnchorX = petAnchorX,
+        _petAnchorY = petAnchorY,
+        _petBelow = petBelow,
+        _pet = pet,
+        _petHolds = petHolds,
+        _petDragged = petDragged;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -2234,7 +2344,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_appId!);
     final int? surfacesOffset = _surfaces == null ? null
         : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(42);
+    fbBuilder.startTable(51);
     fbBuilder.addUint64(0, _objectId);
     fbBuilder.addUint8(1, _objectKind?.value);
     fbBuilder.addUint64(2, _surfaceId);
@@ -2277,6 +2387,15 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addBool(39, _fullscreen);
     fbBuilder.addBool(40, _maximized);
     fbBuilder.addUint64(41, _transientParentId);
+    fbBuilder.addUint64(42, _heldByWindowId);
+    fbBuilder.addUint32(43, _heldHold);
+    fbBuilder.addFloat64(44, _heldShare);
+    fbBuilder.addFloat64(45, _petAnchorX);
+    fbBuilder.addFloat64(46, _petAnchorY);
+    fbBuilder.addBool(47, _petBelow);
+    fbBuilder.addBool(48, _pet);
+    fbBuilder.addUint32(49, _petHolds);
+    fbBuilder.addBool(50, _petDragged);
     return fbBuilder.endTable();
   }
 
@@ -6455,6 +6574,131 @@ class PluginActionInvocationObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class PetRequest {
+  PetRequest._(this._bc, this._bcOffset);
+  factory PetRequest(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<PetRequest> reader = _PetRequestReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  PetRequestKind get kind => PetRequestKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  int get petId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 6, 0);
+  int get windowId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 8, 0);
+  int get hold => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  double get share => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 12, 0.0);
+  double get velocityX => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 14, 0.0);
+  double get velocityY => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 16, 0.0);
+
+  @override
+  String toString() {
+    return 'PetRequest{kind: ${kind}, petId: ${petId}, windowId: ${windowId}, hold: ${hold}, share: ${share}, velocityX: ${velocityX}, velocityY: ${velocityY}}';
+  }
+}
+
+class _PetRequestReader extends fb.TableReader<PetRequest> {
+  const _PetRequestReader();
+
+  @override
+  PetRequest createObject(fb.BufferContext bc, int offset) => 
+    PetRequest._(bc, offset);
+}
+
+class PetRequestBuilder {
+  PetRequestBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(7);
+  }
+
+  int addKind(PetRequestKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addPetId(int? petId) {
+    fbBuilder.addUint64(1, petId);
+    return fbBuilder.offset;
+  }
+  int addWindowId(int? windowId) {
+    fbBuilder.addUint64(2, windowId);
+    return fbBuilder.offset;
+  }
+  int addHold(int? hold) {
+    fbBuilder.addUint32(3, hold);
+    return fbBuilder.offset;
+  }
+  int addShare(double? share) {
+    fbBuilder.addFloat64(4, share);
+    return fbBuilder.offset;
+  }
+  int addVelocityX(double? velocityX) {
+    fbBuilder.addFloat64(5, velocityX);
+    return fbBuilder.offset;
+  }
+  int addVelocityY(double? velocityY) {
+    fbBuilder.addFloat64(6, velocityY);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class PetRequestObjectBuilder extends fb.ObjectBuilder {
+  final PetRequestKind? _kind;
+  final int? _petId;
+  final int? _windowId;
+  final int? _hold;
+  final double? _share;
+  final double? _velocityX;
+  final double? _velocityY;
+
+  PetRequestObjectBuilder({
+    PetRequestKind? kind,
+    int? petId,
+    int? windowId,
+    int? hold,
+    double? share,
+    double? velocityX,
+    double? velocityY,
+  })
+      : _kind = kind,
+        _petId = petId,
+        _windowId = windowId,
+        _hold = hold,
+        _share = share,
+        _velocityX = velocityX,
+        _velocityY = velocityY;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(7);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addUint64(1, _petId);
+    fbBuilder.addUint64(2, _windowId);
+    fbBuilder.addUint32(3, _hold);
+    fbBuilder.addFloat64(4, _share);
+    fbBuilder.addFloat64(5, _velocityX);
+    fbBuilder.addFloat64(6, _velocityY);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class Envelope {
   Envelope._(this._bc, this._bcOffset);
   factory Envelope(List<int> bytes) {
@@ -6494,6 +6738,7 @@ class Envelope {
       case 19: return CursorState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 20: return PluginActionCatalog.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 21: return PluginActionInvocation.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 22: return PetRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

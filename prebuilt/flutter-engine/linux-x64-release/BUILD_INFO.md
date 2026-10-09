@@ -10,7 +10,7 @@ checksum, GN configuration, upstream compatibility revisions, and licenses.
 ## Source identity
 
 [`SOURCE_LOCK.json`](../SOURCE_LOCK.json) is the sole source-of-truth for
-engine source. The generated `args.gn` records the corresponding Flutter,
+the engine source of CI and release builds. The generated `args.gn` records the corresponding Flutter,
 Skia, Dart and content identities; `ENGINE_REVISION` and `FLUTTER_REVISION`
 record the coupled upstream ABI revisions without duplicating mutable lock
 values in this document.
@@ -21,7 +21,12 @@ repository does not carry or reconstruct a downstream patch series.
 
 ## Build and cache behavior
 
-Use:
+During development, `tools/denial-pc build` builds this engine from the local
+fork trees as they are on disk, uncommitted changes included, and records its
+checksum in `libflutter_engine.so.local.sha256`
+([Building with your local engine](../../../docs/BUILDING.md#building-with-your-local-engine)).
+
+CI and release builds use the locked engine:
 
 ```sh
 tools/denial-flutter-engine build

@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Pure fixture checks for the kit's locked and local-development boundaries."""
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+TOOL = Path(__file__).resolve().with_name('prepare-denial-plugin-kit')
+loader = importlib.machinery.SourceFileLoader('plugin_kit', str(TOOL))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+kit = importlib.util.module_from_spec(spec)
+loader.exec_module(kit)
+
+
+class ProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.flutter = self.root / 'flutter'
+        self.skia = self.root / 'skia'
+        self.denial = self.root / 'denial'
+        for repo in [self.flutter, self.skia, self.denial]:
+            repo.mkdir()
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Fixture',
+                            '-c', 'user.email=fixture@example.invalid',
+                            'commit', '-q', '--allow-empty', '-m', 'fixture'], check=True)
+        self.engine = self.root / 'out/release'
+        self.engine.mkdir(parents=True)
+        self.write(self.flutter / 'engine/src/flutter/third_party/marker', 'source')
+        (self.flutter / 'engine/src/flutter/third_party/skia').symlink_to(self.skia)
+        self.revision = kit.checkout_identity(self.flutter)['revision']
+        self.version = {'frameworkRevision': self.revision}
+        self.args = '\n'.join(f'{k} = {json.dumps(v) if isinstance(v, str) else str(v).lower()}'
+                              for k, v in {
+            'host_cpu': 'x64', 'target_cpu': 'x64', 'target_os': 'linux',
+            'is_debug': False, 'flutter_runtime_mode': 'release', 'dart_runtime_mode': 'release',
+            'engine_version': self.revision,
+            'skia_version': kit.checkout_identity(self.skia)['revision'],
+        }.items()) + '\n'
+        self.write(self.engine / 'args.gn', self.args)
+        self.write(self.engine / 'build.ninja', f'  command = gn --root={self.flutter}/engine/src --quiet\n')
+        self.write(self.engine / 'libflutter_engine.so', 'engine')
+        self.write(self.denial / 'prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.local.sha256',
+                   kit.digest(self.engine / 'libflutter_engine.so'))
+        for name in kit.COMPILER_INPUTS:
+            self.write(self.engine / name, name)
+        self.write(self.engine / 'gen/dart-pkg/sky_engine/lib/ui.dart', 'ui')
+        self.write(self.flutter / 'bin/cache/dart-sdk/version', '3.13.4')
+        self.write(self.flutter / 'bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot', 'frontend')
+        self.addCleanup(patch.stopall)
+        patch.dict(os.environ, {'DENIAL_FLUTTER_SOURCE_ROOT': str(self.flutter),
+                                'DENIAL_SKIA_SOURCE_ROOT': str(self.skia)}).start()
+        self.real_output = subprocess.check_output
+        self.ninja = 'ninja: no work to do.\n'
+        patch.object(kit.subprocess, 'check_output', self.output).start()
+
+    def write(self, path, value):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value)
+
+    def output(self, command, **kwargs):
+        if command[0] == '/usr/bin/ninja':
+            return self.ninja
+        if command[:2] == ['readelf', '-h']:
+            return 'Machine: Advanced Micro Devices X86-64\n'
+        if command[:2] == ['readelf', '-n']:
+            return 'Build ID: abcdef\n'
+        return self.real_output(command, **kwargs)
+
+    def attest(self):
+        return kit.development_provenance(self.denial, self.flutter, self.engine,
+                                          'linux-x64', self.version)
+
+    def test_dirty_sources_and_exact_inventory(self):
+        first = self.attest()
+        self.assertEqual(first['mode'], 'development')
+        self.assertEqual(first['framework_revision'], self.revision)
+        self.write(self.flutter / 'new-source', 'dirty')
+        second = self.attest()
+        self.assertNotEqual(first['sources']['flutter']['dirty_sha256'],
+                            second['sources']['flutter']['dirty_sha256'])
+        self.assertEqual(second['compiler_inputs']['gen_snapshot'],
+                         kit.digest(self.engine / 'gen_snapshot'))
+
+    def test_inventory_matches_curated_copy_not_disposable_depfiles(self):
+        source = self.engine / 'flutter_patched_sdk'
+        source.unlink()
+        self.write(source / 'platform_strong.dill', 'platform')
+        self.write(source / 'platform_strong.dill.d', 'absolute source depfile')
+        copied = self.root / 'copied-sdk'
+        kit.copy(source, copied)
+        self.assertEqual(self.attest()['compiler_inputs']['flutter_patched_sdk'],
+                         kit.input_digest(copied))
+        self.assertFalse((copied / 'platform_strong.dill.d').exists())
+
+    def test_tree_order_matches_dart_full_path_string_order(self):
+        source = self.root / 'declarations'
+        self.write(source / 'ui/compositing.dart', 'part')
+        self.write(source / 'ui.dart', 'library')
+        expected = kit.hashlib.sha256()
+        for name, value in [
+                ('ui', 'directory\n'),
+                ('ui.dart', f'file:{kit.digest(source / "ui.dart")}\n'),
+                ('ui/compositing.dart', f'file:{kit.digest(source / "ui/compositing.dart")}\n')]:
+            expected.update(name.encode() + b'\0' + value.encode())
+        self.assertEqual(kit.input_digest(source), expected.hexdigest())
+
+    def test_local_only_cursor_reference_is_not_copied(self):
+        source = self.root / 'cursor-assets'
+        self.write(source / 'yangyang_xuanling/reference.txt', 'not redistributable')
+        self.write(source / 'bibata_modern_ice/frame.png', 'allowed fixture')
+        destination = self.root / 'published-cursors'
+        kit.copy(source, destination)
+        self.assertFalse((destination / 'yangyang_xuanling').exists())
+        self.assertTrue((destination / 'bibata_modern_ice/frame.png').exists())
+        self.assertEqual(kit.input_digest(source, copied=True), kit.input_digest(destination))
+
+    def test_stale_graph_or_engine_is_rejected(self):
+        self.ninja = '[1/2] rebuild engine\n'
+        with self.assertRaisesRegex(ValueError, 'needs work'):
+            self.attest()
+        self.ninja = 'ninja: no work to do.\n'
+        self.write(self.engine / 'libflutter_engine.so', 'wrong engine')
+        with self.assertRaisesRegex(ValueError, 'local checksum'):
+            self.attest()
+
+    def test_wrong_revision_graph_and_mode_are_rejected(self):
+        self.version['frameworkRevision'] = 'fake locked revision'
+        with self.assertRaisesRegex(ValueError, 'actual checkout'):
+            self.attest()
+        self.version['frameworkRevision'] = self.revision
+        self.write(self.engine / 'args.gn', self.args.replace('"release"', '"debug"'))
+        with self.assertRaisesRegex(ValueError, 'native release'):
+            self.attest()
+        self.write(self.engine / 'args.gn', self.args)
+        self.write(self.engine / 'build.ninja', '  command = gn --root=/unrelated --quiet\n')
+        with self.assertRaisesRegex(ValueError, 'canonical Flutter'):
+            self.attest()
+
+    def test_locked_default_and_packager_attestation_keep_checks(self):
+        self.write(self.denial / 'prebuilt/flutter-engine/SOURCE_LOCK.json',
+                   json.dumps({'flutter': {'revision': 'locked'}}))
+        self.write(self.flutter / 'bin/cache/flutter.version.json', json.dumps(self.version))
+        self.write(self.denial / 'prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256', 'not-engine')
+        command = [str(TOOL), '--source-root', str(self.denial), '--flutter-root', str(self.flutter),
+                   '--engine-root', str(self.root), '--engine-target', 'release', '--platform', 'linux-x64',
+                   '--output', str(self.root / 'kit')]
+        result = subprocess.run(command, text=True, capture_output=True)
+        self.assertIn('Flutter revision differs from SOURCE_LOCK', result.stderr)
+        result = subprocess.run(command + ['--flutter-revision', 'locked'], text=True, capture_output=True)
+        self.assertIn('differs from the pinned release engine', result.stderr)
+        result = subprocess.run(command + ['--flutter-revision', self.revision], text=True, capture_output=True)
+        self.assertIn('packager Flutter revision differs', result.stderr)
+        result = subprocess.run(command + ['--provenance', 'development'], text=True,
+                                capture_output=True, env={**os.environ, 'CI': 'true'})
+        self.assertIn('not CI', result.stderr)
+        self.assertFalse((self.root / 'kit').exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

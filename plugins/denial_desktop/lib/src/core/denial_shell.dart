@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/environment.dart';
 
 import '../desktop/desktop_input_layout_publisher.dart';
+import '../desktop/desktop_pet_holds.dart';
 
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/settings.dart';
@@ -197,25 +198,27 @@ class _ProfileScene extends StatelessWidget {
         ),
       ),
       ReferenceShellProfile.desktop => DesktopInputLayoutPublisher(
-        child: ShellSecureStage(
-          useConfiguredLockAnimation: true,
-          scene: Stack(
-            fit: StackFit.expand,
-            children: [
-              ShellPopupHost(
-                // Keep desktop feature popups inside the scene's paint plane.
-                // The screenshot selection layer remains above this overlay,
-                // so its frozen texture includes open menus while its controls
-                // paint and receive input above them.
-                child: ShellOverlayHost(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [scene.content, ...scene.overlays],
+        child: DesktopPetHoldPublisher(
+          child: ShellSecureStage(
+            useConfiguredLockAnimation: true,
+            scene: Stack(
+              fit: StackFit.expand,
+              children: [
+                ShellPopupHost(
+                  // Keep desktop feature popups inside the scene's paint plane.
+                  // The screenshot selection layer remains above this overlay,
+                  // so its frozen texture includes open menus while its controls
+                  // paint and receive input above them.
+                  child: ShellOverlayHost(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [scene.content, ...scene.overlays],
+                    ),
                   ),
                 ),
-              ),
-              const ScreenshotSelectionLayer(),
-            ],
+                const ScreenshotSelectionLayer(),
+              ],
+            ),
           ),
         ),
       ),

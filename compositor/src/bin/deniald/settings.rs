@@ -21,6 +21,7 @@ use smithay::input::keyboard::xkb;
 use tracing::warn;
 
 use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
+use denial_core::topology::OutputTransform;
 
 use super::window_layout::WindowLayoutKind;
 
@@ -602,6 +603,8 @@ impl From<serde_json::Error> for SettingsError {
 
 pub(super) struct SettingsManager {
     application_theming: Option<super::application_theming::ApplicationTheming>,
+    pub(super) rotation_lock_supported: bool,
+    pub(super) current_sensor_rotation: OutputTransform,
     path: PathBuf,
     document: Map<String, Value>,
     revision: u64,
@@ -631,6 +634,8 @@ impl SettingsManager {
                 Ok(parsed) => {
                     let mut manager = Self {
                         application_theming: None,
+                        rotation_lock_supported: false,
+                        current_sensor_rotation: OutputTransform::Normal,
                         path,
                         document: parsed.document,
                         revision: parsed.revision,
@@ -665,6 +670,8 @@ impl SettingsManager {
         ) = default_document();
         let mut manager = Self {
             application_theming: None,
+            rotation_lock_supported: false,
+            current_sensor_rotation: OutputTransform::Normal,
             path,
             document,
             revision,
@@ -739,9 +746,19 @@ impl SettingsManager {
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
-        let bytes = render_document(&self.document)?;
+        let mut document = self.document.clone();
+        document.insert(
+            "rotationLockSupported".to_owned(),
+            Value::Bool(self.rotation_lock_supported),
+        );
+        let bytes = render_document(&document)?;
         String::from_utf8(bytes)
             .map_err(|_| SettingsError::Document("settings JSON was not UTF-8".to_owned()))
+    }
+
+    /// The saved device rotation is independent of each panel's manual baseline.
+    pub(super) fn locked_sensor_rotation(&self) -> Option<OutputTransform> {
+        parse_rotation_lock(&self.document).ok().flatten()
     }
 
     pub(super) fn replace_invalid_keyboard_with_default(&mut self) {
@@ -777,6 +794,19 @@ impl SettingsManager {
                 "settings version {version} is not supported; expected {SETTINGS_SCHEMA_VERSION}"
             )));
         }
+
+        // A shell requests only enabled/disabled. The frozen orientation is
+        // captured from the applied native state, never from a sensor reading
+        // waiting to be applied or an untrusted shell-provided transform.
+        incoming.remove("rotationLockSupported");
+        // Older shell projections can omit this new section. Omission must
+        // not unlock a persisted policy during an unrelated preference save.
+        if !incoming.contains_key("rotationLock")
+            && let Some(policy) = self.document.get("rotationLock")
+        {
+            incoming.insert("rotationLock".to_owned(), policy.clone());
+        }
+        self.capture_rotation_lock(&mut incoming)?;
 
         // Native-owned fields can be echoed by Flutter but can never be
         // replaced through the shell-document request.
@@ -814,6 +844,28 @@ impl SettingsManager {
             color_scheme_preference,
             allow_client_cursor_surfaces,
         )
+    }
+
+    fn capture_rotation_lock(
+        &self,
+        document: &mut Map<String, Value>,
+    ) -> Result<(), SettingsError> {
+        let enabled = rotation_lock_enabled(document)?;
+        let rotation = if enabled {
+            self.locked_sensor_rotation()
+                .unwrap_or(self.current_sensor_rotation)
+        } else {
+            OutputTransform::Normal
+        };
+        document.insert(
+            "rotationLock".to_owned(),
+            serde_json::json!({
+                "enabled": enabled,
+                "orientation": rotation_degrees(rotation),
+            }),
+        );
+
+        Ok(())
     }
 
     pub(super) fn prepare_keyboard_update(
@@ -939,6 +991,10 @@ impl SettingsManager {
                 )
             }
         };
+        // Live editor changes have the same freeze-current semantics as a
+        // shell toggle. Only startup restores the persisted native orientation.
+        document.remove("rotationLockSupported");
+        self.capture_rotation_lock(&mut document)?;
         // Grammar validation is not enough for an external keymap edit. Do
         // the installed-XKB preflight before any live input state is changed.
         keyboard.compiled_layout_names()?;
@@ -1206,6 +1262,55 @@ impl Default for WorkspaceSettings {
     }
 }
 
+fn rotation_lock_enabled(document: &Map<String, Value>) -> Result<bool, SettingsError> {
+    let Some(value) = document.get("rotationLock") else {
+        return Ok(false);
+    };
+    let value = value
+        .as_object()
+        .ok_or_else(|| SettingsError::Document("rotationLock must be an object".to_owned()))?;
+    match value.get("enabled") {
+        None => Ok(false),
+        Some(Value::Bool(enabled)) => Ok(*enabled),
+        _ => Err(SettingsError::Document(
+            "rotationLock.enabled must be a boolean".to_owned(),
+        )),
+    }
+}
+
+fn rotation_degrees(rotation: OutputTransform) -> u16 {
+    match rotation {
+        OutputTransform::Rotate90 => 90,
+        OutputTransform::Rotate180 => 180,
+        OutputTransform::Rotate270 => 270,
+        _ => 0,
+    }
+}
+
+fn parse_rotation_lock(
+    document: &Map<String, Value>,
+) -> Result<Option<OutputTransform>, SettingsError> {
+    let enabled = rotation_lock_enabled(document)?;
+    let degrees = document
+        .get("rotationLock")
+        .and_then(|value| value.get("orientation"));
+    let rotation = match degrees {
+        None => OutputTransform::Normal,
+        Some(value) => match value.as_u64() {
+            Some(0) => OutputTransform::Normal,
+            Some(90) => OutputTransform::Rotate90,
+            Some(180) => OutputTransform::Rotate180,
+            Some(270) => OutputTransform::Rotate270,
+            _ => {
+                return Err(SettingsError::Document(
+                    "rotationLock.orientation must be 0, 90, 180 or 270".to_owned(),
+                ));
+            }
+        },
+    };
+    Ok(enabled.then_some(rotation))
+}
+
 fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError> {
     if bytes.len() > MAX_SETTINGS_BYTES {
         return Err(SettingsError::Document(format!(
@@ -1353,6 +1458,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("validated touchpad settings serialize"),
     );
+    parse_rotation_lock(&document)?;
     Ok(ParsedSettingsDocument {
         document,
         revision,

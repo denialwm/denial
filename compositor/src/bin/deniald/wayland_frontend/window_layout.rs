@@ -133,6 +133,26 @@ fn layout_frame_minimum_size(
     ))
 }
 
+// Maximum hints are client-content sizes too. Preserve zero as unconstrained.
+fn layout_frame_maximum_size(
+    maximum: Size<i32, Logical>,
+    server_side_decorated: bool,
+) -> Size<i32, Logical> {
+    let frame_extent = if server_side_decorated {
+        super::SHELL_FRAME_BORDER.saturating_mul(2)
+    } else {
+        0
+    };
+    let framed = |value: i32| {
+        if value > 0 {
+            value.saturating_add(frame_extent)
+        } else {
+            0
+        }
+    };
+    Size::from((framed(maximum.w), framed(maximum.h)))
+}
+
 impl WaylandFrontend {
     fn scrolling_layout_axis_for_output(&self, output: &super::WaylandOutput) -> LayoutAxis {
         scrolling_layout_axis(
@@ -169,19 +189,6 @@ impl WaylandFrontend {
     pub(super) fn window_is_scrolling_layout_managed(&self, window: &Window) -> bool {
         self.window_layout.kind() == WindowLayoutKind::Scrolling
             && self.window_is_layout_managed(window)
-    }
-
-    #[cfg(feature = "flutter")]
-    pub(super) fn scrolling_resize_axis_for_window(&self, window: &Window) -> Option<LayoutAxis> {
-        if self.window_layout.kind() != WindowLayoutKind::Scrolling {
-            return None;
-        }
-        let window_id = self.window_root_surface(window)?.id();
-        let space = self.window_layout.space_for(&window_id)?;
-        self.outputs
-            .iter()
-            .find(|output| output.id == space.output)
-            .map(|output| self.scrolling_layout_axis_for_output(output))
     }
 
     pub(super) fn window_is_layout_maximized(&self, window: &Window) -> bool {
@@ -643,7 +650,7 @@ impl WaylandFrontend {
         action: super::super::keyboard_resize::KeyboardResize,
     ) -> Vec<(Window, Rectangle<i32, Logical>)> {
         let step = self.settings.keyboard_resize_step();
-        self.refresh_layout_minimum_sizes();
+        self.refresh_layout_size_constraints();
         self.prepare_layout_arrangement();
         self.resize_layout_window_with(window, |layout, window, work_area, gap| {
             let (axis, change) = action.layout_change(work_area, step);
@@ -954,7 +961,9 @@ impl WaylandFrontend {
                 return true;
             }
             let minimum = self.layout_minimum_size(window);
-            if self.window_layout.update_minimum_size(&window_id, minimum) {
+            let maximum = self.layout_maximum_size(window);
+            let changed = self.window_layout.update_minimum_size(&window_id, minimum);
+            if self.window_layout.update_maximum_size(&window_id, maximum) || changed {
                 self.arrange_layout_windows();
                 return true;
             }
@@ -995,6 +1004,8 @@ impl WaylandFrontend {
         });
         let minimum = self.layout_minimum_size(window);
         self.window_layout.update_minimum_size(&window_id, minimum);
+        let maximum = self.layout_maximum_size(window);
+        self.window_layout.update_maximum_size(&window_id, maximum);
         if adopt_scrolling_maximize {
             self.adopt_scrolling_maximize(&window_id);
         }
@@ -1146,11 +1157,11 @@ impl WaylandFrontend {
             return false;
         }
         let ownership_changed = self.reconcile_layout_workspace_ownership();
-        let minimum_sizes_changed = self.refresh_layout_minimum_sizes();
+        let constraints_changed = self.refresh_layout_size_constraints();
         self.prepare_layout_arrangement();
         let placements = self.current_layout_placements();
 
-        let mut changed = minimum_sizes_changed || ownership_changed;
+        let mut changed = constraints_changed || ownership_changed;
         let mut changed_parents = Vec::new();
         for LayoutPlacement {
             window: window_id,
@@ -1208,7 +1219,16 @@ impl WaylandFrontend {
         layout_frame_minimum_size(minimum, server_side_decorated)
     }
 
-    fn refresh_layout_minimum_sizes(&mut self) -> bool {
+    fn layout_maximum_size(&self, window: &Window) -> Size<i32, Logical> {
+        let maximum = self.window_size_constraints(window).1;
+        #[cfg(feature = "flutter")]
+        let decorated = super::shell_draws_server_frame(window);
+        #[cfg(not(feature = "flutter"))]
+        let decorated = false;
+        layout_frame_maximum_size(maximum, decorated)
+    }
+
+    fn refresh_layout_size_constraints(&mut self) -> bool {
         let minimum_sizes = self
             .space
             .elements()
@@ -1216,14 +1236,17 @@ impl WaylandFrontend {
                 let window_id = self.window_root_surface(window)?.id();
                 self.window_layout.contains(&window_id).then(|| {
                     let minimum = self.layout_minimum_size(window);
-                    (window_id, minimum)
+                    (window_id, minimum, self.layout_maximum_size(window))
                 })
             })
             .collect::<Vec<_>>();
         minimum_sizes
             .into_iter()
-            .fold(false, |changed, (window, minimum)| {
-                self.window_layout.update_minimum_size(&window, minimum) || changed
+            .fold(false, |changed, (window, minimum, maximum)| {
+                let minimum_changed = self.window_layout.update_minimum_size(&window, minimum);
+                self.window_layout.update_maximum_size(&window, maximum)
+                    || minimum_changed
+                    || changed
             })
     }
 
@@ -1945,6 +1968,22 @@ mod tests {
                 LayoutDropMode::Swap,
             );
         }
+    }
+
+    #[test]
+    fn decorated_layout_maximum_preserves_unconstrained_dimensions() {
+        assert_eq!(
+            layout_frame_maximum_size(Size::from((800, 0)), true),
+            Size::from((802, 0))
+        );
+        assert_eq!(
+            layout_frame_maximum_size(Size::from((0, 600)), false),
+            Size::from((0, 600))
+        );
+        assert_eq!(
+            layout_frame_maximum_size(Size::from((i32::MAX, 0)), true),
+            Size::from((i32::MAX, 0))
+        );
     }
 
     #[test]

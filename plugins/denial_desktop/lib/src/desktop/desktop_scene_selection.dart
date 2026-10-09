@@ -44,6 +44,36 @@ class DesktopSceneWindows {
   int get hashCode => runtimeType.hashCode;
 }
 
+class DesktopSceneLayerSurfaces {
+  // A layer held by a window (denial-pet-v1) is drawn by that window's keyed
+  // held-layer slot, which selects the layer's current geometry and textures
+  // itself. Only which window holds it, and on which side, changes the scene
+  // structure, so moving a window with a held layer stays a keyed update.
+  const DesktopSceneLayerSurfaces(this.layerSurfaces);
+
+  final List<DenialWindow> layerSurfaces;
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! DesktopSceneLayerSurfaces) return false;
+    if (identical(other.layerSurfaces, layerSurfaces)) return true;
+    if (other.layerSurfaces.length != layerSurfaces.length) return false;
+    for (var index = 0; index < layerSurfaces.length; index += 1) {
+      final surface = layerSurfaces[index];
+      final otherSurface = other.layerSurfaces[index];
+      if (surface.isHeld && otherSurface.isHeld
+          ? !surface.hasSameStaticSceneRoleAs(otherSurface)
+          : surface != otherSurface) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => runtimeType.hashCode;
+}
+
 class DesktopSceneWorkspace {
   const DesktopSceneWorkspace(this.state);
 

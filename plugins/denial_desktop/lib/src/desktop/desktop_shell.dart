@@ -926,9 +926,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           ),
         )
         .windows;
-    final layerSurfaces = ref.watch(
-      referenceShellProvider.select((state) => state.layerSurfaces),
-    );
+    final layerSurfaces = ref
+        .watch(
+          referenceShellProvider.select(
+            (state) => DesktopSceneLayerSurfaces(state.layerSurfaces),
+          ),
+        )
+        .layerSurfaces;
     final animations = ref.watch(
       shellSettingsProvider.select((settings) => settings.animations),
     );
