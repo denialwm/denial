@@ -1476,7 +1476,11 @@ impl CompositorHandler for RuntimeState {
                     managed.flush_pending_resize();
                 }
                 #[cfg(feature = "flutter")]
-                if frontend.mobile_shell && frontend.exact_window_geometry(&window).is_none() {
+                if frontend.mobile_shell {
+                    // The initial xdg configure carries no size, so a client
+                    // may map with its own. Mobile geometry is the exact
+                    // target for every ordinary toplevel; reassert it here
+                    // (the configure itself is state-filtered).
                     frontend.configure_mobile_window(&window);
                 }
                 frontend.reconcile_committed_window_geometry(&window);
