@@ -606,6 +606,15 @@ impl Session<'_, '_> {
         Ok(true)
     }
 
+    /// The orientation sensor runs only while a panel that follows it is lit.
+    pub(super) fn synchronize_orientation_demand(&self) {
+        if let Some(sensor) = &self.orientation_sensor {
+            sensor.set_wanted(self.scanouts.iter().any(|scanout| {
+                scanout.powered && output_topology::orientation_sensor_output(&scanout.output.name)
+            }));
+        }
+    }
+
     pub(super) fn apply_pending_sensor_orientation(
         &mut self,
         now: Instant,

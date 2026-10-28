@@ -3,7 +3,12 @@
 //! D-Bus is deliberately isolated on a helper thread. The compositor receives
 //! only already-classified cardinal changes through calloop, so sensor service
 //! activation, reconnects and property reads can never delay a render tick.
+//!
+//! The claim is held only while a panel that follows the sensor is lit: with
+//! the screen off, steinerd stops the accelerometer and the DSP stops sending.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -78,26 +83,63 @@ pub(super) fn select_rotation(
 }
 
 pub(super) struct OrientationSensor {
+    demand: Arc<Demand>,
     _worker: JoinHandle<()>,
 }
 
 impl OrientationSensor {
     pub(super) fn start() -> Result<(Self, Channel<Orientation>), std::io::Error> {
         let (events, source) = channel();
+        let demand = Arc::new(Demand {
+            wanted: AtomicBool::new(true),
+            changed: crate::wakeup::Wakeup::new()?,
+        });
+        let worker_demand = Arc::clone(&demand);
         let worker = thread::Builder::new()
             .name("denial-orientation".to_owned())
             .spawn(move || {
                 crate::cpu_scheduling::normalize_current_worker("orientation");
-                monitor(events);
+                monitor(events, &worker_demand);
             })?;
-        Ok((Self { _worker: worker }, source))
+        Ok((
+            Self {
+                demand,
+                _worker: worker,
+            },
+            source,
+        ))
+    }
+
+    /// Whether a lit panel follows the sensor. The last reading stays applied
+    /// while the claim is released.
+    pub(super) fn set_wanted(&self, wanted: bool) {
+        if self.demand.wanted.swap(wanted, Ordering::AcqRel) != wanted {
+            self.demand.changed.wake();
+        }
     }
 }
 
-fn monitor(events: Sender<Orientation>) {
+struct Demand {
+    wanted: AtomicBool,
+    changed: crate::wakeup::Wakeup,
+}
+
+impl Demand {
+    fn wanted(&self) -> bool {
+        self.wanted.load(Ordering::Acquire)
+    }
+
+    fn wait_until_wanted(&self) {
+        while !self.wanted() {
+            future::block_on(self.changed.wait());
+        }
+    }
+}
+
+fn monitor(events: Sender<Orientation>, demand: &Demand) {
     let mut published = None;
     loop {
-        match monitor_bus(&events, &mut published) {
+        match monitor_bus(&events, &mut published, demand) {
             MonitorResult::Closed => return,
             MonitorResult::Disconnected(error) => {
                 if publish(&events, &mut published, Orientation::Undefined).is_err() {
@@ -119,17 +161,23 @@ enum SensorResult {
     Closed,
     Failed(String),
     OwnerChanged { present: bool },
+    Unwanted,
 }
 
 enum Wake<C, O> {
     Change(Option<C>),
     Owner(Option<O>),
+    Demand,
 }
 
 /// Follows the sensor for as long as one system bus connection lives. A
 /// missing or failed sensor service is never polled: the worker sleeps until
 /// steinerd gains a new owner, which also covers a later start.
-fn monitor_bus(events: &Sender<Orientation>, published: &mut Option<Orientation>) -> MonitorResult {
+fn monitor_bus(
+    events: &Sender<Orientation>,
+    published: &mut Option<Orientation>,
+    demand: &Demand,
+) -> MonitorResult {
     let connection = match crate::bus::blocking_system() {
         Ok(connection) => connection,
         Err(error) => return MonitorResult::Disconnected(error.to_string()),
@@ -145,8 +193,10 @@ fn monitor_bus(events: &Sender<Orientation>, published: &mut Option<Orientation>
         Err(error) => return MonitorResult::Disconnected(error.to_string()),
     };
     loop {
-        let present = match follow_sensor(&proxy, &mut owners, events, published) {
+        demand.wait_until_wanted();
+        let present = match follow_sensor(&proxy, &mut owners, events, published, demand) {
             SensorResult::Closed => return MonitorResult::Closed,
+            SensorResult::Unwanted => continue,
             SensorResult::Failed(error) => {
                 debug!(%error, "orientation sensor service is unavailable");
                 false
@@ -174,6 +224,7 @@ fn follow_sensor<O>(
     owners: &mut O,
     events: &Sender<Orientation>,
     published: &mut Option<Orientation>,
+    demand: &Demand,
 ) -> SensorResult
 where
     O: futures_lite::Stream<Item = Option<zbus::names::UniqueName<'static>>> + Unpin,
@@ -208,11 +259,17 @@ where
     }
 
     let result = loop {
-        let wake = future::block_on(future::race(
-            async { Wake::Change(changes.next().await) },
-            async { Wake::Owner(owners.next().await) },
-        ));
+        let sensor = future::race(async { Wake::Change(changes.next().await) }, async {
+            Wake::Owner(owners.next().await)
+        });
+        let demand_changed = async {
+            demand.changed.wait().await;
+            Wake::Demand
+        };
+        let wake = future::block_on(future::or(demand_changed, sensor));
         let change = match wake {
+            Wake::Demand if demand.wanted() => continue,
+            Wake::Demand => break SensorResult::Unwanted,
             Wake::Change(Some(change)) => change,
             Wake::Change(None) => {
                 break SensorResult::Failed("orientation sensor signal stream ended".to_owned());

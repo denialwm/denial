@@ -275,6 +275,7 @@ struct Session<'a, 'event_loop> {
     pending_output_confirmation_success: VecDeque<PendingOutputConfirmation>,
     active_output_confirmation: Option<ActiveOutputConfirmation>,
     pending_sensor_rotation: OutputTransform,
+    orientation_sensor: Option<orientation_sensor::OrientationSensor>,
     outputs_disconnected: bool,
     deadline: Option<Instant>,
     frame_limit: Option<u64>,
@@ -480,6 +481,7 @@ impl Session<'_, '_> {
                 continue;
             }
             self.apply_pending_sensor_orientation(iteration_now)?;
+            self.synchronize_orientation_demand();
             self.apply_pending_lid_position();
             self.expire_output_confirmation(iteration_now);
             let current_output_snapshot = self.publish_output_control_updates()?;
@@ -942,7 +944,7 @@ pub(super) fn run_flutter_event_loop(
     if let Err(error) = settings_watch::install(&event_loop.handle(), &settings_path) {
         warn!(%error, path = %settings_path.display(), "could not watch Denial settings for external edits");
     }
-    let _orientation_sensor = services::start_orientation_sensor(event_loop)?;
+    let orientation_sensor = services::start_orientation_sensor(event_loop)?;
     events.text_prediction = services::start_text_prediction(event_loop)?;
     let (volition_wake, volition_wake_source) = make_ping()?;
     // Queued Volition records are acknowledged at the top of each iteration.
@@ -1024,6 +1026,7 @@ pub(super) fn run_flutter_event_loop(
         pending_output_confirmation_success: VecDeque::new(),
         active_output_confirmation: None,
         pending_sensor_rotation,
+        orientation_sensor,
         outputs_disconnected: false,
         deadline,
         frame_limit,

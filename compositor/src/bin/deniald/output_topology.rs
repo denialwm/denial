@@ -134,7 +134,7 @@ impl RuntimeOutputConfiguration {
     }
 }
 
-fn orientation_sensor_output(name: &str) -> bool {
+pub(super) fn orientation_sensor_output(name: &str) -> bool {
     output_policy::is_internal_panel(name)
 }
 
