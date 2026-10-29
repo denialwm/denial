@@ -981,6 +981,7 @@ impl OpenGlHandler for FlutterGlHandler {
             );
             return false;
         }
+        let prepared = self.grade_external_texture(prepared);
         let lease =
             self.lease_external_texture(texture_id, prepared.source_generation, prepared.resource);
         *texture = sys::FlutterOpenGLTexture {

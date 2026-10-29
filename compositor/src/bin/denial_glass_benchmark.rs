@@ -302,8 +302,15 @@ impl ScanoutCopy {
             .lock()
             .unwrap()
             .ok_or("worker scanout copy shader was not prepared")?;
-        desktop_gl::copy_to_scanout(self.gl, texture, framebuffer, size, shader, None)
-            .map_err(|error| format!("worker scanout shader copy failed: {error:#x}").into())
+        desktop_gl::copy_to_scanout(
+            self.gl,
+            texture,
+            framebuffer,
+            size,
+            shader,
+            desktop_gl::CopyColor::default(),
+        )
+        .map_err(|error| format!("worker scanout shader copy failed: {error:#x}").into())
     }
 }
 

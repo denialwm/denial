@@ -135,6 +135,11 @@ enum Command {
     Color,
     ColorCorrection(Option<bool>),
     ColorLut(Option<Option<PathBuf>>),
+    AppLuts,
+    AppLut {
+        app_id: String,
+        path: Option<PathBuf>,
+    },
     UiStatus,
     UiSetup(Option<PathBuf>),
     UiWorkspace(PathBuf),
@@ -224,6 +229,15 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
             Ok(Command::ColorLut(Some(Some(PathBuf::from(&arguments[3])))))
         }
         ["color", "lut", "clear"] => Ok(Command::ColorLut(Some(None))),
+        ["color", "apps"] => Ok(Command::AppLuts),
+        ["color", "app", app_id, "lut", "load", _] => Ok(Command::AppLut {
+            app_id: (*app_id).to_owned(),
+            path: Some(PathBuf::from(&arguments[5])),
+        }),
+        ["color", "app", app_id, "lut", "clear"] => Ok(Command::AppLut {
+            app_id: (*app_id).to_owned(),
+            path: None,
+        }),
         ["color", "correction"] | ["color", "correction", "status"] => {
             Ok(Command::ColorCorrection(None))
         }
@@ -301,14 +315,42 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
         Command::Color => {
             let correction = client.request("color.correction.get", Value::Null)?;
             let lut = client.request("color.lut.get", Value::Null)?;
+            let apps = client.request("color.app.lut.get", Value::Null)?;
             if options.json {
                 print_json(&json!({
                     "correction": correction.result,
                     "lut": lut.result["lut"],
+                    "apps": apps.result["apps"],
                 }))?;
             } else {
                 print_color_correction(&correction.result);
                 print_desktop_lut(&lut.result);
+                print_app_luts(&apps.result);
+            }
+        }
+        Command::AppLuts => {
+            let response = client.request("color.app.lut.get", Value::Null)?;
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_app_luts(&response.result);
+            }
+        }
+        Command::AppLut { app_id, path } => {
+            let response = match path {
+                Some(path) => {
+                    let path = fs::canonicalize(path).map_err(CliError::io)?;
+                    client.request(
+                        "color.app.lut.load",
+                        json!({"app_id": app_id, "path": path}),
+                    )?
+                }
+                None => client.request("color.app.lut.clear", json!({"app_id": app_id}))?,
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_app_luts(&response.result);
             }
         }
         Command::ColorLut(change) => {
@@ -1556,6 +1598,29 @@ fn print_desktop_lut(result: &Value) {
     }
 }
 
+fn print_app_luts(result: &Value) {
+    let apps = result["apps"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if apps.is_empty() {
+        println!("app LUTs: none");
+    }
+    for app in apps {
+        let size = app["size"].as_u64().unwrap_or_default();
+        match app["title"].as_str() {
+            Some(title) => println!(
+                "app LUT: {} {title} ({size}³)",
+                app["app_id"].as_str().unwrap_or("?")
+            ),
+            None => println!(
+                "app LUT: {} ({size}³)",
+                app["app_id"].as_str().unwrap_or("?")
+            ),
+        }
+    }
+}
+
 fn print_help() {
     println!(
         "\
@@ -1568,6 +1633,9 @@ Commands:
   color correction [on|off]      Show or switch each display's gamut correction
   color lut load FILE            Grade the desktop with a .cube 3D LUT
   color lut clear                Remove the desktop LUT
+  color apps                     List the apps graded with their own LUT
+  color app APP_ID lut load FILE Grade one app's windows with a .cube LUT
+  color app APP_ID lut clear     Remove an app's LUT
   ui status                      Show detailed Flutter runtime state
   ui setup [PATH]                Create, prepare and start an editable Denial UI
   ui workspace PATH              Select a Flutter source workspace

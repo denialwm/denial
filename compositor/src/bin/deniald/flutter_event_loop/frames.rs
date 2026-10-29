@@ -155,6 +155,12 @@ impl Session<'_, '_> {
         if std::mem::take(&mut events.control.repaint_outputs) {
             frame_scheduler.mark_all_dirty();
         }
+        for app_id in std::mem::take(&mut events.control.repaint_apps) {
+            let textures = flutter.app_texture_ids(&app_id);
+            for scanout in scanouts.iter() {
+                frame_scheduler.mark_app_dirty(scanout.output.id, textures.iter().copied());
+            }
+        }
         let runtime = &mut **flutter;
         scheduler.handle_completions(
             runtime,

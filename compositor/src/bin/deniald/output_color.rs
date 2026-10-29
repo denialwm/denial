@@ -3,6 +3,7 @@
 
 use super::{DrmDeviceFd, OutputId};
 use smithay::reexports::drm::control::{Device, connector};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -30,10 +31,12 @@ pub(super) fn set_correction(enabled: bool) {
     CORRECTION.store(enabled, Ordering::Relaxed);
 }
 
-/// A desktop look: a 3D LUT applied to the sRGB scene before any display
-/// correction, so it reads the same on every display and never in captures.
+/// A look: a 3D LUT over sRGB-encoded color. The desktop look grades the
+/// whole scene before any display correction, so it reads the same on every
+/// display and never in captures; an app look grades one app's windows and
+/// is part of the scene.
 #[derive(Debug, PartialEq)]
-pub(super) struct DesktopLut {
+pub(super) struct Lut {
     pub(super) size: usize,
     pub(super) title: Option<String>,
     /// RGBA texels, red fastest, then green, then blue (the `.cube` order).
@@ -42,7 +45,7 @@ pub(super) struct DesktopLut {
 
 const LARGEST_LUT: usize = 65;
 
-static DESKTOP_LUT: Mutex<Option<Arc<DesktopLut>>> = Mutex::new(None);
+static DESKTOP_LUT: Mutex<Option<Arc<Lut>>> = Mutex::new(None);
 /// Bumped on every change; zero means no look was ever loaded.
 static DESKTOP_LUT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -50,20 +53,58 @@ pub(super) fn desktop_lut_generation() -> u64 {
     DESKTOP_LUT_GENERATION.load(Ordering::Acquire)
 }
 
-pub(super) fn desktop_lut() -> Option<Arc<DesktopLut>> {
+pub(super) fn desktop_lut() -> Option<Arc<Lut>> {
     DESKTOP_LUT
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
 }
 
-pub(super) fn set_desktop_lut(lut: Option<DesktopLut>) {
+pub(super) fn set_desktop_lut(lut: Option<Lut>) {
     *DESKTOP_LUT.lock().unwrap_or_else(PoisonError::into_inner) = lut.map(Arc::new);
     DESKTOP_LUT_GENERATION.fetch_add(1, Ordering::AcqRel);
 }
 
+static APP_LUTS: Mutex<BTreeMap<String, Arc<Lut>>> = Mutex::new(BTreeMap::new());
+static APP_LUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether any app has a look: lets every other texture skip the lookup.
+pub(super) fn app_luts_active() -> bool {
+    APP_LUTS_ACTIVE.load(Ordering::Acquire)
+}
+
+pub(super) fn app_lut(app_id: &str) -> Option<Arc<Lut>> {
+    APP_LUTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(app_id)
+        .cloned()
+}
+
+pub(super) fn app_luts() -> Vec<(String, Arc<Lut>)> {
+    APP_LUTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|(app_id, lut)| (app_id.clone(), Arc::clone(lut)))
+        .collect()
+}
+
+pub(super) fn set_app_lut(app_id: &str, lut: Option<Lut>) {
+    let mut luts = APP_LUTS.lock().unwrap_or_else(PoisonError::into_inner);
+    match lut {
+        Some(lut) => {
+            luts.insert(app_id.to_owned(), Arc::new(lut));
+        }
+        None => {
+            luts.remove(app_id);
+        }
+    }
+    APP_LUTS_ACTIVE.store(!luts.is_empty(), Ordering::Release);
+}
+
 /// Parse an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain.
-pub(super) fn parse_cube(text: &str) -> Result<DesktopLut, String> {
+pub(super) fn parse_cube(text: &str) -> Result<Lut, String> {
     let mut size = None;
     let mut title = None;
     let mut texels = Vec::new();
@@ -119,7 +160,7 @@ pub(super) fn parse_cube(text: &str) -> Result<DesktopLut, String> {
             texels.len() / 4
         ));
     }
-    Ok(DesktopLut {
+    Ok(Lut {
         size,
         title: title.filter(|title| !title.is_empty()),
         texels,

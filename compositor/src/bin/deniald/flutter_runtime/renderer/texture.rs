@@ -110,12 +110,18 @@ pub(in crate::flutter_runtime) enum ExternalTextureLeaseResource {
         _binding: Arc<CachedTextureBinding>,
         _resource_permit: ExternalTextureResourcePermit,
     },
+    /// An app look's copy of the source, which stays leased beside it.
+    Graded {
+        _source: Box<ExternalTextureLeaseResource>,
+        _graded: Arc<CachedTextureBinding>,
+    },
 }
 
 impl ExternalTextureLeaseResource {
     fn binding(&self) -> Arc<CachedTextureBinding> {
         match self {
             Self::Dmabuf { _binding, .. } | Self::Shm { _binding, .. } => Arc::clone(_binding),
+            Self::Graded { _graded, .. } => Arc::clone(_graded),
         }
     }
 
@@ -123,6 +129,7 @@ impl ExternalTextureLeaseResource {
         match self {
             Self::Dmabuf { _buffer_guard, .. } => _buffer_guard.take(),
             Self::Shm { .. } => None,
+            Self::Graded { _source, .. } => _source.take_buffer_guard(),
         }
     }
 }

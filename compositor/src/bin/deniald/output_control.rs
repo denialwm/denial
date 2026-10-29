@@ -729,6 +729,8 @@ pub(super) enum ControlEvent {
     RepaintOutputs,
     /// Output pools must be rebuilt for the same displays.
     RebuildOutputs,
+    /// An app's look changed: its windows are sampled again.
+    RepaintApp(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -758,6 +760,22 @@ struct ColorLutParams {
     path: PathBuf,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppLutParams {
+    app_id: String,
+    #[serde(default)]
+    path: Option<PathBuf>,
+}
+
+fn app_luts_state() -> Value {
+    let apps = super::output_color::app_luts()
+        .into_iter()
+        .map(|(app_id, lut)| json!({"app_id": app_id, "size": lut.size, "title": lut.title}))
+        .collect::<Vec<_>>();
+    json!({"apps": apps})
+}
+
 /// The largest `.cube` file read: a 65³ LUT in plain decimals.
 const MAX_CUBE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -768,10 +786,7 @@ fn desktop_lut_state() -> Value {
 
 /// Gaining or losing a look rebuilds the output pools, so every output
 /// renders off-screen exactly while one is loaded; swapping looks repaints.
-fn change_desktop_lut(
-    lut: Option<super::output_color::DesktopLut>,
-    events: &SyncSender<ControlEvent>,
-) {
+fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender<ControlEvent>) {
     let had_look = super::output_color::desktop_lut().is_some();
     let has_look = lut.is_some();
     super::output_color::set_desktop_lut(lut);
@@ -784,9 +799,7 @@ fn change_desktop_lut(
     let _ = events.try_send(event);
 }
 
-fn load_desktop_lut(
-    path: &Path,
-) -> Result<super::output_color::DesktopLut, (&'static str, String)> {
+fn load_cube(path: &Path) -> Result<super::output_color::Lut, (&'static str, String)> {
     let file =
         fs::File::open(path).map_err(|error| ("io", format!("{}: {error}", path.display())))?;
     let mut text = String::new();
@@ -1226,8 +1239,38 @@ fn handle_connection(
             json!({"enabled": super::output_color::correction_enabled()}),
         ),
         "color.lut.get" => success_response(request.id, desktop_lut_state()),
+        "color.app.lut.get" => success_response(request.id, app_luts_state()),
+        "color.app.lut.load" | "color.app.lut.clear" => {
+            match serde_json::from_value::<AppLutParams>(request.params) {
+                Ok(AppLutParams { app_id, .. }) if app_id.is_empty() => {
+                    error_response(Some(request.id), "invalid_params", "app_id is empty")
+                }
+                Ok(AppLutParams { app_id, path }) => {
+                    let lut = match (request.method.as_str(), path) {
+                        ("color.app.lut.load", Some(path)) => match load_cube(&path) {
+                            Ok(lut) => Ok(Some(lut)),
+                            Err(error) => Err(error),
+                        },
+                        ("color.app.lut.load", None) => {
+                            Err(("invalid_params", "path is required".to_owned()))
+                        }
+                        _ => Ok(None),
+                    };
+                    match lut {
+                        Ok(lut) => {
+                            super::output_color::set_app_lut(&app_id, lut);
+                            // A full queue already holds work that draws a new frame.
+                            let _ = events.try_send(ControlEvent::RepaintApp(app_id));
+                            success_response(request.id, app_luts_state())
+                        }
+                        Err((code, message)) => error_response(Some(request.id), code, message),
+                    }
+                }
+                Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+            }
+        }
         "color.lut.load" => match serde_json::from_value::<ColorLutParams>(request.params) {
-            Ok(params) => match load_desktop_lut(&params.path) {
+            Ok(params) => match load_cube(&params.path) {
                 Ok(lut) => {
                     change_desktop_lut(Some(lut), events);
                     success_response(request.id, desktop_lut_state())

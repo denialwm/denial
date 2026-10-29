@@ -17,9 +17,9 @@ pub(super) mod native_window;
 pub(super) mod native_window_gl;
 
 use gl_resources::{
-    ContextBinding, GlApi, GlTarget, ShaderBlit, copy_to_scanout, create_shader_blit,
-    destroy_depth_stencils, destroy_shader_blit, destroy_targets, render_view,
-    replace_desktop_look,
+    ContextBinding, CopyColor, GlApi, GlTarget, ShaderBlit, copy_to_scanout, create_look_texture,
+    create_shader_blit, delete_look_texture, destroy_depth_stencils, destroy_shader_blit,
+    destroy_targets, render_view, replace_desktop_look,
 };
 use gpu_timing::GpuTimingState;
 pub(crate) use output_projection::{OutputGeometryTransition, OutputRotationAdvance};

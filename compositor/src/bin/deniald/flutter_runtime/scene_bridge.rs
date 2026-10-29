@@ -26,7 +26,28 @@ fn defer_native_texture_retirement(
     });
 }
 
+/// Every texture a window draws (its own, its client's, its surfaces and
+/// popups) under the window's app id, for app looks.
+fn texture_apps(windows: &[wire::WindowDescription]) -> HashMap<i64, Arc<str>> {
+    let mut apps = HashMap::new();
+    for window in windows.iter().filter(|window| !window.app_id.is_empty()) {
+        let app: Arc<str> = Arc::from(window.app_id.as_str());
+        let textures = std::iter::once(window.texture_id)
+            .chain(window.client_texture.map(|client| client.texture_id))
+            .chain(window.surfaces.iter().map(|surface| surface.texture_id));
+        for texture_id in textures.filter(|texture_id| *texture_id > 0) {
+            apps.insert(texture_id as i64, Arc::clone(&app));
+        }
+    }
+    apps
+}
+
 impl FlutterRuntime {
+    /// The textures of an app's windows, to sample again after its look changes.
+    pub(crate) fn app_texture_ids(&self, app_id: &str) -> Vec<i64> {
+        self.handler.app_texture_ids(app_id)
+    }
+
     pub(crate) fn published_window_descriptions(&self) -> &[wire::WindowDescription] {
         self.wire.window_descriptions()
     }
@@ -123,6 +144,8 @@ impl FlutterRuntime {
             (changed, recycled_windows)
         };
         if window_snapshot_changed {
+            self.handler
+                .set_texture_apps(texture_apps(self.wire.window_descriptions()));
             let next_windows = window_texture_map(self.wire.window_descriptions());
             let retired = self
                 .window_close_texture_leases

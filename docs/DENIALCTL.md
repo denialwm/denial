@@ -134,6 +134,15 @@ denialctl color lut clear
 denialctl color
 ```
 
+Grade one app instead, by its app ID. Unlike the desktop LUT this is part of the
+picture, so screenshots and recordings include it:
+
+```sh
+denialctl color app org.mozilla.firefox lut load ~/luts/warm.cube
+denialctl color apps
+denialctl color app org.mozilla.firefox lut clear
+```
+
 ## Machine-readable output
 
 Every read and action command supports `--json`:

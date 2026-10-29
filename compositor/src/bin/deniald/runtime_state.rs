@@ -17,6 +17,8 @@ pub(super) struct ControlRequests {
     pub(super) ui_development: VecDeque<PendingUiDevelopment>,
     /// Every output draws a new frame on the next pass.
     pub(super) repaint_outputs: bool,
+    /// Apps whose windows are sampled again on the next pass.
+    pub(super) repaint_apps: Vec<String>,
 }
 
 /// Window events on their way to Flutter, and the windows its scene knows.
@@ -193,6 +195,7 @@ impl RuntimeState {
             ControlEvent::SoftwareDimming(request) => control.software_dimming.push_back(request),
             ControlEvent::UiDevelopment(request) => control.ui_development.push_back(request),
             ControlEvent::RepaintOutputs => control.repaint_outputs = true,
+            ControlEvent::RepaintApp(app_id) => control.repaint_apps.push(app_id),
             ControlEvent::RebuildOutputs => {
                 info!("rebuilding output pools for a display color change");
                 self.kms_reconfigure_requested = true;

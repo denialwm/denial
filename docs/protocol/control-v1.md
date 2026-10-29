@@ -476,6 +476,15 @@ off-screen while a LUT is loaded, so loading the first LUT or clearing it
 rebuilds the output pools; replacing one LUT with another only repaints. The LUT
 lasts until the compositor restarts.
 
+An app LUT grades one app's windows, popups and subsurfaces, matched by app ID,
+and unlike the desktop LUT it is part of the composed image, so screenshots and
+screen capture include it. `color.app.lut.load` takes
+`{"app_id":"org.example.App","path":"/abs/look.cube"}` and `color.app.lut.clear`
+takes `{"app_id":"org.example.App"}`. Both, and `color.app.lut.get`, answer
+`{"apps":[{"app_id":"org.example.App","size":33,"title":"Warm"}]}`. Each window
+is graded once per buffer it commits. App LUTs last until the compositor
+restarts.
+
 ### Plugin action shortcut targets
 
 `settings.shortcuts.get` also returns `plugin_actions` (an array of
