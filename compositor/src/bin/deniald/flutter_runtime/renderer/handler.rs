@@ -381,8 +381,11 @@ impl FlutterGlHandler {
                             "offscreen blit target is missing its linear render DMA-BUF".into()
                         );
                     };
+                    // The scene matches scanout, or is half float for an HDR
+                    // output whose copy encodes PQ.
                     let render_format = AllocatorBuffer::format(render_dmabuf);
-                    if render_format.code != scanout_format.code
+                    if (render_format.code != scanout_format.code
+                        && render_format.code != Fourcc::Abgr16161616f)
                         || render_format.modifier != Modifier::Linear
                     {
                         let mut failed = vec![target];

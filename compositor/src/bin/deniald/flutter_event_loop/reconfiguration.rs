@@ -260,6 +260,16 @@ impl Session<'_, '_> {
             flutter_launcher: Some(&mut *self.flutter_launcher),
         });
         if let Err(error) = topology_apply {
+            if kms_reconfigure_requested
+                && self.flutter.is_running()
+                && crate::output_color::clear_hdr_requests()
+            {
+                // The rollback kept the old pools; build them again in SDR.
+                warn!(%error, "could not show HDR; returning every display to SDR");
+                self.events.kms_reconfigure_requested = true;
+                self.events.topology_dirty = true;
+                return Ok(());
+            }
             if scanout_rebased && self.flutter.is_running() {
                 // A monitor may still be link-training after the synchronous
                 // recovery baseline. Keep the login alive and retry a fresh scan.

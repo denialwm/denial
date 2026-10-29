@@ -82,6 +82,14 @@ pub(super) fn hdr_request(output: &str) -> Option<f64> {
         .copied()
 }
 
+/// Forgets every HDR request; true when there was one.
+pub(super) fn clear_hdr_requests() -> bool {
+    let mut requests = HDR_REQUESTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let any = !requests.is_empty();
+    requests.clear();
+    any
+}
+
 pub(super) fn set_hdr_request(output: &str, white: Option<f64>) {
     let mut requests = HDR_REQUESTS.lock().unwrap_or_else(PoisonError::into_inner);
     match white {
