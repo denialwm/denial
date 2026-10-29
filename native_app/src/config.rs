@@ -152,6 +152,7 @@ impl Config {
             runtime: DartRuntimeMode::Aot,
             aot_library: Some(bundle.join("lib/libapp.so")),
             resource_cache_max_bytes_threshold: 64 * 1024 * 1024,
+            float_color: false,
         };
         for path in [
             &project.assets,
