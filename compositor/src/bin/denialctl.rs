@@ -132,6 +132,7 @@ enum Command {
     Version,
     Status,
     Outputs,
+    ColorCorrection(Option<bool>),
     UiStatus,
     UiSetup(Option<PathBuf>),
     UiWorkspace(PathBuf),
@@ -215,6 +216,10 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["version"] => Ok(Command::Version),
         ["status"] => Ok(Command::Status),
         ["outputs"] | ["output", "status"] => Ok(Command::Outputs),
+        ["color", "correction"] | ["color", "correction", "status"] => {
+            Ok(Command::ColorCorrection(None))
+        }
+        ["color", "correction", value] => Ok(Command::ColorCorrection(Some(parse_switch(value)?))),
         ["ui"] | ["ui", "status"] => Ok(Command::UiStatus),
         ["ui", "setup"] => Ok(Command::UiSetup(None)),
         ["ui", "setup", _] => Ok(Command::UiSetup(Some(PathBuf::from(&arguments[2])))),
@@ -283,6 +288,20 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 print_json(&response.result)?;
             } else {
                 print_outputs(&decode_output_state(&response.result)?);
+            }
+        }
+        Command::ColorCorrection(enabled) => {
+            let response = match enabled {
+                Some(enabled) => {
+                    client.request("color.correction.set", json!({"enabled": enabled}))?
+                }
+                None => client.request("color.correction.get", Value::Null)?,
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                let enabled = response.result["enabled"].as_bool().unwrap_or(false);
+                println!("color correction: {}", if enabled { "on" } else { "off" });
             }
         }
         Command::UiStatus => {
@@ -1494,6 +1513,7 @@ Usage: denialctl [--json] [--no-wait] [--socket PATH] COMMAND
 Commands:
   status                         Show compositor, Flutter UI and output status
   outputs                        List the current output state
+  color correction [on|off]      Show or switch each display's gamut correction
   ui status                      Show detailed Flutter runtime state
   ui setup [PATH]                Create, prepare and start an editable Denial UI
   ui workspace PATH              Select a Flutter source workspace

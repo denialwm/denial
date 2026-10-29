@@ -725,6 +725,8 @@ pub(super) enum ControlEvent {
     SystemControl(PendingSystemControl),
     SoftwareDimming(PendingSoftwareDimming),
     UiDevelopment(PendingUiDevelopment),
+    /// Something every output shows changed outside the scene.
+    RepaintOutputs,
 }
 
 #[derive(Debug, Deserialize)]
@@ -740,6 +742,12 @@ struct RequestEnvelope {
 #[serde(deny_unknown_fields)]
 struct UiWorkspaceParams {
     path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ColorCorrectionParams {
+    enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1160,6 +1168,21 @@ fn handle_connection(
     let response = match request.method.as_str() {
         "outputs.get" => success_response(request.id, publisher.snapshot()),
         "wallpaper.status" => success_response(request.id, publisher.wallpaper_status()),
+        "color.correction.get" => success_response(
+            request.id,
+            json!({"enabled": super::output_color::correction_enabled()}),
+        ),
+        "color.correction.set" => {
+            match serde_json::from_value::<ColorCorrectionParams>(request.params) {
+                Ok(params) => {
+                    super::output_color::set_correction(params.enabled);
+                    // A full queue already holds work that draws a new frame.
+                    let _ = events.try_send(ControlEvent::RepaintOutputs);
+                    success_response(request.id, json!({"enabled": params.enabled}))
+                }
+                Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+            }
+        }
         "denial.version" => success_response(
             request.id,
             json!({

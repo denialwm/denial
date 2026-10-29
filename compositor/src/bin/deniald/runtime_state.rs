@@ -15,6 +15,8 @@ pub(super) struct ControlRequests {
     pub(super) system_waits: VecDeque<PendingSystemControlWait>,
     pub(super) software_dimming: VecDeque<PendingSoftwareDimming>,
     pub(super) ui_development: VecDeque<PendingUiDevelopment>,
+    /// Every output draws a new frame on the next pass.
+    pub(super) repaint_outputs: bool,
 }
 
 /// Window events on their way to Flutter, and the windows its scene knows.
@@ -190,6 +192,7 @@ impl RuntimeState {
             ControlEvent::SystemControl(request) => control.system.push_back(request),
             ControlEvent::SoftwareDimming(request) => control.software_dimming.push_back(request),
             ControlEvent::UiDevelopment(request) => control.ui_development.push_back(request),
+            ControlEvent::RepaintOutputs => control.repaint_outputs = true,
             ControlEvent::Shell(request) => {
                 let result = if self.secure_session_locked() {
                     Err(OutputControlFailure::new(

@@ -152,6 +152,9 @@ impl Session<'_, '_> {
             frame_scheduler.mark_all_dirty();
             wayland_frontend::reset_all_input_devices(events);
         }
+        if std::mem::take(&mut events.control.repaint_outputs) {
+            frame_scheduler.mark_all_dirty();
+        }
         let runtime = &mut **flutter;
         scheduler.handle_completions(
             runtime,

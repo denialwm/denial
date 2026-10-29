@@ -1098,7 +1098,9 @@ impl FlutterGlHandler {
             target.scanout_framebuffer,
             target.size,
             shader_blit,
-            target.gamut,
+            target
+                .gamut
+                .filter(|_| crate::output_color::correction_enabled()),
         ) {
             error!(
                 framebuffer = render_framebuffer,

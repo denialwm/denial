@@ -458,6 +458,15 @@ as a fallback. An unsupported method or failed query means unknown status, never
 output as its saved wallpaper preview. Appearance polls every three seconds;
 leaving the page disposes the subscription.
 
+## Color correction
+
+Displays whose EDID primaries differ from sRGB show the sRGB scene converted to
+their own gamut. Screenshots and screen capture read the scene before that
+conversion. `color.correction.get` returns `{"enabled":true}`;
+`color.correction.set` takes `{"enabled":false}` to show every display's own
+response instead, answers with the new state and repaints every output. The
+switch lasts until the compositor restarts.
+
 ### Plugin action shortcut targets
 
 `settings.shortcuts.get` also returns `plugin_actions` (an array of

@@ -3,6 +3,7 @@
 
 use super::{DrmDeviceFd, OutputId};
 use smithay::reexports::drm::control::{Device, connector};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type Matrix = [[f64; 3]; 3];
 type Xy = (f64, f64);
@@ -15,6 +16,17 @@ const SRGB_TOLERANCE: f64 = 0.004;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OutputColor {
     pub(super) matrix: [f32; 9],
+}
+
+/// Off shows every display's own response, to compare it with the correction.
+static CORRECTION: AtomicBool = AtomicBool::new(true);
+
+pub(super) fn correction_enabled() -> bool {
+    CORRECTION.load(Ordering::Relaxed)
+}
+
+pub(super) fn set_correction(enabled: bool) {
+    CORRECTION.store(enabled, Ordering::Relaxed);
 }
 
 /// Read the output's EDID and return its correction, if it needs one.

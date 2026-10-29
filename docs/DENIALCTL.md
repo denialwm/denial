@@ -113,6 +113,17 @@ first `denialctl` version intentionally inspects that state but does not
 provide a partial per-field mutation syntax which could bypass the existing
 all-output validation and rollback model.
 
+## Color correction
+
+Show whether displays get their gamut correction, or switch it off and on to
+compare. Screenshots never include it:
+
+```sh
+denialctl color correction
+denialctl color correction off
+denialctl color correction on
+```
+
 ## Machine-readable output
 
 Every read and action command supports `--json`:
