@@ -1025,10 +1025,11 @@ impl OutputSwapchains {
                 .transfer
                 .as_ref()
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
-            // A corrected output renders off-screen; the copy to scanout
-            // converts it, and captures read the uncorrected scene.
+            // A corrected or graded output renders off-screen; the copy to
+            // scanout converts it, and captures read the untouched scene.
             let color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
-            let linear_render_targets = linear_render_targets || color.is_some();
+            let desktop_look = super::output_color::desktop_lut().is_some();
+            let linear_render_targets = linear_render_targets || color.is_some() || desktop_look;
             let formats = compatible_scanout_formats(
                 &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
@@ -1074,6 +1075,7 @@ impl OutputSwapchains {
                             output = %scanout.output.name,
                             format = ?format.code,
                             gamut_correction = color.is_some(),
+                            desktop_look,
                             "allocated output pool"
                         );
                         buffers = Some(pool);

@@ -727,6 +727,8 @@ pub(super) enum ControlEvent {
     UiDevelopment(PendingUiDevelopment),
     /// Something every output shows changed outside the scene.
     RepaintOutputs,
+    /// Output pools must be rebuilt for the same displays.
+    RebuildOutputs,
 }
 
 #[derive(Debug, Deserialize)]
@@ -762,6 +764,24 @@ const MAX_CUBE_BYTES: u64 = 16 * 1024 * 1024;
 fn desktop_lut_state() -> Value {
     let lut = super::output_color::desktop_lut();
     json!({"lut": lut.map(|lut| json!({"size": lut.size, "title": lut.title}))})
+}
+
+/// Gaining or losing a look rebuilds the output pools, so every output
+/// renders off-screen exactly while one is loaded; swapping looks repaints.
+fn change_desktop_lut(
+    lut: Option<super::output_color::DesktopLut>,
+    events: &SyncSender<ControlEvent>,
+) {
+    let had_look = super::output_color::desktop_lut().is_some();
+    let has_look = lut.is_some();
+    super::output_color::set_desktop_lut(lut);
+    let event = if had_look == has_look {
+        ControlEvent::RepaintOutputs
+    } else {
+        ControlEvent::RebuildOutputs
+    };
+    // A full queue already holds work that draws a new frame.
+    let _ = events.try_send(event);
 }
 
 fn load_desktop_lut(
@@ -1209,8 +1229,7 @@ fn handle_connection(
         "color.lut.load" => match serde_json::from_value::<ColorLutParams>(request.params) {
             Ok(params) => match load_desktop_lut(&params.path) {
                 Ok(lut) => {
-                    super::output_color::set_desktop_lut(Some(lut));
-                    let _ = events.try_send(ControlEvent::RepaintOutputs);
+                    change_desktop_lut(Some(lut), events);
                     success_response(request.id, desktop_lut_state())
                 }
                 Err((code, message)) => error_response(Some(request.id), code, message),
@@ -1218,8 +1237,7 @@ fn handle_connection(
             Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
         },
         "color.lut.clear" => {
-            super::output_color::set_desktop_lut(None);
-            let _ = events.try_send(ControlEvent::RepaintOutputs);
+            change_desktop_lut(None, events);
             success_response(request.id, desktop_lut_state())
         }
         "color.correction.set" => {

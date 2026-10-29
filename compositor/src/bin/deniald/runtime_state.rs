@@ -193,6 +193,11 @@ impl RuntimeState {
             ControlEvent::SoftwareDimming(request) => control.software_dimming.push_back(request),
             ControlEvent::UiDevelopment(request) => control.ui_development.push_back(request),
             ControlEvent::RepaintOutputs => control.repaint_outputs = true,
+            ControlEvent::RebuildOutputs => {
+                info!("rebuilding output pools for a display color change");
+                self.kms_reconfigure_requested = true;
+                self.topology_dirty = true;
+            }
             ControlEvent::Shell(request) => {
                 let result = if self.secure_session_locked() {
                     Err(OutputControlFailure::new(

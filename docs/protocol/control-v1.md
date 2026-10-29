@@ -471,8 +471,10 @@ A desktop LUT grades the whole desktop the same way, before that correction, and
 also stays out of captures. `color.lut.load` takes `{"path":"/abs/look.cube"}`:
 the compositor reads an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain, sizes
 2 to 65. `color.lut.clear` removes it. Both, and `color.lut.get`, answer
-`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`; loading and clearing
-repaint every output. The LUT lasts until the compositor restarts.
+`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`. Every output renders
+off-screen while a LUT is loaded, so loading the first LUT or clearing it
+rebuilds the output pools; replacing one LUT with another only repaints. The LUT
+lasts until the compositor restarts.
 
 ### Plugin action shortcut targets
 
