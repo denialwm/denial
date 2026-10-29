@@ -535,6 +535,12 @@ impl ScanoutAllocator {
                     )
                     .into());
                 }
+                if code != Fourcc::Xrgb8888 {
+                    return Err(format!(
+                        "scene cannot render output-local {code:?} scanout ({error}); the transfer copies XR24 only"
+                    )
+                    .into());
+                }
                 info!(%error, "scene cannot render output-local scanout; negotiating destination import");
                 buffer.scene_transfer =
                     Some(transfer.allocate(self.allocator.as_ref(), &buffer.dmabuf, size)?);
@@ -1009,23 +1015,18 @@ impl OutputSwapchains {
                 .transfer
                 .as_ref()
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
-            // A cross-device transfer copies 8-bit images only.
-            let fourccs = if allocator.transfer.is_some() {
-                &SCANOUT_FOURCCS[1..]
-            } else {
-                &SCANOUT_FOURCCS[..]
-            };
-            let format = compatible_scanout_format(
-                fourccs,
+            let formats = compatible_scanout_formats(
+                &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
                 render_formats,
-            )
-            .ok_or_else(|| {
-                format!(
+            );
+            if formats.is_empty() {
+                return Err(format!(
                     "no XR30 or XR24 modifier is common to EGL rendering and {}'s primary plane",
                     scanout.output.name
                 )
-            })?;
+                .into());
+            }
             let pool_bytes = u64::from(plan.target_size.width)
                 .checked_mul(u64::from(plan.target_size.height))
                 .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
@@ -1042,14 +1043,30 @@ impl OutputSwapchains {
                 .into());
             }
 
-            let buffers = allocate_scanout_pool(
-                allocator,
-                plan.target_size,
-                output_pool_length(),
-                &format,
-                linear_render_targets,
-                MAX_SCANOUT_POOL_BYTES - previous_bytes,
-            )?;
+            // Take the first format whose whole pool allocates, imports and
+            // registers: a driver may advertise XR30 and still refuse it.
+            let mut buffers = None;
+            for (index, format) in formats.iter().enumerate() {
+                match allocate_scanout_pool(
+                    allocator,
+                    plan.target_size,
+                    output_pool_length(),
+                    format,
+                    linear_render_targets,
+                    MAX_SCANOUT_POOL_BYTES - previous_bytes,
+                ) {
+                    Ok(pool) => {
+                        info!(output = %scanout.output.name, format = ?format.code, "allocated output pool");
+                        buffers = Some(pool);
+                        break;
+                    }
+                    Err(error) if index + 1 < formats.len() => {
+                        warn!(output = %scanout.output.name, format = ?format.code, %error, "output pool format failed; trying the next");
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            let buffers = buffers.ok_or("no output pool format allocated")?;
             let actual_bytes = buffers.iter().try_fold(0u64, |bytes, buffer| {
                 bytes
                     .checked_add(buffer.allocation_bytes()?)
@@ -1663,17 +1680,20 @@ pub(super) struct AtlasFormat {
     pub(super) modifiers: Vec<Modifier>,
 }
 
-/// Return the first of `fourccs` that every plane can scan out and EGL can
-/// render into, with its usable modifiers.
-fn compatible_scanout_format(
+/// Return, in the order of `fourccs`, each format that every plane can scan
+/// out and EGL can render into, with its usable modifiers.
+fn compatible_scanout_formats(
     fourccs: &[Fourcc],
     plane_formats: &[&FormatSet],
     render_formats: &FormatSet,
-) -> Option<AtlasFormat> {
-    fourccs.iter().find_map(|&code| {
-        let modifiers = compatible_modifiers(code, plane_formats, render_formats);
-        (!modifiers.is_empty()).then_some(AtlasFormat { code, modifiers })
-    })
+) -> Vec<AtlasFormat> {
+    fourccs
+        .iter()
+        .filter_map(|&code| {
+            let modifiers = compatible_modifiers(code, plane_formats, render_formats);
+            (!modifiers.is_empty()).then_some(AtlasFormat { code, modifiers })
+        })
+        .collect()
 }
 
 fn common_modifiers(code: Fourcc, format_sets: &[&FormatSet]) -> Vec<Modifier> {
@@ -1747,7 +1767,10 @@ pub(super) fn shared_atlas_format(
         .iter()
         .map(|scanout| &scanout.surface.plane_info().formats)
         .collect::<Vec<_>>();
-    compatible_scanout_format(&SCANOUT_FOURCCS, &plane_formats, render_formats).ok_or_else(|| {
+    compatible_scanout_formats(&SCANOUT_FOURCCS, &plane_formats, render_formats)
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
         let outputs = scanouts
             .iter()
             .map(|scanout| scanout.output.name.as_str())

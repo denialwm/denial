@@ -1,8 +1,8 @@
 #[cfg(feature = "flutter")]
 use super::ensure_resident_jit_engine_matches;
 use super::{
-    AtlasFormat, SCANOUT_FOURCCS, ScanoutIdentity, ScanoutIdentityError, compatible_scanout_format,
-    framebuffer_from_property_value, validate_scanout_identities,
+    AtlasFormat, SCANOUT_FOURCCS, ScanoutIdentity, ScanoutIdentityError,
+    compatible_scanout_formats, framebuffer_from_property_value, validate_scanout_identities,
 };
 use smithay::backend::allocator::{Format, Fourcc, Modifier, format::FormatSet};
 
@@ -28,11 +28,17 @@ fn the_atlas_prefers_ten_bits_when_planes_and_renderer_share_it() {
         (Fourcc::Xrgb8888, Modifier::Linear),
     ]);
     assert_eq!(
-        compatible_scanout_format(&SCANOUT_FOURCCS, &[&plane], &renderer),
-        Some(AtlasFormat {
-            code: Fourcc::Xrgb2101010,
-            modifiers: vec![compressed],
-        })
+        compatible_scanout_formats(&SCANOUT_FOURCCS, &[&plane], &renderer),
+        vec![
+            AtlasFormat {
+                code: Fourcc::Xrgb2101010,
+                modifiers: vec![compressed],
+            },
+            AtlasFormat {
+                code: Fourcc::Xrgb8888,
+                modifiers: vec![compressed, Modifier::Linear],
+            },
+        ]
     );
 }
 
@@ -44,15 +50,11 @@ fn the_atlas_keeps_eight_bits_when_any_plane_lacks_ten() {
     ]);
     let eight = formats(&[(Fourcc::Xrgb8888, Modifier::Linear)]);
     assert_eq!(
-        compatible_scanout_format(&SCANOUT_FOURCCS, &[&ten, &eight], &ten),
-        Some(AtlasFormat {
+        compatible_scanout_formats(&SCANOUT_FOURCCS, &[&ten, &eight], &ten),
+        vec![AtlasFormat {
             code: Fourcc::Xrgb8888,
             modifiers: vec![Modifier::Linear],
-        })
-    );
-    assert_eq!(
-        compatible_scanout_format(&SCANOUT_FOURCCS[1..], &[&ten], &ten).map(|f| f.code),
-        Some(Fourcc::Xrgb8888)
+        }]
     );
 }
 
