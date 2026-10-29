@@ -12,6 +12,7 @@ import 'package:denial_flutter_sdk/tokens.dart';
 
 import '../widgets/liquid/liquid.dart';
 import 'color_grade.dart';
+import 'color_presets.dart';
 import 'color_tuning_controller.dart';
 import 'liquid_color_wheel.dart';
 import 'liquid_grade_slider.dart';
@@ -324,7 +325,11 @@ class _ColorTuningContents extends ConsumerStatefulWidget {
 }
 
 class _ColorTuningContentsState extends ConsumerState<_ColorTuningContents> {
-  bool _looks = false;
+  /// What shows in place of the sliders, if anything.
+  _Shelf? _shelf;
+
+  void _toggle(_Shelf shelf) =>
+      setState(() => _shelf = _shelf == shelf ? null : shelf);
 
   @override
   Widget build(BuildContext context) {
@@ -367,11 +372,17 @@ class _ColorTuningContentsState extends ConsumerState<_ColorTuningContents> {
     ];
     final commands = <Widget>[
       _Chip(
+        label: l10n.colorTuningPresets,
+        icon: _shelf == _Shelf.presets ? Icons.expand_less : Icons.expand_more,
+        selected: _shelf == _Shelf.presets,
+        onTap: () => _toggle(_Shelf.presets),
+      ),
+      _Chip(
         label:
             '${l10n.colorTuningBase}: ${tuning.baseTitle ?? l10n.colorTuningNoBase}',
-        icon: _looks ? Icons.expand_less : Icons.expand_more,
-        selected: _looks,
-        onTap: () => setState(() => _looks = !_looks),
+        icon: _shelf == _Shelf.looks ? Icons.expand_less : Icons.expand_more,
+        selected: _shelf == _Shelf.looks,
+        onTap: () => _toggle(_Shelf.looks),
       ),
       _HoldChip(
         label: l10n.colorTuningBefore,
@@ -521,9 +532,14 @@ class _ColorTuningContentsState extends ConsumerState<_ColorTuningContents> {
       bases: tuning.bases,
       current: tuning.baseTitle,
       onPick: (base) {
-        setState(() => _looks = false);
+        setState(() => _shelf = null);
         controller.selectBase(base);
       },
+    );
+    // Presets stay open, so one after another can be tried.
+    final presets = _PresetShelf(
+      grade: tuning.grade,
+      onPick: controller.applyPreset,
     );
 
     return Padding(
@@ -541,9 +557,14 @@ class _ColorTuningContentsState extends ConsumerState<_ColorTuningContents> {
               duration: MediaQuery.disableAnimationsOf(context)
                   ? Duration.zero
                   : const Duration(milliseconds: 160),
-              child: _looks
-                  ? KeyedSubtree(key: const ValueKey('looks'), child: looks)
-                  : KeyedSubtree(key: const ValueKey('sliders'), child: grid),
+              child: KeyedSubtree(
+                key: ValueKey(_shelf),
+                child: switch (_shelf) {
+                  null => grid,
+                  _Shelf.looks => looks,
+                  _Shelf.presets => presets,
+                },
+              ),
             ),
           ),
         ],
@@ -938,6 +959,103 @@ class _IconChip extends StatelessWidget {
             border: Border.all(color: colors.hairline),
           ),
           child: Icon(icon, size: 16, color: colors.panelText),
+        ),
+      ),
+    );
+  }
+}
+
+enum _Shelf { looks, presets }
+
+/// The built-in looks, each a strip of colors through its grade.
+class _PresetShelf extends StatelessWidget {
+  const _PresetShelf({required this.grade, required this.onPick});
+
+  final ColorGrade grade;
+  final ValueChanged<ColorPreset> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return SingleChildScrollView(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final preset in ColorPreset.values)
+            _PresetTile(
+              label: preset.label(l10n),
+              grade: preset.grade,
+              selected: grade.matches(preset.grade),
+              onTap: () => onPick(preset),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresetTile extends StatelessWidget {
+  const _PresetTile({
+    required this.label,
+    required this.grade,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final ColorGrade grade;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// Shadow, foliage, skin, sky and highlight: a scene in five colors.
+  static const List<Color> _scene = <Color>[
+    Color(0xFF1E2430),
+    Color(0xFF4F7A3A),
+    Color(0xFFD9A07E),
+    Color(0xFF6FA8DC),
+    Color(0xFFF4EFE6),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
+    final colors = context.shellColors;
+    final foreground = selected ? theme.accent : colors.textSecondary;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox(
+          width: 72,
+          child: Column(
+            children: [
+              Container(
+                height: 30,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  gradient: LinearGradient(
+                    colors: [for (final color in _scene) grade.preview(color)],
+                  ),
+                  border: Border.all(
+                    color: selected ? theme.accent : colors.hairline,
+                    width: selected ? 2 : 1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ShellText.cardTitle.copyWith(
+                  fontSize: 11,
+                  color: foreground,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

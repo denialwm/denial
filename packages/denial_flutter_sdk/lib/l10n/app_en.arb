@@ -6913,5 +6913,21 @@
   "colorTuningTint": "Tint",
   "@colorTuningTint": {"description": "Color tuning slider: white balance between green and magenta."},
   "colorTuningFailed": "Couldn’t change the colors.",
-  "@colorTuningFailed": {"description": "Color tuning: the compositor refused a change."}
+  "@colorTuningFailed": {"description": "Color tuning: the compositor refused a change."},
+  "colorPresetWarm": "Warm",
+  "@colorPresetWarm": {"description": "Color tuning: a built-in look."},
+  "colorPresetCool": "Cool",
+  "@colorPresetCool": {"description": "Color tuning: a built-in look."},
+  "colorPresetPunch": "Punch",
+  "@colorPresetPunch": {"description": "Color tuning: a built-in look."},
+  "colorPresetMatte": "Matte",
+  "@colorPresetMatte": {"description": "Color tuning: a built-in look."},
+  "colorPresetFilm": "Film",
+  "@colorPresetFilm": {"description": "Color tuning: a built-in look."},
+  "colorPresetNight": "Night",
+  "@colorPresetNight": {"description": "Color tuning: a built-in look."},
+  "colorPresetMono": "Mono",
+  "@colorPresetMono": {"description": "Color tuning: a built-in look."},
+  "colorTuningPresets": "Presets",
+  "@colorTuningPresets": {"description": "Color tuning: shows the built-in looks."}
 }

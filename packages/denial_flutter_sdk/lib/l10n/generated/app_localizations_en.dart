@@ -5227,4 +5227,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get colorTuningFailed => 'Couldn’t change the colors.';
+
+  @override
+  String get colorPresetWarm => 'Warm';
+
+  @override
+  String get colorPresetCool => 'Cool';
+
+  @override
+  String get colorPresetPunch => 'Punch';
+
+  @override
+  String get colorPresetMatte => 'Matte';
+
+  @override
+  String get colorPresetFilm => 'Film';
+
+  @override
+  String get colorPresetNight => 'Night';
+
+  @override
+  String get colorPresetMono => 'Mono';
+
+  @override
+  String get colorTuningPresets => 'Presets';
 }

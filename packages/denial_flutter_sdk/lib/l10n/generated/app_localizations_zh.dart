@@ -4972,4 +4972,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get colorTuningFailed => '无法更改色彩。';
+
+  @override
+  String get colorPresetWarm => '暖调';
+
+  @override
+  String get colorPresetCool => '冷调';
+
+  @override
+  String get colorPresetPunch => '鲜明';
+
+  @override
+  String get colorPresetMatte => '哑光';
+
+  @override
+  String get colorPresetFilm => '胶片';
+
+  @override
+  String get colorPresetNight => '夜色';
+
+  @override
+  String get colorPresetMono => '黑白';
+
+  @override
+  String get colorTuningPresets => '预设';
 }

@@ -1561,5 +1561,13 @@
   "colorTuningVibrance": "自然饱和度",
   "colorTuningWarmth": "色温",
   "colorTuningTint": "色调",
-  "colorTuningFailed": "无法更改色彩。"
+  "colorTuningFailed": "无法更改色彩。",
+  "colorPresetWarm": "暖调",
+  "colorPresetCool": "冷调",
+  "colorPresetPunch": "鲜明",
+  "colorPresetMatte": "哑光",
+  "colorPresetFilm": "胶片",
+  "colorPresetNight": "夜色",
+  "colorPresetMono": "黑白",
+  "colorTuningPresets": "预设"
 }

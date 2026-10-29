@@ -9309,6 +9309,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn’t change the colors.'**
   String get colorTuningFailed;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm'**
+  String get colorPresetWarm;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Cool'**
+  String get colorPresetCool;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Punch'**
+  String get colorPresetPunch;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Matte'**
+  String get colorPresetMatte;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Film'**
+  String get colorPresetFilm;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Night'**
+  String get colorPresetNight;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Mono'**
+  String get colorPresetMono;
+
+  /// Color tuning: shows the built-in looks.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get colorTuningPresets;
 }
 
 class _AppLocalizationsDelegate

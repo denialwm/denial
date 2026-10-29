@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
 import 'color_grade.dart';
+import 'color_presets.dart';
 
 /// What the editor grades: the desktop when [appId] is null.
 @immutable
@@ -195,6 +196,14 @@ class ColorTuningController extends Notifier<ColorTuningState> {
     );
     _unsaved = false;
     _send(state.target, ColorGrade.neutral, save: true);
+  }
+
+  /// Every control pours to [preset]'s grade.
+  void applyPreset(ColorPreset preset) {
+    if (state.comparing) compare(false);
+    state = state.copyWith(grade: preset.grade, revision: state.revision + 1);
+    _unsaved = false;
+    _send(state.target, preset.grade, save: true);
   }
 
   /// While held, the target shows without the grade; nothing is saved.
