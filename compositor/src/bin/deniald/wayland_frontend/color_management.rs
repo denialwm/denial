@@ -766,7 +766,12 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<ParamsBuilder>> for Runti
                     );
                     return;
                 };
-                if let (Some(cll), Some(fall)) = (params.max_cll, params.max_fall)
+                // CTA-861-H uses zero for an unknown light level. Version 1 also
+                // wanted both inside the mastering range; version 2 dropped that,
+                // and Vulkan drivers send zero at version 1.
+                let max_cll = params.max_cll.filter(|light| *light > 0.0);
+                let max_fall = params.max_fall.filter(|light| *light > 0.0);
+                if let (Some(cll), Some(fall)) = (max_cll, max_fall)
                     && fall > cll
                 {
                     data_init.init(image_description, DescriptionObject(None));
@@ -780,19 +785,6 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<ParamsBuilder>> for Runti
                 let target_luminance = params
                     .mastering_luminance
                     .unwrap_or((luminances.min, luminances.max));
-                if version < 2
-                    && [params.max_cll, params.max_fall]
-                        .into_iter()
-                        .flatten()
-                        .any(|light| light <= target_luminance.0 || light > target_luminance.1)
-                {
-                    data_init.init(image_description, DescriptionObject(None));
-                    resource.post_error(
-                        Error::InvalidLuminance,
-                        "max_cll and max_fall must lie within the mastering luminance",
-                    );
-                    return;
-                }
                 let description = ImageDescription {
                     tf,
                     primaries,
@@ -800,8 +792,8 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<ParamsBuilder>> for Runti
                     luminances,
                     target_primaries: params.mastering_primaries.unwrap_or(primaries),
                     target_luminance,
-                    max_cll: params.max_cll,
-                    max_fall: params.max_fall,
+                    max_cll,
+                    max_fall,
                 };
                 let record = description
                     .supported()
