@@ -602,6 +602,7 @@ impl From<serde_json::Error> for SettingsError {
 }
 
 const MAX_SAVED_APP_LUTS: usize = 64;
+const MAX_SAVED_APP_GRADES: usize = 64;
 const MAX_SAVED_HDR_OUTPUTS: usize = 16;
 const MAX_SAVED_NAME_BYTES: usize = 255;
 
@@ -613,6 +614,9 @@ pub(super) struct ColorSettings {
     pub(super) correction: bool,
     pub(super) desktop_lut: Option<PathBuf>,
     pub(super) app_luts: BTreeMap<String, PathBuf>,
+    /// The tuning editor's grades over those LUTs.
+    pub(super) desktop_grade: Option<super::color_grade::Grade>,
+    pub(super) app_grades: BTreeMap<String, super::color_grade::Grade>,
     /// Per connector name.
     pub(super) hdr: BTreeMap<String, super::output_color::HdrMode>,
 }
@@ -623,6 +627,8 @@ impl Default for ColorSettings {
             correction: true,
             desktop_lut: None,
             app_luts: BTreeMap::new(),
+            desktop_grade: None,
+            app_grades: BTreeMap::new(),
             hdr: BTreeMap::new(),
         }
     }
@@ -634,6 +640,9 @@ pub(super) enum ColorChange {
     Correction(bool),
     DesktopLut(Option<PathBuf>),
     AppLut(String, Option<PathBuf>),
+    /// None for a neutral grade.
+    DesktopGrade(Option<super::color_grade::Grade>),
+    AppGrade(String, Option<super::color_grade::Grade>),
     Hdr(String, Option<super::output_color::HdrMode>),
 }
 
@@ -647,6 +656,13 @@ impl ColorSettings {
             }
             ColorChange::AppLut(app_id, None) => {
                 self.app_luts.remove(&app_id);
+            }
+            ColorChange::DesktopGrade(grade) => self.desktop_grade = grade,
+            ColorChange::AppGrade(app_id, Some(grade)) => {
+                self.app_grades.insert(app_id, grade);
+            }
+            ColorChange::AppGrade(app_id, None) => {
+                self.app_grades.remove(&app_id);
             }
             ColorChange::Hdr(output, Some(mode)) => {
                 self.hdr.insert(output, mode);
@@ -666,7 +682,22 @@ impl ColorSettings {
         if self.hdr.len() > MAX_SAVED_HDR_OUTPUTS {
             return invalid(format!("color.hdr exceeds {MAX_SAVED_HDR_OUTPUTS} outputs"));
         }
-        let mut names = self.app_luts.keys().chain(self.hdr.keys());
+        if self.app_grades.len() > MAX_SAVED_APP_GRADES {
+            return invalid(format!(
+                "color.appGrades exceeds {MAX_SAVED_APP_GRADES} apps"
+            ));
+        }
+        let grades = self.desktop_grade.iter().chain(self.app_grades.values());
+        for grade in grades {
+            grade
+                .validate()
+                .map_err(|error| SettingsError::Document(format!("color grade: {error}")))?;
+        }
+        let mut names = self
+            .app_luts
+            .keys()
+            .chain(self.app_grades.keys())
+            .chain(self.hdr.keys());
         if let Some(name) = names.find(|name| name.is_empty() || name.len() > MAX_SAVED_NAME_BYTES)
         {
             return invalid(format!("color has an invalid app or output name {name:?}"));

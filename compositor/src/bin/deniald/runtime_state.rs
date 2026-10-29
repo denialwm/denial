@@ -132,6 +132,10 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) pending_shell_actions: VecDeque<PendingShellAction>,
     pub(super) plugin_actions: plugin_actions::ActionCatalog,
+    /// The color tuning editor shows again once the restarted shell
+    /// publishes its actions.
+    #[cfg(feature = "flutter")]
+    pub(super) reopen_color_tuning: bool,
     #[cfg(feature = "flutter")]
     pub(super) pending_shortcut_launches: VecDeque<native_shortcut::ShortcutTarget>,
     #[cfg(feature = "flutter")]
@@ -201,6 +205,15 @@ impl RuntimeState {
                 self.kms_reconfigure_requested = true;
                 self.topology_dirty = true;
             }
+            ControlEvent::OpenColorTuning => {
+                if !self
+                    .plugin_actions
+                    .queue(output_control::COLOR_TUNING_ACTION.to_owned(), None)
+                {
+                    warn!("the shell has no color tuning editor");
+                }
+            }
+            ControlEvent::ReopenColorTuning => self.reopen_color_tuning = true,
             ControlEvent::SaveColor(change) => {
                 let settings = &mut self.frontend_mut().settings;
                 let color = settings.color().clone().with(change);

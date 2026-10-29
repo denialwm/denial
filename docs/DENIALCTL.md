@@ -152,6 +152,13 @@ denialctl color hdr DP-4 on 150 srgb
 denialctl color hdr DP-4 off
 ```
 
+Open the color tuning editor, a shell panel that grades the desktop or a
+picked app live:
+
+```sh
+denialctl color tune
+```
+
 Every color change is saved in the `color` section of the settings document
 and applies again at the next start. A LUT is saved by the absolute path it
 was read from; one that no longer reads is skipped and stays saved.

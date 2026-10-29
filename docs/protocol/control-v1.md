@@ -464,17 +464,16 @@ Displays whose EDID primaries differ from sRGB show the sRGB scene converted to
 their own gamut. Screenshots and screen capture read the scene before that
 conversion. `color.correction.get` returns `{"enabled":true}`;
 `color.correction.set` takes `{"enabled":false}` to show every display's own
-response instead, answers with the new state and repaints every output. The
-switch lasts until the compositor restarts.
+response instead, answers with the new state and repaints every output.
 
 A desktop LUT grades the whole desktop the same way, before that correction, and
 also stays out of captures. `color.lut.load` takes `{"path":"/abs/look.cube"}`:
 the compositor reads an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain, sizes
 2 to 65. `color.lut.clear` removes it. Both, and `color.lut.get`, answer
-`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`. Every output renders
+`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`. A LUT without a `TITLE` line
+goes by its file name. Every output renders
 off-screen while a LUT is loaded, so loading the first LUT or clearing it
-rebuilds the output pools; replacing one LUT with another only repaints. The LUT
-lasts until the compositor restarts.
+rebuilds the output pools; replacing one LUT with another only repaints.
 
 An app LUT grades one app's windows, popups and subsurfaces, matched by app ID,
 and unlike the desktop LUT it is part of the composed image, so screenshots and
@@ -482,8 +481,28 @@ screen capture include it. `color.app.lut.load` takes
 `{"app_id":"org.example.App","path":"/abs/look.cube"}` and `color.app.lut.clear`
 takes `{"app_id":"org.example.App"}`. Both, and `color.app.lut.get`, answer
 `{"apps":[{"app_id":"org.example.App","size":33,"title":"Warm"}]}`. Each window
-is graded once per buffer it commits. App LUTs last until the compositor
-restarts.
+is graded once per buffer it commits.
+
+A grade adjusts a target over its LUT: the desktop, or one app with `app_id`.
+`color.grade.set` takes `{"app_id":"org.example.App","grade":{…},"save":false}`
+where the grade holds `exposure` (stops, ±3), `contrast` (log2 slope at middle
+grey, ±1.5), `saturation`, `vibrance`, `temperature` and `tint` (±1), and
+`lift` (±0.25), `gamma` and `gain` (log2, ±1.5) as `[r,g,b]`. Missing fields
+are zero, the identity. The compositor bakes the grade over the LUT into one
+LUT, so a graded target costs the same to draw. `save` defaults to true; an
+editor sends false while a control moves and true on release.
+`color.grade.get` takes `{"app_id":…}` or `{}`, and both answer
+`{"app_id":null,"grade":{…},"base":"Warm"}`.
+
+`color.tune.prepare` readies the desktop for live grading: it gives the desktop
+a look that stays until the compositor restarts, so later grades only repaint.
+It answers `{"ready":true}`, or `{"ready":false}` when that rebuilt the outputs
+and restarts the shell; the compositor then runs the `denial_desktop.colorTuning`
+plugin action once the new shell publishes it. `color.tune.open` runs that
+action now.
+
+Every color change is saved in the `color` section of the settings document
+and applies again at the next start.
 
 ### Plugin action shortcut targets
 

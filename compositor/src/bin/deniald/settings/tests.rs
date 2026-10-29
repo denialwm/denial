@@ -382,6 +382,7 @@ fn touchpad_update_is_persistent_and_revisioned() {
 
 #[test]
 fn display_color_is_saved_and_kept_from_shell_updates() {
+    use super::super::color_grade::Grade;
     use super::super::output_color::{HdrMode, SignalPrimaries};
     let temporary = TemporaryDirectory::new("settings-color-update");
     let path = temporary.settings_path();
@@ -400,7 +401,19 @@ fn display_color_is_saved_and_kept_from_shell_updates() {
             "chromium".to_owned(),
             Some("/luts/warm.cube".into()),
         ))
-        .with(ColorChange::Hdr("DP-4".to_owned(), Some(hdr)));
+        .with(ColorChange::Hdr("DP-4".to_owned(), Some(hdr)))
+        .with(ColorChange::DesktopGrade(Some(Grade {
+            exposure: 0.5,
+            lift: [0.0, 0.0, 0.05],
+            ..Grade::default()
+        })))
+        .with(ColorChange::AppGrade(
+            "chromium".to_owned(),
+            Some(Grade {
+                saturation: 0.3,
+                ..Grade::default()
+            }),
+        ));
     let update = manager
         .prepare_color_update(manager.revision(), color.clone())
         .unwrap();
@@ -420,13 +433,15 @@ fn display_color_is_saved_and_kept_from_shell_updates() {
     assert_eq!(reloaded.color().hdr["DP-4"], hdr);
     let cleared = color
         .with(ColorChange::DesktopLut(None))
-        .with(ColorChange::Hdr("DP-4".to_owned(), None));
+        .with(ColorChange::Hdr("DP-4".to_owned(), None))
+        .with(ColorChange::AppGrade("chromium".to_owned(), None));
     assert_eq!(cleared.desktop_lut, None);
+    assert!(cleared.app_grades.is_empty());
     assert!(cleared.hdr.is_empty());
 }
 
 #[test]
-fn rejects_relative_luts_and_out_of_range_hdr_white() {
+fn rejects_relative_luts_and_out_of_range_color() {
     use super::super::output_color::HdrMode;
     let temporary = TemporaryDirectory::new("settings-color-validate");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
@@ -446,6 +461,17 @@ fn rejects_relative_luts_and_out_of_range_hdr_white() {
     assert!(
         manager
             .prepare_color_update(manager.revision(), bright)
+            .is_err()
+    );
+    let wild = ColorSettings::default().with(ColorChange::DesktopGrade(Some(
+        super::super::color_grade::Grade {
+            exposure: 40.0,
+            ..Default::default()
+        },
+    )));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), wild)
             .is_err()
     );
 }

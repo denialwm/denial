@@ -1,6 +1,8 @@
 //! Output color: the sRGB scene converted to a display's own primaries, or
 //! to BT.2100 PQ for a display in HDR, applied after composition so captures
 //! keep the scene.
+// Only the Flutter compositor reads displays and applies looks.
+#![cfg_attr(not(feature = "flutter"), allow(dead_code))]
 
 use super::color_space::{
     BT2020, Matrix, SRGB, SceneEncoding, Xy, bradford, invert, multiply, rgb_to_xyz, xyz,
@@ -221,7 +223,7 @@ pub(super) fn set_correction(enabled: bool) {
 /// whole scene before any display correction, so it reads the same on every
 /// display and never in captures; an app look grades one app's windows and
 /// is part of the scene.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Lut {
     pub(super) size: usize,
     pub(super) title: Option<String>,

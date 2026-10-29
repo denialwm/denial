@@ -149,6 +149,7 @@ enum Command {
     Hdr(Option<(String, HdrSwitch)>),
     ColorLut(Option<Option<PathBuf>>),
     AppLuts,
+    ColorTune,
     AppLut {
         app_id: String,
         path: Option<PathBuf>,
@@ -241,6 +242,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["color", "lut", "load", _] => Ok(Command::ColorLut(Some(Some(lut_path(&arguments[3])?)))),
         ["color", "lut", "clear"] => Ok(Command::ColorLut(Some(None))),
         ["color", "apps"] => Ok(Command::AppLuts),
+        ["color", "tune"] => Ok(Command::ColorTune),
         ["color", "app", app_id, "lut", "load", _] => Ok(Command::AppLut {
             app_id: (*app_id).to_owned(),
             path: Some(lut_path(&arguments[5])?),
@@ -373,6 +375,12 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 print_desktop_lut(&lut.result);
                 print_app_luts(&apps.result);
                 print_hdr(&hdr.result);
+            }
+        }
+        Command::ColorTune => {
+            let response = client.request("color.tune.open", Value::Null)?;
+            if options.json {
+                print_json(&response.result)?;
             }
         }
         Command::AppLuts => {
@@ -1743,6 +1751,7 @@ Commands:
   color apps                     List the apps graded with their own LUT
   color app APP_ID lut load FILE Grade one app's windows with a .cube LUT
   color app APP_ID lut clear     Remove an app's LUT
+  color tune                     Open the color tuning editor
   ui status                      Show detailed Flutter runtime state
   ui setup [PATH]                Create, prepare and start an editable Denial UI
   ui workspace PATH              Select a Flutter source workspace

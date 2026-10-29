@@ -23,6 +23,10 @@ pub(super) fn synchronize_flutter_window_management(
     if let Some(catalog) = runtime.take_plugin_actions() {
         events.native_escape_shortcut.set_plugin_actions(&catalog);
         events.plugin_actions = catalog;
+        if std::mem::take(&mut events.reopen_color_tuning) {
+            let id = output_control::COLOR_TUNING_ACTION.to_owned();
+            events.plugin_actions.queue(id, None);
+        }
     }
     if events.secure_session_locked() {
         events.plugin_actions.pending.clear();

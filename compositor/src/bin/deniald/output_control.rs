@@ -733,6 +733,10 @@ pub(super) enum ControlEvent {
     RepaintApp(String),
     /// A display color change to keep for the next start.
     SaveColor(ColorChange),
+    /// Show the color tuning editor.
+    OpenColorTuning,
+    /// Show it again once the shell restarted for the desktop look.
+    ReopenColorTuning,
 }
 
 #[derive(Debug, Deserialize)]
@@ -875,6 +879,87 @@ fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender
     let _ = events.try_send(event);
 }
 
+/// The shell action that shows the tuning editor.
+pub(super) const COLOR_TUNING_ACTION: &str = "denial_desktop.colorTuning";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GradeTarget {
+    /// The desktop when absent.
+    #[serde(default)]
+    app_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GradeParams {
+    #[serde(default)]
+    app_id: Option<String>,
+    grade: super::color_grade::Grade,
+    /// False while a control is still moving: the change shows, the save
+    /// waits for the release.
+    #[serde(default = "saves_by_default")]
+    save: bool,
+}
+
+fn saves_by_default() -> bool {
+    true
+}
+
+fn grade_state(app_id: Option<&str>) -> Value {
+    let look = match app_id {
+        Some(app_id) => super::color_grade::app_look(app_id),
+        None => super::color_grade::desktop_look(),
+    };
+    json!({
+        "app_id": app_id,
+        "grade": look.grade,
+        "base": look.base.as_ref().and_then(|base| base.title.clone()),
+    })
+}
+
+fn change_grade(
+    params: GradeParams,
+    events: &SyncSender<ControlEvent>,
+) -> Result<Value, (&'static str, String)> {
+    params
+        .grade
+        .validate()
+        .map_err(|error| ("invalid_params", error))?;
+    let saved = Some(params.grade).filter(|grade| !grade.is_neutral());
+    match params.app_id.as_deref() {
+        Some("") => return Err(("invalid_params", "app_id is empty".to_owned())),
+        Some(app_id) => {
+            change_app_look(app_id, |look| look.grade = params.grade);
+            // A full queue already holds work that draws a new frame.
+            let _ = events.try_send(ControlEvent::RepaintApp(app_id.to_owned()));
+            if params.save {
+                save_color(events, ColorChange::AppGrade(app_id.to_owned(), saved));
+            }
+        }
+        None => {
+            change_desktop_look(|look| look.grade = params.grade, events);
+            if params.save {
+                save_color(events, ColorChange::DesktopGrade(saved));
+            }
+        }
+    }
+    Ok(grade_state(params.app_id.as_deref()))
+}
+
+fn change_desktop_look(
+    change: impl FnOnce(&mut super::color_grade::Look),
+    events: &SyncSender<ControlEvent>,
+) {
+    super::color_grade::change_desktop_look(change, |lut| change_desktop_lut(lut, events));
+}
+
+fn change_app_look(app_id: &str, change: impl FnOnce(&mut super::color_grade::Look)) {
+    super::color_grade::change_app_look(app_id, change, |lut| {
+        super::output_color::set_app_lut(app_id, lut);
+    });
+}
+
 fn save_color(events: &SyncSender<ControlEvent>, change: ColorChange) {
     if let Err(error) = events.try_send(ControlEvent::SaveColor(change)) {
         warn!(%error, "display color change applies but was not saved");
@@ -890,17 +975,33 @@ fn saved_lut_path(path: &Path) -> PathBuf {
 /// that no longer reads is skipped and stays saved.
 pub(super) fn restore_color(color: &ColorSettings) {
     super::output_color::set_correction(color.correction);
-    if let Some(path) = &color.desktop_lut {
+    let base = |path: Option<&PathBuf>, app_id: Option<&str>| {
+        let path = path?;
         match load_cube(path) {
-            Ok(lut) => super::output_color::set_desktop_lut(Some(lut)),
-            Err((_, error)) => warn!(%error, "saved desktop LUT is unavailable"),
+            Ok(lut) => Some(Arc::new(lut)),
+            Err((_, error)) => {
+                warn!(%error, app_id, "saved LUT is unavailable");
+                None
+            }
         }
-    }
-    for (app_id, path) in &color.app_luts {
-        match load_cube(path) {
-            Ok(lut) => super::output_color::set_app_lut(app_id, Some(lut)),
-            Err((_, error)) => warn!(%error, app_id, "saved app LUT is unavailable"),
-        }
+    };
+    super::color_grade::change_desktop_look(
+        |look| {
+            look.base = base(color.desktop_lut.as_ref(), None);
+            look.grade = color.desktop_grade.unwrap_or_default();
+        },
+        super::output_color::set_desktop_lut,
+    );
+    let apps = color
+        .app_luts
+        .keys()
+        .chain(color.app_grades.keys())
+        .collect::<std::collections::BTreeSet<_>>();
+    for app_id in apps {
+        change_app_look(app_id, |look| {
+            look.base = base(color.app_luts.get(app_id), Some(app_id));
+            look.grade = color.app_grades.get(app_id).copied().unwrap_or_default();
+        });
     }
     for (output, mode) in &color.hdr {
         super::output_color::set_hdr_request(output, Some(*mode));
@@ -920,8 +1021,15 @@ fn load_cube(path: &Path) -> Result<super::output_color::Lut, (&'static str, Str
             format!("{} is larger than 16 MiB", path.display()),
         ));
     }
-    super::output_color::parse_cube(&text)
-        .map_err(|error| ("invalid_lut", format!("{}: {error}", path.display())))
+    let mut lut = super::output_color::parse_cube(&text)
+        .map_err(|error| ("invalid_lut", format!("{}: {error}", path.display())))?;
+    // Without a TITLE line, a look goes by its file name.
+    if lut.title.is_none() {
+        lut.title = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned());
+    }
+    Ok(lut)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1356,6 +1464,30 @@ fn handle_connection(
             Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
         },
         "color.app.lut.get" => success_response(request.id, app_luts_state()),
+        "color.grade.get" => match serde_json::from_value::<GradeTarget>(request.params) {
+            Ok(target) => success_response(request.id, grade_state(target.app_id.as_deref())),
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.grade.set" => match serde_json::from_value::<GradeParams>(request.params) {
+            Ok(params) => match change_grade(params, events) {
+                Ok(state) => success_response(request.id, state),
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.tune.prepare" => {
+            super::color_grade::keep_desktop_look();
+            let ready = super::output_color::desktop_lut().is_some();
+            if !ready {
+                change_desktop_look(|_| {}, events);
+                let _ = events.try_send(ControlEvent::ReopenColorTuning);
+            }
+            success_response(request.id, json!({"ready": ready}))
+        }
+        "color.tune.open" => match events.try_send(ControlEvent::OpenColorTuning) {
+            Ok(()) => success_response(request.id, json!({})),
+            Err(error) => error_response(Some(request.id), "busy", error.to_string()),
+        },
         "color.app.lut.load" | "color.app.lut.clear" => {
             match serde_json::from_value::<AppLutParams>(request.params) {
                 Ok(AppLutParams { app_id, .. }) if app_id.is_empty() => {
@@ -1378,7 +1510,7 @@ fn handle_connection(
                             let saved = params_path
                                 .filter(|_| lut.is_some())
                                 .map(|path| saved_lut_path(&path));
-                            super::output_color::set_app_lut(&app_id, lut);
+                            change_app_look(&app_id, |look| look.base = lut.map(Arc::new));
                             save_color(events, ColorChange::AppLut(app_id.clone(), saved));
                             // A full queue already holds work that draws a new frame.
                             let _ = events.try_send(ControlEvent::RepaintApp(app_id));
@@ -1393,7 +1525,7 @@ fn handle_connection(
         "color.lut.load" => match serde_json::from_value::<ColorLutParams>(request.params) {
             Ok(params) => match load_cube(&params.path) {
                 Ok(lut) => {
-                    change_desktop_lut(Some(lut), events);
+                    change_desktop_look(|look| look.base = Some(Arc::new(lut)), events);
                     save_color(
                         events,
                         ColorChange::DesktopLut(Some(saved_lut_path(&params.path))),
@@ -1405,7 +1537,7 @@ fn handle_connection(
             Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
         },
         "color.lut.clear" => {
-            change_desktop_lut(None, events);
+            change_desktop_look(|look| look.base = None, events);
             save_color(events, ColorChange::DesktopLut(None));
             success_response(request.id, desktop_lut_state())
         }

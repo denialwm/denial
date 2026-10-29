@@ -12,6 +12,8 @@ mod bus;
 mod client_release;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
+#[path = "deniald/color_grade.rs"]
+mod color_grade;
 #[path = "deniald/color_space.rs"]
 mod color_space;
 #[path = "deniald/cpu_scheduling.rs"]
@@ -92,7 +94,6 @@ mod options;
 #[cfg(feature = "flutter")]
 #[path = "deniald/orientation_sensor.rs"]
 mod orientation_sensor;
-#[cfg(feature = "flutter")]
 #[path = "deniald/output_color.rs"]
 mod output_color;
 #[cfg(feature = "flutter")]
