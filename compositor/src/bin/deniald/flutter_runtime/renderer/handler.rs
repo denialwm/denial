@@ -127,16 +127,15 @@ impl FlutterGlHandler {
                 pool.dmabufs.into_iter().enumerate()
             {
                 let scanout_format = AllocatorBuffer::format(scanout_dmabuf);
-                let image = match render_context
-                    .display()
-                    .create_image_from_dmabuf(scanout_dmabuf)
-                {
+                let image = match render_view(scanout_dmabuf).and_then(|view| {
+                    Ok(render_context.display().create_image_from_dmabuf(&view)?)
+                }) {
                     Ok(image) => image,
                     Err(error) => {
                         destroy_targets(gl, &display, &mut targets);
                         destroy_depth_stencils(gl, &mut depth_stencils);
                         render_context.unbind()?;
-                        return Err(error.into());
+                        return Err(error);
                     }
                 };
                 let mut target = GlTarget {
@@ -281,10 +280,9 @@ impl FlutterGlHandler {
                         )
                         .into());
                     }
-                    let render_image = match render_context
-                        .display()
-                        .create_image_from_dmabuf(render_dmabuf)
-                    {
+                    let render_image = match render_view(render_dmabuf).and_then(|view| {
+                        Ok(render_context.display().create_image_from_dmabuf(&view)?)
+                    }) {
                         Ok(image) => image,
                         Err(error) => {
                             let mut failed = vec![target];
@@ -292,7 +290,7 @@ impl FlutterGlHandler {
                             destroy_targets(gl, &display, &mut targets);
                             destroy_depth_stencils(gl, &mut depth_stencils);
                             render_context.unbind()?;
-                            return Err(error.into());
+                            return Err(error);
                         }
                     };
                     target.render_image = render_image as usize;

@@ -263,6 +263,29 @@ void main() {\n\
     fragment_color = texture(source_texture, texture_coordinate);\n\
 }\n\0";
 
+/// The DMA-BUF Flutter renders into. GL renders 10-bit storage only through
+/// a format with alpha: an XR30 EGL image is an incomplete framebuffer on
+/// freedreno, while an AR30 image of the same storage is complete. Scanout
+/// keeps XR30 and ignores the two bits that become alpha.
+pub(super) fn render_view(dmabuf: &Dmabuf) -> Result<Dmabuf, Box<dyn Error>> {
+    let format = AllocatorBuffer::format(dmabuf);
+    if format.code != Fourcc::Xrgb2101010 {
+        return Ok(dmabuf.clone());
+    }
+    let mut builder = Dmabuf::builder(
+        AllocatorBuffer::size(dmabuf),
+        Fourcc::Argb2101010,
+        format.modifier,
+        dmabuf.flags(),
+    );
+    for ((fd, offset), stride) in dmabuf.handles().zip(dmabuf.offsets()).zip(dmabuf.strides()) {
+        builder.add_plane(fd.try_clone_to_owned()?, offset, stride);
+    }
+    builder
+        .build()
+        .ok_or_else(|| "XR30 render view has no planes".into())
+}
+
 pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>> {
     let vertex = compile_shader(gl, gl::VERTEX_SHADER, SCANOUT_VERTEX_SHADER)?;
     let fragment = match compile_shader(gl, gl::FRAGMENT_SHADER, SCANOUT_FRAGMENT_SHADER) {
