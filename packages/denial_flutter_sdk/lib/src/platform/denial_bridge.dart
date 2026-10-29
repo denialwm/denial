@@ -184,6 +184,20 @@ class DenialBridge {
 
   Future<DisplayLayout?> getDisplayLayout() => _displays.getDisplayLayout();
 
+  Future<Map<String, Object?>> readColorGrade({String? appId}) =>
+      _displays.readColorGrade(appId: appId);
+
+  Future<Map<String, Object?>> writeColorGrade({
+    String? appId,
+    required Map<String, Object> grade,
+    required bool save,
+  }) => _displays.writeColorGrade(appId: appId, grade: grade, save: save);
+
+  Future<void> setColorBase({String? appId, String? path}) =>
+      _displays.setColorBase(appId: appId, path: path);
+
+  Future<bool> prepareColorTuning() => _displays.prepareColorTuning();
+
   Future<DisplayLayout?> configureSystemBar({
     required SystemBarSide side,
     required List<int> monitorIds,

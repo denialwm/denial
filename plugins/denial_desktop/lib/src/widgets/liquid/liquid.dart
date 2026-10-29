@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 /// Shared pieces of the liquid motion recipe, `docs/LIQUID_MOTION.md`.
@@ -119,4 +120,66 @@ Path liquidFillPath(
 double liquidSmooth(double t) {
   final x = t.clamp(0.0, 1.0);
   return x * x * (3 - 2 * x);
+}
+
+/// The springs of one control and the one ticker that steps them. The
+/// ticker starts on any event and stops itself once every spring rests.
+abstract class LiquidMotion extends ChangeNotifier {
+  LiquidMotion(TickerProvider vsync) {
+    _ticker = vsync.createTicker(_tick);
+  }
+
+  late final Ticker _ticker;
+  Duration? _last;
+
+  /// Every spring, for reduced motion and for the settle at rest.
+  List<LiquidSpring> get springs;
+
+  /// Steps the springs by [dt] seconds; true once everything rests.
+  bool advance(double dt);
+
+  /// Called once the motion has come to rest.
+  void rested() {}
+
+  /// Starts the ticker, or with reduced motion settles at once.
+  void kick({required bool reduceMotion}) {
+    if (reduceMotion) {
+      _settle();
+      notifyListeners();
+      rested();
+      return;
+    }
+    if (!_ticker.isActive) {
+      _last = null;
+      _ticker.start();
+    }
+    notifyListeners();
+  }
+
+  void _tick(Duration elapsed) {
+    final last = _last;
+    _last = elapsed;
+    final dt = last == null
+        ? 1 / 120
+        : ((elapsed - last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
+    final resting = advance(dt);
+    if (resting) {
+      _settle();
+      _ticker.stop();
+    }
+    notifyListeners();
+    if (resting) rested();
+  }
+
+  void _settle() {
+    for (final spring in springs) {
+      spring.settle();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
 }

@@ -5173,4 +5173,58 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsPermissionDeny => 'Never allow';
+
+  @override
+  String get colorTuningAction => 'Tune colors';
+
+  @override
+  String get colorTuningDesktop => 'Desktop';
+
+  @override
+  String get colorTuningNoApp => 'Tap a window';
+
+  @override
+  String get colorTuningBase => 'Look';
+
+  @override
+  String get colorTuningNoBase => 'None';
+
+  @override
+  String get colorTuningBefore => 'Before';
+
+  @override
+  String get colorTuningReset => 'Reset';
+
+  @override
+  String get colorTuningClose => 'Close';
+
+  @override
+  String get colorTuningShadows => 'Shadows';
+
+  @override
+  String get colorTuningMidtones => 'Midtones';
+
+  @override
+  String get colorTuningHighlights => 'Highlights';
+
+  @override
+  String get colorTuningExposure => 'Exposure';
+
+  @override
+  String get colorTuningContrast => 'Contrast';
+
+  @override
+  String get colorTuningSaturation => 'Saturation';
+
+  @override
+  String get colorTuningVibrance => 'Vibrance';
+
+  @override
+  String get colorTuningWarmth => 'Warmth';
+
+  @override
+  String get colorTuningTint => 'Tint';
+
+  @override
+  String get colorTuningFailed => 'Couldn’t change the colors.';
 }

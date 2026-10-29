@@ -4918,4 +4918,58 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsPermissionDeny => '始终拒绝';
+
+  @override
+  String get colorTuningAction => '调整色彩';
+
+  @override
+  String get colorTuningDesktop => '桌面';
+
+  @override
+  String get colorTuningNoApp => '点按一个窗口';
+
+  @override
+  String get colorTuningBase => '风格';
+
+  @override
+  String get colorTuningNoBase => '无';
+
+  @override
+  String get colorTuningBefore => '调色前';
+
+  @override
+  String get colorTuningReset => '重置';
+
+  @override
+  String get colorTuningClose => '关闭';
+
+  @override
+  String get colorTuningShadows => '阴影';
+
+  @override
+  String get colorTuningMidtones => '中间调';
+
+  @override
+  String get colorTuningHighlights => '高光';
+
+  @override
+  String get colorTuningExposure => '曝光';
+
+  @override
+  String get colorTuningContrast => '对比度';
+
+  @override
+  String get colorTuningSaturation => '饱和度';
+
+  @override
+  String get colorTuningVibrance => '自然饱和度';
+
+  @override
+  String get colorTuningWarmth => '色温';
+
+  @override
+  String get colorTuningTint => '色调';
+
+  @override
+  String get colorTuningFailed => '无法更改色彩。';
 }

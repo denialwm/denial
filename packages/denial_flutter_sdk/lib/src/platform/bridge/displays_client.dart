@@ -193,6 +193,43 @@ final class BridgeDisplaysClient {
     );
   }
 
+  /// The grade of the desktop, or of one app, with its base LUT's title.
+  Future<Map<String, Object?>> readColorGrade({String? appId}) =>
+      _context.control.request(
+        'color.grade.get',
+        parameters: <String, Object>{'app_id': ?appId},
+      );
+
+  /// Shows [grade] at once; [save] keeps it for the next start.
+  Future<Map<String, Object?>> writeColorGrade({
+    String? appId,
+    required Map<String, Object> grade,
+    required bool save,
+  }) => _context.control.request(
+    'color.grade.set',
+    parameters: <String, Object>{
+      'app_id': ?appId,
+      'grade': grade,
+      'save': save,
+    },
+  );
+
+  /// Puts [path], a `.cube` file, under the grade, or nothing for null.
+  Future<void> setColorBase({String? appId, String? path}) async {
+    final scope = appId == null ? 'color.lut' : 'color.app.lut';
+    await _context.control.request(
+      path == null ? '$scope.clear' : '$scope.load',
+      parameters: <String, Object>{'app_id': ?appId, 'path': ?path},
+    );
+  }
+
+  /// False when readying the desktop restarts the shell, which then opens
+  /// the editor again by itself.
+  Future<bool> prepareColorTuning() async {
+    final result = await _context.control.request('color.tune.prepare');
+    return result['ready'] == true;
+  }
+
   Stream<DisplayLayout> get displayLayouts => _displayLayouts.stream;
 
   void completeLayout(int requestId, wire.DisplayLayout payload) {

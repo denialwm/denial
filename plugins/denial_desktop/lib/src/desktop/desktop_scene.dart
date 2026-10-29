@@ -38,6 +38,7 @@ import 'desktop_window_switcher_bounds.dart';
 import 'desktop_windows_only_scene.dart';
 import 'desktop_workspace.dart';
 import 'desktop_workspace_overview_deck.dart';
+import '../color_tuning/color_tuning_panel.dart';
 import 'retained_animated_positioned.dart';
 import 'system_tray_module.dart';
 
@@ -1103,6 +1104,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
             ),
           ),
         ),
+        Positioned.fill(child: ColorTuningLayer(displayRect: mainDisplayRect)),
       ],
     );
   }

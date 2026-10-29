@@ -9201,6 +9201,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Never allow'**
   String get settingsPermissionDeny;
+
+  /// Shell action and panel title: the color tuning editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Tune colors'**
+  String get colorTuningAction;
+
+  /// Color tuning target: the whole desktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get colorTuningDesktop;
+
+  /// Color tuning target chip when no app window has been focused yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a window'**
+  String get colorTuningNoApp;
+
+  /// Color tuning: the base LUT the grade sits on.
+  ///
+  /// In en, this message translates to:
+  /// **'Look'**
+  String get colorTuningBase;
+
+  /// Color tuning: no base LUT.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get colorTuningNoBase;
+
+  /// Color tuning: hold to show the target without the grade.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get colorTuningBefore;
+
+  /// Color tuning: return every control to neutral.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get colorTuningReset;
+
+  /// Color tuning: close the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get colorTuningClose;
+
+  /// Color tuning wheel: lift.
+  ///
+  /// In en, this message translates to:
+  /// **'Shadows'**
+  String get colorTuningShadows;
+
+  /// Color tuning wheel: gamma.
+  ///
+  /// In en, this message translates to:
+  /// **'Midtones'**
+  String get colorTuningMidtones;
+
+  /// Color tuning wheel: gain.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlights'**
+  String get colorTuningHighlights;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Exposure'**
+  String get colorTuningExposure;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Contrast'**
+  String get colorTuningContrast;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get colorTuningSaturation;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Vibrance'**
+  String get colorTuningVibrance;
+
+  /// Color tuning slider: white balance between cool and warm.
+  ///
+  /// In en, this message translates to:
+  /// **'Warmth'**
+  String get colorTuningWarmth;
+
+  /// Color tuning slider: white balance between green and magenta.
+  ///
+  /// In en, this message translates to:
+  /// **'Tint'**
+  String get colorTuningTint;
+
+  /// Color tuning: the compositor refused a change.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t change the colors.'**
+  String get colorTuningFailed;
 }
 
 class _AppLocalizationsDelegate

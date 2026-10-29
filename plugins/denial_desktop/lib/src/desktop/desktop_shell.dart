@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
+import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/environment.dart';
 import 'package:denial_flutter_sdk/models.dart';
@@ -27,6 +28,8 @@ import 'desktop_overview_keyboard.dart';
 import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_panel_hover_controller.dart';
+import '../color_tuning/color_tuning_action.dart';
+import '../color_tuning/color_tuning_controller.dart';
 import 'desktop_scene.dart';
 import 'desktop_scene_selection.dart';
 import 'desktop_window_coordinator.dart';
@@ -1023,7 +1026,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ),
     );
     return ShellActionsBinding(
-      actions: ref.watch(desktopActionsProvider),
+      actions: <ShellAction>[
+        ...ref.watch(desktopActionsProvider),
+        ColorTuningAction(ref.read(colorTuningProvider.notifier).toggle),
+      ],
       services: DesktopShellServices(
         ref: ref,
         onOpenPowerSettings: _openPowerSettings,
