@@ -469,6 +469,21 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     };
     kms.scanouts.reserve(outputs.len());
 
+    // Keep each CRTC on the primary plane it already shows: the kernel refuses
+    // to move a plane to another CRTC in one commit, and Smithay otherwise
+    // hands the first free plane to whichever output comes first.
+    let inherited_planes = outputs
+        .iter()
+        .filter_map(|output| {
+            let primary = kms.drm.planes(&output.crtc).ok()?.primary;
+            primary.iter().find_map(|plane| {
+                let shown = kms.drm.get_plane(plane.handle).ok()?.crtc() == Some(output.crtc);
+                shown
+                    .then(|| kms.drm.claim_plane(plane.handle, output.crtc))
+                    .flatten()
+            })
+        })
+        .collect::<Vec<_>>();
     for output in outputs {
         let original_mode = match kms.drm.get_crtc(output.crtc)?.mode() {
             Some(mode) => mode,
@@ -502,6 +517,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             powered: true,
         });
     }
+    drop(inherited_planes);
 
     let cross_device_rendering =
         physical_drm_identity(render_device)? != physical_drm_identity(&options.device)?;
