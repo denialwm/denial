@@ -24,7 +24,7 @@ pub(super) fn synchronize_flutter_window_management(
         events.native_escape_shortcut.set_plugin_actions(&catalog);
         events.plugin_actions = catalog;
         if std::mem::take(&mut events.reopen_color_tuning) {
-            let id = output_control::COLOR_TUNING_ACTION.to_owned();
+            let id = crate::plugin_actions::COLOR_TUNING_ACTION.to_owned();
             events.plugin_actions.queue(id, None);
         }
     }

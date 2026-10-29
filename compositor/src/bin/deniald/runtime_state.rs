@@ -208,7 +208,7 @@ impl RuntimeState {
             ControlEvent::OpenColorTuning => {
                 if !self
                     .plugin_actions
-                    .queue(output_control::COLOR_TUNING_ACTION.to_owned(), None)
+                    .queue(crate::plugin_actions::COLOR_TUNING_ACTION.to_owned(), None)
                 {
                     warn!("the shell has no color tuning editor");
                 }

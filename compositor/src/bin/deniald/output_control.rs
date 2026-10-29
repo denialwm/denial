@@ -879,9 +879,6 @@ fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender
     let _ = events.try_send(event);
 }
 
-/// The shell action that shows the tuning editor.
-pub(super) const COLOR_TUNING_ACTION: &str = "denial_desktop.colorTuning";
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GradeTarget {

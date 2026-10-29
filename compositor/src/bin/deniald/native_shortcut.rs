@@ -16,7 +16,7 @@ use tracing::{info, warn};
 use super::keyboard_resize::KeyboardResize;
 use super::window_layout::LayoutDirection;
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 11;
+const SHORTCUT_SCHEMA_VERSION: u64 = 12;
 const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
@@ -90,6 +90,9 @@ const SHORTCUT_V10_ADDITIONS: &[(&str, ShortcutAction)] = &[
     ("Super+Shift+Minus", ShortcutAction::ResizeShrinkHeight),
     ("Super+Shift+Equal", ShortcutAction::ResizeGrowHeight),
 ];
+
+const SHORTCUT_V12_PLUGIN_ADDITIONS: &[(&str, &str)] =
+    &[("Super+Alt+P", crate::plugin_actions::COLOR_TUNING_ACTION)];
 
 const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
@@ -884,7 +887,7 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
         6 => &[SHORTCUT_V9_ADDITIONS],
         7 => &[SHORTCUT_V9_ADDITIONS],
         8 => &[SHORTCUT_V9_ADDITIONS],
-        9 | 10 => &[],
+        9..=11 => &[],
         version => {
             return Err(ShortcutError::Document(format!(
                 "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
@@ -902,10 +905,14 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
         )));
     }
 
-    // Version 10 already applied earlier migrations. Preserve every user
-    // deletion and remapping while transferring only launcher action ownership.
-    if file.version == 10 {
-        let changed = migrate_launcher_targets(file);
+    // Versions 10 and 11 already applied earlier migrations. Preserve every
+    // user deletion and remapping; add only what came after.
+    let mut changed = 0;
+    if file.version >= 10 {
+        if file.version == 10 {
+            changed += migrate_launcher_targets(file);
+        }
+        changed += add_default_plugin_shortcuts(file)?;
         file.version = SHORTCUT_SCHEMA_VERSION;
         file.revision = file.revision.saturating_add(1);
         return Ok(Some(changed));
@@ -915,7 +922,7 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
     // legacy default; a user-authored action on SUPER+Up remains untouched.
     let relocated =
         migrate_default_shortcut(file, "Super+Up", ShortcutAction::ToggleMaximize, "Super+W")?;
-    let mut changed = usize::from(relocated);
+    changed += usize::from(relocated);
     if invert_workspace_swipe_defaults {
         changed += usize::from(migrate_default_shortcut_action(
             file,
@@ -955,9 +962,32 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
         }
     }
     changed += migrate_launcher_targets(file);
+    changed += add_default_plugin_shortcuts(file)?;
     file.version = SHORTCUT_SCHEMA_VERSION;
     file.revision = file.revision.saturating_add(1);
     Ok(Some(changed))
+}
+
+/// Binds the default shell actions to triggers the user left free.
+fn add_default_plugin_shortcuts(file: &mut ShortcutFile) -> Result<usize, ShortcutError> {
+    let mut configured = HashSet::with_capacity(file.shortcuts.len());
+    for binding in &file.shortcuts {
+        configured.insert(parse_shortcut(&binding.shortcut)?);
+    }
+    let mut changed = 0;
+    for &(shortcut, id) in SHORTCUT_V12_PLUGIN_ADDITIONS {
+        let trigger = parse_shortcut(shortcut)?;
+        if configured.contains(&trigger) || file.shortcuts.len() == MAX_SHORTCUTS {
+            continue;
+        }
+        configured.insert(trigger.clone());
+        file.shortcuts.push(ShortcutBinding {
+            shortcut: trigger.canonical,
+            target: ShortcutTarget::PluginAction { id: id.into() },
+        });
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 fn migrate_launcher_targets(file: &mut ShortcutFile) -> usize {
@@ -1221,6 +1251,14 @@ fn default_shortcut_file() -> ShortcutFile {
                     ShortcutTarget::DenialAction { action }
                 },
             })
+            .chain(
+                SHORTCUT_V12_PLUGIN_ADDITIONS
+                    .iter()
+                    .map(|&(shortcut, id)| ShortcutBinding {
+                        shortcut: shortcut.to_owned(),
+                        target: ShortcutTarget::PluginAction { id: id.into() },
+                    }),
+            )
             .collect(),
     }
 }

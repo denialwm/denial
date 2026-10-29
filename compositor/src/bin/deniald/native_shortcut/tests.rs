@@ -5,16 +5,24 @@ fn v11_migrates_only_launcher_targets_preserving_user_deletions() {
     let mut file = ShortcutFile {
         version: 10,
         revision: 25,
-        shortcuts: vec![ShortcutBinding {
-            shortcut: "Super+A".into(),
-            target: ShortcutTarget::DenialAction {
-                action: ShortcutAction::OpenApplications,
+        shortcuts: vec![
+            ShortcutBinding {
+                shortcut: "Super+A".into(),
+                target: ShortcutTarget::DenialAction {
+                    action: ShortcutAction::OpenApplications,
+                },
             },
-        }],
+            ShortcutBinding {
+                shortcut: "Super+Alt+P".into(),
+                target: ShortcutTarget::SpawnSh {
+                    command: "custom".into(),
+                },
+            },
+        ],
     };
     assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
     assert_eq!(file.revision, 26);
-    assert_eq!(file.shortcuts.len(), 1);
+    assert_eq!(file.shortcuts.len(), 2);
     assert_eq!(file.shortcuts[0].shortcut, "Super+A");
     assert_eq!(
         file.shortcuts[0].target,
@@ -26,7 +34,49 @@ fn v11_migrates_only_launcher_targets_preserving_user_deletions() {
     file.version = 10;
     file.shortcuts.clear();
     migrate_shortcut_file(&mut file).unwrap();
+    assert_eq!(file.shortcuts.len(), SHORTCUT_V12_PLUGIN_ADDITIONS.len());
+}
+
+#[test]
+fn v12_adds_color_tuning_only_where_the_trigger_is_free() {
+    let color_tuning = ShortcutTarget::PluginAction {
+        id: crate::plugin_actions::COLOR_TUNING_ACTION.into(),
+    };
+    let mut file = ShortcutFile {
+        version: 11,
+        revision: 4,
+        shortcuts: Vec::new(),
+    };
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+    assert_eq!(file.revision, 5);
+    assert_eq!(file.shortcuts.len(), 1);
+    assert_eq!(file.shortcuts[0].shortcut, "Super+Alt+P");
+    assert_eq!(file.shortcuts[0].target, color_tuning);
+    assert!(compile_shortcuts(&file).is_ok());
+    // A deletion after the migration stays deleted.
+    file.shortcuts.clear();
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), None);
     assert!(file.shortcuts.is_empty());
+
+    let custom = ShortcutBinding {
+        shortcut: "Super+Alt+P".into(),
+        target: ShortcutTarget::SpawnSh {
+            command: "custom".into(),
+        },
+    };
+    let mut file = ShortcutFile {
+        version: 11,
+        revision: 4,
+        shortcuts: vec![custom.clone()],
+    };
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(0));
+    assert_eq!(file.shortcuts, vec![custom]);
+    assert!(
+        default_shortcut_file()
+            .shortcuts
+            .iter()
+            .any(|binding| binding.shortcut == "Super+Alt+P" && binding.target == color_tuning)
+    );
 }
 
 #[test]
@@ -175,14 +225,14 @@ fn v10_migration_preserves_custom_bindings_and_runs_only_once() {
         revision: 12,
         shortcuts: vec![custom.clone()],
     };
-    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(3));
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(4));
     assert_eq!(file.revision, 13);
     assert_eq!(file.shortcuts[0], custom);
-    assert_eq!(file.shortcuts.len(), 4);
+    assert_eq!(file.shortcuts.len(), 5);
     assert!(compile_shortcuts(&file).is_ok());
     file.shortcuts.pop();
     assert_eq!(migrate_shortcut_file(&mut file).unwrap(), None);
-    assert_eq!(file.shortcuts.len(), 3);
+    assert_eq!(file.shortcuts.len(), 4);
 }
 
 #[test]
@@ -276,6 +326,7 @@ fn v4_migration_relocates_the_legacy_maximize_binding_for_navigation() {
                 + SHORTCUT_V6_ADDITIONS.len()
                 + SHORTCUT_V9_ADDITIONS.len()
                 + SHORTCUT_V10_ADDITIONS.len()
+                + SHORTCUT_V12_PLUGIN_ADDITIONS.len()
         )
     );
     assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
@@ -353,11 +404,14 @@ fn v7_migration_removes_the_retired_workspace_overview_action() {
     let mut file = serde_json::from_value::<ShortcutFile>(document).unwrap();
     assert_eq!(
         migrate_shortcut_file(&mut file).unwrap(),
-        Some(2 + SHORTCUT_V10_ADDITIONS.len())
+        Some(2 + SHORTCUT_V10_ADDITIONS.len() + SHORTCUT_V12_PLUGIN_ADDITIONS.len())
     );
     assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
     assert_eq!(file.revision, 13);
-    assert_eq!(file.shortcuts.len(), 3 + SHORTCUT_V10_ADDITIONS.len());
+    assert_eq!(
+        file.shortcuts.len(),
+        3 + SHORTCUT_V10_ADDITIONS.len() + SHORTCUT_V12_PLUGIN_ADDITIONS.len()
+    );
     assert_eq!(file.shortcuts[0].shortcut, "Super+Alt+Right");
 }
 
@@ -376,7 +430,7 @@ fn v6_migration_adds_workspace_swipes_without_overwriting_user_bindings() {
 
     assert_eq!(
         migrate_shortcut_file(&mut file).unwrap(),
-        Some(3 + SHORTCUT_V10_ADDITIONS.len())
+        Some(3 + SHORTCUT_V10_ADDITIONS.len() + SHORTCUT_V12_PLUGIN_ADDITIONS.len())
     );
     assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
     assert_eq!(file.revision, 12);
@@ -421,7 +475,7 @@ fn v8_migration_inverts_only_the_saved_default_workspace_swipes() {
 
     assert_eq!(
         migrate_shortcut_file(&mut file).unwrap(),
-        Some(3 + SHORTCUT_V10_ADDITIONS.len())
+        Some(3 + SHORTCUT_V10_ADDITIONS.len() + SHORTCUT_V12_PLUGIN_ADDITIONS.len())
     );
     assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
     assert_eq!(file.revision, 15);

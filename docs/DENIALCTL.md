@@ -159,6 +159,8 @@ picked app live:
 denialctl color tune
 ```
 
+Super+Alt+P opens and closes it too.
+
 Every color change is saved in the `color` section of the settings document
 and applies again at the next start. A LUT is saved by the absolute path it
 was read from; one that no longer reads is skipped and stays saved.
