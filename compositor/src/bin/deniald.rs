@@ -91,6 +91,9 @@ mod options;
 #[path = "deniald/orientation_sensor.rs"]
 mod orientation_sensor;
 #[cfg(feature = "flutter")]
+#[path = "deniald/output_color.rs"]
+mod output_color;
+#[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
 #[path = "deniald/output_policy.rs"]

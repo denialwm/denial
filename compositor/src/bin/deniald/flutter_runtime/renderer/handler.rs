@@ -127,6 +127,9 @@ impl FlutterGlHandler {
                 pool.dmabufs.into_iter().enumerate()
             {
                 let scanout_format = AllocatorBuffer::format(scanout_dmabuf);
+                // Gamut-corrected outputs render off-screen even when the
+                // rest of the session renders straight into scanout.
+                let offscreen = offscreen_blit || render_dmabuf.is_some();
                 let image = match render_view(scanout_dmabuf).and_then(|view| {
                     Ok(render_context.display().create_image_from_dmabuf(&view)?)
                 }) {
@@ -155,6 +158,7 @@ impl FlutterGlHandler {
                     } else {
                         gl::RGBA8
                     },
+                    gamut: pool.color.map(|color| color.matrix),
                 };
                 let import_error;
                 // SAFETY: a compatible GLES context is current and all output
@@ -196,7 +200,7 @@ impl FlutterGlHandler {
                         target.scanout_texture,
                         0,
                     );
-                    if !offscreen_blit && depth_stencil != 0 {
+                    if !offscreen && depth_stencil != 0 {
                         (gl.framebuffer_renderbuffer)(
                             gl::FRAMEBUFFER,
                             gl::DEPTH_STENCIL_ATTACHMENT,
@@ -225,8 +229,8 @@ impl FlutterGlHandler {
                     || import_error != gl::NO_ERROR
                     || attachment_error != gl::NO_ERROR
                     || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
-                    || (!offscreen_blit && actual_samples > 1)
-                    || (!offscreen_blit && actual_stencil_bits < 8)
+                    || (!offscreen && actual_samples > 1)
+                    || (!offscreen && actual_stencil_bits < 8)
                 {
                     warn!(
                         output = ?pool.output_id,
@@ -254,7 +258,7 @@ impl FlutterGlHandler {
                     ).into());
                 }
 
-                if offscreen_blit {
+                if offscreen {
                     let Some(render_dmabuf) = render_dmabuf else {
                         let mut failed = vec![target];
                         destroy_targets(gl, &display, &mut failed);
@@ -1094,6 +1098,7 @@ impl FlutterGlHandler {
             target.scanout_framebuffer,
             target.size,
             shader_blit,
+            target.gamut,
         ) {
             error!(
                 framebuffer = render_framebuffer,

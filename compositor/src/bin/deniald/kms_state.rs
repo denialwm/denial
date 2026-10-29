@@ -802,6 +802,14 @@ impl ScanoutBuffer {
         self.format
     }
 
+    /// The composed scene before any output correction: what captures read.
+    #[cfg(feature = "flutter")]
+    pub(super) fn scene_dmabuf(&self) -> &Dmabuf {
+        self.render_target
+            .as_ref()
+            .map_or(&self.dmabuf, |target| &target.dmabuf)
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn flutter_target_dmabufs(&self) -> (&Dmabuf, Option<&Dmabuf>) {
         (
@@ -983,6 +991,8 @@ pub(super) struct OutputSwapchain {
     pub(super) size: PixelSize,
     pub(super) buffers: Vec<ScanoutBuffer>,
     pub(super) current: usize,
+    /// Gamut correction applied when copying Flutter's scene to scanout.
+    pub(super) color: Option<super::output_color::OutputColor>,
 }
 
 #[cfg(feature = "flutter")]
@@ -1015,6 +1025,10 @@ impl OutputSwapchains {
                 .transfer
                 .as_ref()
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
+            // A corrected output renders off-screen; the copy to scanout
+            // converts it, and captures read the uncorrected scene.
+            let color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
+            let linear_render_targets = linear_render_targets || color.is_some();
             let formats = compatible_scanout_formats(
                 &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
@@ -1056,7 +1070,12 @@ impl OutputSwapchains {
                     MAX_SCANOUT_POOL_BYTES - previous_bytes,
                 ) {
                     Ok(pool) => {
-                        info!(output = %scanout.output.name, format = ?format.code, "allocated output pool");
+                        info!(
+                            output = %scanout.output.name,
+                            format = ?format.code,
+                            gamut_correction = color.is_some(),
+                            "allocated output pool"
+                        );
                         buffers = Some(pool);
                         break;
                     }
@@ -1087,6 +1106,7 @@ impl OutputSwapchains {
                 size: plan.target_size,
                 buffers,
                 current: 0,
+                color,
             });
         }
         Ok(Self { outputs })
@@ -1217,6 +1237,7 @@ fn flutter_render_target_pools(
             configuration_generation: pool.configuration_generation,
             size: pool.size,
             initial_scanout: pool.current,
+            color: pool.color,
             transfers: pool
                 .buffers
                 .iter()

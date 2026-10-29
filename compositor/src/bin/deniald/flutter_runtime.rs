@@ -175,6 +175,8 @@ pub(super) struct OutputRenderTargetPool<'a> {
     pub configuration_generation: u64,
     pub size: PixelSize,
     pub initial_scanout: usize,
+    /// Gamut correction for the copy from an off-screen target to scanout.
+    pub color: Option<crate::output_color::OutputColor>,
     pub dmabufs: Vec<(&'a Dmabuf, Option<&'a Dmabuf>)>,
     /// None preserves direct same-device rendering. Source slots and final
     /// scanout slots share an index, but have distinct storage and completion.

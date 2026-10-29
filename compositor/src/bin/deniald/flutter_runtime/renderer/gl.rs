@@ -82,6 +82,7 @@ pub(super) struct GlApi {
     pub(super) use_program: unsafe extern "system" fn(u32),
     pub(super) get_uniform_location: unsafe extern "system" fn(u32, *const c_char) -> i32,
     pub(super) uniform_1i: unsafe extern "system" fn(i32, i32),
+    pub(super) uniform_matrix_3fv: unsafe extern "system" fn(i32, i32, u8, *const f32),
     pub(super) active_texture: unsafe extern "system" fn(u32),
     pub(super) enable: unsafe extern "system" fn(u32),
     pub(super) disable: unsafe extern "system" fn(u32),
@@ -179,6 +180,10 @@ impl GlApi {
                 unsafe extern "system" fn(u32, *const c_char) -> i32
             ),
             uniform_1i: symbol!("glUniform1i", unsafe extern "system" fn(i32, i32)),
+            uniform_matrix_3fv: symbol!(
+                "glUniformMatrix3fv",
+                unsafe extern "system" fn(i32, i32, u8, *const f32)
+            ),
             active_texture: symbol!("glActiveTexture", unsafe extern "system" fn(u32)),
             enable: symbol!("glEnable", unsafe extern "system" fn(u32)),
             disable: symbol!("glDisable", unsafe extern "system" fn(u32)),
@@ -231,6 +236,8 @@ pub(super) struct GlTarget {
     pub(super) render_framebuffer: u32,
     /// Color format Flutter is told the render framebuffer holds.
     pub(super) gl_format: u32,
+    /// Column-major linear-light gamut matrix for the copy to scanout.
+    pub(super) gamut: Option<[f32; 9]>,
 }
 
 impl GlTarget {
@@ -243,6 +250,8 @@ impl GlTarget {
 pub(super) struct ShaderBlit {
     pub(super) program: u32,
     pub(super) source_uniform: i32,
+    pub(super) correct_uniform: i32,
+    pub(super) gamut_uniform: i32,
 }
 
 const SCANOUT_VERTEX_SHADER: &[u8] = b"#version 300 es\n\
@@ -257,10 +266,18 @@ void main() {\n\
 const SCANOUT_FRAGMENT_SHADER: &[u8] = b"#version 300 es\n\
 precision highp float;\n\
 uniform sampler2D source_texture;\n\
+uniform bool correct_gamut;\n\
+uniform mat3 gamut;\n\
 in vec2 texture_coordinate;\n\
 layout(location = 0) out vec4 fragment_color;\n\
 void main() {\n\
-    fragment_color = texture(source_texture, texture_coordinate);\n\
+    vec4 color = texture(source_texture, texture_coordinate);\n\
+    if (correct_gamut) {\n\
+        // Gamma 2.2 both ways keeps neutrals exact; only the gamut moves.\n\
+        vec3 linear = pow(color.rgb, vec3(2.2));\n\
+        color.rgb = pow(clamp(gamut * linear, 0.0, 1.0), vec3(1.0 / 2.2));\n\
+    }\n\
+    fragment_color = color;\n\
 }\n\0";
 
 /// The DMA-BUF Flutter renders into. GL renders 10-bit storage only through
@@ -328,9 +345,23 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         unsafe { (gl.delete_program)(program) };
         return Err("Flutter scanout-copy shader omitted its source sampler".into());
     }
+    // SAFETY: the names are NUL-terminated and the linked program is live.
+    let (correct_uniform, gamut_uniform) = unsafe {
+        (
+            (gl.get_uniform_location)(program, c"correct_gamut".as_ptr()),
+            (gl.get_uniform_location)(program, c"gamut".as_ptr()),
+        )
+    };
+    if correct_uniform < 0 || gamut_uniform < 0 {
+        // SAFETY: the linked program remains live until this deletion.
+        unsafe { (gl.delete_program)(program) };
+        return Err("Flutter scanout-copy shader omitted its gamut uniforms".into());
+    }
     Ok(ShaderBlit {
         program,
         source_uniform,
+        correct_uniform,
+        gamut_uniform,
     })
 }
 
@@ -409,6 +440,7 @@ pub(super) fn copy_to_scanout(
     scanout_framebuffer: u32,
     size: PixelSize,
     shader_blit: ShaderBlit,
+    gamut: Option<[f32; 9]>,
 ) -> Result<(), u32> {
     // The raster commands and this draw share one GLES context, so command
     // ordering makes the completed LINEAR scene texture available without
@@ -460,6 +492,10 @@ pub(super) fn copy_to_scanout(
         (gl.active_texture)(gl::TEXTURE0);
         (gl.bind_texture)(gl::TEXTURE_2D, render_texture);
         (gl.uniform_1i)(shader_blit.source_uniform, 0);
+        (gl.uniform_1i)(shader_blit.correct_uniform, i32::from(gamut.is_some()));
+        if let Some(gamut) = &gamut {
+            (gl.uniform_matrix_3fv)(shader_blit.gamut_uniform, 1, gl::FALSE, gamut.as_ptr());
+        }
         (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
     }
     // SAFETY: the same render context remains current after the copy.

@@ -164,7 +164,7 @@ pub(super) fn screenshot_composite_sources(
                 .for_output(output.id)
                 .and_then(|pool| pool.buffers.get(index))
                 .ok_or("screenshot output buffer exceeds its native pool")?
-                .dmabuf
+                .scene_dmabuf()
                 .clone();
             Ok(wayland_frontend::OutputCompositeSource {
                 dmabuf,

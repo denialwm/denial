@@ -1820,9 +1820,13 @@ impl OutputScheduler {
             .for_output(tick.output)
             .and_then(|pool| pool.buffers.get(buffer_index))
             .ok_or("screencopy output buffer exceeds its native pool")?;
-        frontend.process_screencopies(renderer, &buffer.dmabuf, tick.output, timestamp, || {
-            runtime.retain_output(tick.output, buffer_index)
-        })
+        frontend.process_screencopies(
+            renderer,
+            buffer.scene_dmabuf(),
+            tick.output,
+            timestamp,
+            || runtime.retain_output(tick.output, buffer_index),
+        )
     }
 
     pub(super) fn framebuffer_index_for_output(

@@ -23,6 +23,7 @@ fn configuration(buffers: &[Dmabuf]) -> PreparedRendererConfiguration {
             configuration_generation: 2,
             size: PixelSize::new(1920, 1080),
             initial_scanout: 0,
+            color: None,
             dmabufs: buffers.iter().map(|buffer| (buffer, None)).collect(),
         }],
         PixelSize::new(1920, 1080),
@@ -83,6 +84,7 @@ fn prepared_blit_pool_requires_the_same_render_allocation() {
         configuration_generation: 2,
         size: PixelSize::new(1920, 1080),
         initial_scanout: 0,
+        color: None,
         dmabufs: vec![(&scanout, render)],
     };
     let config =
