@@ -198,6 +198,7 @@ impl FlutterGlHandler {
         frames: &[ExternalTextureFrame],
         changed: &mut Vec<i64>,
     ) {
+        let scene = crate::output_color::scene_encoding();
         let mut state = lock(&self.native_clients);
         for window in windows {
             window.client_texture = None;
@@ -233,6 +234,16 @@ impl FlutterGlHandler {
                     .find(|frame| frame.texture_id == layer.texture_id)
                     .and_then(|frame| frame.presentation.as_ref())
                     .is_some_and(|presentation| !reproduces_presentation(presentation))
+            }) {
+                continue;
+            }
+            // The pass copies pixels as they are; converted ones need the engine.
+            if plan.layers.iter().any(|layer| {
+                frames
+                    .iter()
+                    .find(|frame| frame.texture_id == layer.texture_id)
+                    .and_then(ExternalTextureFrame::color)
+                    .is_some_and(|color| color.needs_pass(scene))
             }) {
                 continue;
             }
@@ -400,6 +411,13 @@ impl FlutterGlHandler {
                 .iter()
                 .map(|(_, source)| PixelIdentity::new(source))
                 .collect::<Vec<_>>();
+            let scene = crate::output_color::scene_encoding();
+            if inputs
+                .iter()
+                .any(|(_, source)| source.color().is_some_and(|color| color.needs_pass(scene)))
+            {
+                return Err("a native client input needs color conversion".into());
+            }
             let mut prepared_inputs = Vec::with_capacity(inputs.len());
             let mut draw_inputs = Vec::with_capacity(inputs.len());
             for (input_texture_id, source) in inputs {

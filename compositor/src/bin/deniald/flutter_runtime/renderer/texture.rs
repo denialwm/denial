@@ -1008,6 +1008,12 @@ impl ExternalTextureFrame {
         self
     }
 
+    pub(in crate::flutter_runtime) fn color(
+        &self,
+    ) -> Option<Arc<crate::color_space::SurfaceColor>> {
+        self.source.color()
+    }
+
     pub(crate) fn from_dmabuf(
         texture_id: i64,
         dmabuf: Dmabuf,
