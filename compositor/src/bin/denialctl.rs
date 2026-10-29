@@ -1732,7 +1732,7 @@ Commands:
   color hdr                      List HDR displays and whether they show HDR
   color hdr OUTPUT on [WHITE] [srgb|bt2020]
                                  Show HDR, SDR content at WHITE cd/m² (default 203);
-                                 srgb for displays that show PQ as sRGB
+                                 srgb for displays that show BT.2020 PQ as sRGB
   color hdr OUTPUT off           Return the display to SDR
   color lut load FILE            Grade the desktop with a .cube 3D LUT
   color lut clear                Remove the desktop LUT

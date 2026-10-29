@@ -2592,9 +2592,10 @@ fn apply_connector_hdr(
             None => Ok(()),
         };
     };
-    let colorspace_name = match hdr.map(|hdr| hdr.primaries) {
-        Some(super::output_color::SignalPrimaries::Bt2020) => "BT2020_RGB",
-        Some(super::output_color::SignalPrimaries::Srgb) | None => "Default",
+    let colorspace_name = if hdr.is_some() {
+        "BT2020_RGB"
+    } else {
+        "Default"
     };
     let colorspace = match drm.get_property(colorspace_property)?.value_type() {
         property::ValueType::Enum(values) => values

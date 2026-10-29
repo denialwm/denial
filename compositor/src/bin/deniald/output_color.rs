@@ -48,8 +48,9 @@ pub(super) struct HdrMode {
     pub(super) primaries: SignalPrimaries,
 }
 
-/// BT.2020 is BT.2100's own. sRGB is for displays that show a PQ signal as
-/// sRGB whatever colorimetry the connector states.
+/// The primaries the PQ values are in. The connector states BT.2020 either
+/// way: BT.2020 is BT.2100's own, sRGB is for displays that show a PQ signal
+/// stated as BT.2020 with sRGB primaries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum SignalPrimaries {
