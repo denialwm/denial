@@ -121,8 +121,10 @@ the display's peak over the chosen SDR white, so tagged HDR content is mapped
 to that headroom instead of SDR. Impeller's layers and filters turn half float
 with it (`--denial-float-color`), and the copy to scanout encodes BT.2100 PQ.
 That output advertises BT.2020 and PQ, with the SDR white as reference
-luminance. The connector's previous colorimetry and metadata return when
-Denial exits.
+luminance. Some displays show any PQ signal with sRGB primaries whatever the
+connector states; `srgb` after the white sends them sRGB primaries with
+default colorimetry, and the output advertises sRGB and PQ. The connector's
+previous colorimetry and metadata return when Denial exits.
 
 Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
 and all eight Wayland buffer orientations. Opacity changes publish with the

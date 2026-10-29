@@ -1049,7 +1049,7 @@ impl OutputSwapchains {
             let mut hdr = display_color
                 .hdr
                 .zip(super::output_color::hdr_request(&scanout.output.name))
-                .map(|(display, white)| super::output_color::HdrOutput { display, white });
+                .map(|(display, mode)| super::output_color::HdrOutput::new(display, mode));
             let formats = compatible_scanout_formats(
                 &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
@@ -1151,7 +1151,7 @@ impl OutputSwapchains {
                     id: scanout.output.id,
                     name: scanout.output.name.clone(),
                     display: capability,
-                    active: hdr.map(|hdr| hdr.white),
+                    active: hdr.map(super::output_color::HdrOutput::mode),
                 });
             }
             let actual_bytes = buffers.iter().try_fold(0u64, |bytes, buffer| {
@@ -2592,10 +2592,9 @@ fn apply_connector_hdr(
             None => Ok(()),
         };
     };
-    let colorspace_name = if hdr.is_some() {
-        "BT2020_RGB"
-    } else {
-        "Default"
+    let colorspace_name = match hdr.map(|hdr| hdr.primaries) {
+        Some(super::output_color::SignalPrimaries::Bt2020) => "BT2020_RGB",
+        Some(super::output_color::SignalPrimaries::Srgb) | None => "Default",
     };
     let colorspace = match drm.get_property(colorspace_property)?.value_type() {
         property::ValueType::Enum(values) => values
@@ -2645,6 +2644,7 @@ fn apply_connector_hdr(
         ?connector,
         signal = if hdr.is_some() { "BT.2100 PQ" } else { "SDR" },
         white = hdr.map(|hdr| hdr.white),
+        primaries = hdr.map(|hdr| hdr.primaries.name()),
         "switched the display signal"
     );
     Ok(())

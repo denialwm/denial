@@ -129,8 +129,12 @@ struct Options {
 #[derive(Debug, PartialEq)]
 enum HdrSwitch {
     Off,
-    /// With an SDR white in cd/m², or the compositor's default.
-    On(Option<f64>),
+    /// With an SDR white in cd/m² and signal primaries, or the compositor's
+    /// defaults.
+    On {
+        white: Option<f64>,
+        primaries: Option<&'static str>,
+    },
 }
 
 #[derive(Debug)]
@@ -255,21 +259,33 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["color", "hdr", output, "off"] => {
             Ok(Command::Hdr(Some(((*output).to_owned(), HdrSwitch::Off))))
         }
-        ["color", "hdr", output, "on"] => Ok(Command::Hdr(Some((
-            (*output).to_owned(),
-            HdrSwitch::On(None),
-        )))),
-        ["color", "hdr", output, "on", white] => {
-            let white = white
-                .parse::<f64>()
-                .ok()
-                .filter(|white| white.is_finite())
-                .ok_or_else(|| {
-                    CliError::usage(format!("expected SDR white in cd/m², got {white:?}"))
-                })?;
+        ["color", "hdr", output, "on", options @ ..] if options.len() <= 2 => {
+            let (mut white, mut primaries) = (None, None);
+            for option in options {
+                match *option {
+                    "bt2020" if primaries.is_none() => primaries = Some("bt2020"),
+                    "srgb" if primaries.is_none() => primaries = Some("srgb"),
+                    value if white.is_none() => {
+                        white = Some(
+                            value
+                                .parse::<f64>()
+                                .ok()
+                                .filter(|white| white.is_finite())
+                                .ok_or_else(|| {
+                                    CliError::usage(format!(
+                                        "expected SDR white in cd/m², bt2020 or srgb, got {value:?}"
+                                    ))
+                                })?,
+                        );
+                    }
+                    value => {
+                        return Err(CliError::usage(format!("unexpected {value:?}")));
+                    }
+                }
+            }
             Ok(Command::Hdr(Some((
                 (*output).to_owned(),
-                HdrSwitch::On(Some(white)),
+                HdrSwitch::On { white, primaries },
             ))))
         }
         ["ui"] | ["ui", "status"] => Ok(Command::UiStatus),
@@ -407,10 +423,13 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 Some((output, HdrSwitch::Off)) => {
                     client.request("color.hdr.set", json!({"output": output, "enabled": false}))?
                 }
-                Some((output, HdrSwitch::On(white))) => client.request(
-                    "color.hdr.set",
-                    json!({"output": output, "enabled": true, "white": white}),
-                )?,
+                Some((output, HdrSwitch::On { white, primaries })) => {
+                    let mut params = json!({"output": output, "enabled": true, "white": white});
+                    if let Some(primaries) = primaries {
+                        params["primaries"] = json!(primaries);
+                    }
+                    client.request("color.hdr.set", params)?
+                }
             };
             if options.json {
                 print_json(&response.result)?;
@@ -1650,7 +1669,13 @@ fn print_hdr(result: &Value) {
         let peak = output["max_luminance"].as_f64().unwrap_or_default();
         match output["white"].as_f64() {
             Some(white) => {
-                println!("HDR: {name} on, SDR white {white:.0} cd/m², peak {peak:.0} cd/m²")
+                let primaries = match output["primaries"].as_str() {
+                    Some("srgb") => ", sRGB signal",
+                    _ => "",
+                };
+                println!(
+                    "HDR: {name} on, SDR white {white:.0} cd/m², peak {peak:.0} cd/m²{primaries}"
+                )
             }
             None => match output["requested_white"].as_f64() {
                 Some(_) => println!("HDR: {name} requested, showing SDR (see the journal)"),
@@ -1705,7 +1730,9 @@ Commands:
   color                          Show the display color state
   color correction [on|off]      Show or switch each display's gamut correction
   color hdr                      List HDR displays and whether they show HDR
-  color hdr OUTPUT on [WHITE]    Show HDR, SDR content at WHITE cd/m² (default 203)
+  color hdr OUTPUT on [WHITE] [srgb|bt2020]
+                                 Show HDR, SDR content at WHITE cd/m² (default 203);
+                                 srgb for displays that show PQ as sRGB
   color hdr OUTPUT off           Return the display to SDR
   color lut load FILE            Grade the desktop with a .cube 3D LUT
   color lut clear                Remove the desktop LUT

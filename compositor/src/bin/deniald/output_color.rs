@@ -18,8 +18,8 @@ const SRGB_TOLERANCE: f64 = 0.004;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OutputColor {
     pub(super) matrix: [f32; 9],
-    /// SDR white in cd/m² when the output reads BT.2100 PQ (the matrix then
-    /// goes to BT.2020); 0 for an SDR output.
+    /// SDR white in cd/m² when the output reads PQ (the matrix then goes to
+    /// the signal's primaries); 0 for an SDR output.
     pub(super) pq_white: f32,
 }
 
@@ -40,11 +40,39 @@ pub(super) struct HdrCapability {
     pub(super) min_luminance: f64,
 }
 
-/// An output showing HDR: its display and the SDR white it puts the desktop at.
+/// How an output shows HDR: the SDR white it puts the desktop at and the
+/// primaries its PQ signal carries.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct HdrMode {
+    pub(super) white: f64,
+    pub(super) primaries: SignalPrimaries,
+}
+
+/// BT.2020 is BT.2100's own. sRGB is for displays that show a PQ signal as
+/// sRGB whatever colorimetry the connector states.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum SignalPrimaries {
+    #[default]
+    Bt2020,
+    Srgb,
+}
+
+impl SignalPrimaries {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Bt2020 => "bt2020",
+            Self::Srgb => "srgb",
+        }
+    }
+}
+
+/// An output showing HDR: its display and how it shows it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct HdrOutput {
     pub(super) display: HdrCapability,
     pub(super) white: f64,
+    pub(super) primaries: SignalPrimaries,
 }
 
 /// BT.2408's reference white, where SDR content sits in an HDR signal.
@@ -57,13 +85,31 @@ impl HdrOutput {
         (self.display.max_luminance / self.white).max(1.0)
     }
 
+    pub(super) fn new(display: HdrCapability, mode: HdrMode) -> Self {
+        Self {
+            display,
+            white: mode.white,
+            primaries: mode.primaries,
+        }
+    }
+
+    pub(super) fn mode(self) -> HdrMode {
+        HdrMode {
+            white: self.white,
+            primaries: self.primaries,
+        }
+    }
+
     pub(super) fn output_color(self) -> OutputColor {
         // Both share D65, so this is only the change of primaries.
-        let matrix = rgb_to_xyz(BT2020)
-            .and_then(invert)
-            .zip(rgb_to_xyz(SRGB))
-            .map(|(to_bt2020, from_srgb)| multiply(to_bt2020, from_srgb))
-            .expect("sRGB and BT.2020 are valid primaries");
+        let matrix = match self.primaries {
+            SignalPrimaries::Bt2020 => rgb_to_xyz(BT2020)
+                .and_then(invert)
+                .zip(rgb_to_xyz(SRGB))
+                .map(|(to_bt2020, from_srgb)| multiply(to_bt2020, from_srgb))
+                .expect("sRGB and BT.2020 are valid primaries"),
+            SignalPrimaries::Srgb => [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        };
         OutputColor {
             matrix: column_major(matrix),
             pq_white: self.white as f32,
@@ -71,10 +117,10 @@ impl HdrOutput {
     }
 }
 
-/// SDR white per connector name for every output asked to show HDR.
-static HDR_REQUESTS: Mutex<BTreeMap<String, f64>> = Mutex::new(BTreeMap::new());
+/// The mode per connector name for every output asked to show HDR.
+static HDR_REQUESTS: Mutex<BTreeMap<String, HdrMode>> = Mutex::new(BTreeMap::new());
 
-pub(super) fn hdr_request(output: &str) -> Option<f64> {
+pub(super) fn hdr_request(output: &str) -> Option<HdrMode> {
     HDR_REQUESTS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -90,10 +136,10 @@ pub(super) fn clear_hdr_requests() -> bool {
     any
 }
 
-pub(super) fn set_hdr_request(output: &str, white: Option<f64>) {
+pub(super) fn set_hdr_request(output: &str, mode: Option<HdrMode>) {
     let mut requests = HDR_REQUESTS.lock().unwrap_or_else(PoisonError::into_inner);
-    match white {
-        Some(white) => requests.insert(output.to_owned(), white),
+    match mode {
+        Some(mode) => requests.insert(output.to_owned(), mode),
         None => requests.remove(output),
     };
 }
@@ -104,8 +150,8 @@ pub(super) struct HdrDisplay {
     pub(super) id: OutputId,
     pub(super) name: String,
     pub(super) display: HdrCapability,
-    /// The SDR white it shows HDR at, or `None` while it shows SDR.
-    pub(super) active: Option<f64>,
+    /// How it shows HDR, or `None` while it shows SDR.
+    pub(super) active: Option<HdrMode>,
 }
 
 static HDR_DISPLAYS: Mutex<Vec<HdrDisplay>> = Mutex::new(Vec::new());
@@ -123,13 +169,9 @@ pub(super) fn set_hdr_displays(displays: Vec<HdrDisplay>) {
     let headroom = displays
         .iter()
         .filter_map(|display| {
-            display.active.map(|white| {
-                HdrOutput {
-                    display: display.display,
-                    white,
-                }
-                .headroom()
-            })
+            display
+                .active
+                .map(|mode| HdrOutput::new(display.display, mode).headroom())
         })
         .reduce(f64::max);
     SCENE_HEADROOM.store(headroom.map_or(0, f64::to_bits), Ordering::Release);
@@ -143,10 +185,9 @@ pub(super) fn hdr_output(id: OutputId) -> Option<HdrOutput> {
         .iter()
         .find(|display| display.id == id)
         .and_then(|display| {
-            display.active.map(|white| HdrOutput {
-                display: display.display,
-                white,
-            })
+            display
+                .active
+                .map(|mode| HdrOutput::new(display.display, mode))
         })
 }
 
@@ -575,6 +616,7 @@ mod tests {
         let output = HdrOutput {
             display,
             white: DEFAULT_SDR_WHITE,
+            primaries: SignalPrimaries::Bt2020,
         };
         assert!((output.headroom() - 455.5 / 203.0).abs() < 1e-3);
         let color = output.output_color();
@@ -587,18 +629,28 @@ mod tests {
         let dim = HdrOutput {
             display,
             white: 600.0,
+            primaries: SignalPrimaries::Bt2020,
         };
         assert_eq!(dim.headroom(), 1.0);
+        let srgb = HdrOutput {
+            primaries: SignalPrimaries::Srgb,
+            ..output
+        };
+        let red = column_major_apply(srgb.output_color(), [1.0, 0.0, 0.0]);
+        assert_eq!(red, [1.0, 0.0, 0.0]);
     }
 
     #[test]
     fn the_scene_turns_extended_with_an_hdr_output() {
         let display = from_edid(&hdr_edid(0b111, &[102, 75, 2])).hdr.unwrap();
-        let entry = |white| HdrDisplay {
+        let entry = |white: Option<f64>| HdrDisplay {
             id: OutputId(7),
             name: "DP-4".into(),
             display,
-            active: white,
+            active: white.map(|white| HdrMode {
+                white,
+                primaries: SignalPrimaries::Bt2020,
+            }),
         };
         set_hdr_displays(vec![entry(None)]);
         assert_eq!(scene_encoding(), SceneEncoding::SDR);

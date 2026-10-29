@@ -762,6 +762,8 @@ struct HdrParams {
     /// SDR white in cd/m²; the default when absent.
     #[serde(default)]
     white: Option<f64>,
+    #[serde(default)]
+    primaries: super::output_color::SignalPrimaries,
 }
 
 fn hdr_state() -> Value {
@@ -774,8 +776,10 @@ fn hdr_state() -> Value {
                 "max_frame_average": display.display.max_frame_average,
                 "min_luminance": display.display.min_luminance,
                 "active": display.active.is_some(),
-                "white": display.active,
-                "requested_white": super::output_color::hdr_request(&display.name),
+                "white": display.active.map(|mode| mode.white),
+                "primaries": display.active.map(|mode| mode.primaries.name()),
+                "requested_white": super::output_color::hdr_request(&display.name)
+                    .map(|mode| mode.white),
             })
         })
         .collect::<Vec<_>>();
@@ -811,8 +815,12 @@ fn change_hdr(
             ));
         }
     };
-    if super::output_color::hdr_request(&params.output) != white {
-        super::output_color::set_hdr_request(&params.output, white);
+    let mode = white.map(|white| super::output_color::HdrMode {
+        white,
+        primaries: params.primaries,
+    });
+    if super::output_color::hdr_request(&params.output) != mode {
+        super::output_color::set_hdr_request(&params.output, mode);
         // The signal, the scene format and Flutter's targets all change.
         let _ = events.try_send(ControlEvent::RebuildOutputs);
     }
