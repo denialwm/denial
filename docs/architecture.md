@@ -102,6 +102,17 @@ The Flutter path publishes physical Wayland output enter/leave events when a
 window is mapped, moved, resized or unmapped. Clients can therefore follow the
 monitor's refresh rate without a whole-desktop membership sweep each frame.
 
+Clients describe their pixels with `wp_color_management_v1` parametric image
+descriptions and `wp_color_representation_v1` alpha modes; ICC profiles are not
+accepted. The scene uses sRGB primaries and gamma 2.2, with SDR reference white
+at 1.0, and outputs and surface feedback advertise exactly that, so a client
+that renders in it costs nothing extra. Any other surface is converted once
+per committed buffer: decoded with its transfer function, anchored at its
+reference white, moved to sRGB primaries with Bradford adaptation, then tone
+mapped (perceptual intent) or clipped (relative intent) and encoded again. The
+deprecated `srgb` transfer function is read as gamma 2.2, which is what sRGB
+displays show; `compound_power_2_4` keeps its piecewise curve.
+
 Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
 and all eight Wayland buffer orientations. Opacity changes publish with the
 parent transaction even when the child keeps its buffer. Flutter applies

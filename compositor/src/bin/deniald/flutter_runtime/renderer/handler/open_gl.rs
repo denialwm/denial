@@ -39,6 +39,7 @@ impl FlutterGlHandler {
         self.destroy_retired_external_bindings();
         let source_generation = source.generation();
         let feedback = source.feedback();
+        let color = source.color();
         let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
             warn!(
                 texture_id,
@@ -53,6 +54,7 @@ impl FlutterGlHandler {
                 buffer_guard,
                 revision: _,
                 feedback: _,
+                color: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
@@ -322,6 +324,7 @@ impl FlutterGlHandler {
             texture_id,
             source_generation,
             feedback,
+            color,
             width,
             height,
             name,

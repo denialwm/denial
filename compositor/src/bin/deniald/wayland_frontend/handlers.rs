@@ -1187,6 +1187,10 @@ impl CompositorHandler for RuntimeState {
 
     fn commit(&mut self, surface: &WlSurface) {
         let synchronized = is_sync_subsurface(surface);
+        super::color_management::note_committed_color(
+            surface,
+            &self.frontend().toplevel_candidate_surface(surface),
+        );
         let buffer_update = with_states(surface, |states| {
             let mut attributes = states.cached_state.get::<SurfaceAttributes>();
             let current = attributes.current();

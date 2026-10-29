@@ -10,29 +10,80 @@ pub(super) mod native_client;
 mod open_gl;
 use native_client::NativeClientState;
 
-/// App looks on the render thread: one 3D texture per look, and the graded
-/// copy of each window texture an app look applies to.
+/// Window grading on the render thread: one 3D texture per app look, and
+/// the graded copy of each window texture that needs one.
 #[derive(Default)]
-struct AppGrades {
+struct WindowGrades {
     looks: Vec<(Arc<crate::output_color::Lut>, u32)>,
     graded: HashMap<i64, GradedTexture>,
+}
+
+/// What a window texture's copy does: the surface's own conversion into the
+/// scene and its alpha mode, then its app's look.
+#[derive(Clone)]
+struct Grade {
+    transform: Option<crate::color_space::SurfaceTransform>,
+    alpha: crate::color_space::AlphaMode,
+    look: Option<Arc<crate::output_color::Lut>>,
+}
+
+impl Grade {
+    fn same(&self, other: &Self) -> bool {
+        self.transform == other.transform
+            && self.alpha == other.alpha
+            && match (&self.look, &other.look) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
+    /// Converted HDR or extended content keeps more than 8 bits.
+    fn float(&self) -> bool {
+        self.transform.is_some_and(|transform| transform.float)
+    }
+
+    fn conversion(&self) -> Option<Conversion> {
+        match self.transform {
+            Some(transform) => Some(Conversion {
+                decode: transform.decode,
+                params: transform.params,
+                matrix: transform.matrix,
+                luma: transform.luma,
+                tone: transform.tone,
+            }),
+            // Alpha premultiplied in light needs the decode even when the
+            // pixels are the scene encoding.
+            None if self.alpha == crate::color_space::AlphaMode::PremultipliedOptical => {
+                Some(Conversion {
+                    decode: 0,
+                    params: [2.2, 0.0, 0.0, 0.0],
+                    matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                    luma: [0.2126, 0.7152, 0.0722],
+                    tone: [1.0, 1.0, 1.0, 0.0],
+                })
+            }
+            None => None,
+        }
+    }
 }
 
 struct GradedTexture {
     /// The source texture name and generation this copy was graded from.
     source: (u32, u64),
-    look: Arc<crate::output_color::Lut>,
+    grade: Grade,
     size: (usize, usize),
+    float: bool,
     binding: Arc<CachedTextureBinding>,
-    /// Earlier copies of this size; one the engine has let go is regraded
-    /// instead of allocating, since the engine holds the last image while
-    /// the next buffer is graded.
+    /// Earlier copies of this size and format; one the engine has let go is
+    /// regraded instead of allocating, since the engine holds the last image
+    /// while the next buffer is graded.
     spares: Vec<Arc<CachedTextureBinding>>,
 }
 
 const MAX_GRADED_SPARES: usize = 2;
 
-impl AppGrades {
+impl WindowGrades {
     fn look_texture(
         &mut self,
         gl: GlApi,
@@ -83,7 +134,7 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     shader_blit: Mutex<Option<ShaderBlit>>,
     /// App ids by external texture, for app looks.
     texture_apps: Mutex<HashMap<i64, Arc<str>>>,
-    app_grades: Mutex<AppGrades>,
+    window_grades: Mutex<WindowGrades>,
     depth_stencils: Mutex<Vec<u32>>,
     broker: Mutex<OutputBufferBroker>,
     pending_output_presentation: Mutex<Option<PendingOutputPresentation>>,
@@ -550,7 +601,7 @@ impl FlutterGlHandler {
             completion_owner: Mutex::new(Weak::new()),
             shader_blit: Mutex::new(shader_blit),
             texture_apps: Mutex::new(HashMap::new()),
-            app_grades: Mutex::new(AppGrades::default()),
+            window_grades: Mutex::new(WindowGrades::default()),
             depth_stencils: Mutex::new(depth_stencils),
             broker: Mutex::new(broker),
             pending_output_presentation: Mutex::new(None),
@@ -882,7 +933,7 @@ impl FlutterGlHandler {
         let retired_dmabufs = lock(&self.dmabuf_texture_cache).remove(&texture_id);
         let retired_shm =
             lock(&self.shm_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
-        let retired_grade = lock(&self.app_grades).graded.remove(&texture_id);
+        let retired_grade = lock(&self.window_grades).graded.remove(&texture_id);
         // Dropping a cache reference never issues GL calls. If no Flutter
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
@@ -1176,7 +1227,8 @@ impl FlutterGlHandler {
             shader_blit,
             CopyColor {
                 look: shader_blit.look_texture,
-                premultiplied: false,
+                alpha: 0,
+                convert: None,
                 gamut: target
                     .gamut
                     .filter(|_| crate::output_color::correction_enabled()),
@@ -1213,19 +1265,29 @@ impl FlutterGlHandler {
         crate::output_color::app_lut(&app)
     }
 
-    /// Give Flutter the app's graded copy of a window texture. A copy is
-    /// graded once per client buffer and look; the engine image holds it.
+    /// Give Flutter the graded copy of a window texture: converted from the
+    /// surface's own colors and graded with its app's look. A copy is graded
+    /// once per client buffer and grade; the engine image holds it.
     fn grade_external_texture(
         &self,
         mut prepared: PreparedExternalTexture,
     ) -> PreparedExternalTexture {
         let look = self.app_look(prepared.texture_id);
-        let mut grades = lock(&self.app_grades);
-        let Some(look) = look else {
+        let color = prepared.color.as_deref();
+        let transform =
+            color.and_then(|color| color.transform(crate::output_color::scene_encoding()));
+        let alpha = color.map_or_else(Default::default, |color| color.alpha);
+        let mut grades = lock(&self.window_grades);
+        if look.is_none() && transform.is_none() && alpha == Default::default() {
             if grades.graded.remove(&prepared.texture_id).is_some() {
                 grades.prune_looks(self.gl);
             }
             return prepared;
+        }
+        let grade = Grade {
+            transform,
+            alpha,
+            look,
         };
         let source = (prepared.name, prepared.source_generation);
         let size = (prepared.width, prepared.height);
@@ -1233,18 +1295,18 @@ impl FlutterGlHandler {
             .graded
             .get(&prepared.texture_id)
             .filter(|graded| {
-                graded.source == source && graded.size == size && Arc::ptr_eq(&graded.look, &look)
+                graded.source == source && graded.size == size && graded.grade.same(&grade)
             })
             .map(|graded| Arc::clone(&graded.binding));
         let binding = match current {
             Some(binding) => binding,
-            None => match self.render_grade(&mut grades, &prepared, &look) {
+            None => match self.render_grade(&mut grades, &prepared, grade) {
                 Ok(binding) => binding,
                 Err(error) => {
                     warn!(
                         texture_id = prepared.texture_id,
                         error = format_args!("{error:#x}"),
-                        "could not grade a window with its app look; showing it ungraded"
+                        "could not grade a window; showing its pixels unconverted"
                     );
                     return prepared;
                 }
@@ -1260,21 +1322,25 @@ impl FlutterGlHandler {
 
     fn render_grade(
         &self,
-        grades: &mut AppGrades,
+        grades: &mut WindowGrades,
         prepared: &PreparedExternalTexture,
-        look: &Arc<crate::output_color::Lut>,
+        grade: Grade,
     ) -> Result<Arc<CachedTextureBinding>, u32> {
         let shader_blit = (*lock(&self.shader_blit)).ok_or(gl::INVALID_OPERATION)?;
-        let look_texture = grades.look_texture(self.gl, look)?;
+        let look_texture = match &grade.look {
+            Some(look) => grades.look_texture(self.gl, look)?,
+            None => 0,
+        };
         let size = (prepared.width, prepared.height);
+        let float = grade.float();
         let pixel_size = PixelSize {
             width: u32::try_from(size.0).map_err(|_| gl::INVALID_VALUE)?,
             height: u32::try_from(size.1).map_err(|_| gl::INVALID_VALUE)?,
         };
         // Overwrite a copy no engine image samples any more; otherwise
-        // allocate one. Copies of another size are dropped.
+        // allocate one. Copies of another size or format are dropped.
         let mut spares = match grades.graded.remove(&prepared.texture_id) {
-            Some(previous) if previous.size == size => {
+            Some(previous) if previous.size == size && previous.float == float => {
                 let mut spares = previous.spares;
                 spares.push(previous.binding);
                 spares
@@ -1286,7 +1352,7 @@ impl FlutterGlHandler {
             .position(|spare| Arc::strong_count(spare) == 1)
         {
             Some(free) => spares.swap_remove(free),
-            None => self.create_graded_texture(pixel_size)?,
+            None => self.create_graded_texture(pixel_size, float)?,
         };
         while spares.len() > MAX_GRADED_SPARES {
             spares.remove(0);
@@ -1319,7 +1385,8 @@ impl FlutterGlHandler {
                 shader_blit,
                 CopyColor {
                     look: look_texture,
-                    premultiplied: true,
+                    alpha: grade.alpha as i32 + 1,
+                    convert: grade.conversion(),
                     gamut: None,
                 },
             )
@@ -1333,8 +1400,9 @@ impl FlutterGlHandler {
             prepared.texture_id,
             GradedTexture {
                 source: (prepared.name, prepared.source_generation),
-                look: Arc::clone(look),
+                grade,
                 size,
+                float,
                 binding: Arc::clone(&target),
                 spares,
             },
@@ -1343,7 +1411,16 @@ impl FlutterGlHandler {
         Ok(target)
     }
 
-    fn create_graded_texture(&self, size: PixelSize) -> Result<Arc<CachedTextureBinding>, u32> {
+    fn create_graded_texture(
+        &self,
+        size: PixelSize,
+        float: bool,
+    ) -> Result<Arc<CachedTextureBinding>, u32> {
+        let (internal_format, kind) = if float {
+            (gl::RGBA16F, gl::HALF_FLOAT)
+        } else {
+            (gl::RGBA8, gl::UNSIGNED_BYTE)
+        };
         let permit = self
             .external_texture_resource_budget
             .try_acquire()
@@ -1366,12 +1443,12 @@ impl FlutterGlHandler {
             (self.gl.tex_image_2d)(
                 gl::TEXTURE_2D,
                 0,
-                gl::RGBA8 as i32,
+                internal_format as i32,
                 size.width as i32,
                 size.height as i32,
                 0,
                 gl::RGBA,
-                gl::UNSIGNED_BYTE,
+                kind,
                 ptr::null(),
             );
             let error = (self.gl.get_error)();
@@ -1423,7 +1500,7 @@ impl FlutterGlHandler {
         if let Some(gpu_timing) = &self.gpu_timing {
             lock(gpu_timing).clear();
         }
-        lock(&self.app_grades).clear(self.gl);
+        lock(&self.window_grades).clear(self.gl);
         self.destroy_retired_external_bindings();
         destroy_shader_blit(self.gl, &mut shader_blit);
         destroy_targets(self.gl, &self.display, &mut targets);
@@ -1524,6 +1601,14 @@ impl FlutterGlHandler {
         let Some(source) = self.current_external_texture(texture_id) else {
             return false;
         };
+        let color = source.color();
+        // So does a surface whose pixels need converting.
+        if color
+            .as_deref()
+            .is_some_and(|color| color.needs_pass(crate::output_color::scene_encoding()))
+        {
+            return false;
+        }
         let source_generation = source.generation();
         let feedback = source.feedback();
         let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
@@ -1535,6 +1620,7 @@ impl FlutterGlHandler {
                 buffer_guard,
                 revision: _,
                 feedback: _,
+                color: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
@@ -1581,6 +1667,7 @@ impl FlutterGlHandler {
             texture_id,
             source_generation,
             feedback,
+            color,
             width,
             height,
             name,

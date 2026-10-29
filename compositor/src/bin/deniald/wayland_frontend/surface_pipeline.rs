@@ -458,6 +458,17 @@ impl WaylandFrontend {
             .unwrap_or(tree_root)
     }
 
+    /// The output a surface is shown on: its window's or its layer's.
+    pub(super) fn surface_output_id(&self, surface: &WlSurface) -> Option<OutputId> {
+        let root = self.toplevel_candidate_surface(surface);
+        self.window_for_root_surface(&root)
+            .and_then(|window| {
+                self.output_for_geometry(self.window_geometry_target(&window))
+                    .map(|output| output.id)
+            })
+            .or_else(|| self.layer_root_surface(surface).map(|(_, output)| output))
+    }
+
     pub(super) fn update_surface_fractional_scale(&self, surface: &WlSurface) {
         let root = self.toplevel_candidate_surface(surface);
         let preferred_scale = self
@@ -963,6 +974,7 @@ impl WaylandFrontend {
                     .filter(|frame| frame.texture_id == surface_id as i64)
                 {
                     frame.set_feedback(super::presentation::surface_feedback(states));
+                    frame.set_color(super::color_management::surface_color(states));
                     frame.presentation = Some(canvas.unwrap_or_default());
                 }
                 let (width, height, source) = match canvas {
@@ -1065,7 +1077,8 @@ impl WaylandFrontend {
                     revision,
                     expects_sample,
                 )
-                .with_feedback(with_states(surface, super::presentation::surface_feedback)),
+                .with_feedback(with_states(surface, super::presentation::surface_feedback))
+                .with_color(with_states(surface, super::color_management::surface_color)),
             );
         }
         self.surface_shm_frames
@@ -1074,6 +1087,7 @@ impl WaylandFrontend {
             .map(|frame| {
                 ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
                     .with_feedback(with_states(surface, super::presentation::surface_feedback))
+                    .with_color(with_states(surface, super::color_management::surface_color))
             })
     }
 

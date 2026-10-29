@@ -1,16 +1,13 @@
 //! Output gamut correction: the sRGB scene converted to a display's own
 //! primaries, applied after composition so captures keep the sRGB scene.
 
+use super::color_space::{Matrix, SRGB, Xy, bradford, invert, multiply, rgb_to_xyz, xyz};
 use super::{DrmDeviceFd, OutputId};
 use smithay::reexports::drm::control::{Device, connector};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-type Matrix = [[f64; 3]; 3];
-type Xy = (f64, f64);
-
-const SRGB: [Xy; 4] = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06), (0.3127, 0.3290)];
 /// Displays this close to sRGB in every chromaticity are left untouched.
 const SRGB_TOLERANCE: f64 = 0.004;
 
@@ -18,6 +15,11 @@ const SRGB_TOLERANCE: f64 = 0.004;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OutputColor {
     pub(super) matrix: [f32; 9],
+}
+
+/// How the scene stores color. Every output is SDR for now.
+pub(super) fn scene_encoding() -> super::color_space::SceneEncoding {
+    super::color_space::SceneEncoding::SDR
 }
 
 /// Off shows every display's own response, to compare it with the correction.
@@ -233,68 +235,6 @@ fn srgb_to(output: [Xy; 4]) -> Option<Matrix> {
     let destination = invert(rgb_to_xyz(output)?)?;
     let adapt = bradford(xyz(SRGB[3]), xyz(output[3]))?;
     Some(multiply(destination, multiply(adapt, source)))
-}
-
-fn xyz((x, y): Xy) -> [f64; 3] {
-    [x / y, 1.0, (1.0 - x - y) / y]
-}
-
-fn rgb_to_xyz(primaries: [Xy; 4]) -> Option<Matrix> {
-    let columns = [xyz(primaries[0]), xyz(primaries[1]), xyz(primaries[2])];
-    let unscaled = transpose(columns);
-    let scale = apply(invert(unscaled)?, xyz(primaries[3]));
-    let mut matrix = unscaled;
-    for row in &mut matrix {
-        for (value, scale) in row.iter_mut().zip(scale) {
-            *value *= scale;
-        }
-    }
-    Some(matrix)
-}
-
-fn bradford(from: [f64; 3], to: [f64; 3]) -> Option<Matrix> {
-    const CONE: Matrix = [
-        [0.8951, 0.2664, -0.1614],
-        [-0.7502, 1.7135, 0.0367],
-        [0.0389, -0.0685, 1.0296],
-    ];
-    let (from, to) = (apply(CONE, from), apply(CONE, to));
-    let mut gain = [[0.0; 3]; 3];
-    for axis in 0..3 {
-        gain[axis][axis] = to[axis] / from[axis];
-    }
-    Some(multiply(invert(CONE)?, multiply(gain, CONE)))
-}
-
-fn transpose(m: Matrix) -> Matrix {
-    std::array::from_fn(|row| std::array::from_fn(|column| m[column][row]))
-}
-
-fn apply(m: Matrix, v: [f64; 3]) -> [f64; 3] {
-    std::array::from_fn(|row| (0..3).map(|i| m[row][i] * v[i]).sum())
-}
-
-fn multiply(a: Matrix, b: Matrix) -> Matrix {
-    std::array::from_fn(|row| {
-        std::array::from_fn(|column| (0..3).map(|i| a[row][i] * b[i][column]).sum())
-    })
-}
-
-fn invert(m: Matrix) -> Option<Matrix> {
-    let cofactor = |row: usize, column: usize| {
-        let (r0, r1) = ((row + 1) % 3, (row + 2) % 3);
-        let (c0, c1) = ((column + 1) % 3, (column + 2) % 3);
-        m[r0][c0] * m[r1][c1] - m[r0][c1] * m[r1][c0]
-    };
-    let determinant: f64 = (0..3)
-        .map(|column| m[0][column] * cofactor(0, column))
-        .sum();
-    if determinant.abs() < 1e-12 {
-        return None;
-    }
-    Some(std::array::from_fn(|row| {
-        std::array::from_fn(|column| cofactor(column, row) / determinant)
-    }))
 }
 
 #[cfg(test)]

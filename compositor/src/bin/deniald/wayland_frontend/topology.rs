@@ -387,6 +387,7 @@ impl WaylandFrontend {
         for output in &self.outputs {
             layer_map_for_output(&output.output).arrange();
         }
+        self.refresh_color_outputs();
         #[cfg(feature = "flutter")]
         self.reconcile_workspace_outputs();
 

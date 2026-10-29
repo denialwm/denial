@@ -328,6 +328,7 @@ impl FlutterGlHandler {
             texture_id,
             source_generation: image.storage.allocation_id,
             feedback: None,
+            color: None,
             width: image.width,
             height: image.height,
             name: image.binding.texture(),
@@ -390,6 +391,7 @@ impl FlutterGlHandler {
                 }),
                 revision: storage.allocation_id,
                 feedback: None,
+                color: None,
             };
             let mut output = self
                 .prepare_source_with_gl(texture_id, source)

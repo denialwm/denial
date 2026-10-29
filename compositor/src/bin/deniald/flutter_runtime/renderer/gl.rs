@@ -85,6 +85,8 @@ pub(super) struct GlApi {
     pub(super) get_uniform_location: unsafe extern "system" fn(u32, *const c_char) -> i32,
     pub(super) uniform_1i: unsafe extern "system" fn(i32, i32),
     pub(super) uniform_matrix_3fv: unsafe extern "system" fn(i32, i32, u8, *const f32),
+    pub(super) uniform_3fv: unsafe extern "system" fn(i32, i32, *const f32),
+    pub(super) uniform_4fv: unsafe extern "system" fn(i32, i32, *const f32),
     pub(super) active_texture: unsafe extern "system" fn(u32),
     pub(super) enable: unsafe extern "system" fn(u32),
     pub(super) disable: unsafe extern "system" fn(u32),
@@ -201,6 +203,14 @@ impl GlApi {
                 "glUniformMatrix3fv",
                 unsafe extern "system" fn(i32, i32, u8, *const f32)
             ),
+            uniform_3fv: symbol!(
+                "glUniform3fv",
+                unsafe extern "system" fn(i32, i32, *const f32)
+            ),
+            uniform_4fv: symbol!(
+                "glUniform4fv",
+                unsafe extern "system" fn(i32, i32, *const f32)
+            ),
             active_texture: symbol!("glActiveTexture", unsafe extern "system" fn(u32)),
             enable: symbol!("glEnable", unsafe extern "system" fn(u32)),
             disable: symbol!("glDisable", unsafe extern "system" fn(u32)),
@@ -271,7 +281,13 @@ pub(super) struct ShaderBlit {
     pub(super) gamut_uniform: i32,
     pub(super) grade_uniform: i32,
     pub(super) look_uniform: i32,
-    pub(super) premultiplied_uniform: i32,
+    pub(super) alpha_mode_uniform: i32,
+    pub(super) convert_uniform: i32,
+    pub(super) decode_uniform: i32,
+    pub(super) decode_params_uniform: i32,
+    pub(super) to_scene_uniform: i32,
+    pub(super) luma_uniform: i32,
+    pub(super) tone_uniform: i32,
     /// The desktop look's 3D texture, or 0 for none.
     pub(super) look_texture: u32,
     /// The desktop look generation `look_texture` holds.
@@ -290,29 +306,81 @@ void main() {\n\
 const SCANOUT_FRAGMENT_SHADER: &[u8] = b"#version 300 es\n\
 precision highp float;\n\
 uniform sampler2D source_texture;\n\
+// 0: no alpha (a scene), 1: premultiplied after encoding, 2: premultiplied\n\
+// before encoding, 3: straight.\n\
+uniform int alpha_mode;\n\
+uniform bool convert;\n\
+uniform int decode;\n\
+uniform vec4 decode_params;\n\
+uniform mat3 to_scene;\n\
+uniform vec3 luma;\n\
+// Content peak, knee, headroom, extended.\n\
+uniform vec4 tone;\n\
 uniform bool grade;\n\
-uniform bool premultiplied;\n\
 uniform mediump sampler3D look;\n\
 uniform bool correct_gamut;\n\
 uniform mat3 gamut;\n\
 in vec2 texture_coordinate;\n\
 layout(location = 0) out vec4 fragment_color;\n\
+vec3 decode_light(vec3 v) {\n\
+    vec3 a = abs(v);\n\
+    if (decode == 0) return sign(v) * pow(a, vec3(decode_params.x));\n\
+    if (decode == 1) return sign(v) * mix(a / 12.92, pow((a + 0.055) / 1.055, vec3(2.4)), step(0.04045, a));\n\
+    if (decode == 2) return decode_params.y * pow(max(v + decode_params.x, 0.0), vec3(2.4));\n\
+    if (decode == 3) {\n\
+        vec3 e = pow(clamp(v, 0.0, 1.0), vec3(1.0 / 78.84375));\n\
+        return pow(max(e - 0.8359375, 0.0) / (18.8515625 - 18.6875 * e), vec3(1.0 / 0.1593017578125));\n\
+    }\n\
+    if (decode == 4) {\n\
+        vec3 c = clamp(v, 0.0, 1.0);\n\
+        vec3 scene = mix(c * c / 3.0, (exp((c - 0.55991073) / 0.17883277) + 0.28466892) / 12.0, step(0.5, c));\n\
+        return scene * pow(max(dot(luma, scene), 1e-6), decode_params.x);\n\
+    }\n\
+    if (decode == 6) return sign(v) * mix(a / 4.0, pow((a + 0.1115) / 1.1115, vec3(1.0 / 0.45)), step(0.0913, a));\n\
+    if (decode == 7) return pow(vec3(10.0), decode_params.x * (v - 1.0)) * step(1e-7, v);\n\
+    if (decode == 8) return sign(v) * mix(a / 4.5, pow((a + 0.099) / 1.099, vec3(1.0 / 0.45)), step(0.081, a));\n\
+    return v;\n\
+}\n\
+// Highlights above the knee roll off on the largest channel, keeping hue,\n\
+// so the content peak lands on the headroom.\n\
+vec3 tone_map(vec3 rgb) {\n\
+    float peak = tone.x;\n\
+    float knee = tone.y;\n\
+    float headroom = tone.z;\n\
+    float m = max(max(rgb.r, rgb.g), rgb.b);\n\
+    if (peak > headroom && knee < headroom && m > knee) {\n\
+        float span = headroom - knee;\n\
+        float u = (m - knee) / span;\n\
+        float range = (peak - knee) / span;\n\
+        rgb *= (knee + span * u * (1.0 + u / (range * range)) / (1.0 + u)) / m;\n\
+    }\n\
+    return tone.w > 0.5 ? min(rgb, vec3(headroom)) : clamp(rgb, 0.0, headroom);\n\
+}\n\
 void main() {\n\
     vec4 color = texture(source_texture, texture_coordinate);\n\
+    float alpha = color.a;\n\
+    // Straight color through every stage, premultiplied again at the end.\n\
+    vec3 rgb = color.rgb;\n\
+    if (alpha_mode == 1) rgb /= max(alpha, 1.0 / 1024.0);\n\
+    if (convert) {\n\
+        vec3 light = decode_light(rgb);\n\
+        if (alpha_mode == 2) light /= max(alpha, 1.0 / 1024.0);\n\
+        light = tone_map(to_scene * light);\n\
+        rgb = sign(light) * pow(abs(light), vec3(1.0 / 2.2));\n\
+    }\n\
     if (grade) {\n\
         // Sample texel centres: 0 and 1 land on the first and last entries.\n\
         float size = float(textureSize(look, 0).x);\n\
-        // Client pixels are premultiplied; the look applies to their color.\n\
-        vec3 straight = premultiplied ? color.rgb / max(color.a, 1.0 / 255.0) : color.rgb;\n\
-        vec3 at = clamp(straight, 0.0, 1.0) * ((size - 1.0) / size) + 0.5 / size;\n\
-        color.rgb = texture(look, at).rgb * (premultiplied ? color.a : 1.0);\n\
+        vec3 at = clamp(rgb, 0.0, 1.0) * ((size - 1.0) / size) + 0.5 / size;\n\
+        rgb = texture(look, at).rgb;\n\
     }\n\
     if (correct_gamut) {\n\
         // Gamma 2.2 both ways keeps neutrals exact; only the gamut moves.\n\
-        vec3 linear = pow(color.rgb, vec3(2.2));\n\
-        color.rgb = pow(clamp(gamut * linear, 0.0, 1.0), vec3(1.0 / 2.2));\n\
+        vec3 linear = pow(rgb, vec3(2.2));\n\
+        rgb = pow(clamp(gamut * linear, 0.0, 1.0), vec3(1.0 / 2.2));\n\
     }\n\
-    fragment_color = color;\n\
+    if (alpha_mode != 0) rgb *= alpha;\n\
+    fragment_color = vec4(rgb, alpha);\n\
 }\n\0";
 
 /// The DMA-BUF Flutter renders into. GL renders 10-bit storage only through
@@ -380,31 +448,37 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         unsafe { (gl.delete_program)(program) };
         return Err("Flutter scanout-copy shader omitted its source sampler".into());
     }
-    // SAFETY (each lookup): the names are NUL-terminated and the linked
-    // program is live.
+    let uniforms = [
+        c"correct_gamut",
+        c"gamut",
+        c"grade",
+        c"look",
+        c"alpha_mode",
+        c"convert",
+        c"decode",
+        c"decode_params",
+        c"to_scene",
+        c"luma",
+        c"tone",
+    ]
+    .map(|name| {
+        // SAFETY: the names are NUL-terminated and the linked program is live.
+        unsafe { (gl.get_uniform_location)(program, name.as_ptr()) }
+    });
     let [
         correct_uniform,
         gamut_uniform,
         grade_uniform,
         look_uniform,
-        premultiplied_uniform,
-    ] = [
-        c"correct_gamut",
-        c"gamut",
-        c"grade",
-        c"look",
-        c"premultiplied",
-    ]
-    .map(|name| unsafe { (gl.get_uniform_location)(program, name.as_ptr()) });
-    if [
-        correct_uniform,
-        gamut_uniform,
-        grade_uniform,
-        look_uniform,
-        premultiplied_uniform,
-    ]
-    .contains(&-1)
-    {
+        alpha_mode_uniform,
+        convert_uniform,
+        decode_uniform,
+        decode_params_uniform,
+        to_scene_uniform,
+        luma_uniform,
+        tone_uniform,
+    ] = uniforms;
+    if uniforms.contains(&-1) {
         // SAFETY: the linked program remains live until this deletion.
         unsafe { (gl.delete_program)(program) };
         return Err("Flutter scanout-copy shader omitted its color uniforms".into());
@@ -416,7 +490,13 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         gamut_uniform,
         grade_uniform,
         look_uniform,
-        premultiplied_uniform,
+        alpha_mode_uniform,
+        convert_uniform,
+        decode_uniform,
+        decode_params_uniform,
+        to_scene_uniform,
+        luma_uniform,
+        tone_uniform,
         look_texture: 0,
         look_generation: 0,
     })
@@ -493,10 +573,26 @@ fn gl_info_log(length: i32, read: impl FnOnce(i32, *mut i32, *mut c_char)) -> St
 pub(super) struct CopyColor {
     /// A look's 3D texture, or 0 for none.
     pub(super) look: u32,
-    /// The source holds premultiplied alpha (client windows).
-    pub(super) premultiplied: bool,
+    /// How the source holds alpha: 0 not at all (a scene), 1 premultiplied
+    /// after encoding, 2 premultiplied before encoding, 3 straight. The copy
+    /// is premultiplied after encoding whenever the source has alpha.
+    pub(super) alpha: i32,
+    /// The source's conversion into the scene.
+    pub(super) convert: Option<Conversion>,
     /// Column-major linear-light gamut matrix for the display.
     pub(super) gamut: Option<[f32; 9]>,
+}
+
+/// Uniforms of the copy shader's conversion stage: decode, matrix to scene
+/// linear light, tone map and gamma 2.2 encoding.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Conversion {
+    pub(super) decode: i32,
+    pub(super) params: [f32; 4],
+    /// Column-major.
+    pub(super) matrix: [f32; 9],
+    pub(super) luma: [f32; 3],
+    pub(super) tone: [f32; 4],
 }
 
 /// Copy a completed scene into its scanout target with the current GLES context.
@@ -564,10 +660,27 @@ pub(super) fn copy_to_scanout(
         (gl.bind_texture)(gl::TEXTURE_3D, color.look);
         (gl.uniform_1i)(shader_blit.look_uniform, 1);
         (gl.uniform_1i)(shader_blit.grade_uniform, i32::from(color.look != 0));
+        (gl.uniform_1i)(shader_blit.alpha_mode_uniform, color.alpha);
         (gl.uniform_1i)(
-            shader_blit.premultiplied_uniform,
-            i32::from(color.premultiplied),
+            shader_blit.convert_uniform,
+            i32::from(color.convert.is_some()),
         );
+        if let Some(convert) = &color.convert {
+            (gl.uniform_1i)(shader_blit.decode_uniform, convert.decode);
+            (gl.uniform_4fv)(
+                shader_blit.decode_params_uniform,
+                1,
+                convert.params.as_ptr(),
+            );
+            (gl.uniform_matrix_3fv)(
+                shader_blit.to_scene_uniform,
+                1,
+                gl::FALSE,
+                convert.matrix.as_ptr(),
+            );
+            (gl.uniform_3fv)(shader_blit.luma_uniform, 1, convert.luma.as_ptr());
+            (gl.uniform_4fv)(shader_blit.tone_uniform, 1, convert.tone.as_ptr());
+        }
         (gl.active_texture)(gl::TEXTURE0);
         (gl.bind_texture)(gl::TEXTURE_2D, render_texture);
         (gl.uniform_1i)(shader_blit.source_uniform, 0);

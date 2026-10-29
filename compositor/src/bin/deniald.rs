@@ -12,6 +12,8 @@ mod bus;
 mod client_release;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
+#[path = "deniald/color_space.rs"]
+mod color_space;
 #[path = "deniald/cpu_scheduling.rs"]
 mod cpu_scheduling;
 #[cfg(feature = "flutter")]

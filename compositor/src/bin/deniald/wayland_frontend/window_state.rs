@@ -998,6 +998,7 @@ impl WaylandFrontend {
                 fractional_scale.set_preferred_scale(preferred_scale);
             });
         });
+        self.refresh_color_feedback();
         if let Some(toplevel) = window.toplevel() {
             // XDG deliberately permits a size-less initial configure so a
             // client can choose its own dimensions. Publish the standard

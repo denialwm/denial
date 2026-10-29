@@ -144,6 +144,8 @@ use super::wire::{
 
 #[path = "wayland_frontend/clipboard.rs"]
 mod clipboard_io;
+#[path = "wayland_frontend/color_management.rs"]
+mod color_management;
 #[path = "wayland_frontend/cursor_state.rs"]
 mod cursor_state;
 #[path = "wayland_frontend/focus.rs"]
@@ -662,6 +664,7 @@ pub(super) struct WaylandFrontend {
     shortcuts_inhibit: shortcuts_inhibit::ShortcutsInhibit,
     input_timestamps: input_timestamps::InputTimestamps,
     gamma_control: gamma_control::GammaControlManager,
+    color_management: color_management::ColorManagement,
     screencopy: screencopy::ScreencopyManager,
     text_input: TextInputManager,
     #[cfg(feature = "flutter")]

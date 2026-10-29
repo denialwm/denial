@@ -65,6 +65,7 @@ impl WaylandFrontend {
             shortcuts_inhibit::ShortcutsInhibit::new(&display_handle, &loop_handle)?;
         let input_timestamps = input_timestamps::InputTimestamps::new(&display_handle);
         let gamma_control = gamma_control::GammaControlManager::new(&display_handle);
+        let color_management = color_management::ColorManagement::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
         let text_input = TextInputManager::new(&display_handle);
         let input_method = InputMethodManager::new(&display_handle);
@@ -296,7 +297,7 @@ impl WaylandFrontend {
         let libinput = init_libinput(event_loop, session.clone(), seat_name)?;
         #[cfg(feature = "flutter")]
         let input_rescan = super::input_hotplug::init(event_loop, &session)?;
-        Ok(Self {
+        let mut frontend = Self {
             output_metadata_device: display_device,
             start_time: Instant::now(),
             socket_name,
@@ -518,6 +519,7 @@ impl WaylandFrontend {
             shortcuts_inhibit,
             input_timestamps,
             gamma_control,
+            color_management,
             screencopy,
             text_input,
             #[cfg(feature = "flutter")]
@@ -541,7 +543,9 @@ impl WaylandFrontend {
             atlas_origin,
             atlas_scale,
             atlas_size,
-        })
+        };
+        frontend.refresh_color_outputs();
+        Ok(frontend)
     }
 }
 

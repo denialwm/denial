@@ -138,6 +138,7 @@ struct PreparedExternalTexture {
     texture_id: i64,
     source_generation: u64,
     feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+    color: Option<Arc<crate::color_space::SurfaceColor>>,
     width: usize,
     height: usize,
     name: u32,
@@ -480,6 +481,7 @@ pub(crate) struct ShmTextureFrame {
     revision: u64,
     rgba: Arc<ShmPixelStorage>,
     feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+    color: Option<Arc<crate::color_space::SurfaceColor>>,
 }
 
 impl ShmTextureFrame {
@@ -522,6 +524,7 @@ impl ShmTextureFrame {
             height,
             revision,
             feedback: None,
+            color: None,
             // Keep the snapshot's Vec allocation intact. Converting Vec<u8>
             // into Arc<[u8]> may copy the complete client frame.
             rgba: Arc::new(ShmPixelStorage {
@@ -545,6 +548,7 @@ impl ShmTextureFrame {
             height,
             revision,
             feedback: None,
+            color: None,
             rgba: Arc::new(ShmPixelStorage {
                 pixels: None,
                 pool: Weak::new(),
@@ -637,6 +641,7 @@ pub(in crate::flutter_runtime) enum ExternalTextureSource {
         buffer_guard: Option<ExternalBufferGuard>,
         revision: u64,
         feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+        color: Option<Arc<crate::color_space::SurfaceColor>>,
     },
     Shm(ShmTextureFrame),
 }
@@ -646,6 +651,15 @@ impl ExternalTextureSource {
         match self {
             Self::Dmabuf { feedback, .. } => feedback.clone(),
             Self::Shm(frame) => frame.feedback.clone(),
+        }
+    }
+
+    pub(in crate::flutter_runtime) fn color(
+        &self,
+    ) -> Option<Arc<crate::color_space::SurfaceColor>> {
+        match self {
+            Self::Dmabuf { color, .. } => color.clone(),
+            Self::Shm(frame) => frame.color.clone(),
         }
     }
 
@@ -661,6 +675,9 @@ impl ExternalTextureSource {
             (Some(a), Some(b)) if a.same(&b) => {}
             (None, None) => {}
             _ => return false,
+        }
+        if self.color() != other.color() {
+            return false;
         }
 
         match (self, other) {
@@ -975,6 +992,22 @@ impl ExternalTextureFrame {
         self
     }
 
+    /// What the committed surface says about its pixels.
+    pub(crate) fn set_color(&mut self, value: Option<Arc<crate::color_space::SurfaceColor>>) {
+        match &mut self.source {
+            ExternalTextureSource::Dmabuf { color, .. } => *color = value,
+            ExternalTextureSource::Shm(frame) => frame.color = value,
+        }
+    }
+
+    pub(crate) fn with_color(
+        mut self,
+        value: Option<Arc<crate::color_space::SurfaceColor>>,
+    ) -> Self {
+        self.set_color(value);
+        self
+    }
+
     pub(crate) fn from_dmabuf(
         texture_id: i64,
         dmabuf: Dmabuf,
@@ -994,6 +1027,7 @@ impl ExternalTextureFrame {
                 }),
                 revision,
                 feedback: None,
+                color: None,
             },
             expects_sample,
         }
@@ -1008,6 +1042,7 @@ impl ExternalTextureFrame {
                 buffer_guard: None,
                 revision,
                 feedback: None,
+                color: None,
             },
             expects_sample: false,
         }
@@ -1019,6 +1054,7 @@ impl ExternalTextureFrame {
                 dmabuf: storage.dmabuf().clone(),
                 revision: frame.revision,
                 feedback: frame.feedback.clone(),
+                color: frame.color.clone(),
                 buffer_guard: Some(ExternalBufferGuard::OwnedShm { frame }),
             }
         } else {
