@@ -513,7 +513,7 @@ impl ScanoutAllocator {
         size: PixelSize,
         code: Fourcc,
         modifiers: &[Modifier],
-        linear_render_target: bool,
+        mut scene_target: SceneTarget,
     ) -> Result<ScanoutBuffer, Box<dyn Error>> {
         let mut buffer = ScanoutBuffer::allocate_gbm(
             &mut self.allocator,
@@ -529,11 +529,15 @@ impl ScanoutAllocator {
             // A successful scene FBO import retains the existing direct pool.
             let mut direct = buffer.dmabuf.clone();
             if let Err(error) = transfer.source_probe.bind(&mut direct) {
-                if linear_render_target {
-                    return Err(format!(
-                        "--flutter-offscreen-blit requires direct scene FBO import: {error}"
-                    )
-                    .into());
+                match scene_target {
+                    SceneTarget::Required => {
+                        return Err(format!(
+                            "--flutter-offscreen-blit requires direct scene FBO import: {error}"
+                        )
+                        .into());
+                    }
+                    SceneTarget::IfDirect => scene_target = SceneTarget::None,
+                    SceneTarget::None => {}
                 }
                 if code != Fourcc::Xrgb8888 {
                     return Err(format!(
@@ -548,7 +552,7 @@ impl ScanoutAllocator {
                 info!(format=?buffer.format, "scene imported output-local scanout directly; retaining direct Flutter pool");
             }
         }
-        if linear_render_target {
+        if scene_target != SceneTarget::None {
             buffer.render_target = Some(LinearRenderBuffer::allocate(
                 &mut self.allocator,
                 size,
@@ -716,6 +720,17 @@ impl SceneTransferAllocator {
         )
         .into())
     }
+}
+
+/// Whether an output buffer gets an off-screen scene for Flutter to render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SceneTarget {
+    None,
+    /// `--flutter-offscreen-blit`: an output that cannot have one fails.
+    Required,
+    /// Display color: only where the scene renders this output directly;
+    /// a transfer-fed output goes without.
+    IfDirect,
 }
 
 struct LinearRenderBuffer {
@@ -1007,7 +1022,7 @@ impl OutputSwapchains {
         plans: &[RenderOutputPlan],
         scanouts: &[Scanout],
         render_formats: &FormatSet,
-        linear_render_targets: bool,
+        offscreen_blit: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if plans.len() != scanouts.len() || plans.is_empty() {
             return Err("physical output pools do not match the active scanouts".into());
@@ -1027,9 +1042,15 @@ impl OutputSwapchains {
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
             // A corrected or graded output renders off-screen; the copy to
             // scanout converts it, and captures read the untouched scene.
-            let color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
+            let mut color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
             let desktop_look = super::output_color::desktop_lut().is_some();
-            let linear_render_targets = linear_render_targets || color.is_some() || desktop_look;
+            let scene_target = if offscreen_blit {
+                SceneTarget::Required
+            } else if color.is_some() || desktop_look {
+                SceneTarget::IfDirect
+            } else {
+                SceneTarget::None
+            };
             let formats = compatible_scanout_formats(
                 &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
@@ -1067,7 +1088,7 @@ impl OutputSwapchains {
                     plan.target_size,
                     output_pool_length(),
                     format,
-                    linear_render_targets,
+                    scene_target,
                     MAX_SCANOUT_POOL_BYTES - previous_bytes,
                 ) {
                     Ok(pool) => {
@@ -1088,6 +1109,15 @@ impl OutputSwapchains {
                 }
             }
             let buffers = buffers.ok_or("no output pool format allocated")?;
+            if scene_target == SceneTarget::IfDirect
+                && !buffers.iter().all(|buffer| buffer.render_target.is_some())
+            {
+                warn!(
+                    output = %scanout.output.name,
+                    "the scene reaches this output through the GPU transfer; showing it without display color"
+                );
+                color = None;
+            }
             let actual_bytes = buffers.iter().try_fold(0u64, |bytes, buffer| {
                 bytes
                     .checked_add(buffer.allocation_bytes()?)
@@ -1822,12 +1852,17 @@ impl AtlasSwapchain {
         format: &AtlasFormat,
         linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
+        let scene_target = if linear_render_targets {
+            SceneTarget::Required
+        } else {
+            SceneTarget::None
+        };
         let buffers = allocate_scanout_pool(
             allocator,
             size,
             length,
             format,
-            linear_render_targets,
+            scene_target,
             MAX_SCANOUT_POOL_BYTES,
         )?;
         Ok(Self {
@@ -1856,7 +1891,7 @@ fn allocate_scanout_pool(
     size: PixelSize,
     length: usize,
     format: &AtlasFormat,
-    linear_render_targets: bool,
+    scene_target: SceneTarget,
     _byte_budget: u64,
 ) -> Result<Vec<ScanoutBuffer>, Box<dyn Error>> {
     validate_scanout_pool_allocation(size, length)?;
@@ -1876,7 +1911,7 @@ fn allocate_scanout_pool(
         #[cfg(feature = "flutter")]
         let mut bytes = 0u64;
         for _ in 0..length {
-            let buffer = allocator.allocate(size, format.code, modifiers, linear_render_targets)?;
+            let buffer = allocator.allocate(size, format.code, modifiers, scene_target)?;
             #[cfg(feature = "flutter")]
             {
                 bytes = bytes
