@@ -61,6 +61,8 @@ pub(super) struct GlApi {
     pub(super) tex_parameter_i: unsafe extern "system" fn(u32, u32, i32),
     pub(super) tex_image_2d:
         unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void),
+    pub(super) tex_image_3d:
+        unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, i32, u32, u32, *const c_void),
     pub(super) image_target_texture: unsafe extern "system" fn(u32, *const c_void),
     pub(super) delete_textures: unsafe extern "system" fn(i32, *const u32),
     pub(super) gen_framebuffers: unsafe extern "system" fn(i32, *mut u32),
@@ -125,6 +127,21 @@ impl GlApi {
             tex_image_2d: symbol!(
                 "glTexImage2D",
                 unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void)
+            ),
+            tex_image_3d: symbol!(
+                "glTexImage3D",
+                unsafe extern "system" fn(
+                    u32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    u32,
+                    u32,
+                    *const c_void,
+                )
             ),
             image_target_texture: symbol!(
                 "glEGLImageTargetTexture2DOES",
@@ -252,6 +269,12 @@ pub(super) struct ShaderBlit {
     pub(super) source_uniform: i32,
     pub(super) correct_uniform: i32,
     pub(super) gamut_uniform: i32,
+    pub(super) grade_uniform: i32,
+    pub(super) look_uniform: i32,
+    /// The desktop look's 3D texture, or 0 for none.
+    pub(super) look_texture: u32,
+    /// The desktop look generation `look_texture` holds.
+    pub(super) look_generation: u64,
 }
 
 const SCANOUT_VERTEX_SHADER: &[u8] = b"#version 300 es\n\
@@ -266,12 +289,20 @@ void main() {\n\
 const SCANOUT_FRAGMENT_SHADER: &[u8] = b"#version 300 es\n\
 precision highp float;\n\
 uniform sampler2D source_texture;\n\
+uniform bool grade;\n\
+uniform mediump sampler3D look;\n\
 uniform bool correct_gamut;\n\
 uniform mat3 gamut;\n\
 in vec2 texture_coordinate;\n\
 layout(location = 0) out vec4 fragment_color;\n\
 void main() {\n\
     vec4 color = texture(source_texture, texture_coordinate);\n\
+    if (grade) {\n\
+        // Sample texel centres: 0 and 1 land on the first and last entries.\n\
+        float size = float(textureSize(look, 0).x);\n\
+        vec3 at = clamp(color.rgb, 0.0, 1.0) * ((size - 1.0) / size) + 0.5 / size;\n\
+        color.rgb = texture(look, at).rgb;\n\
+    }\n\
     if (correct_gamut) {\n\
         // Gamma 2.2 both ways keeps neutrals exact; only the gamut moves.\n\
         vec3 linear = pow(color.rgb, vec3(2.2));\n\
@@ -346,22 +377,28 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         return Err("Flutter scanout-copy shader omitted its source sampler".into());
     }
     // SAFETY: the names are NUL-terminated and the linked program is live.
-    let (correct_uniform, gamut_uniform) = unsafe {
+    let (correct_uniform, gamut_uniform, grade_uniform, look_uniform) = unsafe {
         (
             (gl.get_uniform_location)(program, c"correct_gamut".as_ptr()),
             (gl.get_uniform_location)(program, c"gamut".as_ptr()),
+            (gl.get_uniform_location)(program, c"grade".as_ptr()),
+            (gl.get_uniform_location)(program, c"look".as_ptr()),
         )
     };
-    if correct_uniform < 0 || gamut_uniform < 0 {
+    if correct_uniform < 0 || gamut_uniform < 0 || grade_uniform < 0 || look_uniform < 0 {
         // SAFETY: the linked program remains live until this deletion.
         unsafe { (gl.delete_program)(program) };
-        return Err("Flutter scanout-copy shader omitted its gamut uniforms".into());
+        return Err("Flutter scanout-copy shader omitted its color uniforms".into());
     }
     Ok(ShaderBlit {
         program,
         source_uniform,
         correct_uniform,
         gamut_uniform,
+        grade_uniform,
+        look_uniform,
+        look_texture: 0,
+        look_generation: 0,
     })
 }
 
@@ -453,6 +490,7 @@ pub(super) fn copy_to_scanout(
     let mut previous_program = 0;
     let mut previous_active_texture = 0;
     let mut previous_texture_2d = 0;
+    let mut previous_texture_3d = 0;
     let mut previous_viewport = [0; 4];
     let mut previous_color_mask = [gl::FALSE; 4];
     let mut previous_capabilities = [false; 5];
@@ -477,6 +515,8 @@ pub(super) fn copy_to_scanout(
         ]) {
             *saved = (gl.is_enabled)(capability) == gl::TRUE;
         }
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.get_integer_v)(gl::TEXTURE_BINDING_3D, &mut previous_texture_3d);
         (gl.active_texture)(gl::TEXTURE0);
         (gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
 
@@ -489,6 +529,13 @@ pub(super) fn copy_to_scanout(
         (gl.disable)(gl::STENCIL_TEST);
         (gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
         (gl.use_program)(shader_blit.program);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.bind_texture)(gl::TEXTURE_3D, shader_blit.look_texture);
+        (gl.uniform_1i)(shader_blit.look_uniform, 1);
+        (gl.uniform_1i)(
+            shader_blit.grade_uniform,
+            i32::from(shader_blit.look_texture != 0),
+        );
         (gl.active_texture)(gl::TEXTURE0);
         (gl.bind_texture)(gl::TEXTURE_2D, render_texture);
         (gl.uniform_1i)(shader_blit.source_uniform, 0);
@@ -507,6 +554,8 @@ pub(super) fn copy_to_scanout(
     unsafe {
         (gl.use_program)(previous_program as u32);
         (gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.bind_texture)(gl::TEXTURE_3D, previous_texture_3d as u32);
         (gl.active_texture)(previous_active_texture as u32);
         (gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
         (gl.viewport)(
@@ -555,7 +604,91 @@ pub(super) fn destroy_shader_blit(gl: GlApi, shader_blit: &mut Option<ShaderBlit
     };
     // SAFETY: cleanup runs with the owning GLES context current and this
     // program was created exactly once by `create_shader_blit`.
-    unsafe { (gl.delete_program)(shader_blit.program) };
+    unsafe {
+        (gl.delete_program)(shader_blit.program);
+        if shader_blit.look_texture != 0 {
+            (gl.delete_textures)(1, &shader_blit.look_texture);
+        }
+    }
+}
+
+/// Replace the copy's desktop look with `lut` (`size`³ RGBA texels), or drop
+/// it. The generation is taken even on failure, so one bad upload is not
+/// retried every frame. The owning context must be current.
+pub(super) fn replace_desktop_look(
+    gl: GlApi,
+    shader_blit: &mut ShaderBlit,
+    lut: Option<(&[f32], usize)>,
+    generation: u64,
+) -> Result<(), u32> {
+    shader_blit.look_generation = generation;
+    let mut previous_active_texture = 0;
+    let mut previous_texture_3d = 0;
+    let mut unpack = [0; 3];
+    // SAFETY: the caller keeps the context current; `lut` holds `size`³ RGBA
+    // float texels and the driver copies them during glTexImage3D.
+    unsafe {
+        for _ in 0..8 {
+            if (gl.get_error)() == gl::NO_ERROR {
+                break;
+            }
+        }
+        if shader_blit.look_texture != 0 {
+            (gl.delete_textures)(1, &shader_blit.look_texture);
+            shader_blit.look_texture = 0;
+        }
+        let Some((texels, size)) = lut else {
+            return Ok(());
+        };
+        // Texels are read from client memory with the default row layout.
+        for (value, name) in unpack.iter_mut().zip([
+            gl::PIXEL_UNPACK_BUFFER_BINDING,
+            gl::UNPACK_ROW_LENGTH,
+            gl::UNPACK_IMAGE_HEIGHT,
+        ]) {
+            (gl.get_integer_v)(name, value);
+        }
+        if unpack != [0; 3] || texels.len() != size * size * size * 4 {
+            return Err(gl::INVALID_OPERATION);
+        }
+        (gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.get_integer_v)(gl::TEXTURE_BINDING_3D, &mut previous_texture_3d);
+        let mut texture = 0;
+        (gl.gen_textures)(1, &mut texture);
+        (gl.bind_texture)(gl::TEXTURE_3D, texture);
+        for (name, value) in [
+            (gl::TEXTURE_MIN_FILTER, gl::LINEAR),
+            (gl::TEXTURE_MAG_FILTER, gl::LINEAR),
+            (gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE),
+            (gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE),
+            (gl::TEXTURE_WRAP_R, gl::CLAMP_TO_EDGE),
+        ] {
+            (gl.tex_parameter_i)(gl::TEXTURE_3D, name, value as i32);
+        }
+        let size = size as i32;
+        (gl.tex_image_3d)(
+            gl::TEXTURE_3D,
+            0,
+            gl::RGBA16F as i32,
+            size,
+            size,
+            size,
+            0,
+            gl::RGBA,
+            gl::FLOAT,
+            texels.as_ptr().cast(),
+        );
+        let error = (gl.get_error)();
+        (gl.bind_texture)(gl::TEXTURE_3D, previous_texture_3d as u32);
+        (gl.active_texture)(previous_active_texture as u32);
+        if error != gl::NO_ERROR {
+            (gl.delete_textures)(1, &texture);
+            return Err(error);
+        }
+        shader_blit.look_texture = texture;
+    }
+    Ok(())
 }
 
 pub(super) fn destroy_targets(gl: GlApi, display: &EGLDisplayHandle, targets: &mut Vec<GlTarget>) {

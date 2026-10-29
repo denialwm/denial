@@ -467,6 +467,13 @@ conversion. `color.correction.get` returns `{"enabled":true}`;
 response instead, answers with the new state and repaints every output. The
 switch lasts until the compositor restarts.
 
+A desktop LUT grades the whole desktop the same way, before that correction, and
+also stays out of captures. `color.lut.load` takes `{"path":"/abs/look.cube"}`:
+the compositor reads an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain, sizes
+2 to 65. `color.lut.clear` removes it. Both, and `color.lut.get`, answer
+`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`; loading and clearing
+repaint every output. The LUT lasts until the compositor restarts.
+
 ### Plugin action shortcut targets
 
 `settings.shortcuts.get` also returns `plugin_actions` (an array of

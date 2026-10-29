@@ -752,6 +752,39 @@ struct ColorCorrectionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ColorLutParams {
+    path: PathBuf,
+}
+
+/// The largest `.cube` file read: a 65³ LUT in plain decimals.
+const MAX_CUBE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn desktop_lut_state() -> Value {
+    let lut = super::output_color::desktop_lut();
+    json!({"lut": lut.map(|lut| json!({"size": lut.size, "title": lut.title}))})
+}
+
+fn load_desktop_lut(
+    path: &Path,
+) -> Result<super::output_color::DesktopLut, (&'static str, String)> {
+    let file =
+        fs::File::open(path).map_err(|error| ("io", format!("{}: {error}", path.display())))?;
+    let mut text = String::new();
+    file.take(MAX_CUBE_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| ("io", format!("{}: {error}", path.display())))?;
+    if text.len() as u64 > MAX_CUBE_BYTES {
+        return Err((
+            "invalid_lut",
+            format!("{} is larger than 16 MiB", path.display()),
+        ));
+    }
+    super::output_color::parse_cube(&text)
+        .map_err(|error| ("invalid_lut", format!("{}: {error}", path.display())))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UiAutoReloadParams {
     enabled: bool,
 }
@@ -1172,6 +1205,23 @@ fn handle_connection(
             request.id,
             json!({"enabled": super::output_color::correction_enabled()}),
         ),
+        "color.lut.get" => success_response(request.id, desktop_lut_state()),
+        "color.lut.load" => match serde_json::from_value::<ColorLutParams>(request.params) {
+            Ok(params) => match load_desktop_lut(&params.path) {
+                Ok(lut) => {
+                    super::output_color::set_desktop_lut(Some(lut));
+                    let _ = events.try_send(ControlEvent::RepaintOutputs);
+                    success_response(request.id, desktop_lut_state())
+                }
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.lut.clear" => {
+            super::output_color::set_desktop_lut(None);
+            let _ = events.try_send(ControlEvent::RepaintOutputs);
+            success_response(request.id, desktop_lut_state())
+        }
         "color.correction.set" => {
             match serde_json::from_value::<ColorCorrectionParams>(request.params) {
                 Ok(params) => {

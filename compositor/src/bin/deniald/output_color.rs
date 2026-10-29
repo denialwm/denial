@@ -3,7 +3,8 @@
 
 use super::{DrmDeviceFd, OutputId};
 use smithay::reexports::drm::control::{Device, connector};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 type Matrix = [[f64; 3]; 3];
 type Xy = (f64, f64);
@@ -27,6 +28,102 @@ pub(super) fn correction_enabled() -> bool {
 
 pub(super) fn set_correction(enabled: bool) {
     CORRECTION.store(enabled, Ordering::Relaxed);
+}
+
+/// A desktop look: a 3D LUT applied to the sRGB scene before any display
+/// correction, so it reads the same on every display and never in captures.
+#[derive(Debug, PartialEq)]
+pub(super) struct DesktopLut {
+    pub(super) size: usize,
+    pub(super) title: Option<String>,
+    /// RGBA texels, red fastest, then green, then blue (the `.cube` order).
+    pub(super) texels: Vec<f32>,
+}
+
+const LARGEST_LUT: usize = 65;
+
+static DESKTOP_LUT: Mutex<Option<Arc<DesktopLut>>> = Mutex::new(None);
+/// Bumped on every change; zero means no look was ever loaded.
+static DESKTOP_LUT_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn desktop_lut_generation() -> u64 {
+    DESKTOP_LUT_GENERATION.load(Ordering::Acquire)
+}
+
+pub(super) fn desktop_lut() -> Option<Arc<DesktopLut>> {
+    DESKTOP_LUT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+pub(super) fn set_desktop_lut(lut: Option<DesktopLut>) {
+    *DESKTOP_LUT.lock().unwrap_or_else(PoisonError::into_inner) = lut.map(Arc::new);
+    DESKTOP_LUT_GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Parse an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain.
+pub(super) fn parse_cube(text: &str) -> Result<DesktopLut, String> {
+    let mut size = None;
+    let mut title = None;
+    let mut texels = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (keyword, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+        let rest = rest.trim();
+        let numbers = || -> Result<Vec<f32>, String> {
+            rest.split_whitespace()
+                .map(|word| word.parse::<f32>().ok().filter(|v| v.is_finite()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| format!("line {}: expected numbers", index + 1))
+        };
+        match keyword {
+            "TITLE" => title = Some(rest.trim_matches('"').to_owned()),
+            "LUT_3D_SIZE" => {
+                let n = rest
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| (2..=LARGEST_LUT).contains(n))
+                    .ok_or_else(|| format!("LUT_3D_SIZE must be 2 to {LARGEST_LUT}"))?;
+                size = Some(n);
+                texels.reserve(n * n * n * 4);
+            }
+            "LUT_1D_SIZE" => return Err("1D LUTs are not supported; use a 3D LUT".into()),
+            "DOMAIN_MIN" if numbers()? == [0.0; 3] => {}
+            "DOMAIN_MAX" if numbers()? == [1.0; 3] => {}
+            "LUT_3D_INPUT_RANGE" if numbers()? == [0.0, 1.0] => {}
+            "DOMAIN_MIN" | "DOMAIN_MAX" | "LUT_3D_INPUT_RANGE" => {
+                return Err("only LUTs over the 0..1 domain are supported".into());
+            }
+            _ if keyword.starts_with(|c: char| c.is_ascii_alphabetic()) => {}
+            _ => {
+                let rgb = numbers().map(|mut values| {
+                    values.insert(0, keyword.parse().unwrap_or(f32::NAN));
+                    values
+                })?;
+                if rgb.len() != 3 || !rgb.iter().all(|v| v.is_finite()) {
+                    return Err(format!("line {}: expected three numbers", index + 1));
+                }
+                texels.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+            }
+        }
+    }
+    let size = size.ok_or("the file has no LUT_3D_SIZE")?;
+    let expected = size * size * size;
+    if texels.len() != expected * 4 {
+        return Err(format!(
+            "LUT_3D_SIZE {size} needs {expected} entries, the file has {}",
+            texels.len() / 4
+        ));
+    }
+    Ok(DesktopLut {
+        size,
+        title: title.filter(|title| !title.is_empty()),
+        texels,
+    })
 }
 
 /// Read the output's EDID and return its correction, if it needs one.
@@ -218,6 +315,45 @@ mod tests {
             );
             assert!(out[primary] > 0.6 && out[primary] < 1.0, "{out:?}");
         }
+    }
+
+    fn identity_cube(size: usize) -> String {
+        let mut text =
+            format!("# test\nTITLE \"Identity\"\nLUT_3D_SIZE {size}\nDOMAIN_MIN 0 0 0\n");
+        let step = |i: usize| i as f32 / (size - 1) as f32;
+        for b in 0..size {
+            for g in 0..size {
+                for r in 0..size {
+                    text += &format!("{} {} {}\n", step(r), step(g), step(b));
+                }
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn a_cube_file_reads_red_fastest() {
+        let lut = parse_cube(&identity_cube(3)).expect("valid cube");
+        assert_eq!((lut.size, lut.title.as_deref()), (3, Some("Identity")));
+        // Second entry: red has moved one step, green and blue have not.
+        assert_eq!(&lut.texels[4..8], &[0.5, 0.0, 0.0, 1.0]);
+        // Last entry is white.
+        assert_eq!(&lut.texels[lut.texels.len() - 4..], &[1.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn malformed_cube_files_are_refused() {
+        let short = identity_cube(3)
+            .lines()
+            .take(20)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(parse_cube(&short).unwrap_err().contains("needs 27 entries"));
+        assert!(parse_cube("LUT_1D_SIZE 4\n0 0 0\n").is_err());
+        assert!(parse_cube("LUT_3D_SIZE 2\nDOMAIN_MAX 2 2 2\n").is_err());
+        assert!(parse_cube("LUT_3D_SIZE 99\n").is_err());
+        assert!(parse_cube("0 0 0\n").is_err());
+        assert!(parse_cube(&identity_cube(2).replace("1 1 1", "1 nan 1")).is_err());
     }
 
     #[test]

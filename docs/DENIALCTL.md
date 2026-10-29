@@ -124,6 +124,16 @@ denialctl color correction off
 denialctl color correction on
 ```
 
+Grade the whole desktop with a `.cube` 3D LUT, as exported by Resolve and most
+grading tools. Like the correction, it never reaches screenshots, and it lasts
+until the compositor restarts:
+
+```sh
+denialctl color lut load ~/luts/warm.cube
+denialctl color lut clear
+denialctl color
+```
+
 ## Machine-readable output
 
 Every read and action command supports `--json`:

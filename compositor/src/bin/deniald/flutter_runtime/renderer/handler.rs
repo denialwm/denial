@@ -1087,10 +1087,25 @@ impl FlutterGlHandler {
             return true;
         }
 
-        let Some(shader_blit) = *lock(&self.shader_blit) else {
+        let mut shader_blit_slot = lock(&self.shader_blit);
+        let Some(shader_blit) = shader_blit_slot.as_mut() else {
             error!("offscreen Flutter target has no shader-copy pipeline");
             return false;
         };
+        let look_generation = crate::output_color::desktop_lut_generation();
+        if shader_blit.look_generation != look_generation {
+            let lut = crate::output_color::desktop_lut();
+            let texels = lut.as_deref().map(|lut| (lut.texels.as_slice(), lut.size));
+            if let Err(error) = replace_desktop_look(self.gl, shader_blit, texels, look_generation)
+            {
+                error!(
+                    error = format_args!("{error:#x}"),
+                    "could not upload the desktop look; showing the scene without it"
+                );
+            }
+        }
+        let shader_blit = *shader_blit;
+        drop(shader_blit_slot);
 
         if let Err(error) = copy_to_scanout(
             self.gl,

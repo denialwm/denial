@@ -132,7 +132,9 @@ enum Command {
     Version,
     Status,
     Outputs,
+    Color,
     ColorCorrection(Option<bool>),
+    ColorLut(Option<Option<PathBuf>>),
     UiStatus,
     UiSetup(Option<PathBuf>),
     UiWorkspace(PathBuf),
@@ -216,6 +218,12 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["version"] => Ok(Command::Version),
         ["status"] => Ok(Command::Status),
         ["outputs"] | ["output", "status"] => Ok(Command::Outputs),
+        ["color"] | ["color", "status"] => Ok(Command::Color),
+        ["color", "lut"] | ["color", "lut", "status"] => Ok(Command::ColorLut(None)),
+        ["color", "lut", "load", _] => {
+            Ok(Command::ColorLut(Some(Some(PathBuf::from(&arguments[3])))))
+        }
+        ["color", "lut", "clear"] => Ok(Command::ColorLut(Some(None))),
         ["color", "correction"] | ["color", "correction", "status"] => {
             Ok(Command::ColorCorrection(None))
         }
@@ -290,6 +298,34 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 print_outputs(&decode_output_state(&response.result)?);
             }
         }
+        Command::Color => {
+            let correction = client.request("color.correction.get", Value::Null)?;
+            let lut = client.request("color.lut.get", Value::Null)?;
+            if options.json {
+                print_json(&json!({
+                    "correction": correction.result,
+                    "lut": lut.result["lut"],
+                }))?;
+            } else {
+                print_color_correction(&correction.result);
+                print_desktop_lut(&lut.result);
+            }
+        }
+        Command::ColorLut(change) => {
+            let response = match change {
+                None => client.request("color.lut.get", Value::Null)?,
+                Some(None) => client.request("color.lut.clear", Value::Null)?,
+                Some(Some(path)) => {
+                    let path = fs::canonicalize(path).map_err(CliError::io)?;
+                    client.request("color.lut.load", json!({"path": path}))?
+                }
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_desktop_lut(&response.result);
+            }
+        }
         Command::ColorCorrection(enabled) => {
             let response = match enabled {
                 Some(enabled) => {
@@ -300,8 +336,7 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
             if options.json {
                 print_json(&response.result)?;
             } else {
-                let enabled = response.result["enabled"].as_bool().unwrap_or(false);
-                println!("color correction: {}", if enabled { "on" } else { "off" });
+                print_color_correction(&response.result);
             }
         }
         Command::UiStatus => {
@@ -1505,6 +1540,22 @@ impl fmt::Display for CliError {
 
 impl Error for CliError {}
 
+fn print_color_correction(result: &Value) {
+    let enabled = result["enabled"].as_bool().unwrap_or(false);
+    println!("color correction: {}", if enabled { "on" } else { "off" });
+}
+
+fn print_desktop_lut(result: &Value) {
+    let lut = &result["lut"];
+    match lut["size"].as_u64() {
+        None => println!("desktop LUT: none"),
+        Some(size) => match lut["title"].as_str() {
+            Some(title) => println!("desktop LUT: {title} ({size}³)"),
+            None => println!("desktop LUT: {size}³"),
+        },
+    }
+}
+
 fn print_help() {
     println!(
         "\
@@ -1513,7 +1564,10 @@ Usage: denialctl [--json] [--no-wait] [--socket PATH] COMMAND
 Commands:
   status                         Show compositor, Flutter UI and output status
   outputs                        List the current output state
+  color                          Show the display color state
   color correction [on|off]      Show or switch each display's gamut correction
+  color lut load FILE            Grade the desktop with a .cube 3D LUT
+  color lut clear                Remove the desktop LUT
   ui status                      Show detailed Flutter runtime state
   ui setup [PATH]                Create, prepare and start an editable Denial UI
   ui workspace PATH              Select a Flutter source workspace
