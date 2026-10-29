@@ -1203,6 +1203,9 @@ fn init_listener(
             unsafe {
                 let display = display.get_mut();
                 display.dispatch_clients(state)?;
+                if let Some(frontend) = state.wayland.as_mut() {
+                    frontend.finish_color_information();
+                }
                 display.flush_clients()?;
             }
             Ok(PostAction::Continue)

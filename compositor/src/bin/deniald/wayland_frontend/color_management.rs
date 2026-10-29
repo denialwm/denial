@@ -57,6 +57,9 @@ pub(super) struct ColorManagement {
     fallback: Arc<DescriptionRecord>,
     output_objects: Vec<WpColorManagementOutputV1>,
     feedbacks: Vec<WpColorManagementSurfaceFeedbackV1>,
+    /// Information objects whose `done` waits for the end of dispatch: it
+    /// destroys the object, which must not happen in the request creating it.
+    unfinished_information: Vec<WpImageDescriptionInfoV1>,
 }
 
 impl ColorManagement {
@@ -73,6 +76,7 @@ impl ColorManagement {
             fallback: DescriptionRecord::new(ImageDescription::srgb(), true),
             output_objects: Vec::new(),
             feedbacks: Vec::new(),
+            unfinished_information: Vec::new(),
         }
     }
 
@@ -202,6 +206,15 @@ pub(super) struct ParamsBuilder {
 }
 
 impl WaylandFrontend {
+    /// Finish the information objects created during this dispatch.
+    pub(super) fn finish_color_information(&mut self) {
+        for info in self.color_management.unfinished_information.drain(..) {
+            if info.is_alive() {
+                info.done();
+            }
+        }
+    }
+
     /// Recompute what every output expects and tell the clients that watch a
     /// changed one. Every SDR output expects the sRGB scene.
     pub(super) fn refresh_color_outputs(&mut self) {
@@ -810,7 +823,7 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<ParamsBuilder>> for Runti
 
 impl Dispatch<WpImageDescriptionV1, DescriptionObject> for RuntimeState {
     fn request(
-        _state: &mut Self,
+        state: &mut Self,
         _client: &Client,
         resource: &WpImageDescriptionV1,
         request: wp_image_description_v1::Request,
@@ -836,6 +849,9 @@ impl Dispatch<WpImageDescriptionV1, DescriptionObject> for RuntimeState {
                 }
                 let info = data_init.init(information, ());
                 send_information(&info, &record.description);
+                if let Some(frontend) = state.wayland.as_mut() {
+                    frontend.color_management.unfinished_information.push(info);
+                }
             }
             Request::Destroy => {}
             _ => unreachable!(),
@@ -892,7 +908,6 @@ fn send_information(info: &WpImageDescriptionInfoV1, description: &ImageDescript
     if let Some(fall) = description.max_fall {
         info.target_max_fall(luminance(fall));
     }
-    info.done();
 }
 
 impl Dispatch<WpImageDescriptionInfoV1, ()> for RuntimeState {
