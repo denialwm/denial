@@ -381,6 +381,76 @@ fn touchpad_update_is_persistent_and_revisioned() {
 }
 
 #[test]
+fn display_color_is_saved_and_kept_from_shell_updates() {
+    use super::super::output_color::{HdrMode, SignalPrimaries};
+    let temporary = TemporaryDirectory::new("settings-color-update");
+    let path = temporary.settings_path();
+    let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    assert_eq!(manager.color(), &ColorSettings::default());
+    let hdr = HdrMode {
+        white: 150.0,
+        primaries: SignalPrimaries::Srgb,
+    };
+    let color = manager
+        .color()
+        .clone()
+        .with(ColorChange::Correction(false))
+        .with(ColorChange::DesktopLut(Some("/luts/deep.cube".into())))
+        .with(ColorChange::AppLut(
+            "chromium".to_owned(),
+            Some("/luts/warm.cube".into()),
+        ))
+        .with(ColorChange::Hdr("DP-4".to_owned(), Some(hdr)));
+    let update = manager
+        .prepare_color_update(manager.revision(), color.clone())
+        .unwrap();
+    manager.commit(update).unwrap();
+    let shell_update = shell_document(serde_json::json!({
+        "appearance": {"colorSchemePreference": "preferDark"},
+        "color": {"correction": true}
+    }));
+    let update = manager
+        .prepare_shell_update(manager.revision(), &shell_update)
+        .unwrap();
+    manager.commit(update).unwrap();
+    assert_eq!(manager.color(), &color);
+
+    let reloaded = SettingsManager::load_path(path).unwrap();
+    assert_eq!(reloaded.color(), &color);
+    assert_eq!(reloaded.color().hdr["DP-4"], hdr);
+    let cleared = color
+        .with(ColorChange::DesktopLut(None))
+        .with(ColorChange::Hdr("DP-4".to_owned(), None));
+    assert_eq!(cleared.desktop_lut, None);
+    assert!(cleared.hdr.is_empty());
+}
+
+#[test]
+fn rejects_relative_luts_and_out_of_range_hdr_white() {
+    use super::super::output_color::HdrMode;
+    let temporary = TemporaryDirectory::new("settings-color-validate");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    let relative = ColorSettings::default().with(ColorChange::DesktopLut(Some("deep.cube".into())));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), relative)
+            .is_err()
+    );
+    let bright = ColorSettings::default().with(ColorChange::Hdr(
+        "DP-4".to_owned(),
+        Some(HdrMode {
+            white: 5000.0,
+            primaries: Default::default(),
+        }),
+    ));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), bright)
+            .is_err()
+    );
+}
+
+#[test]
 fn rejects_touchpad_scroll_speed_outside_supported_range() {
     let temporary = TemporaryDirectory::new("settings-touchpad-scroll-speed");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();

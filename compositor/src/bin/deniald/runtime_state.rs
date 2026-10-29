@@ -201,6 +201,17 @@ impl RuntimeState {
                 self.kms_reconfigure_requested = true;
                 self.topology_dirty = true;
             }
+            ControlEvent::SaveColor(change) => {
+                let settings = &mut self.frontend_mut().settings;
+                let color = settings.color().clone().with(change);
+                if color != *settings.color()
+                    && let Err(error) = settings
+                        .prepare_color_update(settings.revision(), color)
+                        .and_then(|prepared| settings.commit(prepared))
+                {
+                    warn!(%error, "could not save the display color settings");
+                }
+            }
             ControlEvent::Shell(request) => {
                 let result = if self.secure_session_locked() {
                     Err(OutputControlFailure::new(

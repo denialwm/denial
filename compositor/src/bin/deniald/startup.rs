@@ -172,6 +172,10 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         );
         settings.replace_invalid_keyboard_with_default();
     }
+    #[cfg(feature = "flutter")]
+    if let Some(settings) = settings.as_ref() {
+        output_control::restore_color(settings.color());
+    }
 
     #[cfg(feature = "flutter")]
     let portal_ipc_server = if options.flutter_bundle.is_some() && options.wayland {

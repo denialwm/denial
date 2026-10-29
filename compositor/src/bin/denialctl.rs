@@ -238,14 +238,12 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["outputs"] | ["output", "status"] => Ok(Command::Outputs),
         ["color"] | ["color", "status"] => Ok(Command::Color),
         ["color", "lut"] | ["color", "lut", "status"] => Ok(Command::ColorLut(None)),
-        ["color", "lut", "load", _] => {
-            Ok(Command::ColorLut(Some(Some(PathBuf::from(&arguments[3])))))
-        }
+        ["color", "lut", "load", _] => Ok(Command::ColorLut(Some(Some(lut_path(&arguments[3])?)))),
         ["color", "lut", "clear"] => Ok(Command::ColorLut(Some(None))),
         ["color", "apps"] => Ok(Command::AppLuts),
         ["color", "app", app_id, "lut", "load", _] => Ok(Command::AppLut {
             app_id: (*app_id).to_owned(),
-            path: Some(PathBuf::from(&arguments[5])),
+            path: Some(lut_path(&arguments[5])?),
         }),
         ["color", "app", app_id, "lut", "clear"] => Ok(Command::AppLut {
             app_id: (*app_id).to_owned(),
@@ -1654,6 +1652,12 @@ impl Error for CliError {}
 fn print_color_correction(result: &Value) {
     let enabled = result["enabled"].as_bool().unwrap_or(false);
     println!("color correction: {}", if enabled { "on" } else { "off" });
+}
+
+/// deniald reads and saves the LUT from its own working directory.
+fn lut_path(argument: &OsStr) -> Result<PathBuf, CliError> {
+    std::path::absolute(argument)
+        .map_err(|error| CliError::usage(format!("cannot resolve {argument:?}: {error}")))
 }
 
 fn print_hdr(result: &Value) {

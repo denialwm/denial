@@ -42,16 +42,18 @@ pub(super) struct HdrCapability {
 
 /// How an output shows HDR: the SDR white it puts the desktop at and the
 /// primaries its PQ signal carries.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct HdrMode {
     pub(super) white: f64,
+    #[serde(default)]
     pub(super) primaries: SignalPrimaries,
 }
 
 /// The primaries the PQ values are in. The connector states BT.2020 either
 /// way: BT.2020 is BT.2100's own, sRGB is for displays that show a PQ signal
 /// stated as BT.2020 with sRGB primaries.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum SignalPrimaries {
     #[default]

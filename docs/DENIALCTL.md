@@ -125,8 +125,7 @@ denialctl color correction on
 ```
 
 Grade the whole desktop with a `.cube` 3D LUT, as exported by Resolve and most
-grading tools. Like the correction, it never reaches screenshots, and it lasts
-until the compositor restarts:
+grading tools. Like the correction, it never reaches screenshots:
 
 ```sh
 denialctl color lut load ~/luts/warm.cube
@@ -142,6 +141,20 @@ denialctl color app org.mozilla.firefox lut load ~/luts/warm.cube
 denialctl color apps
 denialctl color app org.mozilla.firefox lut clear
 ```
+
+Show HDR on a display whose EDID offers PQ, with SDR content at a chosen white
+in cd/m² (203 by default). `srgb` is for displays that show a PQ signal stated
+as BT.2020 with sRGB primaries:
+
+```sh
+denialctl color hdr
+denialctl color hdr DP-4 on 150 srgb
+denialctl color hdr DP-4 off
+```
+
+Every color change is saved in the `color` section of the settings document
+and applies again at the next start. A LUT is saved by the absolute path it
+was read from; one that no longer reads is skipped and stays saved.
 
 ## Machine-readable output
 

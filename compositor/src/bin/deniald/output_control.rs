@@ -33,7 +33,7 @@ use super::ui_development::{
 use super::{
     gamma_control::SoftwareDimmingRequest,
     native_shortcut::ShortcutBinding,
-    settings::{KeyboardSettings, MouseSettings, TouchpadSettings},
+    settings::{ColorChange, ColorSettings, KeyboardSettings, MouseSettings, TouchpadSettings},
     system_controls::{AudioRequest, BrightnessRequest},
 };
 
@@ -731,6 +731,8 @@ pub(super) enum ControlEvent {
     RebuildOutputs,
     /// An app's look changed: its windows are sampled again.
     RepaintApp(String),
+    /// A display color change to keep for the next start.
+    SaveColor(ColorChange),
 }
 
 #[derive(Debug, Deserialize)]
@@ -823,6 +825,7 @@ fn change_hdr(
         super::output_color::set_hdr_request(&params.output, mode);
         // The signal, the scene format and Flutter's targets all change.
         let _ = events.try_send(ControlEvent::RebuildOutputs);
+        save_color(events, ColorChange::Hdr(params.output, mode));
     }
     Ok(hdr_state())
 }
@@ -870,6 +873,38 @@ fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender
     };
     // A full queue already holds work that draws a new frame.
     let _ = events.try_send(event);
+}
+
+fn save_color(events: &SyncSender<ControlEvent>, change: ColorChange) {
+    if let Err(error) = events.try_send(ControlEvent::SaveColor(change)) {
+        warn!(%error, "display color change applies but was not saved");
+    }
+}
+
+/// The LUT path to save: the one the file was read from.
+fn saved_lut_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Applies the saved display color before the first outputs are built. A LUT
+/// that no longer reads is skipped and stays saved.
+pub(super) fn restore_color(color: &ColorSettings) {
+    super::output_color::set_correction(color.correction);
+    if let Some(path) = &color.desktop_lut {
+        match load_cube(path) {
+            Ok(lut) => super::output_color::set_desktop_lut(Some(lut)),
+            Err((_, error)) => warn!(%error, "saved desktop LUT is unavailable"),
+        }
+    }
+    for (app_id, path) in &color.app_luts {
+        match load_cube(path) {
+            Ok(lut) => super::output_color::set_app_lut(app_id, Some(lut)),
+            Err((_, error)) => warn!(%error, app_id, "saved app LUT is unavailable"),
+        }
+    }
+    for (output, mode) in &color.hdr {
+        super::output_color::set_hdr_request(output, Some(*mode));
+    }
 }
 
 fn load_cube(path: &Path) -> Result<super::output_color::Lut, (&'static str, String)> {
@@ -1327,6 +1362,7 @@ fn handle_connection(
                     error_response(Some(request.id), "invalid_params", "app_id is empty")
                 }
                 Ok(AppLutParams { app_id, path }) => {
+                    let params_path = path.clone();
                     let lut = match (request.method.as_str(), path) {
                         ("color.app.lut.load", Some(path)) => match load_cube(&path) {
                             Ok(lut) => Ok(Some(lut)),
@@ -1339,7 +1375,11 @@ fn handle_connection(
                     };
                     match lut {
                         Ok(lut) => {
+                            let saved = params_path
+                                .filter(|_| lut.is_some())
+                                .map(|path| saved_lut_path(&path));
                             super::output_color::set_app_lut(&app_id, lut);
+                            save_color(events, ColorChange::AppLut(app_id.clone(), saved));
                             // A full queue already holds work that draws a new frame.
                             let _ = events.try_send(ControlEvent::RepaintApp(app_id));
                             success_response(request.id, app_luts_state())
@@ -1354,6 +1394,10 @@ fn handle_connection(
             Ok(params) => match load_cube(&params.path) {
                 Ok(lut) => {
                     change_desktop_lut(Some(lut), events);
+                    save_color(
+                        events,
+                        ColorChange::DesktopLut(Some(saved_lut_path(&params.path))),
+                    );
                     success_response(request.id, desktop_lut_state())
                 }
                 Err((code, message)) => error_response(Some(request.id), code, message),
@@ -1362,6 +1406,7 @@ fn handle_connection(
         },
         "color.lut.clear" => {
             change_desktop_lut(None, events);
+            save_color(events, ColorChange::DesktopLut(None));
             success_response(request.id, desktop_lut_state())
         }
         "color.correction.set" => {
@@ -1370,6 +1415,7 @@ fn handle_connection(
                     super::output_color::set_correction(params.enabled);
                     // A full queue already holds work that draws a new frame.
                     let _ = events.try_send(ControlEvent::RepaintOutputs);
+                    save_color(events, ColorChange::Correction(params.enabled));
                     success_response(request.id, json!({"enabled": params.enabled}))
                 }
                 Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
