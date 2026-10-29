@@ -229,6 +229,8 @@ pub(super) struct GlTarget {
     pub(super) scanout_framebuffer: u32,
     pub(super) render_texture: u32,
     pub(super) render_framebuffer: u32,
+    /// Color format Flutter is told the render framebuffer holds.
+    pub(super) gl_format: u32,
 }
 
 impl GlTarget {

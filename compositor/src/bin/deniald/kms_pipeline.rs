@@ -294,23 +294,22 @@ pub(super) fn apply_hotplug_topology(
             })
         })
     } else {
-        shared_atlas_modifiers(
+        shared_atlas_format(
             reconciliation.scanouts(),
             renderer.egl_context().dmabuf_render_formats(),
         )
-        .and_then(|modifiers| {
-            AtlasSwapchain::allocate(allocator, atlas.pixel_size, &modifiers)
+        .and_then(|format| {
+            AtlasSwapchain::allocate(allocator, atlas.pixel_size, &format)
                 .map(RenderSwapchains::Atlas)
         })
     };
     #[cfg(not(feature = "flutter"))]
-    let staged = shared_atlas_modifiers(
+    let staged = shared_atlas_format(
         reconciliation.scanouts(),
         renderer.egl_context().dmabuf_render_formats(),
     )
-    .and_then(|modifiers| {
-        AtlasSwapchain::allocate(allocator, atlas.pixel_size, &modifiers)
-            .map(RenderSwapchains::Atlas)
+    .and_then(|format| {
+        AtlasSwapchain::allocate(allocator, atlas.pixel_size, &format).map(RenderSwapchains::Atlas)
     });
     let mut staged = match staged {
         Ok(staged) => staged,

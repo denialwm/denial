@@ -12,6 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay::reexports::rustix::{io, ioctl};
 
+/// Atlas formats in preference order. XR30 keeps 10 bits per channel from
+/// composition to scanout, the headroom color transforms need; XR24 serves
+/// planes or renderers without it. Both store 32 bits per pixel.
+const SCANOUT_FOURCCS: [Fourcc; 2] = [Fourcc::Xrgb2101010, Fourcc::Xrgb8888];
 const SCANOUT_BYTES_PER_PIXEL: u64 = 4;
 const MAX_SCANOUT_DIMENSION: u32 = 16_384;
 const MAX_SCANOUT_POOL_BYTES: u64 = 1024 * 1024 * 1024;
@@ -507,6 +511,7 @@ impl ScanoutAllocator {
     fn allocate(
         &mut self,
         size: PixelSize,
+        code: Fourcc,
         modifiers: &[Modifier],
         linear_render_target: bool,
     ) -> Result<ScanoutBuffer, Box<dyn Error>> {
@@ -515,6 +520,7 @@ impl ScanoutAllocator {
             &self.drm_fd,
             self.cross_device,
             size,
+            code,
             modifiers,
         )?;
         #[cfg(feature = "flutter")]
@@ -537,7 +543,11 @@ impl ScanoutAllocator {
             }
         }
         if linear_render_target {
-            buffer.render_target = Some(LinearRenderBuffer::allocate(&mut self.allocator, size)?);
+            buffer.render_target = Some(LinearRenderBuffer::allocate(
+                &mut self.allocator,
+                size,
+                code,
+            )?);
         }
         Ok(buffer)
     }
@@ -711,18 +721,15 @@ impl LinearRenderBuffer {
     fn allocate(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         size: PixelSize,
+        code: Fourcc,
     ) -> Result<Self, Box<dyn Error>> {
-        let buffer = allocator.create_buffer(
-            size.width,
-            size.height,
-            Fourcc::Xrgb8888,
-            &[Modifier::Linear],
-        )?;
+        let buffer = allocator.create_buffer(size.width, size.height, code, &[Modifier::Linear])?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
-        if format.code != Fourcc::Xrgb8888 || format.modifier != Modifier::Linear {
-            return Err(
-                format!("offscreen Flutter render target is not linear XR24: {format:?}").into(),
-            );
+        if format.code != code || format.modifier != Modifier::Linear {
+            return Err(format!(
+                "offscreen Flutter render target is not linear {code:?}: {format:?}"
+            )
+            .into());
         }
         let dmabuf = buffer.export()?;
         Ok(Self {
@@ -759,16 +766,16 @@ impl ScanoutBuffer {
         drm_fd: &DrmDeviceFd,
         cross_device: bool,
         size: PixelSize,
+        code: Fourcc,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        let buffer =
-            allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, modifiers)?;
+        let buffer = allocator.create_buffer(size.width, size.height, code, modifiers)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
         let framebuffer = if cross_device {
             framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?
         } else {
-            framebuffer_from_scanout_bo(drm_fd, &buffer)?
+            framebuffer_from_scanout_bo(drm_fd, &buffer, code)?
         };
         Ok(Self {
             framebuffer,
@@ -839,13 +846,19 @@ impl ScanoutBuffer {
 fn framebuffer_from_scanout_bo(
     drm: &DrmDeviceFd,
     buffer: &GbmBuffer,
+    code: Fourcc,
 ) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
-    // This allocator requests opaque XR24 only. Register the existing GBM
-    // handles directly: PRIME-importing them back onto the same DRM fd could
-    // return GBM's handles and incorrectly make us responsible for closing them.
-    if PlanarBuffer::format(buffer) != Fourcc::Xrgb8888 {
-        return Err("GBM scanout allocation did not preserve the requested XR24 format".into());
+    // This allocator requests opaque XR30 or XR24 only. Register the existing
+    // GBM handles directly: PRIME-importing them back onto the same DRM fd
+    // could return GBM's handles and incorrectly make us responsible for
+    // closing them.
+    if PlanarBuffer::format(buffer) != code {
+        return Err(format!(
+            "GBM scanout allocation did not preserve the requested {code:?} format"
+        )
+        .into());
     }
+    let depth = if code == Fourcc::Xrgb2101010 { 30 } else { 24 };
     let flags = if PlanarBuffer::modifier(buffer).is_some() {
         FbCmd2Flags::MODIFIERS
     } else {
@@ -855,12 +868,13 @@ fn framebuffer_from_scanout_bo(
         Ok(handle) => handle,
         Err(error) => {
             // Preserve Smithay's legacy ADDFB fallback for single-plane GBM
-            // allocations. XR24 has depth 24 and 32 storage bits per pixel.
+            // allocations. XR30 and XR24 have depth 30 and 24 and 32 storage
+            // bits per pixel.
             if buffer.plane_count() > 1 {
                 return Err(error.into());
             }
             warn!(%error, "ADDFB2 failed for GBM scanout; trying legacy ADDFB");
-            drm.add_framebuffer(buffer, 24, 32)?
+            drm.add_framebuffer(buffer, depth, 32)?
         }
     };
     Ok(ScanoutFramebuffer {
@@ -995,17 +1009,23 @@ impl OutputSwapchains {
                 .transfer
                 .as_ref()
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
-            let modifiers = compatible_xrgb8888_modifiers(
-                std::iter::once(&scanout.surface.plane_info().formats),
+            // A cross-device transfer copies 8-bit images only.
+            let fourccs = if allocator.transfer.is_some() {
+                &SCANOUT_FOURCCS[1..]
+            } else {
+                &SCANOUT_FOURCCS[..]
+            };
+            let format = compatible_scanout_format(
+                fourccs,
+                &[&scanout.surface.plane_info().formats],
                 render_formats,
-            );
-            if modifiers.is_empty() {
-                return Err(format!(
-                    "no XR24 modifier is common to EGL rendering and {}'s primary plane",
+            )
+            .ok_or_else(|| {
+                format!(
+                    "no XR30 or XR24 modifier is common to EGL rendering and {}'s primary plane",
                     scanout.output.name
                 )
-                .into());
-            }
+            })?;
             let pool_bytes = u64::from(plan.target_size.width)
                 .checked_mul(u64::from(plan.target_size.height))
                 .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
@@ -1026,7 +1046,7 @@ impl OutputSwapchains {
                 allocator,
                 plan.target_size,
                 output_pool_length(),
-                &modifiers,
+                &format,
                 linear_render_targets,
                 MAX_SCANOUT_POOL_BYTES - previous_bytes,
             )?;
@@ -1636,35 +1656,51 @@ fn ensure_resident_jit_engine_matches(
     Ok(())
 }
 
-fn common_xrgb8888_modifiers<'a>(
-    format_sets: impl IntoIterator<Item = &'a FormatSet>,
-) -> Vec<Modifier> {
-    let mut format_sets = format_sets.into_iter();
-    let Some(first) = format_sets.next() else {
+/// An atlas pixel format and the modifiers every consumer can use with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct AtlasFormat {
+    pub(super) code: Fourcc,
+    pub(super) modifiers: Vec<Modifier>,
+}
+
+/// Return the first of `fourccs` that every plane can scan out and EGL can
+/// render into, with its usable modifiers.
+fn compatible_scanout_format(
+    fourccs: &[Fourcc],
+    plane_formats: &[&FormatSet],
+    render_formats: &FormatSet,
+) -> Option<AtlasFormat> {
+    fourccs.iter().find_map(|&code| {
+        let modifiers = compatible_modifiers(code, plane_formats, render_formats);
+        (!modifiers.is_empty()).then_some(AtlasFormat { code, modifiers })
+    })
+}
+
+fn common_modifiers(code: Fourcc, format_sets: &[&FormatSet]) -> Vec<Modifier> {
+    let Some((first, remaining)) = format_sets.split_first() else {
         return Vec::new();
     };
-    let remaining = format_sets.collect::<Vec<_>>();
     first
         .iter()
-        .filter(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid)
+        .filter(|format| format.code == code && format.modifier != Modifier::Invalid)
         .filter(|format| remaining.iter().all(|formats| formats.contains(format)))
         .map(|format| format.modifier)
         .collect()
 }
 
-fn compatible_xrgb8888_modifiers<'a>(
-    plane_formats: impl IntoIterator<Item = &'a FormatSet>,
+fn compatible_modifiers(
+    code: Fourcc,
+    plane_formats: &[&FormatSet],
     render_formats: &FormatSet,
 ) -> Vec<Modifier> {
-    let plane_formats = plane_formats.into_iter().collect::<Vec<_>>();
-    let mut modifiers = common_xrgb8888_modifiers(plane_formats.iter().copied());
+    let mut modifiers = common_modifiers(code, plane_formats);
     let renderer_has_explicit_modifiers = render_formats
         .iter()
-        .any(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid);
+        .any(|format| format.code == code && format.modifier != Modifier::Invalid);
     if renderer_has_explicit_modifiers {
         modifiers.retain(|modifier| {
             render_formats.contains(&Format {
-                code: Fourcc::Xrgb8888,
+                code,
                 modifier: *modifier,
             })
         });
@@ -1672,82 +1708,79 @@ fn compatible_xrgb8888_modifiers<'a>(
         modifiers.retain(|modifier| *modifier == Modifier::Linear);
     }
 
-    let implicit_xrgb8888 = Format {
-        code: Fourcc::Xrgb8888,
+    let implicit = Format {
+        code,
         modifier: Modifier::Invalid,
     };
     if modifiers.is_empty()
         && !plane_formats.is_empty()
         && plane_formats
             .iter()
-            .all(|formats| formats.contains(&implicit_xrgb8888))
-        && render_formats.contains(&implicit_xrgb8888)
+            .all(|formats| formats.contains(&implicit))
+        && render_formats.contains(&implicit)
     {
         // GBM may satisfy this through an explicit LINEAR allocation or its
         // legacy implicit allocation path. Both are safe when every consumer
-        // advertises implicit XR24, unlike guessing a vendor modifier.
+        // advertises the implicit format, unlike guessing a vendor modifier.
         modifiers.push(Modifier::Linear);
     }
 
     modifiers
 }
 
-/// Return XR24 modifiers that every primary plane can scan out and EGL can
-/// render into. Plane order is retained: DRM exposes the driver's preferred
-/// tiled/compressed layouts first and LINEAR last on hardware that supports
-/// both. If there is no explicit intersection but every consumer advertises
-/// legacy implicit XR24, fall back to a LINEAR allocation request rather than
-/// guessing that a vendor modifier is renderable.
-pub(super) fn shared_atlas_modifiers(
+/// Return the atlas format every primary plane can scan out and EGL can
+/// render into: XR30 when all of them support it, otherwise XR24. Plane order
+/// is retained: DRM exposes the driver's preferred tiled/compressed layouts
+/// first and LINEAR last on hardware that supports both. If there is no
+/// explicit intersection but every consumer advertises the legacy implicit
+/// format, fall back to a LINEAR allocation request rather than guessing that
+/// a vendor modifier is renderable.
+pub(super) fn shared_atlas_format(
     scanouts: &[Scanout],
     render_formats: &FormatSet,
-) -> Result<Vec<Modifier>, Box<dyn Error>> {
+) -> Result<AtlasFormat, Box<dyn Error>> {
     if scanouts.is_empty() {
-        return Err("shared atlas modifier selection needs at least one primary plane".into());
+        return Err("shared atlas format selection needs at least one primary plane".into());
     }
 
-    let modifiers = compatible_xrgb8888_modifiers(
-        scanouts
-            .iter()
-            .map(|scanout| &scanout.surface.plane_info().formats),
-        render_formats,
-    );
-
-    if modifiers.is_empty() {
+    let plane_formats = scanouts
+        .iter()
+        .map(|scanout| &scanout.surface.plane_info().formats)
+        .collect::<Vec<_>>();
+    compatible_scanout_format(&SCANOUT_FOURCCS, &plane_formats, render_formats).ok_or_else(|| {
         let outputs = scanouts
             .iter()
             .map(|scanout| scanout.output.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        return Err(format!(
-            "no XR24 modifier is common to EGL rendering and the primary planes for {outputs}"
+        format!(
+            "no XR30 or XR24 modifier is common to EGL rendering and the primary planes for {outputs}"
         )
-        .into());
-    }
-    Ok(modifiers)
+        .into()
+    })
 }
 
 impl AtlasSwapchain {
     pub(super) fn allocate(
         allocator: &mut ScanoutAllocator,
         size: PixelSize,
-        modifiers: &[Modifier],
+        format: &AtlasFormat,
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, size, 2, modifiers, false)
+        Self::allocate_pool(allocator, size, 2, format, false)
     }
 
     pub(super) fn allocate_pool(
         allocator: &mut ScanoutAllocator,
         size: PixelSize,
         length: usize,
-        modifiers: &[Modifier],
+        format: &AtlasFormat,
         linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
         let buffers = allocate_scanout_pool(
             allocator,
             size,
             length,
-            modifiers,
+            format,
             linear_render_targets,
             MAX_SCANOUT_POOL_BYTES,
         )?;
@@ -1776,11 +1809,12 @@ fn allocate_scanout_pool(
     allocator: &mut ScanoutAllocator,
     size: PixelSize,
     length: usize,
-    modifiers: &[Modifier],
+    format: &AtlasFormat,
     linear_render_targets: bool,
     _byte_budget: u64,
 ) -> Result<Vec<ScanoutBuffer>, Box<dyn Error>> {
     validate_scanout_pool_allocation(size, length)?;
+    let modifiers = &format.modifiers;
     let optimized = modifiers
         .iter()
         .copied()
@@ -1796,7 +1830,7 @@ fn allocate_scanout_pool(
         #[cfg(feature = "flutter")]
         let mut bytes = 0u64;
         for _ in 0..length {
-            let buffer = allocator.allocate(size, modifiers, linear_render_targets)?;
+            let buffer = allocator.allocate(size, format.code, modifiers, linear_render_targets)?;
             #[cfg(feature = "flutter")]
             {
                 bytes = bytes

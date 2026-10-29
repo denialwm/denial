@@ -586,12 +586,11 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         #[cfg(not(feature = "flutter"))]
         return Err("Flutter feature was checked before allocating scanout buffers".into());
     } else {
-        let atlas_modifiers =
-            shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
+        let atlas_format = shared_atlas_format(&kms.scanouts, egl_display.dmabuf_render_formats())?;
         let atlas_swapchain = AtlasSwapchain::allocate(
             &mut scanout_allocator,
             atlas.pixel_size,
-            &atlas_modifiers,
+            &atlas_format,
         )
         .map_err(|error| {
             format!(

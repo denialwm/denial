@@ -126,6 +126,7 @@ impl FlutterGlHandler {
             for (buffer_index, (scanout_dmabuf, render_dmabuf)) in
                 pool.dmabufs.into_iter().enumerate()
             {
+                let scanout_format = AllocatorBuffer::format(scanout_dmabuf);
                 let image = match render_context
                     .display()
                     .create_image_from_dmabuf(scanout_dmabuf)
@@ -150,6 +151,11 @@ impl FlutterGlHandler {
                     scanout_framebuffer: 0,
                     render_texture: 0,
                     render_framebuffer: 0,
+                    gl_format: if scanout_format.code == Fourcc::Xrgb2101010 {
+                        gl::RGB10_A2
+                    } else {
+                        gl::RGBA8
+                    },
                 };
                 let import_error;
                 // SAFETY: a compatible GLES context is current and all output
@@ -261,7 +267,7 @@ impl FlutterGlHandler {
                         );
                     };
                     let render_format = AllocatorBuffer::format(render_dmabuf);
-                    if render_format.code != Fourcc::Xrgb8888
+                    if render_format.code != scanout_format.code
                         || render_format.modifier != Modifier::Linear
                     {
                         let mut failed = vec![target];
@@ -270,7 +276,8 @@ impl FlutterGlHandler {
                         destroy_depth_stencils(gl, &mut depth_stencils);
                         render_context.unbind()?;
                         return Err(format!(
-                            "offscreen Flutter render target is not linear XR24: {render_format:?}"
+                            "offscreen Flutter render target is not linear {:?}: {render_format:?}",
+                            scanout_format.code
                         )
                         .into());
                     }

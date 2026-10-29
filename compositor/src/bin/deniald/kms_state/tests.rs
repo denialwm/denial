@@ -1,9 +1,60 @@
 #[cfg(feature = "flutter")]
 use super::ensure_resident_jit_engine_matches;
 use super::{
-    ScanoutIdentity, ScanoutIdentityError, framebuffer_from_property_value,
-    validate_scanout_identities,
+    AtlasFormat, SCANOUT_FOURCCS, ScanoutIdentity, ScanoutIdentityError, compatible_scanout_format,
+    framebuffer_from_property_value, validate_scanout_identities,
 };
+use smithay::backend::allocator::{Format, Fourcc, Modifier, format::FormatSet};
+
+fn formats(entries: &[(Fourcc, Modifier)]) -> FormatSet {
+    entries
+        .iter()
+        .map(|&(code, modifier)| Format { code, modifier })
+        .collect()
+}
+
+#[test]
+fn the_atlas_prefers_ten_bits_when_planes_and_renderer_share_it() {
+    let compressed = Modifier::Qcom_compressed;
+    let plane = formats(&[
+        (Fourcc::Xrgb2101010, compressed),
+        (Fourcc::Xrgb2101010, Modifier::Linear),
+        (Fourcc::Xrgb8888, compressed),
+        (Fourcc::Xrgb8888, Modifier::Linear),
+    ]);
+    let renderer = formats(&[
+        (Fourcc::Xrgb2101010, compressed),
+        (Fourcc::Xrgb8888, compressed),
+        (Fourcc::Xrgb8888, Modifier::Linear),
+    ]);
+    assert_eq!(
+        compatible_scanout_format(&SCANOUT_FOURCCS, &[&plane], &renderer),
+        Some(AtlasFormat {
+            code: Fourcc::Xrgb2101010,
+            modifiers: vec![compressed],
+        })
+    );
+}
+
+#[test]
+fn the_atlas_keeps_eight_bits_when_any_plane_lacks_ten() {
+    let ten = formats(&[
+        (Fourcc::Xrgb2101010, Modifier::Linear),
+        (Fourcc::Xrgb8888, Modifier::Linear),
+    ]);
+    let eight = formats(&[(Fourcc::Xrgb8888, Modifier::Linear)]);
+    assert_eq!(
+        compatible_scanout_format(&SCANOUT_FOURCCS, &[&ten, &eight], &ten),
+        Some(AtlasFormat {
+            code: Fourcc::Xrgb8888,
+            modifiers: vec![Modifier::Linear],
+        })
+    );
+    assert_eq!(
+        compatible_scanout_format(&SCANOUT_FOURCCS[1..], &[&ten], &ten).map(|f| f.code),
+        Some(Fourcc::Xrgb8888)
+    );
+}
 
 #[test]
 fn zero_framebuffer_property_means_no_predecessor_scanout() {

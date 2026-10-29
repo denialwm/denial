@@ -536,9 +536,13 @@ impl OpenGlHandler for FlutterGlHandler {
         if let Some(gpu_timing) = &self.gpu_timing {
             lock(gpu_timing).begin(framebuffer);
         }
+        let format = lock(&self.targets)
+            .iter()
+            .find(|target| target.render_framebuffer == framebuffer)
+            .map_or(gl::RGBA8, |target| target.gl_format);
         Some(CompositorBackingStore {
             framebuffer,
-            format: gl::RGBA8,
+            format,
             // The pool owns the target. This identity makes a malformed or
             // cross-view present observable without allocating a callback
             // baton for every raster pass.
