@@ -1137,6 +1137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         runtime: DartRuntimeMode::AotProfile,
         aot_library: Some(bundle.join("lib/libapp.so")),
         resource_cache_max_bytes_threshold: 0,
+        float_color: false,
     };
     let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
     let host = EngineHost::start_with_library_and_priority_setter(

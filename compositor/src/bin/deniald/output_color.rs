@@ -1,7 +1,10 @@
-//! Output gamut correction: the sRGB scene converted to a display's own
-//! primaries, applied after composition so captures keep the sRGB scene.
+//! Output color: the sRGB scene converted to a display's own primaries, or
+//! to BT.2100 PQ for a display in HDR, applied after composition so captures
+//! keep the scene.
 
-use super::color_space::{Matrix, SRGB, Xy, bradford, invert, multiply, rgb_to_xyz, xyz};
+use super::color_space::{
+    BT2020, Matrix, SRGB, SceneEncoding, Xy, bradford, invert, multiply, rgb_to_xyz, xyz,
+};
 use super::{DrmDeviceFd, OutputId};
 use smithay::reexports::drm::control::{Device, connector};
 use std::collections::BTreeMap;
@@ -15,11 +18,140 @@ const SRGB_TOLERANCE: f64 = 0.004;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OutputColor {
     pub(super) matrix: [f32; 9],
+    /// SDR white in cd/m² when the output reads BT.2100 PQ (the matrix then
+    /// goes to BT.2020); 0 for an SDR output.
+    pub(super) pq_white: f32,
 }
 
-/// How the scene stores color. Every output is SDR for now.
-pub(super) fn scene_encoding() -> super::color_space::SceneEncoding {
-    super::color_space::SceneEncoding::SDR
+/// What a display's EDID says about its color.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct DisplayColor {
+    pub(super) correction: Option<OutputColor>,
+    pub(super) hdr: Option<HdrCapability>,
+}
+
+/// A display that accepts BT.2100 PQ (CTA-861 HDR static metadata).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct HdrCapability {
+    pub(super) primaries: [Xy; 4],
+    /// cd/m².
+    pub(super) max_luminance: f64,
+    pub(super) max_frame_average: f64,
+    pub(super) min_luminance: f64,
+}
+
+/// An output showing HDR: its display and the SDR white it puts the desktop at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct HdrOutput {
+    pub(super) display: HdrCapability,
+    pub(super) white: f64,
+}
+
+/// BT.2408's reference white, where SDR content sits in an HDR signal.
+pub(super) const DEFAULT_SDR_WHITE: f64 = 203.0;
+pub(super) const SDR_WHITE_RANGE: std::ops::RangeInclusive<f64> = 80.0..=1000.0;
+
+impl HdrOutput {
+    /// How far above SDR white the display reaches.
+    pub(super) fn headroom(self) -> f64 {
+        (self.display.max_luminance / self.white).max(1.0)
+    }
+
+    pub(super) fn output_color(self) -> OutputColor {
+        // Both share D65, so this is only the change of primaries.
+        let matrix = rgb_to_xyz(BT2020)
+            .and_then(invert)
+            .zip(rgb_to_xyz(SRGB))
+            .map(|(to_bt2020, from_srgb)| multiply(to_bt2020, from_srgb))
+            .expect("sRGB and BT.2020 are valid primaries");
+        OutputColor {
+            matrix: column_major(matrix),
+            pq_white: self.white as f32,
+        }
+    }
+}
+
+/// SDR white per connector name for every output asked to show HDR.
+static HDR_REQUESTS: Mutex<BTreeMap<String, f64>> = Mutex::new(BTreeMap::new());
+
+pub(super) fn hdr_request(output: &str) -> Option<f64> {
+    HDR_REQUESTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(output)
+        .copied()
+}
+
+pub(super) fn set_hdr_request(output: &str, white: Option<f64>) {
+    let mut requests = HDR_REQUESTS.lock().unwrap_or_else(PoisonError::into_inner);
+    match white {
+        Some(white) => requests.insert(output.to_owned(), white),
+        None => requests.remove(output),
+    };
+}
+
+/// One output as the output pools were last built.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct HdrDisplay {
+    pub(super) id: OutputId,
+    pub(super) name: String,
+    pub(super) display: HdrCapability,
+    /// The SDR white it shows HDR at, or `None` while it shows SDR.
+    pub(super) active: Option<f64>,
+}
+
+static HDR_DISPLAYS: Mutex<Vec<HdrDisplay>> = Mutex::new(Vec::new());
+/// The scene's headroom as `f64` bits; zero while every output is SDR.
+static SCENE_HEADROOM: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn hdr_displays() -> Vec<HdrDisplay> {
+    HDR_DISPLAYS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+pub(super) fn set_hdr_displays(displays: Vec<HdrDisplay>) {
+    let headroom = displays
+        .iter()
+        .filter_map(|display| {
+            display.active.map(|white| {
+                HdrOutput {
+                    display: display.display,
+                    white,
+                }
+                .headroom()
+            })
+        })
+        .reduce(f64::max);
+    SCENE_HEADROOM.store(headroom.map_or(0, f64::to_bits), Ordering::Release);
+    *HDR_DISPLAYS.lock().unwrap_or_else(PoisonError::into_inner) = displays;
+}
+
+pub(super) fn hdr_output(id: OutputId) -> Option<HdrOutput> {
+    HDR_DISPLAYS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .find(|display| display.id == id)
+        .and_then(|display| {
+            display.active.map(|white| HdrOutput {
+                display: display.display,
+                white,
+            })
+        })
+}
+
+/// How the scene stores color. With an output in HDR it is extended: SDR
+/// white stays 1.0 and highlights reach the brightest HDR display's headroom.
+pub(super) fn scene_encoding() -> SceneEncoding {
+    match SCENE_HEADROOM.load(Ordering::Acquire) {
+        0 => SceneEncoding::SDR,
+        bits => SceneEncoding {
+            headroom: f64::from_bits(bits),
+            extended: true,
+        },
+    }
 }
 
 /// Off shows every display's own response, to compare it with the correction.
@@ -169,51 +301,92 @@ pub(super) fn parse_cube(text: &str) -> Result<Lut, String> {
     })
 }
 
-/// Read the output's EDID and return its correction, if it needs one.
-pub(super) fn read(drm: &DrmDeviceFd, id: OutputId) -> Option<OutputColor> {
-    let handle = u32::try_from(id.0)
-        .ok()
-        .and_then(std::num::NonZeroU32::new)
-        .map(connector::Handle::from)?;
-    for (property, value) in drm.get_properties(handle).ok()? {
-        let property = drm.get_property(property).ok()?;
-        if property.name().to_str() == Ok("EDID") {
-            let blob = property.value_type().convert_value(value).as_blob()?;
-            return (blob != 0)
-                .then(|| drm.get_property_blob(blob).ok())
-                .flatten()
-                .and_then(|edid| from_edid(&edid));
+/// Read the output's EDID: its correction, if it needs one, and its HDR.
+pub(super) fn read(drm: &DrmDeviceFd, id: OutputId) -> DisplayColor {
+    let edid = || -> Option<Vec<u8>> {
+        let handle = u32::try_from(id.0)
+            .ok()
+            .and_then(std::num::NonZeroU32::new)
+            .map(connector::Handle::from)?;
+        for (property, value) in drm.get_properties(handle).ok()? {
+            let property = drm.get_property(property).ok()?;
+            if property.name().to_str() == Ok("EDID") {
+                let blob = property.value_type().convert_value(value).as_blob()?;
+                return (blob != 0)
+                    .then(|| drm.get_property_blob(blob).ok())
+                    .flatten();
+            }
         }
-    }
-    None
+        None
+    };
+    edid().map_or_else(DisplayColor::default, |edid| from_edid(&edid))
 }
 
-fn from_edid(edid: &[u8]) -> Option<OutputColor> {
+fn from_edid(edid: &[u8]) -> DisplayColor {
     if edid.len() < 128 || edid[..8] != [0, 255, 255, 255, 255, 255, 255, 0] {
-        return None;
+        return DisplayColor::default();
     }
     let primaries = edid_chromaticities(edid);
     if primaries
         .iter()
         .any(|&(x, y)| !(0.0..1.0).contains(&x) || !(0.0..1.0).contains(&y) || y == 0.0)
     {
-        return None;
+        return DisplayColor::default();
     }
     let near_srgb = primaries
         .iter()
         .zip(SRGB)
         .all(|(a, b)| (a.0 - b.0).abs() <= SRGB_TOLERANCE && (a.1 - b.1).abs() <= SRGB_TOLERANCE);
-    if near_srgb {
-        return None;
-    }
-    let matrix = srgb_to(primaries)?;
-    let mut columns = [0.0; 9];
-    for column in 0..3 {
-        for row in 0..3 {
-            columns[column * 3 + row] = matrix[row][column] as f32;
+    let correction = (!near_srgb)
+        .then(|| srgb_to(primaries))
+        .flatten()
+        .map(|matrix| OutputColor {
+            matrix: column_major(matrix),
+            pq_white: 0.0,
+        });
+    let hdr = hdr_static_metadata(edid).map(|(max, average, min)| HdrCapability {
+        primaries,
+        max_luminance: max,
+        max_frame_average: average,
+        min_luminance: min,
+    });
+    DisplayColor { correction, hdr }
+}
+
+fn column_major(matrix: Matrix) -> [f32; 9] {
+    std::array::from_fn(|index| matrix[index % 3][index / 3] as f32)
+}
+
+/// The CTA-861 HDR static metadata block of a PQ display: its desired
+/// maximum, frame-average maximum and minimum luminance in cd/m².
+fn hdr_static_metadata(edid: &[u8]) -> Option<(f64, f64, f64)> {
+    const PQ: u8 = 1 << 2;
+    let extensions = usize::from(edid[126]);
+    for block in edid[128..].chunks_exact(128).take(extensions) {
+        // A CTA extension; its data blocks run from byte 4 to the DTD offset.
+        if block[0] != 0x02 || block[2] < 4 {
+            continue;
+        }
+        let end = usize::from(block[2]).min(127);
+        let mut at = 4;
+        while at < end {
+            let (tag, length) = (block[at] >> 5, usize::from(block[at] & 31));
+            let data = block.get(at + 1..at + 1 + length)?;
+            at += 1 + length;
+            // Extended tag 6: HDR static metadata.
+            if tag != 7 || data.first() != Some(&6) || data.len() < 3 || data[1] & PQ == 0 {
+                continue;
+            }
+            let code = |index: usize| data.get(index).copied().filter(|&code| code != 0);
+            let max = code(3).map_or(1000.0, |code| 50.0 * 2f64.powf(f64::from(code) / 32.0));
+            let average = code(4).map_or(max, |code| 50.0 * 2f64.powf(f64::from(code) / 32.0));
+            let min = code(5).map_or(0.005, |code| {
+                max * (f64::from(code) / 255.0).powi(2) / 100.0
+            });
+            return Some((max, average.min(max), min));
         }
     }
-    Some(OutputColor { matrix: columns })
+    None
 }
 
 /// Red, green, blue and white, each 10 bits split over bytes 25..=34.
@@ -281,7 +454,9 @@ mod tests {
 
     #[test]
     fn a_wide_gamut_display_keeps_white_and_narrows_srgb_primaries() {
-        let color = from_edid(&edid_with(QD_OLED)).expect("wide gamut needs correction");
+        let color = from_edid(&edid_with(QD_OLED))
+            .correction
+            .expect("wide gamut needs correction");
         let white = column_major_apply(color, [1.0, 1.0, 1.0]);
         assert!(white.iter().all(|v| (v - 1.0).abs() < 1e-3), "{white:?}");
         for primary in 0..3 {
@@ -339,8 +514,94 @@ mod tests {
 
     #[test]
     fn srgb_displays_and_bad_edids_are_left_alone() {
-        assert!(from_edid(&edid_with(SRGB)).is_none());
-        assert!(from_edid(&edid_with([(0.0, 0.0); 4])).is_none());
-        assert!(from_edid(&[0; 64]).is_none());
+        assert_eq!(from_edid(&edid_with(SRGB)), DisplayColor::default());
+        assert_eq!(
+            from_edid(&edid_with([(0.0, 0.0); 4])),
+            DisplayColor::default()
+        );
+        assert_eq!(from_edid(&[0; 64]), DisplayColor::default());
+    }
+
+    /// A base block plus one CTA extension holding an HDR static metadata
+    /// block with the given EOTF bits and luminance codes.
+    fn hdr_edid(eotf: u8, codes: &[u8]) -> Vec<u8> {
+        let mut edid = edid_with(QD_OLED);
+        edid[126] = 1;
+        let mut cta = vec![0; 128];
+        cta[0] = 0x02;
+        cta[1] = 3;
+        let mut block = vec![(7 << 5) | (3 + codes.len() as u8), 6, eotf, 1];
+        block.extend_from_slice(codes);
+        cta[4..4 + block.len()].copy_from_slice(&block);
+        cta[2] = (4 + block.len()) as u8;
+        edid.extend_from_slice(&cta);
+        edid
+    }
+
+    #[test]
+    fn a_pq_display_reports_its_luminance() {
+        // The codes an AOC AG276QZD2 reports: about 455, 254 and 0.0003 cd/m².
+        let hdr = from_edid(&hdr_edid(0b111, &[102, 75, 2]))
+            .hdr
+            .expect("PQ display");
+        assert!((hdr.max_luminance - 455.5).abs() < 0.1, "{hdr:?}");
+        assert!((hdr.max_frame_average - 253.8).abs() < 0.1, "{hdr:?}");
+        assert!(
+            hdr.min_luminance > 0.0 && hdr.min_luminance < 0.001,
+            "{hdr:?}"
+        );
+        assert_eq!(hdr.primaries, edid_chromaticities(&edid_with(QD_OLED)));
+    }
+
+    #[test]
+    fn only_pq_displays_offer_hdr() {
+        assert!(from_edid(&hdr_edid(0b011, &[102])).hdr.is_none());
+        assert!(from_edid(&edid_with(QD_OLED)).hdr.is_none());
+        let unknown = from_edid(&hdr_edid(0b100, &[])).hdr.expect("PQ display");
+        assert_eq!(unknown.max_luminance, 1000.0);
+    }
+
+    #[test]
+    fn an_hdr_output_keeps_white_and_states_its_headroom() {
+        let display = from_edid(&hdr_edid(0b111, &[102, 75, 2])).hdr.unwrap();
+        let output = HdrOutput {
+            display,
+            white: DEFAULT_SDR_WHITE,
+        };
+        assert!((output.headroom() - 455.5 / 203.0).abs() < 1e-3);
+        let color = output.output_color();
+        assert_eq!(color.pq_white, 203.0);
+        let white = column_major_apply(color, [1.0, 1.0, 1.0]);
+        assert!(white.iter().all(|v| (v - 1.0).abs() < 1e-4), "{white:?}");
+        // sRGB red sits well inside BT.2020.
+        let red = column_major_apply(color, [1.0, 0.0, 0.0]);
+        assert!(red[0] > 0.6 && red[0] < 0.65 && red[1] > 0.0, "{red:?}");
+        let dim = HdrOutput {
+            display,
+            white: 600.0,
+        };
+        assert_eq!(dim.headroom(), 1.0);
+    }
+
+    #[test]
+    fn the_scene_turns_extended_with_an_hdr_output() {
+        let display = from_edid(&hdr_edid(0b111, &[102, 75, 2])).hdr.unwrap();
+        let entry = |white| HdrDisplay {
+            id: OutputId(7),
+            name: "DP-4".into(),
+            display,
+            active: white,
+        };
+        set_hdr_displays(vec![entry(None)]);
+        assert_eq!(scene_encoding(), SceneEncoding::SDR);
+        set_hdr_displays(vec![entry(Some(203.0))]);
+        let scene = scene_encoding();
+        assert!(scene.extended && (scene.headroom - 455.5 / 203.0).abs() < 1e-3);
+        assert_eq!(
+            hdr_output(OutputId(7)).map(|output| output.white),
+            Some(203.0)
+        );
+        set_hdr_displays(Vec::new());
+        assert_eq!(scene_encoding(), SceneEncoding::SDR);
     }
 }

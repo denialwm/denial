@@ -229,6 +229,9 @@ pub struct EngineProject {
     /// Upper bound for Flutter's viewport-derived Ganesh resource cache.
     /// Zero leaves the engine's calculated limit unchanged.
     pub resource_cache_max_bytes_threshold: usize,
+    /// Denial engines only: Impeller's offscreen targets are half float, so
+    /// HDR content brighter than SDR white survives layers and filters.
+    pub float_color: bool,
 }
 
 #[derive(Debug)]
@@ -423,6 +426,9 @@ fn engine_command_line(project: &EngineProject) -> Vec<CString> {
         "--denial-gl-fbo-zero-is-no-target",
     ] {
         arguments.push(CString::new(argument).expect("static argv has no NUL"));
+    }
+    if project.float_color {
+        arguments.push(CString::new("--denial-float-color").expect("static argv has no NUL"));
     }
     if project.resource_cache_max_bytes_threshold != 0 {
         arguments.push(

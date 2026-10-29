@@ -113,6 +113,17 @@ mapped (perceptual intent) or clipped (relative intent) and encoded again. The
 deprecated `srgb` transfer function is read as gamma 2.2, which is what sRGB
 displays show; `compound_power_2_4` keeps its piecewise curve.
 
+A display whose EDID offers PQ can show HDR (`denialctl color hdr OUTPUT on
+[WHITE]`). Its connector then receives BT.2020 colorimetry and HDR static
+metadata with the display's own primaries and luminance, and its scene is half
+float. The scene becomes extended: SDR white stays 1.0 and highlights reach
+the display's peak over the chosen SDR white, so tagged HDR content is mapped
+to that headroom instead of SDR. Impeller's layers and filters turn half float
+with it (`--denial-float-color`), and the copy to scanout encodes BT.2100 PQ.
+That output advertises BT.2020 and PQ, with the SDR white as reference
+luminance. The connector's previous colorimetry and metadata return when
+Denial exits.
+
 Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
 and all eight Wayland buffer orientations. Opacity changes publish with the
 parent transaction even when the child keeps its buffer. Flutter applies

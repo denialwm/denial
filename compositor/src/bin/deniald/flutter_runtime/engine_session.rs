@@ -208,8 +208,14 @@ impl FlutterRuntime {
             )?,
         };
         let handler = prepared.into_handler(&expected, generation)?;
+        // The output pools are already built: an HDR output among them makes
+        // the scene extended, and Impeller must keep its range.
+        let project = EngineProject {
+            float_color: crate::output_color::scene_encoding().extended,
+            ..factory.project.clone()
+        };
         let host = EngineHost::start_with_library_and_priority_setter(
-            &factory.project,
+            &project,
             handler.clone(),
             Arc::clone(&factory.library),
             Some(crate::cpu_scheduling::set_flutter_thread_priority),

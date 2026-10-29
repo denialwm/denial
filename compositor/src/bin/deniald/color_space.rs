@@ -187,6 +187,19 @@ impl ImageDescription {
         Self::named(6, TransferFunction::Named(tf::ST2084_PQ))
     }
 
+    /// A display showing BT.2100 PQ: SDR white at the desktop's white, the
+    /// display's own gamut and luminance as the target.
+    pub(crate) fn hdr_output(output: crate::output_color::HdrOutput) -> Self {
+        let display = output.display;
+        let mut description = Self::windows_bt2100();
+        description.luminances.reference = output.white;
+        description.target_primaries = display.primaries;
+        description.target_luminance = (display.min_luminance, display.max_luminance);
+        description.max_cll = Some(display.max_luminance);
+        description.max_fall = Some(display.max_frame_average);
+        description
+    }
+
     fn named(primaries: u32, tf: TransferFunction) -> Self {
         let chromaticities = named_primaries(primaries).expect("known named primaries");
         let luminances = tf.default_luminances();

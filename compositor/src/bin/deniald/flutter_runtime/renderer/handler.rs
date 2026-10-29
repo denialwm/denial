@@ -262,12 +262,15 @@ impl FlutterGlHandler {
                     scanout_framebuffer: 0,
                     render_texture: 0,
                     render_framebuffer: 0,
-                    gl_format: if scanout_format.code == Fourcc::Xrgb2101010 {
-                        gl::RGB10_A2
-                    } else {
-                        gl::RGBA8
+                    gl_format: match render_dmabuf
+                        .map(|dmabuf| AllocatorBuffer::format(dmabuf).code)
+                    {
+                        Some(Fourcc::Abgr16161616f) => gl::RGBA16F,
+                        _ if scanout_format.code == Fourcc::Xrgb2101010 => gl::RGB10_A2,
+                        _ => gl::RGBA8,
                     },
                     gamut: pool.color.map(|color| color.matrix),
+                    pq_white: pool.color.map_or(0.0, |color| color.pq_white),
                 };
                 let import_error;
                 // SAFETY: a compatible GLES context is current and all output
@@ -1229,9 +1232,12 @@ impl FlutterGlHandler {
                 look: shader_blit.look_texture,
                 alpha: 0,
                 convert: None,
+                // The switch compares a display with and without correction;
+                // a PQ display always needs its BT.2020 matrix.
                 gamut: target
                     .gamut
-                    .filter(|_| crate::output_color::correction_enabled()),
+                    .filter(|_| target.pq_white > 0.0 || crate::output_color::correction_enabled()),
+                pq_white: target.pq_white,
             },
         ) {
             error!(
@@ -1388,6 +1394,7 @@ impl FlutterGlHandler {
                     alpha: grade.alpha as i32 + 1,
                     convert: grade.conversion(),
                     gamut: None,
+                    pq_white: 0.0,
                 },
             )
         } else {

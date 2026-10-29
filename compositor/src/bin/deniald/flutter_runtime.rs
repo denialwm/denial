@@ -682,6 +682,7 @@ fn project_from_bundle(
         // adaptive behavior below the cap while preventing large multi-output
         // scenes from retaining more than a conservative desktop-sized budget.
         resource_cache_max_bytes_threshold: FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD,
+        float_color: false,
     })
 }
 

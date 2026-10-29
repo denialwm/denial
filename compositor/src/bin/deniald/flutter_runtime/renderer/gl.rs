@@ -87,6 +87,7 @@ pub(super) struct GlApi {
     pub(super) uniform_matrix_3fv: unsafe extern "system" fn(i32, i32, u8, *const f32),
     pub(super) uniform_3fv: unsafe extern "system" fn(i32, i32, *const f32),
     pub(super) uniform_4fv: unsafe extern "system" fn(i32, i32, *const f32),
+    pub(super) uniform_1f: unsafe extern "system" fn(i32, f32),
     pub(super) active_texture: unsafe extern "system" fn(u32),
     pub(super) enable: unsafe extern "system" fn(u32),
     pub(super) disable: unsafe extern "system" fn(u32),
@@ -211,6 +212,7 @@ impl GlApi {
                 "glUniform4fv",
                 unsafe extern "system" fn(i32, i32, *const f32)
             ),
+            uniform_1f: symbol!("glUniform1f", unsafe extern "system" fn(i32, f32)),
             active_texture: symbol!("glActiveTexture", unsafe extern "system" fn(u32)),
             enable: symbol!("glEnable", unsafe extern "system" fn(u32)),
             disable: symbol!("glDisable", unsafe extern "system" fn(u32)),
@@ -265,6 +267,8 @@ pub(super) struct GlTarget {
     pub(super) gl_format: u32,
     /// Column-major linear-light gamut matrix for the copy to scanout.
     pub(super) gamut: Option<[f32; 9]>,
+    /// SDR white in cd/m² when the copy encodes PQ, else 0.
+    pub(super) pq_white: f32,
 }
 
 impl GlTarget {
@@ -288,6 +292,7 @@ pub(super) struct ShaderBlit {
     pub(super) to_scene_uniform: i32,
     pub(super) luma_uniform: i32,
     pub(super) tone_uniform: i32,
+    pub(super) pq_white_uniform: i32,
     /// The desktop look's 3D texture, or 0 for none.
     pub(super) look_texture: u32,
     /// The desktop look generation `look_texture` holds.
@@ -320,6 +325,8 @@ uniform bool grade;\n\
 uniform mediump sampler3D look;\n\
 uniform bool correct_gamut;\n\
 uniform mat3 gamut;\n\
+// SDR white in cd/m2 on a PQ output; 0 on an SDR one.\n\
+uniform float pq_white;\n\
 in vec2 texture_coordinate;\n\
 layout(location = 0) out vec4 fragment_color;\n\
 vec3 decode_light(vec3 v) {\n\
@@ -372,11 +379,17 @@ void main() {\n\
         // Sample texel centres: 0 and 1 land on the first and last entries.\n\
         float size = float(textureSize(look, 0).x);\n\
         vec3 at = clamp(rgb, 0.0, 1.0) * ((size - 1.0) / size) + 0.5 / size;\n\
-        rgb = texture(look, at).rgb;\n\
+        // A look grades SDR range; highlights above white keep their excess.\n\
+        rgb = texture(look, at).rgb + max(rgb - 1.0, 0.0);\n\
     }\n\
-    if (correct_gamut) {\n\
+    if (pq_white > 0.0) {\n\
+        // The display reads BT.2100 PQ: scene light into BT.2020 at SDR white.\n\
+        vec3 linear = sign(rgb) * pow(abs(rgb), vec3(2.2));\n\
+        vec3 y = pow(clamp(gamut * linear * (pq_white / 10000.0), 0.0, 1.0), vec3(0.1593017578125));\n\
+        rgb = pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));\n\
+    } else if (correct_gamut) {\n\
         // Gamma 2.2 both ways keeps neutrals exact; only the gamut moves.\n\
-        vec3 linear = pow(rgb, vec3(2.2));\n\
+        vec3 linear = pow(clamp(rgb, 0.0, 1.0), vec3(2.2));\n\
         rgb = pow(clamp(gamut * linear, 0.0, 1.0), vec3(1.0 / 2.2));\n\
     }\n\
     if (alpha_mode != 0) rgb *= alpha;\n\
@@ -460,6 +473,7 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         c"to_scene",
         c"luma",
         c"tone",
+        c"pq_white",
     ]
     .map(|name| {
         // SAFETY: the names are NUL-terminated and the linked program is live.
@@ -477,6 +491,7 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         to_scene_uniform,
         luma_uniform,
         tone_uniform,
+        pq_white_uniform,
     ] = uniforms;
     if uniforms.contains(&-1) {
         // SAFETY: the linked program remains live until this deletion.
@@ -497,6 +512,7 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         to_scene_uniform,
         luma_uniform,
         tone_uniform,
+        pq_white_uniform,
         look_texture: 0,
         look_generation: 0,
     })
@@ -581,6 +597,9 @@ pub(super) struct CopyColor {
     pub(super) convert: Option<Conversion>,
     /// Column-major linear-light gamut matrix for the display.
     pub(super) gamut: Option<[f32; 9]>,
+    /// SDR white in cd/m² when the display reads PQ (`gamut` then goes to
+    /// BT.2020); 0 for an SDR display.
+    pub(super) pq_white: f32,
 }
 
 /// Uniforms of the copy shader's conversion stage: decode, matrix to scene
@@ -691,6 +710,7 @@ pub(super) fn copy_to_scanout(
         if let Some(gamut) = &color.gamut {
             (gl.uniform_matrix_3fv)(shader_blit.gamut_uniform, 1, gl::FALSE, gamut.as_ptr());
         }
+        (gl.uniform_1f)(shader_blit.pq_white_uniform, color.pq_white);
         (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
     }
     // SAFETY: the same render context remains current after the copy.

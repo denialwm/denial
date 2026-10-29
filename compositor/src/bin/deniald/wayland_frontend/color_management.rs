@@ -227,7 +227,8 @@ impl WaylandFrontend {
         color.outputs.retain(|id, _| ids.contains(id));
         let mut changed = Vec::new();
         for id in ids {
-            let description = ImageDescription::srgb();
+            let description = crate::output_color::hdr_output(id)
+                .map_or_else(ImageDescription::srgb, ImageDescription::hdr_output);
             if color
                 .outputs
                 .get(&id)

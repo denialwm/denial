@@ -126,6 +126,13 @@ struct Options {
     command: Command,
 }
 
+#[derive(Debug, PartialEq)]
+enum HdrSwitch {
+    Off,
+    /// With an SDR white in cd/m², or the compositor's default.
+    On(Option<f64>),
+}
+
 #[derive(Debug)]
 enum Command {
     Help,
@@ -134,6 +141,8 @@ enum Command {
     Outputs,
     Color,
     ColorCorrection(Option<bool>),
+    /// Switch an output, or `None` for the state.
+    Hdr(Option<(String, HdrSwitch)>),
     ColorLut(Option<Option<PathBuf>>),
     AppLuts,
     AppLut {
@@ -242,6 +251,27 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
             Ok(Command::ColorCorrection(None))
         }
         ["color", "correction", value] => Ok(Command::ColorCorrection(Some(parse_switch(value)?))),
+        ["color", "hdr"] | ["color", "hdr", "status"] => Ok(Command::Hdr(None)),
+        ["color", "hdr", output, "off"] => {
+            Ok(Command::Hdr(Some(((*output).to_owned(), HdrSwitch::Off))))
+        }
+        ["color", "hdr", output, "on"] => Ok(Command::Hdr(Some((
+            (*output).to_owned(),
+            HdrSwitch::On(None),
+        )))),
+        ["color", "hdr", output, "on", white] => {
+            let white = white
+                .parse::<f64>()
+                .ok()
+                .filter(|white| white.is_finite())
+                .ok_or_else(|| {
+                    CliError::usage(format!("expected SDR white in cd/m², got {white:?}"))
+                })?;
+            Ok(Command::Hdr(Some((
+                (*output).to_owned(),
+                HdrSwitch::On(Some(white)),
+            ))))
+        }
         ["ui"] | ["ui", "status"] => Ok(Command::UiStatus),
         ["ui", "setup"] => Ok(Command::UiSetup(None)),
         ["ui", "setup", _] => Ok(Command::UiSetup(Some(PathBuf::from(&arguments[2])))),
@@ -316,16 +346,19 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
             let correction = client.request("color.correction.get", Value::Null)?;
             let lut = client.request("color.lut.get", Value::Null)?;
             let apps = client.request("color.app.lut.get", Value::Null)?;
+            let hdr = client.request("color.hdr.get", Value::Null)?;
             if options.json {
                 print_json(&json!({
                     "correction": correction.result,
                     "lut": lut.result["lut"],
                     "apps": apps.result["apps"],
+                    "hdr": hdr.result["outputs"],
                 }))?;
             } else {
                 print_color_correction(&correction.result);
                 print_desktop_lut(&lut.result);
                 print_app_luts(&apps.result);
+                print_hdr(&hdr.result);
             }
         }
         Command::AppLuts => {
@@ -366,6 +399,23 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 print_json(&response.result)?;
             } else {
                 print_desktop_lut(&response.result);
+            }
+        }
+        Command::Hdr(change) => {
+            let response = match change {
+                None => client.request("color.hdr.get", Value::Null)?,
+                Some((output, HdrSwitch::Off)) => {
+                    client.request("color.hdr.set", json!({"output": output, "enabled": false}))?
+                }
+                Some((output, HdrSwitch::On(white))) => client.request(
+                    "color.hdr.set",
+                    json!({"output": output, "enabled": true, "white": white}),
+                )?,
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_hdr(&response.result);
             }
         }
         Command::ColorCorrection(enabled) => {
@@ -1587,6 +1637,29 @@ fn print_color_correction(result: &Value) {
     println!("color correction: {}", if enabled { "on" } else { "off" });
 }
 
+fn print_hdr(result: &Value) {
+    let outputs = result["outputs"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if outputs.is_empty() {
+        println!("HDR: no HDR display");
+    }
+    for output in outputs {
+        let name = output["output"].as_str().unwrap_or("?");
+        let peak = output["max_luminance"].as_f64().unwrap_or_default();
+        match output["white"].as_f64() {
+            Some(white) => {
+                println!("HDR: {name} on, SDR white {white:.0} cd/m², peak {peak:.0} cd/m²")
+            }
+            None => match output["requested_white"].as_f64() {
+                Some(_) => println!("HDR: {name} requested, showing SDR (see the journal)"),
+                None => println!("HDR: {name} off, peak {peak:.0} cd/m²"),
+            },
+        }
+    }
+}
+
 fn print_desktop_lut(result: &Value) {
     let lut = &result["lut"];
     match lut["size"].as_u64() {
@@ -1631,6 +1704,9 @@ Commands:
   outputs                        List the current output state
   color                          Show the display color state
   color correction [on|off]      Show or switch each display's gamut correction
+  color hdr                      List HDR displays and whether they show HDR
+  color hdr OUTPUT on [WHITE]    Show HDR, SDR content at WHITE cd/m² (default 203)
+  color hdr OUTPUT off           Return the display to SDR
   color lut load FILE            Grade the desktop with a .cube 3D LUT
   color lut clear                Remove the desktop LUT
   color apps                     List the apps graded with their own LUT

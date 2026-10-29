@@ -756,6 +756,71 @@ struct ColorCorrectionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct HdrParams {
+    output: String,
+    enabled: bool,
+    /// SDR white in cd/m²; the default when absent.
+    #[serde(default)]
+    white: Option<f64>,
+}
+
+fn hdr_state() -> Value {
+    let outputs = super::output_color::hdr_displays()
+        .into_iter()
+        .map(|display| {
+            json!({
+                "output": display.name,
+                "max_luminance": display.display.max_luminance,
+                "max_frame_average": display.display.max_frame_average,
+                "min_luminance": display.display.min_luminance,
+                "active": display.active.is_some(),
+                "white": display.active,
+                "requested_white": super::output_color::hdr_request(&display.name),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"outputs": outputs})
+}
+
+fn change_hdr(
+    params: HdrParams,
+    events: &SyncSender<ControlEvent>,
+) -> Result<Value, (&'static str, String)> {
+    if !super::output_color::hdr_displays()
+        .iter()
+        .any(|display| display.name == params.output)
+    {
+        return Err((
+            "invalid_params",
+            format!("{} is not a connected HDR display", params.output),
+        ));
+    }
+    let white = match (params.enabled, params.white) {
+        (false, _) => None,
+        (true, None) => Some(super::output_color::DEFAULT_SDR_WHITE),
+        (true, Some(white)) if super::output_color::SDR_WHITE_RANGE.contains(&white) => Some(white),
+        (true, Some(white)) => {
+            let range = super::output_color::SDR_WHITE_RANGE;
+            return Err((
+                "invalid_params",
+                format!(
+                    "SDR white {white} is outside {}..={} cd/m²",
+                    range.start(),
+                    range.end()
+                ),
+            ));
+        }
+    };
+    if super::output_color::hdr_request(&params.output) != white {
+        super::output_color::set_hdr_request(&params.output, white);
+        // The signal, the scene format and Flutter's targets all change.
+        let _ = events.try_send(ControlEvent::RebuildOutputs);
+    }
+    Ok(hdr_state())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ColorLutParams {
     path: PathBuf,
 }
@@ -1239,6 +1304,14 @@ fn handle_connection(
             json!({"enabled": super::output_color::correction_enabled()}),
         ),
         "color.lut.get" => success_response(request.id, desktop_lut_state()),
+        "color.hdr.get" => success_response(request.id, hdr_state()),
+        "color.hdr.set" => match serde_json::from_value::<HdrParams>(request.params) {
+            Ok(params) => match change_hdr(params, events) {
+                Ok(state) => success_response(request.id, state),
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
         "color.app.lut.get" => success_response(request.id, app_luts_state()),
         "color.app.lut.load" | "color.app.lut.clear" => {
             match serde_json::from_value::<AppLutParams>(request.params) {

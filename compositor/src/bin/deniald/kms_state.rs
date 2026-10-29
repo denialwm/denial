@@ -514,6 +514,7 @@ impl ScanoutAllocator {
         code: Fourcc,
         modifiers: &[Modifier],
         mut scene_target: SceneTarget,
+        scene_code: Option<Fourcc>,
     ) -> Result<ScanoutBuffer, Box<dyn Error>> {
         let mut buffer = ScanoutBuffer::allocate_gbm(
             &mut self.allocator,
@@ -556,7 +557,7 @@ impl ScanoutAllocator {
             buffer.render_target = Some(LinearRenderBuffer::allocate(
                 &mut self.allocator,
                 size,
-                code,
+                scene_code.unwrap_or(code),
             )?);
         }
         Ok(buffer)
@@ -1030,6 +1031,7 @@ impl OutputSwapchains {
 
         let mut outputs = Vec::with_capacity(plans.len());
         let mut allocated_bytes = 0u64;
+        let mut hdr_displays = Vec::new();
         for plan in plans {
             let scanout = scanouts
                 .iter()
@@ -1040,17 +1042,14 @@ impl OutputSwapchains {
                 .transfer
                 .as_ref()
                 .map_or(render_formats, |transfer| transfer.device.render_formats());
-            // A corrected or graded output renders off-screen; the copy to
-            // scanout converts it, and captures read the untouched scene.
-            let mut color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
+            // A corrected, graded or HDR output renders off-screen; the copy
+            // to scanout converts it, and captures read the untouched scene.
+            let display_color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
             let desktop_look = super::output_color::desktop_lut().is_some();
-            let scene_target = if offscreen_blit {
-                SceneTarget::Required
-            } else if color.is_some() || desktop_look {
-                SceneTarget::IfDirect
-            } else {
-                SceneTarget::None
-            };
+            let mut hdr = display_color
+                .hdr
+                .zip(super::output_color::hdr_request(&scanout.output.name))
+                .map(|(display, white)| super::output_color::HdrOutput { display, white });
             let formats = compatible_scanout_formats(
                 &SCANOUT_FOURCCS,
                 &[&scanout.surface.plane_info().formats],
@@ -1080,35 +1079,55 @@ impl OutputSwapchains {
             }
 
             // Take the first format whose whole pool allocates, imports and
-            // registers: a driver may advertise XR30 and still refuse it.
-            let mut buffers = None;
-            for (index, format) in formats.iter().enumerate() {
-                match allocate_scanout_pool(
-                    allocator,
-                    plan.target_size,
-                    output_pool_length(),
-                    format,
-                    scene_target,
-                    MAX_SCANOUT_POOL_BYTES - previous_bytes,
-                ) {
-                    Ok(pool) => {
-                        info!(
-                            output = %scanout.output.name,
-                            format = ?format.code,
-                            gamut_correction = color.is_some(),
-                            desktop_look,
-                            "allocated output pool"
-                        );
-                        buffers = Some(pool);
-                        break;
+            // registers: a driver may advertise XR30 and still refuse it. HDR
+            // scenes are half float; a display that cannot have one shows SDR.
+            let mut allocate_pool = |hdr: Option<super::output_color::HdrOutput>| {
+                let color = hdr.map_or(display_color.correction, |hdr| Some(hdr.output_color()));
+                let scene_target = if offscreen_blit {
+                    SceneTarget::Required
+                } else if color.is_some() || desktop_look {
+                    SceneTarget::IfDirect
+                } else {
+                    SceneTarget::None
+                };
+                let scene_code = hdr.map(|_| Fourcc::Abgr16161616f);
+                for (index, format) in formats.iter().enumerate() {
+                    match allocate_scanout_pool(
+                        allocator,
+                        plan.target_size,
+                        output_pool_length(),
+                        format,
+                        scene_target,
+                        scene_code,
+                        MAX_SCANOUT_POOL_BYTES - previous_bytes,
+                    ) {
+                        Ok(pool) => {
+                            info!(
+                                output = %scanout.output.name,
+                                format = ?format.code,
+                                gamut_correction = display_color.correction.is_some(),
+                                hdr = hdr.is_some(),
+                                desktop_look,
+                                "allocated output pool"
+                            );
+                            return Ok((pool, color, scene_target));
+                        }
+                        Err(error) if index + 1 < formats.len() => {
+                            warn!(output = %scanout.output.name, format = ?format.code, %error, "output pool format failed; trying the next");
+                        }
+                        Err(error) => return Err(error),
                     }
-                    Err(error) if index + 1 < formats.len() => {
-                        warn!(output = %scanout.output.name, format = ?format.code, %error, "output pool format failed; trying the next");
-                    }
-                    Err(error) => return Err(error),
                 }
-            }
-            let buffers = buffers.ok_or("no output pool format allocated")?;
+                Err::<_, Box<dyn Error>>("no output pool format allocated".into())
+            };
+            let (buffers, mut color, scene_target) = match allocate_pool(hdr) {
+                Err(error) if hdr.is_some() => {
+                    warn!(output = %scanout.output.name, %error, "could not allocate a half-float scene; showing SDR");
+                    hdr = None;
+                    allocate_pool(None)?
+                }
+                result => result?,
+            };
             if scene_target == SceneTarget::IfDirect
                 && !buffers.iter().all(|buffer| buffer.render_target.is_some())
             {
@@ -1117,6 +1136,23 @@ impl OutputSwapchains {
                     "the scene reaches this output through the GPU transfer; showing it without display color"
                 );
                 color = None;
+                hdr = None;
+            }
+            if let Err(error) =
+                apply_connector_hdr(&allocator.drm_fd, scanout.output.connector, hdr)
+            {
+                warn!(output = %scanout.output.name, %error, "the display did not take the HDR signal; showing SDR");
+                if hdr.take().is_some() {
+                    color = display_color.correction;
+                }
+            }
+            if let Some(capability) = display_color.hdr {
+                hdr_displays.push(super::output_color::HdrDisplay {
+                    id: scanout.output.id,
+                    name: scanout.output.name.clone(),
+                    display: capability,
+                    active: hdr.map(|hdr| hdr.white),
+                });
             }
             let actual_bytes = buffers.iter().try_fold(0u64, |bytes, buffer| {
                 bytes
@@ -1141,6 +1177,7 @@ impl OutputSwapchains {
                 color,
             });
         }
+        super::output_color::set_hdr_displays(hdr_displays);
         Ok(Self { outputs })
     }
 
@@ -1863,6 +1900,7 @@ impl AtlasSwapchain {
             length,
             format,
             scene_target,
+            None,
             MAX_SCANOUT_POOL_BYTES,
         )?;
         Ok(Self {
@@ -1892,6 +1930,7 @@ fn allocate_scanout_pool(
     length: usize,
     format: &AtlasFormat,
     scene_target: SceneTarget,
+    scene_code: Option<Fourcc>,
     _byte_budget: u64,
 ) -> Result<Vec<ScanoutBuffer>, Box<dyn Error>> {
     validate_scanout_pool_allocation(size, length)?;
@@ -1911,7 +1950,8 @@ fn allocate_scanout_pool(
         #[cfg(feature = "flutter")]
         let mut bytes = 0u64;
         for _ in 0..length {
-            let buffer = allocator.allocate(size, format.code, modifiers, scene_target)?;
+            let buffer =
+                allocator.allocate(size, format.code, modifiers, scene_target, scene_code)?;
             #[cfg(feature = "flutter")]
             {
                 bytes = bytes
@@ -2226,7 +2266,7 @@ impl RestoreState {
     }
 
     pub(super) fn capture(drm: &DrmDevice, scanouts: &[Scanout]) -> Result<Self, Box<dyn Error>> {
-        const CONNECTOR_PROPERTIES: &[&str] = &["CRTC_ID"];
+        const CONNECTOR_PROPERTIES: &[&str] = &["CRTC_ID", "Colorspace"];
         const CRTC_PROPERTIES: &[&str] = &["ACTIVE", "VRR_ENABLED"];
         const PLANE_PROPERTIES: &[&str] = &[
             "CRTC_ID",
@@ -2276,6 +2316,7 @@ impl RestoreState {
                 CONNECTOR_PROPERTIES,
                 &mut properties,
             )?;
+            capture_owned_hdr_metadata(drm, scanout.output.connector, &mut properties)?;
             capture_named_properties(drm, scanout.output.crtc, CRTC_PROPERTIES, &mut properties)?;
             capture_owned_mode_blob(drm, scanout.output.crtc, &mut properties)?;
             let mut plane_properties = Vec::new();
@@ -2473,6 +2514,142 @@ fn capture_owned_mode_blob(
     Ok(())
 }
 
+/// The predecessor's HDR metadata, copied into a blob this process owns so
+/// the restore does not depend on the predecessor keeping its own alive.
+fn capture_owned_hdr_metadata(
+    drm: &DrmDevice,
+    connector: connector::Handle,
+    destination: &mut Vec<SavedAtomicProperty>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(property) = optional_named_property(drm, connector, "HDR_OUTPUT_METADATA")? else {
+        return Ok(());
+    };
+    let blob = drm
+        .get_properties(connector)?
+        .into_iter()
+        .find_map(|(handle, value)| (handle == property).then_some(value))
+        .unwrap_or(0);
+    let value = if blob == 0 {
+        0
+    } else {
+        let metadata =
+            <[u8; HDR_OUTPUT_METADATA_BYTES]>::try_from(drm.get_property_blob(blob)?.as_slice())
+                .map_err(|_| "the predecessor's HDR metadata has an unknown size")?;
+        drm.create_property_blob(&metadata)?
+            .as_blob()
+            .ok_or("HDR metadata blob has the wrong type")?
+    };
+    destination.push(SavedAtomicProperty {
+        object: connector.into(),
+        property,
+        value,
+    });
+    Ok(())
+}
+
+/// `struct hdr_output_metadata` in the DRM UAPI.
+const HDR_OUTPUT_METADATA_BYTES: usize = 32;
+
+/// Static metadata type 1 for a display showing PQ: its own primaries and
+/// luminance, since Denial already fits the content to them.
+fn hdr_output_metadata(hdr: super::output_color::HdrOutput) -> [u8; HDR_OUTPUT_METADATA_BYTES] {
+    const SMPTE_ST2084: u8 = 2;
+    let display = hdr.display;
+    let mut bytes = [0; HDR_OUTPUT_METADATA_BYTES];
+    // metadata_type (u32) stays HDMI_STATIC_METADATA_TYPE1 = 0.
+    bytes[4] = SMPTE_ST2084;
+    let mut put = |at: usize, value: f64| {
+        let value = value.round().clamp(0.0, f64::from(u16::MAX)) as u16;
+        bytes[at..at + 2].copy_from_slice(&value.to_ne_bytes());
+    };
+    // Chromaticities in units of 0.00002: red, green, blue, then white.
+    for (index, (x, y)) in display.primaries.into_iter().enumerate() {
+        put(6 + index * 4, x * 50_000.0);
+        put(8 + index * 4, y * 50_000.0);
+    }
+    put(22, display.max_luminance);
+    put(24, display.min_luminance * 10_000.0);
+    put(26, display.max_luminance);
+    put(28, display.max_frame_average);
+    bytes
+}
+
+/// Puts the connector's signal in BT.2100 PQ for `hdr`, or back in SDR. A
+/// change of transfer function is a modeset on amdgpu, so it is committed on
+/// its own, before the pools reach the planes.
+fn apply_connector_hdr(
+    drm: &DrmDeviceFd,
+    connector: connector::Handle,
+    hdr: Option<super::output_color::HdrOutput>,
+) -> Result<(), Box<dyn Error>> {
+    let metadata_property = optional_named_property(drm, connector, "HDR_OUTPUT_METADATA")?;
+    let colorspace_property = optional_named_property(drm, connector, "Colorspace")?;
+    let (Some(metadata_property), Some(colorspace_property)) =
+        (metadata_property, colorspace_property)
+    else {
+        return match hdr {
+            Some(_) => Err("the connector has no HDR_OUTPUT_METADATA or Colorspace".into()),
+            None => Ok(()),
+        };
+    };
+    let colorspace_name = if hdr.is_some() {
+        "BT2020_RGB"
+    } else {
+        "Default"
+    };
+    let colorspace = match drm.get_property(colorspace_property)?.value_type() {
+        property::ValueType::Enum(values) => values
+            .values()
+            .1
+            .iter()
+            .find(|value| value.name().to_str() == Ok(colorspace_name))
+            .map(|value| value.value()),
+        _ => None,
+    }
+    .ok_or_else(|| format!("the connector has no {colorspace_name} colorspace"))?;
+    let metadata = hdr.map(hdr_output_metadata);
+    let (mut current_blob, mut current_colorspace) = (0, None);
+    for (handle, value) in drm.get_properties(connector)? {
+        if handle == metadata_property {
+            current_blob = value;
+        } else if handle == colorspace_property {
+            current_colorspace = Some(value);
+        }
+    }
+    let current_metadata = match current_blob {
+        0 => None,
+        blob => Some(drm.get_property_blob(blob)?),
+    };
+    if current_colorspace == Some(colorspace)
+        && current_metadata.as_deref() == metadata.as_ref().map(<[u8; 32]>::as_slice)
+    {
+        return Ok(());
+    }
+    let blob = match &metadata {
+        Some(metadata) => drm
+            .create_property_blob(metadata)?
+            .as_blob()
+            .ok_or("HDR metadata blob has the wrong type")?,
+        None => 0,
+    };
+    let mut request = AtomicModeReq::new();
+    request.add_raw_property(connector.into(), metadata_property, blob);
+    request.add_raw_property(connector.into(), colorspace_property, colorspace);
+    let committed = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request);
+    // The committed connector state holds its own reference to the blob.
+    if blob != 0 {
+        let _ = drm.destroy_property_blob(blob);
+    }
+    committed?;
+    info!(
+        ?connector,
+        signal = if hdr.is_some() { "BT.2100 PQ" } else { "SDR" },
+        white = hdr.map(|hdr| hdr.white),
+        "switched the display signal"
+    );
+    Ok(())
+}
+
 fn primary_framebuffer(
     drm: &DrmDevice,
     plane: plane::Handle,
@@ -2538,7 +2715,7 @@ where
 }
 
 fn optional_named_property<H>(
-    drm: &DrmDevice,
+    drm: &impl ControlDevice,
     object: H,
     expected_name: &str,
 ) -> Result<Option<property::Handle>, Box<dyn Error>>
