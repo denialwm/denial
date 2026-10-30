@@ -373,8 +373,15 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               ),
               // The subject stays put while the clock slides behind it.
-              if (!widget.desktop && widget.authenticationEnabled)
+              if (!widget.desktop && widget.authenticationEnabled) ...[
                 const _LockDepthForeground(),
+                CustomPaint(
+                  painter: _AmbientFalloffPainter(
+                    ambient: widget.ambient,
+                    clockScale: lockSettings.clockScale,
+                  ),
+                ),
+              ],
               // The status icons stay put like a status bar while the face
               // slides.
               if (lockSettings.showSystemStatus)

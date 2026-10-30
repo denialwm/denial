@@ -300,3 +300,55 @@ class _AmbientVeilPainter extends CustomPainter {
   bool shouldRepaint(covariant _AmbientVeilPainter oldDelegate) =>
       oldDelegate.ambient != ambient;
 }
+
+/// Darkness rising from the bottom over the wallpaper's subject in the
+/// always-on picture: lit beside the clock, it melts into the black below
+/// instead of ending at the screen's edge.
+class _AmbientFalloffPainter extends CustomPainter {
+  _AmbientFalloffPainter({required this.ambient, required this.clockScale})
+    : super(repaint: ambient);
+
+  final Animation<double> ambient;
+  final double clockScale;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = ambient.value;
+    if (alpha <= 0.0) {
+      return;
+    }
+    // The clock's lower edge, as _LockClockBlock lays it out.
+    final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
+    final clockHeight = math.min(250.0, size.height * 0.34);
+    final clockBottom = clockTop + clockHeight * (1.0 + clockScale) / 2;
+    final start = (clockBottom / size.height).clamp(0.0, 1.0);
+    final end = math.max(start, 0.85);
+    const black = Color(0xFF000000);
+    // Round-rect geometry, as in _LockFillPainter.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(0.01)),
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(0, size.height),
+          [
+            for (final shade in const [0.0, 0.0, 0.2, 0.55, 0.85, 1.0, 1.0])
+              black.withValues(alpha: shade * alpha),
+          ],
+          [
+            0.0,
+            start,
+            start + (end - start) * 0.25,
+            start + (end - start) * 0.5,
+            start + (end - start) * 0.75,
+            end,
+            1.0,
+          ],
+        ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _AmbientFalloffPainter oldDelegate) =>
+      oldDelegate.ambient != ambient || oldDelegate.clockScale != clockScale;
+}
