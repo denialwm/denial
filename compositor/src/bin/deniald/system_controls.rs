@@ -4,9 +4,7 @@
 //! DDC/CI traffic stays on dedicated workers because either native library can
 //! block while reconnecting or waiting for hardware.
 
-use std::collections::HashMap;
-#[cfg(feature = "flutter")]
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt;
@@ -268,7 +266,21 @@ enum BrightnessCommand {
         monitor_id: i64,
         delta: f64,
     },
+    Fade {
+        connector: String,
+        toward: BrightnessFade,
+    },
     Stop,
+}
+
+/// A backlight fade that runs beside a shell fade: the shell's level never
+/// changes, and the slider hears nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum BrightnessFade {
+    /// Down to a raw backlight code, keeping the level it left.
+    Dim { raw: u32, duration: Duration },
+    /// Back to the kept level.
+    Restore { duration: Duration },
 }
 
 #[cfg(feature = "flutter")]
@@ -645,6 +657,13 @@ impl SystemControls {
 
     pub(super) fn brightness_down(&self, connector: String, monitor_id: i64) {
         self.adjust_brightness(connector, monitor_id, -CONTROL_STEP);
+    }
+
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub(super) fn fade_brightness(&self, connector: String, toward: BrightnessFade) {
+        let _ = self
+            .brightness_commands
+            .try_send(BrightnessCommand::Fade { connector, toward });
     }
 
     fn adjust_brightness(&self, connector: String, monitor_id: i64, delta: f64) {

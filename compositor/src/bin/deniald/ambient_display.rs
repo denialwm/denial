@@ -5,14 +5,20 @@
 //! that says whether it does now:
 //!
 //! ```json
-//! { "output": "DSI-1", "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient" }
+//! {
+//!   "output": "DSI-1",
+//!   "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient",
+//!   "brightness": "/sys/module/panel_raydium_rm692h5/parameters/ambient_brightness"
+//! }
 //! ```
 //!
 //! While the switch reads `Y` or `1`, turning that output off goes through
 //! the lock screen first: the session locks, the shell fades everything but
 //! the always-on picture to black and says when it is on screen, and only
 //! then does the output turn off. Once the output is lit again the shell
-//! fades the rest back in.
+//! fades the rest back in. With `brightness`, the file holding the backlight
+//! code the panel shows the picture at, the backlight fades there beside the
+//! shell and back beside the wake.
 
 use std::collections::BTreeSet;
 use std::ffi::CStr;
@@ -28,6 +34,7 @@ use tracing::{info, warn};
 use super::RuntimeState;
 use super::flutter_runtime::FlutterRuntime;
 use super::kms_state::Scanout;
+use super::system_controls::BrightnessFade;
 
 pub(super) const CHANNEL: &CStr = c"denial/ambient_display";
 const PROFILE_PATH: &str = "/etc/denial/ambient-display.json";
@@ -35,7 +42,10 @@ const ENTER: u8 = 1;
 const LEAVE: u8 = 2;
 const READY: u8 = 1;
 
-/// The shell's fade is 420 ms; past this the output turns off anyway.
+/// The shell's fade, which the backlight's follows.
+const SHELL_FADE: Duration = Duration::from_millis(420);
+
+/// Past this the output turns off anyway.
 const FADE_LIMIT: Duration = Duration::from_millis(1200);
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +53,8 @@ const FADE_LIMIT: Duration = Duration::from_millis(1200);
 struct Profile {
     output: String,
     switch: PathBuf,
+    #[serde(default)]
+    brightness: Option<PathBuf>,
 }
 
 impl Profile {
@@ -61,6 +73,14 @@ impl Profile {
 
     fn armed(&self) -> bool {
         fs::read_to_string(&self.switch).is_ok_and(|value| matches!(value.trim(), "Y" | "y" | "1"))
+    }
+
+    fn brightness(&self) -> Option<u32> {
+        fs::read_to_string(self.brightness.as_ref()?)
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
     }
 }
 
@@ -127,7 +147,7 @@ pub(super) fn hold_power_off(
                 // Woken while fading: the output stays lit.
                 events.ambient_display.held = None;
                 events.ambient_display.entered.remove(&output);
-                send(runtime, LEAVE);
+                leave(runtime, events);
                 info!("always-on display cancelled by a wake");
             }
             _ if ready || now >= deadline => {
@@ -153,7 +173,7 @@ pub(super) fn hold_power_off(
         // Woken before the output went off: it stays lit.
         events.ambient_display.released = None;
         events.ambient_display.entered.remove(&output);
-        send(runtime, LEAVE);
+        leave(runtime, events);
         return;
     }
     let Some(output) = power_off_to_hold(scanouts, events) else {
@@ -176,6 +196,7 @@ pub(super) fn hold_power_off(
     events.ambient_display.held = Some((output, now + FADE_LIMIT));
     events.ambient_display.entered.insert(output);
     send(runtime, ENTER);
+    fade_backlight(events, true);
     info!("always-on display: waiting for the shell's picture");
 }
 
@@ -224,7 +245,37 @@ pub(super) fn synchronize_wake(
         }
     }
     if woke {
-        send(runtime, LEAVE);
+        leave(runtime, events);
+    }
+}
+
+/// Asks the shell for the rest of the lock screen, and the backlight back.
+fn leave(runtime: &mut FlutterRuntime, events: &mut RuntimeState) {
+    send(runtime, LEAVE);
+    fade_backlight(events, false);
+}
+
+/// Fades the always-on output's backlight to the picture's code, or back.
+fn fade_backlight(events: &mut RuntimeState, dim: bool) {
+    let Some(profile) = events.ambient_display.profile() else {
+        return;
+    };
+    let toward = if dim {
+        let Some(raw) = profile.brightness() else {
+            return;
+        };
+        BrightnessFade::Dim {
+            raw,
+            duration: SHELL_FADE,
+        }
+    } else {
+        BrightnessFade::Restore {
+            duration: SHELL_FADE,
+        }
+    };
+    let output = profile.output.clone();
+    if let Some(controls) = &events.system_controls {
+        controls.fade_brightness(output, toward);
     }
 }
 

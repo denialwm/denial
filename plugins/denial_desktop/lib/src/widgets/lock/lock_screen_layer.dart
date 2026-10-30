@@ -83,8 +83,8 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
   late final AnimationController _entrance;
 
   /// 1 while the panel keeps only the always-on picture lit: the wallpaper
-  /// fades to black under the face, and the face keeps the time, the date,
-  /// the wallpaper's subject and the fingerprint mark.
+  /// darkens under the face, and the face keeps the time, the date, the
+  /// wallpaper's subject and the fingerprint mark.
   late final AnimationController _ambient = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 420),
@@ -276,16 +276,19 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
   }
 }
 
-/// Pure black over the lock wallpaper while the panel goes to the always-on
-/// picture: the panel's dark pixels stay off.
+/// Black over the lock wallpaper while the panel goes to the always-on
+/// picture: the scene stays faintly behind the brighter subject.
 class _AmbientVeilPainter extends CustomPainter {
   _AmbientVeilPainter(this.ambient) : super(repaint: ambient);
 
   final Animation<double> ambient;
 
+  /// How much of the wallpaper's light the veil takes.
+  static const double _depth = 0.72;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final alpha = ambient.value;
+    final alpha = ambient.value * _depth;
     if (alpha <= 0.0) {
       return;
     }
@@ -301,8 +304,8 @@ class _AmbientVeilPainter extends CustomPainter {
       oldDelegate.ambient != ambient;
 }
 
-/// Darkness rising from the bottom over the wallpaper's subject in the
-/// always-on picture: lit beside the clock, it melts into the black below
+/// Darkness rising from the bottom over the always-on picture: the subject
+/// and the scene behind it, lit beside the clock, melt into the black below
 /// instead of ending at the screen's edge.
 class _AmbientFalloffPainter extends CustomPainter {
   _AmbientFalloffPainter({required this.ambient, required this.clockScale})

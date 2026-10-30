@@ -5,12 +5,22 @@ trait BrightnessProvider {
     fn controls(&mut self, connector: &str) -> bool;
     fn read(&mut self, connector: &str) -> Result<f64, String>;
     fn set(&mut self, connector: &str, level: f64) -> Result<(), String>;
+
+    /// The level a raw backlight code is, where the provider has codes.
+    fn level_for_raw(&mut self, _connector: &str, _raw: u32) -> Option<f64> {
+        None
+    }
 }
+
+/// Fade steps: about one per frame at 120 Hz.
+const FADE_STEP: Duration = Duration::from_millis(8);
 
 struct BrightnessProviders {
     providers: Vec<Box<dyn BrightnessProvider>>,
     desired: HashMap<String, f64>,
     failure_latched: HashMap<String, bool>,
+    /// The level a dim left, until the restore or the user's next change.
+    dimmed: HashMap<String, f64>,
 }
 
 impl BrightnessProviders {
@@ -37,6 +47,7 @@ impl BrightnessProviders {
             providers,
             desired: HashMap::new(),
             failure_latched: HashMap::new(),
+            dimmed: HashMap::new(),
         })
     }
 
@@ -109,6 +120,7 @@ impl BrightnessProviders {
             });
             return;
         };
+        self.dimmed.remove(connector);
         let target = match change {
             BrightnessChange::Set(level) => level.clamp(0.0, 1.0),
             BrightnessChange::Adjust(delta) => {
@@ -133,6 +145,75 @@ impl BrightnessProviders {
         }
         self.desired.insert(connector.to_owned(), target);
         self.failure_latched.insert(connector.to_owned(), false);
+    }
+
+    /// Runs a fade to its end, taking a newer fade of the same output on
+    /// the way and keeping other commands for later. False on Stop.
+    fn fade(
+        &mut self,
+        connector: &str,
+        mut toward: BrightnessFade,
+        commands: &Receiver<BrightnessCommand>,
+        deferred: &mut VecDeque<BrightnessCommand>,
+    ) -> bool {
+        let Some(index) = self
+            .providers
+            .iter_mut()
+            .position(|provider| provider.controls(connector))
+        else {
+            return true;
+        };
+        'fade: loop {
+            let provider = &mut self.providers[index];
+            let Ok(from) = provider.read(connector) else {
+                return true;
+            };
+            let (to, duration, ease): (f64, Duration, fn(f64) -> f64) = match toward {
+                BrightnessFade::Dim { raw, duration } => {
+                    let Some(to) = provider.level_for_raw(connector, raw) else {
+                        return true;
+                    };
+                    self.dimmed.entry(connector.to_owned()).or_insert(from);
+                    (to, duration, ease_in_out_cubic)
+                }
+                BrightnessFade::Restore { duration } => {
+                    let Some(to) = self.dimmed.remove(connector) else {
+                        return true;
+                    };
+                    (to, duration, ease_out_cubic)
+                }
+            };
+            let start = Instant::now();
+            loop {
+                let progress = if duration.is_zero() {
+                    1.0
+                } else {
+                    (start.elapsed().as_secs_f64() / duration.as_secs_f64()).min(1.0)
+                };
+                let level = perceptual_mix(from, to, ease(progress));
+                if let Err(error) = self.providers[index].set(connector, level) {
+                    self.log_failure_once(connector, &format!("brightness fade failed: {error}"));
+                    return true;
+                }
+                if progress >= 1.0 {
+                    return true;
+                }
+                match commands.recv_timeout(FADE_STEP) {
+                    Ok(BrightnessCommand::Fade {
+                        connector: next,
+                        toward: newer,
+                    }) if next == connector => {
+                        toward = newer;
+                        continue 'fade;
+                    }
+                    Ok(BrightnessCommand::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                        return false;
+                    }
+                    Ok(command) => deferred.push_back(command),
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
+            }
+        }
     }
 
     fn log_failure_once(&mut self, connector: &str, message: &str) {
@@ -209,6 +290,11 @@ impl BrightnessProvider for BacklightWorker {
         Ok(f64::from(current.min(display.maximum)) / f64::from(display.maximum))
     }
 
+    fn level_for_raw(&mut self, connector: &str, raw: u32) -> Option<f64> {
+        let maximum = self.display(connector)?.maximum;
+        Some(f64::from(raw.min(maximum)) / f64::from(maximum))
+    }
+
     fn set(&mut self, connector: &str, level: f64) -> Result<(), String> {
         let (name, maximum, path) = {
             let display = self
@@ -237,6 +323,27 @@ impl BrightnessProvider for BacklightWorker {
             .map_err(|error| format!("logind SetBrightness failed: {error}"))?;
         Ok(())
     }
+}
+
+/// Mixes two levels evenly to the eye: lightness goes about as the cube root
+/// of light.
+fn perceptual_mix(from: f64, to: f64, t: f64) -> f64 {
+    let (from, to) = (from.max(0.0).cbrt(), to.max(0.0).cbrt());
+    (from + (to - from) * t).powi(3).clamp(0.0, 1.0)
+}
+
+/// The shell's Curves.easeInOutCubic, which its always-on fade uses.
+fn ease_in_out_cubic(t: f64) -> f64 {
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (2.0 - 2.0 * t).powi(3) / 2.0
+    }
+}
+
+/// The shell's Curves.easeOutCubic, which its wake fade uses.
+fn ease_out_cubic(t: f64) -> f64 {
+    1.0 - (1.0 - t).powi(3)
 }
 
 fn write_backlight_value(path: &Path, value: u32) -> io::Result<()> {
@@ -847,7 +954,8 @@ fn brightness_command_parts(
             monitor_id,
             PendingBrightnessCommand::Adjust(delta),
         )),
-        BrightnessCommand::Stop => None,
+        // Callers take fades out first.
+        BrightnessCommand::Stop | BrightnessCommand::Fade { .. } => None,
     }
 }
 
@@ -880,6 +988,7 @@ fn merge_brightness_command(
 fn receive_brightness_batch(
     first: BrightnessCommand,
     commands: &Receiver<BrightnessCommand>,
+    deferred: &mut VecDeque<BrightnessCommand>,
 ) -> Option<HashMap<String, (i64, PendingBrightnessCommand)>> {
     let (connector, monitor_id, command) = brightness_command_parts(first)?;
     let mut pending = HashMap::new();
@@ -888,6 +997,11 @@ fn receive_brightness_batch(
     loop {
         let timeout = deadline.saturating_duration_since(Instant::now());
         match commands.recv_timeout(timeout) {
+            Ok(command @ BrightnessCommand::Fade { .. }) => {
+                // A fade starts now: the batch so far goes first.
+                deferred.push_back(command);
+                return Some(pending);
+            }
             Ok(command) => {
                 let (connector, monitor_id, command) = brightness_command_parts(command)?;
                 merge_brightness_command(&mut pending, connector, monitor_id, command);
@@ -910,8 +1024,18 @@ pub(super) fn run_brightness_worker(
             return;
         }
     };
-    while let Ok(first) = commands.recv() {
-        let Some(batch) = receive_brightness_batch(first, &commands) else {
+    let mut deferred = VecDeque::new();
+    loop {
+        let Some(first) = deferred.pop_front().or_else(|| commands.recv().ok()) else {
+            break;
+        };
+        if let BrightnessCommand::Fade { connector, toward } = first {
+            if !worker.fade(&connector, toward, &commands, &mut deferred) {
+                break;
+            }
+            continue;
+        }
+        let Some(batch) = receive_brightness_batch(first, &commands, &mut deferred) else {
             break;
         };
         for (connector, (monitor_id, command)) in batch {
