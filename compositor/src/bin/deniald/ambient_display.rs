@@ -8,7 +8,7 @@
 //! {
 //!   "output": "DSI-1",
 //!   "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient",
-//!   "brightness": "/sys/module/panel_raydium_rm692h5/parameters/ambient_brightness",
+//!   "brightness": 250,
 //!   "settle_ms": 1000
 //! }
 //! ```
@@ -17,8 +17,8 @@
 //! the lock screen first: the session locks, the shell fades everything but
 //! the always-on picture to black and says when it is on screen, and only
 //! then does the output turn off. Once the output is lit again the shell
-//! fades the rest back in. With `brightness`, the file holding the backlight
-//! code the panel shows the picture at, the backlight fades there beside the
+//! fades the rest back in. With `brightness`, the backlight code that looks
+//! like the panel's always-on picture, the backlight fades there beside the
 //! shell and back beside the wake. `settle_ms` keeps the finished picture
 //! still that long before the output turns off, for a panel that draws a
 //! wave when it switches while still refreshing at full rate.
@@ -57,7 +57,7 @@ struct Profile {
     output: String,
     switch: PathBuf,
     #[serde(default)]
-    brightness: Option<PathBuf>,
+    brightness: Option<u32>,
     #[serde(default)]
     settle_ms: u64,
 }
@@ -78,14 +78,6 @@ impl Profile {
 
     fn armed(&self) -> bool {
         fs::read_to_string(&self.switch).is_ok_and(|value| matches!(value.trim(), "Y" | "y" | "1"))
-    }
-
-    fn brightness(&self) -> Option<u32> {
-        fs::read_to_string(self.brightness.as_ref()?)
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
     }
 }
 
@@ -281,7 +273,7 @@ fn fade_backlight(events: &mut RuntimeState, dim: bool) {
         return;
     };
     let toward = if dim {
-        let Some(raw) = profile.brightness() else {
+        let Some(raw) = profile.brightness else {
             return;
         };
         BrightnessFade::Dim {
