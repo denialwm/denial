@@ -1585,7 +1585,8 @@ impl OutputScheduler {
             && !directly_submitted.is_empty()
         {
             for output in directly_submitted {
-                frontend.output_power_applied(output, true);
+                let announce = !events.ambient_display.refreshing(output);
+                frontend.output_power_applied(output, true, announce);
             }
         }
         Ok(())

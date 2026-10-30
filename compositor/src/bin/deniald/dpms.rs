@@ -362,7 +362,10 @@ pub(super) fn apply_output_power_requests(
                 scheduler.cancel_power_off(output, scanouts);
             }
             if !powered || !scheduler.power_on_pending(output) {
-                events.frontend_mut().output_power_applied(output, powered);
+                let announce = !events.ambient_display.refreshing(output);
+                events
+                    .frontend_mut()
+                    .output_power_applied(output, powered, announce);
             }
             continue;
         }
@@ -462,7 +465,10 @@ pub(super) fn apply_output_power_requests(
                     output = scanouts[scanout_index].output.name,
                     "powered off KMS output through DRM DPMS"
                 );
-                events.frontend_mut().output_power_applied(output, false);
+                let announce = !events.ambient_display.refreshing(output);
+                events
+                    .frontend_mut()
+                    .output_power_applied(output, false, announce);
             }
         }
     }

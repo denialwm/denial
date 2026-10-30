@@ -122,7 +122,9 @@ impl WaylandFrontend {
             .collect()
     }
 
-    pub(crate) fn output_power_applied(&mut self, output: OutputId, powered: bool) {
+    /// `announce` is false while the always-on display lights the output for
+    /// one clock frame: to clients the screen stays off.
+    pub(crate) fn output_power_applied(&mut self, output: OutputId, powered: bool, announce: bool) {
         let Some(entry) = self.outputs.iter_mut().find(|entry| entry.id == output) else {
             return;
         };
@@ -138,7 +140,7 @@ impl WaylandFrontend {
         if changed {
             self.refresh_image_copy_constraints();
         }
-        if let Some(resource) = self.output_power.controllers.get(&output) {
+        if announce && let Some(resource) = self.output_power.controllers.get(&output) {
             resource.mode(if powered {
                 zwlr_output_power_v1::Mode::On
             } else {
