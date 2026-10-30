@@ -153,8 +153,9 @@ A separately checksum-verified Alpine minirootfs archive may survive below
 storage and installs its declared APK build dependencies afresh.
 
 The installer also adds a root-owned Nix configuration fragment containing
-only Denial's public Cachix URL and signing key, and
-`/var/cache/denial-nix-ccache` as a sandbox path. Nix builds share that
+only Denial's public Cachix URL and signing key,
+`/var/cache/denial-nix-ccache` as a sandbox path, and `log-lines = 200`, so a
+failed build shows enough of its log without streaming every build log. Nix builds share that
 directory (group `nixbld`, 40 GB): the engine derivation compiles through
 ccache when it is present, so a Flutter or Skia commit recompiles only what it
 changed instead of the whole engine. The unprivileged runner cannot reach it;

@@ -237,7 +237,6 @@ jobs:
               --max-jobs 3 \
               --cores 16 \
               --out-link "$nix_roots/result" \
-              --log-lines 200 \
               --print-out-paths \
               2> >(tee "$EVIDENCE_ROOT/nix-build.txt" >&2)
           )

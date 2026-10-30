@@ -98,7 +98,8 @@ trap cleanup_nix_cache_candidate EXIT
     'extra-experimental-features = nix-command flakes' \
     "extra-substituters = ${cache_uri}" \
     "extra-trusted-public-keys = ${cache_public_key}" \
-    "extra-sandbox-paths = ${NIX_CCACHE_DIR}"
+    "extra-sandbox-paths = ${NIX_CCACHE_DIR}" \
+    'log-lines = 200'
 } >"$nix_cache_candidate"
 chmod 0644 "$nix_cache_candidate"
 chown root:root "$nix_cache_candidate"
