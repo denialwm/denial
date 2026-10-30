@@ -44,7 +44,8 @@ The installed boundary is:
 - no supplementary groups and no noninteractive sudo access;
 - root-owned runner parents and a fresh, user-writable `current` instance;
 - a root-owned Nix daemon configured with only Denial's public Cachix URL and
-  signing key; the runner remains an untrusted Nix user;
+  signing key, and the shared engine compiler cache as a sandbox path; the
+  runner remains an untrusted Nix user;
 - GitHub Actions runner `2.336.0`, downloaded from the official release and
   verified against SHA-256
   `04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d`;
@@ -152,7 +153,12 @@ A separately checksum-verified Alpine minirootfs archive may survive below
 storage and installs its declared APK build dependencies afresh.
 
 The installer also adds a root-owned Nix configuration fragment containing
-only Denial's public Cachix URL and signing key. The unprivileged runner can
+only Denial's public Cachix URL and signing key, and
+`/var/cache/denial-nix-ccache` as a sandbox path. Nix builds share that
+directory (group `nixbld`, 40 GB): the engine derivation compiles through
+ccache when it is present, so a Flutter or Skia commit recompiles only what it
+changed instead of the whole engine. The unprivileged runner cannot reach it;
+only the Nix build users can. The unprivileged runner can
 ask the Nix daemon to realize immutable store paths, but it cannot change the
 daemon configuration or install a post-build hook. CI uploads only the
 explicit Denial outputs recorded by the Nix build. The Cachix CLI itself is

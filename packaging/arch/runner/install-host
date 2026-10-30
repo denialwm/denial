@@ -10,6 +10,10 @@ readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
 readonly NIX_CONFIG_FILE='/etc/nix/nix.conf'
 readonly NIX_CACHE_CONFIG_FILE='/etc/nix/denial-cache.conf'
 readonly NIX_CACHE_INCLUDE='include /etc/nix/denial-cache.conf'
+# Shared by Nix builds through their sandbox; the engine derivation compiles
+# through it when present (nix/flutter-engine-source.nix).
+readonly NIX_CCACHE_DIR='/var/cache/denial-nix-ccache'
+readonly NIX_CCACHE_MAX_SIZE='40G'
 
 fail() {
   printf 'install-host: %s\n' "$*" >&2
@@ -72,6 +76,14 @@ cache_public_key="$(jq -er '.public_key' "${source_dir}/cachix-cache.json")"
 [[ -f "$NIX_CONFIG_FILE" && ! -L "$NIX_CONFIG_FILE" ]] \
   || fail "Nix configuration must be a regular file: $NIX_CONFIG_FILE"
 
+install -d -m 2770 -o root -g nixbld "$NIX_CCACHE_DIR"
+ccache_config="max_size = ${NIX_CCACHE_MAX_SIZE}"
+if [[ "$(cat -- "${NIX_CCACHE_DIR}/ccache.conf" 2>/dev/null)" != "$ccache_config" ]]; then
+  printf '%s\n' "$ccache_config" >"${NIX_CCACHE_DIR}/ccache.conf"
+fi
+chown root:nixbld "${NIX_CCACHE_DIR}/ccache.conf"
+chmod 0640 "${NIX_CCACHE_DIR}/ccache.conf"
+
 nix_cache_config_changed=0
 nix_cache_candidate="$(mktemp /etc/nix/denial-cache.conf.XXXXXX)"
 cleanup_nix_cache_candidate() {
@@ -85,7 +97,8 @@ trap cleanup_nix_cache_candidate EXIT
     '# Managed by the Denial owner-operated runner installer.' \
     'extra-experimental-features = nix-command flakes' \
     "extra-substituters = ${cache_uri}" \
-    "extra-trusted-public-keys = ${cache_public_key}"
+    "extra-trusted-public-keys = ${cache_public_key}" \
+    "extra-sandbox-paths = ${NIX_CCACHE_DIR}"
 } >"$nix_cache_candidate"
 chmod 0644 "$nix_cache_candidate"
 chown root:root "$nix_cache_candidate"
@@ -117,6 +130,11 @@ configured_public_keys="$(
   || fail "Nix did not load the ${cache_name} Cachix substituter"
 [[ " $configured_public_keys " == *" ${cache_public_key} "* ]] \
   || fail "Nix did not load the ${cache_name} Cachix public key"
+configured_sandbox_paths="$(
+  nix --extra-experimental-features nix-command config show sandbox-paths
+)"
+[[ " $configured_sandbox_paths " == *" ${NIX_CCACHE_DIR} "* ]] \
+  || fail "Nix did not load the ${NIX_CCACHE_DIR} sandbox path"
 
 if getent passwd "$RUNNER_USER" >/dev/null; then
   actual_home="$(getent passwd "$RUNNER_USER" | awk -F: '{print $6}')"
