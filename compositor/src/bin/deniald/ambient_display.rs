@@ -8,7 +8,7 @@
 //! {
 //!   "output": "DSI-1",
 //!   "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient",
-//!   "brightness": 250,
+//!   "brightness": 288,
 //!   "settle_ms": 1000
 //! }
 //! ```
@@ -22,13 +22,15 @@
 //! shell and back beside the wake. `settle_ms` keeps the finished picture
 //! still that long before the output turns off, for a panel that draws a
 //! wave when it switches while still refreshing at full rate.
+//!
+//! An edited profile applies from the next blank.
 
 use std::collections::BTreeSet;
 use std::ffi::CStr;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use denial_core::topology::OutputId;
 use serde::Deserialize;
@@ -87,8 +89,9 @@ pub(super) fn decode_ready(packet: &[u8]) -> bool {
 
 #[derive(Debug, Default)]
 pub(super) struct AmbientDisplay {
-    /// Loaded on first use; None inside when there is no usable profile.
-    profile: Option<Option<Profile>>,
+    /// Loaded on use and again whenever the file changes, keyed by its
+    /// modification time; None inside when there is no usable profile.
+    profile: Option<(Option<SystemTime>, Option<Profile>)>,
     /// A power-off held while the shell fades, with its deadline.
     held: Option<(OutputId, Instant)>,
     /// The held power-off waits on a still picture, not on the shell.
@@ -103,24 +106,28 @@ pub(super) struct AmbientDisplay {
 
 impl AmbientDisplay {
     fn profile(&mut self) -> Option<&Profile> {
-        self.profile
-            .get_or_insert_with(|| {
-                let path = Path::new(PROFILE_PATH);
-                if !path.exists() {
-                    return None;
-                }
-                match Profile::load(path) {
-                    Ok(profile) => {
-                        info!(output = %profile.output, "always-on display profile loaded");
-                        Some(profile)
-                    }
-                    Err(error) => {
-                        warn!(%error, "always-on display profile rejected");
-                        None
-                    }
-                }
-            })
+        let path = Path::new(PROFILE_PATH);
+        let modified = fs::symlink_metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        if self
+            .profile
             .as_ref()
+            .is_none_or(|(key, _)| *key != modified)
+        {
+            let profile = modified.and_then(|_| match Profile::load(path) {
+                Ok(profile) => {
+                    info!(output = %profile.output, "always-on display profile loaded");
+                    Some(profile)
+                }
+                Err(error) => {
+                    warn!(%error, "always-on display profile rejected");
+                    None
+                }
+            });
+            self.profile = Some((modified, profile));
+        }
+        self.profile.as_ref()?.1.as_ref()
     }
 
     pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
