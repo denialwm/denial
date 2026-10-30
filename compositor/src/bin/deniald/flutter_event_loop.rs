@@ -410,6 +410,7 @@ impl Session<'_, '_> {
         timeout = background.limit_dispatch_timeout(now, timeout);
         timeout = events.idle_policy.limit_dispatch_timeout(now, timeout);
         timeout = events.dpms_topology.limit_dispatch_timeout(now, timeout);
+        timeout = events.ambient_display.limit_dispatch_timeout(now, timeout);
         if let Some(expiry) = events
             .control
             .system_waits

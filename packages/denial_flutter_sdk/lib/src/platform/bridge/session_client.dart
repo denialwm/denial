@@ -19,6 +19,10 @@ final class BridgeSessionClient {
   static const String _idlePolicyChannel = 'denial/idle_policy';
   static const String _displayPowerChannel = 'denial/display_power';
   static const String _systemCommandChannel = 'denial/system_command';
+  static const String ambientDisplayChannel = 'denial/ambient_display';
+  static const int _ambientEnter = 1;
+  static const int _ambientLeave = 2;
+  static const int _ambientReady = 1;
   static final Uint8List _hapticPrewarmPayload = Uint8List.fromList(const <int>[
     0,
   ]);
@@ -41,6 +45,8 @@ final class BridgeSessionClient {
   static const int _maxSystemCommandArgumentBytes = 4096;
   final StreamController<DenialUiDevelopmentState> _uiDevelopmentStates =
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
+  final StreamController<bool> _ambientDisplay =
+      StreamController<bool>.broadcast(sync: true);
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
 
@@ -101,6 +107,37 @@ final class BridgeSessionClient {
     final data = ByteData(1)..setUint8(0, command);
     _context.platform
         .send(_displayPowerChannel, data)
+        ?.catchError((Object _) => null);
+  }
+
+  /// True when the panel is about to keep only the always-on picture lit,
+  /// false when it lights up again.
+  Stream<bool> get ambientDisplay => _ambientDisplay.stream;
+
+  /// The last of [ambientDisplay], for a lock screen that starts after it.
+  bool get ambientDisplayActive => _ambientDisplayActive;
+  bool _ambientDisplayActive = false;
+
+  Future<ByteData?> handleAmbientDisplay(ByteData? data) async {
+    if (data == null || data.lengthInBytes != 1 || _ambientDisplay.isClosed) {
+      return null;
+    }
+    switch (data.getUint8(0)) {
+      case _ambientEnter:
+        _ambientDisplayActive = true;
+        _ambientDisplay.add(true);
+      case _ambientLeave:
+        _ambientDisplayActive = false;
+        _ambientDisplay.add(false);
+    }
+    return null;
+  }
+
+  /// The always-on picture is on screen: deniald may turn the output off.
+  void ambientDisplayReady() {
+    final data = ByteData(1)..setUint8(0, _ambientReady);
+    _context.platform
+        .send(ambientDisplayChannel, data)
         ?.catchError((Object _) => null);
   }
 
@@ -392,5 +429,6 @@ final class BridgeSessionClient {
 
   void dispose() {
     unawaited(_uiDevelopmentStates.close());
+    unawaited(_ambientDisplay.close());
   }
 }

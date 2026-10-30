@@ -309,6 +309,7 @@ impl FlutterRuntime {
             input_deck_snapshot: None,
             pending_idle_policy: None,
             pending_display_power: None,
+            pending_ambient_display_ready: false,
             pending_vm_service_uri: None,
             generation,
             scheduled_tasks: BinaryHeap::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),

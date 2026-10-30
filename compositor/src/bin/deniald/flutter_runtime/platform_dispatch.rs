@@ -225,6 +225,12 @@ impl FlutterRuntime {
                 Ok(request) => self.pending_display_power = Some(request),
                 Err(error) => warn!(%error, "rejected Denial display-power request from Flutter"),
             }
+        } else if message.channel.as_bytes() == ambient_display::CHANNEL.to_bytes() {
+            if ambient_display::decode_ready(&message.data) {
+                self.pending_ambient_display_ready = true;
+            } else {
+                warn!("rejected malformed always-on display message from Flutter");
+            }
         } else if message.channel.as_bytes() == WINDOW_CLOSE_COMPLETE_CHANNEL.to_bytes() {
             match decode_window_close_complete(&message.data) {
                 Some(window_id) => {

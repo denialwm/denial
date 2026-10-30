@@ -186,6 +186,17 @@ impl FlutterRuntime {
         self.pending_display_power.take()
     }
 
+    pub fn take_ambient_display_ready(&mut self) -> bool {
+        std::mem::take(&mut self.pending_ambient_display_ready)
+    }
+
+    pub fn send_ambient_display(&mut self, command: u8) -> Result<(), Box<dyn Error>> {
+        self.host()
+            .engine()
+            .send_platform_message(ambient_display::CHANNEL, &[command])?;
+        Ok(())
+    }
+
     pub fn take_mouse_cursor_request(&mut self) -> Option<&'static str> {
         self.mouse_cursor.take_request()
     }

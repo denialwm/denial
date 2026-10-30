@@ -47,6 +47,7 @@ use smithay::reexports::calloop::channel::Sender;
 use smithay::utils::{Logical, Size};
 use tracing::{debug, error, info, warn};
 
+use super::ambient_display;
 use super::egl_context;
 use super::frame_scheduler::{OutputFrameRequest, PendingFrame};
 use super::idle_policy;
@@ -544,6 +545,7 @@ pub struct FlutterRuntime {
     pub(super) input_deck_snapshot: Option<super::input_deck::Snapshot>,
     pending_idle_policy: Option<idle_policy::IdlePolicyConfiguration>,
     pending_display_power: Option<idle_policy::DisplayPowerRequest>,
+    pending_ambient_display_ready: bool,
     pending_vm_service_uri: Option<String>,
     generation: u64,
     scheduled_tasks: BinaryHeap<QueuedPlatformTask>,

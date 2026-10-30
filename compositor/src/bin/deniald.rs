@@ -12,6 +12,9 @@ mod bus;
 mod client_release;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
+#[cfg(feature = "flutter")]
+#[path = "deniald/ambient_display.rs"]
+mod ambient_display;
 #[path = "deniald/color_grade.rs"]
 mod color_grade;
 #[path = "deniald/color_space.rs"]

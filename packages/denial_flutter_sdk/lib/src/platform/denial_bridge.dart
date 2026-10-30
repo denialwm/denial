@@ -78,6 +78,7 @@ class DenialBridge {
       'denial/brightness_state': _brightness.handleBrightnessState,
       'denial/software_dimming_state': _brightness.handleSoftwareDimmingState,
       denialUiDevelopmentStateChannel: _session.handleDevelopmentState,
+      BridgeSessionClient.ambientDisplayChannel: _session.handleAmbientDisplay,
     });
   }
   final bool useControlSocket;
@@ -505,6 +506,16 @@ class DenialBridge {
   /// Lights the dark outputs as an input would; the idle timeout starts
   /// again.
   void requestDisplayOn() => _session.requestDisplayOn();
+
+  /// True when the panel is about to keep only the always-on picture lit:
+  /// the lock screen fades everything else to black, then calls
+  /// [ambientDisplayReady]. False when the panel lights up again.
+  Stream<bool> get ambientDisplay => _session.ambientDisplay;
+
+  /// The last of [ambientDisplay].
+  bool get ambientDisplayActive => _session.ambientDisplayActive;
+
+  void ambientDisplayReady() => _session.ambientDisplayReady();
 
   int queryUiDevelopmentState() => _session.queryUiDevelopmentState();
 

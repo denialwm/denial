@@ -360,6 +360,9 @@ impl Session<'_, '_> {
         synchronize_power_button(scanouts, events);
         synchronize_fingerprint_display_wake(scanouts, scheduler, events);
         synchronize_sleep_transition(scanouts, events);
+        if !scanout_rebased {
+            ambient_display::hold_power_off(flutter, scanouts, events, now);
+        }
         if !scanout_rebased && !events.output_power_requests.is_empty() {
             let power_changed =
                 apply_output_power_requests(flutter, scheduler, swapchain, scanouts, events)?;
@@ -367,6 +370,7 @@ impl Session<'_, '_> {
                 frame_scheduler.reconfigure(scanouts, Instant::now());
             }
         }
+        ambient_display::synchronize_wake(flutter, scanouts, events);
         release_sleep_delay_if_ready(scanouts, events);
         events
             .wifi_power_save

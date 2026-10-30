@@ -1,7 +1,7 @@
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 import 'package:denial_desktop/src/state/reference_shell_profile.dart';
 
-import 'dart:async' show Timer;
+import 'dart:async' show StreamSubscription, Timer;
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show File;
 import 'dart:math' as math;
@@ -79,8 +79,17 @@ class LockScreenLayer extends ConsumerStatefulWidget {
 }
 
 class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _entrance;
+
+  /// 1 while the panel keeps only the always-on picture lit: the wallpaper
+  /// fades to black under the face, and the face keeps the time, the date,
+  /// the wallpaper's subject and the fingerprint mark.
+  late final AnimationController _ambient = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  StreamSubscription<bool>? _ambientChanges;
 
   /// The lock backdrop frosted once: the PIN keys draw their glass from it,
   /// so the glass fades in with the keys instead of appearing at the end.
@@ -98,6 +107,31 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
     if (widget.animateDesktopEntrance) {
       _entrance.forward();
     }
+    final bridge = ref.read(denialBridgeProvider);
+    _ambientChanges = bridge.ambientDisplay.listen(_ambientChanged);
+    // deniald locks before it asks: the request can come before this layer.
+    if (bridge.ambientDisplayActive) {
+      _ambientChanged(true);
+    }
+  }
+
+  /// deniald turns the output off once the picture is on screen, and lights
+  /// it again before it asks for the rest back.
+  void _ambientChanged(bool active) {
+    if (!active) {
+      _ambient.animateBack(0.0, curve: Curves.easeOutCubic);
+      return;
+    }
+    _ambient.animateTo(1.0, curve: Curves.easeInOutCubic).then((_) async {
+      // The last fade frame is drawn at the end of this one and handed to
+      // the display by the next.
+      await SchedulerBinding.instance.endOfFrame;
+      await SchedulerBinding.instance.endOfFrame;
+      final bridge = ref.read(denialBridgeProvider);
+      if (mounted && _ambient.value == 1.0 && bridge.ambientDisplayActive) {
+        bridge.ambientDisplayReady();
+      }
+    });
   }
 
   @override
@@ -122,6 +156,8 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
 
   @override
   void dispose() {
+    _ambientChanges?.cancel();
+    _ambient.dispose();
     _entrance.dispose();
     _glass.dispose();
     super.dispose();
@@ -171,10 +207,13 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
                 fit: StackFit.expand,
                 children: [
                   _LockBackdrop(onPainted: desktop ? null : _glass.painted),
+                  if (!desktop)
+                    CustomPaint(painter: _AmbientVeilPainter(_ambient)),
                   _LockScreenPane(
                     unlockProgress: widget.unlockProgress,
                     authenticationEnabled: true,
                     desktop: desktop,
+                    ambient: desktop ? kAlwaysDismissedAnimation : _ambient,
                   ),
                 ],
               ),
@@ -235,4 +274,29 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
       ),
     );
   }
+}
+
+/// Pure black over the lock wallpaper while the panel goes to the always-on
+/// picture: the panel's dark pixels stay off.
+class _AmbientVeilPainter extends CustomPainter {
+  _AmbientVeilPainter(this.ambient) : super(repaint: ambient);
+
+  final Animation<double> ambient;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = ambient.value;
+    if (alpha <= 0.0) {
+      return;
+    }
+    // Round-rect geometry, as in _LockFillPainter.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(0.01)),
+      Paint()..color = const Color(0xFF000000).withValues(alpha: alpha),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _AmbientVeilPainter oldDelegate) =>
+      oldDelegate.ambient != ambient;
 }

@@ -174,6 +174,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) dpms_topology: dpms::DpmsTopologyGuard,
     #[cfg(feature = "flutter")]
+    pub(super) ambient_display: ambient_display::AmbientDisplay,
+    #[cfg(feature = "flutter")]
     pub(super) sleep_transition: sleep_transition::SleepTransitionState,
     #[cfg(feature = "flutter")]
     pub(super) idle_policy: idle_policy::IdlePolicy,

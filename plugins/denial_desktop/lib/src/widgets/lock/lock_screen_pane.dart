@@ -30,17 +30,42 @@ class _DesktopLockEntrance extends StatelessWidget {
 
 enum _LockCredential { pin, password, sim }
 
+/// A part of the lock face the always-on picture leaves out: it fades out as
+/// the panel goes to the always-on picture and back in as it lights up.
+class _AmbientHidden extends StatelessWidget {
+  const _AmbientHidden({required this.opacity, required this.child});
+
+  final Animation<double> opacity;
+
+  /// May be positioned: it sits in a full-size stack of its own.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeSnapshot(
+      opacity: opacity,
+      child: Stack(fit: StackFit.expand, children: [child]),
+    );
+  }
+}
+
 class _LockScreenPane extends ConsumerStatefulWidget {
   const _LockScreenPane({
     super.key,
     required this.unlockProgress,
     required this.authenticationEnabled,
     required this.desktop,
+    this.ambient = kAlwaysDismissedAnimation,
   });
 
   final Animation<double> unlockProgress;
   final bool authenticationEnabled;
   final bool desktop;
+
+  /// 1 while the panel shows the always-on picture: the time, the date, the
+  /// wallpaper's subject and the fingerprint mark. Everything else fades
+  /// with it.
+  final Animation<double> ambient;
 
   @override
   ConsumerState<_LockScreenPane> createState() => _LockScreenPaneState();
@@ -98,10 +123,32 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   /// face. Null until this pane has said it, and again after a new lock.
   bool? _fingerprintOffered;
 
+  /// The opacity of everything the always-on picture leaves out.
+  late Animation<double> _ambientHidden = ReverseAnimation(widget.ambient);
+
   @override
   void initState() {
     super.initState();
     _motion = createTicker(_syncMotion);
+    widget.ambient.addStatusListener(_ambientStatusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LockScreenPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ambient != widget.ambient) {
+      oldWidget.ambient.removeStatusListener(_ambientStatusChanged);
+      widget.ambient.addStatusListener(_ambientStatusChanged);
+      _ambientHidden = ReverseAnimation(widget.ambient);
+    }
+  }
+
+  /// The always-on picture shows the face at home: an open PIN pad or
+  /// password panel closes as it starts.
+  void _ambientStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.forward && _authenticationVisible) {
+      _cancelAuthentication();
+    }
   }
 
   @override
@@ -109,6 +156,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     _responseController.clear();
     _responseController.dispose();
     _responseFocus.dispose();
+    widget.ambient.removeStatusListener(_ambientStatusChanged);
     _motion.dispose();
     _face.dispose();
     _credentialReveal.dispose();
@@ -330,18 +378,24 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
               // The status icons stay put like a status bar while the face
               // slides.
               if (lockSettings.showSystemStatus)
-                _LockStatusIcons(
-                  power: power,
-                  cpu: cpu,
-                  gpus: gpus,
-                  desktop: widget.desktop,
+                _AmbientHidden(
+                  opacity: _ambientHidden,
+                  child: _LockStatusIcons(
+                    power: power,
+                    cpu: cpu,
+                    gpus: gpus,
+                    desktop: widget.desktop,
+                  ),
                 ),
               // The sensor mark and the swipe pill stay put and fade as the
               // face moves away.
               if (!widget.desktop && widget.authenticationEnabled) ...[
-                _LockSwipePill(
-                  face: _face,
-                  fadeDistance: _dragDistance(size.height) * _unlockThreshold,
+                _AmbientHidden(
+                  opacity: _ambientHidden,
+                  child: _LockSwipePill(
+                    face: _face,
+                    fadeDistance: _dragDistance(size.height) * _unlockThreshold,
+                  ),
                 ),
                 _LockFingerprintRing(
                   present: authentication.fingerprintReader,
@@ -358,21 +412,39 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (!widget.desktop)
+                    if (!widget.desktop) ...[
                       _LockClockBlock(
                         clock: clock,
                         desktop: false,
                         scale: lockSettings.clockScale,
                         showSystemStatus: lockSettings.showSystemStatus,
-                        parts: const {HomeClockPart.date, HomeClockPart.status},
+                        parts: const {HomeClockPart.date},
                       ),
-                    if (!widget.desktop && widget.authenticationEnabled) ...[
-                      _LockNotifications(
-                        scale: lockSettings.clockScale,
-                        onOpen: _openAfterUnlock,
+                      _AmbientHidden(
+                        opacity: _ambientHidden,
+                        child: _LockClockBlock(
+                          clock: clock,
+                          desktop: false,
+                          scale: lockSettings.clockScale,
+                          showSystemStatus: lockSettings.showSystemStatus,
+                          parts: const {HomeClockPart.status},
+                        ),
                       ),
-                      const _LockGlyph(),
                     ],
+                    if (!widget.desktop && widget.authenticationEnabled)
+                      _AmbientHidden(
+                        opacity: _ambientHidden,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _LockNotifications(
+                              scale: lockSettings.clockScale,
+                              onOpen: _openAfterUnlock,
+                            ),
+                            const _LockGlyph(),
+                          ],
+                        ),
+                      ),
                     if (widget.desktop &&
                         widget.authenticationEnabled &&
                         !simPending &&
