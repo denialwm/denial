@@ -88,7 +88,10 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
   late final AnimationController _ambient = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 420),
-  );
+  )..addStatusListener(_ambientStatusChanged);
+
+  /// Whether any of the always-on look shows, for the parts drawn only then.
+  bool _ambientShown = false;
   StreamSubscription<bool>? _ambientChanges;
 
   /// The lock backdrop frosted once: the PIN keys draw their glass from it,
@@ -111,7 +114,16 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
     _ambientChanges = bridge.ambientDisplay.listen(_ambientChanged);
     // deniald locks before it asks: the request can come before this layer.
     if (bridge.ambientDisplayActive) {
+      // Shown before the controller says so: no setState in initState.
+      _ambientShown = true;
       _ambientChanged(true);
+    }
+  }
+
+  void _ambientStatusChanged(AnimationStatus status) {
+    final shown = status != AnimationStatus.dismissed;
+    if (shown != _ambientShown) {
+      setState(() => _ambientShown = shown);
     }
   }
 
@@ -209,6 +221,11 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
                   _LockBackdrop(onPainted: desktop ? null : _glass.painted),
                   if (!desktop)
                     CustomPaint(painter: _AmbientVeilPainter(_ambient)),
+                  // The scene comes back through the veil near the subject's
+                  // outline, so the cut meets light rather than black. It is
+                  // the wallpaper over itself while the veil is clear.
+                  if (!desktop && _ambientShown)
+                    const _LockDepthForeground(spread: _ambientHaloSpread),
                   _LockScreenPane(
                     unlockProgress: widget.unlockProgress,
                     authenticationEnabled: true,
@@ -275,6 +292,9 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
     );
   }
 }
+
+/// How far the scene stays lit around the subject in the always-on picture.
+const double _ambientHaloSpread = 56.0;
 
 /// Black over the lock wallpaper while the panel goes to the always-on
 /// picture: the scene stays faintly behind the brighter subject.

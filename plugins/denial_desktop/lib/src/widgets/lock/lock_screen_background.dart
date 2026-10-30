@@ -637,7 +637,11 @@ class _LockFingerprintRingPainter extends CustomPainter {
 /// again, kept where the mask is, with the mask blurred like the backdrop:
 /// away from the clock it matches the backdrop under it exactly.
 class _LockDepthForeground extends ConsumerStatefulWidget {
-  const _LockDepthForeground();
+  const _LockDepthForeground({this.spread = 0.0});
+
+  /// Blur beyond the backdrop's, in logical pixels: a spread mask lights
+  /// the scene around the subject instead of cutting the subject out.
+  final double spread;
 
   @override
   ConsumerState<_LockDepthForeground> createState() =>
@@ -767,7 +771,7 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
         final cover =
             math.max(size.width / source.width, size.height / source.height) *
             assignment.zoom;
-        final sigma = settings.blurRadius / cover;
+        final sigma = (settings.blurRadius + widget.spread) / cover;
         if (sigma > 0.0 && _maskKey != (sigma, size)) {
           _bake(source, sigma, size);
         }
