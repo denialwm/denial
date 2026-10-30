@@ -29,12 +29,19 @@ enum ColorPreset {
       wheels: {GradeWheel.gamma: WheelPosition(Offset(-0.03, 0.12), 0)},
     ),
   ),
-  punch(
+  logix(
     ColorGrade(
       sliders: {
-        GradeSlider.contrast: 0.45,
-        GradeSlider.saturation: 0.1,
-        GradeSlider.vibrance: 0.35,
+        GradeSlider.exposure: -0.22,
+        GradeSlider.contrast: 0.21,
+        GradeSlider.saturation: 0.19,
+        GradeSlider.vibrance: 0.16,
+        GradeSlider.temperature: -0.34,
+      },
+      wheels: {
+        GradeWheel.lift: WheelPosition(Offset(-0.102, -0.085), -0.24),
+        GradeWheel.gamma: WheelPosition(Offset(0.103, 0.09), -0.02),
+        GradeWheel.gain: WheelPosition(Offset(0.096, -0.111), 0.03),
       },
     ),
   ),
@@ -87,7 +94,7 @@ enum ColorPreset {
   String label(AppLocalizations l10n) => switch (this) {
     warm => l10n.colorPresetWarm,
     cool => l10n.colorPresetCool,
-    punch => l10n.colorPresetPunch,
+    logix => l10n.colorPresetLogix,
     matte => l10n.colorPresetMatte,
     film => l10n.colorPresetFilm,
     night => l10n.colorPresetNight,

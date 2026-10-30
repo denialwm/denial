@@ -9322,11 +9322,11 @@ abstract class AppLocalizations {
   /// **'Cool'**
   String get colorPresetCool;
 
-  /// Color tuning: a built-in look.
+  /// Color tuning: a built-in look, named after its author. Not translated.
   ///
   /// In en, this message translates to:
-  /// **'Punch'**
-  String get colorPresetPunch;
+  /// **'Logix'**
+  String get colorPresetLogix;
 
   /// Color tuning: a built-in look.
   ///

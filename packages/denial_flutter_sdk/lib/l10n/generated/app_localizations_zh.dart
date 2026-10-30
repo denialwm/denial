@@ -4980,7 +4980,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get colorPresetCool => '冷调';
 
   @override
-  String get colorPresetPunch => '鲜明';
+  String get colorPresetLogix => 'Logix';
 
   @override
   String get colorPresetMatte => '哑光';

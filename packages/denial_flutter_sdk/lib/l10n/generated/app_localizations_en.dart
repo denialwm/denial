@@ -5235,7 +5235,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get colorPresetCool => 'Cool';
 
   @override
-  String get colorPresetPunch => 'Punch';
+  String get colorPresetLogix => 'Logix';
 
   @override
   String get colorPresetMatte => 'Matte';
