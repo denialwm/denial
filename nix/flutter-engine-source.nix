@@ -36,18 +36,20 @@ let
   # The builder's Nix daemon exposes this directory to the sandbox
   # (packaging/arch/runner/install-host), so an engine commit recompiles only
   # what it changed. Without it the wrapper compiles directly; the output is
-  # the same either way, since every binary is stripped.
+  # the same either way.
   ccacheDir = "/var/cache/denial-nix-ccache";
+  # GN calls this before every clang compile. Ninja runs below the output
+  # path, which changes with every engine commit; debug info records "."
+  # instead, so objects do not depend on it and the linked build-ids match
+  # with or without the cache.
   engineCcache = pkgs.writeShellScriptBin "ccache" ''
     if [[ -w ${ccacheDir} ]]; then
-      exec ${lib.getExe pkgs.ccache} "$@"
+      exec ${lib.getExe pkgs.ccache} "$@" -ffile-compilation-dir=.
     fi
-    exec "$@"
+    exec "$@" -ffile-compilation-dir=.
   '';
   engineCcacheSetup = ''
     export CCACHE_DIR=${ccacheDir} CCACHE_UMASK=007
-    # The output path, and so the working directory, changes with every
-    # engine commit; the stripped output keeps no trace of it.
     export CCACHE_NOHASHDIR=1
     export CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime
     # The compiler is the wrapped clang plus the flags Nix passes through
