@@ -1,36 +1,43 @@
 //! Always-on display on the mobile shell.
 //!
 //! A root-owned `/etc/denial/ambient-display.json` names the output whose
-//! panel keeps showing its last frame while the output is off, and the file
-//! that says whether it does now:
+//! panel can keep showing its last frame while the output is off, and the
+//! panel driver's switch for that:
 //!
 //! ```json
 //! {
 //!   "output": "DSI-1",
 //!   "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient",
-//!   "brightness": 288,
+//!   "brightness": 400,
 //!   "settle_ms": 1000
 //! }
 //! ```
 //!
-//! While the switch reads `Y` or `1`, turning that output off goes through
-//! the lock screen first: the session locks, the shell fades everything but
-//! the always-on picture to black and says when it is on screen, and only
-//! then does the output turn off. Once the output is lit again the shell
-//! fades the rest back in. With `brightness`, the backlight code that looks
-//! like the panel's always-on picture, the backlight fades there beside the
-//! shell and back beside the wake. `settle_ms` keeps the finished picture
-//! still that long before the output turns off, for a panel that draws a
-//! wave when it switches while still refreshing at full rate.
+//! Turning that output off while the session locks goes through the lock
+//! screen first: the shell fades everything but the always-on picture to
+//! black and says when it is on screen, the backlight fades to the
+//! `brightness` code beside it, and the output turns off with the switch set.
+//! The panel driver then keeps the picture lit its own way. A panel that
+//! refreshes as slowly as 1 Hz stays in normal mode at that rate, showing the
+//! picture at that code unchanged; one that cannot uses its always-on mode,
+//! and the code is the one whose picture looks like that mode's. `settle_ms`
+//! keeps the finished picture still that long before the output turns off,
+//! for a panel that draws a wave when it changes mode at full rate.
 //!
-//! An edited profile applies from the next blank.
+//! Each minute the output lights for one frame, the clock's next minute, and
+//! goes off again with the switch still set, so the panel keeps its
+//! always-on state. A wake clears the switch, and the shell fades the rest
+//! back in beside the backlight.
+//!
+//! The session must be able to write the switch. An edited profile applies
+//! from the next blank.
 
 use std::collections::BTreeSet;
 use std::ffi::CStr;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use denial_core::topology::OutputId;
 use serde::Deserialize;
@@ -39,6 +46,7 @@ use tracing::{info, warn};
 use super::RuntimeState;
 use super::flutter_runtime::FlutterRuntime;
 use super::kms_state::Scanout;
+use super::output_scheduler::OutputScheduler;
 use super::system_controls::BrightnessFade;
 
 pub(super) const CHANNEL: &CStr = c"denial/ambient_display";
@@ -53,13 +61,18 @@ const SHELL_FADE: Duration = Duration::from_millis(420);
 /// Past this the output turns off anyway.
 const FADE_LIMIT: Duration = Duration::from_millis(1200);
 
+/// The shell's clock turns over on the minute; its frame follows.
+const REFRESH_LAG: Duration = Duration::from_millis(250);
+
+/// Past this a refresh's output turns off without its frame.
+const REFRESH_LIMIT: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Profile {
     output: String,
     switch: PathBuf,
-    #[serde(default)]
-    brightness: Option<u32>,
+    brightness: u32,
     #[serde(default)]
     settle_ms: u64,
 }
@@ -77,14 +90,19 @@ impl Profile {
         let bytes = fs::read(path).map_err(|error| error.to_string())?;
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())
     }
-
-    fn armed(&self) -> bool {
-        fs::read_to_string(&self.switch).is_ok_and(|value| matches!(value.trim(), "Y" | "y" | "1"))
-    }
 }
 
 pub(super) fn decode_ready(packet: &[u8]) -> bool {
     packet == [READY]
+}
+
+/// An output lit only to draw the next minute.
+#[derive(Clone, Copy, Debug)]
+struct Refresh {
+    output: OutputId,
+    started: Instant,
+    /// The frame is out and the output's power-off queued.
+    shown: bool,
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +110,8 @@ pub(super) struct AmbientDisplay {
     /// Loaded on use and again whenever the file changes, keyed by its
     /// modification time; None inside when there is no usable profile.
     profile: Option<(Option<SystemTime>, Option<Profile>)>,
+    /// What the switch was last set to.
+    switched: Option<bool>,
     /// A power-off held while the shell fades, with its deadline.
     held: Option<(OutputId, Instant)>,
     /// The held power-off waits on a still picture, not on the shell.
@@ -100,8 +120,12 @@ pub(super) struct AmbientDisplay {
     released: Option<OutputId>,
     /// Outputs whose shell shows the always-on picture.
     entered: BTreeSet<OutputId>,
-    /// Entered outputs seen off: lit again, they ask for the rest back.
+    /// Entered outputs seen off: lit again by anything but a refresh, they
+    /// ask for the rest back.
     dark: BTreeSet<OutputId>,
+    /// When the next minute's frame is due.
+    refresh_due: Option<Instant>,
+    refresh: Option<Refresh>,
 }
 
 impl AmbientDisplay {
@@ -126,27 +150,72 @@ impl AmbientDisplay {
                 }
             });
             self.profile = Some((modified, profile));
+            if self.entered.is_empty() {
+                // A switch left set would keep an unlocked blank lit.
+                self.switched = None;
+                self.set_switch(false);
+            }
         }
         self.profile.as_ref()?.1.as_ref()
     }
 
+    fn set_switch(&mut self, on: bool) {
+        if self.switched == Some(on) {
+            return;
+        }
+        let Some(path) = self
+            .profile
+            .as_ref()
+            .and_then(|(_, profile)| profile.as_ref())
+            .map(|profile| profile.switch.clone())
+        else {
+            return;
+        };
+        match fs::write(&path, if on { "Y" } else { "N" }) {
+            Ok(()) => self.switched = Some(on),
+            Err(error) => {
+                warn!(%error, path = %path.display(), "could not set the always-on display switch");
+            }
+        }
+    }
+
+    /// Lit only to draw the next minute: still dark to everything else.
+    pub(super) fn refreshing(&self, output: OutputId) -> bool {
+        self.refresh.is_some_and(|refresh| refresh.output == output)
+    }
+
+    pub(super) fn refresh_under_way(&self) -> bool {
+        self.refresh.is_some()
+    }
+
     pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
-        self.held.map_or(timeout, |(_, deadline)| {
+        [
+            self.held.map(|(_, deadline)| deadline),
+            self.refresh_due,
+            self.refresh.map(|refresh| refresh.started + REFRESH_LIMIT),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(timeout, |timeout, deadline| {
             timeout.min(deadline.saturating_duration_since(now))
         })
     }
 }
 
 /// Holds the always-on output's power-off until the shell shows the picture,
-/// and lets a wake during the fade cancel it. Runs before power requests
-/// are applied.
+/// lets a wake during the fade cancel it, and runs each minute's refresh.
+/// Runs before power requests are applied.
 pub(super) fn hold_power_off(
     runtime: &mut FlutterRuntime,
+    scheduler: &OutputScheduler,
     scanouts: &[Scanout],
     events: &mut RuntimeState,
     now: Instant,
 ) {
     let ready = runtime.take_ambient_display_ready();
+    if refresh(runtime, scheduler, scanouts, events, now) {
+        return;
+    }
     if let Some((output, deadline)) = events.ambient_display.held {
         match events.output_power_requests.get(&output) {
             Some(true) => {
@@ -175,6 +244,7 @@ pub(super) fn hold_power_off(
                 events.ambient_display.held = None;
                 events.ambient_display.settling = false;
                 events.ambient_display.released = Some(output);
+                events.ambient_display.set_switch(true);
                 events.output_power_requests.insert(output, false);
             }
             _ => {
@@ -219,6 +289,81 @@ pub(super) fn hold_power_off(
     info!("always-on display: waiting for the shell's picture");
 }
 
+/// Lights a dark always-on output for each minute's frame, and turns it off
+/// again once the frame is out. True while one is under way.
+fn refresh(
+    runtime: &mut FlutterRuntime,
+    scheduler: &OutputScheduler,
+    scanouts: &[Scanout],
+    events: &mut RuntimeState,
+    now: Instant,
+) -> bool {
+    let state = &mut events.ambient_display;
+    if let Some(mut refresh) = state.refresh {
+        let output = refresh.output;
+        let Some(scanout) = scanouts.iter().find(|scanout| scanout.output.id == output) else {
+            state.refresh = None;
+            return false;
+        };
+        if events.output_power_requests.get(&output) == Some(&true) {
+            // Woken meanwhile: the panel leaves its always-on state lit.
+            state.refresh = None;
+            state.dark.remove(&output);
+            state.entered.remove(&output);
+            leave(runtime, events);
+            info!("always-on display woken during a refresh");
+            return false;
+        }
+        if refresh.shown {
+            if !scanout.powered {
+                state.refresh = None;
+                state.refresh_due = Some(next_minute(now));
+            }
+        } else if scanout.powered && !scheduler.power_on_pending(output)
+            || now >= refresh.started + REFRESH_LIMIT
+        {
+            if now >= refresh.started + REFRESH_LIMIT {
+                warn!("always-on refresh frame did not come in time");
+            }
+            refresh.shown = true;
+            state.refresh = Some(refresh);
+            events.output_power_requests.insert(output, false);
+        }
+        return true;
+    }
+
+    if state.held.is_some() || state.refresh_due.is_none_or(|due| now < due) {
+        return false;
+    }
+    state.refresh_due = None;
+    let Some(output) = state.dark.first().copied() else {
+        return false;
+    };
+    let dark = scanouts
+        .iter()
+        .any(|scanout| scanout.output.id == output && !scanout.powered);
+    if !dark || events.output_power_requests.contains_key(&output) {
+        return false;
+    }
+    state.refresh = Some(Refresh {
+        output,
+        started: now,
+        shown: false,
+    });
+    events.output_power_requests.insert(output, true);
+    true
+}
+
+/// The instant the shell's clock shows the next minute.
+fn next_minute(now: Instant) -> Instant {
+    let into = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(Duration::ZERO, |since| {
+            Duration::from_millis((since.as_millis() % 60_000) as u64)
+        });
+    now + (Duration::from_secs(60) - into) + REFRESH_LAG
+}
+
 /// The lit output whose power-off the always-on display takes over.
 fn power_off_to_hold(scanouts: &[Scanout], events: &mut RuntimeState) -> Option<OutputId> {
     let mobile = events
@@ -228,19 +373,17 @@ fn power_off_to_hold(scanouts: &[Scanout], events: &mut RuntimeState) -> Option<
     if !mobile {
         return None;
     }
-    let (name, armed) = {
-        let profile = events.ambient_display.profile()?;
-        (profile.output.clone(), profile.armed())
-    };
+    let name = events.ambient_display.profile()?.output.clone();
     let scanout = scanouts
         .iter()
         .find(|scanout| scanout.output.name == name && scanout.powered)?;
     let output = scanout.output.id;
-    (armed && events.output_power_requests.get(&output) == Some(&false)).then_some(output)
+    (events.output_power_requests.get(&output) == Some(&false)).then_some(output)
 }
 
 /// Asks the shell for the rest of the lock screen once the output is lit
-/// again. Runs after power requests are applied.
+/// again, and keeps touches out of a refresh. Runs after power requests are
+/// applied.
 pub(super) fn synchronize_wake(
     runtime: &mut FlutterRuntime,
     scanouts: &[Scanout],
@@ -250,11 +393,13 @@ pub(super) fn synchronize_wake(
     let mut woke = false;
     for scanout in scanouts {
         let output = scanout.output.id;
-        if !state.entered.contains(&output) {
+        if !state.entered.contains(&output) || state.refreshing(output) {
             continue;
         }
         if !scanout.powered {
-            state.dark.insert(output);
+            if state.dark.insert(output) {
+                state.refresh_due = Some(next_minute(Instant::now()));
+            }
             if state.released == Some(output) {
                 state.released = None;
             }
@@ -266,10 +411,17 @@ pub(super) fn synchronize_wake(
     if woke {
         leave(runtime, events);
     }
+    let refreshing = events.ambient_display.refresh.is_some();
+    events.screen_off_touch.set_dark(refreshing);
 }
 
-/// Asks the shell for the rest of the lock screen, and the backlight back.
+/// Asks the shell for the rest of the lock screen, the panel for its usual
+/// state and the backlight for its level.
 fn leave(runtime: &mut FlutterRuntime, events: &mut RuntimeState) {
+    let state = &mut events.ambient_display;
+    state.refresh_due = None;
+    state.refresh = None;
+    state.set_switch(false);
     send(runtime, LEAVE);
     fade_backlight(events, false);
 }
@@ -280,11 +432,8 @@ fn fade_backlight(events: &mut RuntimeState, dim: bool) {
         return;
     };
     let toward = if dim {
-        let Some(raw) = profile.brightness else {
-            return;
-        };
         BrightnessFade::Dim {
-            raw,
+            raw: profile.brightness,
             duration: SHELL_FADE,
         }
     } else {
@@ -301,5 +450,17 @@ fn fade_backlight(events: &mut RuntimeState, dim: bool) {
 fn send(runtime: &mut FlutterRuntime, command: u8) {
     if let Err(error) = runtime.send_ambient_display(command) {
         warn!(%error, "could not tell the shell about the always-on display");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_minute_lands_just_after_the_minute() {
+        let now = Instant::now();
+        let wait = next_minute(now) - now;
+        assert!(wait > REFRESH_LAG && wait <= Duration::from_secs(60) + REFRESH_LAG);
     }
 }

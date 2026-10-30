@@ -361,7 +361,7 @@ impl Session<'_, '_> {
         synchronize_fingerprint_display_wake(scanouts, scheduler, events);
         synchronize_sleep_transition(scanouts, events);
         if !scanout_rebased {
-            ambient_display::hold_power_off(flutter, scanouts, events, now);
+            ambient_display::hold_power_off(flutter, scheduler, scanouts, events, now);
         }
         if !scanout_rebased && !events.output_power_requests.is_empty() {
             let power_changed =
@@ -372,9 +372,9 @@ impl Session<'_, '_> {
         }
         ambient_display::synchronize_wake(flutter, scanouts, events);
         release_sleep_delay_if_ready(scanouts, events);
-        events
-            .wifi_power_save
-            .sync(scanouts.iter().any(|scanout| scanout.powered));
+        events.wifi_power_save.sync(scanouts.iter().any(|scanout| {
+            scanout.powered && !events.ambient_display.refreshing(scanout.output.id)
+        }));
         // The output publisher normally clears this bit at the start of the
         // iteration, so a transition to dirty here asks for one publication
         // boundary before more work. During confirmation rollback publication is

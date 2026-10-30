@@ -162,12 +162,14 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         .wayland
         .as_ref()
         .is_some_and(|frontend| frontend.mobile_shell());
+    // An output lit only to draw the always-on clock counts as dark.
     let lit = scanouts.iter().any(|scanout| {
         events
             .output_power_requests
             .get(&scanout.output.id)
             .copied()
             .unwrap_or(scanout.powered)
+            && !events.ambient_display.refreshing(scanout.output.id)
     });
     if !events.power_button.take_toggle(mobile && lit) {
         return;
@@ -197,7 +199,8 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
                     .output_power_requests
                     .get(&output)
                     .copied()
-                    .unwrap_or(scanout.powered),
+                    .unwrap_or(scanout.powered)
+                    && !events.ambient_display.refreshing(output),
             )
         })
         .collect::<Vec<_>>();
@@ -220,8 +223,9 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
 
 #[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
-    // Presentation owns a bounded wake and restores its prior power state.
-    if events.fingerprint.active() {
+    // Presentation and the always-on clock own bounded wakes and restore
+    // the prior power state.
+    if events.fingerprint.active() || events.ambient_display.refresh_under_way() {
         return;
     }
     let inhibited = events.frontend_mut().idle_inhibited();

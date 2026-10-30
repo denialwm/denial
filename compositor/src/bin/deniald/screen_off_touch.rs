@@ -1,5 +1,6 @@
-//! Raw touchscreen contacts do not wake a powered-off display. Remember their
-//! slots through a later independent wake so an orphan motion/up cannot enter UI.
+//! Raw touchscreen contacts do not wake a powered-off display, nor reach one
+//! lit only to draw the always-on clock. Remember their slots through a later
+//! independent wake so an orphan motion/up cannot enter UI.
 use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
@@ -14,6 +15,8 @@ pub(super) enum Event {
 #[derive(Default)]
 pub(super) struct Filter {
     held: HashSet<(String, i32)>,
+    /// A display lit only to draw the always-on clock.
+    dark: bool,
 }
 
 impl Filter {
@@ -21,7 +24,12 @@ impl Filter {
         self.held.retain(|(name, _)| name != device);
     }
 
+    pub(super) fn set_dark(&mut self, dark: bool) {
+        self.dark = dark;
+    }
+
     pub(super) fn suppress(&mut self, device: &str, event: Event, powered: bool) -> bool {
+        let powered = powered && !self.dark;
         let blocked = self.held.iter().any(|(name, _)| name == device);
         match event {
             Event::Down(slot) | Event::Motion(slot) => {
@@ -51,6 +59,16 @@ mod tests {
         assert!(f.suppress("touch", Event::Down(0), false));
         assert!(f.suppress("touch", Event::Motion(0), true));
         assert!(f.suppress("touch", Event::Frame, true));
+        assert!(f.suppress("touch", Event::Up(0), true));
+        assert!(!f.suppress("touch", Event::Down(0), true));
+    }
+    #[test]
+    fn contact_during_an_always_on_refresh_stays_quarantined() {
+        let mut f = Filter::default();
+        f.set_dark(true);
+        assert!(f.suppress("touch", Event::Down(0), true));
+        f.set_dark(false);
+        assert!(f.suppress("touch", Event::Motion(0), true));
         assert!(f.suppress("touch", Event::Up(0), true));
         assert!(!f.suppress("touch", Event::Down(0), true));
     }
