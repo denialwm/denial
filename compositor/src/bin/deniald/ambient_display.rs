@@ -8,7 +8,8 @@
 //! {
 //!   "output": "DSI-1",
 //!   "switch": "/sys/module/panel_raydium_rm692h5/parameters/ambient",
-//!   "brightness": "/sys/module/panel_raydium_rm692h5/parameters/ambient_brightness"
+//!   "brightness": "/sys/module/panel_raydium_rm692h5/parameters/ambient_brightness",
+//!   "settle_ms": 1000
 //! }
 //! ```
 //!
@@ -18,7 +19,9 @@
 //! then does the output turn off. Once the output is lit again the shell
 //! fades the rest back in. With `brightness`, the file holding the backlight
 //! code the panel shows the picture at, the backlight fades there beside the
-//! shell and back beside the wake.
+//! shell and back beside the wake. `settle_ms` keeps the finished picture
+//! still that long before the output turns off, for a panel that draws a
+//! wave when it switches while still refreshing at full rate.
 
 use std::collections::BTreeSet;
 use std::ffi::CStr;
@@ -55,6 +58,8 @@ struct Profile {
     switch: PathBuf,
     #[serde(default)]
     brightness: Option<PathBuf>,
+    #[serde(default)]
+    settle_ms: u64,
 }
 
 impl Profile {
@@ -94,6 +99,8 @@ pub(super) struct AmbientDisplay {
     profile: Option<Option<Profile>>,
     /// A power-off held while the shell fades, with its deadline.
     held: Option<(OutputId, Instant)>,
+    /// The held power-off waits on a still picture, not on the shell.
+    settling: bool,
     /// A held power-off the shell let through, until the output is off.
     released: Option<OutputId>,
     /// Outputs whose shell shows the always-on picture.
@@ -146,17 +153,30 @@ pub(super) fn hold_power_off(
             Some(true) => {
                 // Woken while fading: the output stays lit.
                 events.ambient_display.held = None;
+                events.ambient_display.settling = false;
                 events.ambient_display.entered.remove(&output);
                 leave(runtime, events);
                 info!("always-on display cancelled by a wake");
             }
-            _ if ready || now >= deadline => {
-                events.ambient_display.held = None;
-                events.ambient_display.released = Some(output);
-                events.output_power_requests.insert(output, false);
+            _ if !events.ambient_display.settling && (ready || now >= deadline) => {
                 if !ready {
                     warn!("shell did not show the always-on picture in time");
                 }
+                let settle = events
+                    .ambient_display
+                    .profile()
+                    .map_or(Duration::ZERO, |profile| {
+                        Duration::from_millis(profile.settle_ms)
+                    });
+                events.ambient_display.held = Some((output, now + settle));
+                events.ambient_display.settling = true;
+                events.output_power_requests.remove(&output);
+            }
+            _ if events.ambient_display.settling && now >= deadline => {
+                events.ambient_display.held = None;
+                events.ambient_display.settling = false;
+                events.ambient_display.released = Some(output);
+                events.output_power_requests.insert(output, false);
             }
             _ => {
                 events.output_power_requests.remove(&output);

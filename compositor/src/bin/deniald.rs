@@ -1,6 +1,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+#[cfg(feature = "flutter")]
+#[path = "deniald/ambient_display.rs"]
+mod ambient_display;
 #[path = "deniald/application_theming.rs"]
 mod application_theming;
 #[cfg(feature = "flutter")]
@@ -12,9 +15,6 @@ mod bus;
 mod client_release;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
-#[cfg(feature = "flutter")]
-#[path = "deniald/ambient_display.rs"]
-mod ambient_display;
 #[path = "deniald/color_grade.rs"]
 mod color_grade;
 #[path = "deniald/color_space.rs"]
