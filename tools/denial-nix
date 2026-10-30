@@ -315,7 +315,7 @@ refresh_engine_lock() {
   replace_engine_lock '.engine.source_hash = $hash' --arg hash "$engine_hash"
 
   nix build "$ROOT#denial-flutter-framework-source" \
-    "$ROOT#denial-flutter-engine-source" --no-link --print-build-logs
+    "$ROOT#denial-flutter-engine-source" --no-link
   verify_engine_lock
   rm -f -- "$DENIAL_NIX_LOCK_BACKUP"
   trap - EXIT

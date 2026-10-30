@@ -742,7 +742,7 @@ source_audit() {
   fi
   if (
     cd "$ROOT/packages/denial_flutter_sdk/assets/fonts"
-    sha256sum --check --strict JetBrainsMono.sha256
+    sha256sum --check --strict --quiet JetBrainsMono.sha256
   ) >/dev/null; then
     pass 'bundled JetBrains Mono files match their source manifest'
   else
@@ -750,7 +750,7 @@ source_audit() {
   fi
   if (
     cd "$ROOT/packages/denial_flutter_sdk/assets/fonts/roboto_flex"
-    sha256sum --check --strict RobotoFlex.sha256
+    sha256sum --check --strict --quiet RobotoFlex.sha256
   ) >/dev/null; then
     pass 'bundled Roboto Flex files match their source manifest'
   else
@@ -758,7 +758,7 @@ source_audit() {
   fi
   if (
     cd "$ROOT"
-    sha256sum --check --strict \
+    sha256sum --check --strict --quiet \
       packages/denial_flutter_sdk/assets/cursors/bibata_modern_ice.sha256
   ) >/dev/null; then
     pass 'bundled Bibata cursor frames match their import manifest'
@@ -872,7 +872,7 @@ source_audit() {
   if [[ -f "$engine_dir/libflutter_engine.so" ]]; then
     if (
       cd "$engine_dir"
-      sha256sum --check --strict libflutter_engine.so.sha256
+      sha256sum --check --strict --quiet libflutter_engine.so.sha256
     ) >/dev/null; then
       pass 'local engine artifact matches its adjacent checksum'
     else
@@ -884,7 +884,7 @@ source_audit() {
   if [[ -f "$debug_engine_dir/libflutter_engine.so" ]]; then
     if (
       cd "$debug_engine_dir"
-      sha256sum --check --strict libflutter_engine.so.sha256
+      sha256sum --check --strict --quiet libflutter_engine.so.sha256
     ) >/dev/null; then
       pass 'local debug-engine artifact matches its adjacent checksum'
     else
@@ -896,7 +896,7 @@ source_audit() {
   if [[ -f "$profile_engine_dir/libflutter_engine.so" ]]; then
     if (
       cd "$profile_engine_dir"
-      sha256sum --check --strict libflutter_engine.so.sha256
+      sha256sum --check --strict --quiet libflutter_engine.so.sha256
     ) >/dev/null; then
       pass 'local profile-engine artifact matches its adjacent checksum'
     else

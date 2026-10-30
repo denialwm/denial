@@ -247,7 +247,7 @@ jobs:
           (
             cd "$output_root"
             sha256sum -- *.apk >SHA256SUMS
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           tar \
             --create \
@@ -369,15 +369,15 @@ jobs:
           done
           (
             cd "$CANDIDATE_ROOT/packages"
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           (
             cd "$CANDIDATE_ROOT/native-payload"
-            sha256sum --check --strict NATIVE-SHA256SUMS
+            sha256sum --check --strict --quiet NATIVE-SHA256SUMS
           )
           (
             cd "$CANDIDATE_ROOT/alpine-payload"
-            sha256sum --check --strict ALPINE-SHA256SUMS
+            sha256sum --check --strict --quiet ALPINE-SHA256SUMS
           )
           install -d -m 0755 "$RUNNER_TEMP/denial-promoted-apk"
           tar \
@@ -387,7 +387,7 @@ jobs:
             --no-same-owner
           (
             cd "$RUNNER_TEMP/denial-promoted-apk/packages"
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           grep -Fxq 'compiled_payloads_changed=false' \
             "$RUNNER_TEMP/denial-promoted-apk/evidence/apk-promotion.txt"
@@ -587,7 +587,7 @@ jobs:
           (
             cd "$UNSIGNED_ROOT/packages"
             sha256sum -- *.pkg.tar.zst *.deb *.rpm *.apk >SHA256SUMS
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           namcap "$UNSIGNED_ROOT"/packages/*.pkg.tar.zst \
             2>&1 | tee "$UNSIGNED_ROOT/evidence/namcap.txt"
@@ -693,7 +693,7 @@ jobs:
             "$UNSIGNED_ROOT/evidence/apk-promotion.txt"
           (
             cd "$UNSIGNED_ROOT/packages"
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
 
       - name: Import release-signing subkey

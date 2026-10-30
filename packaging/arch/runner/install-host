@@ -203,7 +203,7 @@ else
     "$DENIAL_ACTIONS_RUNNER_URL"
 
   printf '%s  %s\n' "$DENIAL_ACTIONS_RUNNER_SHA256" "$archive" \
-    | sha256sum --check --strict -
+    | sha256sum --check --strict --quiet -
 
   install -d -m 0755 -o root -g root "$partial_dir"
   bsdtar --extract --file "$archive" --directory "$partial_dir"

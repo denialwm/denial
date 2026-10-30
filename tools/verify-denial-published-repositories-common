@@ -70,7 +70,7 @@ fi
 
 (
   cd "$SIGNED_ROOT"
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
   gpg --batch --verify SHA256SUMS.sig SHA256SUMS
 )
 
@@ -129,7 +129,7 @@ for suite in trixie noble; do
     || fail "$suite Release metadata has an unexpected SHA256 file set"
   (
     cd "$release_root"
-    sha256sum --check --strict "$work_root/$suite.SHA256SUMS"
+    sha256sum --check --strict --quiet "$work_root/$suite.SHA256SUMS"
   )
 
   packages_index="$release_root/main/binary-amd64/Packages"

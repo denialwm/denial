@@ -36,7 +36,8 @@ For either trusted branch, the owner-operated x86-64 runner:
 1. checks out the exact pushed commit in a fresh ephemeral workspace;
 2. audits committed inputs and qualifies the builder;
 3. builds the Nix package and checks, using the public Denial Cachix cache for
-   substitution and retaining the exact output paths for an explicit upload;
+   substitution, and uploads those exact output paths to it at the end of the
+   job, also when a later step fails;
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds or reuses the native release Flutter Engine from the exact locked
    Denial Flutter and Skia fork commits;
@@ -49,7 +50,7 @@ For either trusted branch, the owner-operated x86-64 runner:
    without the paused legacy UI-development package;
 9. records package metadata, host inputs, checksums, toolchain versions, and
    build logs; and
-10. uploads the unsigned candidate artifact and the explicit Nix closures.
+10. uploads the unsigned candidate artifact.
 
 Routine branch validation does not build debug/profile engines or run the
 development-engine Flutter shell/widget suite. Those remain separately
