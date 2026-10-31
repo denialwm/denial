@@ -545,7 +545,10 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
             validate_required_string(command.text())?;
             validate_required_string(command.replaced())?;
             Ok(KeyboardCommand::Replace {
-                replaced: command.replaced().expect("validated replaced text").to_owned(),
+                replaced: command
+                    .replaced()
+                    .expect("validated replaced text")
+                    .to_owned(),
                 text: command.text().expect("validated replacement").to_owned(),
             })
         }
@@ -580,8 +583,14 @@ fn decode_text_prediction_request(
     if characters > MAX_PREDICTION_WORD_CHARS {
         return Err(WireError::String);
     }
-    let xs = request.touch_x().map(|values| values.iter().collect::<Vec<f32>>()).unwrap_or_default();
-    let ys = request.touch_y().map(|values| values.iter().collect::<Vec<f32>>()).unwrap_or_default();
+    let xs = request
+        .touch_x()
+        .map(|values| values.iter().collect::<Vec<f32>>())
+        .unwrap_or_default();
+    let ys = request
+        .touch_y()
+        .map(|values| values.iter().collect::<Vec<f32>>())
+        .unwrap_or_default();
     if xs.len() != ys.len() || !(xs.is_empty() || xs.len() == characters) {
         return Err(WireError::Count);
     }
@@ -830,6 +839,7 @@ fn decode_settings_request(
                 expected_revision: request.expected_revision(),
                 mouse: MouseSettings {
                     speed: mouse.speed(),
+                    acceleration_enabled: mouse.acceleration_enabled(),
                 },
             })
         }

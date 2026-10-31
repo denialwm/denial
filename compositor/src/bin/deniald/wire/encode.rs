@@ -484,7 +484,10 @@ impl WireBridge {
         );
         let mouse = fb::MouseConfiguration::create(
             &mut self.outbound_builder,
-            &fb::MouseConfigurationArgs { speed: mouse.speed },
+            &fb::MouseConfigurationArgs {
+                speed: mouse.speed,
+                acceleration_enabled: mouse.acceleration_enabled,
+            },
         );
         let input_devices = fb::InputDeviceCapabilities::create(
             &mut self.outbound_builder,

@@ -14,6 +14,7 @@ const settingsScrollingLayoutSwipeSpeedSliderKey = Key(
   'settings-touchpad-scrolling-layout-swipe-speed',
 );
 const settingsMouseSpeedSliderKey = Key('settings-mouse-speed');
+const settingsMouseAccelerationToggleKey = Key('settings-mouse-acceleration');
 
 class SettingsTouchpadPage extends ConsumerStatefulWidget {
   const SettingsTouchpadPage({super.key});
@@ -84,6 +85,17 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                   });
                   controller.setMouseSpeed(speed);
                 },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SettingsToggle(
+                key: settingsMouseAccelerationToggleKey,
+                label: l10n.settingsMouseAcceleration,
+                description: l10n.settingsMouseAccelerationDescription,
+                value: capabilities.mouseAccelerationEnabled,
+                enabled: mouseControlsEnabled,
+                onChanged: controller.setMouseAcceleration,
               ),
             ),
             Padding(

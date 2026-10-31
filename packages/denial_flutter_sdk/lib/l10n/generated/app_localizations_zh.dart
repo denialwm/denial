@@ -2272,6 +2272,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsMousePointerSpeed => '鼠标指针速度';
 
   @override
+  String get settingsMouseAcceleration => '鼠标加速';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      '移动越快，指针走得越远。关闭后指针与手的移动保持同步。';
+
+  @override
   String get settingsShortcutsSection => '快捷键';
 
   @override

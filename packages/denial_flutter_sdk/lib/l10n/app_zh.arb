@@ -685,6 +685,8 @@
   "settingsTouchpadScrollSpeed": "手指滚动速度",
   "settingsTouchpadScrollingLayoutSwipeSpeed": "滚动布局滑动速度",
   "settingsMousePointerSpeed": "鼠标指针速度",
+  "settingsMouseAcceleration": "鼠标加速",
+  "settingsMouseAccelerationDescription": "移动越快，指针走得越远。关闭后指针与手的移动保持同步。",
   "settingsShortcutsSection": "快捷键",
   "settingsShortcutsTitle": "选择按下快捷键时 Denial 执行的操作。",
   "settingsShortcutsConfigured": "{count} 个快捷键",

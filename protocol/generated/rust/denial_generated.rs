@@ -9798,6 +9798,7 @@ impl<'a> flatbuffers::Follow<'a> for MouseConfiguration<'a> {
 
 impl<'a> MouseConfiguration<'a> {
   pub const VT_SPEED: flatbuffers::VOffsetT = 4;
+  pub const VT_ACCELERATION_ENABLED: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -9810,6 +9811,7 @@ impl<'a> MouseConfiguration<'a> {
   ) -> flatbuffers::WIPOffset<MouseConfiguration<'bldr>> {
     let mut builder = MouseConfigurationBuilder::new(_fbb);
     builder.add_speed(args.speed);
+    builder.add_acceleration_enabled(args.acceleration_enabled);
     builder.finish()
   }
 
@@ -9821,6 +9823,13 @@ impl<'a> MouseConfiguration<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f64>(MouseConfiguration::VT_SPEED, Some(0.0)).unwrap()}
   }
+  #[inline]
+  pub fn acceleration_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, Some(true)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for MouseConfiguration<'_> {
@@ -9831,18 +9840,21 @@ impl flatbuffers::Verifiable for MouseConfiguration<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<f64>("speed", Self::VT_SPEED, false)?
+     .visit_field::<bool>("acceleration_enabled", Self::VT_ACCELERATION_ENABLED, false)?
      .finish();
     Ok(())
   }
 }
 pub struct MouseConfigurationArgs {
     pub speed: f64,
+    pub acceleration_enabled: bool,
 }
 impl<'a> Default for MouseConfigurationArgs {
   #[inline]
   fn default() -> Self {
     MouseConfigurationArgs {
       speed: 0.0,
+      acceleration_enabled: true,
     }
   }
 }
@@ -9855,6 +9867,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> MouseConfigurationBuilder<'a, '
   #[inline]
   pub fn add_speed(&mut self, speed: f64) {
     self.fbb_.push_slot::<f64>(MouseConfiguration::VT_SPEED, speed, 0.0);
+  }
+  #[inline]
+  pub fn add_acceleration_enabled(&mut self, acceleration_enabled: bool) {
+    self.fbb_.push_slot::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, acceleration_enabled, true);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> MouseConfigurationBuilder<'a, 'b, A> {
@@ -9875,6 +9891,7 @@ impl core::fmt::Debug for MouseConfiguration<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("MouseConfiguration");
       ds.field("speed", &self.speed());
+      ds.field("acceleration_enabled", &self.acceleration_enabled());
       ds.finish()
   }
 }

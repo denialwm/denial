@@ -27,7 +27,7 @@ use smithay::input::touch::{DownEvent, MotionEvent as TouchMotionEvent, UpEvent}
 use smithay::reexports::calloop::EventLoop;
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
-use smithay::reexports::input::{Device as LibinputDevice, Libinput, TapButtonMap};
+use smithay::reexports::input::{AccelProfile, Device as LibinputDevice, Libinput, TapButtonMap};
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 #[cfg(feature = "flutter")]
@@ -1395,10 +1395,22 @@ fn configure_mouse_device(
                 settings.speed
             )
         })?;
+    let profile = if settings.acceleration_enabled {
+        AccelProfile::Adaptive
+    } else {
+        AccelProfile::Flat
+    };
+    device.config_accel_set_profile(profile).map_err(|error| {
+        format!(
+            "could not set pointer acceleration on {} to {profile:?}: {error:?}",
+            device.name()
+        )
+    })?;
     info!(
         device = %device.name(),
         speed = settings.speed,
-        "configured mouse pointer speed"
+        ?profile,
+        "configured mouse pointer speed and acceleration"
     );
     Ok(())
 }

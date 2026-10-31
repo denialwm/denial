@@ -2374,6 +2374,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMousePointerSpeed => 'Mouse pointer speed';
 
   @override
+  String get settingsMouseAcceleration => 'Mouse acceleration';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.';
+
+  @override
   String get settingsShortcutsSection => 'Shortcuts';
 
   @override

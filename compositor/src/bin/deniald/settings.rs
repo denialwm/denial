@@ -453,12 +453,15 @@ impl KeyboardSettings {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct MouseSettings {
     pub(super) speed: f64,
+    /// libinput's adaptive profile when on, its flat profile when off.
+    pub(super) acceleration_enabled: bool,
 }
 
 impl Default for MouseSettings {
     fn default() -> Self {
         Self {
             speed: DEFAULT_MOUSE_SPEED,
+            acceleration_enabled: true,
         }
     }
 }

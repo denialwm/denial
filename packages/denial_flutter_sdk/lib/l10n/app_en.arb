@@ -3223,6 +3223,14 @@
   "@settingsMousePointerSpeed": {
     "description": "Label for the mouse pointer speed slider."
   },
+  "settingsMouseAcceleration": "Mouse acceleration",
+  "@settingsMouseAcceleration": {
+    "description": "Label for the mouse pointer acceleration toggle."
+  },
+  "settingsMouseAccelerationDescription": "Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.",
+  "@settingsMouseAccelerationDescription": {
+    "description": "Description of the mouse pointer acceleration toggle."
+  },
   "settingsShortcutsSection": "Shortcuts",
   "@settingsShortcutsSection": {
     "description": "Eyebrow label for the configured shortcuts page."

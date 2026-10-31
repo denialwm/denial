@@ -593,6 +593,7 @@ class DenialWireCodec {
         expectedRevision: capabilities.revision,
         mouse: generated.MouseConfigurationObjectBuilder(
           speed: capabilities.mouseSpeed,
+          accelerationEnabled: capabilities.mouseAccelerationEnabled,
         ),
       ),
       requestId: requestId,
@@ -710,6 +711,7 @@ class DenialWireCodec {
       revision: response.revision,
       hasMouse: inputDevices.hasMouse,
       mouseSpeed: mouseSpeed,
+      mouseAccelerationEnabled: mouse.accelerationEnabled,
       hasTouchpad: inputDevices.hasTouchpad,
       tapToClickEnabled: touchpad.tapToClickEnabled,
       naturalScrollEnabled: touchpad.naturalScrollEnabled,

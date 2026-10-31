@@ -180,7 +180,10 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         .prepare_keyboard_update(manager.revision(), configured.clone())
         .unwrap();
     manager.commit(update).unwrap();
-    let configured_mouse = MouseSettings { speed: 0.35 };
+    let configured_mouse = MouseSettings {
+        speed: 0.35,
+        acceleration_enabled: false,
+    };
     let update = manager
         .prepare_mouse_update(manager.revision(), configured_mouse.clone())
         .unwrap();
@@ -513,7 +516,10 @@ fn mouse_update_is_persistent_and_revisioned() {
     let temporary = TemporaryDirectory::new("settings-mouse-update");
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
-    let configured = MouseSettings { speed: 0.55 };
+    let configured = MouseSettings {
+        speed: 0.55,
+        acceleration_enabled: false,
+    };
     let old_revision = manager.revision();
     let update = manager
         .prepare_mouse_update(old_revision, configured.clone())
@@ -533,7 +539,13 @@ fn rejects_mouse_speed_outside_supported_range() {
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
     for speed in [-1.001, 1.001, f64::NAN] {
         assert!(matches!(
-            manager.prepare_mouse_update(manager.revision(), MouseSettings { speed }),
+            manager.prepare_mouse_update(
+                manager.revision(),
+                MouseSettings {
+                    speed,
+                    ..MouseSettings::default()
+                }
+            ),
             Err(SettingsError::Mouse(_))
         ));
     }
@@ -592,7 +604,13 @@ fn reloads_external_edit_with_an_authoritative_revision() {
     assert!(manager.prepare_external_reload().unwrap().is_none());
 
     let update = manager
-        .prepare_mouse_update(manager.revision(), MouseSettings { speed: 0.25 })
+        .prepare_mouse_update(
+            manager.revision(),
+            MouseSettings {
+                speed: 0.25,
+                ..MouseSettings::default()
+            },
+        )
         .unwrap();
     manager.commit(update).unwrap();
 }
@@ -603,7 +621,13 @@ fn external_removal_restores_and_recreates_defaults() {
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
     let update = manager
-        .prepare_mouse_update(manager.revision(), MouseSettings { speed: 0.75 })
+        .prepare_mouse_update(
+            manager.revision(),
+            MouseSettings {
+                speed: 0.75,
+                ..MouseSettings::default()
+            },
+        )
         .unwrap();
     manager.commit(update).unwrap();
     let old_revision = manager.revision();

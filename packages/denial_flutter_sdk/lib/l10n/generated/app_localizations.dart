@@ -4253,6 +4253,18 @@ abstract class AppLocalizations {
   /// **'Mouse pointer speed'**
   String get settingsMousePointerSpeed;
 
+  /// Label for the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse acceleration'**
+  String get settingsMouseAcceleration;
+
+  /// Description of the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.'**
+  String get settingsMouseAccelerationDescription;
+
   /// Eyebrow label for the configured shortcuts page.
   ///
   /// In en, this message translates to:

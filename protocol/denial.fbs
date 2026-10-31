@@ -766,6 +766,8 @@ table TouchpadConfiguration {
 
 table MouseConfiguration {
   speed:double;
+  // Off selects libinput's flat profile: speed becomes a constant factor.
+  acceleration_enabled:bool = true;
 }
 
 table SettingsRequest {

@@ -5490,10 +5490,11 @@ class MouseConfiguration {
   final int _bcOffset;
 
   double get speed => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 4, 0.0);
+  bool get accelerationEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, true);
 
   @override
   String toString() {
-    return 'MouseConfiguration{speed: ${speed}}';
+    return 'MouseConfiguration{speed: ${speed}, accelerationEnabled: ${accelerationEnabled}}';
   }
 }
 
@@ -5511,11 +5512,15 @@ class MouseConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
   }
 
   int addSpeed(double? speed) {
     fbBuilder.addFloat64(0, speed);
+    return fbBuilder.offset;
+  }
+  int addAccelerationEnabled(bool? accelerationEnabled) {
+    fbBuilder.addBool(1, accelerationEnabled);
     return fbBuilder.offset;
   }
 
@@ -5526,17 +5531,21 @@ class MouseConfigurationBuilder {
 
 class MouseConfigurationObjectBuilder extends fb.ObjectBuilder {
   final double? _speed;
+  final bool? _accelerationEnabled;
 
   MouseConfigurationObjectBuilder({
     double? speed,
+    bool? accelerationEnabled,
   })
-      : _speed = speed;
+      : _speed = speed,
+        _accelerationEnabled = accelerationEnabled;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
     fbBuilder.addFloat64(0, _speed);
+    fbBuilder.addBool(1, _accelerationEnabled);
     return fbBuilder.endTable();
   }
 

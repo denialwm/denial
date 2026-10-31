@@ -91,6 +91,7 @@ void main() {
       revision: 7,
       hasMouse: true,
       mouseSpeed: 0.35,
+      mouseAccelerationEnabled: false,
       hasTouchpad: true,
       tapToClickEnabled: true,
       naturalScrollEnabled: false,
@@ -110,6 +111,7 @@ void main() {
     expect(request.kind, SettingsRequestKind.ConfigureMouse);
     expect(request.expectedRevision, 7);
     expect(request.mouse!.speed, closeTo(0.35, 0.0001));
+    expect(request.mouse!.accelerationEnabled, isFalse);
     expect(request.touchpad, isNull);
     expect(
       codec.encodeMouseConfiguration(
@@ -133,6 +135,7 @@ void main() {
       revision: 7,
       hasMouse: true,
       mouseSpeed: 0.35,
+      mouseAccelerationEnabled: false,
       hasTouchpad: true,
       tapToClickEnabled: true,
       naturalScrollEnabled: false,
@@ -189,7 +192,10 @@ void main() {
         revision: 9,
         inputDevices: InputDeviceCapabilitiesObjectBuilder(
           hasMouse: true,
-          mouse: MouseConfigurationObjectBuilder(speed: -0.4),
+          mouse: MouseConfigurationObjectBuilder(
+            speed: -0.4,
+            accelerationEnabled: false,
+          ),
           hasTouchpad: true,
           touchpad: TouchpadConfigurationObjectBuilder(
             tapToClickEnabled: false,
@@ -211,6 +217,7 @@ void main() {
     expect(capabilities!.revision, 9);
     expect(capabilities.hasMouse, isTrue);
     expect(capabilities.mouseSpeed, closeTo(-0.4, 0.0001));
+    expect(capabilities.mouseAccelerationEnabled, isFalse);
     expect(capabilities.hasTouchpad, isTrue);
     expect(capabilities.tapToClickEnabled, isFalse);
     expect(capabilities.naturalScrollEnabled, isTrue);
