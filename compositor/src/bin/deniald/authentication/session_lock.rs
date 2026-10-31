@@ -44,9 +44,13 @@ pub(super) fn run_worker(shared: &Arc<SharedAuthentication>) {
 
 async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -> zbus::Result<()> {
     let bus = zbus::fdo::DBusProxy::new(connection).await?;
-    // Resolve the process's actual session, then pin subscriptions to logind's
-    // unique owner and the returned object path. Never subscribe to session/auto:
-    // it is a method-call alias, not the path used by session signals.
+    // Resolve the session, then pin subscriptions to logind's unique owner and
+    // the returned object path. Never subscribe to session/auto: it is a
+    // method-call alias, not the path used by session signals. Like libseat,
+    // take the session that started Denial first: under UWSM deniald runs in
+    // a user service, outside any session scope, and "auto" would fall back
+    // to whichever session logind elected as the user's display.
+    let id = std::env::var("XDG_SESSION_ID").unwrap_or_else(|_| "auto".into());
     let manager = zbus::Proxy::new(
         connection,
         SERVICE,
@@ -54,9 +58,7 @@ async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -
         "org.freedesktop.login1.Manager",
     )
     .await?;
-    let _: OwnedObjectPath = manager
-        .call("GetSessionByPID", &(std::process::id(),))
-        .await?;
+    let _: OwnedObjectPath = manager.call("GetSession", &(id.as_str(),)).await?;
     let owner = bus.get_name_owner(SERVICE.try_into()?).await?;
     let manager = zbus::Proxy::new(
         connection,
@@ -65,9 +67,7 @@ async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -
         "org.freedesktop.login1.Manager",
     )
     .await?;
-    let path: OwnedObjectPath = manager
-        .call("GetSessionByPID", &(std::process::id(),))
-        .await?;
+    let path: OwnedObjectPath = manager.call("GetSession", &(id.as_str(),)).await?;
     let session = zbus::Proxy::new(connection, owner, path, SESSION_INTERFACE).await?;
     let mut locks = session.receive_signal("Lock").await?;
     let mut owners = session.receive_owner_changed().await?;
@@ -137,9 +137,9 @@ mod tests {
     struct Manager;
     #[zbus::interface(name = "org.freedesktop.login1.Manager")]
     impl Manager {
-        #[zbus(name = "GetSessionByPID")]
-        fn get_session_by_pid(&self, pid: u32) -> OwnedObjectPath {
-            assert_eq!(pid, std::process::id());
+        fn get_session(&self, id: &str) -> OwnedObjectPath {
+            let expected = std::env::var("XDG_SESSION_ID").unwrap_or_else(|_| "auto".into());
+            assert_eq!(id, expected);
             PATH.try_into().unwrap()
         }
     }
