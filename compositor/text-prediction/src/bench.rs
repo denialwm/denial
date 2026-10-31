@@ -13,7 +13,7 @@
 use std::time::Instant;
 
 use crate::layout::Point;
-use crate::lexicon::{key_char, key_of, Lexicon};
+use crate::lexicon::{Lexicon, key_char, key_of};
 use crate::predict::{Predictor, Typed};
 
 #[derive(Clone, Debug)]
@@ -69,7 +69,11 @@ pub fn corpus_samples(text: &str, lexicon: &Lexicon) -> Vec<Sample> {
         *untypeable = false;
     };
     for character in text.chars() {
-        let character = if character == '\u{2019}' { '\'' } else { character };
+        let character = if character == '\u{2019}' {
+            '\''
+        } else {
+            character
+        };
         if (character.is_alphabetic() && key_char(character).is_some())
             || (character == '\'' && !token.is_empty())
         {
@@ -124,8 +128,14 @@ fn sample_for(word: &str, sentence_start: bool, lexicon: &Lexicon) -> Sample {
     }
     let lowercase = forms
         .iter()
-        .find(|form| form.to_lowercase() == word.to_lowercase() && !form.chars().any(char::is_uppercase))
-        .or_else(|| forms.iter().find(|form| !form.chars().any(char::is_uppercase)));
+        .find(|form| {
+            form.to_lowercase() == word.to_lowercase() && !form.chars().any(char::is_uppercase)
+        })
+        .or_else(|| {
+            forms
+                .iter()
+                .find(|form| !form.chars().any(char::is_uppercase))
+        });
     Sample {
         target: lowercase.copied().unwrap_or(forms[0]).to_owned(),
         manual_capital: false,
@@ -323,7 +333,11 @@ impl Report {
 }
 
 fn ratio(part: usize, whole: usize) -> f64 {
-    if whole == 0 { 0.0 } else { part as f64 / whole as f64 }
+    if whole == 0 {
+        0.0
+    } else {
+        part as f64 / whole as f64
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -418,7 +432,12 @@ fn run_one(
     }
 }
 
-pub fn run(predictor: &Predictor, typist: &Typist, samples: &[Sample], options: &Options) -> Report {
+pub fn run(
+    predictor: &Predictor,
+    typist: &Typist,
+    samples: &[Sample],
+    options: &Options,
+) -> Report {
     let threads = options.threads.max(1).min(samples.len().max(1));
     let chunk = samples.len().div_ceil(threads).max(1);
     let mut report = Report::default();
@@ -430,14 +449,24 @@ pub fn run(predictor: &Predictor, typist: &Typist, samples: &[Sample], options: 
                 scope.spawn(move || {
                     let mut local = Report::default();
                     for (offset, sample) in slice.iter().enumerate() {
-                        run_one(predictor, typist, sample, part * chunk + offset, options, &mut local);
+                        run_one(
+                            predictor,
+                            typist,
+                            sample,
+                            part * chunk + offset,
+                            options,
+                            &mut local,
+                        );
                     }
                     local
                 })
             })
             .collect();
         for handle in handles {
-            report.merge(handle.join().expect("benchmark thread"), options.keep_failures);
+            report.merge(
+                handle.join().expect("benchmark thread"),
+                options.keep_failures,
+            );
         }
     });
     report
@@ -465,7 +494,11 @@ pub fn run_pairs(predictor: &Predictor, text: &str, keep: usize) -> PairReport {
             continue;
         };
         let typo = typo.trim();
-        let rights: Vec<&str> = right.split(',').map(str::trim).filter(|r| !r.is_empty()).collect();
+        let rights: Vec<&str> = right
+            .split(',')
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .collect();
         let usable = key_of(typo).is_some_and(|key| !predictor.lexicon.contains_key(&key))
             && rights.iter().any(|r| key_of(r).is_some());
         if !usable {

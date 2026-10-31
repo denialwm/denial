@@ -66,7 +66,10 @@ impl TextPredictionService {
     /// Replaces any question still waiting.
     pub(super) fn ask(&self, request: TextPredictionRequest) {
         let (inbox, wake) = &*self.inbox;
-        inbox.lock().unwrap_or_else(|error| error.into_inner()).request = Some(request);
+        inbox
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .request = Some(request);
         wake.notify_one();
     }
 }
@@ -74,7 +77,10 @@ impl TextPredictionService {
 impl Drop for TextPredictionService {
     fn drop(&mut self) {
         let (inbox, wake) = &*self.inbox;
-        inbox.lock().unwrap_or_else(|error| error.into_inner()).closed = true;
+        inbox
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed = true;
         wake.notify_one();
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -111,17 +117,30 @@ fn serve(inbox: &Shared, answers: &Sender<TextPrediction>) {
                 guard = wake.wait(guard).unwrap_or_else(|error| error.into_inner());
             }
         };
-        if answers.send(answer(&predictor, &languages, request)).is_err() {
+        if answers
+            .send(answer(&predictor, &languages, request))
+            .is_err()
+        {
             return;
         }
     }
 }
 
-fn answer(predictor: &Predictor, languages: &[String], request: TextPredictionRequest) -> TextPrediction {
+fn answer(
+    predictor: &Predictor,
+    languages: &[String],
+    request: TextPredictionRequest,
+) -> TextPrediction {
     let touches: Vec<Option<Point>> = request
         .word
         .chars()
-        .zip(request.touches.iter().copied().chain(std::iter::repeat(None)))
+        .zip(
+            request
+                .touches
+                .iter()
+                .copied()
+                .chain(std::iter::repeat(None)),
+        )
         .map(|(character, offset)| {
             let (dx, dy) = offset?;
             predictor.layout.touch_at(key_char(character)?, dx, dy)
@@ -144,7 +163,10 @@ fn answer(predictor: &Predictor, languages: &[String], request: TextPredictionRe
 /// English first, then the installed languages in name order.
 fn load() -> Result<(Predictor, Vec<String>), String> {
     let mut installed = installed_dictionaries();
-    let english = match installed.iter().position(|(language, _)| language == ENGLISH) {
+    let english = match installed
+        .iter()
+        .position(|(language, _)| language == ENGLISH)
+    {
         Some(index) => {
             let (_, path) = installed.remove(index);
             read(&path)?
@@ -164,7 +186,10 @@ fn load() -> Result<(Predictor, Vec<String>), String> {
     }
     let lexicon = Lexicon::parse_all(&texts).map_err(|error| error.to_string())?;
     let layout = KeyboardLayout::phone(LAYOUT_WIDTH, LAYOUT_ROW_HEIGHT);
-    Ok((Predictor::new(lexicon, layout, Tuning::default()), languages))
+    Ok((
+        Predictor::new(lexicon, layout, Tuning::default()),
+        languages,
+    ))
 }
 
 fn read(path: &PathBuf) -> Result<String, String> {
@@ -188,7 +213,9 @@ fn installed_dictionaries() -> Vec<(String, PathBuf)> {
                 let language = name.strip_suffix(DICTIONARY_SUFFIX)?;
                 let valid = !language.is_empty()
                     && language.len() <= 16
-                    && language.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+                    && language
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
                 valid.then(|| (language.to_owned(), entry.path()))
             })
             .collect();
@@ -216,7 +243,12 @@ fn data_directories() -> Vec<PathBuf> {
         .ok()
         .and_then(|exe| Some(exe.parent()?.parent()?.join("share")));
     home.into_iter()
-        .chain(system.split(':').filter(|path| !path.is_empty()).map(PathBuf::from))
+        .chain(
+            system
+                .split(':')
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from),
+        )
         .chain(beside)
         .filter(|path| path.is_absolute())
         .collect()
@@ -228,7 +260,8 @@ mod tests {
 
     #[test]
     fn answers_with_the_built_in_english_list() {
-        let lexicon = Lexicon::parse_all(&[decode(denial_text_prediction::ENGLISH_WORDS).unwrap()]).unwrap();
+        let lexicon =
+            Lexicon::parse_all(&[decode(denial_text_prediction::ENGLISH_WORDS).unwrap()]).unwrap();
         let predictor = Predictor::new(
             lexicon,
             KeyboardLayout::phone(LAYOUT_WIDTH, LAYOUT_ROW_HEIGHT),
@@ -238,7 +271,15 @@ mod tests {
         let request = TextPredictionRequest {
             serial: 3,
             word: "becuase".into(),
-            touches: vec![Some((0.0, 0.0)), None, Some((0.1, -0.1)), Some((0.0, 0.0)), None, None, None],
+            touches: vec![
+                Some((0.0, 0.0)),
+                None,
+                Some((0.1, -0.1)),
+                Some((0.0, 0.0)),
+                None,
+                None,
+                None,
+            ],
             manual_capital: false,
         };
         let prediction = answer(&predictor, &languages, request);

@@ -139,7 +139,10 @@ impl KeyboardLayout {
     /// right and `dy` row pitches down from the center of the key `byte`.
     pub fn touch_at(&self, byte: u8, dx: f32, dy: f32) -> Option<Point> {
         let center = self.center(byte)?;
-        Some(Point::new(center.x + dx * self.pitch, center.y + dy * self.row_pitch))
+        Some(Point::new(
+            center.x + dx * self.pitch,
+            center.y + dy * self.row_pitch,
+        ))
     }
 
     /// The key under `point` with square hit boxes. `Some(None)` is a key
@@ -206,8 +209,14 @@ mod tests {
         let w = layout.center(b'w').unwrap();
         // Just left of the q/w midpoint is q, just right is w.
         let middle = (q.x + w.x) / 2.0;
-        assert_eq!(layout.key_at(Point::new(middle - 0.5, q.y)), Some(Some(b'q')));
-        assert_eq!(layout.key_at(Point::new(middle + 0.5, q.y)), Some(Some(b'w')));
+        assert_eq!(
+            layout.key_at(Point::new(middle - 0.5, q.y)),
+            Some(Some(b'q'))
+        );
+        assert_eq!(
+            layout.key_at(Point::new(middle + 0.5, q.y)),
+            Some(Some(b'w'))
+        );
         // The second row's side inset belongs to a.
         let a = layout.center(b'a').unwrap();
         assert_eq!(layout.key_at(Point::new(1.0, a.y)), Some(Some(b'a')));

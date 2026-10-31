@@ -9,13 +9,21 @@ use denial_text_prediction::{KeyboardLayout, Lexicon, Point, Predictor, Tuning, 
 fn predictor() -> &'static Predictor {
     static PREDICTOR: OnceLock<Predictor> = OnceLock::new();
     PREDICTOR.get_or_init(|| {
-        let lexicon = Lexicon::load(&denial_text_prediction::default_dictionary()).expect("word list");
-        Predictor::new(lexicon, KeyboardLayout::phone(632.0, 70.0), Tuning::default())
+        let lexicon =
+            Lexicon::load(&denial_text_prediction::default_dictionary()).expect("word list");
+        Predictor::new(
+            lexicon,
+            KeyboardLayout::phone(632.0, 70.0),
+            Tuning::default(),
+        )
     })
 }
 
 fn committed(text: &str) -> String {
-    predictor().predict(Typed::plain(text)).committed().to_owned()
+    predictor()
+        .predict(Typed::plain(text))
+        .committed()
+        .to_owned()
 }
 
 #[test]
@@ -89,7 +97,10 @@ fn touch_points_decide_between_neighbours() {
 #[test]
 fn completions_offer_the_word_early() {
     let prediction = predictor().predict(Typed::plain("tomor"));
-    assert!(prediction.strip(3).any(|word| word == "tomorrow"), "{prediction:?}");
+    assert!(
+        prediction.strip(3).any(|word| word == "tomorrow"),
+        "{prediction:?}"
+    );
 }
 
 #[test]
@@ -106,9 +117,16 @@ fn message_corpus_accuracy_floor() {
     let report = bench::run(predictor(), &Typist::default(), &samples, &options);
     eprintln!("{}", report.summary());
     for failure in report.false_corrections.iter().chain(&report.missed_fixes) {
-        eprintln!("  {} -> {} (typed {})", failure.target, failure.committed, failure.typed);
+        eprintln!(
+            "  {} -> {} (typed {})",
+            failure.target, failure.committed, failure.typed
+        );
     }
     assert!(report.accuracy() >= 0.97, "{}", report.summary());
-    assert!(report.false_correction_rate() <= 0.01, "{}", report.summary());
+    assert!(
+        report.false_correction_rate() <= 0.01,
+        "{}",
+        report.summary()
+    );
     assert!(report.strip_rate() >= 0.98, "{}", report.summary());
 }

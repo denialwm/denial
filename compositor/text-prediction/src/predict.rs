@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::layout::{KeyboardLayout, Point};
-use crate::lexicon::{key_of, Lexicon, NONE, ROOT};
+use crate::lexicon::{Lexicon, NONE, ROOT, key_of};
 use crate::tuning::Tuning;
 
 /// What a keyboard has typed of the current word: its text, and where each
@@ -54,11 +54,7 @@ impl Prediction {
     /// The suggestion strip: the committed word and the next `slots - 1`.
     pub fn strip(&self, slots: usize) -> impl Iterator<Item = &str> {
         std::iter::once(self.committed())
-            .chain(
-                self.correction
-                    .is_some()
-                    .then_some(self.typed.as_str()),
-            )
+            .chain(self.correction.is_some().then_some(self.typed.as_str()))
             .chain(self.suggestions.iter().map(String::as_str))
             .take(slots)
     }
@@ -84,7 +80,11 @@ fn case_of(text: &str) -> Case {
         return Case::Lower;
     };
     let rest: Vec<bool> = letters.map(char::is_uppercase).collect();
-    match (first.is_uppercase(), rest.iter().all(|&u| u), rest.iter().any(|&u| u)) {
+    match (
+        first.is_uppercase(),
+        rest.iter().all(|&u| u),
+        rest.iter().any(|&u| u),
+    ) {
         (false, _, false) => Case::Lower,
         (true, true, _) if !rest.is_empty() => Case::Upper,
         (true, _, false) => Case::Capitalized,
@@ -142,7 +142,11 @@ fn symbol(byte: u8) -> usize {
 }
 
 fn symbol_byte(index: usize) -> u8 {
-    if index < 26 { b'a' + index as u8 } else { b'\'' }
+    if index < 26 {
+        b'a' + index as u8
+    } else {
+        b'\''
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -190,7 +194,9 @@ impl Search<'_> {
         let (done, rest) = self.rows.split_at_mut((depth + 1) * w);
         let current = &mut rest[..w];
         let above = &done[depth * w..];
-        let before = depth.checked_sub(1).map(|index| &done[index * w..(index + 1) * w]);
+        let before = depth
+            .checked_sub(1)
+            .map(|index| &done[index * w..(index + 1) * w]);
         current[0] = above[0] + delete;
         let mut min = current[0];
         for i in 1..=n {
@@ -348,9 +354,12 @@ impl Predictor {
 
         let mut seeds = search.seeds;
         seeds.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(Ordering::Equal)
-                .then(self.lexicon.node(b.0).best.cmp(&self.lexicon.node(a.0).best))
+            a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal).then(
+                self.lexicon
+                    .node(b.0)
+                    .best
+                    .cmp(&self.lexicon.node(a.0).best),
+            )
         });
         for &(seed, cost, depth) in seeds.iter().take(t.completion_seeds as usize) {
             let mut heap = BinaryHeap::new();
@@ -365,7 +374,12 @@ impl Predictor {
                 match item {
                     Item::Entry(entry) => {
                         found += 1;
-                        let extra = self.lexicon.word(entry).chars().count().saturating_sub(depth);
+                        let extra = self
+                            .lexicon
+                            .word(entry)
+                            .chars()
+                            .count()
+                            .saturating_sub(depth);
                         offer(Candidate {
                             entry,
                             score: self.score(entry, cost, Some(extra)),
@@ -375,7 +389,9 @@ impl Predictor {
                     }
                     Item::Node(index) => {
                         let node = self.lexicon.node(index);
-                        for entry in node.entry_start..node.entry_start + u32::from(node.entry_count) {
+                        for entry in
+                            node.entry_start..node.entry_start + u32::from(node.entry_count)
+                        {
                             if !self.lexicon.is_offensive(entry) {
                                 heap.push((self.lexicon.frequency(entry), Item::Entry(entry)));
                             }
@@ -441,7 +457,8 @@ impl Predictor {
         // Italian "il" stays, though English fixes it to "I'll".
         let foreign_word = |languages: crate::lexicon::Languages| {
             entries.clone().any(|entry| {
-                self.lexicon.languages(entry) & !languages != 0 && self.lexicon.word(entry) == typed_lower
+                self.lexicon.languages(entry) & !languages != 0
+                    && self.lexicon.word(entry) == typed_lower
             })
         };
         if let Some(replacement) = self
@@ -460,7 +477,9 @@ impl Predictor {
             let limit = t.auto_cost(key.len());
             prediction.correction = candidates
                 .iter()
-                .filter(|candidate| !candidate.completion && !self.lexicon.is_offensive(candidate.entry))
+                .filter(|candidate| {
+                    !candidate.completion && !self.lexicon.is_offensive(candidate.entry)
+                })
                 .find(|candidate| !name_typed || capitals(self.lexicon.word(candidate.entry)))
                 .filter(|candidate| candidate.cost <= limit && candidate.score >= t.auto_min_score)
                 .map(|candidate| display(candidate.entry));

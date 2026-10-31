@@ -89,9 +89,17 @@ fn run() -> Result<(), String> {
     let mut args = Args {
         rest: std::env::args().skip(1).collect(),
     };
-    let mut dictionaries: Vec<PathBuf> = args.take_all("--dict")?.into_iter().map(PathBuf::from).collect();
+    let mut dictionaries: Vec<PathBuf> = args
+        .take_all("--dict")?
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
     if let Some(languages) = args.take_value("--lang")? {
-        dictionaries.extend(languages.split(',').map(denial_text_prediction::bundled_dictionary));
+        dictionaries.extend(
+            languages
+                .split(',')
+                .map(denial_text_prediction::bundled_dictionary),
+        );
     }
     if dictionaries.is_empty() {
         dictionaries.push(denial_text_prediction::default_dictionary());
@@ -115,7 +123,8 @@ fn run() -> Result<(), String> {
     }
 
     let started = Instant::now();
-    let lexicon = Lexicon::load_all(&dictionaries).map_err(|error| format!("{dictionaries:?}: {error}"))?;
+    let lexicon =
+        Lexicon::load_all(&dictionaries).map_err(|error| format!("{dictionaries:?}: {error}"))?;
     eprintln!(
         "{} words from {} list(s) in {} ms",
         lexicon.len(),
@@ -146,7 +155,9 @@ fn run() -> Result<(), String> {
             let keep: usize = args.parse("--failures", 20)?;
             let mut text = String::new();
             for path in &args.rest {
-                text.push_str(&std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?);
+                text.push_str(
+                    &std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?,
+                );
                 text.push('\n');
             }
             let report = bench::run_pairs(&predictor, &text, keep);
@@ -159,7 +170,10 @@ fn run() -> Result<(), String> {
                 report.skipped
             );
             for miss in &report.misses {
-                println!("  miss {:>16} -> {:<16} want {}", miss.typed, miss.committed, miss.target);
+                println!(
+                    "  miss {:>16} -> {:<16} want {}",
+                    miss.typed, miss.committed, miss.target
+                );
             }
             Ok(())
         }
@@ -169,7 +183,12 @@ fn run() -> Result<(), String> {
 
 /// `words` samples spread evenly over the corpora; `part` 1 takes the words
 /// between those of part 0, for a held-out set.
-fn load_samples(predictor: &Predictor, paths: &[String], words: usize, part: usize) -> Result<Vec<Sample>, String> {
+fn load_samples(
+    predictor: &Predictor,
+    paths: &[String],
+    words: usize,
+    part: usize,
+) -> Result<Vec<Sample>, String> {
     let mut all: Vec<Sample> = Vec::new();
     for path in paths {
         let text = std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
@@ -177,13 +196,23 @@ fn load_samples(predictor: &Predictor, paths: &[String], words: usize, part: usi
     }
     let stride = (all.len() / words.max(1)).max(2);
     let offset = if part == 0 { 0 } else { stride / 2 };
-    Ok(all.into_iter().skip(offset).step_by(stride).take(words).collect())
+    Ok(all
+        .into_iter()
+        .skip(offset)
+        .step_by(stride)
+        .take(words)
+        .collect())
 }
 
 fn parse_list(flag: &str, value: Option<String>, default: f32) -> Result<Vec<f32>, String> {
     value.map_or(Ok(vec![default]), |list| {
         list.split(',')
-            .map(|value| value.trim().parse().map_err(|_| format!("{flag}: {value:?}")))
+            .map(|value| {
+                value
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("{flag}: {value:?}"))
+            })
             .collect()
     })
 }
@@ -200,7 +229,10 @@ fn tune_command(predictor: &mut Predictor, mut args: Args) -> Result<(), String>
         .map(str::to_owned)
         .collect();
     for name in &params {
-        predictor.tuning.get(name).ok_or_else(|| format!("unknown tuning value {name:?}"))?;
+        predictor
+            .tuning
+            .get(name)
+            .ok_or_else(|| format!("unknown tuning value {name:?}"))?;
     }
     if args.rest.is_empty() {
         return Err("tune needs at least one corpus file".into());
@@ -229,20 +261,31 @@ fn tune_command(predictor: &mut Predictor, mut args: Args) -> Result<(), String>
     };
     let before_test = evaluate(predictor, &test, 2);
     let mut best = evaluate(predictor, &train, 1);
-    eprintln!("start: train {:.3}%  test {:.3}%", 100.0 * best, 100.0 * before_test);
+    eprintln!(
+        "start: train {:.3}%  test {:.3}%",
+        100.0 * best,
+        100.0 * before_test
+    );
     let mut fraction = 0.25f32;
     for round in 0..rounds {
         let mut improved = false;
         for name in &params {
             let current = predictor.tuning.get(name).expect("checked");
-            let step = if current.abs() > 1e-6 { current.abs() * fraction } else { fraction * 0.4 };
+            let step = if current.abs() > 1e-6 {
+                current.abs() * fraction
+            } else {
+                fraction * 0.4
+            };
             for candidate in [current + step, current - step] {
                 predictor.tuning.set(name, candidate)?;
                 let error = evaluate(predictor, &train, 1);
                 if error < best - 1e-6 {
                     best = error;
                     improved = true;
-                    eprintln!("round {round}: {name}={candidate} train {:.3}%", 100.0 * error);
+                    eprintln!(
+                        "round {round}: {name}={candidate} train {:.3}%",
+                        100.0 * error
+                    );
                     break;
                 }
                 predictor.tuning.set(name, current)?;
@@ -263,7 +306,10 @@ fn tune_command(predictor: &mut Predictor, mut args: Args) -> Result<(), String>
         100.0 * before_test
     );
     for name in &params {
-        println!("--set {name}={}", predictor.tuning.get(name).expect("checked"));
+        println!(
+            "--set {name}={}",
+            predictor.tuning.get(name).expect("checked")
+        );
     }
     Ok(())
 }
@@ -334,10 +380,16 @@ fn bench_command(predictor: &mut Predictor, mut args: Args) -> Result<(), String
                 started.elapsed().as_secs_f32()
             );
             for failure in &report.false_corrections {
-                println!("  false  {:>16} -> {:<16} typed {}", failure.target, failure.committed, failure.typed);
+                println!(
+                    "  false  {:>16} -> {:<16} typed {}",
+                    failure.target, failure.committed, failure.typed
+                );
             }
             for failure in &report.missed_fixes {
-                println!("  missed {:>16} -> {:<16} typed {}", failure.target, failure.committed, failure.typed);
+                println!(
+                    "  missed {:>16} -> {:<16} typed {}",
+                    failure.target, failure.committed, failure.typed
+                );
             }
         }
     }

@@ -4,10 +4,10 @@
 mod fingerprint;
 #[path = "authentication/fingerprint_settings.rs"]
 pub(super) mod fingerprint_settings;
-#[path = "authentication/lock_capability.rs"]
-mod lock_capability;
 #[path = "authentication/gatekeeper.rs"]
 mod gatekeeper;
+#[path = "authentication/lock_capability.rs"]
+mod lock_capability;
 #[path = "authentication/pin.rs"]
 pub(super) mod pin;
 #[path = "authentication/session_lock.rs"]

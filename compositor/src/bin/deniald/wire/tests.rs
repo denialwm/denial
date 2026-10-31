@@ -1762,7 +1762,9 @@ fn keyboard_replace(replaced: &str, text: &str) -> Vec<u8> {
 #[test]
 fn keyboard_replace_needs_both_texts() {
     let mut bridge = bridge();
-    bridge.handle(&keyboard_replace("perche", "perché")).unwrap();
+    bridge
+        .handle(&keyboard_replace("perche", "perché"))
+        .unwrap();
     assert_eq!(
         bridge.pending_keyboard_commands.pop_front().unwrap(),
         KeyboardCommand::Replace {
@@ -1807,16 +1809,30 @@ fn prediction_request(serial: u64, word: &str, xs: &[f32], ys: &[f32], request_i
 #[test]
 fn text_prediction_keeps_only_the_newest_request() {
     let mut bridge = bridge();
-    bridge.handle(&prediction_request(1, "ci", &[], &[], 0)).unwrap();
     bridge
-        .handle(&prediction_request(2, "città", &[0.1, f32::NAN, 0.0, 0.0, 0.0], &[0.2, 0.0, 0.0, 0.0, -0.3], 0))
+        .handle(&prediction_request(1, "ci", &[], &[], 0))
+        .unwrap();
+    bridge
+        .handle(&prediction_request(
+            2,
+            "città",
+            &[0.1, f32::NAN, 0.0, 0.0, 0.0],
+            &[0.2, 0.0, 0.0, 0.0, -0.3],
+            0,
+        ))
         .unwrap();
     assert_eq!(
         bridge.take_text_prediction_request(),
         Some(TextPredictionRequest {
             serial: 2,
             word: "città".into(),
-            touches: vec![Some((0.1, 0.2)), None, Some((0.0, 0.0)), Some((0.0, 0.0)), Some((0.0, -0.3))],
+            touches: vec![
+                Some((0.1, 0.2)),
+                None,
+                Some((0.0, 0.0)),
+                Some((0.0, 0.0)),
+                Some((0.0, -0.3))
+            ],
             manual_capital: true,
         })
     );
@@ -1830,9 +1846,17 @@ fn text_prediction_keeps_only_the_newest_request() {
         bridge.handle(&prediction_request(4, "ab", &[], &[], 9)),
         Err(WireError::RequestId)
     ));
-    assert!(bridge
-        .handle(&prediction_request(5, &"a".repeat(MAX_PREDICTION_WORD_CHARS + 1), &[], &[], 0))
-        .is_err());
+    assert!(
+        bridge
+            .handle(&prediction_request(
+                5,
+                &"a".repeat(MAX_PREDICTION_WORD_CHARS + 1),
+                &[],
+                &[],
+                0
+            ))
+            .is_err()
+    );
     assert_eq!(bridge.take_text_prediction_request(), None);
 }
 
@@ -1857,10 +1881,19 @@ fn text_prediction_encodes_suggestions() {
         decoded.suggestions().unwrap().iter().collect::<Vec<_>>(),
         ["perché", "perche", "perciò"]
     );
-    assert_eq!(decoded.languages().unwrap().iter().collect::<Vec<_>>(), ["en", "it"]);
+    assert_eq!(
+        decoded.languages().unwrap().iter().collect::<Vec<_>>(),
+        ["en", "it"]
+    );
 
-    let none = TextPrediction { correction: None, ..prediction };
+    let none = TextPrediction {
+        correction: None,
+        ..prediction
+    };
     let bytes = bridge.encode_text_prediction(&none).unwrap().to_vec();
-    let decoded = fb::root_as_envelope(&bytes).unwrap().payload_as_text_prediction().unwrap();
+    let decoded = fb::root_as_envelope(&bytes)
+        .unwrap()
+        .payload_as_text_prediction()
+        .unwrap();
     assert_eq!(decoded.correction(), None);
 }

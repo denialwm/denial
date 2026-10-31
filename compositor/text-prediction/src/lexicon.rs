@@ -106,7 +106,9 @@ impl Lexicon {
     pub fn load_all<P: AsRef<Path>>(paths: &[P]) -> Result<Self, LoadError> {
         let mut texts = Vec::with_capacity(paths.len());
         for path in paths {
-            texts.push(decode(&std::fs::read(path.as_ref()).map_err(LoadError::Io)?)?);
+            texts.push(decode(
+                &std::fs::read(path.as_ref()).map_err(LoadError::Io)?,
+            )?);
         }
         Self::parse_all(&texts)
     }
@@ -162,7 +164,8 @@ impl Lexicon {
                 continue;
             }
             if let Some(rest) = line.strip_prefix('>') {
-                let (typed, replacement) = rest.split_once('\t').ok_or(bad("shortcut needs a tab"))?;
+                let (typed, replacement) =
+                    rest.split_once('\t').ok_or(bad("shortcut needs a tab"))?;
                 let key = key_of(typed).ok_or(bad("shortcut source is not a word"))?;
                 let key = String::from_utf8(key).expect("ASCII key");
                 shortcuts
@@ -192,7 +195,6 @@ impl Lexicon {
         entries: Vec<(Vec<u8>, Box<str>, u8, bool, Languages)>,
         shortcuts: HashMap<Box<str>, (Box<str>, Languages)>,
     ) -> Result<Self, LoadError> {
-
         let mut nodes = vec![Node {
             first_child: NONE,
             next_sibling: NONE,
@@ -209,11 +211,7 @@ impl Lexicon {
         let mut last_child: Vec<u32> = vec![NONE];
         let mut previous: &[u8] = &[];
         for (index, (key, ..)) in entries.iter().enumerate() {
-            let common = key
-                .iter()
-                .zip(previous)
-                .take_while(|(a, b)| a == b)
-                .count();
+            let common = key.iter().zip(previous).take_while(|(a, b)| a == b).count();
             path.truncate(common + 1);
             last_child.truncate(common + 1);
             for &byte in &key[common..] {
@@ -316,7 +314,9 @@ impl Lexicon {
     fn find(&self, key: &[u8]) -> Option<u32> {
         let mut node = ROOT;
         for &byte in key {
-            node = self.children(node).find(|&child| self.node(child).byte == byte)?;
+            node = self
+                .children(node)
+                .find(|&child| self.node(child).byte == byte)?;
         }
         Some(node)
     }
@@ -340,7 +340,9 @@ impl Lexicon {
     /// that make it.
     pub fn shortcut(&self, key: &[u8]) -> Option<(&str, Languages)> {
         let key = std::str::from_utf8(key).ok()?;
-        self.shortcuts.get(key).map(|(value, languages)| (&**value, *languages))
+        self.shortcuts
+            .get(key)
+            .map(|(value, languages)| (&**value, *languages))
     }
 }
 
@@ -390,7 +392,11 @@ mod tests {
 
     #[test]
     fn languages_merge_shared_words() {
-        let lexicon = Lexicon::parse_all(&["come\t180\nCome\t50\npartner\t120\n", "come\t200\npartner\t100\to\n"]).unwrap();
+        let lexicon = Lexicon::parse_all(&[
+            "come\t180\nCome\t50\npartner\t120\n",
+            "come\t200\npartner\t100\to\n",
+        ])
+        .unwrap();
         let forms: Vec<_> = lexicon
             .entries(b"come")
             .map(|e| (lexicon.word(e), lexicon.frequency(e), lexicon.languages(e)))
