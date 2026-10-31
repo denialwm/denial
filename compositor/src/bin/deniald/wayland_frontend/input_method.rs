@@ -231,7 +231,9 @@ impl InputMethodKeyboardRoute {
     /// Deliver a key transition to the input method when it owns the key.
     ///
     /// Presses reach the input method only while an editor is active; each
-    /// release follows its press even after the editor deactivates.
+    /// release follows its press even after the editor deactivates. Fcitx
+    /// destroys its grab on deactivation: a release that finds no grab goes
+    /// to the seat focus, which otherwise keeps the modifier held.
     fn intercept(
         &self,
         keycode: Keycode,
@@ -251,7 +253,7 @@ impl InputMethodKeyboardRoute {
                 inner.input_method_keys.insert(raw);
                 true
             }
-            KeyState::Released => inner.input_method_keys.remove(&raw),
+            KeyState::Released => inner.input_method_keys.remove(&raw) && resource.is_some(),
             KeyState::Pressed => false,
         };
         if !route_to_input_method {
