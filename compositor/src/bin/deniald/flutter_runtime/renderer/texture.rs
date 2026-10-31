@@ -715,7 +715,16 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     lookahead_presentation: denial_flutter_engine::ExternalTexturePresentation,
     pub(in crate::flutter_runtime) current_sampled: bool,
     pub(in crate::flutter_runtime) expects_sample: bool,
+    /// New generations queued since the last advance.
+    commits_since_advance: u8,
+    /// The client outruns the output: keep only its newest generation.
+    latest_only: bool,
 }
+
+/// Generations within one advance that mark a client as outrunning the output.
+/// A client at the output's rate lands at most two there when its commits
+/// straddle a tick.
+const LATEST_ONLY_COMMITS: u8 = 3;
 
 impl ExternalTextureSlot {
     pub(in crate::flutter_runtime) fn queue(
@@ -764,9 +773,16 @@ impl ExternalTextureSlot {
         }
         // Preserve one generation on either side of a tick boundary. The
         // immediate successor is stable; only excess lookahead is latest-only.
-        if self.queued.is_none() {
+        // A client that outruns the output gets one successor, the newest,
+        // so it holds one buffer less and renders ahead.
+        self.commits_since_advance = self.commits_since_advance.saturating_add(1);
+        if self.commits_since_advance >= LATEST_ONLY_COMMITS {
+            self.latest_only = true;
+        }
+        if self.queued.is_none() || self.latest_only {
             self.queued = Some(source);
             self.queued_presentation = self.desired_presentation;
+            self.lookahead = None;
         } else {
             self.lookahead = Some(source);
             self.lookahead_presentation = self.desired_presentation;
@@ -785,6 +801,11 @@ impl ExternalTextureSlot {
         self.queued = self.lookahead.take();
         self.queued_presentation = self.lookahead_presentation;
         self.current_sampled = false;
+        // One generation in an interval is the output's rate again.
+        if self.commits_since_advance <= 1 {
+            self.latest_only = false;
+        }
+        self.commits_since_advance = 0;
         true
     }
 
@@ -1119,6 +1140,53 @@ pub(in crate::flutter_runtime) fn contain_ffi_unwind(callback: impl FnOnce()) ->
 #[cfg(test)]
 mod cache_retirement_tests {
     use super::*;
+
+    #[test]
+    fn slot_keeps_a_jittered_successor_but_only_the_newest_of_a_fast_client() {
+        let source = |revision| {
+            ExternalTextureSource::Shm(
+                ShmTextureFrame::new_owned(1, 1, revision, vec![0, 0, 0, 255]).unwrap(),
+            )
+        };
+        let generations = |slot: &ExternalTextureSlot| {
+            [&slot.current, &slot.queued, &slot.lookahead]
+                .map(|source| source.as_ref().map(ExternalTextureSource::generation))
+        };
+        let tick = |slot: &mut ExternalTextureSlot| {
+            slot.current_sampled = true;
+            slot.advance()
+        };
+        let mut slot = ExternalTextureSlot::default();
+        slot.queue(source(1), true, None);
+        assert!(tick(&mut slot));
+
+        // Two commits across one tick: both are shown, in order.
+        slot.queue(source(2), true, None);
+        slot.queue(source(3), true, None);
+        assert_eq!(generations(&slot), [Some(1), Some(2), Some(3)]);
+        assert!(tick(&mut slot));
+        assert_eq!(generations(&slot), [Some(2), Some(3), None]);
+
+        // A third commit within one interval: only the newest stays queued,
+        // and later commits replace it.
+        assert!(tick(&mut slot));
+        for revision in 4..=6 {
+            slot.queue(source(revision), true, None);
+        }
+        assert_eq!(generations(&slot), [Some(3), Some(6), None]);
+        assert!(tick(&mut slot));
+        slot.queue(source(7), true, None);
+        slot.queue(source(8), true, None);
+        assert_eq!(generations(&slot), [Some(6), Some(8), None]);
+
+        // One commit per interval restores the jittered successor.
+        assert!(tick(&mut slot));
+        slot.queue(source(9), true, None);
+        assert!(tick(&mut slot));
+        slot.queue(source(10), true, None);
+        slot.queue(source(11), true, None);
+        assert_eq!(generations(&slot), [Some(9), Some(10), Some(11)]);
+    }
 
     #[test]
     fn owned_snapshot_survives_cache_eviction_retirement_and_reader_fence() {
