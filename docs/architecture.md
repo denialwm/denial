@@ -19,7 +19,7 @@ deniald
   Rust Flutter host
     dynamic Flutter Engine ABI
     external textures and platform channels
-    frame scheduling and atlas buffer ownership
+    frame scheduling and per-output buffer ownership
 
   Flutter engine
     Dart shell
@@ -58,16 +58,23 @@ a Wayland resource, file descriptor, EGL image, fence or KMS buffer.
 
 ## Scene and outputs
 
-Flutter renders one desktop-wide XRGB8888 GBM atlas. Each connected CRTC scans
-a distinct source rectangle from the same framebuffer, so output count does
-not introduce a compositor copy. Flutter renders through one shared atlas pool
-whose ownership is synchronized with the independently clocked outputs.
+Dart builds one logical scene spanning every output. Each output has its own
+pool of GBM scanout buffers at that connector's physical mode size: three
+buffers, or four when the output renders ahead (`DENIAL_RENDER_AHEAD`). The
+pools prefer XRGB2101010 and keep XRGB8888 for planes or renderers without it;
+cross-device transfers stay 8-bit. Flutter renders each output's part of the
+scene into that output's own buffer, so outputs are clocked and
+backpressured independently. Output views are composed from retained slices
+([layered composition](LAYERED_COMPOSITION.md)).
+
+A build without the Flutter feature allocates one desktop-wide atlas instead,
+with each CRTC scanning a distinct source rectangle of it.
 
 Denial's Flutter engine is a Slimpeller build: it runs Impeller GLES, while
 Skia's Ganesh and Graphite renderers are disabled at engine-generation time.
 The locked engine fork connects Impeller directly to the rotating
-compositor-owned FBOs, preserves atlas damage, and keeps external client
-textures alive through native GPU fences.
+compositor-owned FBOs, preserves each buffer's damage, and keeps external
+client textures alive through native GPU fences.
 
 Atomic presentation synchronization lives in the in-tree
 `denial_core::volition` library module at `compositor/src/volition/`. Volition
@@ -76,14 +83,11 @@ lookahead lanes. Denial's output scheduler remains the caller: it chooses the
 frame, retains buffer ownership through page-flip completion, and handles
 Flutter, Wayland, DPMS, and screenshot policy.
 
-Topology changes are validated atomically before allocation. Atlas axes above
-16,384 pixels and complete pools above 1 GiB are rejected. The compositor
+Topology changes are validated atomically before allocation. Scanout axes
+above 16,384 pixels and pools above 1 GiB in total are rejected; unsupported
+layouts fail explicitly instead of presenting corrupt state. The compositor
 captures and pins the pre-Denial KMS state before the first modeset and restores
 it on normal finite or session teardown.
-
-The current implementation requires a layout compatible with the direct atlas
-path. A more general per-output fallback remains roadmap work; unsupported
-layouts fail explicitly instead of silently presenting corrupt state.
 
 ## Client surfaces
 

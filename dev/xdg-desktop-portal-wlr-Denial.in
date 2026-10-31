@@ -1,9 +1,9 @@
 # Installed by @LAUNCHER@
 #
-# xdg-desktop-portal-wlr's default chooser starts with slurp, whose overlay
-# requires zwlr-layer-shell. Denial does not expose layer-shell yet, so use a
-# regular xdg-shell Zenity window instead. In dmenu mode, xdpw writes its valid
-# sources to the chooser's stdin and reads the selected source from stdout.
+# Choose the shared source in a regular xdg-shell Zenity window instead of
+# xdg-desktop-portal-wlr's default slurp chooser. In dmenu mode, xdpw writes
+# its valid sources to the chooser's stdin and reads the selected source from
+# stdout.
 # xdpw waits synchronously for the chooser. Prevent GTK from calling back into
 # the portal while it is waiting, which can deadlock screen-capture setup.
 [screencast]

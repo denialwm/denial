@@ -30,8 +30,8 @@ upright results for normal, rotated, and reflected outputs.
 Tools such as `grim` and `wf-recorder` can connect directly to the Denial
 Wayland display. Full-output and explicit-coordinate `grim` captures work.
 
-Interactive `slurp`-based region selection still requires layer-shell support,
-which Denial does not currently advertise.
+Denial advertises `zwlr_layer_shell_v1`, which interactive `slurp` region
+selection uses.
 
 ## Desktop portals
 
@@ -60,19 +60,17 @@ At its first ready frame, Denial activates the packaged
 `graphical-session.target`. Portal activation is deliberately gated on that
 ready point so a backend never inherits an unset or stale Wayland socket.
 
-Because the default `xdg-desktop-portal-wlr` chooser starts `slurp`, Denial
-provides a Zenity chooser instead. Zenity uses a regular xdg-shell window and
-returns the monitor selected by the user without depending on layer-shell.
+Denial configures a Zenity chooser in place of the default
+`xdg-desktop-portal-wlr` `slurp` chooser. Zenity opens a regular xdg-shell
+window and returns the monitor selected by the user.
 The chooser runs with `GDK_DEBUG=no-portals` scoped to its process. The wlr
 backend waits synchronously for the chooser, so GTK portal calls from that
 chooser can create a circular wait and time out OBS capture-session setup.
 
 ## Current limitations
 
-- Interactive portal Screenshot and color-picker regions require layer-shell
-  and are not yet available.
-- The Flutter shell currently paints its software cursor into the shared
-  atlas, so captured frames include that cursor even when a client does not
-  request a cursor overlay.
+- The Flutter shell paints its software cursor into each output's buffer, so
+  captured frames include that cursor even when a client does not request a
+  cursor overlay.
 - Foreign-toplevel capture contains the client-owned toplevel surface tree,
   without Flutter-owned server decorations or the shell cursor.

@@ -156,8 +156,6 @@ Longer-term work may include:
   external DMA-BUF texture import, modifiers, and explicit synchronization are
   reliable across supported hardware; keep GLES as the default until Vulkan can
   preserve Denial's zero-copy client-texture path;
-- a general per-output rendering fallback for layouts that cannot use the
-  shared atlas path;
 - deeper accessibility integration;
 - variable refresh rate, color management, and HDR where the architecture and
   upstream protocols make them appropriate;

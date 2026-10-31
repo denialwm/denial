@@ -9,12 +9,13 @@ The Rust workspace contains four deliberately separate layers:
 - a shell-independent native control client for the compositor's versioned
   per-user IPC.
 
-The KMS backend allocates one desktop-wide XRGB8888 GBM atlas.  Every connected
-CRTC scans a different source rectangle of that same framebuffer; there is no
-per-output copy. Flutter uses one global atlas pool sized for independently
-clocked output ownership. Pathological layouts are rejected before GBM
-allocation if either atlas axis exceeds 16384 pixels or the complete pool
-exceeds 1 GiB. The pre-Denial atomic state and framebuffer objects are pinned
+With Flutter, the KMS backend allocates a separate pool of GBM scanout buffers
+for each output at its physical mode size: three buffers, or four when the
+output renders ahead. Pools prefer XRGB2101010 and fall back to XRGB8888.
+Builds without the `flutter` feature allocate one desktop-wide atlas instead,
+and every CRTC scans a different source rectangle of it. Pathological layouts
+are rejected before GBM allocation if a scanout axis exceeds 16384 pixels or
+the pools exceed 1 GiB in total. The pre-Denial atomic state and framebuffer objects are pinned
 before the first modeset and restored on normal exit.
 
 ## Fast checks
@@ -266,7 +267,7 @@ activity feeds `ext-idle-notify-v1`, so clients such as desktop pets learn
 when the user goes idle and comes back; its idle notifications honour those
 inhibitors, and its input-idle ones (version 2) ignore them. DPMS-off
 outputs remain in the logical desktop while their KMS pipeline is disabled;
-waking them restores a complete scanout atlas without rebuilding the Wayland
+waking them restores their scanout buffers without rebuilding the Wayland
 topology. A Vulkan Wayland client has been validated through DP-5
 removal/reconnection while its four dma-bufs remained imported and the client
 kept presenting.
