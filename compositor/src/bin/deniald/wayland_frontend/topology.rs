@@ -563,6 +563,12 @@ impl WaylandFrontend {
         }
         self.space.refresh();
         self.refresh_image_copy_constraints();
+        // Hotplug runs outside Wayland client dispatch. Deliver global and
+        // global_remove now: a sleeping client may send nothing for minutes,
+        // and a bind that arrives after a retired global's grace is fatal.
+        if let Err(error) = self.display_handle.flush_clients() {
+            tracing::warn!(%error, "failed to flush Wayland topology changes");
+        }
         info!(
             epoch = snapshot.epoch,
             outputs = self.outputs.len(),

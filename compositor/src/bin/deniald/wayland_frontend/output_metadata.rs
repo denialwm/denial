@@ -7,7 +7,8 @@ pub(super) fn unknown(name: &str) -> PhysicalProperties {
     from_native(name, None, Subpixel::Unknown, None)
 }
 
-/// None means an I/O failure, not authoritative missing monitor metadata.
+/// None means nothing authoritative to read: an I/O failure, or a held output
+/// whose monitor dropped its connector while asleep. Keep what we knew.
 pub(super) fn read(drm: &DrmDeviceFd, id: OutputId, name: &str) -> Option<PhysicalProperties> {
     let Some(handle) = u32::try_from(id.0)
         .ok()
@@ -16,8 +17,11 @@ pub(super) fn read(drm: &DrmDeviceFd, id: OutputId, name: &str) -> Option<Physic
         return Some(unknown(name));
     };
     let info = drm.get_connector(handle, false).ok()?;
-    if info.state() != connector::State::Connected || info.to_string() != name {
+    if info.to_string() != name {
         return Some(unknown(name));
+    }
+    if info.state() != connector::State::Connected {
+        return None;
     }
     let props = drm.get_properties(handle).ok()?;
     let mut edid = None;
