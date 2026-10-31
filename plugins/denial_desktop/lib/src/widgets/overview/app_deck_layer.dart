@@ -488,8 +488,10 @@ class _DeckCardState extends State<_DeckCard>
               pose: _pose,
               child: WindowSurface(
                 window: widget.window,
-                contentPadding: const EdgeInsets.only(
-                  top: ReferenceShellMetrics.appStatusBarHeight,
+                contentPadding: EdgeInsets.only(
+                  top: ReferenceShellMetrics.appStatusInset(
+                    MediaQuery.sizeOf(context),
+                  ),
                 ),
               ),
             ),

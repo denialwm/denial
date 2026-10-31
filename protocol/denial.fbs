@@ -313,7 +313,8 @@ struct InputWindowRegion {
 // The screen edge from which a shell edge swipe travels inward.
 enum InputEdge : ubyte {
   Left = 0,
-  Right = 1
+  Right = 1,
+  Top = 2
 }
 
 // A touch that starts inside rect over a client window is delivered to that

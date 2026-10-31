@@ -499,6 +499,7 @@ impl InputWindowRegion {
 pub enum InputEdge {
     Left,
     Right,
+    Top,
 }
 
 /// A touch starting in `rect` over a client stays with that client until it

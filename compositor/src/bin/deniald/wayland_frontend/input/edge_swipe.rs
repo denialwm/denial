@@ -16,7 +16,7 @@ const CLAIM_DISTANCE: f64 = 12.0;
 /// contact stays with the client for good.
 const RELEASE_DISTANCE: f64 = 16.0;
 /// Travel along the edge allowed per unit of inward travel: a swipe leaning
-/// up to about 56 degrees from the horizontal still counts as inward.
+/// up to about 56 degrees away from straight inward still counts.
 const ALONG_PER_INWARD: f64 = 1.5;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,11 +55,11 @@ impl EdgeSwipeCandidate {
 
     pub fn decide(&self, position: Point<f64, Logical>) -> EdgeSwipeDecision {
         let delta = position - self.origin;
-        let inward = match self.edge {
-            InputEdge::Left => delta.x,
-            InputEdge::Right => -delta.x,
+        let (inward, along) = match self.edge {
+            InputEdge::Left => (delta.x, delta.y.abs()),
+            InputEdge::Right => (-delta.x, delta.y.abs()),
+            InputEdge::Top => (delta.y, delta.x.abs()),
         };
-        let along = delta.y.abs();
         if inward >= CLAIM_DISTANCE && along <= inward * ALONG_PER_INWARD {
             EdgeSwipeDecision::Claim
         } else if -inward >= RELEASE_DISTANCE
@@ -158,5 +158,18 @@ mod tests {
         assert_eq!(moved(left, 14.0, -21.0), EdgeSwipeDecision::Claim);
         let right = candidate(396.0, 400.0).unwrap();
         assert_eq!(moved(right, -16.0, 20.0), EdgeSwipeDecision::Claim);
+    }
+
+    #[test]
+    fn a_pull_down_from_the_top_edge_claims_the_contact() {
+        let top = EdgeSwipeCandidate {
+            edge: InputEdge::Top,
+            origin: Point::from((200.0, 10.0)),
+            origin_time_usec: 7,
+        };
+        assert_eq!(moved(top, 2.0, 6.0), EdgeSwipeDecision::Pending);
+        assert_eq!(moved(top, 4.0, 12.0), EdgeSwipeDecision::Claim);
+        assert_eq!(moved(top, 16.0, 3.0), EdgeSwipeDecision::Release);
+        assert_eq!(moved(top, 0.0, -16.0), EdgeSwipeDecision::Release);
     }
 }

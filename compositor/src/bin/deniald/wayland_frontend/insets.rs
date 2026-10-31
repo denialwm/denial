@@ -107,6 +107,7 @@ fn initial_desktop_geometry(
 
 /// Matches the mobile status bar's logical height. Output scaling is applied
 /// by the ordinary client configure/viewport and native texture projection.
+/// A landscape output shows no status bar, so its windows get no inset.
 pub(super) const MOBILE_STATUS_INSET: i32 = 48;
 
 struct SelfManagedInsets;
@@ -388,7 +389,7 @@ impl WaylandFrontend {
             .output_for_geometry(self.window_geometry_target(window))
             .map(|output| output.logical_geometry)
             .or_else(|| self.fallback_output_geometry())?;
-        let top = if self_managed(&root) {
+        let top = if self_managed(&root) || geometry.size.w > geometry.size.h {
             0
         } else {
             MOBILE_STATUS_INSET.min((geometry.size.h - 1).max(0))

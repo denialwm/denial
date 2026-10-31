@@ -139,7 +139,7 @@ Color _statusColorAt(BuildContext context, Color foreground, double progress) {
 ///
 /// While the shade is open, the shade draws the whole row beneath its
 /// notifications through [ShadeHeaderStatusLayer]; the bar keeps only its
-/// drag surface.
+/// drag surface. A landscape view shows no bar, only that surface.
 class ShadeStatusBar extends ConsumerWidget {
   const ShadeStatusBar({super.key, this.shadeProgress, this.onDragStart});
 
@@ -152,6 +152,9 @@ class ShadeStatusBar extends ConsumerWidget {
     final foreground = _statusForeground(context, ref);
     final progress = shadeProgress ?? const AlwaysStoppedAnimation(0);
     final geometry = _StatusGeometry.of(context);
+    final shown = ReferenceShellMetrics.statusBarShown(
+      MediaQuery.sizeOf(context),
+    );
 
     return Positioned(
       left: 0,
@@ -186,7 +189,7 @@ class ShadeStatusBar extends ConsumerWidget {
           child: AnimatedBuilder(
             animation: progress,
             // Only the change to and from closed rebuilds the row.
-            builder: (context, _) => progress.value > 0
+            builder: (context, _) => progress.value > 0 || !shown
                 ? const SizedBox.expand()
                 : Stack(
                     fit: StackFit.expand,

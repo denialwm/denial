@@ -2504,12 +2504,13 @@ impl flatbuffers::SimpleToVerifyInSlice for CursorStateKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_INPUT_EDGE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_INPUT_EDGE: u8 = 1;
+pub const ENUM_MAX_INPUT_EDGE: u8 = 2;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_INPUT_EDGE: [InputEdge; 2] = [
+pub const ENUM_VALUES_INPUT_EDGE: [InputEdge; 3] = [
   InputEdge::Left,
   InputEdge::Right,
+  InputEdge::Top,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2519,18 +2520,21 @@ pub struct InputEdge(pub u8);
 impl InputEdge {
   pub const Left: Self = Self(0);
   pub const Right: Self = Self(1);
+  pub const Top: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 2;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Left,
     Self::Right,
+    Self::Top,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Left => Some("Left"),
       Self::Right => Some("Right"),
+      Self::Top => Some("Top"),
       _ => None,
     }
   }

@@ -84,6 +84,8 @@ boundaries may change before 1.0.
   installed, and the shell's clocks can show 24-hour time.
 - The mobile home screen keeps its own layout for portrait and for landscape,
   and in landscape its cells shrink to fit and the keyboard gets taller rows.
+- In landscape the mobile shell hides its status bar and apps get the full
+  height; a swipe down from the top edge still opens the shade.
 - Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
 
 ### Changed

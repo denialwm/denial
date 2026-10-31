@@ -126,16 +126,19 @@ class ReferenceInputLayoutCoordinator {
         interactions.capturesFullScene;
     final scrollStripVisible =
         state.edgePanelVisible && (shellOwnsCanvas || appLifted);
+    // A landscape view shows no status bar, so over an app its strip lets
+    // touches through and claims only a pull down from the top edge.
+    final statusEdge = !ReferenceShellMetrics.statusBarShown(viewSize);
     final shellRegions = <Rect>[
       if (shellOwnsCanvas)
         canvas
       else if (edgePanelActive) ...[
-        ReferenceShellMetrics.statusRect(viewSize),
+        if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         if (edgePanelRect.height > 0.0) edgePanelRect,
         if (scrollStripVisible)
           ReferenceShellMetrics.edgePanelScrollStripRect(viewSize),
       ] else ...[
-        ReferenceShellMetrics.statusRect(viewSize),
+        if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         ReferenceShellMetrics.gestureRect(viewSize),
         ReferenceShellMetrics.edgePanelGestureRect(viewSize),
       ],
@@ -143,11 +146,19 @@ class ReferenceInputLayoutCoordinator {
         if (!region.intersect(canvas).isEmpty) region.intersect(canvas),
     ];
 
-    // Back swipes start over the app and are handed to the shell's strips
-    // once they move inward. Elsewhere the shell owns the whole canvas.
+    // Back swipes and landscape pull-downs start over the app and are handed
+    // to the shell's strips once they move inward. Elsewhere the shell owns
+    // the whole canvas.
     final edgeSwipeRegions = shellRegions.contains(canvas)
         ? const <InputEdgeSwipeRegion>[]
-        : _backGestureRegions(viewSize, inputBottom);
+        : <InputEdgeSwipeRegion>[
+            ..._backGestureRegions(viewSize, inputBottom),
+            if (statusEdge)
+              InputEdgeSwipeRegion(
+                rect: ReferenceShellMetrics.statusRect(viewSize),
+                edge: InputEdge.top,
+              ),
+          ];
 
     final inputRegions = inputWindow == null
         ? const <InputWindowRegion>[]

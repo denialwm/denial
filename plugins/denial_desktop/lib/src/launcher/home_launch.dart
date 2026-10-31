@@ -78,7 +78,7 @@ void _launchLocal(
       : displayLayout!.workAreaOf(mainOutput);
   final statusBarHeight =
       MediaQuery.paddingOf(context).top +
-      ReferenceShellMetrics.appStatusBarHeight;
+      ReferenceShellMetrics.appStatusInset(MediaQuery.sizeOf(context));
   final geometry = Rect.fromLTWH(
     availableBounds.left,
     availableBounds.top + statusBarHeight,

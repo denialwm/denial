@@ -81,7 +81,7 @@ class InputLayoutSnapshot {
 }
 
 /// The screen edge from which a shell edge swipe travels inward.
-enum InputEdge { left, right }
+enum InputEdge { left, right, top }
 
 /// A touch that starts in [rect] over a client window goes to that client
 /// until it travels inward from [edge]. The compositor then cancels the

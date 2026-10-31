@@ -199,6 +199,7 @@ class DenialWireCodec {
           edge: switch (region.edge) {
             InputEdge.left => generated.InputEdge.Left,
             InputEdge.right => generated.InputEdge.Right,
+            InputEdge.top => generated.InputEdge.Top,
           },
         ),
       );

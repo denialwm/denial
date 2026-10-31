@@ -28,8 +28,10 @@ class MobilePrimaryWindowStage extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           WindowContentRect(
-            contentPadding: const EdgeInsets.only(
-              top: ReferenceShellMetrics.appStatusBarHeight,
+            contentPadding: EdgeInsets.only(
+              top: ReferenceShellMetrics.appStatusInset(
+                MediaQuery.sizeOf(context),
+              ),
             ),
             key: ValueKey<int>(window.objectId),
             window: window,
