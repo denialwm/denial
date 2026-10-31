@@ -553,11 +553,20 @@ impl ScanoutAllocator {
                 info!(format=?buffer.format, "scene imported output-local scanout directly; retaining direct Flutter pool");
             }
         }
-        if scene_target != SceneTarget::None {
-            buffer.render_target = Some(LinearRenderBuffer::allocate(
+        // Only the GPU draws and samples a display-color scene, so it takes
+        // the scanout's layout, LINEAR where the scene format has none.
+        // `--flutter-offscreen-blit` keeps its LINEAR scene.
+        let layouts = match scene_target {
+            SceneTarget::None => &[][..],
+            SceneTarget::Required => &[Modifier::Linear][..],
+            SceneTarget::IfDirect => &[buffer.format.modifier, Modifier::Linear][..],
+        };
+        if !layouts.is_empty() {
+            buffer.render_target = Some(SceneRenderBuffer::allocate(
                 &mut self.allocator,
                 size,
                 scene_code.unwrap_or(code),
+                layouts,
             )?);
         }
         Ok(buffer)
@@ -734,22 +743,23 @@ pub(super) enum SceneTarget {
     IfDirect,
 }
 
-struct LinearRenderBuffer {
+struct SceneRenderBuffer {
     dmabuf: Dmabuf,
     _buffer: GbmBuffer,
 }
 
-impl LinearRenderBuffer {
+impl SceneRenderBuffer {
     fn allocate(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         size: PixelSize,
         code: Fourcc,
+        layouts: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        let buffer = allocator.create_buffer(size.width, size.height, code, &[Modifier::Linear])?;
+        let buffer = allocator.create_buffer(size.width, size.height, code, layouts)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
-        if format.code != code || format.modifier != Modifier::Linear {
+        if format.code != code || !layouts.contains(&format.modifier) {
             return Err(format!(
-                "offscreen Flutter render target is not linear {code:?}: {format:?}"
+                "offscreen Flutter render target {format:?} is not {code:?} in {layouts:?}"
             )
             .into());
         }
@@ -767,7 +777,7 @@ pub(super) struct ScanoutBuffer {
     framebuffer: ScanoutFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
-    render_target: Option<LinearRenderBuffer>,
+    render_target: Option<SceneRenderBuffer>,
     _buffer: GbmBuffer,
     #[cfg(feature = "flutter")]
     scene_transfer: Option<SceneTransferBuffers>,
@@ -1105,6 +1115,8 @@ impl OutputSwapchains {
                             info!(
                                 output = %scanout.output.name,
                                 format = ?format.code,
+                                scanout = ?pool.first().map(ScanoutBuffer::format),
+                                scene = ?pool.first().and_then(|buffer| buffer.render_target.as_ref()).map(|target| smithay::backend::allocator::Buffer::format(&target.dmabuf)),
                                 gamut_correction = display_color.correction.is_some(),
                                 hdr = hdr.is_some(),
                                 desktop_look,

@@ -626,7 +626,7 @@ pub(super) fn copy_to_scanout(
     color: CopyColor,
 ) -> Result<(), u32> {
     // The raster commands and this draw share one GLES context, so command
-    // ordering makes the completed LINEAR scene texture available without
+    // ordering makes the completed scene texture available without
     // a CPU wait. Use ordinary texture sampling into the compressed KMS
     // target instead of glBlitFramebuffer: the latter enters a faulty CP
     // copy path on this Adreno and eventually faults while reading IOVA 0.

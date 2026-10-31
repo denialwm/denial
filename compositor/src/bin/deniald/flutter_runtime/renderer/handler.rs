@@ -377,16 +377,14 @@ impl FlutterGlHandler {
                         destroy_targets(gl, &display, &mut targets);
                         destroy_depth_stencils(gl, &mut depth_stencils);
                         render_context.unbind()?;
-                        return Err(
-                            "offscreen blit target is missing its linear render DMA-BUF".into()
-                        );
+                        return Err("offscreen blit target is missing its render DMA-BUF".into());
                     };
                     // The scene matches scanout, or is half float for an HDR
-                    // output whose copy encodes PQ.
+                    // output whose copy encodes PQ. The allocator chose and
+                    // checked its layout.
                     let render_format = AllocatorBuffer::format(render_dmabuf);
-                    if (render_format.code != scanout_format.code
-                        && render_format.code != Fourcc::Abgr16161616f)
-                        || render_format.modifier != Modifier::Linear
+                    if render_format.code != scanout_format.code
+                        && render_format.code != Fourcc::Abgr16161616f
                     {
                         let mut failed = vec![target];
                         destroy_targets(gl, &display, &mut failed);
@@ -394,7 +392,7 @@ impl FlutterGlHandler {
                         destroy_depth_stencils(gl, &mut depth_stencils);
                         render_context.unbind()?;
                         return Err(format!(
-                            "offscreen Flutter render target is not linear {:?}: {render_format:?}",
+                            "offscreen Flutter render target {render_format:?} does not match {:?} scanout",
                             scanout_format.code
                         )
                         .into());
@@ -413,9 +411,9 @@ impl FlutterGlHandler {
                         }
                     };
                     target.render_image = render_image as usize;
-                    // Flutter's root target is an explicitly LINEAR GBM DMA-BUF.
-                    // Backdrop reads therefore cannot inherit UBWC compression
-                    // from either Mesa's ordinary texture allocator or scanout.
+                    // Flutter's root target is the scene GBM DMA-BUF: LINEAR
+                    // under `--flutter-offscreen-blit`, so backdrop reads cannot
+                    // inherit UBWC compression, else the scanout's layout.
                     // SAFETY: the compatible GLES context remains current and all
                     // names and attachment dimensions belong to this handler.
                     unsafe {
