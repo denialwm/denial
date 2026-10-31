@@ -715,16 +715,13 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     lookahead_presentation: denial_flutter_engine::ExternalTexturePresentation,
     pub(in crate::flutter_runtime) current_sampled: bool,
     pub(in crate::flutter_runtime) expects_sample: bool,
-    /// New generations queued since the last advance.
-    commits_since_advance: u8,
+    /// When the two generations before the newest arrived.
+    earlier_commits: [Option<Instant>; 2],
+    /// The interval of the output that last advanced the slot.
+    output_interval: Duration,
     /// The client outruns the output: keep only its newest generation.
-    latest_only: bool,
+    pub(in crate::flutter_runtime) latest_only: bool,
 }
-
-/// Generations within one advance that mark a client as outrunning the output.
-/// A client at the output's rate lands at most two there when its commits
-/// straddle a tick.
-const LATEST_ONLY_COMMITS: u8 = 3;
 
 impl ExternalTextureSlot {
     pub(in crate::flutter_runtime) fn queue(
@@ -732,6 +729,7 @@ impl ExternalTextureSlot {
         source: ExternalTextureSource,
         expects_sample: bool,
         presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
+        now: Instant,
     ) -> bool {
         self.expects_sample = expects_sample;
         let changed = presentation.is_some_and(|next| next != self.desired_presentation);
@@ -773,12 +771,13 @@ impl ExternalTextureSlot {
         }
         // Preserve one generation on either side of a tick boundary. The
         // immediate successor is stable; only excess lookahead is latest-only.
-        // A client that outruns the output gets one successor, the newest,
-        // so it holds one buffer less and renders ahead.
-        self.commits_since_advance = self.commits_since_advance.saturating_add(1);
-        if self.commits_since_advance >= LATEST_ONLY_COMMITS {
-            self.latest_only = true;
-        }
+        // A client that commits three generations within one output interval
+        // outruns the output. One at the output's rate never does, however
+        // its commits straddle ticks or the output misses one. It gets one
+        // successor, the newest, so it holds one buffer less and renders ahead.
+        self.latest_only = self.earlier_commits[0]
+            .is_some_and(|first| now.saturating_duration_since(first) < self.output_interval);
+        self.earlier_commits = [self.earlier_commits[1], Some(now)];
         if self.queued.is_none() || self.latest_only {
             self.queued = Some(source);
             self.queued_presentation = self.desired_presentation;
@@ -790,7 +789,8 @@ impl ExternalTextureSlot {
         true
     }
 
-    pub(in crate::flutter_runtime) fn advance(&mut self) -> bool {
+    pub(in crate::flutter_runtime) fn advance(&mut self, output_interval: Duration) -> bool {
+        self.output_interval = output_interval;
         if self.queued.is_none()
             || (self.current.is_some() && !self.current_sampled && self.expects_sample)
         {
@@ -801,11 +801,6 @@ impl ExternalTextureSlot {
         self.queued = self.lookahead.take();
         self.queued_presentation = self.lookahead_presentation;
         self.current_sampled = false;
-        // One generation in an interval is the output's rate again.
-        if self.commits_since_advance <= 1 {
-            self.latest_only = false;
-        }
-        self.commits_since_advance = 0;
         true
     }
 
@@ -1143,6 +1138,9 @@ mod cache_retirement_tests {
 
     #[test]
     fn slot_keeps_a_jittered_successor_but_only_the_newest_of_a_fast_client() {
+        let interval = Duration::from_millis(7);
+        let start = Instant::now();
+        let at = |micros| start + Duration::from_micros(micros);
         let source = |revision| {
             ExternalTextureSource::Shm(
                 ShmTextureFrame::new_owned(1, 1, revision, vec![0, 0, 0, 255]).unwrap(),
@@ -1154,38 +1152,38 @@ mod cache_retirement_tests {
         };
         let tick = |slot: &mut ExternalTextureSlot| {
             slot.current_sampled = true;
-            slot.advance()
+            slot.advance(interval)
         };
         let mut slot = ExternalTextureSlot::default();
-        slot.queue(source(1), true, None);
+        slot.queue(source(1), true, None, at(0));
         assert!(tick(&mut slot));
 
-        // Two commits across one tick: both are shown, in order.
-        slot.queue(source(2), true, None);
-        slot.queue(source(3), true, None);
+        // Commits at the output's rate keep the successor through a straddled
+        // tick and through missed ones.
+        slot.queue(source(2), true, None, at(6_900));
+        slot.queue(source(3), true, None, at(7_100));
         assert_eq!(generations(&slot), [Some(1), Some(2), Some(3)]);
+        slot.queue(source(4), true, None, at(14_000));
+        assert!(!slot.latest_only);
+        assert_eq!(generations(&slot), [Some(1), Some(2), Some(4)]);
         assert!(tick(&mut slot));
-        assert_eq!(generations(&slot), [Some(2), Some(3), None]);
+        assert!(tick(&mut slot));
+        assert_eq!(generations(&slot), [Some(4), None, None]);
 
-        // A third commit within one interval: only the newest stays queued,
-        // and later commits replace it.
-        assert!(tick(&mut slot));
-        for revision in 4..=6 {
-            slot.queue(source(revision), true, None);
+        // Three commits within one interval: only the newest stays queued,
+        // and later fast commits replace it.
+        for (revision, micros) in [(5, 20_000), (6, 22_000), (7, 24_000), (8, 26_000)] {
+            slot.queue(source(revision), true, None, at(micros));
         }
-        assert_eq!(generations(&slot), [Some(3), Some(6), None]);
-        assert!(tick(&mut slot));
-        slot.queue(source(7), true, None);
-        slot.queue(source(8), true, None);
-        assert_eq!(generations(&slot), [Some(6), Some(8), None]);
+        assert!(slot.latest_only);
+        assert_eq!(generations(&slot), [Some(4), Some(8), None]);
 
-        // One commit per interval restores the jittered successor.
+        // Back at the output's rate, the successor is kept again.
         assert!(tick(&mut slot));
-        slot.queue(source(9), true, None);
-        assert!(tick(&mut slot));
-        slot.queue(source(10), true, None);
-        slot.queue(source(11), true, None);
-        assert_eq!(generations(&slot), [Some(9), Some(10), Some(11)]);
+        slot.queue(source(9), true, None, at(33_000));
+        slot.queue(source(10), true, None, at(40_000));
+        assert!(!slot.latest_only);
+        assert_eq!(generations(&slot), [Some(8), Some(9), Some(10)]);
     }
 
     #[test]

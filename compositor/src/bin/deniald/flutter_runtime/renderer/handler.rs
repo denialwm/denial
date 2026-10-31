@@ -754,6 +754,7 @@ impl FlutterGlHandler {
         frames: impl IntoIterator<Item = ExternalTextureFrame>,
         changed: &mut Vec<i64>,
     ) {
+        let now = Instant::now();
         let mut sources = lock(&self.external_texture_sources);
         for ExternalTextureFrame {
             texture_id,
@@ -762,12 +763,17 @@ impl FlutterGlHandler {
             presentation,
         } in frames
         {
-            if sources
-                .entry(texture_id)
-                .or_default()
-                .queue(source, expects_sample, presentation)
-            {
+            let slot = sources.entry(texture_id).or_default();
+            let latest_only = slot.latest_only;
+            if slot.queue(source, expects_sample, presentation, now) {
                 changed.push(texture_id);
+            }
+            if slot.latest_only != latest_only {
+                debug!(
+                    texture_id,
+                    latest_only = slot.latest_only,
+                    "external texture client pace changed"
+                );
             }
         }
     }
@@ -775,12 +781,13 @@ impl FlutterGlHandler {
     pub(in crate::flutter_runtime) fn advance_external_texture_sources(
         &self,
         texture_ids: &[i64],
+        output_interval: Duration,
         deferred: &mut Vec<i64>,
     ) {
         let mut sources = lock(&self.external_texture_sources);
         for texture_id in texture_ids {
             if let Some(slot) = sources.get_mut(texture_id) {
-                slot.advance();
+                slot.advance(output_interval);
                 if slot.has_queued() {
                     deferred.push(*texture_id);
                 }
@@ -790,11 +797,12 @@ impl FlutterGlHandler {
 
     pub(in crate::flutter_runtime) fn advance_all_external_texture_sources(
         &self,
+        output_interval: Duration,
         changed: &mut Vec<i64>,
     ) {
         let mut sources = lock(&self.external_texture_sources);
         for (texture_id, slot) in sources.iter_mut() {
-            if slot.advance() {
+            if slot.advance(output_interval) {
                 changed.push(*texture_id);
             }
         }

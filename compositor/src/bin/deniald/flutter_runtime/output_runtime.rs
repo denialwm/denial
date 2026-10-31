@@ -363,8 +363,10 @@ impl FlutterRuntime {
     }
 
     pub(super) fn collect_external_texture_updates(&mut self) {
-        self.handler
-            .advance_all_external_texture_sources(&mut self.pending_frame_texture_ids);
+        self.handler.advance_all_external_texture_sources(
+            self.frame_interval,
+            &mut self.pending_frame_texture_ids,
+        );
         self.pending_frame_texture_ids.sort_unstable();
         self.pending_frame_texture_ids.dedup();
     }
@@ -441,8 +443,14 @@ impl FlutterRuntime {
         self.render_texture_scratch.sort_unstable();
         self.render_texture_scratch.dedup();
         self.changed_texture_scratch.clear();
+        let output_interval = requests
+            .iter()
+            .map(|request| request.tick.nominal_interval)
+            .min()
+            .unwrap_or(self.frame_interval);
         self.handler.advance_external_texture_sources(
             &self.render_texture_scratch,
+            output_interval,
             &mut self.changed_texture_scratch,
         );
         self.stage_changed_textures();
