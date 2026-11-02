@@ -193,6 +193,22 @@ final class BridgeWindowsClient {
     );
   }
 
+  /// Moves [window] between the phone and the desk output [monitorId]. Native
+  /// ignores the request unless the mobile shell shares the session with a
+  /// desk, and when the window is already on that side.
+  void moveWindowToOutput(DenialWindow window, {required int monitorId}) {
+    if (window.windowId <= 0 || monitorId < 0) {
+      return;
+    }
+    _context.sendWire(
+      _context.codec.encodeWindowRequest(
+        wire.WindowRequestKind.MoveWindowToOutput,
+        windowId: window.windowId,
+        monitorId: monitorId,
+      ),
+    );
+  }
+
   /// Commits an overview drop of [window] onto [workspaceId] of
   /// [monitorId], which may be hidden. [point] is the drop position in that
   /// workspace's own scene coordinates; native resolves it to a tile

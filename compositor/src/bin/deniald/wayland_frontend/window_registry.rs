@@ -31,6 +31,9 @@ pub(super) struct WindowRecord {
     pub(super) layout_restore_geometry: Option<Rectangle<i32, Logical>>,
     #[cfg(feature = "flutter")]
     pub(super) mobile_restore: Option<(WindowGeometryIntent, WindowPlacementState)>,
+    /// Where the window was on a desk while it is on the phone.
+    #[cfg(feature = "flutter")]
+    pub(super) desk_placement: Option<phone_desk::DeskPlacement>,
     pub(super) layout_insertion_anchor: Option<ObjectId>,
     pub(super) restored_position: bool,
     pub(super) client_geometry_state_requested: bool,

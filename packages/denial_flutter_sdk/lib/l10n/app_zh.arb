@@ -1571,5 +1571,6 @@
   "colorPresetFilm": "胶片",
   "colorPresetNight": "夜色",
   "colorPresetMono": "黑白",
-  "colorTuningPresets": "预设"
+  "colorTuningPresets": "预设",
+  "moveToMonitor": "移到显示器"
 }

@@ -35,6 +35,7 @@ import 'desktop_scene_selection.dart';
 import 'desktop_window_coordinator.dart';
 import 'desktop_workspace.dart';
 import 'system_tray_module.dart';
+import '../state/phone_desk.dart';
 
 class DesktopShell extends ConsumerStatefulWidget {
   const DesktopShell({super.key});
@@ -210,7 +211,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final shell = ref.read(referenceShellProvider);
     final workspace = ref.read(desktopWorkspaceProvider);
     final windowsById = <int, DenialWindow>{
-      for (final window in shell.openAppWindows) window.objectId: window,
+      for (final window in shell.desk.openAppWindows) window.objectId: window,
     };
     final controller = ref.read(desktopWindowSwitcherProvider.notifier);
     final previous = ref.read(desktopWindowSwitcherProvider);
@@ -265,13 +266,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final viewSize = workspace.viewSize.isEmpty
         ? MediaQuery.sizeOf(context)
         : workspace.viewSize;
-    final displayLayout = ref.read(displayLayoutProvider);
+    final displayLayout = ref.read(deskDisplayLayoutProvider);
     final monitorTarget = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
       displayLayout: displayLayout,
-      windows: shell.openAppWindows,
+      windows: shell.desk.openAppWindows,
       workspace: workspace,
-      foregroundObjectId: shell.foregroundObjectId,
+      foregroundObjectId: shell.deskForegroundObjectId,
       preferredMonitorId: preferredMonitorId,
     );
     if (monitorTarget == null) {
@@ -293,7 +294,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final placementIds = placements
         .map((placement) => placement.objectId)
         .toList(growable: true);
-    final foregroundId = shell.foregroundObjectId;
+    final foregroundId = shell.deskForegroundObjectId;
     final visiblePlacementIds = placements
         .where((placement) => !placement.minimized)
         .map((placement) => placement.objectId)
@@ -346,7 +347,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     }
 
     DenialWindow? target;
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId == switcher.selectedObjectId) {
         target = window;
         break;
@@ -407,7 +408,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final viewSize = workspaceState.viewSize.isEmpty
         ? MediaQuery.sizeOf(context)
         : workspaceState.viewSize;
-    final displayLayout = ref.read(displayLayoutProvider);
+    final displayLayout = ref.read(deskDisplayLayoutProvider);
     final shellState = ref.read(referenceShellProvider);
     final layout = ref.read(shellSettingsProvider).layout;
     // Stacking windows overlap, so spreading them apart is the useful view.
@@ -418,9 +419,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final target = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
       displayLayout: displayLayout,
-      windows: shellState.openAppWindows,
+      windows: shellState.desk.openAppWindows,
       workspace: workspaceState,
-      foregroundObjectId: shellState.foregroundObjectId,
+      foregroundObjectId: shellState.deskForegroundObjectId,
       preferredMonitorId: preferredMonitorId,
       allWorkspaces: workspaceOverview,
     );
@@ -437,7 +438,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         backgroundBounds: target.backgroundBounds,
         viewport: target.workArea,
         orientation: layout.workspaceSwitchingOrientation,
-        selectedObjectId: shellState.foregroundObjectId,
+        selectedObjectId: shellState.deskForegroundObjectId,
       );
       return;
     }
@@ -446,7 +447,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       bounds: target.bounds,
       backgroundBounds: target.backgroundBounds,
       objectIds: target.objectIds,
-      selectedObjectId: shellState.foregroundObjectId,
+      selectedObjectId: shellState.deskForegroundObjectId,
     );
   }
 
@@ -469,7 +470,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       _dismissOverview();
       return;
     }
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId == selectedObjectId) {
         _activateWindow(window);
         return;
@@ -534,7 +535,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     _cancelPendingWorkspaceRequest();
     final objectId = request.objectId;
     if (objectId != null) {
-      for (final window in ref.read(referenceShellProvider).openAppWindows) {
+      for (final window
+          in ref.read(referenceShellProvider).desk.openAppWindows) {
         if (window.objectId == objectId) {
           _activateWindow(window);
           return;
@@ -613,7 +615,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   void _openSettingsPage(SettingsPageId? page) {
     final environment = ref.read(startupEnvironmentProvider);
     _closePanels();
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (isDenialSettingsApplicationId(window.appId)) {
         _activateWindow(window);
         if (page == null) {
@@ -633,7 +635,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 
   Future<void> _showWallpaperSelector() async {
-    var displayLayout = ref.read(displayLayoutProvider);
+    var displayLayout = ref.read(deskDisplayLayoutProvider);
     displayLayout ??= await ref
         .read(displayLayoutProvider.notifier)
         .ensureLoaded();
@@ -666,7 +668,17 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     ref
         .read(applicationRecentsProvider.notifier)
         .record(desktopApplicationRecentId(app.id));
-    await ref.read(appLauncherProvider).launch(app);
+    final launcher = ref.read(appLauncherProvider);
+    // Opened from a desk, an app running on the phone comes to the desk.
+    if (ref.read(phoneDeskProvider) != null) {
+      final shell = ref.read(referenceShellProvider);
+      final onPhone = launcher.findOpenWindow(app, shell.openAppWindows);
+      if (onPhone != null) {
+        ref.read(referenceShellProvider.notifier).moveToDesk(onPhone);
+        return;
+      }
+    }
+    await launcher.launch(app);
   }
 
   void _launchLocalApp(LocalFlutterApplication app) {
@@ -674,7 +686,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     ref
         .read(applicationRecentsProvider.notifier)
         .record(localApplicationRecentId(app.id));
-    final displayLayout = ref.read(displayLayoutProvider);
+    final displayLayout = ref.read(deskDisplayLayoutProvider);
     final mainOutput = displayLayout?.mainOutput;
     final workspace = ref.read(desktopWorkspaceProvider);
     final viewSize = workspace.viewSize.isEmpty
@@ -719,7 +731,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       return;
     }
     final windowsById = <int, DenialWindow>{
-      for (final window in ref.read(referenceShellProvider).openAppWindows)
+      for (final window in ref.read(referenceShellProvider).desk.openAppWindows)
         window.objectId: window,
     };
     final target = desktopWindowAtPosition(
@@ -810,7 +822,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (_dropOverviewWindowOnWorkspace(window)) {
       return;
     }
-    final layout = ref.read(displayLayoutProvider);
+    final layout = ref.read(deskDisplayLayoutProvider);
     final outputBounds = <int, Rect>{
       for (final output in layout?.outputs ?? const <DisplayOutput>[])
         output.monitorId: output.logicalRect,
@@ -905,7 +917,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       },
     );
     ref.listen<int?>(
-      referenceShellProvider.select((state) => state.foregroundObjectId),
+      referenceShellProvider.select((state) => state.deskForegroundObjectId),
       (previous, next) {
         final desktop = ref.read(desktopWorkspaceProvider);
         final nextPlacement = next == null ? null : desktop.placements[next];
@@ -928,14 +940,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         .watch(
           referenceShellProvider.select(
             (state) =>
-                DesktopSceneWindows(state.windows, livePlacementObjectIds),
+                DesktopSceneWindows(state.desk.windows, livePlacementObjectIds),
           ),
         )
         .windows;
     final layerSurfaces = ref
         .watch(
           referenceShellProvider.select(
-            (state) => DesktopSceneLayerSurfaces(state.layerSurfaces),
+            (state) => DesktopSceneLayerSurfaces(state.desk.layerSurfaces),
           ),
         )
         .layerSurfaces;
@@ -948,7 +960,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ),
     );
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
-    final nativeDisplayLayout = ref.watch(displayLayoutProvider);
+    final nativeDisplayLayout = ref.watch(deskDisplayLayoutProvider);
     // DENIAL_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
     // (no native bridge) while still rendering layout-dependent chrome such
     // as the system bar, for styling work without restarting deniald.

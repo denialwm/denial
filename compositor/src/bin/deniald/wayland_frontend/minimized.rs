@@ -5,7 +5,8 @@
 //! buffer once they are suspended; that frame never reaches the scene. The
 //! callbacks a paused window asks for are parked and sent once it is
 //! restored, and the kept frame stays until the restored window shows a new
-//! one. The desktop shell lets minimized windows draw at the output's rate.
+//! one. The desktop shell lets minimized windows draw at the output's rate,
+//! and so do windows on a desk next to the phone.
 //!
 //! The phone's lock screen covers every window: all of them are suspended
 //! while the session is locked, so apps stay paused until it unlocks.
@@ -44,7 +45,7 @@ pub(super) struct MinimizedWindows {
 
 impl WaylandFrontend {
     fn frame_pace(&self, root: &ObjectId) -> FramePace {
-        if self.mobile_shell && self.surface_is_minimized(root) {
+        if self.surface_is_minimized(root) && self.root_on_phone(root) {
             FramePace::Paused
         } else {
             FramePace::Output
@@ -66,7 +67,7 @@ impl WaylandFrontend {
 
     /// Follows the window rooted at `root` being minimized or restored.
     pub(super) fn minimized_changed(&mut self, root: &ObjectId, minimized: bool) {
-        if !self.mobile_shell {
+        if !self.root_on_phone(root) {
             return;
         }
         if minimized {
@@ -75,6 +76,7 @@ impl WaylandFrontend {
                 self.minimized_windows.parked.insert(root.clone());
             }
         } else {
+            self.keep_window_on_phone(root);
             self.minimized_windows.thawing.insert(root.clone());
             if self.minimized_windows.parked.remove(root) {
                 self.pending_frame_callback_windows.insert(root.clone());
@@ -113,8 +115,8 @@ impl WaylandFrontend {
     /// Whether the window rooted at `root` shows its kept frame instead of
     /// its committed buffers.
     pub(super) fn window_frozen(&self, root: &ObjectId) -> bool {
-        self.mobile_shell
-            && (self.surface_is_minimized(root) || self.minimized_windows.thawing.contains(root))
+        (self.surface_is_minimized(root) || self.minimized_windows.thawing.contains(root))
+            && self.root_on_phone(root)
     }
 
     /// A surface committed new content: a restored window it belongs to

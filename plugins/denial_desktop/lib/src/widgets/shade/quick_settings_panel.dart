@@ -44,6 +44,7 @@ import 'shade_dismiss_gesture.dart';
 import 'shade_expansion_motion.dart';
 import 'shade_reference_geometry.dart';
 import 'status_bar.dart';
+import '../../state/phone_desk.dart';
 
 enum ShadePage { notifications, quickSettings }
 
@@ -724,7 +725,12 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
     final recording = ref.watch(screenRecordingProvider);
     final presentation = ref.watch(referenceShellPresentationProvider);
     final singleOutput =
-        (ref.watch(displayLayoutProvider)?.outputs.length ?? 0) <= 1;
+        (ref
+                .watch(sceneDisplayLayoutProvider(ShellPart.of(context)))
+                ?.outputs
+                .length ??
+            0) <=
+        1;
     final footerTiles = [
       if (rotationLock.supported)
         QuickTile(
@@ -820,7 +826,8 @@ class _BrightnessRangeBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final output = ref.watch(
-      displayLayoutProvider.select((layout) => layout?.mainOutput),
+      sceneDisplayLayoutProvider(ShellPart.of(context))
+          .select((layout) => layout?.mainOutput),
     );
     final brightness = ref.watch(
       displayBrightnessProvider.select(

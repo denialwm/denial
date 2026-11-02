@@ -346,6 +346,10 @@ class DenialBridge {
     follow: follow,
   );
 
+  /// Moves [window] between the phone and a desk output.
+  void moveWindowToOutput(DenialWindow window, {required int monitorId}) =>
+      _windows.moveWindowToOutput(window, monitorId: monitorId);
+
   /// Commits an overview drop onto a possibly hidden workspace. [point] is
   /// in that workspace's own scene coordinates.
   void dropWindowOnWorkspace(

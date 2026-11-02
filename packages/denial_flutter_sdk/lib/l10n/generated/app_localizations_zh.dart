@@ -5003,4 +5003,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get colorTuningPresets => '预设';
+
+  @override
+  String get moveToMonitor => '移到显示器';
 }

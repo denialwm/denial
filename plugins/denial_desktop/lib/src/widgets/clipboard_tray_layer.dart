@@ -19,6 +19,8 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 import 'package:denial_flutter_sdk/effects.dart';
 
+import '../state/phone_desk.dart';
+
 part 'clipboard_drag_preview.dart';
 part 'clipboard_entry_visual.dart';
 part 'clipboard_history_card.dart';
@@ -204,7 +206,7 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
     final layout = ref.watch(
       shellSettingsProvider.select((settings) => settings.layout),
     );
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final displayLayout = ref.watch(deskDisplayLayoutProvider);
     final tray = ref.watch(clipboardTrayProvider);
     ref.listen<bool>(
       clipboardTrayProvider.select((state) => state.open),

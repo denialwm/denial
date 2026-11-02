@@ -390,7 +390,7 @@ impl WaylandFrontend {
         window: &Window,
     ) -> Option<Rectangle<i32, Logical>> {
         #[cfg(feature = "flutter")]
-        if self.mobile_shell {
+        if self.window_on_phone(window) {
             return None;
         }
         let root = window.toplevel()?.wl_surface();
@@ -618,7 +618,7 @@ impl WaylandFrontend {
         window: &Window,
     ) -> Option<(RestoredWindowPlacement, Rectangle<i32, Logical>)> {
         #[cfg(feature = "flutter")]
-        if self.mobile_shell {
+        if self.window_on_phone(window) {
             return None;
         }
         if self.window_is_layout_managed(window) {
@@ -842,7 +842,7 @@ impl WaylandFrontend {
             )
         });
         #[cfg(feature = "flutter")]
-        let center_welcome = center_welcome && !self.mobile_shell;
+        let center_welcome = center_welcome && !self.window_on_phone(window);
         let should_place = center_welcome
             || should_place_auxiliary_toplevel_at_pointer(
                 self.window_has_transient_parent(window),

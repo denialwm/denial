@@ -37,6 +37,7 @@ enum MobileBackTarget { none, keyboard, shade, overview, app }
 class ReferenceShellState {
   const ReferenceShellState._({
     required this.platform,
+    required this.desk,
     required this.overviewVisible,
     required this.gesture,
     required this.quickSettingsVisible,
@@ -57,6 +58,7 @@ class ReferenceShellState {
   factory ReferenceShellState.initial(ShellState platform) {
     return ReferenceShellState._(
       platform: platform,
+      desk: platform,
       overviewVisible: false,
       gesture: GestureDragPhase.idle,
       quickSettingsVisible: false,
@@ -75,7 +77,24 @@ class ReferenceShellState {
     );
   }
 
+  /// The windows the mobile shell shows: all of them, or those on the phone
+  /// while a desk shares the session.
   final ShellState platform;
+
+  /// The windows the desktop shell shows: all of them, or those on the desks
+  /// while they share the session with the phone. Its foreground is the
+  /// native one.
+  final ShellState desk;
+
+  /// The window the desktop shell treats as focused.
+  int? get deskForegroundObjectId =>
+      identical(desk, platform) ? foregroundObjectId : desk.foregroundObjectId;
+
+  /// Every open app, on the phone and on the desks.
+  List<DenialWindow> get allOpenAppWindows => identical(desk, platform)
+      ? openAppWindows
+      : <DenialWindow>[...platform.openAppWindows, ...desk.openAppWindows];
+
   List<DenialWindow> get windows => platform.windows;
   List<DenialWindow> get openAppWindows => platform.openAppWindows;
   Map<int, DenialWindow> get openAppWindowsByObjectId =>
@@ -142,6 +161,7 @@ class ReferenceShellState {
 
   ReferenceShellState copyWith({
     ShellState? platform,
+    ShellState? desk,
     bool? overviewVisible,
     GestureDragPhase? gesture,
     bool? quickSettingsVisible,
@@ -163,6 +183,7 @@ class ReferenceShellState {
   }) {
     return ReferenceShellState._(
       platform: platform ?? this.platform,
+      desk: desk ?? this.desk,
       overviewVisible: overviewVisible ?? this.overviewVisible,
       gesture: gesture ?? this.gesture,
       quickSettingsVisible: quickSettingsVisible ?? this.quickSettingsVisible,

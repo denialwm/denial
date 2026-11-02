@@ -152,18 +152,43 @@ pub(super) fn synchronize_wake_gestures(scanouts: &[Scanout], events: &mut Runti
 }
 
 #[cfg(feature = "flutter")]
+/// Tells the idle policy whether a desk shares the session with the phone,
+/// and locks if the phone's panel is left dark and alone.
+#[cfg(feature = "flutter")]
+fn synchronize_phone_with_desk(events: &mut RuntimeState, now: Instant) {
+    let phone = events
+        .wayland
+        .as_ref()
+        .and_then(wayland_frontend::WaylandFrontend::phone_beside_desk);
+    if !events.idle_policy.set_phone_with_desk(phone, now) {
+        return;
+    }
+    if let Some(authentication) = events.authentication.as_ref() {
+        if authentication.lock_automatically() {
+            synchronize_authentication_boundary(events);
+            info!("locked the session: the desk left and the phone is dark");
+        }
+    } else {
+        warn!("could not lock after the desk left: authentication is unavailable");
+    }
+}
+
 pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut RuntimeState) {
     if events.power_button.take_screenshot() {
         events.screenshot_requested = true;
     }
+    #[cfg(feature = "flutter")]
+    synchronize_phone_with_desk(events, Instant::now());
+    let phone = events.idle_policy.phone_output();
     // In the mobile shell a lit screen goes dark on release, so Volume Down
     // can still make the press a screenshot. A dark screen wakes at once.
     let mobile = events
         .wayland
         .as_ref()
         .is_some_and(|frontend| frontend.mobile_shell());
-    // An output lit only to draw the always-on clock counts as dark.
-    let lit = scanouts.iter().any(|scanout| {
+    // An output lit only to draw the always-on clock counts as dark. Beside
+    // a desk the button belongs to the phone's panel alone.
+    let lit = scanouts.iter().filter(|scanout| phone.is_none_or(|phone| scanout.output.id == phone)).any(|scanout| {
         events
             .output_power_requests
             .get(&scanout.output.id)
@@ -227,6 +252,17 @@ pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeSt
     // the prior power state.
     if events.fingerprint.active() || events.ambient_display.refresh_under_way() {
         return;
+    }
+    synchronize_phone_with_desk(events, now);
+    if let Some(phone) = events.idle_policy.phone_output() {
+        let inhibited = events.frontend_mut().phone_idle_inhibited();
+        let powered = scanouts
+            .iter()
+            .any(|scanout| scanout.output.id == phone && scanout.powered);
+        if let Some(request) = events.idle_policy.evaluate_phone(now, inhibited, powered) {
+            events.queue_idle_power_requests([request]);
+            info!("turned the phone's idle panel off beside the desk");
+        }
     }
     let inhibited = events.frontend_mut().idle_inhibited();
     let idle_policy::IdlePolicyActions {

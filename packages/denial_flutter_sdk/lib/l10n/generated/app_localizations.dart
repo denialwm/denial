@@ -9369,6 +9369,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Presets'**
   String get colorTuningPresets;
+
+  /// Button on a phone recents card: moves the app to the external monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to monitor'**
+  String get moveToMonitor;
 }
 
 class _AppLocalizationsDelegate

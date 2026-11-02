@@ -23,6 +23,8 @@ use super::{RuntimeState, WaylandFrontend, WaylandOutput};
 pub(crate) struct TopologyWindowReconciliation {
     pub(super) layout_membership_changed: bool,
     pub(super) windows_to_minimize: Vec<u64>,
+    /// Windows going back to a desk plugged in again.
+    pub(super) windows_to_return: Vec<(u64, OutputId)>,
 }
 
 #[cfg(feature = "flutter")]
@@ -230,6 +232,14 @@ impl WaylandFrontend {
                 .collect::<std::collections::HashSet<_>>();
             windows_on_retired_outputs(&self.window_registry, &retained_outputs)
         };
+        #[cfg(feature = "flutter")]
+        self.remember_windows_of_leaving_desks(
+            &snapshot
+                .outputs
+                .iter()
+                .map(|output| (output.id, output.name.as_str()))
+                .collect::<Vec<_>>(),
+        );
         let window_records = self
             .space
             .elements()
@@ -396,6 +406,14 @@ impl WaylandFrontend {
             .iter()
             .map(|entry| (entry.id, entry.logical_geometry))
             .collect::<Vec<_>>();
+        #[cfg(feature = "flutter")]
+        let windows_to_return = self.windows_returning_to_desks(
+            &new_output_geometries
+                .iter()
+                .map(|(id, _)| *id)
+                .filter(|id| !old_output_geometries.iter().any(|(old, _)| old == id))
+                .collect::<Vec<_>>(),
+        );
         let layout_membership_changed =
             output_membership_changed(&old_output_geometries, &new_output_geometries);
         let mut migrated_windows = 0usize;
@@ -582,6 +600,7 @@ impl WaylandFrontend {
             Ok(TopologyWindowReconciliation {
                 layout_membership_changed,
                 windows_to_minimize,
+                windows_to_return,
             })
         }
         #[cfg(not(feature = "flutter"))]

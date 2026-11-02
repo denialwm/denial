@@ -55,6 +55,7 @@ import 'package:denial_flutter_sdk/rendering.dart';
 import '../shade/status_glyphs.dart';
 
 import 'sim_pin_lock.dart';
+import '../../state/phone_desk.dart';
 
 part 'lock_authentication_panels.dart';
 part 'lock_pin_stage.dart';
@@ -177,7 +178,7 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
 
   @override
   Widget build(BuildContext context) {
-    final layout = ref.watch(displayLayoutProvider);
+    final layout = ref.watch(sceneDisplayLayoutProvider(ShellPart.of(context)));
     final shellProfile = ref.watch(referenceShellProfileProvider);
     final animateEntrance = ref.watch(
       shellSettingsProvider.select(

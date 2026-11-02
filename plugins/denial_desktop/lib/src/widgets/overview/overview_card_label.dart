@@ -38,13 +38,20 @@ final _cardApplication = Provider.autoDispose.family<_CardApplication, String>((
 
 /// The app icon and name above a card, aligned to its start edge.
 class OverviewCardLabel extends ConsumerWidget {
-  const OverviewCardLabel({super.key, required this.window});
+  const OverviewCardLabel({
+    super.key,
+    required this.window,
+    this.trailingSpace = 0,
+  });
 
   static const double height = iconSize;
   static const double iconSize = 48;
   static const double gap = 12;
 
   final DenialWindow window;
+
+  /// Room kept free at the end of the row, for a button over it.
+  final double trailingSpace;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -76,6 +83,7 @@ class OverviewCardLabel extends ConsumerWidget {
               ),
             ),
           ),
+          if (trailingSpace > 0) SizedBox(width: trailingSpace),
         ],
       ),
     );

@@ -14,6 +14,7 @@ import 'package:denial_flutter_sdk/system_services.dart';
 import '../state/quick_settings.dart';
 import '../state/system_level_hud.dart';
 import 'liquid/liquid.dart';
+import '../state/phone_desk.dart';
 
 /// The phone's volume indicator: a liquid-filled capsule on the right edge,
 /// centred in the top three quarters of the screen. It drops in from the
@@ -157,8 +158,14 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
 
   @override
   Widget build(BuildContext context) {
+    // Beside a desk, the level shows on the screen used last.
+    final part = ShellPart.of(context);
     ref.listen<SystemLevelHudState?>(systemLevelHudProvider, (_, hud) {
-      if (hud != null) _present(hud);
+      if (hud == null) return;
+      if (part == ShellPart.whole ||
+          ref.read(activeShellPartProvider) == part) {
+        _present(hud);
+      }
     });
     if (!_motion.onScreen) return const SizedBox.shrink();
 

@@ -379,6 +379,12 @@ fn apply_window_command(state: &mut RuntimeState, command: WindowCommand) {
         } => {
             move_window_to_workspace(state, window_id, monitor_id, workspace_id, follow);
         }
+        WindowCommand::MoveToOutput {
+            window_id,
+            monitor_id,
+        } => {
+            move_window_between_phone_and_desk(state, window_id, monitor_id, true);
+        }
         WindowCommand::DropOnWorkspace {
             window_id,
             monitor_id,
@@ -496,6 +502,7 @@ fn apply_local_window_command(state: &mut RuntimeState, window_id: u64, command:
         | WindowCommand::CreateLocal { .. }
         | WindowCommand::SwitchWorkspace { .. }
         | WindowCommand::MoveToWorkspace { .. }
+        | WindowCommand::MoveToOutput { .. }
         | WindowCommand::DropOnWorkspace { .. }
         | WindowCommand::PreviewWorkspaceDrop { .. }
         | WindowCommand::HoldPet { .. }
@@ -539,6 +546,7 @@ fn apply_client_window_command(
         | WindowCommand::CreateLocal { .. }
         | WindowCommand::SwitchWorkspace { .. }
         | WindowCommand::MoveToWorkspace { .. }
+        | WindowCommand::MoveToOutput { .. }
         | WindowCommand::DropOnWorkspace { .. }
         | WindowCommand::PreviewWorkspaceDrop { .. }
         | WindowCommand::HoldPet { .. }
@@ -1067,6 +1075,77 @@ fn resolve_workspace_drop(
 /// place a minimized window directly on another workspace. Protocol clients
 /// are resumed exactly as activation resumes them, so the window never
 /// arrives suspended (XDG) or hidden (X11) on its new workspace.
+/// Moves a client window between the phone and a desk, then, with
+/// `activate`, brings it to the front there.
+#[cfg(feature = "flutter")]
+fn move_window_between_phone_and_desk(
+    state: &mut RuntimeState,
+    window_id: u64,
+    monitor_id: i64,
+    activate: bool,
+) {
+    let Some(destination) = u64::try_from(monitor_id)
+        .ok()
+        .map(denial_core::topology::OutputId)
+    else {
+        return;
+    };
+    let Some(window) = state.wayland.as_ref().and_then(|frontend| {
+        (!frontend.is_local_flutter_window(window_id))
+            .then(|| frontend.window_for_id(window_id))
+            .flatten()
+    }) else {
+        return;
+    };
+    restore_minimized_window_for_move(state, window_id);
+    if !state
+        .frontend_mut()
+        .move_window_between_phone_and_desk(&window, destination)
+    {
+        return;
+    }
+    if activate {
+        activate_window(state, &window, SERIAL_COUNTER.next_serial());
+    }
+    state.scene_sync.mark_dirty();
+}
+
+/// Ends a desk window's drag beside the phone. Let go of with the pointer on
+/// the phone, the window goes there and keeps its desk place from before the
+/// drag; let go of with only its body over the phone, it returns to that
+/// place. Returns whether the drag ended that way, with the window back at
+/// `initial` as far as the desk shell is concerned.
+#[cfg(feature = "flutter")]
+pub(crate) fn finish_desk_window_drag(
+    state: &mut RuntimeState,
+    window: &Window,
+    initial: Rectangle<i32, Logical>,
+    pointer: Point<f64, Logical>,
+) -> bool {
+    let Some(frontend) = state.wayland.as_mut() else {
+        return false;
+    };
+    let Some(phone) = frontend.phone_beside_desk() else {
+        return false;
+    };
+    if !frontend
+        .output_for_geometry(initial)
+        .is_some_and(|output| frontend.output_is_desk(output))
+    {
+        return false;
+    }
+    let dropped_on_phone = frontend.point_on_phone(pointer);
+    if !dropped_on_phone && !frontend.window_on_phone(window) {
+        return false;
+    }
+    frontend.set_window_geometry_target(window, initial);
+    if dropped_on_phone && frontend.move_window_between_phone_and_desk(window, phone) {
+        activate_window(state, window, SERIAL_COUNTER.next_serial());
+    }
+    state.scene_sync.mark_dirty();
+    true
+}
+
 #[cfg(feature = "flutter")]
 fn restore_minimized_window_for_move(state: &mut RuntimeState, window_id: u64) {
     let frontend = state.frontend_mut();
@@ -1398,7 +1477,7 @@ pub(super) fn resize_focused_toplevel(
         return false;
     };
     // Do not compete with an interactive grab or resize mobile full-output windows.
-    if frontend.mobile_shell
+    if (frontend.mobile_shell && !frontend.phone_with_desk())
         || frontend.compositor_pointer_grab_active
         || frontend
             .seat
@@ -1420,6 +1499,9 @@ pub(super) fn resize_focused_toplevel(
     let Some(managed) = ManagedWindow::new(&window) else {
         return false;
     };
+    if frontend.window_on_phone(&window) {
+        return false;
+    }
     let facts = managed.facts();
     let presentation = frontend.managed_window_presentation(&window);
     if facts.override_redirect
@@ -2734,6 +2816,11 @@ pub(crate) fn finalize_topology_window_reconciliation(
     state: &mut RuntimeState,
     reconciliation: super::topology::TopologyWindowReconciliation,
 ) {
+    for (window_id, output) in reconciliation.windows_to_return {
+        if let Ok(monitor_id) = i64::try_from(output.0) {
+            move_window_between_phone_and_desk(state, window_id, monitor_id, false);
+        }
+    }
     if !reconciliation.layout_membership_changed {
         return;
     }

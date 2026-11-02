@@ -28,11 +28,12 @@ class DesktopVisibility extends Notifier<bool> {
     ref.listen(referenceShellProvider, (previous, next) {
       if (!state || previous == null) return;
       if (next.locked ||
-          next.foregroundObjectId != previous.foregroundObjectId ||
+          next.deskForegroundObjectId != previous.deskForegroundObjectId ||
           next.launchRequest != previous.launchRequest ||
-          next.openAppWindows.any(
-            (window) =>
-                !previous.openAppWindowsByObjectId.containsKey(window.objectId),
+          next.desk.openAppWindows.any(
+            (window) => !previous.desk.openAppWindowsByObjectId.containsKey(
+              window.objectId,
+            ),
           )) {
         restore();
       }

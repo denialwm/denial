@@ -255,11 +255,12 @@ pub(super) fn process_flutter_input_event(
                 frontend
                     .touch_gestures
                     .set_swipe_directions(swipe_directions);
-                let target = (!secure_locked && !frontend.mobile_shell && !software_keyboard_touch)
+                let phone = frontend.point_on_phone(position);
+                let target = (!secure_locked && !phone && !software_keyboard_touch)
                     .then(|| frontend.touch_window_target_at(position))
                     .flatten();
                 let desktop_background = !secure_locked
-                    && !frontend.mobile_shell
+                    && !phone
                     && !software_keyboard_touch
                     && target.is_none()
                     && frontend

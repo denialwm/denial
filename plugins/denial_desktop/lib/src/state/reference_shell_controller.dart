@@ -14,6 +14,8 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'app_deck.dart';
 import 'reference_shell_state.dart';
 import 'input_deck.dart';
+import 'phone_desk.dart';
+import 'phone_desk_input.dart';
 import 'reference_shell_metrics.dart';
 import 'reference_shell_profile.dart';
 import 'reference_input_layout_coordinator.dart';
@@ -144,6 +146,12 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     ref.listen<ShellState>(shellControllerProvider, (_, next) {
       if (isBuildGenerationActive(generation)) _synchronizePlatform(next);
     });
+    ref.listen<PhoneDeskLayout?>(phoneDeskProvider, (_, _) {
+      if (isBuildGenerationActive(generation)) {
+        _inputLayoutCoordinator.invalidate();
+        _synchronizePlatform(ref.read(shellControllerProvider));
+      }
+    });
     _textInputStateSubscription = _bridge.textInputStates.listen((input) {
       if (isBuildGenerationActive(generation)) _handleTextInputState(input);
     });
@@ -158,8 +166,81 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       unawaited(_textInputStateSubscription?.cancel());
       _textInputStateSubscription = null;
     });
-    return ReferenceShellState.initial(platform);
+    final initial = ReferenceShellState.initial(platform);
+    final (phone, desk) = _splitByScreen(
+      platform,
+      previousPhone: platform,
+      previousDesk: platform,
+    );
+    return initial.copyWith(platform: phone, desk: desk);
   }
+
+  /// Splits the native windows between the phone and the desks while they
+  /// share the session; otherwise both see them all. The phone keeps its own
+  /// foreground while a desk window has the native focus, and a desk shows
+  /// none while the phone has it.
+  (ShellState, ShellState) _splitByScreen(
+    ShellState next, {
+    required ShellState previousPhone,
+    required ShellState previousDesk,
+  }) {
+    final split = ref.read(phoneDeskProvider);
+    if (split == null) return (next, next);
+    final phoneWindows = <DenialWindow>[];
+    final deskWindows = <DenialWindow>[];
+    for (final window in next.windows) {
+      (split.onDesk(window) ? deskWindows : phoneWindows).add(window);
+    }
+    final phoneLayers = <DenialWindow>[];
+    final deskLayers = <DenialWindow>[];
+    for (final surface in next.layerSurfaces) {
+      (split.onDesk(surface) ? deskLayers : phoneLayers).add(surface);
+    }
+    final foreground = next.windowByObjectId(next.foregroundObjectId);
+    final foregroundOnDesk = foreground != null && split.onDesk(foreground);
+    // The phone's own app, while it is still on the phone.
+    final phoneForeground =
+        phoneWindows.any(
+          (window) => window.objectId == previousPhone.foregroundObjectId,
+        )
+        ? previousPhone.foregroundObjectId
+        : null;
+    final phone = next.copyWith(
+      windows: _sameWindows(previousPhone.windows, phoneWindows),
+      layerSurfaces: _sameWindows(previousPhone.layerSurfaces, phoneLayers),
+      foregroundObjectId: foregroundOnDesk
+          ? phoneForeground
+          : next.foregroundObjectId,
+      clearForegroundObjectId: foregroundOnDesk && phoneForeground == null,
+      // A desk window's activation is not the phone's.
+      activationRevision: foregroundOnDesk
+          ? previousPhone.activationRevision
+          : next.activationRevision,
+    );
+    final desk = next.copyWith(
+      windows: _sameWindows(previousDesk.windows, deskWindows),
+      layerSurfaces: _sameWindows(previousDesk.layerSurfaces, deskLayers),
+      clearForegroundObjectId: !foregroundOnDesk,
+    );
+    return (phone, desk);
+  }
+
+  /// [next], or [previous] when it holds the same windows, so listeners
+  /// comparing identity see no change.
+  static List<DenialWindow> _sameWindows(
+    List<DenialWindow> previous,
+    List<DenialWindow> next,
+  ) {
+    if (previous.length != next.length) return next;
+    for (var index = 0; index < next.length; index++) {
+      if (!identical(previous[index], next[index])) return next;
+    }
+    return previous;
+  }
+
+  /// Whether [window] sits on a desk beside the phone.
+  bool _onDesk(DenialWindow window) =>
+      ref.read(phoneDeskProvider)?.onDesk(window) ?? false;
 
   // Large enough that the vertical swipe tracks the finger across the whole
   // screen (the home/recents hero needs the real travel, not a capped value).
@@ -274,6 +355,11 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     if (!_automaticSoftwareKeyboard) {
       return;
     }
+    // Text fields on a desk take the desk's keyboard, never the phone's.
+    if (state.desk.foregroundObjectId != null &&
+        ref.read(phoneDeskProvider) != null) {
+      return;
+    }
     if (input.inputPanelVisible) {
       final foregroundAppId = AppLaunchRequest.normalizeAppId(
         state.foregroundWindow?.appId ?? '',
@@ -327,6 +413,21 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     _platform.requestUnlock();
   }
 
+  /// Moves an app from the phone to the first desk. It leaves the phone's
+  /// deck; recents stays open for the next one.
+  void moveToDesk(DenialWindow window) {
+    final split = ref.read(phoneDeskProvider);
+    if (split == null) return;
+    _bridge.moveWindowToOutput(window, monitorId: split.desks.first.monitorId);
+  }
+
+  /// Brings an app from a desk to the phone, in front.
+  void sendToPhone(DenialWindow window) {
+    final split = ref.read(phoneDeskProvider);
+    if (split == null) return;
+    _bridge.moveWindowToOutput(window, monitorId: split.phone.monitorId);
+  }
+
   void completeUnlockTransition() {
     if (state.locked || !state.lockLayerVisible) {
       return;
@@ -366,12 +467,17 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     );
   }
 
-  void _synchronizePlatform(ShellState platform) {
+  void _synchronizePlatform(ShellState native) {
     final previous = state.platform;
+    final (platform, desk) = _splitByScreen(
+      native,
+      previousPhone: previous,
+      previousDesk: state.desk,
+    );
     final windowsChanged =
         !identical(previous.windows, platform.windows) ||
         !identical(previous.layerSurfaces, platform.layerSurfaces);
-    state = state.copyWith(platform: platform);
+    state = state.copyWith(platform: platform, desk: desk);
     if (previous.locked != platform.locked) _resetSecurePresentation();
     if (windowsChanged) _reconcileWindowSnapshot();
     if (previous.activationRevision != platform.activationRevision) {
@@ -741,6 +847,11 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
 
   void focusWindow(DenialWindow window) {
     if (!window.isUserApp) {
+      return;
+    }
+    // A desk window takes the native focus; the phone shows what it showed.
+    if (_onDesk(window)) {
+      _platform.focusWindow(window);
       return;
     }
 
@@ -1444,12 +1555,15 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     bool force = false,
   }) {
     if (force) _inputLayoutCoordinator.invalidate();
+    final split = ref.read(phoneDeskProvider);
     _inputLayoutCoordinator.publish(
       state: state,
       viewSize: viewSize,
       interactions: interactions,
       topInset: topInset,
       appsMoving: _deck.presenting.value,
+      sceneOrigin: split?.phoneRect.topLeft ?? Offset.zero,
+      composer: split == null ? null : ref.read(phoneDeskInputComposerProvider),
     );
   }
 }

@@ -261,6 +261,7 @@ pub(super) struct MoveSurfaceGrab {
     start_data: GrabStartData<RuntimeState>,
     window: Window,
     initial_location: Point<i32, Logical>,
+    last_pointer_location: Point<f64, Logical>,
     forward_buttons: bool,
 }
 
@@ -270,10 +271,12 @@ impl MoveSurfaceGrab {
         window: Window,
         initial_location: Point<i32, Logical>,
     ) -> Self {
+        let last_pointer_location = start_data.location;
         Self {
             start_data,
             window,
             initial_location,
+            last_pointer_location,
             forward_buttons: true,
         }
     }
@@ -287,10 +290,12 @@ impl MoveSurfaceGrab {
         window: Window,
         initial_location: Point<i32, Logical>,
     ) -> Self {
+        let last_pointer_location = start_data.location;
         Self {
             start_data,
             window,
             initial_location,
+            last_pointer_location,
             forward_buttons: false,
         }
     }
@@ -309,6 +314,7 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
+        self.last_pointer_location = event.location;
         let Some(location) = translated_move_location(
             self.initial_location,
             self.start_data.location,
@@ -368,7 +374,18 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
         }
         #[cfg(feature = "flutter")]
         if window_accepts_grab_updates(data, &self.window) {
-            let geometry = data.frontend().window_geometry_target(&self.window);
+            let current = data.frontend().window_geometry_target(&self.window);
+            let initial = Rectangle::new(self.initial_location, current.size);
+            let geometry = if super::wayland_frontend::finish_desk_window_drag(
+                data,
+                &self.window,
+                initial,
+                self.last_pointer_location,
+            ) {
+                initial
+            } else {
+                current
+            };
             super::wayland_frontend::queue_window_placement(
                 data,
                 &self.window,
@@ -554,6 +571,22 @@ impl TileMoveGrab {
             WindowPlacementPhase::Update,
             WindowPlacementChange::Move,
         );
+        if super::wayland_frontend::finish_desk_window_drag(
+            data,
+            &self.window,
+            self.initial_geometry,
+            self.last_pointer_location,
+        ) {
+            self.clear_preview(data);
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &self.window,
+                self.initial_geometry,
+                WindowPlacementPhase::End,
+                WindowPlacementChange::Move,
+            );
+            return;
+        }
         let final_geometry = {
             let frontend = data.frontend_mut();
             if frontend.window_is_layout_managed(&self.window) {

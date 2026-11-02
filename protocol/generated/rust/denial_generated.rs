@@ -397,10 +397,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 10;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 11] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 12] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
@@ -412,6 +412,7 @@ pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 11] = [
   WindowRequestKind::MoveWindowToWorkspace,
   WindowRequestKind::MinimizeWindow,
   WindowRequestKind::NavigateBack,
+  WindowRequestKind::MoveWindowToOutput,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -430,9 +431,10 @@ impl WindowRequestKind {
   pub const MoveWindowToWorkspace: Self = Self(8);
   pub const MinimizeWindow: Self = Self(9);
   pub const NavigateBack: Self = Self(10);
+  pub const MoveWindowToOutput: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 10;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
@@ -445,6 +447,7 @@ impl WindowRequestKind {
     Self::MoveWindowToWorkspace,
     Self::MinimizeWindow,
     Self::NavigateBack,
+    Self::MoveWindowToOutput,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -460,6 +463,7 @@ impl WindowRequestKind {
       Self::MoveWindowToWorkspace => Some("MoveWindowToWorkspace"),
       Self::MinimizeWindow => Some("MinimizeWindow"),
       Self::NavigateBack => Some("NavigateBack"),
+      Self::MoveWindowToOutput => Some("MoveWindowToOutput"),
       _ => None,
     }
   }

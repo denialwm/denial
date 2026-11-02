@@ -812,3 +812,99 @@ fn idle_screen_off_starts_the_lock_delay_and_zero_locks_with_it() {
     );
     assert!(policy.toggle_now([(output(1), true)], now).lock);
 }
+
+fn phone_beside_desk(now: Instant) -> IdlePolicy {
+    let mut policy = IdlePolicy::default();
+    policy.configure(
+        configuration(
+            Some(Duration::from_secs(300)),
+            Some(Duration::from_secs(30)),
+            Some(Duration::from_secs(600)),
+        ),
+        now,
+    );
+    assert!(!policy.set_phone_with_desk(Some(output(1)), now));
+    policy
+}
+
+#[test]
+fn power_button_beside_a_desk_toggles_only_the_phone_and_never_locks() {
+    let now = Instant::now();
+    let mut policy = phone_beside_desk(now);
+    let off = policy.toggle_now([(output(1), true), (output(2), true)], now);
+    assert_eq!(
+        off.power_requests,
+        vec![IdlePowerRequest {
+            output: output(1),
+            powered: false,
+        }]
+    );
+    assert!(!off.lock);
+    // Typing at the desk does not light the phone again.
+    assert!(policy.note_activity(now + Duration::from_secs(1)).is_empty());
+    let on = policy.toggle_now([(output(1), false), (output(2), true)], now);
+    assert_eq!(
+        on.power_requests,
+        vec![IdlePowerRequest {
+            output: output(1),
+            powered: true,
+        }]
+    );
+}
+
+#[test]
+fn phone_panel_idles_on_its_own_clock_beside_a_desk() {
+    let now = Instant::now();
+    let mut policy = phone_beside_desk(now);
+    let later = now + Duration::from_secs(31);
+    // The desk was in use the whole time; the phone was not touched.
+    policy.note_activity(later - Duration::from_secs(1));
+    assert_eq!(
+        policy.evaluate_phone(later, false, true),
+        Some(IdlePowerRequest {
+            output: output(1),
+            powered: false,
+        })
+    );
+    let actions = policy.evaluate(later, false, [(output(1), true), (output(2), true)]);
+    assert!(actions.power_requests.is_empty());
+    assert!(!actions.lock && !actions.suspend);
+    // A phone video holds its panel lit.
+    let mut policy = phone_beside_desk(now);
+    assert_eq!(policy.evaluate_phone(later, true, true), None);
+}
+
+#[test]
+fn desk_idle_leaves_the_phone_to_its_own_clock_and_never_suspends_while_lit() {
+    let now = Instant::now();
+    let mut policy = phone_beside_desk(now);
+    policy.note_phone_touch(now + Duration::from_secs(29));
+    let actions = policy.evaluate(
+        now + Duration::from_secs(31),
+        false,
+        [(output(1), true), (output(2), true)],
+    );
+    assert_eq!(
+        actions.power_requests,
+        vec![IdlePowerRequest {
+            output: output(2),
+            powered: false,
+        }]
+    );
+    let actions = policy.evaluate(
+        now + Duration::from_secs(700),
+        false,
+        [(output(1), true), (output(2), false)],
+    );
+    assert!(!actions.suspend);
+}
+
+#[test]
+fn desk_leaving_a_dark_phone_locks_it() {
+    let now = Instant::now();
+    let mut policy = phone_beside_desk(now);
+    policy.toggle_now([(output(1), true), (output(2), true)], now);
+    assert!(policy.set_phone_with_desk(None, now));
+    let mut policy = phone_beside_desk(now);
+    assert!(!policy.set_phone_with_desk(None, now));
+}

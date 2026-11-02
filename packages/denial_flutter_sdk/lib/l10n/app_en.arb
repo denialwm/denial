@@ -6937,5 +6937,7 @@
   "colorPresetMono": "Mono",
   "@colorPresetMono": {"description": "Color tuning: a built-in look."},
   "colorTuningPresets": "Presets",
-  "@colorTuningPresets": {"description": "Color tuning: shows the built-in looks."}
+  "@colorTuningPresets": {"description": "Color tuning: shows the built-in looks."},
+  "moveToMonitor": "Move to monitor",
+  "@moveToMonitor": {"description": "Button on a phone recents card: moves the app to the external monitor."}
 }

@@ -733,7 +733,8 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
       shellSettingsProvider.select((value) => value.lockScreen),
     );
     final outputName = ref.watch(
-      displayLayoutProvider.select((layout) => layout?.mainOutput?.name),
+      sceneDisplayLayoutProvider(ShellPart.of(context))
+          .select((layout) => layout?.mainOutput?.name),
     );
     final assignment = ref.watch(
       wallpaperControllerProvider.select((state) => state.assignment),

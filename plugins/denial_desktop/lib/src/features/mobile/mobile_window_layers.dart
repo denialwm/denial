@@ -2,7 +2,6 @@ import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_presentation.dart';
 
 import 'package:denial_flutter_sdk/rendering.dart' show FrostedBackdrop;
-import 'package:denial_flutter_sdk/shell.dart';
 
 import '../../widgets/overview/app_deck_layer.dart';
 import '../../widgets/shade/shade_progress.dart';
@@ -12,6 +11,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'mobile_primary_window_stage.dart';
+import '../../state/phone_desk.dart';
 
 /// The app in front at rest. While the deck presents, it draws the apps.
 class MobilePrimaryWindowLayer extends ConsumerWidget {
@@ -83,9 +83,13 @@ class MobileAppDeckLayer extends ConsumerWidget {
       referenceShellProvider.select((state) => state.overviewVisible),
     );
     final controller = ref.read(referenceShellProvider.notifier);
+    final deskBeside = ref.watch(phoneDeskProvider) != null;
     return AppDeckLayer(
       deck: controller.deck,
-      windows: ref.watch(userAppWindowsProvider),
+      // The phone's apps; beside a desk the desk's stay off the deck.
+      windows: ref.watch(
+        referenceShellProvider.select((state) => state.openAppWindows),
+      ),
       recents: recents,
       backdrop: backdrop,
       onPresentationChanged: onPresentationChanged,
@@ -93,6 +97,7 @@ class MobileAppDeckLayer extends ConsumerWidget {
       onCloseRecents: controller.closeOverview,
       onDismissWindow: controller.dismissFromRecents,
       onOpenWindow: controller.openFromRecents,
+      onMoveWindowToDesk: deskBeside ? controller.moveToDesk : null,
     );
   }
 }

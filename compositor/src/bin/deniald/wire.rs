@@ -161,6 +161,11 @@ pub enum WindowCommand {
         workspace_id: u8,
         follow: bool,
     },
+    /// Between the phone and a desk output.
+    MoveToOutput {
+        window_id: u64,
+        monitor_id: i64,
+    },
     /// Overview drop onto one workspace of an output, which may be hidden.
     /// `geometry` is the dragged preview in that workspace's own coordinates;
     /// its centre resolves to a layout-owned tile operation.
@@ -327,6 +332,7 @@ impl WindowCommand {
             | Self::NavigateBack { window_id }
             | Self::Configure { window_id, .. }
             | Self::MoveToWorkspace { window_id, .. }
+            | Self::MoveToOutput { window_id, .. }
             | Self::DropOnWorkspace { window_id, .. }
             | Self::PreviewWorkspaceDrop { window_id, .. } => Some(*window_id),
         }

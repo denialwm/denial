@@ -448,6 +448,16 @@ impl PowerButton {
     }
 }
 
+/// While a desk shares the session, the phone's panel keeps its own idle
+/// clock: it goes dark when nobody touches it, and the power button turns
+/// only it off and on, without locking.
+#[derive(Debug)]
+struct PhoneScreen {
+    output: OutputId,
+    last_touch: Instant,
+    dpms_triggered: bool,
+}
+
 #[derive(Debug)]
 pub(super) struct IdlePolicy {
     configuration: IdlePolicyConfiguration,
@@ -460,6 +470,7 @@ pub(super) struct IdlePolicy {
     manually_blanked: bool,
     /// When the dark screen locks, while `lock_after_screen_off` counts.
     screen_off_lock_at: Option<Instant>,
+    phone: Option<PhoneScreen>,
 }
 
 impl Default for IdlePolicy {
@@ -477,6 +488,7 @@ impl Default for IdlePolicy {
             blanked_outputs: BTreeSet::new(),
             manually_blanked: false,
             screen_off_lock_at: None,
+            phone: None,
         }
     }
 }
@@ -486,8 +498,76 @@ impl IdlePolicy {
         self.configuration.power_button_action
     }
 
+    /// Follows a desk joining the phone (`phone` names the phone's panel) or
+    /// leaving it. Returns whether to lock: the phone's panel went dark at the
+    /// desk without locking, and it is now the only screen.
+    pub(super) fn set_phone_with_desk(&mut self, phone: Option<OutputId>, now: Instant) -> bool {
+        let current = self.phone.as_ref().map(|screen| screen.output);
+        if current == phone {
+            return false;
+        }
+        self.phone = phone.map(|output| PhoneScreen {
+            output,
+            last_touch: now,
+            dpms_triggered: false,
+        });
+        match (current, phone) {
+            (Some(output), None) if self.blanked_outputs.contains(&output) => {
+                self.manually_blanked = true;
+                self.screen_went_off(now)
+                    .unwrap_or(self.configuration.lock_timeout.is_some())
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the phone's panel keeps its own idle clock.
+    pub(super) fn phone_output(&self) -> Option<OutputId> {
+        self.phone.as_ref().map(|screen| screen.output)
+    }
+
+    /// A finger touched the phone's panel.
+    pub(super) fn note_phone_touch(&mut self, now: Instant) {
+        if let Some(phone) = self.phone.as_mut() {
+            phone.last_touch = now;
+            phone.dpms_triggered = false;
+        }
+    }
+
+    /// The phone's panel goes dark once nobody touched it for the display
+    /// timeout, while the desk keeps its own. A visible inhibitor on the
+    /// phone holds it lit.
+    pub(super) fn evaluate_phone(
+        &mut self,
+        now: Instant,
+        inhibited: bool,
+        powered: bool,
+    ) -> Option<IdlePowerRequest> {
+        let timeout = self.configuration.dpms_timeout;
+        let phone = self.phone.as_mut()?;
+        if inhibited {
+            phone.last_touch = now;
+            phone.dpms_triggered = false;
+            return None;
+        }
+        if phone.dpms_triggered
+            || !powered
+            || timeout.is_none_or(|timeout| now.saturating_duration_since(phone.last_touch) < timeout)
+        {
+            return None;
+        }
+        phone.dpms_triggered = true;
+        self.blanked_outputs.insert(phone.output);
+        Some(IdlePowerRequest {
+            output: phone.output,
+            powered: false,
+        })
+    }
+
     /// A physical power press overrides the current output power state, even
     /// when an external power client originally switched the displays off.
+    /// With a desk, it turns only the phone's panel off and on and never
+    /// locks: the user goes on at the desk.
     pub(super) fn toggle_now(
         &mut self,
         outputs: impl IntoIterator<Item = (OutputId, bool)>,
@@ -495,6 +575,27 @@ impl IdlePolicy {
     ) -> IdlePolicyActions {
         self.reset_idle_interval(now);
         let outputs = outputs.into_iter().collect::<Vec<_>>();
+        if let Some(phone) = self.phone.as_mut() {
+            let output = phone.output;
+            let powered = outputs
+                .iter()
+                .any(|(candidate, powered)| *candidate == output && *powered);
+            if powered {
+                phone.dpms_triggered = true;
+                self.blanked_outputs.insert(output);
+            } else {
+                phone.last_touch = now;
+                phone.dpms_triggered = false;
+                self.blanked_outputs.remove(&output);
+            }
+            return IdlePolicyActions {
+                power_requests: vec![IdlePowerRequest {
+                    output,
+                    powered: !powered,
+                }],
+                ..IdlePolicyActions::default()
+            };
+        }
         if outputs.iter().any(|(_, powered)| *powered) {
             IdlePolicyActions {
                 power_requests: self.blank_now(outputs),
@@ -559,6 +660,10 @@ impl IdlePolicy {
     /// blanked display. It can never toggle a lit display off or unlock.
     pub(super) fn wake_output_now(&mut self, output: OutputId, now: Instant) -> IdlePowerRequest {
         self.reset_idle_interval(now);
+        if let Some(phone) = self.phone.as_mut().filter(|phone| phone.output == output) {
+            phone.last_touch = now;
+            phone.dpms_triggered = false;
+        }
         self.blanked_outputs.remove(&output);
         self.manually_blanked &= !self.blanked_outputs.is_empty();
         self.screen_off_lock_at = None;
@@ -636,6 +741,7 @@ impl IdlePolicy {
             actions.lock = true;
         }
 
+        let phone = self.phone_output();
         if !self.dpms_triggered
             && self
                 .configuration
@@ -643,7 +749,8 @@ impl IdlePolicy {
                 .is_some_and(|timeout| elapsed >= timeout)
         {
             self.dpms_triggered = true;
-            for (output, powered) in outputs {
+            // The phone's panel keeps its own clock beside a desk.
+            for (output, powered) in outputs.clone().filter(|(output, _)| Some(*output) != phone) {
                 if powered && self.blanked_outputs.insert(output) {
                     actions.power_requests.push(IdlePowerRequest {
                         output,
@@ -658,7 +765,9 @@ impl IdlePolicy {
 
         // If display-off and suspend share a threshold, give the compositor
         // one dispatch boundary to commit DPMS before logind suspends.
+        // Beside a desk, nothing suspends while a screen is still lit.
         if actions.power_requests.is_empty()
+            && (phone.is_none() || !outputs.clone().any(|(_, powered)| powered))
             && !self.suspend_triggered
             && self
                 .effective_suspend_timeout()
@@ -676,7 +785,15 @@ impl IdlePolicy {
     /// compositor independently. Between those edges the idle policy needs no
     /// polling; this deadline is the only timer it contributes.
     pub(super) fn next_deadline(&self) -> Option<Instant> {
-        let idle = self.next_idle_deadline();
+        let phone = self.phone.as_ref().and_then(|phone| {
+            (!phone.dpms_triggered)
+                .then_some(self.configuration.dpms_timeout?)
+                .map(|timeout| phone.last_touch + timeout)
+        });
+        let idle = match (self.next_idle_deadline(), phone) {
+            (Some(idle), Some(phone)) => Some(idle.min(phone)),
+            (idle, phone) => idle.or(phone),
+        };
         match (idle, self.screen_off_lock_at) {
             (Some(idle), Some(lock)) => Some(idle.min(lock)),
             (idle, lock) => idle.or(lock),
@@ -754,10 +871,18 @@ impl IdlePolicy {
         })
     }
 
+    /// Beside a desk, the phone's dark panel stays dark: only its power
+    /// button, a wake gesture or a touch on it light it.
     fn wake_blanked_outputs(&mut self) -> Vec<IdlePowerRequest> {
         self.manually_blanked = false;
         self.screen_off_lock_at = None;
-        std::mem::take(&mut self.blanked_outputs)
+        let mut blanked = std::mem::take(&mut self.blanked_outputs);
+        if let Some(phone) = self.phone_output()
+            && blanked.remove(&phone)
+        {
+            self.blanked_outputs.insert(phone);
+        }
+        blanked
             .into_iter()
             .map(|output| IdlePowerRequest {
                 output,

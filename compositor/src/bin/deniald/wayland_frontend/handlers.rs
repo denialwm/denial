@@ -1975,7 +1975,11 @@ impl XdgShellHandler for RuntimeState {
             let window = Window::new_wayland_window(surface);
             let offset = frontend.next_window_offset;
             frontend.next_window_offset = (frontend.next_window_offset + 48).min(384);
-            let location = initial_toplevel_location(frontend.fallback_output_geometry(), offset);
+            #[cfg(feature = "flutter")]
+            let output_geometry = frontend.new_window_output_geometry();
+            #[cfg(not(feature = "flutter"))]
+            let output_geometry = frontend.fallback_output_geometry();
+            let location = initial_toplevel_location(output_geometry, offset);
             frontend.space.map_element(window.clone(), location, true);
             frontend.update_window_output_membership(&window);
             frontend.remember_layout_insertion_anchor(&window);

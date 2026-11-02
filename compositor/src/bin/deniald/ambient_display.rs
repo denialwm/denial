@@ -366,10 +366,12 @@ fn next_minute(now: Instant) -> Instant {
 
 /// The lit output whose power-off the always-on display takes over.
 fn power_off_to_hold(scanouts: &[Scanout], events: &mut RuntimeState) -> Option<OutputId> {
+    // Beside a desk the session stays unlocked while the phone is dark, so
+    // there is no lock screen clock to show.
     let mobile = events
         .wayland
         .as_ref()
-        .is_some_and(|frontend| frontend.mobile_shell());
+        .is_some_and(|frontend| frontend.mobile_shell() && !frontend.phone_with_desk());
     if !mobile {
         return None;
     }

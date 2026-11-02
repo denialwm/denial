@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/models.dart';
-import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
@@ -22,6 +21,7 @@ import 'wallpaper_darkness_control.dart';
 import 'wallpaper_search_controls.dart';
 import 'wallpaper_span_controls.dart';
 import 'wallpaper_target_selector.dart';
+import '../../state/phone_desk.dart';
 
 enum _MobileWallpaperMode { browse, position, preview }
 
@@ -213,7 +213,9 @@ class _MobileWallpaperSelectorSurfaceState
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(wallpaperControllerProvider);
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final displayLayout = ref.watch(
+      sceneDisplayLayoutProvider(ShellPart.of(context)),
+    );
     final outputs = displayLayout?.outputs ?? const <DisplayOutput>[];
     return Focus(
       autofocus: true,

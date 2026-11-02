@@ -8,6 +8,14 @@ boundaries may change before 1.0.
 
 ### Added
 
+- A phone running the mobile shell keeps working as a phone when a monitor is
+  plugged in: the monitor runs the desktop shell beside it. Apps open on the
+  screen they were started from. A recents card's monitor button, or opening
+  the app from the monitor's launcher, moves an app to the monitor; dropping
+  a window on the phone's screen, or opening it from the phone, brings it
+  back. With the monitor in use the power button turns off only the phone,
+  each screen dims on its own, and unplugging moves the monitor's windows to
+  the phone until it returns. See [docs/PHONE_AND_MONITOR.md](docs/PHONE_AND_MONITOR.md).
 - Color management. Output buffers are 10-bit where the display planes allow
   it, and each display gets the desktop converted from sRGB to its own gamut,
   read from its EDID. `denialctl color correction off` and `on` compare a

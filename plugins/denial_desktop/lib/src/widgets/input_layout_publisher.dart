@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/input.dart';
 
+import '../state/phone_desk.dart';
+
 class InputLayoutPublisher extends ConsumerStatefulWidget {
   const InputLayoutPublisher({super.key, required this.child});
 
@@ -63,6 +65,8 @@ class _InputLayoutPublisherState extends ConsumerState<InputLayoutPublisher> {
     );
     ref.watch(shellInteractionRegistryProvider);
     ref.watch(mobilePresentationTopInsetProvider);
+    // Beside a desk the phone's regions move into the scene.
+    ref.watch(phoneDeskProvider);
     _viewSize = MediaQuery.sizeOf(context);
     _schedulePublish(_viewSize);
     return widget.child;

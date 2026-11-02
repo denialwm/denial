@@ -926,7 +926,7 @@ impl WaylandFrontend {
         let next_managed = next.manages_geometry();
         let restore_stacking = previously_managed && !next_managed;
         #[cfg(feature = "flutter")]
-        let restore_stacking = restore_stacking && !self.mobile_shell;
+        let restore_stacking = restore_stacking && (!self.mobile_shell || self.phone_with_desk());
         if restore_stacking {
             self.restore_stacking_geometries();
         }
@@ -945,9 +945,16 @@ impl WaylandFrontend {
     /// Layout algorithms only ever see regular, resizable toplevels; protocol
     /// policy for dialogs and auxiliary surfaces stays isolated in this adapter.
     pub(super) fn reconcile_window_layout(&mut self, window: &Window) -> bool {
+        // A phone window fills the panel; one that left a desk leaves its layout.
         #[cfg(feature = "flutter")]
-        if self.mobile_shell {
-            return false;
+        if self.window_on_phone(window) {
+            let removed = self
+                .window_root_surface(window)
+                .is_some_and(|root| self.window_layout.remove(&root.id()));
+            if removed {
+                self.arrange_layout_windows();
+            }
+            return removed;
         }
         if !self.window_layout.manages_geometry() {
             return false;
@@ -1109,9 +1116,14 @@ impl WaylandFrontend {
     /// Rebuild output membership after hotplug/rotation while preserving each
     /// window's original stacking rectangle.
     pub(crate) fn rebuild_window_layout(&mut self) -> bool {
+        // The phone alone: every window fills it, and no desk layout keeps
+        // the windows a desk took away with it.
         #[cfg(feature = "flutter")]
-        if self.mobile_shell {
-            return false;
+        if self.mobile_shell && !self.phone_with_desk() {
+            if self.window_layout.manages_geometry() {
+                self.window_layout.rebuild(Vec::new());
+            }
+            return self.arrange_layout_windows();
         }
         if !self.window_layout.manages_geometry() {
             return false;
@@ -1170,7 +1182,10 @@ impl WaylandFrontend {
             for window in windows {
                 self.configure_mobile_window(&window);
             }
-            return false;
+            // Desks arrange their own windows.
+            if !self.phone_with_desk() {
+                return false;
+            }
         }
         if !self.window_layout.manages_geometry() {
             return false;
@@ -1405,6 +1420,11 @@ impl WaylandFrontend {
         let Some(facts) = ManagedWindow::new(window).map(|window| window.facts()) else {
             return false;
         };
+        // Phone windows fill the panel; only desk windows take part.
+        #[cfg(feature = "flutter")]
+        if self.window_on_phone(window) {
+            return false;
+        }
         let already_managed = self.window_layout.contains(&root.id());
         LayoutWindowProperties {
             alive: root.is_alive(),

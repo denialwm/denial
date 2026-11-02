@@ -29,6 +29,7 @@ import 'package:denial_flutter_sdk/rendering.dart'
     show FadeSnapshot, WindowBackdropCache, WindowBackdropSlice;
 
 import 'shade/shade_backdrop_scene.dart';
+import '../state/phone_desk.dart';
 
 part 'notification_card.dart';
 part 'notification_reveal.dart';
@@ -44,6 +45,7 @@ class NotificationBannerLayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!showsTransientOverlay(context, ref)) return const SizedBox.shrink();
     final notificationState = ref.watch(desktopNotificationsProvider);
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.lockLayerVisible),
@@ -78,7 +80,8 @@ class NotificationBannerLayer extends ConsumerWidget {
       ),
     );
     final mainOutput = ref.watch(
-      displayLayoutProvider.select((layout) => layout?.mainOutput),
+      sceneDisplayLayoutProvider(ShellPart.of(context))
+          .select((layout) => layout?.mainOutput),
     );
 
     return LayoutBuilder(

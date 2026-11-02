@@ -58,7 +58,7 @@ fn configure_mobile_toplevel(toplevel: &ToplevelSurface, size: Size<i32, Logical
 }
 
 #[cfg(feature = "flutter")]
-fn configure_desktop_toplevel(
+pub(super) fn configure_desktop_toplevel(
     toplevel: &ToplevelSurface,
     size: Size<i32, Logical>,
     state: WindowPlacementState,
@@ -198,7 +198,7 @@ impl Dispatch<DenialInsetsManagerV1, ()> for RuntimeState {
                     return;
                 }
                 let resource = data_init.init(id, ());
-                let height = frontend.keyboard_inset_height();
+                let height = frontend.keyboard_inset_height(&surface);
                 resource.inset(height, 0);
                 frontend.keyboard_insets.objects.push(KeyboardInset {
                     resource,
@@ -247,13 +247,22 @@ impl WaylandFrontend {
     }
 
     /// Only mobile app windows reach the bottom of the output, so only the
-    /// mobile presentation reports the keyboard over them.
-    fn keyboard_inset_height(&self) -> u32 {
-        if self.mobile_shell {
+    /// mobile presentation reports the keyboard over them, and only to
+    /// windows on the phone: the keyboard never shows on a desk.
+    fn keyboard_inset_height(&self, surface: &WlSurface) -> u32 {
+        if self.mobile_shell && self.surface_on_phone(surface) {
             self.keyboard_insets.height
         } else {
             0
         }
+    }
+
+    fn surface_on_phone(&self, surface: &WlSurface) -> bool {
+        if !self.phone_with_desk() {
+            return true;
+        }
+        self.owning_toplevel_surface(surface)
+            .is_none_or(|root| self.root_on_phone(&root.id()))
     }
 
     /// The shell's keyboard starts moving to `height` logical pixels over
@@ -264,8 +273,13 @@ impl WaylandFrontend {
     }
 
     fn send_keyboard_insets(&mut self, duration: u32) {
-        let height = self.keyboard_inset_height();
-        for object in &mut self.keyboard_insets.objects {
+        let heights = self
+            .keyboard_insets
+            .objects
+            .iter()
+            .map(|object| self.keyboard_inset_height(&object.surface))
+            .collect::<Vec<_>>();
+        for (object, height) in self.keyboard_insets.objects.iter_mut().zip(heights) {
             if object.sent != height && object.surface.is_alive() {
                 object.resource.inset(height, duration);
                 object.sent = height;
@@ -385,8 +399,13 @@ impl WaylandFrontend {
         if system_ui {
             return None;
         }
-        let mut geometry = self
-            .output_for_geometry(self.window_geometry_target(window))
+        let output = self.output_for_geometry(self.window_geometry_target(window));
+        // A window on a desk keeps desktop placement.
+        if output.is_some_and(|output| self.output_is_desk(output)) {
+            return None;
+        }
+        let mut geometry = output
+            .or_else(|| self.phone_output())
             .map(|output| output.logical_geometry)
             .or_else(|| self.fallback_output_geometry())?;
         let top = if self_managed(&root) || geometry.size.w > geometry.size.h {

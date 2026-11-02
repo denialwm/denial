@@ -508,6 +508,8 @@ impl WaylandFrontend {
             mobile_shell: denial_core::environment::var("DENIAL_SHELL_PROFILE").as_deref()
                 == Ok("mobile"),
             #[cfg(feature = "flutter")]
+            last_press_output: None,
+            #[cfg(feature = "flutter")]
             idle_inhibitors,
             #[cfg(feature = "flutter")]
             idle_inhibition_dirty: true,

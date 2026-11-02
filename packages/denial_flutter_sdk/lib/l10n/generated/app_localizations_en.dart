@@ -5258,4 +5258,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get colorTuningPresets => 'Presets';
+
+  @override
+  String get moveToMonitor => 'Move to monitor';
 }

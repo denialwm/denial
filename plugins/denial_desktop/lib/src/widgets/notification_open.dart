@@ -28,7 +28,7 @@ bool openNotification(WidgetRef ref, int notificationId) {
       repository: ref.read(desktopAppsRepositoryProvider),
       launcher: ref.read(appLauncherProvider),
       shell: ref.read(referenceShellProvider.notifier),
-      windows: ref.read(referenceShellProvider).openAppWindows,
+      windows: ref.read(referenceShellProvider).allOpenAppWindows,
     ),
   );
   if (notification.resident) {

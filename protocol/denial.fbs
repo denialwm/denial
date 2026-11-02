@@ -57,7 +57,9 @@ enum WindowRequestKind : ubyte {
   MoveWindowToWorkspace = 8,
   MinimizeWindow = 9,
   // The system Back action for one client window.
-  NavigateBack = 10
+  NavigateBack = 10,
+  // Moves one window between the phone and a desk output (monitor_id).
+  MoveWindowToOutput = 11
 }
 
 enum WindowResponseKind : ubyte {

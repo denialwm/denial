@@ -26,9 +26,10 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import '../widgets/notification_media.dart';
+import '../state/phone_desk.dart';
 
 final _monitorBounds = Provider.autoDispose.family<Rect?, int>((ref, id) {
-  for (final output in ref.watch(displayLayoutProvider)?.outputs ?? []) {
+  for (final output in ref.watch(deskDisplayLayoutProvider)?.outputs ?? []) {
     if (output.monitorId == id) return output.logicalRect;
   }
   return null;
@@ -123,7 +124,7 @@ final _windows = Provider.autoDispose.family<List<ApplicationWindow>, int>((
     ),
   );
   return List.unmodifiable([
-    for (final window in shell.openAppWindows)
+    for (final window in shell.desk.openAppWindows)
       if (window.monitorId == monitorId &&
           (window.minimized ||
               window.pinned ||
@@ -134,7 +135,7 @@ final _windows = Provider.autoDispose.family<List<ApplicationWindow>, int>((
           title: window.title.isEmpty ? window.appId : window.title,
           active:
               !desktopVisible &&
-              shell.foregroundObjectId == window.objectId &&
+              shell.deskForegroundObjectId == window.objectId &&
               !window.minimized,
           minimized: window.minimized,
           tiled: tiled,
@@ -201,7 +202,7 @@ final class DesktopShellServices implements ShellServices {
       break;
     }
     if (!started && ref.context.mounted) {
-      final layout = ref.read(displayLayoutProvider);
+      final layout = ref.read(deskDisplayLayoutProvider);
       final output =
           layout?.outputs
               .where((output) => output.monitorId == monitorId)
@@ -233,7 +234,7 @@ final class DesktopShellServices implements ShellServices {
   void activateWindow(int id) {
     ref.read(windowEmphasisProvider.notifier).clear();
     ref.read(desktopVisibleProvider.notifier).restore();
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId != id) continue;
       ref.read(desktopWorkspaceProvider.notifier).activate(id);
       ref.read(referenceShellProvider.notifier).focusWindow(window);
@@ -244,7 +245,7 @@ final class DesktopShellServices implements ShellServices {
   @override
   void minimizeWindow(int id) {
     ref.read(windowEmphasisProvider.notifier).clear();
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId != id) continue;
       ref.read(denialBridgeProvider).minimizeWindow(window);
       return;

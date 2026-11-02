@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/platform.dart';
 
+import 'phone_desk_input.dart';
 import 'reference_shell_state.dart';
 import 'reference_shell_metrics.dart';
 
@@ -14,6 +15,11 @@ class ReferenceInputLayoutCoordinator {
 
   final DenialBridge _bridge;
   int _inputLayoutEpoch = 0;
+
+  /// Beside a desk the phone's layout goes to the composer, from the phone's
+  /// origin in the scene.
+  Offset _sceneOrigin = Offset.zero;
+  PhoneDeskInputComposer? _composer;
   InputLayoutSnapshot? _lastInputLayoutSnapshot;
 
   void invalidate() {
@@ -26,10 +32,14 @@ class ReferenceInputLayoutCoordinator {
     required ShellInteractionSnapshot interactions,
     double topInset = 0.0,
     bool appsMoving = false,
+    Offset sceneOrigin = Offset.zero,
+    PhoneDeskInputComposer? composer,
   }) {
     if (viewSize.width <= 0 || viewSize.height <= 0) {
       return;
     }
+    _sceneOrigin = sceneOrigin;
+    _composer = composer;
 
     final quickSettingsActive = state.quickSettingsEngaged;
     final edgePanelActive =
@@ -142,8 +152,10 @@ class ReferenceInputLayoutCoordinator {
         ReferenceShellMetrics.gestureRect(viewSize),
         ReferenceShellMetrics.edgePanelGestureRect(viewSize),
       ],
+      // Child regions are in scene coordinates.
       for (final region in interactions.childRegions)
-        if (!region.intersect(canvas).isEmpty) region.intersect(canvas),
+        if (!region.shift(-_sceneOrigin).intersect(canvas).isEmpty)
+          region.shift(-_sceneOrigin).intersect(canvas),
     ];
 
     // Back swipes and landscape pull-downs start over the app and are handed
@@ -323,7 +335,9 @@ class ReferenceInputLayoutCoordinator {
       return;
     }
 
-    if (!_bridge.publishInputLayout(snapshot)) {
+    final composer = _composer;
+    if (!(composer?.publishPhone(snapshot, _sceneOrigin) ??
+        _bridge.publishInputLayout(snapshot))) {
       return;
     }
     _inputLayoutEpoch = snapshot.epoch;

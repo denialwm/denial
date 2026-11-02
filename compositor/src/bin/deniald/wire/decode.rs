@@ -355,6 +355,28 @@ impl WireBridge {
                 self.pending_window_commands.push_back(command);
                 Ok(None)
             }
+            fb::WindowRequestKind::MoveWindowToOutput => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let window_id = request.window_id();
+                let monitor_id = request.monitor_id();
+                if window_id == 0 || monitor_id < 0 {
+                    return Err(WireError::Identity);
+                }
+                if request.flags() != 0 {
+                    return Err(WireError::Flags);
+                }
+                self.pending_window_commands
+                    .push_back(WindowCommand::MoveToOutput {
+                        window_id,
+                        monitor_id,
+                    });
+                Ok(None)
+            }
             kind @ (fb::WindowRequestKind::CloseWindow
             | fb::WindowRequestKind::FocusWindow
             | fb::WindowRequestKind::MinimizeWindow

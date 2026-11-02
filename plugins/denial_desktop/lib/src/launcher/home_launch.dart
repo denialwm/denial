@@ -4,10 +4,10 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/applications.dart';
-import 'package:denial_flutter_sdk/state.dart';
 
 import '../state/reference_shell_controller.dart';
 import '../state/reference_shell_metrics.dart';
+import '../state/phone_desk.dart';
 
 /// Opens home's [app] from its icon at [iconRect], in global coordinates,
 /// through the shell's launch transition. A running app grows out of the
@@ -39,6 +39,17 @@ Future<void> launchHomeApp(
     desktop,
     ref.read(referenceShellProvider).openAppWindows,
   );
+  // Opened from the phone, an app running on a desk comes to the phone.
+  final onDesk = running == null && ref.read(phoneDeskProvider) != null
+      ? launcher.findOpenWindow(
+          desktop,
+          ref.read(referenceShellProvider).desk.openAppWindows,
+        )
+      : null;
+  if (onDesk != null) {
+    shell.sendToPhone(onDesk);
+    return;
+  }
   if (running != null) {
     shell.activateAppFromLauncher(
       window: running,
@@ -71,7 +82,9 @@ void _launchLocal(
   ref
       .read(applicationRecentsProvider.notifier)
       .record(localApplicationRecentId(app.id));
-  final displayLayout = ref.read(displayLayoutProvider);
+  final displayLayout = ref.read(
+    sceneDisplayLayoutProvider(ShellPart.of(context)),
+  );
   final mainOutput = displayLayout?.mainOutput;
   final availableBounds = mainOutput == null
       ? Offset.zero & MediaQuery.sizeOf(context)

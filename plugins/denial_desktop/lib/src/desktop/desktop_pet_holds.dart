@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/default_shell/panel_composition.dart';
 import 'desktop_held_layers.dart';
 import 'desktop_workspace.dart';
+import '../state/phone_desk.dart';
 
 /// While the user drags a desktop pet, asks the selected [ShellPetHolds]
 /// which window would hold it, from what the user sees, and names that hold
@@ -36,14 +37,14 @@ class _DesktopPetHoldPublisherState
     final holds = ref.watch(desktopPetHoldsProvider);
     final dragged = ref.watch(
       referenceShellProvider.select(
-        (state) => _DraggedPets(state.layerSurfaces),
+        (state) => _DraggedPets(state.desk.layerSurfaces),
       ),
     );
     if (holds != null && dragged.pets.isNotEmpty) {
       // The scene a hold depends on, while something is dragged.
       ref.watch(desktopWorkspaceProvider);
-      ref.watch(displayLayoutProvider);
-      ref.watch(referenceShellProvider.select((state) => state.windows));
+      ref.watch(deskDisplayLayoutProvider);
+      ref.watch(referenceShellProvider.select((state) => state.desk.windows));
       _schedule();
     } else if (_named.isNotEmpty) {
       _named.clear();
@@ -64,13 +65,13 @@ class _DesktopPetHoldPublisherState
   void _name() {
     final holds = ref.read(desktopPetHoldsProvider);
     final shell = ref.read(referenceShellProvider);
-    final pets = _DraggedPets(shell.layerSurfaces).pets;
+    final pets = _DraggedPets(shell.desk.layerSurfaces).pets;
     _named.removeWhere((id, _) => !pets.any((pet) => pet.objectId == id));
     if (holds == null || pets.isEmpty) return;
     final desktop = ref.read(desktopWorkspaceProvider);
     final screens = [
       for (final output
-          in ref.read(displayLayoutProvider)?.outputs ??
+          in ref.read(deskDisplayLayoutProvider)?.outputs ??
               const <DisplayOutput>[])
         output.logicalRect,
     ];
@@ -81,8 +82,8 @@ class _DesktopPetHoldPublisherState
           ? const <PetHoldTarget>[]
           : desktopPetHoldTargets(
               desktop: desktop,
-              windows: shell.windows,
-              layerSurfaces: shell.layerSurfaces,
+              windows: shell.desk.windows,
+              layerSurfaces: shell.desk.layerSurfaces,
               pet: pet,
             );
       final proposed = holds.holdFor(

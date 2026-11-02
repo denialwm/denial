@@ -4,10 +4,12 @@ import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:motor/motor.dart' as motor;
 
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
@@ -35,6 +37,7 @@ class AppDeckLayer extends StatefulWidget {
     required this.onCloseRecents,
     required this.onDismissWindow,
     required this.onOpenWindow,
+    this.onMoveWindowToDesk,
   });
 
   final AppDeck deck;
@@ -55,6 +58,9 @@ class AppDeckLayer extends StatefulWidget {
   final VoidCallback onCloseRecents;
   final ValueChanged<DenialWindow> onDismissWindow;
   final ValueChanged<DenialWindow> onOpenWindow;
+
+  /// Moves an app to the monitor beside the phone; none without a monitor.
+  final ValueChanged<DenialWindow>? onMoveWindowToDesk;
 
   @override
   State<AppDeckLayer> createState() => _AppDeckLayerState();
@@ -319,6 +325,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
                         labelOpacity: geometry.landscape ? null : _labelOpacity,
                         onOpen: widget.onOpenWindow,
                         onDismissed: widget.onDismissWindow,
+                        onMoveToDesk: widget.onMoveWindowToDesk,
                       ),
                 ],
               ),
@@ -341,6 +348,7 @@ class _DeckCard extends StatefulWidget {
     required this.labelOpacity,
     required this.onOpen,
     required this.onDismissed,
+    this.onMoveToDesk,
   });
 
   final DenialWindow window;
@@ -351,6 +359,7 @@ class _DeckCard extends StatefulWidget {
   final Animation<double>? labelOpacity;
   final ValueChanged<DenialWindow> onOpen;
   final ValueChanged<DenialWindow> onDismissed;
+  final ValueChanged<DenialWindow>? onMoveToDesk;
 
   @override
   State<_DeckCard> createState() => _DeckCardState();
@@ -478,6 +487,7 @@ class _DeckCardState extends State<_DeckCard>
   @override
   Widget build(BuildContext context) {
     final labelOpacity = widget.labelOpacity;
+    final onMoveToDesk = widget.onMoveToDesk;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -509,7 +519,12 @@ class _DeckCardState extends State<_DeckCard>
                 devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                 child: FadeTransition(
                   opacity: labelOpacity,
-                  child: OverviewCardLabel(window: widget.window),
+                  child: OverviewCardLabel(
+                    window: widget.window,
+                    trailingSpace: onMoveToDesk == null
+                        ? 0
+                        : _MoveToDeskButton.size + OverviewCardLabel.gap,
+                  ),
                 ),
               ),
             ),
@@ -527,6 +542,31 @@ class _DeckCardState extends State<_DeckCard>
             onVerticalDragCancel: _settleBack,
           ),
         ),
+        if (labelOpacity != null && onMoveToDesk != null)
+          Positioned(
+            left: 0,
+            top: 0,
+            width: widget.labelWidth,
+            height: OverviewCardLabel.height,
+            child: _TranslatedHitRegion(
+              translation: _pose.label,
+              child: CompositedTranslation(
+                translation: _pose.label,
+                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                child: FadeTransition(
+                  opacity: labelOpacity,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: _MoveToDeskButton(
+                      onTap: () {
+                        if (!_leaving) onMoveToDesk(widget.window);
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -626,5 +666,73 @@ class _RenderPoseHitRegion extends RenderProxyBox {
       return false;
     }
     return super.hitTest(result, position: position);
+  }
+}
+
+/// Hit tests its child where [translation] paints it.
+class _TranslatedHitRegion extends SingleChildRenderObjectWidget {
+  const _TranslatedHitRegion({required this.translation, super.child});
+
+  final ValueListenable<Offset> translation;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderTranslatedHitRegion(translation);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderTranslatedHitRegion).translation = translation;
+  }
+}
+
+class _RenderTranslatedHitRegion extends RenderProxyBox {
+  _RenderTranslatedHitRegion(this.translation);
+
+  ValueListenable<Offset> translation;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    final offset = translation.value;
+    return result.addWithPaintOffset(
+      offset: offset,
+      position: position,
+      hitTest: (result, transformed) =>
+          super.hitTest(result, position: transformed),
+    );
+  }
+}
+
+/// Sends a card's app to the monitor beside the phone.
+class _MoveToDeskButton extends StatelessWidget {
+  const _MoveToDeskButton({required this.onTap});
+
+  static const double size = 40;
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = ShellTheme.of(context).brightness == Brightness.dark;
+    final ink = dark ? const Color(0xFFF5F5F7) : const Color(0xFF1C1C1E);
+    return Semantics(
+      button: true,
+      label: context.l10n.moveToMonitor,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: dark ? const Color(0x73000000) : const Color(0x8CFFFFFF),
+            border: Border.all(
+              color: dark ? const Color(0x24FFFFFF) : const Color(0x1F000000),
+            ),
+          ),
+          child: Icon(Icons.desktop_windows_rounded, size: 20, color: ink),
+        ),
+      ),
+    );
   }
 }

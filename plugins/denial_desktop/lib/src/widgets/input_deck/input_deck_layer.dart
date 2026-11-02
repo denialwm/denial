@@ -18,6 +18,7 @@ import '../../state/input_deck.dart';
 import 'input_deck_keyboard.dart';
 import 'input_deck_surface.dart';
 import 'input_deck_touchpad.dart';
+import '../../state/phone_desk.dart';
 
 class InputDeckLayer extends ConsumerWidget {
   const InputDeckLayer({super.key});
@@ -25,7 +26,7 @@ class InputDeckLayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(inputDeckProvider);
-    final layout = ref.watch(displayLayoutProvider);
+    final layout = ref.watch(deskDisplayLayoutProvider);
     DisplayOutput? source;
     for (final output in layout?.outputs ?? const <DisplayOutput>[]) {
       if (output.name == state.activeOutput) source = output;

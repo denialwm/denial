@@ -2,13 +2,13 @@ import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 
 import 'package:denial_flutter_sdk/rendering.dart';
-import 'package:denial_flutter_sdk/state.dart' show displayLayoutProvider;
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../desktop/desktop_scene_layers.dart';
 import 'mobile_application_scene.dart' show mobileWallpaperGlassProvider;
+import '../../state/phone_desk.dart';
 
 /// Denial's own overlay, such as the authentication prompt, above the
 /// phone's shell and apps and below its keyboard, over a dimmed screen.
@@ -33,7 +33,9 @@ class MobileSystemOverlayLayer extends ConsumerWidget {
     final keyboard = ref.watch(
       referenceShellProvider.select((state) => state.edgePanelDragProgress),
     );
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final displayLayout = ref.watch(
+      sceneDisplayLayoutProvider(ShellPart.of(context)),
+    );
     final viewSize = MediaQuery.sizeOf(context);
     final theme = ShellTheme.of(context);
     final glass =

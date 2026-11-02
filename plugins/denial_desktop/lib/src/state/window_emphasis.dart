@@ -26,7 +26,7 @@ final windowDeemphasizedProvider = Provider.autoDispose.family<bool, int>((
   if (target == null) return false;
   return ref.watch(
     referenceShellProvider.select((shell) {
-      final window = shell.openAppWindowsByObjectId[id];
+      final window = shell.desk.openAppWindowsByObjectId[id];
       return window != null &&
           windowIsDeemphasized(
             target,
@@ -56,16 +56,16 @@ class WindowEmphasis extends Notifier<WindowEmphasisTarget?> {
     ref.listen(referenceShellProvider, (previous, next) {
       final target = _requests.target;
       if (target == null) return;
-      final window = next.openAppWindowsByObjectId[target.windowId];
+      final window = next.desk.openAppWindowsByObjectId[target.windowId];
       final previousWindow =
-          previous?.openAppWindowsByObjectId[target.windowId];
+          previous?.desk.openAppWindowsByObjectId[target.windowId];
       if (next.locked ||
           window == null ||
           window.monitorId != target.monitorId ||
           (previousWindow != null &&
               previousWindow.workspaceId != window.workspaceId) ||
           (previous != null &&
-              (next.foregroundObjectId != previous.foregroundObjectId ||
+              (next.deskForegroundObjectId != previous.deskForegroundObjectId ||
                   next.launchRequest != previous.launchRequest))) {
         clear();
       }
@@ -92,7 +92,7 @@ class WindowEmphasis extends Notifier<WindowEmphasisTarget?> {
   VoidCallback begin(int windowId, {required int monitorId}) {
     final shell = ref.read(referenceShellProvider);
     final desktop = ref.read(desktopWorkspaceProvider);
-    final window = shell.openAppWindowsByObjectId[windowId];
+    final window = shell.desk.openAppWindowsByObjectId[windowId];
     if (shell.locked ||
         window == null ||
         window.monitorId != monitorId ||

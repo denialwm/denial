@@ -1895,6 +1895,30 @@ fn process_input_event(
         state.note_user_activity();
     }
 
+    // New windows open where the user last pressed: the phone or a desk.
+    #[cfg(feature = "flutter")]
+    if let Some(frontend) = state.wayland.as_mut() {
+        let output = match &event {
+            InputEvent::TouchDown { event, .. } => {
+                touch_output_for_device(frontend, &event.device()).map(|output| output.id)
+            }
+            InputEvent::PointerButton { event, .. }
+                if event.state() == smithay::backend::input::ButtonState::Pressed =>
+            {
+                frontend.output_id_at(frontend.pointer_location)
+            }
+            _ => None,
+        };
+        frontend.note_press_output(output);
+        if matches!(&event, InputEvent::TouchDown { .. })
+            && output.is_some_and(|output| state.idle_policy.phone_output() == Some(output))
+        {
+            state
+                .idle_policy
+                .note_phone_touch(std::time::Instant::now());
+        }
+    }
+
     #[cfg(feature = "flutter")]
     if let Some(flush_clients) = process_touchpad_gesture_event(state, &event) {
         return flush_clients;

@@ -198,6 +198,9 @@ mod output_power;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/pet.rs"]
 mod pet;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/phone_desk.rs"]
+mod phone_desk;
 #[path = "wayland_frontend/presentation.rs"]
 mod presentation;
 #[path = "wayland_frontend/scene_input.rs"]
@@ -286,7 +289,7 @@ use topology::{
 use window_management::SHELL_FRAME_BORDER;
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
-    apply_window_commands, finalize_topology_window_reconciliation,
+    apply_window_commands, finalize_topology_window_reconciliation, finish_desk_window_drag,
     queue_local_flutter_window_placement, queue_transient_window_placement, queue_window_placement,
 };
 #[cfg(feature = "flutter")]
@@ -652,6 +655,9 @@ pub(super) struct WaylandFrontend {
     pets: pet::Pets,
     #[cfg(feature = "flutter")]
     mobile_shell: bool,
+    /// The output under the last touch down or button press.
+    #[cfg(feature = "flutter")]
+    last_press_output: Option<OutputId>,
     #[cfg(feature = "flutter")]
     idle_inhibitors: IdleInhibitors,
     #[cfg(feature = "flutter")]
