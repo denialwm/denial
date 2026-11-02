@@ -56,11 +56,15 @@ class _LockScreenPane extends ConsumerStatefulWidget {
     required this.authenticationEnabled,
     required this.desktop,
     this.ambient = kAlwaysDismissedAnimation,
+    this.ambientOnly = false,
   });
 
   final Animation<double> unlockProgress;
   final bool authenticationEnabled;
   final bool desktop;
+
+  /// Only the always-on picture, over an unlocked phone.
+  final bool ambientOnly;
 
   /// 1 while the panel shows the always-on picture: the time, the date, the
   /// wallpaper's subject and the fingerprint mark. Everything else fades
@@ -373,7 +377,8 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               ),
               // The subject stays put while the clock slides behind it.
-              if (!widget.desktop && widget.authenticationEnabled) ...[
+              if (!widget.desktop &&
+                  (widget.authenticationEnabled || widget.ambientOnly)) ...[
                 const _LockDepthForeground(),
                 CustomPaint(
                   painter: _AmbientFalloffPainter(

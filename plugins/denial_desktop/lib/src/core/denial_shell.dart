@@ -37,6 +37,7 @@ import 'package:denial_flutter_sdk/shell.dart';
 
 import 'shell_runtime_bindings.dart';
 import 'shell_secure_stage.dart';
+import '../widgets/lock/lock_screen_layer.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -322,6 +323,9 @@ class _ProfileScene extends StatelessWidget {
             ),
             const MobileSystemOverlayLayer(),
             const SystemKeyboardLayer(),
+            // Over everything on the phone, like the lock screen it comes
+            // from.
+            const UnlockedAmbientDisplay(),
             // Volume shows over the lock screen too, as on any phone.
             const MobileVolumeHud(),
             // Above everything, the lock screen included.

@@ -402,11 +402,10 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     _platform.lock();
   }
 
-  /// Secures the session first, then asks the compositor to blank its outputs.
-  /// Both commands use Denial's native channels; no external power daemon is
-  /// involved.
-  void lockAndBlankDisplays() {
-    _platform.lockAndBlankDisplays();
+  /// Turns the screen off as the power button does: the compositor locks
+  /// as it would for the button, and beside a desk only the phone goes dark.
+  void blankDisplays() {
+    _platform.blankDisplays();
   }
 
   void requestUnlock() {

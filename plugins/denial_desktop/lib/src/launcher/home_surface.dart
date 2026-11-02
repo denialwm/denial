@@ -60,7 +60,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   final _viewportKey = GlobalKey();
   final _surfaceKey = GlobalKey();
   late final HomeIconLocator _locator = ref.read(homeIconLocatorProvider);
-  late final _taps = _BackgroundTaps(onDoubleTap: _lockFromDoubleTap);
+  late final _taps = _BackgroundTaps(onDoubleTap: _sleepFromDoubleTap);
 
   @override
   final folders = HomeFolderController();
@@ -316,8 +316,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
         .contains(global);
   }
 
-  void _lockFromDoubleTap() =>
-      ref.read(referenceShellProvider.notifier).lockAndBlankDisplays();
+  void _sleepFromDoubleTap() =>
+      ref.read(referenceShellProvider.notifier).blankDisplays();
 
   void _pageChanged(int page) {
     resize.exit();

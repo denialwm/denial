@@ -265,22 +265,26 @@ pub(super) fn hold_power_off(
         leave(runtime, events);
         return;
     }
-    let Some(output) = power_off_to_hold(scanouts, events) else {
+    let Some((output, beside_desk)) = power_off_to_hold(scanouts, events) else {
         return;
     };
     if events.ambient_display.released == Some(output) {
         return;
     }
-    let locked = events
-        .authentication
-        .as_ref()
-        .is_some_and(|authentication| authentication.lock_automatically());
-    if !locked {
-        // The always-on picture is the lock screen's; without one the
-        // output turns off as usual.
-        return;
+    // Beside a desk the session stays unlocked while the phone is dark, and
+    // the shell shows the lock screen's clock without the lock.
+    if !beside_desk {
+        let locked = events
+            .authentication
+            .as_ref()
+            .is_some_and(|authentication| authentication.lock_automatically());
+        if !locked {
+            // The always-on picture is the lock screen's; without one the
+            // output turns off as usual.
+            return;
+        }
+        super::synchronize_authentication_boundary(events);
     }
-    super::synchronize_authentication_boundary(events);
     events.output_power_requests.remove(&output);
     events.ambient_display.held = Some((output, now + FADE_LIMIT));
     events.ambient_display.entered.insert(output);
@@ -364,23 +368,23 @@ fn next_minute(now: Instant) -> Instant {
     now + (Duration::from_secs(60) - into) + REFRESH_LAG
 }
 
-/// The lit output whose power-off the always-on display takes over.
-fn power_off_to_hold(scanouts: &[Scanout], events: &mut RuntimeState) -> Option<OutputId> {
-    // Beside a desk the session stays unlocked while the phone is dark, so
-    // there is no lock screen clock to show.
-    let mobile = events
-        .wayland
-        .as_ref()
-        .is_some_and(|frontend| frontend.mobile_shell() && !frontend.phone_with_desk());
-    if !mobile {
+/// The lit output whose power-off the always-on display takes over, and
+/// whether a desk shares the session with it.
+fn power_off_to_hold(
+    scanouts: &[Scanout],
+    events: &mut RuntimeState,
+) -> Option<(OutputId, bool)> {
+    let frontend = events.wayland.as_ref()?;
+    if !frontend.mobile_shell() {
         return None;
     }
+    let beside_desk = frontend.phone_with_desk();
     let name = events.ambient_display.profile()?.output.clone();
     let scanout = scanouts
         .iter()
         .find(|scanout| scanout.output.name == name && scanout.powered)?;
     let output = scanout.output.id;
-    (events.output_power_requests.get(&output) == Some(&false)).then_some(output)
+    (events.output_power_requests.get(&output) == Some(&false)).then_some((output, beside_desk))
 }
 
 /// Asks the shell for the rest of the lock screen once the output is lit

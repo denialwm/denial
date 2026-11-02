@@ -71,10 +71,9 @@ class ShellController extends Notifier<ShellState>
   void lock() => _authentication.lock();
   void requestUnlock() => _authentication.begin();
 
-  void lockAndBlankDisplays() {
-    lock();
-    _bridge.requestDpmsOff();
-  }
+  /// Turns the screen off as the power button does; the compositor decides
+  /// whether that locks.
+  void blankDisplays() => _bridge.requestDpmsOff();
 
   void handleAuthenticationState(AuthenticationState authentication) {
     if (!authentication.synchronized) return;
