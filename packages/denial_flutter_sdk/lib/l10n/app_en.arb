@@ -1145,6 +1145,10 @@
   "@lockCpuLabel": {
     "description": "English UI text for lockCpuLabel."
   },
+  "lockDesktopModeEnabled": "Desktop mode enabled",
+  "@lockDesktopModeEnabled": {
+    "description": "Over the date on the phone's always-on picture while a desk keeps the session unlocked."
+  },
   "lockDesktopPromptDescription": "Enter your password to unlock this desktop session.",
   "@lockDesktopPromptDescription": {
     "description": "English UI text for lockDesktopPromptDescription."

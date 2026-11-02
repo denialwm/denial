@@ -18,6 +18,7 @@ class HomeClockWidget extends StatelessWidget {
     this.timeStretch = 1.0,
     this.detailsAbove = false,
     this.dateColor = ShellMediaColors.lightForegroundSecondary,
+    this.caption,
     this.parts = const {
       HomeClockPart.time,
       HomeClockPart.date,
@@ -36,6 +37,9 @@ class HomeClockWidget extends StatelessWidget {
   /// riding on top of a stretched time.
   final bool detailsAbove;
   final Color dateColor;
+
+  /// A line over the date, part of the date.
+  final String? caption;
 
   /// Parts to paint. The others keep their space, so two faces with
   /// complementary parts stack into one clock.
@@ -60,22 +64,37 @@ class HomeClockWidget extends StatelessWidget {
                 child: child,
               );
         final dateGap = _scaled(7, detailScale, 5, 9);
+        Text line(String text, double fontSize) => Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: dateColor,
+            fontSize: fontSize,
+            height: 1,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0,
+          ),
+        );
+        final dateLine = line(
+          localizedLongDate(context, clock.now),
+          _scaled(15, detailScale, 13, 19),
+        );
+        final caption = this.caption;
         final date = part(
           HomeClockPart.date,
-          Text(
-            localizedLongDate(context, clock.now),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            softWrap: false,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: dateColor,
-              fontSize: _scaled(15, detailScale, 13, 19),
-              height: 1,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0,
-            ),
-          ),
+          caption == null
+              ? dateLine
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    line(caption, _scaled(13, detailScale, 11, 16)),
+                    SizedBox(height: dateGap),
+                    dateLine,
+                  ],
+                ),
         );
         final status = showStatus
             ? part(

@@ -430,6 +430,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         desktop: false,
                         scale: lockSettings.clockScale,
                         showSystemStatus: lockSettings.showSystemStatus,
+                        // The phone is dark but the desk keeps the session.
+                        caption: widget.ambientOnly
+                            ? context.l10n.lockDesktopModeEnabled
+                            : null,
                         parts: const {HomeClockPart.date},
                       ),
                       _AmbientHidden(

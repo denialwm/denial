@@ -231,6 +231,7 @@
   "lockAuthenticationResponse": "验证响应",
   "lockAuthenticationUnavailable": "验证不可用。",
   "lockCpuLabel": "CPU",
+  "lockDesktopModeEnabled": "桌面模式已开启",
   "lockDesktopPromptDescription": "输入密码以解锁此桌面会话。",
   "lockHideOnScreenKeyboard": "隐藏屏幕键盘",
   "lockKeyboardBackspace": "退格",

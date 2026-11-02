@@ -788,6 +788,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lockCpuLabel => 'CPU';
 
   @override
+  String get lockDesktopModeEnabled => '桌面模式已开启';
+
+  @override
   String get lockDesktopPromptDescription => '输入密码以解锁此桌面会话。';
 
   @override

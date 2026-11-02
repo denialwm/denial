@@ -297,6 +297,7 @@ class _LockClockBlock extends StatelessWidget {
     required this.desktop,
     required this.scale,
     required this.showSystemStatus,
+    this.caption,
     this.parts = const {
       HomeClockPart.time,
       HomeClockPart.date,
@@ -308,6 +309,9 @@ class _LockClockBlock extends StatelessWidget {
   final bool desktop;
   final double scale;
   final bool showSystemStatus;
+
+  /// A line over the date.
+  final String? caption;
 
   /// Mobile draws the time under the wallpaper's subject and the date and
   /// battery row over it, as two blocks with the same layout.
@@ -350,6 +354,7 @@ class _LockClockBlock extends StatelessWidget {
                 dateColor: desktop
                     ? ShellMediaColors.lightForegroundSecondary
                     : ShellMediaColors.lightForeground,
+                caption: caption,
                 parts: parts,
               ),
             ),

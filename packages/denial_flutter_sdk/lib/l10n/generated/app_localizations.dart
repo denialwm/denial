@@ -1484,6 +1484,12 @@ abstract class AppLocalizations {
   /// **'CPU'**
   String get lockCpuLabel;
 
+  /// Over the date on the phone's always-on picture while a desk keeps the session unlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop mode enabled'**
+  String get lockDesktopModeEnabled;
+
   /// English UI text for lockDesktopPromptDescription.
   ///
   /// In en, this message translates to:

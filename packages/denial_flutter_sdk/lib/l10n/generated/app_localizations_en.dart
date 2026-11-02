@@ -823,6 +823,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get lockCpuLabel => 'CPU';
 
   @override
+  String get lockDesktopModeEnabled => 'Desktop mode enabled';
+
+  @override
   String get lockDesktopPromptDescription =>
       'Enter your password to unlock this desktop session.';
 
