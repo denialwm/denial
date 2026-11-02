@@ -46,6 +46,27 @@ shell, as before.
 - Always-on display, rotation, the status bar, the Back gesture and the
   screenshot chord stay with the phone.
 
+## Settings for the monitor
+
+The phone's Settings app lists a Monitor page only while a monitor is plugged
+in. Its settings change only the desk:
+
+- **Scale** sets the monitor's output scale through `outputs.apply`, undone by
+  itself unless kept within 15 seconds, as a refresh rate is.
+- **Windows** is `layout.windowLayout`: stacking, tiling (`dwindle`) or
+  scrolling. The phone always fills its panel, so the setting only reaches
+  the desk.
+- **Roundness** is `appearance.monitorCornerRadiusScale`, 0.5 unless set. The
+  phone keeps `appearance.cornerRadiusScale`.
+- **Wallpaper** writes the monitor's own entries in the wallpaper file:
+  `outputs`, `outputAlignments` and `outputZooms`, keyed by connector. A
+  wallpaper picked for the phone replaces the built-in panel's entries and
+  `all`, and leaves every monitor's own entries alone.
+
+The phone's part of the scene is clipped to its panel, so what it draws past
+its edges, such as recents cards and apps sliding in or out, never lands on
+the monitor.
+
 ## Overlays
 
 Notification banners and volume and brightness levels show on the screen used

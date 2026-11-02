@@ -149,7 +149,13 @@ class WallpaperAssignment {
     Map<String, WallpaperSpanAlignment> outputAlignmentOverrides =
         const <String, WallpaperSpanAlignment>{},
     Map<String, double> outputDarknessOverrides = const <String, double>{},
+    Map<String, double> outputZoomOverrides = const <String, double>{},
   }) : assert(zoom >= 1.0 && zoom <= maxZoom),
+       assert(
+         outputZoomOverrides.values.every(
+           (value) => value >= 1.0 && value <= maxZoom,
+         ),
+       ),
        assert(allDarkness >= 0.0 && allDarkness <= 1.0),
        assert(
          outputDarknessOverrides.values.every(
@@ -165,6 +171,9 @@ class WallpaperAssignment {
            ),
        outputDarknessOverrides = Map<String, double>.unmodifiable(
          outputDarknessOverrides,
+       ),
+       outputZoomOverrides = Map<String, double>.unmodifiable(
+         outputZoomOverrides,
        );
 
   factory WallpaperAssignment.initial() {
@@ -185,6 +194,14 @@ class WallpaperAssignment {
   final Map<String, WallpaperResource> outputOverrides;
   final Map<String, WallpaperSpanAlignment> outputAlignmentOverrides;
   final Map<String, double> outputDarknessOverrides;
+
+  /// The [zoom] of outputs placed on their own, such as a monitor beside a
+  /// phone.
+  final Map<String, double> outputZoomOverrides;
+
+  double zoomForOutput(String outputName) {
+    return outputZoomOverrides[outputName] ?? zoom;
+  }
 
   WallpaperResource forOutput(String outputName) {
     return outputOverrides[outputName] ?? all;
@@ -225,6 +242,7 @@ class WallpaperAssignment {
         zoom: zoom,
         allDarkness: allDarkness,
         outputAlignmentOverrides: outputAlignmentOverrides,
+        outputZoomOverrides: outputZoomOverrides,
         outputDarknessOverrides: outputDarknessOverrides,
       );
     }
@@ -241,6 +259,7 @@ class WallpaperAssignment {
       allDarkness: allDarkness,
       outputOverrides: updated,
       outputAlignmentOverrides: outputAlignmentOverrides,
+      outputZoomOverrides: outputZoomOverrides,
       outputDarknessOverrides: outputDarknessOverrides,
     );
   }
@@ -262,6 +281,7 @@ class WallpaperAssignment {
         allDarkness: allDarkness,
         outputOverrides: outputOverrides,
         outputAlignmentOverrides: updated,
+        outputZoomOverrides: outputZoomOverrides,
         outputDarknessOverrides: outputDarknessOverrides,
       );
     }
@@ -288,6 +308,7 @@ class WallpaperAssignment {
         allDarkness: safeDarkness,
         outputOverrides: outputOverrides,
         outputAlignmentOverrides: outputAlignmentOverrides,
+        outputZoomOverrides: outputZoomOverrides,
       );
     }
 
@@ -304,6 +325,7 @@ class WallpaperAssignment {
       allDarkness: allDarkness,
       outputOverrides: outputOverrides,
       outputAlignmentOverrides: outputAlignmentOverrides,
+      outputZoomOverrides: outputZoomOverrides,
       outputDarknessOverrides: updated,
     );
   }
@@ -317,7 +339,8 @@ class WallpaperAssignment {
         other.allDarkness == allDarkness &&
         mapEquals(other.outputOverrides, outputOverrides) &&
         mapEquals(other.outputAlignmentOverrides, outputAlignmentOverrides) &&
-        mapEquals(other.outputDarknessOverrides, outputDarknessOverrides);
+        mapEquals(other.outputDarknessOverrides, outputDarknessOverrides) &&
+        mapEquals(other.outputZoomOverrides, outputZoomOverrides);
   }
 
   @override
@@ -328,6 +351,9 @@ class WallpaperAssignment {
       growable: false,
     )..sort((a, b) => a.key.compareTo(b.key));
     final orderedAlignmentEntries = outputAlignmentOverrides.entries.toList(
+      growable: false,
+    )..sort((a, b) => a.key.compareTo(b.key));
+    final orderedZoomEntries = outputZoomOverrides.entries.toList(
       growable: false,
     )..sort((a, b) => a.key.compareTo(b.key));
     return Object.hash(
@@ -347,6 +373,9 @@ class WallpaperAssignment {
         orderedDarknessEntries.map(
           (entry) => Object.hash(entry.key, entry.value),
         ),
+      ),
+      Object.hashAll(
+        orderedZoomEntries.map((entry) => Object.hash(entry.key, entry.value)),
       ),
     );
   }

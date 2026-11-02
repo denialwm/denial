@@ -771,7 +771,9 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
         // wallpaper is drawn.
         final cover =
             math.max(size.width / source.width, size.height / source.height) *
-            assignment.zoom;
+            (outputName == null
+                ? assignment.zoom
+                : assignment.zoomForOutput(outputName));
         final sigma = (settings.blurRadius + widget.spread) / cover;
         if (sigma > 0.0 && _maskKey != (sigma, size)) {
           _bake(source, sigma, size);

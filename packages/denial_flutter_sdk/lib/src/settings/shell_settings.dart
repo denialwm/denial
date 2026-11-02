@@ -117,6 +117,7 @@ class ShellAppearanceSettings {
     this.customAccentColor = const Color(0xff6b3f73),
     this.fontFamily = '',
     this.cornerRadiusScale = 0.5,
+    this.monitorCornerRadiusScale = 0.5,
     this.panelOpacity = 0.5,
     this.cardOpacity = 0.4421052631578947,
     this.transparencyMode = ShellTransparencyMode.glass,
@@ -137,6 +138,10 @@ class ShellAppearanceSettings {
   final Color customAccentColor;
   final String fontFamily;
   final double cornerRadiusScale;
+
+  /// The corners on a monitor beside a phone, whose own scale is tuned for
+  /// the mobile shell.
+  final double monitorCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -157,6 +162,7 @@ class ShellAppearanceSettings {
     Color? customAccentColor,
     String? fontFamily,
     double? cornerRadiusScale,
+    double? monitorCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -178,6 +184,8 @@ class ShellAppearanceSettings {
       customAccentColor: customAccentColor ?? this.customAccentColor,
       fontFamily: fontFamily ?? this.fontFamily,
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
+      monitorCornerRadiusScale:
+          monitorCornerRadiusScale ?? this.monitorCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -207,6 +215,7 @@ class ShellAppearanceSettings {
         other.customAccentColor == customAccentColor &&
         other.fontFamily == fontFamily &&
         other.cornerRadiusScale == cornerRadiusScale &&
+        other.monitorCornerRadiusScale == monitorCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -229,6 +238,7 @@ class ShellAppearanceSettings {
     customAccentColor,
     fontFamily,
     cornerRadiusScale,
+    monitorCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,
@@ -1105,6 +1115,11 @@ class ShellSettings {
       if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
         section['cornerRadiusScale'] = appearance.cornerRadiusScale;
       }
+      if (appearance.monitorCornerRadiusScale !=
+          before.monitorCornerRadiusScale) {
+        section['monitorCornerRadiusScale'] =
+            appearance.monitorCornerRadiusScale;
+      }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
       }
@@ -1341,6 +1356,7 @@ class ShellSettings {
         'customAccentColor': appearance.customAccentColor.toARGB32(),
         'fontFamily': appearance.fontFamily,
         'cornerRadiusScale': appearance.cornerRadiusScale,
+        'monitorCornerRadiusScale': appearance.monitorCornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
         'transparencyMode': appearance.transparencyMode.name,
@@ -1533,6 +1549,12 @@ class ShellSettings {
         cornerRadiusScale: _number(
           appearanceJson['cornerRadiusScale'],
           legacyCornerRadiusScale,
+          ShellRoundness.minimum,
+          ShellRoundness.maximum,
+        ),
+        monitorCornerRadiusScale: _number(
+          appearanceJson['monitorCornerRadiusScale'],
+          defaults.appearance.monitorCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),

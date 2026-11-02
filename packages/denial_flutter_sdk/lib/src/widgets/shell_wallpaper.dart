@@ -208,7 +208,7 @@ class ShellOutputWallpaper extends ConsumerWidget {
                 assignment.alignmentForOutput(output.name).x,
                 assignment.alignmentForOutput(output.name).y,
               ),
-              zoom: assignment.zoom,
+              zoom: assignment.zoomForOutput(output.name),
             ),
             if (darkness > 0)
               _WallpaperDarknessLayer(
@@ -266,7 +266,7 @@ class WallpaperScene extends StatelessWidget {
                 assignment.alignmentForOutput(output.name).x,
                 assignment.alignmentForOutput(output.name).y,
               ),
-              zoom: assignment.zoom,
+              zoom: assignment.zoomForOutput(output.name),
             ),
           ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)

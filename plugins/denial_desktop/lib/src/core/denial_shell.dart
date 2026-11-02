@@ -226,6 +226,11 @@ class _PhoneDeskScene extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final split = this.split;
     final active = ref.read(activeShellPartProvider.notifier);
+    final monitorCornerRadiusScale = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.appearance.monitorCornerRadiusScale,
+      ),
+    );
     Widget part(ShellPart part, Widget child) => Listener(
       behavior: HitTestBehavior.translucent,
       onPointerDown: (_) => active.note(part),
@@ -240,27 +245,38 @@ class _PhoneDeskScene extends ConsumerWidget {
             key: const ValueKey(ShellPart.desk),
             child: part(
               ShellPart.desk,
-              _ProfileScene(
-                profile: ReferenceShellProfile.desktop,
-                policyProfile: policyProfile,
-                scene: desktop,
-                besidePhone: true,
+              // The desk keeps its own corners; the phone's are tuned for the
+              // mobile shell.
+              ShellTheme(
+                data: ShellTheme.of(context)
+                    .copyWith(cornerRadiusScale: monitorCornerRadiusScale),
+                child: _ProfileScene(
+                  profile: ReferenceShellProfile.desktop,
+                  policyProfile: policyProfile,
+                  scene: desktop,
+                  besidePhone: true,
+                ),
               ),
             ),
           ),
         Positioned.fromRect(
           key: const ValueKey(ShellPart.phone),
           rect: phoneRect ?? Offset.zero & MediaQuery.sizeOf(context),
-          child: part(
-            split == null ? ShellPart.whole : ShellPart.phone,
-            MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(size: phoneRect?.size ?? MediaQuery.sizeOf(context)),
-              child: _ProfileScene(
-                profile: ReferenceShellProfile.mobile,
-                policyProfile: policyProfile,
-                scene: mobile,
+          // Beside a desk, what the phone draws past its edges (recents
+          // cards, apps sliding in and out) must not land on the desk.
+          child: ClipRect(
+            clipBehavior: split == null ? Clip.none : Clip.hardEdge,
+            child: part(
+              split == null ? ShellPart.whole : ShellPart.phone,
+              MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(size: phoneRect?.size ?? MediaQuery.sizeOf(context)),
+                child: _ProfileScene(
+                  profile: ReferenceShellProfile.mobile,
+                  policyProfile: policyProfile,
+                  scene: mobile,
+                ),
               ),
             ),
           ),

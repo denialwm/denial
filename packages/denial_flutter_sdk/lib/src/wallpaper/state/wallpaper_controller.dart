@@ -804,6 +804,17 @@ class WallpaperStore {
           alignmentOverrides[name] = WallpaperSpanAlignment.precise(x: x, y: y);
         }
       }
+      final zoomOverrides = <String, double>{};
+      final rawZoomOverrides = decoded['outputZooms'];
+      if (rawZoomOverrides is Map) {
+        for (final entry in rawZoomOverrides.entries) {
+          final name = entry.key;
+          final zoom = _zoom(entry.value);
+          if (name is String && name.isNotEmpty && zoom != null) {
+            zoomOverrides[name] = zoom;
+          }
+        }
+      }
       return WallpaperAssignment(
         all: all,
         spanAlignment: alignment,
@@ -812,6 +823,7 @@ class WallpaperStore {
         outputOverrides: overrides,
         outputAlignmentOverrides: alignmentOverrides,
         outputDarknessOverrides: darknessOverrides,
+        outputZoomOverrides: zoomOverrides,
       );
     } on FileSystemException catch (_) {
       return null;
@@ -870,6 +882,7 @@ class WallpaperStore {
             entry.key: <String, double>{'x': entry.value.x, 'y': entry.value.y},
         },
         'outputDarkness': assignment.outputDarknessOverrides,
+        'outputZooms': assignment.outputZoomOverrides,
       });
       await temporary.writeAsString('$payload\n', flush: true);
       await temporary.rename(file.path);
