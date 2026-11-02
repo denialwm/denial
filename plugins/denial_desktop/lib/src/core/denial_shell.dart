@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/environment.dart';
+import 'package:denial_flutter_sdk/input.dart';
 
 import '../desktop/desktop_input_layout_publisher.dart';
 import '../diagnostics/desktop_benchmark_binding.dart';
@@ -269,14 +270,19 @@ class _PhoneDeskScene extends ConsumerWidget {
             clipBehavior: split == null ? Clip.none : Clip.hardEdge,
             child: part(
               split == null ? ShellPart.whole : ShellPart.phone,
-              MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(size: phoneRect?.size ?? MediaQuery.sizeOf(context)),
-                child: _ProfileScene(
-                  profile: ReferenceShellProfile.mobile,
-                  policyProfile: policyProfile,
-                  scene: mobile,
+              // Nor does its input: a full-scene capture on the phone, such
+              // as its dark always-on picture, leaves the desk its pointer.
+              ShellInputClip(
+                bounds: phoneRect,
+                child: MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: phoneRect?.size ?? MediaQuery.sizeOf(context),
+                  ),
+                  child: _ProfileScene(
+                    profile: ReferenceShellProfile.mobile,
+                    policyProfile: policyProfile,
+                    scene: mobile,
+                  ),
                 ),
               ),
             ),

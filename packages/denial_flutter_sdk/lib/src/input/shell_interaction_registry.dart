@@ -153,9 +153,11 @@ class ShellInputScope extends InheritedWidget {
 
 /// Clips descendant native input to a scene-coordinate output rectangle.
 /// Use alongside a paint clip; nested scopes must intersect their parent bounds.
+/// Null bounds leave input unclipped, so a clip that comes and goes keeps its
+/// subtree.
 class ShellInputClip extends InheritedWidget {
   const ShellInputClip({required this.bounds, required super.child, super.key});
-  final Rect bounds;
+  final Rect? bounds;
   static Rect? boundsOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellInputClip>()?.bounds;
   @override
