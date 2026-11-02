@@ -64,58 +64,26 @@ part 'lock_screen_background.dart';
 part 'lock_screen_pane.dart';
 
 /// The lock screen's always-on picture on the phone while the session stays
-/// unlocked: beside a desk the phone goes dark without locking. It shows
-/// while deniald holds the panel for it and leaves once the phone wakes.
-class UnlockedAmbientDisplay extends ConsumerStatefulWidget {
+/// unlocked: beside a desk the phone goes dark without locking. It stays
+/// built, hidden, while the phone is unlocked beside a desk, so the wallpaper
+/// and its subject are ready before the picture fades in.
+class UnlockedAmbientDisplay extends ConsumerWidget {
   const UnlockedAmbientDisplay({super.key});
 
   @override
-  ConsumerState<UnlockedAmbientDisplay> createState() =>
-      _UnlockedAmbientDisplayState();
-}
-
-class _UnlockedAmbientDisplayState
-    extends ConsumerState<UnlockedAmbientDisplay> {
-  StreamSubscription<bool>? _changes;
-  bool _shown = false;
-
-  /// Whether the last build put the face on screen.
-  bool _built = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final bridge = ref.read(denialBridgeProvider);
-    _shown = bridge.ambientDisplayActive;
-    // A shown face fades out on its own and says when it is gone; one never
-    // built has nothing to fade.
-    _changes = bridge.ambientDisplay.listen((active) {
-      if (active != _shown && (active || !_built)) {
-        setState(() => _shown = active);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _changes?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.locked),
     );
     // A locked session shows the always-on picture on its lock screen, and
     // without a desk the phone always locks before it goes dark.
-    _built = _shown && !locked && ShellPart.of(context) == ShellPart.phone;
-    if (!_built) return const SizedBox.shrink();
-    return LockScreenLayer(
+    if (locked || ShellPart.of(context) != ShellPart.phone) {
+      return const SizedBox.shrink();
+    }
+    return const LockScreenLayer(
       unlockProgress: kAlwaysDismissedAnimation,
       animateDesktopEntrance: false,
       ambientOnly: true,
-      onAmbientDismissed: () => setState(() => _shown = false),
     );
   }
 }
@@ -126,7 +94,6 @@ class LockScreenLayer extends ConsumerStatefulWidget {
     required this.unlockProgress,
     this.animateDesktopEntrance = true,
     this.ambientOnly = false,
-    this.onAmbientDismissed,
   });
 
   /// Transition progress is intentionally a listenable rather than a scalar.
@@ -135,12 +102,10 @@ class LockScreenLayer extends ConsumerStatefulWidget {
   final Animation<double> unlockProgress;
   final bool animateDesktopEntrance;
 
-  /// Only the always-on picture, over an unlocked phone: it fades in whole,
-  /// already dark, and has no authentication, gestures or keyboard.
+  /// Only the always-on picture, over an unlocked phone: hidden until the
+  /// phone goes dark, then it fades in whole, already dark, and has no
+  /// authentication, gestures or keyboard.
   final bool ambientOnly;
-
-  /// The [ambientOnly] picture finished fading out.
-  final VoidCallback? onAmbientDismissed;
 
   @override
   ConsumerState<LockScreenLayer> createState() => _LockScreenLayerState();
@@ -164,6 +129,9 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
     duration: const Duration(milliseconds: 420),
   )..addStatusListener(_revealStatusChanged);
 
+  /// Whether the [LockScreenLayer.ambientOnly] picture shows at all.
+  bool _revealed = false;
+
   /// Whether any of the always-on look shows, for the parts drawn only then.
   bool _ambientShown = false;
   StreamSubscription<bool>? _ambientChanges;
@@ -184,12 +152,18 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
     if (widget.animateDesktopEntrance) {
       _entrance.forward();
     }
+    // The ambient-only picture is always dark, with its subject's halo.
+    if (widget.ambientOnly) {
+      _ambientShown = true;
+      _ambient.value = 1.0;
+    }
     final bridge = ref.read(denialBridgeProvider);
     _ambientChanges = bridge.ambientDisplay.listen(_ambientChanged);
     // deniald locks before it asks: the request can come before this layer.
     if (bridge.ambientDisplayActive) {
       // Shown before the controller says so: no setState in initState.
       _ambientShown = true;
+      _revealed = widget.ambientOnly;
       _ambientChanged(true);
     }
   }
@@ -202,7 +176,10 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
   }
 
   void _revealStatusChanged(AnimationStatus status) {
-    if (status == AnimationStatus.dismissed) widget.onAmbientDismissed?.call();
+    final revealed = status != AnimationStatus.dismissed;
+    if (revealed != _revealed) {
+      setState(() => _revealed = revealed);
+    }
   }
 
   /// deniald turns the output off once the picture is on screen, and lights
@@ -213,7 +190,6 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
       fade.animateBack(0.0, curve: Curves.easeOutCubic);
       return;
     }
-    if (widget.ambientOnly) _ambient.value = 1.0;
     fade.animateTo(1.0, curve: Curves.easeInOutCubic).then((_) async {
       // The last fade frame is drawn at the end of this one and handed to
       // the display by the next.
@@ -270,7 +246,9 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
       debugLabel: ambientOnly
           ? 'unlocked always-on display'
           : 'secure lock screen',
-      pointerPolicy: ShellPointerPolicy.fullScene,
+      pointerPolicy: ambientOnly && !_revealed
+          ? ShellPointerPolicy.none
+          : ShellPointerPolicy.fullScene,
       keyboardPolicy: ambientOnly
           ? ShellKeyboardPolicy.none
           : ShellKeyboardPolicy.capture,
@@ -312,9 +290,15 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
                     CustomPaint(painter: _AmbientVeilPainter(_ambient)),
                   // The scene comes back through the veil near the subject's
                   // outline, so the cut meets light rather than black. It is
-                  // the wallpaper over itself while the veil is clear.
-                  if (!desktop && _ambientShown)
-                    const _LockDepthForeground(spread: _ambientHaloSpread),
+                  // laid out while hidden, so its mask is ready when the veil
+                  // falls.
+                  if (!desktop)
+                    Offstage(
+                      offstage: !_ambientShown,
+                      child: const _LockDepthForeground(
+                        spread: _ambientHaloSpread,
+                      ),
+                    ),
                   _LockScreenPane(
                     unlockProgress: widget.unlockProgress,
                     authenticationEnabled: !ambientOnly,
@@ -371,7 +355,15 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
             );
           }
           if (ambientOnly) {
-            return FadeSnapshot(opacity: _reveal, child: scene);
+            // Hidden, it is laid out and keeps its images, but neither
+            // paints, animates nor takes touches.
+            return IgnorePointer(
+              ignoring: !_revealed,
+              child: TickerMode(
+                enabled: _revealed,
+                child: FadeSnapshot(opacity: _reveal, child: scene),
+              ),
+            );
           }
           if (!widget.animateDesktopEntrance ||
               !desktop ||
