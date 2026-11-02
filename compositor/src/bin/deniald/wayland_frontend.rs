@@ -1272,7 +1272,3 @@ pub(super) fn fingerprint_test_client(uid: Option<u32>) -> Arc<dyn ClientData> {
     data.peer_uid = uid;
     Arc::new(data)
 }
-
-#[cfg(feature = "flutter")]
-#[path = "wayland_frontend/wake_gesture.rs"]
-mod wake_gesture;

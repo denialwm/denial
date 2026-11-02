@@ -1,6 +1,6 @@
-//! Finds the evdev nodes libinput leaves to Denial (joysticks and vendor
-//! wake-gesture nodes) when `/dev/input` changes or the seat session returns,
-//! instead of polling the directory.
+//! Finds the evdev nodes libinput leaves to Denial (joysticks) when
+//! `/dev/input` changes or the seat session returns, instead of polling the
+//! directory.
 
 use std::cell::RefCell;
 use std::error::Error;
@@ -36,9 +36,10 @@ pub(super) fn init(
     session: &LibSeatSession,
 ) -> Result<InputRescan, Box<dyn Error>> {
     let handle = event_loop.handle();
-    let mut scans = vec![super::input_source::joystick_scan(&handle, session.clone())];
-    scans.extend(super::wake_gesture::scan(&handle, session.clone()));
-    let scans = RefCell::new(scans);
+    let scans = RefCell::new(vec![super::input_source::joystick_scan(
+        &handle,
+        session.clone(),
+    )]);
     let run = move || {
         for scan in scans.borrow_mut().iter_mut() {
             scan();

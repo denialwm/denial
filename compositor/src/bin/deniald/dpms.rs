@@ -129,26 +129,36 @@ impl DpmsTopologyGuard {
     }
 }
 
+/// KEY_WAKEUP, such as a touch controller's double tap, is a key press that
+/// also lights the built-in panel, even beside a desk where other keys leave
+/// it dark. It never turns a lit panel off and never unlocks.
 #[cfg(feature = "flutter")]
-pub(super) fn synchronize_wake_gestures(scanouts: &[Scanout], events: &mut RuntimeState) {
-    for name in std::mem::take(&mut events.wake_gesture_outputs) {
-        let Some(scanout) = scanouts.iter().find(|s| s.output.name == name) else {
-            continue;
-        };
-        let output = scanout.output.id;
-        let powered = events
-            .output_power_requests
-            .get(&output)
-            .copied()
-            .unwrap_or(scanout.powered);
-        if powered && !events.fingerprint.exclusive_for(output) {
-            continue;
-        }
-        events.fingerprint.independent_wake();
-        let request = events.idle_policy.wake_output_now(output, Instant::now());
-        events.queue_idle_power_requests([request]);
-        info!(output = %name, "hardware double tap requested display wake");
+pub(super) fn synchronize_wake_key(scanouts: &[Scanout], events: &mut RuntimeState) {
+    if !std::mem::take(&mut events.wake_key_pressed) {
+        return;
     }
+    let panel = scanouts
+        .iter()
+        .find(|scanout| output_policy::is_internal_panel(&scanout.output.name))
+        .filter(|scanout| {
+            let output = scanout.output.id;
+            let powered = events
+                .output_power_requests
+                .get(&output)
+                .copied()
+                .unwrap_or(scanout.powered);
+            !powered || events.fingerprint.exclusive_for(output)
+        });
+    events.note_user_activity();
+    let Some(panel) = panel else {
+        return;
+    };
+    events.fingerprint.independent_wake();
+    let request = events
+        .idle_policy
+        .wake_output_now(panel.output.id, Instant::now());
+    events.queue_idle_power_requests([request]);
+    info!(output = %panel.output.name, "wake key requested display wake");
 }
 
 #[cfg(feature = "flutter")]

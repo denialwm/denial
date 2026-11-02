@@ -1778,6 +1778,11 @@ fn process_input_event(
             .wayland
             .as_ref()
             .is_some_and(|frontend| frontend.mobile_shell);
+        // KEY_WAKEUP (143) wakes the built-in panel and reaches no client.
+        if key_event.key_code().raw() == 143 + 8 {
+            state.wake_key_pressed |= key_event.state() == KeyState::Pressed;
+            return false;
+        }
         if key_event.key_code().raw() == 116 + 8 {
             state.power_button.note_key(
                 key_event.device().sysname(),

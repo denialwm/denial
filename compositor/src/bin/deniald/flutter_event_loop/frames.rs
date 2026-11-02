@@ -356,7 +356,7 @@ impl Session<'_, '_> {
         if background_maintenance_due {
             synchronize_idle_dpms(scanouts, events, now);
         }
-        dpms::synchronize_wake_gestures(scanouts, events);
+        dpms::synchronize_wake_key(scanouts, events);
         synchronize_power_button(scanouts, events);
         synchronize_fingerprint_display_wake(scanouts, scheduler, events);
         synchronize_sleep_transition(scanouts, events);

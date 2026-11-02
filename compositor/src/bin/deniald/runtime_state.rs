@@ -182,7 +182,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) power_button: idle_policy::PowerButton,
     #[cfg(feature = "flutter")]
-    pub(super) wake_gesture_outputs: BTreeSet<String>,
+    /// KEY_WAKEUP was pressed since the last frame.
+    pub(super) wake_key_pressed: bool,
 }
 
 #[cfg(feature = "flutter")]

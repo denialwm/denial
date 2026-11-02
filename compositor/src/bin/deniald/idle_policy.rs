@@ -656,7 +656,7 @@ impl IdlePolicy {
         Vec::new()
     }
 
-    /// A hardware wake gesture targets one display, including an externally
+    /// The wake key targets the built-in panel, including an externally
     /// blanked display. It can never toggle a lit display off or unlock.
     pub(super) fn wake_output_now(&mut self, output: OutputId, now: Instant) -> IdlePowerRequest {
         self.reset_idle_interval(now);
@@ -872,7 +872,7 @@ impl IdlePolicy {
     }
 
     /// Beside a desk, the phone's dark panel stays dark: only its power
-    /// button, a wake gesture or a touch on it light it.
+    /// button, the wake key or a touch on it light it.
     fn wake_blanked_outputs(&mut self) -> Vec<IdlePowerRequest> {
         self.manually_blanked = false;
         self.screen_off_lock_at = None;
