@@ -543,27 +543,32 @@ class _DeckCardState extends State<_DeckCard>
           ),
         ),
         if (labelOpacity != null && onMoveToDesk != null)
-          Positioned(
-            left: 0,
-            top: 0,
-            width: widget.labelWidth,
-            height: OverviewCardLabel.height,
-            child: _TranslatedHitRegion(
+          // The translation spans the deck, so a tap on the button is tested
+          // where the label is drawn, not at the label's untranslated slot.
+          Positioned.fill(
+            child: CompositedTranslation(
               translation: _pose.label,
-              child: CompositedTranslation(
-                translation: _pose.label,
-                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                child: FadeTransition(
-                  opacity: labelOpacity,
-                  child: Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: _MoveToDeskButton(
-                      onTap: () {
-                        if (!_leaving) onMoveToDesk(widget.window);
-                      },
+              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    width: widget.labelWidth,
+                    height: OverviewCardLabel.height,
+                    child: FadeTransition(
+                      opacity: labelOpacity,
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: _MoveToDeskButton(
+                          onTap: () {
+                            if (!_leaving) onMoveToDesk(widget.window);
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -666,39 +671,6 @@ class _RenderPoseHitRegion extends RenderProxyBox {
       return false;
     }
     return super.hitTest(result, position: position);
-  }
-}
-
-/// Hit tests its child where [translation] paints it.
-class _TranslatedHitRegion extends SingleChildRenderObjectWidget {
-  const _TranslatedHitRegion({required this.translation, super.child});
-
-  final ValueListenable<Offset> translation;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderTranslatedHitRegion(translation);
-
-  @override
-  void updateRenderObject(BuildContext context, RenderObject renderObject) {
-    (renderObject as _RenderTranslatedHitRegion).translation = translation;
-  }
-}
-
-class _RenderTranslatedHitRegion extends RenderProxyBox {
-  _RenderTranslatedHitRegion(this.translation);
-
-  ValueListenable<Offset> translation;
-
-  @override
-  bool hitTest(BoxHitTestResult result, {required Offset position}) {
-    final offset = translation.value;
-    return result.addWithPaintOffset(
-      offset: offset,
-      position: position,
-      hitTest: (result, transformed) =>
-          super.hitTest(result, position: transformed),
-    );
   }
 }
 
