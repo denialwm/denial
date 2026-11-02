@@ -21,7 +21,7 @@ Flutter channels are outside this inventory.
 | `denial/brightness` | Dart → native | little-endian `float64` | Absolute level for the output under the cursor |
 | `denial/brightness_state` | Native → Dart | monitor ID + level | Authoritative native brightness update |
 | `denial/idle_policy` | Dart → native | 32 bytes, version 4: flags (lock, display off, suspend, lock after screen off), suspend mode, power button action, `uint32` screen-off lock delay ms, then `uint64` lock, display-off and suspend timeouts ms (little-endian); versions 1–3 and a bare `uint64` display-off timeout still decode | Configure native idle locking, display power-off and suspend, and how long a dark screen stays unlocked |
-| `denial/display_power` | Dart → native | one byte: 1 off, 2 on | Turn the lit displays off until the next input, or light the dark ones as an input would |
+| `denial/display_power` | Dart → native | one byte: 1 off, 2 on | Turn the screen off as the power button does until the next input, or light the dark displays as an input would |
 | `denial/ui_development/control` | Dart → native | bounded versioned packet | Query or change the Flutter workspace/runtime and request development or recovery actions |
 | `denial/ui_development/state` | Native → Dart | bounded versioned packet | Active/desired runtime, capabilities, operation progress, VM-service URI, errors, and source diagnostics |
 | `denial/system_command` | Dart → native | bounded length-prefixed packet | Launch application, toggle OSK, take screenshot, or log out |

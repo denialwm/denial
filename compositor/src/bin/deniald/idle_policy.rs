@@ -207,7 +207,7 @@ impl Error for DisplayPowerPacketError {}
 /// What the shell asks of the displays.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DisplayPowerRequest {
-    /// Every lit display goes dark until the next input.
+    /// The screen goes dark as the power button turns it off.
     Off,
     /// The dark displays light up, as an input would light them: a
     /// notification arrived.

@@ -95,8 +95,8 @@ final class BridgeSessionClient {
         ?.catchError((Object _) => null);
   }
 
-  /// Requests compositor-owned DPMS-off for every currently powered output.
-  /// The next physical input wakes outputs through the native idle policy.
+  /// Turns the screen off as the power button does: beside a monitor, the
+  /// phone's panel alone. The next physical input wakes it.
   void requestDpmsOff() => _sendDisplayPower(1);
 
   /// Lights the dark outputs as an input would; the idle timeout starts

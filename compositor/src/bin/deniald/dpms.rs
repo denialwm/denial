@@ -186,16 +186,7 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         .wayland
         .as_ref()
         .is_some_and(|frontend| frontend.mobile_shell());
-    // An output lit only to draw the always-on clock counts as dark. Beside
-    // a desk the button belongs to the phone's panel alone.
-    let lit = scanouts.iter().filter(|scanout| phone.is_none_or(|phone| scanout.output.id == phone)).any(|scanout| {
-        events
-            .output_power_requests
-            .get(&scanout.output.id)
-            .copied()
-            .unwrap_or(scanout.powered)
-            && !events.ambient_display.refreshing(scanout.output.id)
-    });
+    let lit = power_button_screen_lit(phone, scanouts, events);
     if !events.power_button.take_toggle(mobile && lit) {
         return;
     }
@@ -212,6 +203,33 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         }
         return;
     }
+    toggle_screen(scanouts, events);
+    info!("power button requested compositor-owned display power toggle");
+}
+
+/// Whether the screen the power button turns off is lit. An output lit only
+/// to draw the always-on clock counts as dark. Beside a desk the button
+/// belongs to the phone's panel alone.
+fn power_button_screen_lit(
+    phone: Option<OutputId>,
+    scanouts: &[Scanout],
+    events: &RuntimeState,
+) -> bool {
+    scanouts
+        .iter()
+        .filter(|scanout| phone.is_none_or(|phone| scanout.output.id == phone))
+        .any(|scanout| {
+            events
+                .output_power_requests
+                .get(&scanout.output.id)
+                .copied()
+                .unwrap_or(scanout.powered)
+                && !events.ambient_display.refreshing(scanout.output.id)
+        })
+}
+
+/// Turns the screen off or on as the power button does.
+fn toggle_screen(scanouts: &[Scanout], events: &mut RuntimeState) {
     events.fingerprint.independent_wake();
     // Queued requests are the effective state until the atomic KMS gate runs.
     let outputs = scanouts
@@ -243,7 +261,6 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         }
     }
     events.queue_idle_power_requests(actions.power_requests);
-    info!("power button requested compositor-owned display power toggle");
 }
 
 #[cfg(feature = "flutter")]
@@ -349,13 +366,14 @@ pub(super) fn synchronize_requested_display_power(
     match runtime.take_display_power_request() {
         None => {}
         Some(idle_policy::DisplayPowerRequest::Off) => {
-            let requests = events.idle_policy.blank_now(
-                scanouts
-                    .iter()
-                    .map(|scanout| (scanout.output.id, scanout.powered)),
-            );
-            events.queue_idle_power_requests(requests);
-            info!("requested immediate compositor-owned display power-off");
+            // A double tap to sleep is the power button pressed on a lit
+            // screen: beside a desk it turns off the phone's panel alone.
+            synchronize_phone_with_desk(events, Instant::now());
+            let phone = events.idle_policy.phone_output();
+            if power_button_screen_lit(phone, scanouts, events) {
+                toggle_screen(scanouts, events);
+                info!("shell turned the screen off as the power button does");
+            }
         }
         Some(idle_policy::DisplayPowerRequest::On) => {
             // The idle timer starts again, so the screen stays on for the
