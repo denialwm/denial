@@ -7,6 +7,32 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  test(
+    'a live worker whose spawn record has no start time stays queued',
+    () async {
+      final root = Directory.systemTemp.createTempSync('denial-worker-');
+      final worker = await Process.start('sleep', ['30']);
+      try {
+        final store = ManagerStore(Directory(p.join(root.path, 'state')));
+        final id = store.createJob('plan', {
+          'argv': ['plan'],
+        });
+        store.write('jobs/$id.spawn', {
+          'pid': worker.pid,
+          'processStart': null,
+        });
+        expect(store.job(id)['phase'], 'queued');
+
+        worker.kill();
+        await worker.exitCode;
+        expect(store.job(id)['phase'], 'interrupted');
+      } finally {
+        worker.kill();
+        root.deleteSync(recursive: true);
+      }
+    },
+  );
+
   test('source and compiled clients leave a working detached job', () async {
     final root = Directory.systemTemp.createTempSync('denial-worker-');
     try {

@@ -178,15 +178,17 @@ final class ManagerStore {
   Map<String, Object?> _jobStatus(Map<String, Object?> job) {
     if (job['phase'] != 'running' && job['phase'] != 'queued') return job;
     final spawn = read('jobs/${job['id']}.spawn');
-    final process =
-        job['pid'] as int? ?? spawn['pid'] as int? ?? job['ownerPid'] as int?;
-    final expected =
-        job['processStart'] as String? ??
-        spawn['processStart'] as String? ??
-        job['ownerStart'] as String?;
+    // A process ID is judged only by the start time recorded beside it: the
+    // worker's own record, else its spawn record, else the submitting client.
+    // A spawn record without a start time can only show the process exists.
+    final (process, expected) = switch ((job['pid'], spawn['pid'])) {
+      (final int worker, _) => (worker, job['processStart'] as String?),
+      (_, final int spawned) => (spawned, spawn['processStart'] as String?),
+      _ => (job['ownerPid'] as int?, job['ownerStart'] as String?),
+    };
+    final actual = process == null ? null : processStart(process);
     if (process != null &&
-        expected != null &&
-        processStart(process) != expected) {
+        (expected == null ? actual == null : actual != expected)) {
       return {
         ...job,
         'phase': 'interrupted',
