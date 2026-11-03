@@ -94,6 +94,7 @@ boundary does not replace those controls.
 The host is fully updated and currently provides:
 
 ```text
+aarch64-linux-gnu-gcc
 actionlint
 base-devel
 devtools
@@ -120,6 +121,10 @@ rpm-tools
 shellcheck
 nvme-cli
 ```
+
+The aarch64 packages link against an Arch Linux ARM root at
+`/srv/denial-builder/sysroot/aarch64`, root-owned and read-only for the
+runner. `tools/denial-builder sysroot` copies it from the workstation.
 
 These host packages qualify the builder and produce trusted-branch
 candidates. The `main` candidate supplies the exact compiled payloads later

@@ -93,6 +93,14 @@ FLUTTER_ENGINE_CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-$CACHE_HOME/denia
 # managed source trees, so point it at the exact cache build root.
 LOCAL_ENGINE_SRC_PATH="$FLUTTER_ENGINE_CACHE_ROOT/build"
 LOCAL_ENGINE_TARGET="$(denial_flutter_engine_target release)"
+LOCAL_ENGINE_HOST="$(denial_flutter_host_engine_target release)"
+# The plugin build kit takes the target's own compilers. A cross build
+# assembles applications from the engine tool's view of the same output,
+# which runs the build machine's gen_snapshot instead.
+KIT_ENGINE_SRC_PATH="$LOCAL_ENGINE_SRC_PATH"
+if ((DENIAL_CROSS)); then
+    LOCAL_ENGINE_SRC_PATH="$FLUTTER_ENGINE_CACHE_ROOT/cross-view"
+fi
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
@@ -105,6 +113,9 @@ USER_DATA_HOME="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
 SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/dev.denial.Settings.desktop}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
 ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/$DENIAL_FLUTTER_PLATFORM/icudtl.dat"
+if ((DENIAL_CROSS)); then
+    ICU_DATA="$KIT_ENGINE_SRC_PATH/out/$LOCAL_ENGINE_TARGET/icudtl.dat"
+fi
 PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
 PREBUILT_ENGINE="${DENIAL_PC_ENGINE_SOURCE:-$PREBUILT_ENGINE_DIR/libflutter_engine.so}"
 PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE_DIR/libflutter_engine.so.sha256"
@@ -123,9 +134,15 @@ ENGINE_TEST_NEXT="$ENGINE_TEST_STORE/next-session"
 ENGINE_TEST_SOURCE_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-$CANONICAL_FLUTTER_SOURCE}"
 ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_ROOT/engine/src/out/denial_host_release}"
 SESSION_ENGINE_SHA256=""
-BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
-CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
-PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_TARGET/release/denial-portal}"
+CARGO_TARGET_ARGS=()
+if ((DENIAL_CROSS)); then
+    CARGO_TARGET_ARGS=(--target "$DENIAL_RUST_TARGET")
+fi
+RUST_RELEASE="$RUST_TARGET${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
+NATIVE_APP_RELEASE="$BUILD_ROOT/native-app${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
+BINARY="${DENIAL_PC_BINARY:-$RUST_RELEASE/deniald}"
+CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
+PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
 # The Polkit dialog bundle also draws the portal's Access requests.
 DIALOG_BUNDLE="$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
@@ -237,6 +254,10 @@ Environment:
   DENIAL_PC_DEDICATED_BUILDER
                      Set to 1 to use every CPU by default
   DENIAL_PC_XWAYLAND  Set to 0 to build and run without Xwayland (default: 1)
+  DENIAL_TARGET_ARCH  aarch64 on an x86-64 machine: cross-build bootstrap,
+                     build, the package commands and their parts
+  DENIAL_ARM64_SYSROOT
+                     Arch Linux ARM root a cross build links against
 
 The production compositor is deniald and its native client is denialctl. The
 denial-nested binary is a separate visual topology harness and never acquires
@@ -256,8 +277,15 @@ die() {
 
 run_pinned_cargo() (
     cd -- "$COMPOSITOR_ROOT"
+    denial_cross_configure_rust || exit
     CARGO_TARGET_DIR="$RUST_TARGET" cargo "$@"
 )
+
+# Tests and sessions run what they build, which a cross build cannot.
+require_native() {
+    ((!DENIAL_CROSS)) \
+        || die "$1 runs on the build machine; unset DENIAL_TARGET_ARCH"
+}
 
 require_file() {
     [[ -f "$1" ]] || die "missing $1; run '$0 build' first"
@@ -774,6 +802,9 @@ bootstrap_dependencies() {
     fi
     prepare_flutter_toolchain
     "$FLUTTER" precache --linux
+    if ((DENIAL_CROSS)); then
+        (cd -- "$COMPOSITOR_ROOT" && rustup target add "$DENIAL_RUST_TARGET")
+    fi
     run_pinned_cargo fetch --locked
     printf '\nDependencies are ready below %s\n' "$DEPENDENCY_ROOT"
 }
@@ -799,7 +830,7 @@ build_bundle() (
         "$FLUTTER" assemble \
             --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
             --local-engine="$LOCAL_ENGINE_TARGET" \
-            --local-engine-host="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_HOST" \
             --suppress-analytics \
             --resource-pool-size="$BUILD_JOBS" \
             --output="$assembly" \
@@ -823,8 +854,10 @@ build_bundle() (
 )
 
 build_native_runner() (
+    denial_cross_configure_rust || exit
     CARGO_TARGET_DIR="$BUILD_ROOT/native-app" cargo build \
-        --manifest-path "$ROOT/native_app/Cargo.toml" --locked --release --jobs "$BUILD_JOBS"
+        --manifest-path "$ROOT/native_app/Cargo.toml" --locked --release --jobs "$BUILD_JOBS" \
+        "${CARGO_TARGET_ARGS[@]}"
 )
 
 # Assemble AOT assets directly. No Linux platform runner or toolkit is generated.
@@ -841,7 +874,7 @@ build_native_application() (
         "$FLUTTER" assemble \
             --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
             --local-engine="$LOCAL_ENGINE_TARGET" \
-            --local-engine-host="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_HOST" \
             --suppress-analytics --resource-pool-size="$BUILD_JOBS" \
             --output="$assembly/assets" \
             -dTargetFile=lib/main.dart -dBuildMode=release \
@@ -857,8 +890,12 @@ build_native_application() (
     install -m644 -- "$ICU_DATA" "$candidate/data/icudtl.dat"
     install -m755 -- "$assembly/assets/lib/libapp.so" "$candidate/lib/libapp.so"
     install -m755 -- "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release/libflutter_engine.so" "$candidate/lib/libflutter_engine.so"
-    install -m755 -- "$BUILD_ROOT/native-app/release/denial-app" "$candidate/$binary"
-    "$candidate/$binary" --bundle "$candidate" --engine "$candidate/lib/libflutter_engine.so" --check
+    install -m755 -- "$NATIVE_APP_RELEASE/denial-app" "$candidate/$binary"
+    if ((DENIAL_CROSS)); then
+        printf 'Not running the %s %s on this machine\n' "$DENIAL_ARCH" "$binary"
+    else
+        "$candidate/$binary" --bundle "$candidate" --engine "$candidate/lib/libflutter_engine.so" --check
+    fi
     # Never truncate a library mapped by an existing app process.
     retained="${bundle}.retained.$(date +%s%N)"
     if [[ -d "$bundle" ]]; then mv -- "$bundle" "$retained"; fi
@@ -872,7 +909,7 @@ build_polkit_agent() (
     prepare_flutter_toolchain
     prepare_sdk_package
     "$ROOT/tools/denial-flutter-engine" prepare-app-build
-    run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" -p denial-polkit-agent
+    run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" "${CARGO_TARGET_ARGS[@]}" -p denial-polkit-agent
     build_native_application polkit_app denial-app "$DIALOG_BUNDLE"
 )
 
@@ -896,6 +933,33 @@ build_settings() (
     printf '\nBuilt %s\n' "$SETTINGS_BUNDLE/denial-settings"
 )
 
+# A cross compile runs Dart's own gen_snapshot for the target and links its
+# runtime, which dart downloads for its SDK version. Pin both.
+DART_CROSS_VERSION='3.13.4'
+DART_CROSS_ARGS=()
+if ((DENIAL_CROSS)); then
+    DART_CROSS_ARGS=(--target-os=linux "--target-arch=$DENIAL_FLUTTER_ARCH")
+fi
+verify_dart_cross_artifacts() {
+    local dart="$1"
+    local cache="${HOME:?HOME is required}/.dart/dartdev/sdk_cache/$DART_CROSS_VERSION"
+    local name expected
+    [[ "$(< "$(dirname -- "$dart")/../version")" == "$DART_CROSS_VERSION" ]] \
+        || die "Dart is no longer $DART_CROSS_VERSION; pin its cross-compile artifacts again"
+    for name in gen_snapshot_linux_x64_linux_arm64 dartaotruntime_linux_arm64; do
+        case "$name" in
+            gen_snapshot_linux_x64_linux_arm64)
+                expected=bc2738995b37a39d7019dd289952ac9fc4698fca99b2147e25863240a92a4210 ;;
+            dartaotruntime_linux_arm64)
+                expected=487ac972a64b5ec6780381da3505e082bd499ed2057cb2030da893e7b31d86db ;;
+        esac
+        [[ "$(file_sha256 "$cache/$name")" == "$expected" ]] || {
+            printf 'denial-pc: Dart cross-compile artifact %s does not match its pin\n' "$cache/$name" >&2
+            return 1
+        }
+    done
+}
+
 build_plugin_manager() (
     prepare_flutter_toolchain
     prepare_sdk_package
@@ -906,7 +970,10 @@ build_plugin_manager() (
         cd -- "$ROOT/packages/denial_plugin_manager"
         "$dart" pub get --enforce-lockfile
         "$dart" compile exe bin/denial_plugins.dart \
+            "${DART_CROSS_ARGS[@]}" \
             --output="$BUILD_ROOT/plugin-manager/denial-plugins.new"
+        ((!DENIAL_CROSS)) || verify_dart_cross_artifacts "$dart" \
+            || { rm -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new"; exit 1; }
         mv -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new" "$BUILD_ROOT/plugin-manager/denial-plugins"
     )
     # The manager runs the Dart it finds first on PATH, and a development kit
@@ -914,7 +981,7 @@ build_plugin_manager() (
     ln -sfn -- "$(dirname -- "$dart")" "$BUILD_ROOT/plugin-manager/dart-bin"
     local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
     # Keep metadata beside the native application after publishing its bundle.
-    python3 - "$BUILD_ROOT/plugin-manager" "$RUST_TARGET/release/denialctl" \
+    python3 - "$BUILD_ROOT/plugin-manager" "$RUST_RELEASE/denialctl" \
         "$app_bundle" <<'PYMETA'
 import json, os, pathlib, sys
 backend, control, app = map(pathlib.Path, sys.argv[1:])
@@ -946,7 +1013,7 @@ PYMETA
     "$ROOT/tools/prepare-denial-plugin-kit" \
         "${kit_provenance[@]}" \
         --flutter-root "$FLUTTER_SDK_ROOT" \
-        --engine-root "$LOCAL_ENGINE_SRC_PATH" \
+        --engine-root "$KIT_ENGINE_SRC_PATH" \
         --engine-target "$LOCAL_ENGINE_TARGET" \
         --platform "$DENIAL_FLUTTER_PLATFORM" --output "$staging/kit"
     kit_id="$(sha256sum "$staging/kit/kit.json" | cut -d' ' -f1)"
@@ -1044,12 +1111,14 @@ build_compositor() {
         --jobs "$BUILD_JOBS" \
         "${COMPOSITOR_DEFAULT_FEATURE_ARGS[@]}" \
         --features "$COMPOSITOR_FEATURES" \
+        "${CARGO_TARGET_ARGS[@]}" \
         --bin deniald \
         --bin denialctl
     run_pinned_cargo build \
         --locked \
         --release \
         --jobs "$BUILD_JOBS" \
+        "${CARGO_TARGET_ARGS[@]}" \
         -p denial-portal
     require_file "$BINARY"
     require_file "$CONTROL_BINARY"
@@ -1794,19 +1863,20 @@ case "${1:-}" in
     alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
     flutter-test)
+        require_native flutter-test
         shift
         test_flutter "$@"
         ;;
     plugin-manager) build_plugin_manager ;;
     polkit-agent) build_polkit_agent ;;
     polkit-agent-run) run_polkit_agent ;;
-    compositor-test) test_compositor ;;
+    compositor-test) require_native compositor-test; test_compositor ;;
     plugin-check) check_plugins ;;
     sdk-test)
         shift
         test_sdk "$@"
         ;;
-    test) test_all ;;
+    test) require_native test; test_all ;;
     session) run_display_manager_session ;;
     engine-test-build) stage_engine_test ;;
     engine-test-check) check_engine_test ;;

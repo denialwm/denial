@@ -109,11 +109,15 @@ def development_provenance(root, flutter, engine, platform, version):
         values = re.findall(r'^' + name + r'\s*=\s*(.+)$', arguments, re.M)
         return values[-1].strip().strip('"') if values else None
     cpu = {'linux-x64': 'x64', 'linux-arm64': 'arm64'}[platform]
-    for name, wanted in {'host_cpu': cpu, 'target_cpu': cpu, 'target_os': 'linux',
+    # An arm64 graph may be cross-built on x64; the kit carries only its
+    # target binaries.
+    if not (gn('host_cpu') == cpu or (cpu == 'arm64' and gn('host_cpu') == 'x64')):
+        raise ValueError(f'development kit requires an x64 or {cpu} build host')
+    for name, wanted in {'target_cpu': cpu, 'target_os': 'linux',
                          'is_debug': 'false', 'flutter_runtime_mode': 'release',
                          'dart_runtime_mode': 'release'}.items():
         if gn(name) != wanted:
-            raise ValueError(f'development kit requires native release {name}={wanted}')
+            raise ValueError(f'development kit requires release {name}={wanted}')
     for name, wanted in {'engine_version': sources['flutter']['revision'],
                          'skia_version': sources['skia']['revision']}.items():
         if gn(name) != wanted:

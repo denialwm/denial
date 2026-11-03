@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# Collects one architecture's branch-validation packages, payloads and build
+# evidence into CANDIDATE_ROOT and archives it as CANDIDATE_ARCHIVE. The
+# branch-validation workflow runs it once per architecture; its environment
+# says which branch, build and paths.
+set -euo pipefail
+# Package order and checksums lists must not depend on the host locale.
+export LC_ALL=C
+
+fail() {
+  printf 'assemble-denial-candidate: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 1)); then
+  printf 'Usage: assemble-denial-candidate ARCH\n' >&2
+  exit 2
+fi
+
+architecture="$1"
+case "$architecture" in
+  x86_64) package_formats=(arch deb rpm apk) ;;
+  aarch64) package_formats=(arch deb rpm) ;;
+  *) fail "unsupported candidate architecture: $architecture" ;;
+esac
+
+for variable in \
+  CANDIDATE_ROOT CANDIDATE_ARCHIVE EVIDENCE_ROOT CANDIDATE_CLASS \
+  RELEASE_SIGNING_ELIGIBLE DENIAL_PACKAGE_RELEASE CANDIDATE_COMPILE_MODE \
+  DENIAL_BUILD_IDENTITY VALIDATION_BRANCH DENIAL_PC_PACKAGE_ROOT \
+  DENIAL_PC_PACKAGE_INPUT_ROOT DENIAL_PC_DEPENDENCY_ROOT RUNNER_TEMP; do
+  [[ -n "${!variable:-}" ]] || fail "$variable is not set"
+done
+if [[ "$architecture" == aarch64 ]]; then
+  [[ -f "${DENIAL_ARM64_SYSROOT:-}/usr/lib/libc.so.6" ]] \
+    || fail 'DENIAL_ARM64_SYSROOT must name the Arch Linux ARM root the build linked against'
+fi
+
+# One digest over the files and links of the root the aarch64 build linked
+# against.
+sysroot_sha256() {
+  (
+    cd "$DENIAL_ARM64_SYSROOT"
+    find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum --
+    find . -type l -printf '%p -> %l\n' | LC_ALL=C sort
+  ) | sha256sum | awk '{ print $1 }'
+}
+
+package_root="$DENIAL_PC_PACKAGE_ROOT"
+install -d -m 0755 \
+  "$CANDIDATE_ROOT/packages" \
+  "$CANDIDATE_ROOT/evidence/package-metadata"
+cp -a -- "$EVIDENCE_ROOT/." "$CANDIDATE_ROOT/evidence/"
+
+find_packages() {
+  find "$package_root" \
+    -maxdepth 1 \
+    -type f \
+    -name "$1" \
+    -print0 \
+    | sort -z
+}
+
+declare -A suffix=(
+  [arch]='*.pkg.tar.zst'
+  [deb]='*.deb'
+  [rpm]='*.rpm'
+  [apk]='*.apk'
+)
+declare -A label=(
+  [arch]=Arch
+  [deb]=Debian
+  [rpm]=RPM
+  [apk]=Alpine
+)
+packages=()
+for format in "${package_formats[@]}"; do
+  mapfile -d '' found < <(find_packages "${suffix[$format]}")
+  ((${#found[@]} == 3)) \
+    || fail "expected three ${label[$format]} packages, found ${#found[@]}"
+  packages+=("${found[@]}")
+  case "$format" in
+    arch) arch_packages=("${found[@]}") ;;
+    deb) deb_packages=("${found[@]}") ;;
+    rpm) rpm_packages=("${found[@]}") ;;
+    apk) apk_packages=("${found[@]}") ;;
+  esac
+done
+for format in "${!suffix[@]}"; do
+  [[ " ${package_formats[*]} " == *" $format "* ]] && continue
+  mapfile -d '' found < <(find_packages "${suffix[$format]}")
+  ((${#found[@]} == 0)) \
+    || fail "$architecture candidates carry no ${label[$format]} packages"
+done
+
+cp --reflink=auto -- "${packages[@]}" "$CANDIDATE_ROOT/packages/"
+cp -a -- \
+  "$DENIAL_PC_PACKAGE_INPUT_ROOT/native" \
+  "$CANDIDATE_ROOT/native-payload"
+(
+  cd "$CANDIDATE_ROOT/native-payload"
+  mapfile -d '' native_files < <(
+    find . -type f ! -name NATIVE-SHA256SUMS -print0 | sort -z
+  )
+  sha256sum -- "${native_files[@]}" >NATIVE-SHA256SUMS
+  sha256sum --check --strict --quiet NATIVE-SHA256SUMS
+)
+if [[ -n "${apk_packages+set}" ]]; then
+  cp -a -- \
+    "$DENIAL_PC_PACKAGE_INPUT_ROOT/alpine" \
+    "$CANDIDATE_ROOT/alpine-payload"
+  (
+    cd "$CANDIDATE_ROOT/alpine-payload"
+    sha256sum --check --strict --quiet ALPINE-SHA256SUMS
+  )
+fi
+
+metadata="$CANDIDATE_ROOT/evidence/package-metadata"
+for package in "${arch_packages[@]}"; do
+  package_name="$(basename -- "$package")"
+  bsdtar -xOf "$package" .PKGINFO >"$metadata/${package_name}.PKGINFO"
+  bsdtar -xOf "$package" .BUILDINFO >"$metadata/${package_name}.BUILDINFO"
+done
+for package in "${deb_packages[@]}"; do
+  package_name="$(basename -- "$package")"
+  dpkg-deb --field "$package" >"$metadata/${package_name}.control"
+done
+rpm_query_db="$RUNNER_TEMP/denial-rpm-query-db"
+install -d -m 0755 "$rpm_query_db"
+for package in "${rpm_packages[@]}"; do
+  package_name="$(basename -- "$package")"
+  rpm --dbpath "$rpm_query_db" -qp --qf \
+    $'name=%{NAME}\nversion=%{VERSION}-%{RELEASE}\narchitecture=%{ARCH}\n' \
+    "$package" \
+    >"$metadata/${package_name}.rpm"
+done
+for package in "${apk_packages[@]}"; do
+  package_name="$(basename -- "$package")"
+  bsdtar -xOf "$package" .PKGINFO >"$metadata/${package_name}.PKGINFO"
+done
+
+{
+  printf 'artifact_class=%s\n' "$CANDIDATE_CLASS"
+  printf 'publication_authorized=false\n'
+  printf 'release_signing_eligible=%s\n' "$RELEASE_SIGNING_ELIGIBLE"
+  printf 'signature_status=unsigned\n'
+  printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
+  printf 'package_architecture=%s\n' "$architecture"
+  printf 'package_formats=%s\n' "$(IFS=,; printf '%s' "${package_formats[*]}")"
+  printf 'native_payload_schema=1\n'
+  if [[ -n "${apk_packages+set}" ]]; then
+    printf 'alpine_payload_schema=1\n'
+  fi
+  if [[ "$architecture" == aarch64 ]]; then
+    printf 'cross_compiled_from=%s\n' "$(uname -m)"
+    printf 'sysroot_sha256=%s\n' "$(sysroot_sha256)"
+  fi
+  printf 'compile_mode=%s\n' "$CANDIDATE_COMPILE_MODE"
+  printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
+  printf 'source_commit=%s\n' "$GITHUB_SHA"
+  printf 'source_ref=%s\n' "$GITHUB_REF"
+  printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
+  printf 'workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+  printf 'workflow_event=%s\n' "$GITHUB_EVENT_NAME"
+  printf 'runner_name=%s\n' "$RUNNER_NAME"
+  printf 'runner_os=%s\n' "$RUNNER_OS"
+  printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+  printf 'logical_cpus=%s\n' "$(nproc)"
+  printf 'rust_build_jobs=%s\n' "${DENIAL_BUILD_JOBS:-$(nproc)}"
+  printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  uname -a
+} >"$CANDIDATE_ROOT/evidence/provenance.txt"
+if [[ "$VALIDATION_BRANCH" == dev ]]; then
+  printf '%s\n' \
+    'This is an installable development test candidate built from dev.' \
+    'Its package release is 0 and it is ineligible for release signing or publication.' \
+    >"$CANDIDATE_ROOT/NOTICE.txt"
+else
+  printf '%s\n' \
+    'This is an unsigned production candidate built from main.' \
+    'Its package release is 0; publication remains forbidden until a signed tag promotes these exact payloads.' \
+    'Promotion may change package metadata and install the tag-derived runtime version, but must not rebuild or alter compiled files.' \
+    >"$CANDIDATE_ROOT/NOTICE.txt"
+fi
+pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
+(
+  cd compositor
+  rustc -vV
+) >"$CANDIDATE_ROOT/evidence/rustc.txt"
+"$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" \
+  --version \
+  >"$CANDIDATE_ROOT/evidence/flutter.txt"
+
+(
+  cd "$CANDIDATE_ROOT/packages"
+  sha256sum -- * >SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
+)
+namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
+  2>&1 | tee "$CANDIDATE_ROOT/evidence/namcap.txt"
+tar \
+  --create \
+  --file="$CANDIDATE_ARCHIVE" \
+  --directory="$CANDIDATE_ROOT" \
+  .

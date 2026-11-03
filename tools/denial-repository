@@ -313,7 +313,7 @@ for package in "${deb_inputs[@]}"; do
   [[ "$(basename -- "$package")" == "$expected_filename" ]] \
     || fail "unexpected Debian package filename: $(basename -- "$package")"
   "$ROOT/tools/verify-denial-native-package-metadata" \
-    deb "$package" "$release_version" 1 '3.47.5.denial1' 2.39
+    deb "$package" "$release_version" 1 '3.47.5.denial1' 2.39 x86_64
   deb_names+=("$package_name")
 done
 [[ "${deb_names[*]}" == \
@@ -344,7 +344,7 @@ for package in "${rpm_inputs[@]}"; do
   [[ "$(basename -- "$package")" == "$expected_filename" ]] \
     || fail "unexpected RPM package filename: $(basename -- "$package")"
   "$ROOT/tools/verify-denial-native-package-metadata" \
-    rpm "$package" "$release_version" 1 '3.47.5.denial1' 2.39
+    rpm "$package" "$release_version" 1 '3.47.5.denial1' 2.39 x86_64
   rpm_names+=("$package_name")
 done
 [[ "${rpm_names[*]}" == \

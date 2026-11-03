@@ -5,7 +5,7 @@ pkgver="${DENIAL_PACKAGE_VERSION:-0}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 epoch=1
 pkgdesc='Pinned source-built Flutter Engine runtime for Denial'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause')
 depends=('fontconfig' 'glibc')
@@ -13,16 +13,27 @@ _flutter_generation='3.47.5.denial1'
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
-source=('manifest.json')
-sha256sums=('ccc2423dafaa6baa2f3eac77e4b0091603967ac528c5daed66381b930a610e63')
+source_x86_64=('manifest.json')
+source_aarch64=('manifest.aarch64.json')
+sha256sums_x86_64=('ccc2423dafaa6baa2f3eac77e4b0091603967ac528c5daed66381b930a610e63')
+sha256sums_aarch64=('51183fdbf42b9e83dee46dff7c59becfba24fb6314a0419ce268ba834922d0a7')
 
-_engine_sha256='c5e0bccc8f60bcfd677252eea093db6ece57b1c160eedfb46fbb1467ea96fe44'
+_engine_sha256_x86_64='c5e0bccc8f60bcfd677252eea093db6ece57b1c160eedfb46fbb1467ea96fe44'
+_engine_sha256_aarch64='955ffd77eb16691303c46715c7e2a7a54a381490f30f3f6a4e9ddd1b86a72868'
 _icu_sha256='325a86063d26334c2eabe1743cea073b612540fbf3d8fc2ef0b5708e3763a8c7'
 
 package() {
   local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../../..")}"
-  local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
-  local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-release"
+  local flutter_arch=x64
+  local manifest=manifest.json
+  local engine_sha256_name="_engine_sha256_${CARCH}"
+  local expected_engine_sha256="${!engine_sha256_name}"
+  if [[ "$CARCH" == aarch64 ]]; then
+    flutter_arch=arm64
+    manifest=manifest.aarch64.json
+  fi
+  local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/$flutter_arch/release/bundle}"
+  local engine_root="$repository_root/prebuilt/flutter-engine/linux-$flutter_arch-release"
   local source_lock="$repository_root/prebuilt/flutter-engine/SOURCE_LOCK.json"
   local engine="${DENIAL_PACKAGE_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
   local icu="$bundle/data/icudtl.dat"
@@ -56,8 +67,8 @@ package() {
   done
 
   actual="$(sha256sum "$engine" | cut -d' ' -f1)"
-  if [[ "$actual" != "$_engine_sha256" ]]; then
-    error "Flutter Engine SHA-256 is $actual, expected $_engine_sha256"
+  if [[ "$actual" != "$expected_engine_sha256" ]]; then
+    error "Flutter Engine SHA-256 is $actual, expected $expected_engine_sha256"
     return 1
   fi
   actual="$(sha256sum "$icu" | cut -d' ' -f1)"
@@ -71,7 +82,7 @@ package() {
   install -Dm644 "$icu" \
     "$pkgdir/usr/lib/denial/flutter/data/icudtl.dat"
 
-  install -Dm644 "$srcdir/manifest.json" \
+  install -Dm644 "$srcdir/$manifest" \
     "$pkgdir/usr/share/denial/flutter-engine/manifest.json"
   install -Dm644 "$source_lock" \
     "$pkgdir/usr/share/denial/flutter-engine/SOURCE_LOCK.json"

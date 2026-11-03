@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
 CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
@@ -39,6 +41,13 @@ SOURCE_DATE_EPOCH="${native_metadata[3]}"
 GLIBC_BASELINE="${native_metadata[4]}"
 FLUTTER_ENGINE_ABI="${native_metadata[5]}"
 FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+# The packages take the architecture of the binaries they carry.
+PACKAGE_ARCH="$(denial_elf_arch "$STAGE_ROOT/denial/usr/bin/deniald")"
+case "$PACKAGE_ARCH" in
+  x86_64) DEB_ARCH=amd64 ;;
+  aarch64) DEB_ARCH=arm64 ;;
+esac
+readonly PACKAGE_ARCH DEB_ARCH
 readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
 readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
 
@@ -63,7 +72,7 @@ build_deb() {
   {
     printf 'Package: %s\n' "$package_name"
     printf 'Version: %s-%s\n' "$PACKAGE_VERSION" "$PACKAGE_RELEASE"
-    printf 'Architecture: amd64\n'
+    printf 'Architecture: %s\n' "$DEB_ARCH"
     printf 'Maintainer: %s\n' "$PACKAGER"
     printf 'Installed-Size: %s\n' "$installed_size"
     printf '%s\n' "$control_body"
@@ -75,9 +84,9 @@ build_deb() {
       --build "$package_root" "$output"
 }
 
-engine_package="$PACKAGE_ROOT/denial-flutter-engine_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
-denial_package="$PACKAGE_ROOT/denial_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
-plugin_manager_package="$PACKAGE_ROOT/denial-plugin-manager_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
+engine_package="$PACKAGE_ROOT/denial-flutter-engine_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_${DEB_ARCH}.deb"
+denial_package="$PACKAGE_ROOT/denial_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_${DEB_ARCH}.deb"
+plugin_manager_package="$PACKAGE_ROOT/denial-plugin-manager_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_${DEB_ARCH}.deb"
 
 engine_control="$(cat <<EOF
 Section: libs
@@ -138,7 +147,7 @@ installed_size="$(du -sk --apparent-size "$STAGE_ROOT/denial" | cut -f1)"
 {
   printf 'Package: denial\n'
   printf 'Version: %s-%s\n' "$PACKAGE_VERSION" "$PACKAGE_RELEASE"
-  printf 'Architecture: amd64\n'
+  printf 'Architecture: %s\n' "$DEB_ARCH"
   printf 'Maintainer: %s\n' "$PACKAGER"
   printf 'Installed-Size: %s\n' "$installed_size"
   printf '%s\n' "$denial_control"
@@ -162,13 +171,13 @@ env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
   "$STAGE_ROOT/denial-plugin-manager"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   deb "$engine_package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$PACKAGE_ARCH"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   deb "$denial_package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$PACKAGE_ARCH"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   deb "$plugin_manager_package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$PACKAGE_ARCH"
 
 printf '\nDebian packages ready:\n%s\n%s\n%s\n' \
   "$engine_package" "$denial_package" "$plugin_manager_package"

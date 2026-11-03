@@ -170,7 +170,9 @@ doctor() {
   local memory_kib
   local release_tag=''
   local validation_branch='main'
+  local arm64_sysroot="${DENIAL_ARM64_SYSROOT:-/srv/denial-builder/sysroot/aarch64}"
   local required_commands=(
+    aarch64-linux-gnu-gcc
     actionlint
     arch-nspawn
     awk
@@ -310,6 +312,12 @@ doctor() {
   for command_name in "${required_commands[@]}"; do
     check_command "$command_name"
   done
+  if [[ -r "$arm64_sysroot/usr/lib/libc.so.6" \
+    && -d "$arm64_sysroot/usr/lib/pkgconfig" ]]; then
+    pass "Arch Linux ARM sysroot: $arm64_sysroot"
+  else
+    fail "no Arch Linux ARM sysroot at $arm64_sysroot; run tools/denial-builder sysroot"
+  fi
   check_bwrap_network_isolation
   check_nix_cache
 
@@ -401,6 +409,8 @@ source_audit() {
   local dart_version
   local debug_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-debug"
   local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+  local arm64_engine_dir="$ROOT/prebuilt/flutter-engine/linux-arm64-release"
+  local arm64_manifest="$ROOT/packaging/arch/flutter-engine/manifest.aarch64.json"
   local engine_package_epoch
   local engine_package_version
   local flutter_tool_dir="$ROOT/prebuilt/flutter-tools/3.47.5"
@@ -587,6 +597,19 @@ source_audit() {
     pass 'engine manifest states the public-beta assurances accurately'
   else
     fail 'engine manifest schema, architecture, or assurance state is invalid'
+  fi
+  # The aarch64 engine is cross-built and has not run on aarch64 hardware.
+  if jq -e --slurpfile x86_64 "$manifest" '
+      .package.architecture == "aarch64"
+      and .assurances.aarch64_hardware_verified == false
+      and (.assurances | has("x86_64_hardware_verified") | not)
+      and (del(.package.architecture, .artifacts, .assurances.aarch64_hardware_verified)
+        == ($x86_64[0]
+          | del(.package.architecture, .artifacts, .assurances.x86_64_hardware_verified)))
+    ' "$arm64_manifest" >/dev/null; then
+    pass 'aarch64 engine manifest matches the x86_64 one apart from its artifacts'
+  else
+    fail 'aarch64 engine manifest differs from the x86_64 one beyond its artifacts'
   fi
   if jq -e '
       .schema_version == 1
@@ -846,6 +869,14 @@ source_audit() {
     'engine checksum matches generation manifest' \
     "$(jq -r '.artifacts.libflutter_engine_sha256' "$manifest")" \
     "$(awk 'NR == 1 { print $1 }' "$engine_dir/libflutter_engine.so.sha256")"
+  check_equal \
+    'aarch64 GN arguments hash matches its generation manifest' \
+    "$(jq -r '.artifacts.gn_args_sha256' "$arm64_manifest")" \
+    "$(file_sha256 "$arm64_engine_dir/args.gn")"
+  check_equal \
+    'aarch64 engine checksum matches its generation manifest' \
+    "$(jq -r '.artifacts.libflutter_engine_sha256' "$arm64_manifest")" \
+    "$(awk 'NR == 1 { print $1 }' "$arm64_engine_dir/libflutter_engine.so.sha256")"
 
   if git -C "$ROOT" ls-files --error-unmatch -- \
       prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so \
@@ -853,6 +884,13 @@ source_audit() {
     fail 'generated Flutter engine must not be tracked by Git'
   else
     pass 'generated Flutter engine is not tracked by Git'
+  fi
+  if git -C "$ROOT" ls-files --error-unmatch -- \
+      prebuilt/flutter-engine/linux-arm64-release/libflutter_engine.so \
+      >/dev/null 2>&1; then
+    fail 'generated aarch64 Flutter engine must not be tracked by Git'
+  else
+    pass 'generated aarch64 Flutter engine is not tracked by Git'
   fi
   if git -C "$ROOT" ls-files --error-unmatch -- \
       prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so \
@@ -937,6 +975,15 @@ source_audit() {
   else
     fail 'engine PKGBUILD source hashes failed'
   fi
+  if CARCH=aarch64 \
+    BUILDDIR="$makepkg_audit_root/build" \
+    SRCDEST="$makepkg_audit_root/sources" \
+    makepkg --dir "$ROOT/packaging/arch/flutter-engine" \
+      --verifysource >/dev/null; then
+    pass 'aarch64 engine PKGBUILD source hashes verify'
+  else
+    fail 'aarch64 engine PKGBUILD source hashes failed'
+  fi
   if BUILDDIR="$makepkg_audit_root/build" \
     SRCDEST="$makepkg_audit_root/sources" \
     makepkg --dir "$ROOT/packaging/arch/ui-development" \
@@ -950,6 +997,7 @@ source_audit() {
   if sh -n "$ROOT/install.sh" \
     && bash -n \
     "$ROOT/tools/denial-pc" \
+    "$ROOT/tools/assemble-denial-candidate" \
     "$ROOT/tools/denial-builder" \
     "$ROOT/tools/deny-denial-promotion-compile" \
     "$ROOT/tools/denial-release-key" \
@@ -978,8 +1026,10 @@ source_audit() {
     "$ROOT/tools/test-denial-repository-generators" \
     "$ROOT/tools/test-denial-repository-setup" \
     "$ROOT/tools/test-denial-session-launchers" \
+    "$ROOT/tools/verify-denial-candidate" \
     "$ROOT/tools/verify-denial-package-payload" \
     "$ROOT/tools/verify-denial-native-package-metadata" \
+    "$ROOT/tools/lib/denial-architecture.sh" \
     "$ROOT/tools/verify-denial-published-apk-packages" \
     "$ROOT/tools/verify-denial-rpm-repository" \
     "$ROOT/tools/verify-denial-published-repositories" \

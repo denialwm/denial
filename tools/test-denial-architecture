@@ -15,8 +15,10 @@ assert_mapping() {
   local canonical="$2"
   local flutter="$3"
 
-  denial_arch_configure "$input"
+  denial_arch_configure "$input" "$input"
   [[ "$DENIAL_ARCH" == "$canonical" ]] || fail "$input canonical mapping"
+  [[ "$DENIAL_CROSS" == 0 && -z "$DENIAL_RUST_TARGET" ]] \
+    || fail "$input native build was configured as a cross build"
   [[ "$DENIAL_FLUTTER_ARCH" == "$flutter" ]] || fail "$input Flutter mapping"
   [[ "$DENIAL_FLUTTER_PLATFORM" == "linux-$flutter" ]] \
     || fail "$input Flutter platform mapping"
@@ -35,6 +37,23 @@ done
 for alias in aarch64 arm64; do
   assert_mapping "$alias" aarch64 arm64
 done
+
+denial_arch_configure aarch64 x86_64
+[[ "$DENIAL_CROSS" == 1 && "$DENIAL_ARCH" == aarch64 \
+  && "$DENIAL_HOST_ARCH" == x86_64 ]] || fail 'cross mapping'
+[[ "$DENIAL_RUST_TARGET" == aarch64-unknown-linux-gnu ]] \
+  || fail 'cross Rust target mapping'
+[[ "$DENIAL_FLUTTER_PLATFORM" == linux-arm64 \
+  && "$DENIAL_HOST_FLUTTER_PLATFORM" == linux-x64 ]] \
+  || fail 'cross Flutter platform mapping'
+[[ "$(denial_flutter_engine_target release)" == denial_linux_arm64_release \
+  && "$(denial_flutter_host_engine_target release)" == denial_host_release ]] \
+  || fail 'cross engine target mapping'
+DENIAL_TARGET_ARCH=arm64 denial_arch_configure '' x86_64
+[[ "$DENIAL_CROSS" == 1 ]] || fail 'DENIAL_TARGET_ARCH did not select the target'
+if denial_arch_configure x86_64 aarch64 2>/dev/null; then
+  fail 'unsupported cross build was accepted'
+fi
 
 if denial_arch_configure riscv64 2>/dev/null; then
   fail 'unsupported architecture was accepted'

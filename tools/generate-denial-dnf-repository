@@ -96,7 +96,7 @@ for package in "${packages[@]}"; do
   "$ROOT/tools/verify-denial-package-payload" \
     rpm "$destination" "$expected_payload"
   "$ROOT/tools/verify-denial-native-package-metadata" \
-    rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial1' 2.39
+    rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial1' 2.39 x86_64
   package_names+=("$package_name")
 done
 mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)

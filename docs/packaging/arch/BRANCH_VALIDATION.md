@@ -49,8 +49,18 @@ For either trusted branch, the owner-operated x86-64 runner:
    optional Plugin Manager package as Arch, Debian, RPM, and Alpine archives,
    without the paused legacy UI-development package;
 9. records package metadata, host inputs, checksums, toolchain versions, and
-   build logs; and
-10. uploads the unsigned candidate artifact.
+   build logs;
+10. uploads the unsigned candidate artifact; and
+11. cross-builds the same three packages for aarch64 as Arch, Debian and RPM
+    archives, then records and uploads them as a second unsigned candidate.
+
+The aarch64 build reruns steps 4, 5, 6 and 8 with `DENIAL_TARGET_ARCH=aarch64`,
+using the same tools against the Arch Linux ARM root in
+`/srv/denial-builder/sysroot/aarch64`. Its engine is the locked aarch64 engine
+in `prebuilt/flutter-engine/linux-arm64-release`. Nothing runs on aarch64:
+the tests stay x86-64 only, and there is no aarch64 Alpine or Nix output. Its
+provenance records the build machine and a digest of the root it linked
+against.
 
 Routine branch validation does not build debug/profile engines or run the
 development-engine Flutter shell/widget suite. Those remain separately
@@ -58,8 +68,9 @@ authorized scopes. A release-only source-lock refresh records the actual
 older debug/profile input identities in the paused UI-development manifest;
 it does not claim those retained binaries came from the new release lock.
 
-A separate GitHub-hosted Arch job downloads that artifact and independently
-checks its source identity, checksums, all twelve native archives, package ownership
+A separate GitHub-hosted Arch job downloads both artifacts and independently
+checks, through `tools/verify-denial-candidate`, their source identity,
+checksums, all twelve x86-64 and nine aarch64 archives, package ownership
 metadata, engine ABI dependencies, version bounds, and required runtime and
 development payloads. The candidate also contains separately hashed neutral
 and Alpine-adapted staging trees, so the verifier compares every APK file and

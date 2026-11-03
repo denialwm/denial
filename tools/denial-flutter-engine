@@ -15,6 +15,8 @@ CANONICAL_FLUTTER_SOURCE='/mnt/exty/denial-flutter-fork-3.44.7'
 CANONICAL_SKIA_SOURCE='/mnt/exty/denial-skia-fork-3.44.7'
 MANAGED_CHECKOUT="$CACHE_ROOT/checkout"
 BUILD_ROOT="$CACHE_ROOT/build"
+# A cross build's application view of BUILD_ROOT; see prepare_cross_view.
+CROSS_VIEW_ROOT="$CACHE_ROOT/cross-view"
 DEPOT_TOOLS="$CACHE_ROOT/depot_tools"
 ARTIFACT_ROOT="$CACHE_ROOT/artifacts"
 STATE_ROOT="$CACHE_ROOT/state"
@@ -43,16 +45,25 @@ if [[ "$DENIAL_ARCH" == aarch64 ]] && ((DEFAULT_BUILD_JOBS > 10)); then
 fi
 BUILD_JOBS="${DENIAL_FLUTTER_ENGINE_JOBS:-$DEFAULT_BUILD_JOBS}"
 if [[ "${DENIAL_FLUTTER_ENGINE_DEVELOPMENT_MODES:-0}" == 1 ]]; then
+  ((!DENIAL_CROSS)) || {
+    printf 'denial-flutter-engine: a cross build has release engines only\n' >&2
+    exit 1
+  }
   MODES=(release debug profile)
 else
   MODES=(release)
 fi
 ARTIFACT_STAGING=''
-if [[ "$DENIAL_FLUTTER_ARCH" == x64 ]]; then
+# The toolchain job count belongs to the build machine, the CPU flags to the
+# target.
+if [[ "$DENIAL_HOST_FLUTTER_ARCH" == x64 ]]; then
   NATIVE_TOOLCHAIN_JOBS=16
-  GN_ARCH_ARGS=()
 else
   NATIVE_TOOLCHAIN_JOBS=4
+fi
+if [[ "$DENIAL_FLUTTER_ARCH" == x64 ]]; then
+  GN_ARCH_ARGS=()
+else
   GN_ARCH_ARGS=(--linux "--linux-cpu=$DENIAL_FLUTTER_ARCH")
 fi
 GN_ENGINE_ARGS=(
@@ -63,6 +74,7 @@ GN_ENGINE_ARGS=(
   --gn-args=skia_use_vulkan=false
 )
 NATIVE_RELEASE_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
+HOST_RELEASE_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_HOST_FLUTTER_PLATFORM-release"
 
 fail() {
   printf 'denial-flutter-engine: %s\n' "$*" >&2
@@ -137,6 +149,8 @@ Environment:
   DENIAL_FLUTTER_ENGINE_DEVELOPMENT_MODES
                                       Set to 1 to additionally build and
                                       refresh debug and profile engines.
+  DENIAL_TARGET_ARCH                  aarch64 on an x86-64 machine: cross-build
+                                      the linux-arm64 release engine.
   DENIAL_FLUTTER_TEST_COMMAND          Prepared lock-matched Flutter launcher
                                       used to run shell tests.
 
@@ -246,10 +260,13 @@ canonicalize_engine_build_id() (
   printf 'Canonicalized %s engine GNU build ID: %s\n' "$mode" "$build_id"
 )
 
+# Empty for a mode the target has no checksum for, which matches no engine.
 expected_engine_sha256() {
   local mode="$1"
-  awk 'NR == 1 { print $1 }' \
-    "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so.sha256"
+  local checksum="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/libflutter_engine.so.sha256"
+
+  [[ -f "$checksum" ]] || return 0
+  awk 'NR == 1 { print $1 }' "$checksum"
 }
 
 verify_engine_exports() {
@@ -301,8 +318,8 @@ normalize_generated_args() {
   if [[ ! -f "$expected" ]]; then
     grep -Fqx 'host_os = "linux"' "$generated" \
       || fail "$mode generated args do not target a Linux host"
-    grep -Fqx "host_cpu = \"$DENIAL_FLUTTER_ARCH\"" "$generated" \
-      || fail "$mode generated args do not use native host CPU $DENIAL_FLUTTER_ARCH"
+    grep -Fqx "host_cpu = \"$DENIAL_HOST_FLUTTER_ARCH\"" "$generated" \
+      || fail "$mode generated args do not use host CPU $DENIAL_HOST_FLUTTER_ARCH"
     grep -Fqx 'target_os = "linux"' "$generated" \
       || fail "$mode generated args do not target Linux"
     grep -Fqx "target_cpu = \"$DENIAL_FLUTTER_ARCH\"" "$generated" \
@@ -322,7 +339,7 @@ normalize_generated_args() {
       { print }
     ' "$generated" >"$normalized"
     mv -- "$normalized" "$generated"
-    printf 'Using unqualified native %s %s engine arguments; committed ARM metadata will be added after hardware validation.\n' \
+    printf 'Using uncommitted %s %s engine arguments; run refresh-metadata to commit them.\n' \
       "$DENIAL_FLUTTER_PLATFORM" "$mode"
     return
   fi
@@ -410,14 +427,14 @@ validate_source_lock() {
 cache_key() {
   {
     printf 'cache-schema=%s\n' "$CACHE_SCHEMA"
-    printf 'target=linux-x64\n'
+    printf 'target=%s\n' "$DENIAL_FLUTTER_PLATFORM"
     printf 'source-lock=%s\n' "$(file_sha256 "$SOURCE_LOCK")"
     local mode
     for mode in "${MODES[@]}"; do
       printf '%s-args=%s\n' \
         "$mode" \
         "$(file_sha256 \
-          "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn")"
+          "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/args.gn")"
       printf '%s-expected=%s\n' \
         "$mode" \
         "$(expected_engine_sha256 "$mode")"
@@ -475,7 +492,7 @@ stage_artifacts() {
     || fail "cannot stage unverified Flutter engine cache entry: $key"
   for mode in "${MODES[@]}"; do
     source="$artifact_dir/$mode/libflutter_engine.so"
-    destination="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so"
+    destination="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/libflutter_engine.so"
     install -m 0755 -- "$source" "$destination"
     # The locked engine is checked against the committed checksum again.
     rm -f -- "$destination.local.sha256"
@@ -654,7 +671,7 @@ write_gclient_config() {
   local repository="$1"
   local custom_vars='{}'
 
-  if [[ "$DENIAL_ARCH" == aarch64 ]]; then
+  if [[ "$DENIAL_HOST_ARCH" == aarch64 ]]; then
     custom_vars='{ "download_fuchsia_deps": False }'
   fi
 
@@ -679,7 +696,7 @@ sync_managed_checkout() (
   local filtered_deps
 
   cd "$CHECKOUT"
-  if [[ "$DENIAL_ARCH" != aarch64 ]]; then
+  if [[ "$DENIAL_HOST_ARCH" != aarch64 ]]; then
     PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
       DEPOT_TOOLS_UPDATE=0 \
       VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
@@ -761,7 +778,7 @@ prepare_checkout() {
     validate_external_sources
     return
   fi
-  if [[ "$DENIAL_ARCH" == aarch64 ]]; then
+  if [[ "$DENIAL_HOST_ARCH" == aarch64 ]]; then
     source_state="${source_state}:linux-arm64-sync-v1"
   fi
 
@@ -836,7 +853,7 @@ build_artifacts() {
   artifact_dir="$(artifact_dir_for_key "$key")"
   build_root="$CHECKOUT/engine/src"
   checkout_depot="$build_root/flutter/third_party/depot_tools"
-  llvm_objcopy="$build_root/flutter/buildtools/linux-x64/clang/bin/llvm-objcopy"
+  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_HOST_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
   staging="$ARTIFACT_ROOT/.${key}.$$"
 
   [[ -x "$checkout_depot/vpython3" ]] \
@@ -853,9 +870,9 @@ build_artifacts() {
   trap cleanup_artifact_staging EXIT
 
   for mode in "${MODES[@]}"; do
-    target="denial_host_$mode"
+    target="$(engine_target "$mode")"
     output="$BUILD_ROOT/out/$target"
-    expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+    expected_args="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/args.gn"
     printf 'Generating %s engine build graph\n' "$mode"
     (
       cd "$build_root"
@@ -863,6 +880,7 @@ build_artifacts() {
         DEPOT_TOOLS_UPDATE=0 \
         VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/tools/gn \
+          "${GN_ARCH_ARGS[@]}" \
           --runtime-mode="$mode" \
           "${GN_ENGINE_ARGS[@]}" \
           --out-dir="$BUILD_ROOT" \
@@ -953,14 +971,17 @@ refresh_metadata() {
 
   build_root="$CHECKOUT/engine/src"
   checkout_depot="$build_root/flutter/third_party/depot_tools"
-  llvm_objcopy="$build_root/flutter/buildtools/linux-x64/clang/bin/llvm-objcopy"
+  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_HOST_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
   metadata_stage="$(mktemp -d -- "$CACHE_ROOT/.metadata-refresh.XXXXXX")"
   trap '[[ -z "${metadata_stage:-}" ]] || rm -rf --one-file-system -- "$metadata_stage"' EXIT
 
   for mode in "${MODES[@]}"; do
-    target="denial_host_$mode"
+    target="$(engine_target "$mode")"
     output="$BUILD_ROOT/out/$target"
-    expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+    # A target without committed arguments takes the build machine's job count.
+    expected_args="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/args.gn"
+    [[ -f "$expected_args" ]] \
+      || expected_args="$HOST_RELEASE_ENGINE_DIR/args.gn"
     install -d -m 0700 "$metadata_stage/$mode"
     printf 'Refreshing %s engine build metadata\n' "$mode"
     (
@@ -969,6 +990,7 @@ refresh_metadata() {
         DEPOT_TOOLS_UPDATE=0 \
         VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/tools/gn \
+          "${GN_ARCH_ARGS[@]}" \
           --runtime-mode="$mode" \
           "${GN_ENGINE_ARGS[@]}" \
           --out-dir="$BUILD_ROOT" \
@@ -1005,22 +1027,27 @@ refresh_metadata() {
   done
 
   for mode in "${MODES[@]}"; do
+    install -d -m 0755 \
+      "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode"
     install -m 0644 \
       "$metadata_stage/$mode/args.gn" \
-      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+      "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/args.gn"
     install -m 0644 \
       "$metadata_stage/$mode/libflutter_engine.so.sha256" \
-      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so.sha256"
+      "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/libflutter_engine.so.sha256"
     install -m 0755 \
       "$metadata_stage/$mode/libflutter_engine.so" \
-      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so"
+      "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-$mode/libflutter_engine.so"
   done
   printf 'Refreshed tracked Flutter engine metadata for source lock %s\n' \
     "$(file_sha256 "$SOURCE_LOCK")"
   rm -rf --one-file-system -- "$metadata_stage"
   trap - EXIT
 
-  if command -v nix >/dev/null 2>&1; then
+  # Nix packages the x86-64 engine only.
+  if ((DENIAL_CROSS)); then
+    :
+  elif command -v nix >/dev/null 2>&1; then
     "$ROOT/tools/denial-nix" refresh-engine-lock
     "$ROOT/tools/denial-nix" refresh-pub-locks
   else
@@ -1140,26 +1167,26 @@ run_flutter_tests() {
   )
 }
 
-# Generates the release Ninja graph in its one output directory from the
+# Generates a release Ninja graph in its one output directory from the
 # source trees in use. Generated again from the same trees with the same
 # arguments, it keeps what is built; from other trees, everything rebuilds.
-generate_release_graph() {
+# Arguments: output name, committed args.gn, then the GN CPU flags.
+generate_graph() {
+  local target="$1"
+  local expected_args="$2"
+  shift 2
   local build_root="$CHECKOUT/engine/src"
   local checkout_depot="$build_root/flutter/third_party/depot_tools"
-  local expected_args="$NATIVE_RELEASE_ENGINE_DIR/args.gn"
-  local output
-  local target
+  local output="$BUILD_ROOT/out/$target"
 
-  target="$(engine_target release)"
-  output="$BUILD_ROOT/out/$target"
-  printf 'Generating the Flutter application build graph\n'
+  printf 'Generating the Flutter application build graph %s\n' "$target"
   (
     cd "$build_root"
     PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
       DEPOT_TOOLS_UPDATE=0 \
       VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       ./flutter/tools/gn \
-        "${GN_ARCH_ARGS[@]}" \
+        "$@" \
         --runtime-mode=release \
         "${GN_ENGINE_ARGS[@]}" \
         --out-dir="$BUILD_ROOT" \
@@ -1173,6 +1200,20 @@ generate_release_graph() {
       VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       ./flutter/third_party/gn/gn gen --check "$output"
   )
+}
+
+# The target's graph and, in a cross build, the build machine's, whose Dart
+# and asset compilers the application build runs.
+generate_release_graph() {
+  if ((DENIAL_CROSS)); then
+    generate_graph \
+      "$(denial_flutter_host_engine_target release)" \
+      "$HOST_RELEASE_ENGINE_DIR/args.gn"
+  fi
+  generate_graph \
+    "$(engine_target release)" \
+    "$NATIVE_RELEASE_ENGINE_DIR/args.gn" \
+    "${GN_ARCH_ARGS[@]}"
 }
 
 # Takes the build lock and the source trees for a development build.
@@ -1189,9 +1230,43 @@ prepare_graph() {
   generate_release_graph
 }
 
+# Flutter's tool runs the first gen_snapshot it finds in the target's output,
+# which in a cross build is the target's own. The view links the target's
+# output with the build machine's gen_snapshot in its place, and the build
+# machine's output beside it.
+prepare_cross_view() {
+  local host_output="$1"
+  local output="$2"
+  local entry
+  local name
+  local staging
+  local view_target
+
+  [[ "$CROSS_VIEW_ROOT" == "$CACHE_ROOT/cross-view" ]] \
+    || fail "unexpected cross view path: $CROSS_VIEW_ROOT"
+  staging="$(mktemp -d -- "$CACHE_ROOT/.cross-view.XXXXXX")"
+  view_target="$staging/out/$(basename -- "$output")"
+  install -d -m 0755 "$view_target"
+  ln -s -- "$host_output" "$staging/out/$(basename -- "$host_output")"
+  for entry in "$output"/*; do
+    name="${entry##*/}"
+    [[ "$name" != gen_snapshot ]] || continue
+    ln -s -- "$entry" "$view_target/$name"
+  done
+  ln -s -- "$output/clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot" \
+    "$view_target/gen_snapshot"
+  rm -rf --one-file-system -- "$CROSS_VIEW_ROOT"
+  mv -- "$staging" "$CROSS_VIEW_ROOT"
+  printf 'Prepared the %s application view at %s\n' \
+    "$DENIAL_FLUTTER_PLATFORM" "$CROSS_VIEW_ROOT"
+}
+
 prepare_app_build() {
   local build_root
   local checkout_depot
+  local host_output
+  local -a host_targets target_targets
+  local tool
   local llvm_objcopy
   local local_sha256="$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.local.sha256"
   local output
@@ -1202,17 +1277,38 @@ prepare_app_build() {
 
   build_root="$CHECKOUT/engine/src"
   checkout_depot="$build_root/flutter/third_party/depot_tools"
-  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
+  llvm_objcopy="$build_root/flutter/buildtools/$DENIAL_HOST_FLUTTER_PLATFORM/clang/bin/llvm-objcopy"
   output="$BUILD_ROOT/out/$target"
+  host_output="$BUILD_ROOT/out/$(denial_flutter_host_engine_target release)"
   [[ -x "$llvm_objcopy" ]] \
     || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
 
   generate_release_graph
+  if ((DENIAL_CROSS)); then
+    host_targets=()
+    # The application build compiles AOT code with the build machine's
+    # gen_snapshot; the plugin build kit runs the target's compilers.
+    target_targets=(
+      flutter/sky/packages/sky_engine:sky_engine
+      flutter_patched_sdk/platform_strong.dill
+      gen_snapshot
+      "clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot"
+      impellerc
+      libflutter_linux_gtk.so
+      flutter/shell/platform/linux:publish_headers_linux
+      flutter/tools/const_finder:const_finder
+      flutter/tools/font_subset:font_subset
+      libflutter_engine.so
+    )
+  else
+    host_targets=(libflutter_engine.so)
+    target_targets=()
+  fi
   PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
     DEPOT_TOOLS_UPDATE=0 \
     VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
     /usr/bin/ninja \
-      -C "$output" \
+      -C "$host_output" \
       -j "$BUILD_JOBS" \
       dart_sdk \
       flutter/sky/packages/sky_engine:sky_engine \
@@ -1222,21 +1318,37 @@ prepare_app_build() {
       flutter/shell/platform/linux:publish_headers_linux \
       flutter/tools/const_finder:const_finder \
       flutter/tools/font_subset:font_subset \
-      libflutter_engine.so
-  [[ -f "$output/flutter_patched_sdk/platform_strong.dill" ]] \
-    || fail "lock-matched platform dill is missing: $output"
-  [[ -x "$output/dart-sdk/bin/dart" ]] \
-    || fail "lock-matched Dart SDK is missing: $output"
-  [[ -x "$output/gen_snapshot" ]] \
-    || fail "lock-matched gen_snapshot is missing: $output"
-  [[ -f "$output/libflutter_linux_gtk.so" ]] \
-    || fail "lock-matched Linux GTK engine is missing: $output"
-  [[ -f "$output/flutter_linux/flutter_linux.h" ]] \
-    || fail "lock-matched Linux GTK headers are missing: $output"
-  [[ -f "$output/gen/const_finder.dart.snapshot" ]] \
-    || fail "lock-matched const_finder is missing: $output"
-  [[ -x "$output/font-subset" ]] \
-    || fail "lock-matched font-subset is missing: $output"
+      "${host_targets[@]}"
+  [[ -f "$host_output/flutter_patched_sdk/platform_strong.dill" ]] \
+    || fail "lock-matched platform dill is missing: $host_output"
+  [[ -x "$host_output/dart-sdk/bin/dart" ]] \
+    || fail "lock-matched Dart SDK is missing: $host_output"
+  [[ -x "$host_output/gen_snapshot" ]] \
+    || fail "lock-matched gen_snapshot is missing: $host_output"
+  [[ -f "$host_output/libflutter_linux_gtk.so" ]] \
+    || fail "lock-matched Linux GTK engine is missing: $host_output"
+  [[ -f "$host_output/flutter_linux/flutter_linux.h" ]] \
+    || fail "lock-matched Linux GTK headers are missing: $host_output"
+  [[ -f "$host_output/gen/const_finder.dart.snapshot" ]] \
+    || fail "lock-matched const_finder is missing: $host_output"
+  [[ -x "$host_output/font-subset" ]] \
+    || fail "lock-matched font-subset is missing: $host_output"
+  if ((DENIAL_CROSS)); then
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      /usr/bin/ninja -C "$output" -j "$BUILD_JOBS" "${target_targets[@]}"
+    [[ -f "$output/flutter_patched_sdk/platform_strong.dill" ]] \
+      || fail "lock-matched target platform dill is missing: $output"
+    [[ -x "$output/clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot" ]] \
+      || fail "lock-matched cross gen_snapshot is missing: $output"
+    for tool in gen_snapshot impellerc font-subset; do
+      [[ -x "$output/$tool" ]] \
+        || fail "lock-matched target $tool is missing: $output"
+    done
+    [[ -f "$output/icudtl.dat" ]] \
+      || fail "lock-matched target ICU data is missing: $output"
+  fi
   canonicalize_engine_build_id \
     release \
     "$output/libflutter_engine.so" \
@@ -1263,6 +1375,9 @@ prepare_app_build() {
       >"$local_sha256"
   else
     rm -f -- "$local_sha256"
+  fi
+  if ((DENIAL_CROSS)); then
+    prepare_cross_view "$host_output" "$output"
   fi
   if ((LOCAL_ENGINE)); then
     printf 'Staged the local %s release engine (Flutter %.12s, Skia %.12s) for the application bundle.\n' \

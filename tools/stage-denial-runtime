@@ -4,23 +4,27 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
+denial_arch_configure
 
 CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
+RUST_RELEASE="$RUST_TARGET${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
 PACKAGE_INPUT_ROOT="$(readlink -m -- "${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}")"
 STAGE_ROOT="$(readlink -m -- "${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}")"
-BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
-CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
-PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_TARGET/release/denial-portal}"
+BINARY="${DENIAL_PC_BINARY:-$RUST_RELEASE/deniald}"
+CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
+PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
 BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
-SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
-PLUGIN_MANAGER_BUNDLE="${DENIAL_PC_PLUGIN_MANAGER_BUNDLE:-$ROOT/plugin_manager_app/build/linux/x64/release/bundle}"
+SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
+PLUGIN_MANAGER_BUNDLE="${DENIAL_PC_PLUGIN_MANAGER_BUNDLE:-$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 PLUGIN_MANAGER_BACKEND="${DENIAL_PC_PLUGIN_MANAGER_BACKEND:-$BUILD_ROOT/plugin-manager/denial-plugins}"
 PLUGIN_BUILD_KIT="${DENIAL_PC_PLUGIN_BUILD_KIT:-$BUILD_ROOT/plugin-manager/build-kit}"
-POLKIT_BACKEND="${DENIAL_PC_POLKIT_BACKEND:-$RUST_TARGET/release/denial-polkit-agent}"
-POLKIT_BUNDLE="${DENIAL_PC_POLKIT_BUNDLE:-$ROOT/polkit_app/build/linux/x64/release/bundle}"
+POLKIT_BACKEND="${DENIAL_PC_POLKIT_BACKEND:-$RUST_RELEASE/denial-polkit-agent}"
+POLKIT_BUNDLE="${DENIAL_PC_POLKIT_BUNDLE:-$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 REQUESTED_PACKAGE_VERSION="${DENIAL_PACKAGE_VERSION:-}"
@@ -192,7 +196,7 @@ denial_root="$temporary_stage/denial"
 plugin_manager_root="$temporary_stage/denial-plugin-manager"
 install -d -m 0755 "$engine_root" "$denial_root" "$plugin_manager_root"
 
-engine_source_root="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+engine_source_root="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
 source_lock="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
 expected_engine_sha256="$(cut -d' ' -f1 < "$engine_source_root/libflutter_engine.so.sha256")"
 actual_engine_sha256="$(sha256sum "$BUNDLE/lib/libflutter_engine.so" | cut -d' ' -f1)"
@@ -203,7 +207,13 @@ install -Dm755 "$BUNDLE/lib/libflutter_engine.so" \
   "$engine_root/usr/lib/denial/flutter/lib/libflutter_engine.so"
 install -Dm644 "$BUNDLE/data/icudtl.dat" \
   "$engine_root/usr/lib/denial/flutter/data/icudtl.dat"
-install -Dm644 "$ROOT/packaging/arch/flutter-engine/manifest.json" \
+engine_manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
+if [[ "$DENIAL_ARCH" != x86_64 ]]; then
+  engine_manifest="$ROOT/packaging/arch/flutter-engine/manifest.$DENIAL_ARCH.json"
+fi
+[[ "$(jq -r '.package.architecture' "$engine_manifest")" == "$DENIAL_ARCH" ]] \
+  || die "engine manifest is not for $DENIAL_ARCH: $engine_manifest"
+install -Dm644 "$engine_manifest" \
   "$engine_root/usr/share/denial/flutter-engine/manifest.json"
 install -Dm644 "$source_lock" \
   "$engine_root/usr/share/denial/flutter-engine/SOURCE_LOCK.json"
