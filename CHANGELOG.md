@@ -8,6 +8,11 @@ boundaries may change before 1.0.
 
 ### Added
 
+- Packages for ARM64 (AArch64). The Pacman, APT and DNF repositories carry
+  `denial`, `denial-flutter-engine` and `denial-plugin-manager` for ARM64
+  beside x86-64, and each machine downloads only its own architecture. The
+  setup script configures ARM64 machines, Arch Linux ARM included. Alpine
+  packages stay x86-64.
 - A phone running the mobile shell keeps working as a phone when a monitor is
   plugged in: the monitor runs the desktop shell beside it. Apps open on the
   screen they were started from. A recents card's monitor button, or opening

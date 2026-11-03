@@ -83,6 +83,13 @@ for expected in \
     || fail "candidate provenance is missing: $expected"
 done
 
+architecture="$(sed -n 's/^package_architecture=//p' "$CANDIDATE_PROVENANCE")"
+case "$architecture" in
+  x86_64 | aarch64) ;;
+  *) fail "candidate names no supported package architecture: ${architecture:-unset}" ;;
+esac
+readonly architecture
+
 (
   cd "$CANDIDATE_PACKAGES"
   sha256sum --check --strict --quiet SHA256SUMS
@@ -144,8 +151,8 @@ for package in "${candidate_packages[@]}"; do
   package_arch="$(
     sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
   )"
-  [[ "$package_arch" == x86_64 ]] \
-    || fail "$(basename -- "$package") is not an x86-64 package"
+  [[ "$package_arch" == "$architecture" ]] \
+    || fail "$(basename -- "$package") is not an $architecture package"
   [[ "$package_version" == *-0 ]] \
     || fail "$(basename -- "$package") is not a package-release 0 candidate"
   case "$package_name" in
@@ -227,15 +234,15 @@ expected_release_package() {
   case "$1" in
     denial)
       printf '%s\n' \
-        "$OUTPUT_ROOT/denial-${release_version}-1-x86_64.pkg.tar.zst"
+        "$OUTPUT_ROOT/denial-${release_version}-1-${architecture}.pkg.tar.zst"
       ;;
     denial-flutter-engine)
       printf '%s\n' \
-        "$OUTPUT_ROOT/denial-flutter-engine-1:${release_version}-1-x86_64.pkg.tar.zst"
+        "$OUTPUT_ROOT/denial-flutter-engine-1:${release_version}-1-${architecture}.pkg.tar.zst"
       ;;
     denial-plugin-manager)
       printf '%s\n' \
-        "$OUTPUT_ROOT/denial-plugin-manager-${release_version}-1-x86_64.pkg.tar.zst"
+        "$OUTPUT_ROOT/denial-plugin-manager-${release_version}-1-${architecture}.pkg.tar.zst"
       ;;
     *) return 1 ;;
   esac
@@ -249,6 +256,7 @@ expected_release_package() {
   printf 'candidate_workflow_run=%s\n' \
     "$(sed -n 's/^workflow_run=//p' "$CANDIDATE_PROVENANCE")"
   printf 'candidate_artifact_class=production-release-candidate\n'
+  printf 'package_architecture=%s\n' "$architecture"
   printf 'compiled_payloads_changed=false\n'
 } >"$EVIDENCE_FILE"
 
@@ -279,6 +287,7 @@ for package_name in \
     "PKGDEST=$OUTPUT_ROOT"
     "BUILDDIR=$build_root"
     "PACKAGER=$packager"
+    "CARCH=$architecture"
   )
   if [[ "$package_name" == denial ]]; then
     makepkg_environment+=(
@@ -345,9 +354,14 @@ grep -Fqx "pkgver = 1:${release_version}-1" \
   || fail 'promoted engine package has the wrong version'
 verification_root="$work_root/runtime-version-verification"
 extract_payload "$denial_package" "$verification_root"
-[[ "$("$verification_root/usr/bin/denialctl" --version)" == \
-  "denialctl $release_version" ]] \
-  || fail 'promoted denialctl does not resolve the tag-derived runtime version'
+[[ "$(<"$verification_root/usr/share/denial/version")" == "$release_version" ]] \
+  || fail 'promoted Denial package has the wrong runtime version file'
+# Only a build machine of the same architecture can run denialctl.
+if [[ "$architecture" == "$(uname -m)" ]]; then
+  [[ "$("$verification_root/usr/bin/denialctl" --version)" == \
+    "denialctl $release_version" ]] \
+    || fail 'promoted denialctl does not resolve the tag-derived runtime version'
+fi
 
 (
   cd "$OUTPUT_ROOT"

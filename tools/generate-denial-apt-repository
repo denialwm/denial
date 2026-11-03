@@ -6,9 +6,11 @@ fail() {
   exit 1
 }
 
-if (($# != 5)); then
+if (($# < 5)); then
   printf '%s\n' \
-    'Usage: generate-denial-apt-repository PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT VERSION RELEASE' \
+    'Usage: generate-denial-apt-repository OUTPUT_ROOT FINGERPRINT VERSION RELEASE PACKAGE_ROOT...' \
+    '' \
+    'Each PACKAGE_ROOT holds the three Debian packages of one architecture.' \
     >&2
   exit 2
 fi
@@ -20,12 +22,16 @@ for command_name in \
     || fail "$command_name is required"
 done
 
-PACKAGE_ROOT="$(realpath -e -- "$1")"
-OUTPUT_ROOT="$(realpath -m -- "$2")"
-FINGERPRINT="${3^^}"
-VERSION="$4"
-RELEASE="$5"
-readonly PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT VERSION RELEASE
+OUTPUT_ROOT="$(realpath -m -- "$1")"
+FINGERPRINT="${2^^}"
+VERSION="$3"
+RELEASE="$4"
+readonly OUTPUT_ROOT FINGERPRINT VERSION RELEASE
+shift 4
+package_roots=()
+for package_root in "$@"; do
+  package_roots+=("$(realpath -e -- "$package_root")")
+done
 
 [[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
   || fail 'GNUPGHOME must identify the release-signing keyring'
@@ -40,55 +46,72 @@ if [[ -e "$OUTPUT_ROOT" ]] \
   fail "output directory is not empty: $OUTPUT_ROOT"
 fi
 
-mapfile -d '' packages < <(
-  find "$PACKAGE_ROOT" -maxdepth 1 -type f -name '*.deb' -print0 | sort -z
-)
-((${#packages[@]} == 3)) \
-  || fail "expected three Debian packages, found ${#packages[@]}"
-
 pool_root="$OUTPUT_ROOT/pool/main/d/denial"
 install -d -m 0755 "$pool_root"
-package_names=()
-for package in "${packages[@]}"; do
-  package_name="$(dpkg-deb --field "$package" Package)"
-  package_version="$(dpkg-deb --field "$package" Version)"
-  package_arch="$(dpkg-deb --field "$package" Architecture)"
-  [[ "$package_name" == denial || "$package_name" == denial-flutter-engine \
-    || "$package_name" == denial-plugin-manager ]] \
-    || fail "unexpected Debian package: ${package_name:-unset}"
-  [[ "$package_version" == "$VERSION-$RELEASE" ]] \
-    || fail "$(basename -- "$package") has version $package_version"
-  [[ "$package_arch" == amd64 ]] \
-    || fail "$(basename -- "$package") targets $package_arch"
-  cp --reflink=auto -- "$package" "$pool_root/"
-  package_names+=("$package_name")
+architectures=()
+declare -A architecture_packages=()
+for package_root in "${package_roots[@]}"; do
+  mapfile -d '' packages < <(
+    find "$package_root" -maxdepth 1 -type f -name '*.deb' -print0 | sort -z
+  )
+  ((${#packages[@]} == 3)) \
+    || fail "expected three Debian packages in $package_root, found ${#packages[@]}"
+  root_architecture="$(dpkg-deb --field "${packages[0]}" Architecture)"
+  [[ "$root_architecture" == amd64 || "$root_architecture" == arm64 ]] \
+    || fail "$(basename -- "${packages[0]}") targets $root_architecture"
+  [[ -z "${architecture_packages[$root_architecture]+set}" ]] \
+    || fail "two package roots hold $root_architecture packages"
+  package_names=()
+  for package in "${packages[@]}"; do
+    package_name="$(dpkg-deb --field "$package" Package)"
+    package_version="$(dpkg-deb --field "$package" Version)"
+    package_arch="$(dpkg-deb --field "$package" Architecture)"
+    [[ "$package_name" == denial || "$package_name" == denial-flutter-engine \
+      || "$package_name" == denial-plugin-manager ]] \
+      || fail "unexpected Debian package: ${package_name:-unset}"
+    [[ "$package_version" == "$VERSION-$RELEASE" ]] \
+      || fail "$(basename -- "$package") has version $package_version"
+    [[ "$package_arch" == "$root_architecture" ]] \
+      || fail "$(basename -- "$package") targets $package_arch, expected $root_architecture"
+    [[ "$(basename -- "$package")" == "${package_name}_${VERSION}-${RELEASE}_${package_arch}.deb" ]] \
+      || fail "unexpected Debian package filename: $(basename -- "$package")"
+    cp --reflink=auto -- "$package" "$pool_root/"
+    package_names+=("$package_name")
+  done
+  mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)
+  [[ "${package_names[*]}" == \
+    'denial denial-flutter-engine denial-plugin-manager' ]] \
+    || fail "$root_architecture Debian package set is incomplete"
+  architectures+=("$root_architecture")
+  architecture_packages[$root_architecture]="$(printf '%s\n' "${packages[@]}")"
 done
-mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)
-[[ "${package_names[*]}" == \
-  'denial denial-flutter-engine denial-plugin-manager' ]] \
-  || fail 'Debian package set is incomplete'
+mapfile -t architectures < <(printf '%s\n' "${architectures[@]}" | sort)
+release_architectures="${architectures[*]}"
 
 for suite in trixie noble; do
-  binary_root="$OUTPUT_ROOT/dists/$suite/main/binary-amd64"
-  install -d -m 0755 "$binary_root"
-  (
-    cd "$OUTPUT_ROOT"
-    apt-ftparchive packages pool/main/d/denial
-  ) >"$binary_root/Packages"
-  gzip -n -9 --stdout "$binary_root/Packages" \
-    >"$binary_root/Packages.gz"
-  xz --threads=1 -9e --stdout "$binary_root/Packages" \
-    >"$binary_root/Packages.xz"
+  for architecture in "${architectures[@]}"; do
+    binary_root="$OUTPUT_ROOT/dists/$suite/main/binary-$architecture"
+    install -d -m 0755 "$binary_root"
+    (
+      cd "$OUTPUT_ROOT"
+      apt-ftparchive --arch "$architecture" packages pool/main/d/denial
+    ) >"$binary_root/Packages"
+    gzip -n -9 --stdout "$binary_root/Packages" \
+      >"$binary_root/Packages.gz"
+    xz --threads=1 -9e --stdout "$binary_root/Packages" \
+      >"$binary_root/Packages.xz"
 
-  [[ "$(grep -c '^Package: ' "$binary_root/Packages")" == 3 ]] \
-    || fail "$suite Packages index has the wrong package count"
-  for package in "${packages[@]}"; do
-    filename="pool/main/d/denial/$(basename -- "$package")"
-    checksum="$(sha256sum "$package" | awk '{ print $1 }')"
-    grep -Fxq "Filename: $filename" "$binary_root/Packages" \
-      || fail "$suite Packages index omits $filename"
-    grep -Fxq "SHA256: $checksum" "$binary_root/Packages" \
-      || fail "$suite Packages index has the wrong checksum for $filename"
+    [[ "$(grep -c '^Package: ' "$binary_root/Packages")" == 3 ]] \
+      || fail "$suite $architecture Packages index has the wrong package count"
+    mapfile -t packages <<<"${architecture_packages[$architecture]}"
+    for package in "${packages[@]}"; do
+      filename="pool/main/d/denial/$(basename -- "$package")"
+      checksum="$(sha256sum "$package" | awk '{ print $1 }')"
+      grep -Fxq "Filename: $filename" "$binary_root/Packages" \
+        || fail "$suite Packages index omits $filename"
+      grep -Fxq "SHA256: $checksum" "$binary_root/Packages" \
+        || fail "$suite Packages index has the wrong checksum for $filename"
+    done
   done
 
   release_root="$OUTPUT_ROOT/dists/$suite"
@@ -100,7 +123,7 @@ for suite in trixie noble; do
       -o APT::FTPArchive::Release::Label=Denial \
       -o APT::FTPArchive::Release::Suite="$suite" \
       -o APT::FTPArchive::Release::Codename="$suite" \
-      -o APT::FTPArchive::Release::Architectures=amd64 \
+      -o APT::FTPArchive::Release::Architectures="$release_architectures" \
       -o APT::FTPArchive::Release::Components=main \
       -o APT::FTPArchive::Release::Description='Denial public-beta packages' \
       release "dists/$suite"
@@ -111,7 +134,7 @@ for suite in trixie noble; do
     'Label: Denial' \
     "Suite: $suite" \
     "Codename: $suite" \
-    'Architectures: amd64' \
+    "Architectures: $release_architectures" \
     'Components: main'; do
     grep -Fxq "$expected" "$release_root/Release" \
       || fail "$suite Release metadata omits $expected"
@@ -124,8 +147,8 @@ for suite in trixie noble; do
       END { print count + 0 }
     ' "$release_root/Release"
   )"
-  [[ "$release_sha256_count" == 3 ]] \
-    || fail "$suite Release metadata has no exact three-file SHA256 set"
+  [[ "$release_sha256_count" == $((3 * ${#architectures[@]})) ]] \
+    || fail "$suite Release metadata does not list three indexes per architecture"
 
   gpg \
     --batch \
@@ -148,21 +171,21 @@ for suite in trixie noble; do
   gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
 done
 
-cat >"$OUTPUT_ROOT/denial-trixie.sources" <<'EOF'
+cat >"$OUTPUT_ROOT/denial-trixie.sources" <<EOF
 Types: deb
 URIs: https://denialwm.github.io/denial/apt
 Suites: trixie
 Components: main
-Architectures: amd64
+Architectures: $release_architectures
 Signed-By: /etc/apt/keyrings/denial.asc
 EOF
 
-cat >"$OUTPUT_ROOT/denial-noble.sources" <<'EOF'
+cat >"$OUTPUT_ROOT/denial-noble.sources" <<EOF
 Types: deb
 URIs: https://denialwm.github.io/denial/apt
 Suites: noble
 Components: main
-Architectures: amd64
+Architectures: $release_architectures
 Signed-By: /etc/apt/keyrings/denial.asc
 EOF
 

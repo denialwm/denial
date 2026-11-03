@@ -12,8 +12,9 @@ package set uses the permanent release-key fingerprint:
 AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
 ```
 
-ARM64 (AArch64) is fully supported, but first-party ARM64 binaries are not
-published yet. ARM64 users should follow the [source build guide](BUILDING.md).
+ARM64 (AArch64) packages are published in the same Pacman, APT, and DNF
+repositories as the x86-64 ones, and the setup script configures the machine's
+own architecture. The Alpine APKs are x86-64 only.
 
 > [!WARNING]
 > Denial does not guarantee compatibility with systems that were originally
@@ -184,12 +185,13 @@ and session validation in more detail.
 
 ## Release trust
 
-Public-beta packages are built on Denial's owner-operated x86-64 runner and
-signed in a separate GitHub-hosted job. The tag workflow promotes the retained
+Public-beta packages are built on Denial's owner-operated x86-64 runner, which
+cross-compiles the AArch64 packages from the same commit, and signed in a
+separate GitHub-hosted job. The tag workflow promotes the retained
 `main` payload without compiling it again, creates the three native repository
 formats plus direct Alpine APKs, and secret-free publication jobs exercise
 APT, DNF, and APK clients against the exact signed snapshot before deployment.
 This proves release
 authorization and repository integrity, not offline closure, reproducibility,
-independent rebuilding, SBOM coverage, or AArch64 binary packages. See
+independent rebuilding, or SBOM coverage. See
 [Build trust](BUILD_TRUST.md) for the exact claims.

@@ -74,42 +74,70 @@ fi
   gpg --batch --verify SHA256SUMS.sig SHA256SUMS
 )
 
-mapfile -d '' direct_packages < <(
-  find \
-    "$SIGNED_ROOT/x86_64" \
-    "$SIGNED_ROOT/downloads/x86_64" \
-    -maxdepth 1 \
-    -type f \
-    \( -name '*.pkg.tar.zst' -o -name '*.deb' -o -name '*.rpm' \
-       -o -name '*.apk' \) \
-    -print0 \
-    | sort -z
+# x86_64 is always published; aarch64 is published beside it when present.
+[[ -d "$SIGNED_ROOT/x86_64" ]] || fail 'the x86_64 Pacman repository is missing'
+architectures=(x86_64)
+if [[ -d "$SIGNED_ROOT/aarch64" ]]; then
+  architectures+=(aarch64)
+fi
+declare -A deb_architecture=([x86_64]=amd64 [aarch64]=arm64)
+# Arch, Debian, and RPM packages for each architecture; Alpine for x86_64.
+declare -A direct_count=([x86_64]=12 [aarch64]=9)
+release_architectures=()
+for architecture in "${architectures[@]}"; do
+  release_architectures+=("${deb_architecture[$architecture]}")
+done
+mapfile -t release_architectures < <(
+  printf '%s\n' "${release_architectures[@]}" | sort
 )
-((${#direct_packages[@]} == 12)) \
-  || fail "expected twelve direct packages, found ${#direct_packages[@]}"
-for signed_file in \
-  "${direct_packages[@]}" \
-  "$SIGNED_ROOT/x86_64/denial.db.tar.zst" \
-  "$SIGNED_ROOT/x86_64/denial.files.tar.zst"; do
-  [[ -f "$signed_file" && -f "${signed_file}.sig" ]] \
-    || fail "detached signature is missing for $signed_file"
-  gpg --batch --verify "${signed_file}.sig" "$signed_file"
+
+for architecture in "${architectures[@]}"; do
+  mapfile -d '' direct_packages < <(
+    find \
+      "$SIGNED_ROOT/$architecture" \
+      "$SIGNED_ROOT/downloads/$architecture" \
+      -maxdepth 1 \
+      -type f \
+      \( -name '*.pkg.tar.zst' -o -name '*.deb' -o -name '*.rpm' \
+         -o -name '*.apk' \) \
+      -print0 \
+      | sort -z
+  )
+  ((${#direct_packages[@]} == ${direct_count[$architecture]})) \
+    || fail "expected ${direct_count[$architecture]} $architecture direct packages, found ${#direct_packages[@]}"
+  for signed_file in \
+    "${direct_packages[@]}" \
+    "$SIGNED_ROOT/$architecture/denial.db.tar.zst" \
+    "$SIGNED_ROOT/$architecture/denial.files.tar.zst"; do
+    [[ -f "$signed_file" && -f "${signed_file}.sig" ]] \
+      || fail "detached signature is missing for $signed_file"
+    gpg --batch --verify "${signed_file}.sig" "$signed_file"
+  done
 done
 
 mapfile -d '' apt_packages < <(
   find "$SIGNED_ROOT/apt/pool/main/d/denial" \
     -maxdepth 1 -type f -name '*.deb' -print0 | sort -z
 )
-((${#apt_packages[@]} == 3)) \
-  || fail "expected three APT pool packages, found ${#apt_packages[@]}"
+((${#apt_packages[@]} == 3 * ${#architectures[@]})) \
+  || fail "expected three APT pool packages per architecture, found ${#apt_packages[@]}"
+declare -A apt_packages_by_architecture=()
 for package in "${apt_packages[@]}"; do
-  direct="$SIGNED_ROOT/downloads/x86_64/$(basename -- "$package")"
+  package_architecture="$(dpkg-deb --field "$package" Architecture)"
+  architecture=''
+  for candidate in "${architectures[@]}"; do
+    if [[ "${deb_architecture[$candidate]}" == "$package_architecture" ]]; then
+      architecture="$candidate"
+    fi
+  done
+  [[ -n "$architecture" ]] \
+    || fail "APT pool package has the wrong architecture: $package"
+  direct="$SIGNED_ROOT/downloads/$architecture/$(basename -- "$package")"
   [[ -f "$direct" ]] || fail "direct Debian download is missing: $direct"
   cmp -- "$package" "$direct"
   [[ "$(dpkg-deb --field "$package" Version)" == "$VERSION-$RELEASE" ]] \
     || fail "APT pool package has the wrong version: $package"
-  [[ "$(dpkg-deb --field "$package" Architecture)" == amd64 ]] \
-    || fail "APT pool package has the wrong architecture: $package"
+  apt_packages_by_architecture[$package_architecture]+="$package"$'\n'
 done
 
 for suite in trixie noble; do
@@ -120,79 +148,96 @@ for suite in trixie noble; do
     || fail "$suite signed Release metadata is incomplete"
   gpg --batch --verify "$release_root/InRelease"
   gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
+  grep -Fxq "Architectures: ${release_architectures[*]}" \
+    "$release_root/Release" \
+    || fail "$suite Release metadata does not list ${release_architectures[*]}"
   awk '
     $0 == "SHA256:" { in_sha256 = 1; next }
     in_sha256 && /^[A-Za-z0-9]/ { exit }
     in_sha256 && NF == 3 { print $1 "  " $3 }
   ' "$release_root/Release" >"$work_root/$suite.SHA256SUMS"
-  [[ "$(wc -l <"$work_root/$suite.SHA256SUMS")" == 3 ]] \
+  [[ "$(wc -l <"$work_root/$suite.SHA256SUMS")" == \
+    $((3 * ${#architectures[@]})) ]] \
     || fail "$suite Release metadata has an unexpected SHA256 file set"
   (
     cd "$release_root"
     sha256sum --check --strict --quiet "$work_root/$suite.SHA256SUMS"
   )
 
-  packages_index="$release_root/main/binary-amd64/Packages"
-  [[ "$(grep -c '^Package: ' "$packages_index")" == 3 ]] \
-    || fail "$suite Packages index does not contain exactly three packages"
-  for package in "${apt_packages[@]}"; do
-    relative="pool/main/d/denial/$(basename -- "$package")"
-    checksum="$(sha256sum "$package" | awk '{ print $1 }')"
-    grep -Fxq "Filename: $relative" "$packages_index" \
-      || fail "$suite Packages index omits $relative"
-    grep -Fxq "SHA256: $checksum" "$packages_index" \
-      || fail "$suite Packages index has the wrong checksum for $relative"
+  for package_architecture in "${release_architectures[@]}"; do
+    packages_index="$release_root/main/binary-$package_architecture/Packages"
+    [[ "$(grep -c '^Package: ' "$packages_index")" == 3 ]] \
+      || fail "$suite $package_architecture Packages index does not contain exactly three packages"
+    mapfile -t index_packages \
+      <<<"${apt_packages_by_architecture[$package_architecture]%$'\n'}"
+    for package in "${index_packages[@]}"; do
+      relative="pool/main/d/denial/$(basename -- "$package")"
+      checksum="$(sha256sum "$package" | awk '{ print $1 }')"
+      grep -Fxq "Filename: $relative" "$packages_index" \
+        || fail "$suite Packages index omits $relative"
+      grep -Fxq "SHA256: $checksum" "$packages_index" \
+        || fail "$suite Packages index has the wrong checksum for $relative"
+    done
   done
 done
-cmp -- \
-  "$SIGNED_ROOT/apt/dists/trixie/main/binary-amd64/Packages" \
-  "$SIGNED_ROOT/apt/dists/noble/main/binary-amd64/Packages"
+for package_architecture in "${release_architectures[@]}"; do
+  cmp -- \
+    "$SIGNED_ROOT/apt/dists/trixie/main/binary-$package_architecture/Packages" \
+    "$SIGNED_ROOT/apt/dists/noble/main/binary-$package_architecture/Packages"
+done
 
-apt_root="$work_root/apt-client"
-install -d -m 0755 \
-  "$apt_root/state/lists/partial" \
-  "$apt_root/cache/archives/partial" \
-  "$apt_root/etc"
-install -m 0644 "$SIGNED_ROOT/denial-repo-key.asc" "$apt_root/key.asc"
-cat >"$apt_root/etc/sources.list" <<EOF
-deb [arch=amd64 signed-by=$apt_root/key.asc] file:$SIGNED_ROOT/apt trixie main
-deb [arch=amd64 signed-by=$apt_root/key.asc] file:$SIGNED_ROOT/apt noble main
-EOF
-apt_options=(
-  -o Debug::NoLocking=true
-  -o "Dir::Etc::sourcelist=$apt_root/etc/sources.list"
-  -o 'Dir::Etc::sourceparts=-'
-  -o "Dir::State=$apt_root/state"
-  -o 'Dir::State::status=/dev/null'
-  -o "Dir::Cache=$apt_root/cache"
-  -o 'Acquire::Languages=none'
-)
-apt-get "${apt_options[@]}" update
-apt_names="$(
-  apt-cache "${apt_options[@]}" show \
-    denial denial-flutter-engine denial-plugin-manager \
-    | awk '/^Package: / { print $2 }' \
-    | sort -u \
-    | paste -sd' ' -
-)"
-[[ "$apt_names" == 'denial denial-flutter-engine denial-plugin-manager' ]] \
-  || fail "APT client resolved the wrong package set: $apt_names"
+# One APT client per architecture, each configured as that machine.
+for package_architecture in "${release_architectures[@]}"; do
+  apt_root="$work_root/apt-client-$package_architecture"
+  install -d -m 0755 \
+    "$apt_root/state/lists/partial" \
+    "$apt_root/cache/archives/partial" \
+    "$apt_root/etc"
+  install -m 0644 "$SIGNED_ROOT/denial-repo-key.asc" "$apt_root/key.asc"
+  printf '%s\n' \
+    "deb [arch=$package_architecture signed-by=$apt_root/key.asc] file:$SIGNED_ROOT/apt trixie main" \
+    "deb [arch=$package_architecture signed-by=$apt_root/key.asc] file:$SIGNED_ROOT/apt noble main" \
+    >"$apt_root/etc/sources.list"
+  apt_options=(
+    -o Debug::NoLocking=true
+    -o "APT::Architecture=$package_architecture"
+    -o "APT::Architectures=$package_architecture"
+    -o "Dir::Etc::sourcelist=$apt_root/etc/sources.list"
+    -o 'Dir::Etc::sourceparts=-'
+    -o "Dir::State=$apt_root/state"
+    -o 'Dir::State::status=/dev/null'
+    -o "Dir::Cache=$apt_root/cache"
+    -o 'Acquire::Languages=none'
+  )
+  apt-get "${apt_options[@]}" update
+  apt_names="$(
+    apt-cache "${apt_options[@]}" show \
+      denial denial-flutter-engine denial-plugin-manager \
+      | awk '/^Package: / { print $2 }' \
+      | sort -u \
+      | paste -sd' ' -
+  )"
+  [[ "$apt_names" == 'denial denial-flutter-engine denial-plugin-manager' ]] \
+    || fail "$package_architecture APT client resolved the wrong package set: $apt_names"
+done
 
-rpm_repository="$SIGNED_ROOT/rpm/fedora/44/x86_64"
-repomd="$rpm_repository/repodata/repomd.xml"
-[[ -f "$repomd" && -f "$repomd.asc" ]] \
-  || fail 'signed DNF repomd.xml is incomplete'
-gpg --batch --verify "$repomd.asc" "$repomd"
-mapfile -d '' repository_rpms < <(
-  find "$rpm_repository/Packages" \
-    -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
-)
-((${#repository_rpms[@]} == 3)) \
-  || fail "expected three DNF packages, found ${#repository_rpms[@]}"
-for package in "${repository_rpms[@]}"; do
-  direct="$SIGNED_ROOT/downloads/x86_64/$(basename -- "$package")"
-  [[ -f "$direct" ]] || fail "direct RPM download is missing: $direct"
-  cmp -- "$package" "$direct"
+for architecture in "${architectures[@]}"; do
+  rpm_repository="$SIGNED_ROOT/rpm/fedora/44/$architecture"
+  repomd="$rpm_repository/repodata/repomd.xml"
+  [[ -f "$repomd" && -f "$repomd.asc" ]] \
+    || fail "signed $architecture DNF repomd.xml is incomplete"
+  gpg --batch --verify "$repomd.asc" "$repomd"
+  mapfile -d '' repository_rpms < <(
+    find "$rpm_repository/Packages" \
+      -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
+  )
+  ((${#repository_rpms[@]} == 3)) \
+    || fail "expected three $architecture DNF packages, found ${#repository_rpms[@]}"
+  for package in "${repository_rpms[@]}"; do
+    direct="$SIGNED_ROOT/downloads/$architecture/$(basename -- "$package")"
+    [[ -f "$direct" ]] || fail "direct RPM download is missing: $direct"
+    cmp -- "$package" "$direct"
+  done
 done
 
 unexpected_entry="$(find "$SIGNED_ROOT" ! -type d ! -type f -print -quit)"

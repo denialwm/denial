@@ -106,8 +106,7 @@ The initial public repository deliberately makes a smaller, testable promise:
 
 Every release page and repository manifest also states what this does not
 prove: there is no complete offline dependency closure, byte-for-byte
-reproducibility claim, independent builder, generated SBOM, or AArch64 binary
-packages yet. Signatures prove that Denial authorized exact bytes; they do not
+reproducibility claim, independent builder, or generated SBOM yet. Signatures prove that Denial authorized exact bytes; they do not
 prove that those bytes were independently reconstructed from source.
 
 ## Stage 3 hardened-release goals
@@ -1082,10 +1081,11 @@ public/
 ├── apt/
 │   ├── pool/main/d/denial/
 │   └── dists/{trixie,noble}/
-├── rpm/fedora/44/x86_64/
+├── rpm/fedora/44/{x86_64,aarch64}/
 │   ├── Packages/
 │   └── repodata/
-├── downloads/x86_64/
+├── downloads/{x86_64,aarch64}/
+├── aarch64/
 ├── x86_64/
 │   ├── denial.db
 │   ├── denial.db.sig
@@ -1103,8 +1103,14 @@ repeated entries. The release job copies the repository-owned `install.sh`
 from the exact tagged source, requires its embedded fingerprint to match the
 active release key, and includes it in the signed `SHA256SUMS` manifest.
 `install.denialwm.org` serves that file through the project-controlled
-Cloudflare route. Stage 2 adds the toolchain package; AArch64 adds a sibling
-directory only after its own build and hardware lane exists.
+Cloudflare route. Stage 2 adds the toolchain package.
+
+Each architecture has its own Pacman tree, DNF repository, and APT
+`binary-<arch>` index; the APT pool holds both. The `aarch64/` tree mirrors
+`x86_64/` and is cross-built on the same runner. `downloads/` holds the direct
+packages that are attached to the GitHub Release; the Pages site leaves it
+out, which keeps both architectures' repositories under the Pages size limit.
+The signed `SHA256SUMS` still lists the downloads.
 
 Package filenames are immutable. GitHub Releases retain the complete package
 set and signed evidence for each tag. Pages presents one complete latest-only

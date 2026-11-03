@@ -35,6 +35,11 @@ readonly \
   || fail 'version is not valid for RPM metadata'
 [[ "$RELEASE" =~ ^[0-9]+$ ]] \
   || fail 'release must be numeric'
+# A Fedora repository directory is named by its architecture.
+ARCHITECTURE="$(basename -- "$REPOSITORY_ROOT")"
+readonly ARCHITECTURE
+[[ "$ARCHITECTURE" == x86_64 || "$ARCHITECTURE" == aarch64 ]] \
+  || fail "repository directory names no supported architecture: $REPOSITORY_ROOT"
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-rpm-verify.XXXXXX")"
 cleanup() {
@@ -89,6 +94,9 @@ for package in "${repository_rpms[@]}"; do
   [[ "$(rpm --dbpath "$rpm_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")" \
     == "$VERSION-$RELEASE" ]] \
     || fail "DNF package has the wrong version: $package"
+  [[ "$(rpm --dbpath "$rpm_db" -qp --qf '%{ARCH}' "$package")" \
+    == "$ARCHITECTURE" ]] \
+    || fail "DNF package has the wrong architecture: $package"
 done
 
 dnf_root="$work_root/dnf-client"
@@ -96,7 +104,7 @@ install -d -m 0755 "$dnf_root"
 dnf_common=(
   --installroot "$dnf_root"
   --releasever 44
-  --forcearch x86_64
+  --forcearch "$ARCHITECTURE"
   --setopt "cachedir=$work_root/dnf-cache"
   --setopt "persistdir=$work_root/dnf-persist"
   --setopt reposdir=/dev/null

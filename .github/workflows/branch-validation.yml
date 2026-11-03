@@ -557,6 +557,7 @@ jobs:
         shell: bash
         env:
           CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
+          AARCH64_CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-aarch64-candidate
         run: |
           set -euo pipefail
           mapfile -t native_metadata < <(
@@ -566,9 +567,10 @@ jobs:
           test "${#native_metadata[@]}" -eq 7
           test "${native_metadata[1]}" = 0
           tools/test-denial-repository-generators \
-            "$CANDIDATE_ROOT/packages" \
             "${native_metadata[0]}" \
-            "${native_metadata[1]}"
+            "${native_metadata[1]}" \
+            "$CANDIDATE_ROOT/packages" \
+            "$AARCH64_CANDIDATE_ROOT/packages"
 
       - name: Test guided repository setup state handling
         shell: bash
