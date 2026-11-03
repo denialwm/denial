@@ -135,6 +135,8 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Plugin Manager no longer reports a job as interrupted while its worker is
+  still starting.
 - Logging in to Denial from LightDM no longer drops back to the greeter with
   "libseat did not activate the current TTY session". Display managers that
   start the session before logind activates it are now waited for, also with
