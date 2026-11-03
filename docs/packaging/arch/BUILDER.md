@@ -46,9 +46,9 @@ The installed boundary is:
 - a root-owned Nix daemon configured with only Denial's public Cachix URL and
   signing key, and the shared engine compiler cache as a sandbox path; the
   runner remains an untrusted Nix user;
-- GitHub Actions runner `2.336.0`, downloaded from the official release and
+- GitHub Actions runner `2.338.2`, downloaded from the official release and
   verified against SHA-256
-  `04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d`;
+  `baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40`;
 - a static systemd service that cannot be enabled at boot;
 - an ephemeral, repository-scoped registration with the extra label
   `denial-builder`;
