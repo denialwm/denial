@@ -171,6 +171,7 @@ let
     "packages/denial_flutter_sdk/assets/cursors/BIBATA_MODERN_ICE.md"
     "packages/denial_flutter_sdk/assets/fonts/OFL.txt"
     "packages/denial_flutter_sdk/assets/fonts/README.md"
+    "packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt"
     "packages/denial_flutter_sdk/assets/wallpapers/ATTRIBUTION.md"
     "docs/man"
     "docs/PLUGIN_DEVELOPMENT.md"
@@ -213,7 +214,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     install -Dm755 ${compositor}/bin/deniald $out/bin/deniald
     install -Dm755 ${compositor}/bin/denialctl $out/bin/denialctl
-    install -Dm755 ${compositor}/bin/denial-portal $out/bin/denial-portal
+    makeWrapper ${compositor}/bin/denial-portal $out/bin/denial-portal \
+      --add-flags "--dialog-bundle $out/lib/denial/polkit"
     install -Dm755 ${packageSrc}/packaging/arch/denial-session $out/bin/denial-session
     patchShebangs $out/bin/denial-session
 
@@ -307,6 +309,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       $out/share/licenses/denial/GPL-3.0-only.txt
     install -Dm644 ${packageSrc}/packages/denial_flutter_sdk/assets/fonts/OFL.txt \
       $out/share/licenses/denial/OFL-1.1.txt
+    install -Dm644 ${packageSrc}/packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt \
+      $out/share/licenses/denial/OFL-1.1-RobotoFlex.txt
 
     wrapProgram $out/bin/denial-session \
       --prefix PATH : ${

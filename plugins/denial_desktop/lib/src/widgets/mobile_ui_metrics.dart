@@ -48,6 +48,7 @@ abstract final class MobileNotificationMetrics {
   static const double leadingGap = 14;
   static const double contentGap = 12;
 
+  static const double groupHeaderFontSize = 15;
   static const double titleFontSize = 20;
   static const double bodyFontSize = 18;
   static const double copySpacing = 4;

@@ -36,6 +36,70 @@
   "@homeResizeWidget": {
     "description": "Accessible label for a home widget resize handle."
   },
+  "homeFolderDefaultName": "Folder",
+  "@homeFolderDefaultName": {
+    "description": "Name of a new home screen folder whose apps share no category."
+  },
+  "homeFolderGames": "Games",
+  "@homeFolderGames": {
+    "description": "Suggested name of a new home screen folder of games."
+  },
+  "homeFolderInternet": "Internet",
+  "@homeFolderInternet": {
+    "description": "Suggested name of a new home screen folder of network apps."
+  },
+  "homeFolderOffice": "Office",
+  "@homeFolderOffice": {
+    "description": "Suggested name of a new home screen folder of office apps."
+  },
+  "homeFolderGraphics": "Graphics",
+  "@homeFolderGraphics": {
+    "description": "Suggested name of a new home screen folder of graphics apps."
+  },
+  "homeFolderMedia": "Media",
+  "@homeFolderMedia": {
+    "description": "Suggested name of a new home screen folder of audio and video apps."
+  },
+  "homeFolderDevelopment": "Development",
+  "@homeFolderDevelopment": {
+    "description": "Suggested name of a new home screen folder of developer tools."
+  },
+  "homeFolderEducation": "Education",
+  "@homeFolderEducation": {
+    "description": "Suggested name of a new home screen folder of education apps."
+  },
+  "homeFolderScience": "Science",
+  "@homeFolderScience": {
+    "description": "Suggested name of a new home screen folder of science apps."
+  },
+  "homeFolderSystem": "System",
+  "@homeFolderSystem": {
+    "description": "Suggested name of a new home screen folder of system tools."
+  },
+  "homeFolderUtilities": "Utilities",
+  "@homeFolderUtilities": {
+    "description": "Suggested name of a new home screen folder of utilities."
+  },
+  "homeFolderSettings": "Settings",
+  "@homeFolderSettings": {
+    "description": "Suggested name of a new home screen folder of settings apps."
+  },
+  "homeFolderRename": "Rename folder",
+  "@homeFolderRename": {
+    "description": "Accessible hint for the editable name of an open home screen folder."
+  },
+  "homeFolderApps": "{name}, {count, plural, =1{1 app} other{{count} apps}}",
+  "@homeFolderApps": {
+    "description": "Accessible label of a home screen folder: its name and how many apps it holds.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "actionCancel": "Cancel",
   "@actionCancel": {
     "description": "English UI text for actionCancel."
@@ -1081,6 +1145,10 @@
   "@lockCpuLabel": {
     "description": "English UI text for lockCpuLabel."
   },
+  "lockDesktopModeEnabled": "Desktop mode enabled",
+  "@lockDesktopModeEnabled": {
+    "description": "Over the date on the phone's always-on picture while a desk keeps the session unlocked."
+  },
   "lockDesktopPromptDescription": "Enter your password to unlock this desktop session.",
   "@lockDesktopPromptDescription": {
     "description": "English UI text for lockDesktopPromptDescription."
@@ -1314,6 +1382,51 @@
   "@notificationGeneric": {
     "description": "English UI text for notificationGeneric."
   },
+  "notificationGroupCollapse": "Collapse notifications from {applicationName}",
+  "@notificationGroupCollapse": {
+    "description": "Button that folds an expanded notification group back into one card.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationGroupExpand": "Show {count} notifications from {applicationName}",
+  "@notificationGroupExpand": {
+    "description": "Tapping a stacked notification group shows its notifications.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationGroupHeader": "{applicationName} · {count}",
+  "@notificationGroupHeader": {
+    "description": "Header of a stacked notification group: app and how many notifications it holds.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationMessage": "{sender}: {text}",
+  "@notificationMessage": {
+    "description": "One message of a conversation in a notification.",
+    "placeholders": {
+      "sender": {
+        "type": "String"
+      },
+      "text": {
+        "type": "String"
+      }
+    }
+  },
   "notificationNew": "New notification",
   "@notificationNew": {
     "description": "English UI text for notificationNew."
@@ -1375,21 +1488,9 @@
   "@notificationsCloseCenter": {
     "description": "English UI text for notificationsCloseCenter."
   },
-  "notificationsClosed": "Closed",
-  "@notificationsClosed": {
-    "description": "English UI text for notificationsClosed."
-  },
-  "notificationsClosedByApplication": "Closed by application",
-  "@notificationsClosedByApplication": {
-    "description": "English UI text for notificationsClosedByApplication."
-  },
   "notificationsDisableDoNotDisturb": "Disable do not disturb",
   "@notificationsDisableDoNotDisturb": {
     "description": "English UI text for notificationsDisableDoNotDisturb."
-  },
-  "notificationsDismissed": "Dismissed",
-  "@notificationsDismissed": {
-    "description": "English UI text for notificationsDismissed."
   },
   "notificationsDoNotDisturbSemantics": "Do not disturb is on. Ordinary banners are silent. Critical notifications can still appear.",
   "@notificationsDoNotDisturbSemantics": {
@@ -1402,10 +1503,6 @@
   "notificationsEnableDoNotDisturb": "Enable do not disturb",
   "@notificationsEnableDoNotDisturb": {
     "description": "English UI text for notificationsEnableDoNotDisturb."
-  },
-  "notificationsExpired": "Expired",
-  "@notificationsExpired": {
-    "description": "English UI text for notificationsExpired."
   },
   "notificationsLoadingPolicy": "Loading do not disturb policy",
   "@notificationsLoadingPolicy": {
@@ -1481,6 +1578,10 @@
   "oskBackspace": "Backspace",
   "@oskBackspace": {
     "description": "English UI text for oskBackspace."
+  },
+  "oskCapsLock": "Caps lock",
+  "@oskCapsLock": {
+    "description": "English UI text for oskCapsLock."
   },
   "oskControlKey": "CTRL",
   "@oskControlKey": {
@@ -1744,9 +1845,17 @@
       }
     }
   },
-  "quickSettingsAutomatic": "Automatic",
-  "@quickSettingsAutomatic": {
-    "description": "English UI text for quickSettingsAutomatic."
+  "quickSettingsAutoRotate": "Auto-rotate",
+  "@quickSettingsAutoRotate": {
+    "description": "Quick Settings toggle that is on while the screen follows the orientation sensor."
+  },
+  "quickSettingsScreenRecording": "Screen recording",
+  "@quickSettingsScreenRecording": {
+    "description": "Quick Settings tile that starts a screen recording, and stops it when tapped again."
+  },
+  "quickSettingsRecording": "Recording",
+  "@quickSettingsRecording": {
+    "description": "Subtitle of the Screen recording tile while it records."
   },
   "quickSettingsBalanced": "Balanced",
   "@quickSettingsBalanced": {
@@ -1764,18 +1873,6 @@
   "@quickSettingsControls": {
     "description": "English UI text for quickSettingsControls."
   },
-  "quickSettingsDate": "{weekday} {day}",
-  "@quickSettingsDate": {
-    "description": "English UI text for quickSettingsDate.",
-    "placeholders": {
-      "weekday": {
-        "type": "String"
-      },
-      "day": {
-        "type": "int"
-      }
-    }
-  },
   "quickSettingsHighPerformance": "High performance",
   "@quickSettingsHighPerformance": {
     "description": "English UI text for quickSettingsHighPerformance."
@@ -1783,10 +1880,6 @@
   "quickSettingsKeyboard": "Keyboard",
   "@quickSettingsKeyboard": {
     "description": "English UI text for quickSettingsKeyboard."
-  },
-  "quickSettingsLocked": "Locked",
-  "@quickSettingsLocked": {
-    "description": "English UI text for quickSettingsLocked."
   },
   "quickSettingsNormal": "Normal",
   "@quickSettingsNormal": {
@@ -1822,10 +1915,6 @@
   "@quickSettingsPerformance": {
     "description": "English UI text for quickSettingsPerformance."
   },
-  "quickSettingsRotation": "Rotation",
-  "@quickSettingsRotation": {
-    "description": "English UI text for quickSettingsRotation."
-  },
   "quickSettingsSettingsUnavailable": "Settings are unavailable.",
   "@quickSettingsSettingsUnavailable": {
     "description": "English UI text for quickSettingsSettingsUnavailable."
@@ -1842,7 +1931,7 @@
   "@settingsAboutBelief": {
     "description": "Denial's founding belief, shown prominently on the Settings About page."
   },
-  "settingsAboutCollaboration": "Built in continuous collaboration with OpenAI Codex.",
+  "settingsAboutCollaboration": "Built in continuous collaboration with AI models, mostly Sol 6.1 and Opus 5.5.",
   "@settingsAboutCollaboration": {
     "description": "Collaboration credit on the Settings About page."
   },
@@ -3137,6 +3226,14 @@
   "settingsMousePointerSpeed": "Mouse pointer speed",
   "@settingsMousePointerSpeed": {
     "description": "Label for the mouse pointer speed slider."
+  },
+  "settingsMouseAcceleration": "Mouse acceleration",
+  "@settingsMouseAcceleration": {
+    "description": "Label for the mouse pointer acceleration toggle."
+  },
+  "settingsMouseAccelerationDescription": "Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.",
+  "@settingsMouseAccelerationDescription": {
+    "description": "Description of the mouse pointer acceleration toggle."
   },
   "settingsShortcutsSection": "Shortcuts",
   "@settingsShortcutsSection": {
@@ -5275,13 +5372,13 @@
   "@fingerprintSection": {
     "description": "Fingerprint settings: fingerprintSection"
   },
-  "fingerprintPasswordPrompt": "Enter your sudo password to manage fingerprints.",
-  "@fingerprintPasswordPrompt": {
-    "description": "Fingerprint settings: fingerprintPasswordPrompt"
+  "fingerprintPinPrompt": "Enter your lock PIN to manage fingerprints.",
+  "@fingerprintPinPrompt": {
+    "description": "Fingerprint settings: fingerprintPinPrompt"
   },
-  "fingerprintSudoPassword": "Sudo password",
-  "@fingerprintSudoPassword": {
-    "description": "Fingerprint settings: fingerprintSudoPassword"
+  "fingerprintPin": "PIN",
+  "@fingerprintPin": {
+    "description": "Fingerprint settings: fingerprintPin"
   },
   "fingerprintContinue": "Continue",
   "@fingerprintContinue": {
@@ -5311,11 +5408,11 @@
   "@fingerprintAdd": {
     "description": "Fingerprint settings: fingerprintAdd"
   },
-  "fingerprintAuthenticationFailed": "Password verification failed. Try again.",
-  "@fingerprintAuthenticationFailed": {
-    "description": "Fingerprint settings: fingerprintAuthenticationFailed"
+  "fingerprintPinNotSet": "Set a lock PIN first.",
+  "@fingerprintPinNotSet": {
+    "description": "Fingerprint settings: fingerprintPinNotSet"
   },
-  "fingerprintExpired": "Enter your password again to continue.",
+  "fingerprintExpired": "Enter your PIN again to continue.",
   "@fingerprintExpired": {
     "description": "Fingerprint settings: fingerprintExpired"
   },
@@ -5405,10 +5502,8 @@
   "mobileUnavailable": "Mobile network unavailable",
   "mobileChangeFailed": "Unable to change mobile data",
   "simPinTitle": "Unlock SIM",
-  "simPinLabel": "SIM PIN",
   "simPinUnlock": "Unlock SIM",
   "simPinLater": "Later",
-  "simPinFailed": "SIM could not be unlocked. Check your PIN and remaining attempts.",
   "simPukRequired": "SIM requires a PUK. Contact your carrier.",
   "simLocked": "SIM locked",
   "simPinRetries": "{count} attempts remaining",
@@ -5437,16 +5532,10 @@
   "@simPinTitle": {
     "description": "Mobile connectivity and SIM authentication UI."
   },
-  "@simPinLabel": {
-    "description": "Mobile connectivity and SIM authentication UI."
-  },
   "@simPinUnlock": {
     "description": "Mobile connectivity and SIM authentication UI."
   },
   "@simPinLater": {
-    "description": "Mobile connectivity and SIM authentication UI."
-  },
-  "@simPinFailed": {
     "description": "Mobile connectivity and SIM authentication UI."
   },
   "@simPukRequired": {
@@ -5812,6 +5901,20 @@
   "@polkitClose": {"description": "Authentication prompt text."},
   "polkitLocked": "Temporarily locked",
   "@polkitLocked": {"description": "Authentication prompt text."},
+  "accessAllow": "Allow",
+  "@accessAllow": {"description": "Permission prompt: grants what an app asked for."},
+  "accessAllowOnce": "Allow once",
+  "@accessAllowOnce": {"description": "Permission prompt: grants it while the app keeps running."},
+  "accessAlwaysAllow": "Always allow",
+  "@accessAlwaysAllow": {"description": "Permission prompt: grants it and remembers the answer."},
+  "accessDecline": "Decline",
+  "@accessDecline": {"description": "Permission prompt: refuses what an app asked for."},
+  "accessNeverAllow": "Never allow",
+  "@accessNeverAllow": {"description": "Permission prompt: refuses it and remembers the answer."},
+  "accessDeclineOnce": "Decline once",
+  "@accessDeclineOnce": {"description": "Permission prompt: refuses it while the app keeps running."},
+  "accessUnknownApp": "An app",
+  "@accessUnknownApp": {"description": "Permission prompt: names an app that did not say which one it is."},
   "pluginsAppTitle": "Denial Plugins",
   "@pluginsAppTitle": {
     "description": "Plugin Manager: AppTitle."
@@ -6529,6 +6632,316 @@
   "pluginsDesktopFeature": "Desktop",
   "@pluginsDesktopFeature": {
     "description": "Plugin Manager: DesktopFeature."
-  }
-
+  },
+  "inputDeckTitle": "Keyboard & touchpad display",
+  "@inputDeckTitle": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckHeading": "Keyboard & touchpad",
+  "@inputDeckHeading": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckEnable": "Use touch display as keyboard and touchpad",
+  "@inputDeckEnable": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckUnavailable": "Connect a touch display to configure this mode.",
+  "@inputDeckUnavailable": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckEnableDescription": "Use {output} for input whenever another display is available. Disconnect the external display to return to tablet mode.",
+  "@inputDeckEnableDescription": {
+    "description": "Touch display keyboard and touchpad mode.",
+    "placeholders": {
+      "output": {
+        "type": "String",
+        "example": "eDP-1"
+      }
+    }
+  },
+  "inputDeckWaiting": "Ready when a second display is connected and powered on.",
+  "@inputDeckWaiting": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchDisplay": "Touch display",
+  "@inputDeckTouchDisplay": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchDisplayDescription": "Display to use for keyboard and touchpad input.",
+  "@inputDeckTouchDisplayDescription": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckKeyboardSize": "Keyboard size",
+  "@inputDeckKeyboardSize": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchpadWidth": "Touchpad width",
+  "@inputDeckTouchpadWidth": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchpadHeight": "Touchpad height",
+  "@inputDeckTouchpadHeight": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckPointerSpeed": "Pointer speed",
+  "@inputDeckPointerSpeed": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckNaturalScroll": "Natural scrolling",
+  "@inputDeckNaturalScroll": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckNaturalScrollDescription": "Content follows the movement of your fingers.",
+  "@inputDeckNaturalScrollDescription": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckCpuChart": "CPU chart",
+  "@inputDeckCpuChart": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckCpuDescription": "Show processor usage above the keyboard.",
+  "@inputDeckCpuDescription": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckGpuCharts": "GPU charts",
+  "@inputDeckGpuCharts": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckGpuDescription": "Show usage for GPUs that report it.",
+  "@inputDeckGpuDescription": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckUseAsDisplay": "Use as display",
+  "@inputDeckUseAsDisplay": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchpad": "Touchpad",
+  "@inputDeckTouchpad": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckTouchpadHint": "Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.",
+  "@inputDeckTouchpadHint": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckLeftClick": "Left click",
+  "@inputDeckLeftClick": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "inputDeckRightClick": "Right click",
+  "@inputDeckRightClick": {
+    "description": "Touch display keyboard and touchpad mode."
+  },
+  "lockEnterPin": "Enter PIN",
+  "@lockEnterPin": {
+    "description": "Title above the lock screen PIN entry."
+  },
+  "lockEnterPinToOpen": "Enter PIN to open {applicationName}",
+  "@lockEnterPinToOpen": {
+    "description": "Title above the lock screen PIN entry after a notification was tapped; it opens once unlocked.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "lockPinProgress": "PIN, {entered} of {length} digits entered",
+  "@lockPinProgress": {
+    "description": "Screen reader label for the lock screen PIN dots.",
+    "placeholders": {
+      "entered": {
+        "type": "int"
+      },
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "lockPinObscured": "PIN, obscured",
+  "@lockPinObscured": {
+    "description": "Screen reader label for the hidden PIN field."
+  },
+  "lockWrongPin": "Wrong PIN",
+  "@lockWrongPin": {
+    "description": "Shown after a rejected lock screen PIN."
+  },
+  "lockUsePassword": "Use password",
+  "@lockUsePassword": {
+    "description": "Switches the lock screen from the PIN to the account password."
+  },
+  "lockUsePin": "Use PIN",
+  "@lockUsePin": {
+    "description": "Switches the lock screen from the account password back to the PIN."
+  },
+  "lockPinDelete": "Delete",
+  "@lockPinDelete": {
+    "description": "Lock screen PIN keypad key that removes the last digit."
+  },
+  "settingsLockPinTitle": "PIN",
+  "@settingsLockPinTitle": {
+    "description": "Lock screen settings section for the optional unlock PIN."
+  },
+  "settingsLockPinLabel": "Unlock with a PIN",
+  "@settingsLockPinLabel": {
+    "description": "Lock screen settings row title."
+  },
+  "settingsLockPinDescription": "Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.",
+  "@settingsLockPinDescription": {
+    "description": "Lock screen settings row description."
+  },
+  "settingsLockPinOn": "On, {length} digits",
+  "@settingsLockPinOn": {
+    "description": "Status of the unlock PIN.",
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsLockPinOff": "Off",
+  "@settingsLockPinOff": {
+    "description": "Status when no unlock PIN is set."
+  },
+  "settingsLockPinSetUp": "Set up PIN",
+  "@settingsLockPinSetUp": {
+    "description": "Button that starts creating an unlock PIN."
+  },
+  "settingsLockPinChange": "Change PIN",
+  "@settingsLockPinChange": {
+    "description": "Button that replaces the unlock PIN."
+  },
+  "settingsLockPinRemove": "Remove PIN",
+  "@settingsLockPinRemove": {
+    "description": "Button that removes the unlock PIN."
+  },
+  "settingsLockPinSave": "Save PIN",
+  "@settingsLockPinSave": {
+    "description": "Button that saves a new unlock PIN."
+  },
+  "settingsLockPinPassword": "Account password",
+  "@settingsLockPinPassword": {
+    "description": "Field for the account password before changing the PIN."
+  },
+  "settingsLockPinNew": "New PIN",
+  "@settingsLockPinNew": {
+    "description": "Field for the new unlock PIN."
+  },
+  "settingsLockPinConfirm": "Confirm PIN",
+  "@settingsLockPinConfirm": {
+    "description": "Field that repeats the new unlock PIN."
+  },
+  "settingsLockPinLengthHint": "4 to 12 digits",
+  "@settingsLockPinLengthHint": {
+    "description": "Helper text under the new PIN field."
+  },
+  "settingsLockPinMismatch": "The PINs don’t match",
+  "@settingsLockPinMismatch": {
+    "description": "Error when the confirmation differs from the new PIN."
+  },
+  "settingsLockPinWrongPassword": "Wrong password",
+  "@settingsLockPinWrongPassword": {
+    "description": "Error when the account password is rejected."
+  },
+  "settingsLockPinUnavailable": "Couldn’t change the PIN. Try again.",
+  "@settingsLockPinUnavailable": {
+    "description": "Error when deniald could not save or remove the PIN."
+  },
+  "timeTwelveHour": "{hour}:{minute} {period}",
+  "@timeTwelveHour": {
+    "description": "A time on a 12-hour clock: 5:45 PM.",
+    "placeholders": {
+      "hour": {
+        "type": "String"
+      },
+      "minute": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "timeMorning": "AM",
+  "@timeMorning": {
+    "description": "Before noon on a 12-hour clock."
+  },
+  "timeAfternoon": "PM",
+  "@timeAfternoon": {
+    "description": "From noon on a 12-hour clock."
+  },
+  "settingsNavigationPermissions": "Permissions",
+  "@settingsNavigationPermissions": {"description": "Label for the Permissions destination in Settings navigation."},
+  "settingsPermissionsSection": "Permissions",
+  "@settingsPermissionsSection": {"description": "Heading of the Permissions page in Settings."},
+  "settingsPermissionsTitle": "Choose what apps may do. An app appears here once it has asked.",
+  "@settingsPermissionsTitle": {"description": "Description of the Permissions page in Settings."},
+  "settingsPermissionsKeyboardShortcutsTitle": "Keyboard shortcuts",
+  "@settingsPermissionsKeyboardShortcutsTitle": {"description": "Permissions page: the permission to receive Denial's shortcut keys."},
+  "settingsPermissionsKeyboardShortcutsDescription": "While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.",
+  "@settingsPermissionsKeyboardShortcutsDescription": {"description": "Permissions page: explains the keyboard shortcuts permission."},
+  "settingsPermissionsNone": "No app has asked yet.",
+  "@settingsPermissionsNone": {"description": "Permissions page: no app has asked for this permission."},
+  "settingsPermissionsUnavailable": "Permissions can’t be read: the portal permission store is not available.",
+  "@settingsPermissionsUnavailable": {"description": "Permissions page: xdg-permission-store could not be reached."},
+  "settingsPermissionsSaveFailed": "Couldn’t save the change.",
+  "@settingsPermissionsSaveFailed": {"description": "Permissions page: storing an answer failed."},
+  "settingsPermissionAsk": "Ask",
+  "@settingsPermissionAsk": {"description": "Permissions page: ask the next time the app wants the permission."},
+  "settingsPermissionAllow": "Always allow",
+  "@settingsPermissionAllow": {"description": "Permissions page: always allow the permission."},
+  "settingsPermissionDeny": "Never allow",
+  "@settingsPermissionDeny": {"description": "Permissions page: never allow the permission."},
+  "colorTuningAction": "Tune colors",
+  "@colorTuningAction": {"description": "Shell action and panel title: the color tuning editor."},
+  "colorTuningDesktop": "Desktop",
+  "@colorTuningDesktop": {"description": "Color tuning target: the whole desktop."},
+  "colorTuningNoApp": "Tap a window",
+  "@colorTuningNoApp": {"description": "Color tuning target chip when no app window has been focused yet."},
+  "colorTuningBase": "Look",
+  "@colorTuningBase": {"description": "Color tuning: the base LUT the grade sits on."},
+  "colorTuningNoBase": "None",
+  "@colorTuningNoBase": {"description": "Color tuning: no base LUT."},
+  "colorTuningBefore": "Before",
+  "@colorTuningBefore": {"description": "Color tuning: hold to show the target without the grade."},
+  "colorTuningReset": "Reset",
+  "@colorTuningReset": {"description": "Color tuning: return every control to neutral."},
+  "colorTuningClose": "Close",
+  "@colorTuningClose": {"description": "Color tuning: close the editor."},
+  "colorTuningShadows": "Shadows",
+  "@colorTuningShadows": {"description": "Color tuning wheel: lift."},
+  "colorTuningMidtones": "Midtones",
+  "@colorTuningMidtones": {"description": "Color tuning wheel: gamma."},
+  "colorTuningHighlights": "Highlights",
+  "@colorTuningHighlights": {"description": "Color tuning wheel: gain."},
+  "colorTuningExposure": "Exposure",
+  "@colorTuningExposure": {"description": "Color tuning slider."},
+  "colorTuningContrast": "Contrast",
+  "@colorTuningContrast": {"description": "Color tuning slider."},
+  "colorTuningSaturation": "Saturation",
+  "@colorTuningSaturation": {"description": "Color tuning slider."},
+  "colorTuningVibrance": "Vibrance",
+  "@colorTuningVibrance": {"description": "Color tuning slider."},
+  "colorTuningWarmth": "Warmth",
+  "@colorTuningWarmth": {"description": "Color tuning slider: white balance between cool and warm."},
+  "colorTuningTint": "Tint",
+  "@colorTuningTint": {"description": "Color tuning slider: white balance between green and magenta."},
+  "colorTuningFailed": "Couldn’t change the colors.",
+  "@colorTuningFailed": {"description": "Color tuning: the compositor refused a change."},
+  "colorPresetWarm": "Warm",
+  "@colorPresetWarm": {"description": "Color tuning: a built-in look."},
+  "colorPresetCool": "Cool",
+  "@colorPresetCool": {"description": "Color tuning: a built-in look."},
+  "colorPresetLogix": "Logix",
+  "@colorPresetLogix": {"description": "Color tuning: a built-in look, named after its author. Not translated."},
+  "colorPresetMatte": "Matte",
+  "@colorPresetMatte": {"description": "Color tuning: a built-in look."},
+  "colorPresetFilm": "Film",
+  "@colorPresetFilm": {"description": "Color tuning: a built-in look."},
+  "colorPresetNight": "Night",
+  "@colorPresetNight": {"description": "Color tuning: a built-in look."},
+  "colorPresetMono": "Mono",
+  "@colorPresetMono": {"description": "Color tuning: a built-in look."},
+  "colorTuningPresets": "Presets",
+  "@colorTuningPresets": {"description": "Color tuning: shows the built-in looks."},
+  "moveToMonitor": "Move to monitor",
+  "@moveToMonitor": {"description": "Button on a phone recents card: moves the app to the external monitor."}
 }

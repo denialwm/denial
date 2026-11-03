@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 
 import 'dart:math' as math;
@@ -20,21 +21,21 @@ class SettingsFingerprintPage extends ConsumerStatefulWidget {
 
 class _SettingsFingerprintPageState
     extends ConsumerState<SettingsFingerprintPage> {
-  final _password = TextEditingController();
+  final _pin = TextEditingController();
   String? _selected;
   bool _adding = false;
 
   @override
   void dispose() {
-    _password.clear();
-    _password.dispose();
+    _pin.clear();
+    _pin.dispose();
     super.dispose();
   }
 
   void _authenticate(FingerprintSettingsSession session) {
-    final password = _password.text;
-    _password.clear();
-    session.authenticate(password);
+    final pin = _pin.text;
+    _pin.clear();
+    session.authenticate(pin);
   }
 
   @override
@@ -46,7 +47,11 @@ class _SettingsFingerprintPageState
         final l10n = context.l10n;
         final status = session.status;
         final error = status != null && _isFingerprintError(status)
-            ? _status(context, status)
+            ? _status(
+                context,
+                status,
+                retryMilliseconds: session.retryMilliseconds,
+              )
             : null;
         if (!session.authorized) {
           // This branch contains no fingerprint names, counts or enrollment UI.
@@ -65,20 +70,24 @@ class _SettingsFingerprintPageState
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          l10n.fingerprintPasswordPrompt,
+                          l10n.fingerprintPinPrompt,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          controller: _password,
+                          controller: _pin,
                           obscureText: true,
                           autocorrect: false,
                           enableSuggestions: false,
                           enabled: !session.authenticating,
                           autofocus: true,
-                          maxLength: 1024,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          maxLength: lockPinMaxLength,
                           decoration: InputDecoration(
-                            labelText: l10n.fingerprintSudoPassword,
+                            labelText: l10n.fingerprintPin,
                             counterText: '',
                           ),
                           textInputAction: TextInputAction.done,
@@ -228,10 +237,18 @@ String fingerprintLabel(BuildContext context, String finger) {
   };
 }
 
-String _status(BuildContext context, String status) {
+String _status(
+  BuildContext context,
+  String status, {
+  int retryMilliseconds = 0,
+}) {
   final l10n = context.l10n;
   return switch (status) {
-    'authentication-failed' => l10n.fingerprintAuthenticationFailed,
+    'pin-not-configured' => l10n.fingerprintPinNotSet,
+    'wrong-pin' => l10n.lockWrongPin,
+    'rate-limited' => l10n.lockRetryInSeconds(
+      (retryMilliseconds / 1000).ceil(),
+    ),
     'expired' => l10n.fingerprintExpired,
     'preparing' => l10n.fingerprintPreparing,
     'started' || 'enroll-stage-passed' => l10n.fingerprintTouchSensor,

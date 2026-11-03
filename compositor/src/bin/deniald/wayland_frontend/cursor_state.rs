@@ -263,15 +263,11 @@ impl WaylandFrontend {
                         })
                         .unwrap_or_default()
                 });
-                let mut composition_order = 0;
                 self.append_surface_tree(
                     &surface,
                     Point::from((0, 0)),
-                    SurfaceRoleDescription::Root,
-                    0,
-                    0,
+                    SurfaceTreeRoot::Window,
                     true,
-                    &mut composition_order,
                     &mut layers,
                     &mut textures,
                 );
@@ -317,15 +313,11 @@ impl WaylandFrontend {
         state = finish_cursor_state(state, layers);
         state.drag_active = self.client_drag_active;
         if let Some(icon) = self.drag_icon.as_ref() {
-            let mut composition_order = 0;
             self.append_surface_tree(
                 icon,
                 self.drag_icon_offset,
-                SurfaceRoleDescription::Root,
-                0,
-                0,
+                SurfaceTreeRoot::Window,
                 true,
-                &mut composition_order,
                 &mut state.drag_surfaces,
                 &mut textures,
             );

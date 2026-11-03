@@ -9,7 +9,10 @@ class MobileNotificationCard extends StatefulWidget {
     this.interactive = true,
     this.announce = false,
     this.groupedBackdrop = false,
+    this.cachedBackdrop = false,
     this.surfaceBuilder,
+    this.group,
+    this.onExpandGroup,
     this.onDefaultAction,
     this.onAction,
   });
@@ -21,7 +24,13 @@ class MobileNotificationCard extends StatefulWidget {
   final bool interactive;
   final bool announce;
   final bool groupedBackdrop;
+  final bool cachedBackdrop;
   final Widget Function(BuildContext, Widget)? surfaceBuilder;
+
+  /// A collapsed group this card stands for; a tap runs [onExpandGroup].
+  final DesktopNotificationGroup? group;
+  final VoidCallback? onExpandGroup;
+
   final VoidCallback? onDefaultAction;
   final ValueChanged<String>? onAction;
 
@@ -36,16 +45,19 @@ class _MobileNotificationCardState extends State<MobileNotificationCard> {
 
   @override
   Widget build(BuildContext context) {
+    final group = widget.group;
+    if (group != null && group.stacked) return _buildGroup(context, group);
     final canOpen =
         widget.interactive &&
         widget.previewMode == NotificationPreviewMode.full &&
         widget.onDefaultAction != null &&
-        widget.notification.actions.any((action) => action.key == 'default');
+        widget.notification.opensApp;
     final card = NotificationCard(
       notification: widget.notification,
       mobile: true,
       announce: widget.announce,
       groupedBackdrop: widget.groupedBackdrop,
+      cachedBackdrop: widget.cachedBackdrop,
       expanded: _expanded,
       showActions: _expanded,
       previewMode: widget.previewMode,
@@ -64,19 +76,37 @@ class _MobileNotificationCardState extends State<MobileNotificationCard> {
             child: widget.surfaceBuilder?.call(context, card) ?? card,
           ),
           if (canOpen)
-            Align(
-              alignment: Alignment.centerRight,
-              child: _MobileNotificationDetailsButton(
-                label: context.l10n.quickSettingsOpenDetails(
-                  widget.notification.summary,
+            NotificationReveal.revealed(
+              context,
+              Align(
+                alignment: Alignment.centerRight,
+                child: _MobileNotificationDetailsButton(
+                  label: context.l10n.quickSettingsOpenDetails(
+                    widget.notification.summary,
+                  ),
+                  expanded: _expanded,
+                  onPressed: _toggleExpanded,
                 ),
-                expanded: _expanded,
-                onPressed: _toggleExpanded,
               ),
             ),
         ],
       ),
     );
+  }
+
+  Widget _buildGroup(BuildContext context, DesktopNotificationGroup group) {
+    final card = NotificationCard(
+      notification: widget.notification,
+      mobile: true,
+      announce: widget.announce,
+      groupedBackdrop: widget.groupedBackdrop,
+      cachedBackdrop: widget.cachedBackdrop,
+      showActions: false,
+      previewMode: widget.previewMode,
+      group: group,
+      onExpandGroup: widget.interactive ? widget.onExpandGroup : null,
+    );
+    return widget.surfaceBuilder?.call(context, card) ?? card;
   }
 }
 

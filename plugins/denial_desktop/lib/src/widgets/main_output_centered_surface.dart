@@ -1,9 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/effects.dart';
+
+import '../state/phone_desk.dart';
 
 typedef MainOutputSurfaceBuilder = Widget Function(
   BuildContext context,
@@ -30,7 +31,7 @@ class MainOutputCenteredSurface extends ConsumerWidget {
     final theme = ShellTheme.of(context);
     final canvas = Offset.zero & MediaQuery.sizeOf(context);
     final requestedOutput = ref
-        .watch(displayLayoutProvider)
+        .watch(sceneDisplayLayoutProvider(ShellPart.of(context)))
         ?.mainOutput
         ?.logicalRect
         .intersect(canvas);

@@ -57,6 +57,11 @@ pub(super) const fn window_event_disposition(
 }
 
 impl SceneSyncState {
+    #[cfg(feature = "flutter")]
+    pub(super) fn metadata_revision(&self) -> u64 {
+        self.metadata_revision
+    }
+
     pub(super) fn mark_dirty(&mut self) {
         #[cfg(feature = "flutter")]
         {

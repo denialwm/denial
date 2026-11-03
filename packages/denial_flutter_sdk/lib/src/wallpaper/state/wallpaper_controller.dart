@@ -14,6 +14,7 @@ import '../providers/wallhaven_wallpaper_provider.dart';
 import '../wallpaper.dart';
 import '../wallpaper_provider.dart';
 import '../wallpaper_pagination.dart';
+import 'wallpaper_depth.dart';
 
 final localWallpaperSourceProvider = Provider<WallpaperProvider>((ref) {
   final paths = ref.watch(runtimePathsProvider);
@@ -319,6 +320,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       loading: false,
       clearError: true,
     );
+    ref.read(wallpaperDepthProvider.notifier).pickerClosed();
   }
 
   void setQuery(String query) {
@@ -802,13 +804,26 @@ class WallpaperStore {
           alignmentOverrides[name] = WallpaperSpanAlignment.precise(x: x, y: y);
         }
       }
+      final zoomOverrides = <String, double>{};
+      final rawZoomOverrides = decoded['outputZooms'];
+      if (rawZoomOverrides is Map) {
+        for (final entry in rawZoomOverrides.entries) {
+          final name = entry.key;
+          final zoom = _zoom(entry.value);
+          if (name is String && name.isNotEmpty && zoom != null) {
+            zoomOverrides[name] = zoom;
+          }
+        }
+      }
       return WallpaperAssignment(
         all: all,
         spanAlignment: alignment,
+        zoom: _zoom(decoded['zoom']) ?? 1.0,
         allDarkness: allDarkness,
         outputOverrides: overrides,
         outputAlignmentOverrides: alignmentOverrides,
         outputDarknessOverrides: darknessOverrides,
+        outputZoomOverrides: zoomOverrides,
       );
     } on FileSystemException catch (_) {
       return null;
@@ -856,6 +871,7 @@ class WallpaperStore {
         'verticalAlignment': assignment.spanAlignment.vertical.name,
         'alignmentX': assignment.spanAlignment.x,
         'alignmentY': assignment.spanAlignment.y,
+        'zoom': assignment.zoom,
         'darkness': assignment.allDarkness,
         'outputs': <String, String>{
           for (final entry in assignment.outputOverrides.entries)
@@ -866,6 +882,7 @@ class WallpaperStore {
             entry.key: <String, double>{'x': entry.value.x, 'y': entry.value.y},
         },
         'outputDarkness': assignment.outputDarknessOverrides,
+        'outputZooms': assignment.outputZoomOverrides,
       });
       await temporary.writeAsString('$payload\n', flush: true);
       await temporary.rename(file.path);
@@ -911,6 +928,17 @@ class WallpaperStore {
       return null;
     }
     return darkness.clamp(0.0, 1.0).toDouble();
+  }
+
+  double? _zoom(Object? value) {
+    if (value is! num) {
+      return null;
+    }
+    final zoom = value.toDouble();
+    if (!zoom.isFinite) {
+      return null;
+    }
+    return zoom.clamp(1.0, WallpaperAssignment.maxZoom).toDouble();
   }
 
   double? _alignmentPosition(Object? value) {

@@ -26,6 +26,8 @@ import 'bridge/context.dart';
 import 'bridge/displays_client.dart';
 import 'bridge/events_client.dart';
 import 'bridge/input_client.dart';
+import 'bridge/input_deck_client.dart';
+export 'bridge/input_deck_client.dart' show InputDeckSnapshot;
 import 'bridge/platform_transport.dart';
 import 'bridge/session_client.dart';
 import 'bridge/settings_document_client.dart';
@@ -55,6 +57,7 @@ class DenialBridge {
     _windows = BridgeWindowsClient(_context);
     _displays = BridgeDisplaysClient(_context);
     _input = BridgeInputClient(_context);
+    _inputDeck = BridgeInputDeckClient(_context);
     _brightness = BridgeBrightnessClient(_context);
     _audio = BridgeAudioClient(_context);
     _session = BridgeSessionClient(_context);
@@ -67,6 +70,7 @@ class DenialBridge {
     );
 
     platform.bind({
+      'denial/input_deck_state': _inputDeck.handleState,
       wire.denialWireToFlutterChannel: _events.handleMessage,
       'denial/audio_state': _audio.handleState,
       'denial/audio_streams_state': _audio.handleStreams,
@@ -74,6 +78,7 @@ class DenialBridge {
       'denial/brightness_state': _brightness.handleBrightnessState,
       'denial/software_dimming_state': _brightness.handleSoftwareDimmingState,
       denialUiDevelopmentStateChannel: _session.handleDevelopmentState,
+      BridgeSessionClient.ambientDisplayChannel: _session.handleAmbientDisplay,
     });
   }
   final bool useControlSocket;
@@ -84,6 +89,7 @@ class DenialBridge {
   late final BridgeWindowsClient _windows;
   late final BridgeDisplaysClient _displays;
   late final BridgeInputClient _input;
+  late final BridgeInputDeckClient _inputDeck;
   late final BridgeBrightnessClient _brightness;
   late final BridgeAudioClient _audio;
   late final BridgeSessionClient _session;
@@ -151,6 +157,8 @@ class DenialBridge {
 
   Stream<DenialTextInputState> get textInputStates => _events.textInputStates;
 
+  Stream<DenialTextPrediction> get textPredictions => _events.textPredictions;
+
   Stream<DenialSettingsDocument> get settingsDocuments =>
       _settingsDocument.settingsDocuments;
 
@@ -176,6 +184,20 @@ class DenialBridge {
       _session.getWallpaperStatus();
 
   Future<DisplayLayout?> getDisplayLayout() => _displays.getDisplayLayout();
+
+  Future<Map<String, Object?>> readColorGrade({String? appId}) =>
+      _displays.readColorGrade(appId: appId);
+
+  Future<Map<String, Object?>> writeColorGrade({
+    String? appId,
+    required Map<String, Object> grade,
+    required bool save,
+  }) => _displays.writeColorGrade(appId: appId, grade: grade, save: save);
+
+  Future<void> setColorBase({String? appId, String? path}) =>
+      _displays.setColorBase(appId: appId, path: path);
+
+  Future<bool> prepareColorTuning() => _displays.prepareColorTuning();
 
   Future<DisplayLayout?> configureSystemBar({
     required SystemBarSide side,
@@ -284,6 +306,9 @@ class DenialBridge {
 
   void closeWindow(DenialWindow window) => _windows.closeWindow(window);
 
+  /// Sends the system Back action to [window].
+  void navigateBack(DenialWindow window) => _windows.navigateBack(window);
+
   /// Releases the native last-frame texture retained for a finished close
   /// animation. Native also owns a bounded watchdog, so a lost message cannot
   /// leak a client buffer or Flutter texture.
@@ -320,6 +345,10 @@ class DenialBridge {
     workspaceId: workspaceId,
     follow: follow,
   );
+
+  /// Moves [window] between the phone and a desk output.
+  void moveWindowToOutput(DenialWindow window, {required int monitorId}) =>
+      _windows.moveWindowToOutput(window, monitorId: monitorId);
 
   /// Commits an overview drop onto a possibly hidden workspace. [point] is
   /// in that workspace's own scene coordinates.
@@ -360,13 +389,65 @@ class DenialBridge {
     layoutDrop: layoutDrop,
   );
 
+  Stream<InputDeckSnapshot> get inputDeckStates => _inputDeck.states;
+  void readInputDeck() => unawaited(_inputDeck.read());
+  void configureInputDeck(String? output) =>
+      _inputDeck.send({'kind': 'configure', 'output': output});
+  void moveInputDeckPointer(double dx, double dy) =>
+      _inputDeck.send({'kind': 'motion', 'dx': dx, 'dy': dy});
+  void inputDeckButton(int button, bool pressed, {int source = 0}) =>
+      _inputDeck.send({
+        'kind': 'button',
+        'button': button,
+        'pressed': pressed,
+        'source': source,
+      });
+  void scrollInputDeck(double dx, double dy, {bool stop = false}) =>
+      _inputDeck.send({'kind': 'scroll', 'dx': dx, 'dy': dy, 'stop': stop});
+  void inputDeckKey(int keycode, bool pressed, {bool cancelled = false}) =>
+      _inputDeck.send({
+        'kind': 'key',
+        'keycode': keycode,
+        'pressed': pressed,
+        'cancelled': cancelled,
+      });
+  void acknowledgeInputDeckContactCancelled(int device) =>
+      _inputDeck.send({'kind': 'cancel_contact', 'device': device});
+  void releaseInputDeck() => _inputDeck.send({'kind': 'release'});
+
   void sendKeyboardText(String text) => _input.sendKeyboardText(text);
 
   void sendKeyboardKey(String key, {bool ctrl = false}) =>
       _input.sendKeyboardKey(key, ctrl: ctrl);
 
+  /// Replaces [replaced], the text just before the cursor, with [text].
+  void sendKeyboardReplace(String replaced, String text) =>
+      _input.sendKeyboardReplace(replaced, text);
+
+  /// Asks for suggestions for [word]; only the newest request is answered,
+  /// on [textPredictions].
+  void requestTextPrediction({
+    required int serial,
+    required String word,
+    required List<double> touchX,
+    required List<double> touchY,
+    bool manualCapital = false,
+  }) => _input.requestTextPrediction(
+    serial: serial,
+    word: word,
+    touchX: touchX,
+    touchY: touchY,
+    manualCapital: manualCapital,
+  );
+
   void dismissKeyboardPanel(int activationSerial) =>
       _input.dismissKeyboardPanel(activationSerial);
+
+  /// Tells applications laid out around the keyboard (denial-insets-v1) that
+  /// the keyboard panel starts moving to [height] logical pixels, zero when
+  /// hidden, over [duration]. Once per motion, never per frame.
+  void reportKeyboardPanelMotion(int height, Duration duration) =>
+      _input.reportKeyboardPanelMotion(height, duration);
 
   void pressKeyboardKey(String key) => _input.pressKeyboardKey(key);
 
@@ -409,6 +490,7 @@ class DenialBridge {
     required bool suspendEnabled,
     required Duration suspendTimeout,
     required SuspendMode suspendMode,
+    Duration? lockAfterScreenOff,
   }) => _session.setIdlePolicy(
     powerButtonAction: powerButtonAction,
     lockEnabled: lockEnabled,
@@ -418,11 +500,26 @@ class DenialBridge {
     suspendEnabled: suspendEnabled,
     suspendTimeout: suspendTimeout,
     suspendMode: suspendMode,
+    lockAfterScreenOff: lockAfterScreenOff,
   );
 
   /// Requests compositor-owned DPMS-off for every currently powered output.
   /// The next physical input wakes outputs through the native idle policy.
   void requestDpmsOff() => _session.requestDpmsOff();
+
+  /// Lights the dark outputs as an input would; the idle timeout starts
+  /// again.
+  void requestDisplayOn() => _session.requestDisplayOn();
+
+  /// True when the panel is about to keep only the always-on picture lit:
+  /// the lock screen fades everything else to black, then calls
+  /// [ambientDisplayReady]. False when the panel lights up again.
+  Stream<bool> get ambientDisplay => _session.ambientDisplay;
+
+  /// The last of [ambientDisplay].
+  bool get ambientDisplayActive => _session.ambientDisplayActive;
+
+  void ambientDisplayReady() => _session.ambientDisplayReady();
 
   int queryUiDevelopmentState() => _session.queryUiDevelopmentState();
 
@@ -533,6 +630,8 @@ class DenialBridge {
 
   void dispose() {
     if (_context.platform.isDisposed) return;
+    releaseInputDeck();
+    _inputDeck.dispose();
     _context.platform.dispose();
     _settingsDocument.dispose();
     _configuration.dispose();

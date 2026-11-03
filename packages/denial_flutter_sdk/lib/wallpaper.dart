@@ -27,6 +27,8 @@ export 'src/wallpaper/state/wallpaper_controller.dart'
         wallpaperControllerProvider,
         wallpaperSourcesProvider,
         wallpaperStoreProvider;
+export 'src/wallpaper/state/wallpaper_depth.dart'
+    show WallpaperDepth, wallpaperDepthDirectory, wallpaperDepthProvider;
 export 'src/wallpaper/wallpaper.dart'
     show
         WallpaperAssignment,

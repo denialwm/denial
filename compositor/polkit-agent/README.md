@@ -4,7 +4,8 @@ A dedicated unprivileged Rust process registers an authentication agent for the
 current logind/elogind session. It opens a separate native Wayland/Flutter dialog
 only when Polkit requests authentication. The dialog lives in `polkit_app`;
 its presentation can change without moving authentication into the compositor
-or a shell plugin.
+or a shell plugin. The same bundle draws `denial-portal`'s Access requests when
+started with `DENIAL_ACCESS_SOCKET` instead of `DENIAL_POLKIT_SOCKET`.
 
 The dialog is a centered, undecorated layer-shell overlay (`--overlay`) with
 exclusive keyboard focus, not a window. It paints its card inside a

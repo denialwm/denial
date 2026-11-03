@@ -251,11 +251,12 @@ for mutations, after the native live update and persistent commit succeed.
 
 | Method | Parameters | Result or effect |
 | --- | --- | --- |
+| `denial.version` | none | `{"version":"…","build":"…"}`: the installed release version, or the build identity for source and candidate builds, and that build identity |
 | `settings.document.get` | none | Current document string and revision |
 | `settings.document.apply` | `{"expected_revision":3,"document":"{...}"}` | Replace shell-owned settings and return the committed document |
 | `settings.keyboard.get` | none | Layouts, XKB options, repeat settings, active layout, and revision |
 | `settings.keyboard.apply` | revision plus a `keyboard` object | Compile/install XKB state and commit it atomically |
-| `settings.input.get` | none | Touchpad availability and current preferences |
+| `settings.input.get` | none | Input-device availability/preferences and read-only `input_deck` touch-output discovery |
 | `settings.touchpad.apply` | revision plus a `touchpad` object | Apply touchpad preferences and commit them |
 | `settings.shortcuts.get` | none | Bindings, supported actions/inputs, and revision |
 | `settings.shortcuts.validate` | `shortcut` and optional `existing_shortcut` | Canonical validation result without mutation |
@@ -351,6 +352,25 @@ distinguish an accepted transition from an older state snapshot.
 | `ui.revert` | none | Restore the last working custom shell when supported |
 | `ui.auto_reload.set` | `{"enabled":true}` | Configure native source watching when supported |
 
+`ui.get` also returns query-only `output_frame_delivery` telemetry. It is
+`{"enabled": false}` by default. Starting the compositor with
+`DENIAL_OUTPUT_FRAME_TRACE=1` enables a bounded history of 4096 terminal native
+output generations and separate pending generations. Rows carry a unique
+ready-fence-token ID, output/pool/slot and logical tick identity, raster broker
+transaction, output-ready and observed GPU-fence times, queue/submission times,
+physical completion and an explicit outcome. The reply supplies its column and
+outcome names, monotonic clock origin and anchor sampling span, lifetime counts
+and eviction count. Time columns ending in `_us` are relative to the origin;
+`physical_monotonic_us` is an absolute kernel timestamp. The nominal interval
+and anchor span are in nanoseconds.
+
+Capture this optional diagnostic outside measured intervals. It performs no
+GPU timing query or per-frame file write. Check history coverage and keep
+pending records distinct from discarded successors; these records do not
+identify every Dart FrameTiming or engine raster job. Fence times describe
+observation by the main loop, and repeated KMS sequences remain ambiguous.
+
+
 Runtime replacement methods acknowledge the requested transition before the
 engine replacement completes. Clients which need completion semantics should
 poll `ui.get` until `operation` is `idle` and `active_mode` matches the
@@ -437,6 +457,52 @@ as a fallback. An unsupported method or failed query means unknown status, never
 “static wallpaper”. Status is per monitor and Settings follows the same main
 output as its saved wallpaper preview. Appearance polls every three seconds;
 leaving the page disposes the subscription.
+
+## Color correction
+
+Displays whose EDID primaries differ from sRGB show the sRGB scene converted to
+their own gamut. Screenshots and screen capture read the scene before that
+conversion. `color.correction.get` returns `{"enabled":true}`;
+`color.correction.set` takes `{"enabled":false}` to show every display's own
+response instead, answers with the new state and repaints every output.
+
+A desktop LUT grades the whole desktop the same way, before that correction, and
+also stays out of captures. `color.lut.load` takes `{"path":"/abs/look.cube"}`:
+the compositor reads an Adobe/Resolve `.cube` 3D LUT over the 0..1 domain, sizes
+2 to 65. `color.lut.clear` removes it. Both, and `color.lut.get`, answer
+`{"lut":{"size":33,"title":"Warm"}}` or `{"lut":null}`. A LUT without a `TITLE` line
+goes by its file name. Every output renders
+off-screen while a LUT is loaded, so loading the first LUT or clearing it
+rebuilds the output pools; replacing one LUT with another only repaints.
+
+An app LUT grades one app's windows, popups and subsurfaces, matched by app ID,
+and unlike the desktop LUT it is part of the composed image, so screenshots and
+screen capture include it. `color.app.lut.load` takes
+`{"app_id":"org.example.App","path":"/abs/look.cube"}` and `color.app.lut.clear`
+takes `{"app_id":"org.example.App"}`. Both, and `color.app.lut.get`, answer
+`{"apps":[{"app_id":"org.example.App","size":33,"title":"Warm"}]}`. Each window
+is graded once per buffer it commits.
+
+A grade adjusts a target over its LUT: the desktop, or one app with `app_id`.
+`color.grade.set` takes `{"app_id":"org.example.App","grade":{…},"save":false}`
+where the grade holds `exposure` (stops, ±3), `contrast` (log2 slope at middle
+grey, ±1.5), `saturation`, `vibrance`, `temperature` and `tint` (±1), and
+`lift` (±0.25), `gamma` and `gain` (log2, ±1.5) as `[r,g,b]`. Missing fields
+are zero, the identity. The compositor bakes the grade over the LUT into one
+LUT, so a graded target costs the same to draw. `save` defaults to true; an
+editor sends false while a control moves and true on release.
+`color.grade.get` takes `{"app_id":…}` or `{}`, and both answer
+`{"app_id":null,"grade":{…},"base":"Warm"}`.
+
+`color.tune.prepare` readies the desktop for live grading: it gives the desktop
+a look that stays until the compositor restarts, so later grades only repaint.
+It answers `{"ready":true}`, or `{"ready":false}` when that rebuilt the outputs
+and restarts the shell; the compositor then runs the `denial_desktop.colorTuning`
+plugin action once the new shell publishes it. `color.tune.open` runs that
+action now.
+
+Every color change is saved in the `color` section of the settings document
+and applies again at the next start.
 
 ### Plugin action shortcut targets
 

@@ -13,7 +13,6 @@ use std::{
     os::fd::{AsFd, BorrowedFd, OwnedFd},
     path::{Path, PathBuf},
     rc::Rc,
-    time::Duration,
 };
 
 use smithay::backend::input::InputEvent;
@@ -26,11 +25,7 @@ use smithay::reexports::calloop::{
     self, EventSource, Poll, PostAction, Readiness, Token, TokenFactory,
 };
 #[cfg(feature = "flutter")]
-use smithay::reexports::calloop::{
-    EventLoop, Interest, LoopHandle, Mode,
-    generic::Generic,
-    timer::{TimeoutAction, Timer},
-};
+use smithay::reexports::calloop::{Interest, LoopHandle, Mode, generic::Generic};
 #[cfg(feature = "flutter")]
 use smithay::reexports::rustix::{fs::OFlags, io as rustix_io};
 #[cfg(feature = "flutter")]
@@ -108,8 +103,6 @@ impl EventSource for LibinputBatchSource {
 }
 
 #[cfg(feature = "flutter")]
-const JOYSTICK_RESCAN_INTERVAL: Duration = Duration::from_secs(2);
-#[cfg(feature = "flutter")]
 const JOYSTICK_EVENT_BYTES: usize = 8;
 #[cfg(feature = "flutter")]
 const JOYSTICK_AXIS_ACTIVITY_THRESHOLD: i32 = 512;
@@ -122,24 +115,16 @@ const JS_EVENT_INIT: u8 = 0x80;
 
 /// libinput deliberately excludes gamepads. Keep a read-only watch on Linux's
 /// joystick character devices so gamepad buttons and meaningful axis motion
-/// participate in the same compositor-owned idle clock.
+/// participate in the same compositor-owned idle clock. `input_hotplug` runs
+/// the returned scan.
 #[cfg(feature = "flutter")]
-pub(super) fn init_joystick_activity(
-    event_loop: &mut EventLoop<'static, RuntimeState>,
+pub(super) fn joystick_scan(
+    handle: &LoopHandle<'static, RuntimeState>,
     session: LibSeatSession,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Box<dyn FnMut()> {
     let watched = Rc::new(RefCell::new(HashSet::new()));
-    let handle = event_loop.handle();
-    scan_joysticks(&handle, &session, &watched);
-
-    event_loop.handle().insert_source(
-        Timer::from_duration(JOYSTICK_RESCAN_INTERVAL),
-        move |_, _, _| {
-            scan_joysticks(&handle, &session, &watched);
-            TimeoutAction::ToDuration(JOYSTICK_RESCAN_INTERVAL)
-        },
-    )?;
-    Ok(())
+    let handle = handle.clone();
+    Box::new(move || scan_joysticks(&handle, &session, &watched))
 }
 
 #[cfg(feature = "flutter")]

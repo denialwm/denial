@@ -140,3 +140,48 @@ fn ddc_discovery_preserves_bus_and_edid_for_both_sysfs_layouts() {
         assert_eq!(identity.edid, Some([bus as u8; 128]));
     }
 }
+
+#[test]
+fn writable_kernel_backlight_needs_no_logind_request() {
+    let fixture = SysfsFixture::new();
+    fixture.connector("card0-DSI-1", "connected", "display", false);
+    fixture.backlight("panel", "display/panel", "raw");
+    let display = fixture.backlights().remove("DSI-1").unwrap();
+    fs::write(display.path.join("brightness"), "100\n").unwrap();
+    write_backlight_value(&display.path, 35).unwrap();
+    assert_eq!(read_u32(&display.path.join("brightness")).unwrap(), 35);
+    assert_eq!(read_u32(&display.path.join("max_brightness")).unwrap(), 100);
+}
+
+#[test]
+fn removed_backlight_attribute_is_not_recreated() {
+    let fixture = SysfsFixture::new();
+    let panel = fixture.0.join("backlight");
+    let error = write_backlight_value(&panel, 35).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert!(!panel.join("brightness").exists());
+}
+
+#[test]
+fn brightness_attribute_receives_one_complete_numeric_write() {
+    #[derive(Default)]
+    struct SysfsAttribute(Vec<u32>);
+    impl io::Write for SysfsAttribute {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let value = std::str::from_utf8(bytes)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok())
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+            self.0.push(value);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    for value in [0, 41, 205, 2047, 4095] {
+        let mut attribute = SysfsAttribute::default();
+        write_backlight_attribute(&mut attribute, value).unwrap();
+        assert_eq!(attribute.0, [value]);
+    }
+}

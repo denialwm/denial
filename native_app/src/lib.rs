@@ -8,6 +8,7 @@ mod app;
 mod config;
 mod egl;
 mod file_chooser;
+mod ime;
 mod platform;
 mod renderer;
 mod texture;

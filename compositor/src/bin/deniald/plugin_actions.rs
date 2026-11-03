@@ -5,6 +5,8 @@ use std::collections::{HashSet, VecDeque};
 pub const MAX_ACTIONS: usize = 256;
 pub const MAX_CATALOG_BYTES: usize = 128 * 1024;
 pub const LEGACY_LAUNCHER_ACTION: &str = "denial_launcher.openApplications";
+/// The shell action that shows the color tuning editor.
+pub const COLOR_TUNING_ACTION: &str = "denial_desktop.colorTuning";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

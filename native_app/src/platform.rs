@@ -7,7 +7,7 @@ use denial_flutter_engine::{EngineError, RunningEngine};
 mod mouse_cursor;
 #[allow(dead_code)]
 #[path = "../../compositor/src/bin/deniald/flutter_runtime/text_input.rs"]
-mod text_input;
+pub(crate) mod text_input;
 
 #[derive(Default)]
 pub struct Platform {
@@ -89,6 +89,24 @@ impl Platform {
             _ => {} // Empty response means MethodNotImplemented, not success.
         }
         reply
+    }
+
+    /// What changed in the focused field since the last call.
+    pub fn text_input_change(&mut self) -> Option<text_input::TextInputSnapshot> {
+        self.text_input.take_state_change()
+    }
+
+    /// Applies the on-screen keyboard's edit to Flutter's `client`.
+    pub fn input_method(
+        &mut self,
+        engine: &RunningEngine,
+        client: i64,
+        transaction: &crate::wayland_frontend::input_method::InputMethodTransaction,
+    ) -> Result<(), EngineError> {
+        for message in self.text_input.apply_input_method(client, transaction) {
+            engine.send_platform_message(text_input::CHANNEL, message)?;
+        }
+        Ok(())
     }
 
     pub fn text_key(

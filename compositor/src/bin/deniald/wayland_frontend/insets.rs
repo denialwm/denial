@@ -1,4 +1,4 @@
-//! Per-surface opt-out and native mobile client geometry.
+//! Per-surface opt-outs and native mobile client geometry.
 
 use super::managed_window::ManagedWindow;
 use super::*;
@@ -30,6 +30,7 @@ pub mod protocol {
 }
 
 use protocol::server::denial_insets_manager_v1::{self, DenialInsetsManagerV1};
+use protocol::server::denial_keyboard_inset_v1::{self, DenialKeyboardInsetV1};
 
 #[cfg(test)]
 #[path = "insets/tests.rs"]
@@ -57,7 +58,7 @@ fn configure_mobile_toplevel(toplevel: &ToplevelSurface, size: Size<i32, Logical
 }
 
 #[cfg(feature = "flutter")]
-fn configure_desktop_toplevel(
+pub(super) fn configure_desktop_toplevel(
     toplevel: &ToplevelSurface,
     size: Size<i32, Logical>,
     state: WindowPlacementState,
@@ -106,6 +107,7 @@ fn initial_desktop_geometry(
 
 /// Matches the mobile status bar's logical height. Output scaling is applied
 /// by the ordinary client configure/viewport and native texture projection.
+/// A landscape output shows no status bar, so its windows get no inset.
 pub(super) const MOBILE_STATUS_INSET: i32 = 48;
 
 struct SelfManagedInsets;
@@ -116,8 +118,23 @@ pub(super) fn self_managed(surface: &WlSurface) -> bool {
     })
 }
 
+/// Surfaces laid out around the on-screen keyboard instead of being lifted
+/// by the shell, and the keyboard height the shell last reported.
+#[derive(Debug, Default)]
+pub(super) struct KeyboardInsets {
+    objects: Vec<KeyboardInset>,
+    height: u32,
+}
+
+#[derive(Debug)]
+struct KeyboardInset {
+    resource: DenialKeyboardInsetV1,
+    surface: WlSurface,
+    sent: u32,
+}
+
 pub(super) fn init(display: &DisplayHandle) {
-    display.create_global::<RuntimeState, DenialInsetsManagerV1, _>(1, ());
+    display.create_global::<RuntimeState, DenialInsetsManagerV1, _>(2, ());
 }
 
 impl GlobalDispatch<DenialInsetsManagerV1, ()> for RuntimeState {
@@ -141,7 +158,7 @@ impl Dispatch<DenialInsetsManagerV1, ()> for RuntimeState {
         request: denial_insets_manager_v1::Request,
         _data: &(),
         _handle: &DisplayHandle,
-        _data_init: &mut DataInit<'_, Self>,
+        data_init: &mut DataInit<'_, Self>,
     ) {
         match request {
             denial_insets_manager_v1::Request::SetSelfManaged { surface } => {
@@ -169,7 +186,104 @@ impl Dispatch<DenialInsetsManagerV1, ()> for RuntimeState {
                 }
                 state.scene_sync.mark_dirty();
             }
+            denial_insets_manager_v1::Request::GetKeyboardInset { id, surface } => {
+                let Some(frontend) = state.wayland.as_mut() else {
+                    return;
+                };
+                if frontend.keyboard_inset_surface(&surface) {
+                    resource.post_error(
+                        denial_insets_manager_v1::Error::KeyboardInsetExists,
+                        "the surface already has a keyboard inset object",
+                    );
+                    return;
+                }
+                let resource = data_init.init(id, ());
+                let height = frontend.keyboard_inset_height(&surface);
+                resource.inset(height, 0);
+                frontend.keyboard_insets.objects.push(KeyboardInset {
+                    resource,
+                    surface,
+                    sent: height,
+                });
+                // The shell stops lifting the surface's window.
+                state.scene_sync.mark_dirty();
+            }
             denial_insets_manager_v1::Request::Destroy => {}
+        }
+    }
+}
+
+impl Dispatch<DenialKeyboardInsetV1, ()> for RuntimeState {
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &DenialKeyboardInsetV1,
+        _request: denial_keyboard_inset_v1::Request,
+        _data: &(),
+        _handle: &DisplayHandle,
+        _data_init: &mut DataInit<'_, Self>,
+    ) {
+    }
+
+    fn destroyed(state: &mut Self, _client: ClientId, resource: &DenialKeyboardInsetV1, _: &()) {
+        if let Some(frontend) = state.wayland.as_mut() {
+            frontend
+                .keyboard_insets
+                .objects
+                .retain(|object| object.resource != *resource);
+        }
+        state.scene_sync.mark_dirty();
+    }
+}
+
+impl WaylandFrontend {
+    /// Whether the surface is laid out around the on-screen keyboard, so the
+    /// shell must not lift its window.
+    pub(super) fn keyboard_inset_surface(&self, surface: &WlSurface) -> bool {
+        self.keyboard_insets
+            .objects
+            .iter()
+            .any(|object| object.surface == *surface)
+    }
+
+    /// Only mobile app windows reach the bottom of the output, so only the
+    /// mobile presentation reports the keyboard over them, and only to
+    /// windows on the phone: the keyboard never shows on a desk.
+    fn keyboard_inset_height(&self, surface: &WlSurface) -> u32 {
+        if self.mobile_shell && self.surface_on_phone(surface) {
+            self.keyboard_insets.height
+        } else {
+            0
+        }
+    }
+
+    fn surface_on_phone(&self, surface: &WlSurface) -> bool {
+        if !self.phone_with_desk() {
+            return true;
+        }
+        self.owning_toplevel_surface(surface)
+            .is_none_or(|root| self.root_on_phone(&root.id()))
+    }
+
+    /// The shell's keyboard starts moving to `height` logical pixels over
+    /// `duration` milliseconds.
+    pub(super) fn set_keyboard_height(&mut self, height: u32, duration: u32) {
+        self.keyboard_insets.height = height;
+        self.send_keyboard_insets(duration);
+    }
+
+    fn send_keyboard_insets(&mut self, duration: u32) {
+        let heights = self
+            .keyboard_insets
+            .objects
+            .iter()
+            .map(|object| self.keyboard_inset_height(&object.surface))
+            .collect::<Vec<_>>();
+        for (object, height) in self.keyboard_insets.objects.iter_mut().zip(heights) {
+            if object.sent != height && object.surface.is_alive() {
+                object.resource.inset(height, duration);
+                object.sent = height;
+            }
         }
     }
 }
@@ -253,6 +367,7 @@ impl WaylandFrontend {
             }
             self.rebuild_window_layout();
         }
+        self.send_keyboard_insets(0);
         self.client_input_route_cache = None;
         info!(mobile, "changed native window presentation");
         true
@@ -284,11 +399,16 @@ impl WaylandFrontend {
         if system_ui {
             return None;
         }
-        let mut geometry = self
-            .output_for_geometry(self.window_geometry_target(window))
+        let output = self.output_for_geometry(self.window_geometry_target(window));
+        // A window on a desk keeps desktop placement.
+        if output.is_some_and(|output| self.output_is_desk(output)) {
+            return None;
+        }
+        let mut geometry = output
+            .or_else(|| self.phone_output())
             .map(|output| output.logical_geometry)
             .or_else(|| self.fallback_output_geometry())?;
-        let top = if self_managed(&root) {
+        let top = if self_managed(&root) || geometry.size.w > geometry.size.h {
             0
         } else {
             MOBILE_STATUS_INSET.min((geometry.size.h - 1).max(0))
@@ -307,7 +427,7 @@ impl WaylandFrontend {
         }
         // An unchanged geometry target can still need a state-only configure.
         // Avoid rewriting geometry/authority when only XDG state has changed.
-        if self.exact_window_geometry(window) == Some(target) {
+        if self.recorded_exact_window_geometry(window) == Some(target) {
             return;
         }
         self.set_window_geometry_target_with_authority(

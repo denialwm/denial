@@ -11,6 +11,14 @@ class DesktopNotificationAction {
   final String label;
 }
 
+/// One message of a conversation, as the sender showed it.
+class DesktopNotificationMessage {
+  const DesktopNotificationMessage({required this.sender, required this.text});
+
+  final String sender;
+  final String text;
+}
+
 class DesktopNotificationImageData {
   const DesktopNotificationImageData({
     required this.width,
@@ -57,6 +65,12 @@ class DesktopNotification {
     required this.progress,
     required this.hasProgress,
     required this.expireTimeoutMs,
+    this.alert = true,
+    this.groupKey = '',
+    this.groupSummary = false,
+    this.timeMs = 0,
+    this.messages = const [],
+    this.clearable = true,
   });
 
   final int id;
@@ -84,8 +98,46 @@ class DesktopNotification {
   final bool hasProgress;
   final int expireTimeoutMs;
 
+  /// Whether this post shows a banner and wakes the screen. deniald clears it
+  /// for replays and for updates that change no content.
+  final bool alert;
+
+  /// Notifications with the same key belong together; deniald keeps keys
+  /// inside one app.
+  final String groupKey;
+
+  /// Stands for its group instead of being one of its members.
+  final bool groupSummary;
+
+  /// When the sender says this happened, in milliseconds since the epoch.
+  final int timeMs;
+
+  /// The latest messages of a conversation, oldest first.
+  final List<DesktopNotificationMessage> messages;
+
+  /// The group key, or one of its own when the sender gave none.
+  String get groupingKey => groupKey.isEmpty ? '\u0000$id' : groupKey;
+
+  /// False when the user can't dismiss it; it leaves when its app closes it.
+  final bool clearable;
+
   /// Ongoing notifications belong in history, without a heads-up banner.
   bool get historyOnly => resident || expireTimeoutMs == 0;
+
+  /// A tap opens something: the default action, else the desktop entry's app.
+  bool get opensApp =>
+      desktopEntry.isNotEmpty ||
+      actions.any((action) => action.key == 'default');
+
+  /// How long a desktop banner stays up; null keeps it until dismissed.
+  /// The notification itself stays in history either way.
+  Duration? get bannerDuration {
+    if (urgency == DesktopNotificationUrgency.critical) return null;
+    if (expireTimeoutMs > 0) return Duration(milliseconds: expireTimeoutMs);
+    return urgency == DesktopNotificationUrgency.low
+        ? const Duration(seconds: 4)
+        : const Duration(seconds: 7);
+  }
 }
 
 class DesktopNotificationEvent {
@@ -123,7 +175,8 @@ class DesktopNotificationEvent {
       ..writeln('  timeout: ${value.expireTimeoutMs} ms')
       ..writeln(
         '  flags: resident=${value.resident}, transient=${value.transient}, '
-        'suppressSound=${value.suppressSound}, actionIcons=${value.actionIcons}',
+        'suppressSound=${value.suppressSound}, actionIcons=${value.actionIcons}, '
+        'clearable=${value.clearable}',
       );
     if (value.actions.isEmpty) {
       output.writeln('  actions: none');
@@ -132,6 +185,15 @@ class DesktopNotificationEvent {
       for (final action in value.actions) {
         output.writeln('    ${action.key}: ${action.label}');
       }
+    }
+    if (value.groupKey.isNotEmpty) {
+      output.writeln(
+        '  group: ${value.groupKey.replaceAll('\n', ' / ')}'
+        '${value.groupSummary ? ' (summary)' : ''}',
+      );
+    }
+    for (final message in value.messages) {
+      output.writeln('  message: ${_shown(message.sender)}: ${message.text}');
     }
     if (value.hasProgress) {
       output.writeln('  progress: ${value.progress}%');

@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Capture a finite private scheduler/IRQ trace around a tablet benchmark."""
+import argparse
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import time
+
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt(f'signal {signum}')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--timeout', type=float, default=120)
+    parser.add_argument('--buffer-kib', type=int, default=4096,
+                        help='private trace buffer per CPU; increase if recorded counters show loss')
+    parser.add_argument('--gpu', action='store_true',
+                        help='also capture GPU submits, retirement, frequency and fence waits')
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    assert os.geteuid() == 0
+    assert Path('/etc/pad4-root-id').read_text().strip() == '59b8e7b3:archroot-v1'
+    assert command and 0 < args.timeout <= 300
+    assert 1024 <= args.buffer_kib <= 65536
+    assert not args.output.exists() and not args.output.with_suffix('.json').exists()
+    instance = Path('/sys/kernel/tracing/instances') / f'pad4-frames-{os.getpid()}'
+    instance.mkdir()
+    child, status = None, 1
+    record = {'kernel': os.uname().release, 'command': command, 'instance': str(instance),
+              'collector_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              'start_monotonic_ns': time.monotonic_ns()}
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, interrupted)
+    try:
+        (instance / 'buffer_size_kb').write_text(str(args.buffer_kib))
+        (instance / 'trace_clock').write_text('mono')
+        assert '[mono]' in (instance / 'trace_clock').read_text()
+        predicates = ['comm ~ "denial*"', 'comm ~ "io.flutter*"',
+                      'comm == "volition-kms"', 'comm == "healthd"']
+        switching = ' || '.join(p.replace('comm', prefix + '_comm')
+                                 for prefix in ('prev', 'next') for p in predicates)
+        events = {'sched/sched_switch': switching,
+                  'sched/sched_wakeup': ' || '.join(predicates)}
+        if args.gpu:
+            for name in ('msm_gpu_submit', 'msm_gpu_submit_flush', 'msm_gpu_submit_retired',
+                         'msm_gpu_freq_change', 'msm_gem_shrink'):
+                events['drm_msm_gpu/' + name] = '0'
+            for name in ('dma_fence_wait_start', 'dma_fence_wait_end'):
+                events['dma_fence/' + name] = '0'
+        irqs = {11, 14, 15}
+        interrupts = Path('/proc/interrupts').read_text()
+        for line in interrupts.splitlines():
+            name = line.split(':', 1)[0].strip()
+            if name.isdecimal() and any(s in line.lower() for s in ('dpu', 'gmu', 'adreno', 'kgsl', 'msm_mdss')):
+                irqs.add(int(name))
+        for event in ('irq_handler_entry', 'irq_handler_exit'):
+            events['irq/' + event] = ' || '.join(f'irq == {irq}' for irq in sorted(irqs))
+        for name, expression in events.items():
+            root = instance / 'events' / name
+            (root / 'filter').write_text(expression)
+            (root / 'enable').write_text('1')
+        record.update(events=events, interrupts=interrupts, buffer_kib_per_cpu=args.buffer_kib)
+        (instance / 'tracing_on').write_text('1')
+        child = subprocess.Popen(command, start_new_session=True)
+        status = child.wait(timeout=args.timeout)
+        record['exit_code'] = status
+    except BaseException as error:
+        record['error'] = repr(error)
+        if child is not None and child.poll() is None:
+            for sig, timeout in ((signal.SIGINT, 8), (signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+                os.killpg(child.pid, sig)
+                try:
+                    child.wait(timeout=timeout)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+        raise
+    finally:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
+        (instance / 'tracing_on').write_text('0')
+        record['end_monotonic_ns'] = time.monotonic_ns()
+        record['buffer_stats'] = {p.parent.name: p.read_text() for p in instance.glob('per_cpu/cpu*/stats')}
+        record['loss_counters'] = {cpu: {name.strip(): int(value.strip())
+            for line in stats.splitlines() if ':' in line
+            for name, value in [line.split(':', 1)]
+            if name.strip() in ('overrun', 'commit overrun', 'dropped events')}
+            for cpu, stats in record['buffer_stats'].items()}
+        record['loss_detected'] = any(value for counters in record['loss_counters'].values()
+                                      for value in counters.values())
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with (instance / 'trace').open('rb') as source, gzip.open(args.output, 'xb') as output:
+            shutil.copyfileobj(source, output)
+        args.output.with_suffix('.json').write_text(json.dumps(record, indent=2) + '\n')
+        instance.rmdir()
+    raise SystemExit(status)
+
+
+if __name__ == '__main__':
+    main()

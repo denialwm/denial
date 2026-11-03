@@ -39,6 +39,7 @@ class NetworkManagerService implements NetworkBackend {
       'org.freedesktop.NetworkManager.Settings';
   static const String _settingsConnectionInterface =
       'org.freedesktop.NetworkManager.Settings.Connection';
+  static const String _propertiesInterface = 'org.freedesktop.DBus.Properties';
 
   static const Duration _readTimeout = Duration(seconds: 4);
   static const Duration _methodTimeout = Duration(seconds: 25);
@@ -63,6 +64,16 @@ class NetworkManagerService implements NetworkBackend {
   bool _refreshAgain = false;
   NetworkSnapshot _current = NetworkSnapshot.unavailable();
 
+  // The NetworkManager objects behind [_current]. NetworkManager reports
+  // every signal-strength and bitrate change of every visible access point;
+  // patching those values here keeps them from costing a full D-Bus re-read.
+  _NetworkObjects? _objects;
+
+  // GetPermissions makes NetworkManager run one polkit check per action, so
+  // the answer is kept until NetworkManager announces CheckPermissions.
+  _NetworkPermissions? _permissions;
+  int _permissionEpoch = 0;
+
   @override
   Stream<NetworkSnapshot> get snapshots => _snapshots.stream;
 
@@ -78,10 +89,12 @@ class NetworkManagerService implements NetworkBackend {
       _client,
       sender: _serviceName,
       pathNamespace: DBusObjectPath(_rootPath),
-    ).listen((_) => _scheduleRefresh(), onError: (_) => _scheduleRefresh());
+    ).listen(_handleSignal, onError: (_) => _scheduleRefresh());
     _ownerSubscription = _client.nameOwnerChanged
         .where((event) => event.name == _serviceName)
         .listen((event) {
+          _objects = null;
+          _forgetPermissions();
           if (event.newOwner == null) {
             _refreshTimer?.cancel();
             _emit(NetworkSnapshot.unavailable());
@@ -211,6 +224,9 @@ class NetworkManagerService implements NetworkBackend {
   }
 
   Future<NetworkSnapshot> _readSnapshot() async {
+    // Property signals that arrive during the read are not patched into
+    // objects the read may already have passed; they request another read.
+    _objects = null;
     if (!await _client.nameHasOwner(_serviceName).timeout(_readTimeout) ||
         _disposed) {
       return NetworkSnapshot.unavailable();
@@ -218,9 +234,9 @@ class NetworkManagerService implements NetworkBackend {
 
     // These independent reads share one round trip window. Device/AP reads
     // remain bounded by the existing per-batch limit below.
-    final (rootProperties, permissions, deviceReply) = await (
+    final (manager, permissions, deviceReply) = await (
       _root.getAllProperties(_managerInterface).timeout(_readTimeout),
-      _readPermissions(),
+      _currentPermissions(),
       _root
           .callMethod(
             _managerInterface,
@@ -235,36 +251,122 @@ class NetworkManagerService implements NetworkBackend {
         .asObjectPathArray()
         .take(_maxDevices)
         .toList(growable: false);
-    final deviceSnapshots = await _mapInBatches(devicePaths, _readBatchSize, (
+    final devices = (await _mapInBatches(devicePaths, _readBatchSize, (
       path,
     ) async {
-      final deviceProperties = await _tryGetAll(path.value, _deviceInterface);
-      if (_uint32(deviceProperties, 'DeviceType') != 2) {
+      final device = await _tryGetAll(path.value, _deviceInterface);
+      if (_uint32(device, 'DeviceType') != 2) {
         return null;
       }
-      final wirelessProperties = await _tryGetAll(
-        path.value,
-        _wirelessInterface,
-      );
-      return _WifiDeviceSnapshot(
-        path: path.value,
-        state: _uint32(deviceProperties, 'State'),
-        activeNetworkPath: _objectPath(deviceProperties, 'ActiveConnection'),
-        activeAccessPointPath: _objectPath(
-          wirelessProperties,
-          'ActiveAccessPoint',
-        ),
-        accessPoints: _objectPaths(wirelessProperties, 'AccessPoints'),
-        lastScan: _int64(wirelessProperties, 'LastScan', fallback: -1),
-      );
-    });
-    final wifiDevices = deviceSnapshots
-        .whereType<_WifiDeviceSnapshot>()
-        .toList();
+      final wireless = await _tryGetAll(path.value, _wirelessInterface);
+      return _WifiDeviceObjects(path.value, {...device}, {...wireless});
+    })).whereType<_WifiDeviceObjects>().toList(growable: false);
     if (_disposed) return NetworkSnapshot.unavailable();
 
+    final accessPointPaths = _accessPointOwners(_sortedWifiDevices(devices))
+        .keys;
+    final accessPoints = Map.fromEntries(
+      await _mapInBatches(
+        accessPointPaths,
+        _readBatchSize,
+        (path) async =>
+            MapEntry(path, {...await _tryGetAll(path, _accessPointInterface)}),
+      ),
+    );
+    if (_disposed) return NetworkSnapshot.unavailable();
+    final savedConnections = devices.isEmpty
+        ? const <SavedWifiConnectionInfo>[]
+        : await _readSavedConnections();
+    if (_disposed) return NetworkSnapshot.unavailable();
+    final objects = _objects = _NetworkObjects(
+      manager: {...manager},
+      permissions: permissions,
+      devices: devices,
+      accessPoints: accessPoints,
+      savedConnections: savedConnections,
+    );
+    return _composeSnapshot(objects);
+  }
+
+  void _handleSignal(DBusSignal signal) {
+    if (_disposed) {
+      return;
+    }
+    if (signal.interface == _propertiesInterface &&
+        signal.name == 'PropertiesChanged') {
+      switch (_patchProperties(signal)) {
+        case _PropertyPatch.irrelevant:
+          return;
+        case _PropertyPatch.applied:
+          _emit(_composeSnapshot(_objects!));
+          return;
+        case _PropertyPatch.needsRead:
+          break;
+      }
+    } else if (signal.interface == _managerInterface &&
+        signal.name == 'CheckPermissions') {
+      _forgetPermissions();
+    }
+    _scheduleRefresh();
+  }
+
+  /// Applies a PropertiesChanged signal to [_objects] when it only changes
+  /// values the snapshot is composed from. Object lists name objects that
+  /// were never read, so a change to one of them needs a full read.
+  _PropertyPatch _patchProperties(DBusSignal signal) {
+    if (signal.values.length != 3) {
+      return _PropertyPatch.needsRead;
+    }
+    final [interface, changed, invalidated] = signal.values;
+    if (interface is! DBusString ||
+        changed is! DBusDict ||
+        invalidated is! DBusArray) {
+      return _PropertyPatch.needsRead;
+    }
+    final path = signal.path.value;
+    final objects = _objects;
+    final Map<String, DBusValue>? target;
+    var references = const <String>{};
+    switch (interface.value) {
+      case _managerInterface when path == _rootPath:
+        target = objects?.manager;
+        references = const {'Devices', 'AllDevices'};
+      case _deviceInterface:
+        target = objects?.device(path)?.device;
+        references = const {'DeviceType'};
+      case _wirelessInterface:
+        target = objects?.device(path)?.wireless;
+        references = const {'AccessPoints', 'ActiveAccessPoint'};
+      case _accessPointInterface:
+        target = objects?.accessPoints[path];
+      default:
+        // Active connections, IP configurations, statistics and connection
+        // flags are not part of the snapshot.
+        return _PropertyPatch.irrelevant;
+    }
+    if (objects == null) {
+      return _PropertyPatch.needsRead;
+    }
+    // Other devices and access points beyond the read limit are not shown;
+    // a new one is announced through a reference list first.
+    if (target == null) {
+      return _PropertyPatch.irrelevant;
+    }
+    final values = changed.asStringVariantDict();
+    if (invalidated.children.isNotEmpty ||
+        values.keys.any(references.contains)) {
+      return _PropertyPatch.needsRead;
+    }
+    target.addAll(values);
+    return _PropertyPatch.applied;
+  }
+
+  static NetworkSnapshot _composeSnapshot(_NetworkObjects objects) {
+    final rootProperties = objects.manager;
+    final permissions = objects.permissions;
     final wirelessEnabled = _boolean(rootProperties, 'WirelessEnabled');
     final hardwareEnabled = _boolean(rootProperties, 'WirelessHardwareEnabled');
+    final wifiDevices = _sortedWifiDevices(objects.devices);
     if (wifiDevices.isEmpty) {
       return NetworkSnapshot(
         serviceAvailable: true,
@@ -282,38 +384,23 @@ class NetworkManagerService implements NetworkBackend {
       );
     }
 
-    wifiDevices.sort((left, right) {
-      final leftActive = left.activeNetworkPath != null ? 1 : 0;
-      final rightActive = right.activeNetworkPath != null ? 1 : 0;
-      return rightActive.compareTo(leftActive);
-    });
     final primaryDevice = wifiDevices.first;
-    final accessPointDevices = <String, _WifiDeviceSnapshot>{};
-    for (final device in wifiDevices) {
-      for (final path in device.accessPoints) {
-        if (accessPointDevices.length == _maxAccessPoints) {
-          break;
-        }
-        accessPointDevices.putIfAbsent(path, () => device);
+    final candidates = <WifiNetwork>[];
+    for (final MapEntry(key: path, value: device) in _accessPointOwners(
+      wifiDevices,
+    ).entries) {
+      final properties = objects.accessPoints[path];
+      final ssidBytes = _bytes(properties, 'Ssid');
+      if (ssidBytes.isEmpty || ssidBytes.length > 32) {
+        continue;
       }
-    }
-
-    final candidates = (await _mapInBatches(
-      accessPointDevices.keys,
-      _readBatchSize,
-      (path) async {
-        final properties = await _tryGetAll(path, _accessPointInterface);
-        final ssidBytes = _bytes(properties, 'Ssid');
-        if (ssidBytes.isEmpty || ssidBytes.length > 32) {
-          return null;
-        }
-        final device = accessPointDevices[path]!;
-        final security = classifyWifiSecurity(
-          flags: _uint32(properties, 'Flags'),
-          wpaFlags: _uint32(properties, 'WpaFlags'),
-          rsnFlags: _uint32(properties, 'RsnFlags'),
-        );
-        return WifiNetwork(
+      final security = classifyWifiSecurity(
+        flags: _uint32(properties, 'Flags'),
+        wpaFlags: _uint32(properties, 'WpaFlags'),
+        rsnFlags: _uint32(properties, 'RsnFlags'),
+      );
+      candidates.add(
+        WifiNetwork(
           ssid: utf8.decode(ssidBytes, allowMalformed: true),
           ssidBytes: ssidBytes,
           security: security,
@@ -325,15 +412,13 @@ class NetworkManagerService implements NetworkBackend {
           connected:
               device.state == 100 && device.activeAccessPointPath == path,
           available: true,
-        );
-      },
-    )).whereType<WifiNetwork>().toList(growable: false);
+        ),
+      );
+    }
 
-    if (_disposed) return NetworkSnapshot.unavailable();
-    final savedConnections = await _readSavedConnections();
     final networks = normalizeWifiNetworks(
       candidates,
-      savedConnections,
+      objects.savedConnections,
       defaultDevicePath: primaryDevice.path,
     );
     final activeConnection = wifiDevices
@@ -371,7 +456,54 @@ class NetworkManagerService implements NetworkBackend {
     );
   }
 
-  Future<_NetworkPermissions> _readPermissions() async {
+  /// Wi-Fi devices with an active connection first.
+  static List<_WifiDeviceSnapshot> _sortedWifiDevices(
+    Iterable<_WifiDeviceObjects> devices,
+  ) {
+    return devices.map((device) => device.snapshot).toList()
+      ..sort((left, right) {
+        final leftActive = left.activeNetworkPath != null ? 1 : 0;
+        final rightActive = right.activeNetworkPath != null ? 1 : 0;
+        return rightActive.compareTo(leftActive);
+      });
+  }
+
+  /// The shown access points, each with the first device that sees it.
+  static Map<String, _WifiDeviceSnapshot> _accessPointOwners(
+    List<_WifiDeviceSnapshot> devices,
+  ) {
+    final owners = <String, _WifiDeviceSnapshot>{};
+    for (final device in devices) {
+      for (final path in device.accessPoints) {
+        if (owners.length == _maxAccessPoints) {
+          break;
+        }
+        owners.putIfAbsent(path, () => device);
+      }
+    }
+    return owners;
+  }
+
+  Future<_NetworkPermissions> _currentPermissions() async {
+    if (_permissions case final permissions?) {
+      return permissions;
+    }
+    final epoch = _permissionEpoch;
+    final permissions = await _readPermissions();
+    // A CheckPermissions signal during the read leaves this answer stale;
+    // the read it requested asks again.
+    if (permissions != null && epoch == _permissionEpoch) {
+      _permissions = permissions;
+    }
+    return permissions ?? const _NetworkPermissions();
+  }
+
+  void _forgetPermissions() {
+    _permissions = null;
+    _permissionEpoch++;
+  }
+
+  Future<_NetworkPermissions?> _readPermissions() async {
     try {
       final reply = await _root
           .callMethod(
@@ -402,7 +534,7 @@ class NetworkManagerService implements NetworkBackend {
         ),
       );
     } on Object {
-      return const _NetworkPermissions();
+      return null;
     }
   }
 
@@ -781,6 +913,44 @@ class _WifiDeviceSnapshot {
   final List<String> accessPoints;
   final int lastScan;
 }
+
+class _WifiDeviceObjects {
+  _WifiDeviceObjects(this.path, this.device, this.wireless);
+
+  final String path;
+  final Map<String, DBusValue> device;
+  final Map<String, DBusValue> wireless;
+
+  _WifiDeviceSnapshot get snapshot => _WifiDeviceSnapshot(
+    path: path,
+    state: _uint32(device, 'State'),
+    activeNetworkPath: _objectPath(device, 'ActiveConnection'),
+    activeAccessPointPath: _objectPath(wireless, 'ActiveAccessPoint'),
+    accessPoints: _objectPaths(wireless, 'AccessPoints'),
+    lastScan: _int64(wireless, 'LastScan', fallback: -1),
+  );
+}
+
+class _NetworkObjects {
+  _NetworkObjects({
+    required this.manager,
+    required this.permissions,
+    required this.devices,
+    required this.accessPoints,
+    required this.savedConnections,
+  });
+
+  final Map<String, DBusValue> manager;
+  final _NetworkPermissions permissions;
+  final List<_WifiDeviceObjects> devices;
+  final Map<String, Map<String, DBusValue>> accessPoints;
+  final List<SavedWifiConnectionInfo> savedConnections;
+
+  _WifiDeviceObjects? device(String path) =>
+      devices.where((device) => device.path == path).firstOrNull;
+}
+
+enum _PropertyPatch { irrelevant, applied, needsRead }
 
 class _NetworkPermissions {
   const _NetworkPermissions({

@@ -85,7 +85,7 @@ done
 
 (
   cd "$CANDIDATE_PACKAGES"
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
 ) || fail 'candidate package checksums failed'
 
 if [[ -e "$OUTPUT_ROOT" ]] \
@@ -352,7 +352,7 @@ extract_payload "$denial_package" "$verification_root"
 (
   cd "$OUTPUT_ROOT"
   sha256sum -- *.pkg.tar.zst >SHA256SUMS
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
 )
 
 printf '%s\n' \

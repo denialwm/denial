@@ -96,6 +96,14 @@ class InputDeviceCapabilitiesController
     unawaited(_configureMouse(state.capabilities.copyWith(mouseSpeed: speed)));
   }
 
+  void setMouseAcceleration(bool enabled) {
+    unawaited(
+      _configureMouse(
+        state.capabilities.copyWith(mouseAccelerationEnabled: enabled),
+      ),
+    );
+  }
+
   Future<void> _refresh(int generation) async {
     try {
       final capabilities = await _bridge.readInputDeviceCapabilities();

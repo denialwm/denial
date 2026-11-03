@@ -53,8 +53,6 @@ export 'src/services/network_backend.dart'
 export 'src/services/network_manager_service.dart' show NetworkManagerService;
 export 'src/services/network_service_backend.dart' show NetworkService;
 export 'src/services/non_blocking_fifo.dart' show NonBlockingFifoWriter;
-export 'src/services/notification_policy_repository.dart'
-    show NotificationPolicyStore;
 export 'src/services/upower_backend.dart' show UPowerBackend, UPowerService;
 export 'src/state/session_power.dart'
     show NativeSessionRuntimeBackend, SessionRuntimeBackend;

@@ -24,6 +24,7 @@ dependencies:
   flutter_svg: ^2.3.0
   intl: ^0.20.2
   meta: ^1.19.0
+  motor: ^1.1.0
   path: ^1.9.1
   vector_graphics: ^1.2.2
 dev_dependencies:
@@ -55,6 +56,8 @@ flutter:
   - assets/branding/denial-dark.svg
   - assets/icons/application-default-icon.svg
   - assets/wallpapers/trails-h-accent-9-dark.png
+  shaders:
+  - shaders/window_glass.frag
   fonts:
   - family: JetBrainsMono
     fonts:
@@ -64,3 +67,6 @@ flutter:
       weight: 500
     - asset: assets/fonts/JetBrainsMono-Bold.ttf
       weight: 700
+  - family: RobotoFlex
+    fonts:
+    - asset: assets/fonts/roboto_flex/RobotoFlex.ttf

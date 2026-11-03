@@ -11,6 +11,11 @@
 //!
 //! `output timelines -> client callbacks`
 //! `due dirty outputs -> Skip | Render`
+//!
+//! A timeline with nothing to deliver does not wake the event loop. Its
+//! phase is kept while idle, and the edges that passed during the sleep are
+//! skipped on wake, so work arriving then meets the same edge a continuously
+//! ticking timeline would have given it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -80,6 +85,7 @@ pub(super) struct FrameScheduler {
     flutter_outputs_dirty: bool,
     flutter_tick: Option<FrameTick>,
     last_flutter_target: Option<Instant>,
+    ticks_idle: bool,
     audit: Option<FrameSchedulerAudit>,
 }
 
@@ -160,6 +166,7 @@ impl FrameScheduler {
             flutter_outputs_dirty: false,
             flutter_tick: None,
             last_flutter_target: None,
+            ticks_idle: false,
             audit: super::render_audit_enabled().then(FrameSchedulerAudit::new),
         }
     }
@@ -403,7 +410,28 @@ impl FrameScheduler {
     }
 
     pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        if self.ticks_idle {
+            return timeout;
+        }
         self.outputs.limit_dispatch_timeout(now, timeout)
+    }
+
+    /// Whether the scheduler itself has work for the next output tick.
+    pub(super) fn wants_ticks(&self) -> bool {
+        self.flutter_request_latched || !self.dirty_outputs.is_empty()
+    }
+
+    /// Marks the coming event-loop sleep as idle when no tick consumer is
+    /// pending, so the output edges no longer bound its timeout.
+    pub(super) fn idle_ticks(&mut self, idle: bool) {
+        self.ticks_idle = idle;
+    }
+
+    /// Ends an idle sleep by skipping the edges that passed during it.
+    pub(super) fn resume_ticks(&mut self, now: Instant) {
+        if std::mem::take(&mut self.ticks_idle) {
+            self.outputs.skip_elapsed_edges(now);
+        }
     }
 }
 
@@ -518,6 +546,12 @@ impl OutputTimelines {
             timeout.min(timeline.next_tick.saturating_duration_since(now))
         })
     }
+
+    fn skip_elapsed_edges(&mut self, now: Instant) {
+        for timeline in &mut self.timelines {
+            timeline.skip_elapsed_edges(now);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -557,6 +591,21 @@ impl OutputTimeline {
         let correction = (phase_error / PHASE_LOCK_GAIN_DIVISOR).clamp(-limit, limit);
         let pending = i128::from(self.pending_phase_adjustment_nanos) + correction;
         self.pending_phase_adjustment_nanos = pending.clamp(-limit, limit) as i64;
+    }
+
+    /// Moves the next tick to the first edge at or after `now`, keeping the
+    /// phase and counting the skipped edges in the sequence.
+    fn skip_elapsed_edges(&mut self, now: Instant) {
+        if now <= self.next_tick {
+            return;
+        }
+        let interval_nanos = self.source.interval.as_nanos().max(1);
+        let skipped = now
+            .duration_since(self.next_tick)
+            .as_nanos()
+            .div_ceil(interval_nanos);
+        self.next_tick = advance_deadline(self.next_tick, self.source.interval, skipped);
+        self.next_sequence = self.next_sequence.wrapping_add(skipped as u64);
     }
 
     fn take_tick(&mut self, now: Instant) -> Option<FrameTick> {
@@ -788,5 +837,87 @@ mod tests {
         assert_eq!(scheduler.render_requests().len(), 1);
         assert_eq!(scheduler.render_requests()[0].tick.output, output);
         assert_eq!(scheduler.render_texture_ids().collect::<Vec<_>>(), [42]);
+    }
+
+    fn idle_scheduler(now: Instant, output: OutputId, interval: Duration) -> FrameScheduler {
+        let mut scheduler = FrameScheduler::new(&[], now);
+        scheduler.configured_outputs.insert(output);
+        scheduler
+            .outputs
+            .replace(&[TimelineSource { output, interval }], now);
+        assert!(scheduler.output_tick_due(now));
+        scheduler.step_with_output_readiness(now, PendingFrame::default(), |_| (true, true));
+        scheduler
+    }
+
+    #[test]
+    fn an_idle_timeline_does_not_bound_the_event_loop_sleep() {
+        let now = Instant::now();
+        let output = OutputId(7);
+        let mut scheduler = idle_scheduler(now, output, Duration::from_millis(16));
+        let timeout = Duration::from_secs(1);
+
+        assert!(!scheduler.wants_ticks());
+        assert_eq!(
+            scheduler.limit_dispatch_timeout(now, timeout),
+            Duration::from_millis(16)
+        );
+        scheduler.idle_ticks(true);
+        assert_eq!(scheduler.limit_dispatch_timeout(now, timeout), timeout);
+
+        scheduler.mark_output_dirty(output);
+        assert!(scheduler.wants_ticks());
+    }
+
+    #[test]
+    fn work_after_an_idle_sleep_meets_the_next_edge_of_the_same_phase() {
+        let now = Instant::now();
+        let output = OutputId(7);
+        let interval = Duration::from_millis(16);
+        let mut scheduler = idle_scheduler(now, output, interval);
+        let first_sequence = scheduler.output_ticks()[0].sequence;
+
+        // The loop sleeps through 62 edges and wakes 5 ms after the last one
+        // because a client commits.
+        scheduler.idle_ticks(true);
+        let wake = now + interval * 62 + Duration::from_millis(5);
+        scheduler.resume_ticks(wake);
+        scheduler.mark_app_dirty(output, [42]);
+
+        let edge = now + interval * 63;
+        assert!(!scheduler.output_tick_due(wake));
+        assert_eq!(
+            scheduler.limit_dispatch_timeout(wake, Duration::from_secs(1)),
+            edge - wake
+        );
+        assert!(scheduler.output_tick_due(edge));
+        assert_eq!(
+            scheduler.step_with_output_readiness(edge, PendingFrame::default(), |_| (true, true)),
+            FrameAction::Render {
+                flutter_output: None
+            }
+        );
+        let tick = scheduler.render_requests()[0].tick;
+        assert_eq!(tick.render_deadline, edge);
+        assert_eq!(tick.presentation_target, edge + interval);
+        assert_eq!(tick.sequence, first_sequence + 63);
+    }
+
+    #[test]
+    fn a_late_wake_without_an_idle_sleep_still_takes_the_missed_edge() {
+        let now = Instant::now();
+        let output = OutputId(7);
+        let interval = Duration::from_millis(16);
+        let mut scheduler = idle_scheduler(now, output, interval);
+
+        let late = now + interval * 2 + Duration::from_millis(5);
+        scheduler.resume_ticks(late);
+        scheduler.mark_output_dirty(output);
+        assert!(scheduler.output_tick_due(late));
+        scheduler.step_with_output_readiness(late, PendingFrame::default(), |_| (true, true));
+        assert_eq!(
+            scheduler.render_requests()[0].tick.render_deadline,
+            now + interval * 2
+        );
     }
 }

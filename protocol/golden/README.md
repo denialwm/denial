@@ -8,6 +8,8 @@
 - `native_windows_*.denw` are native-to-Dart compatibility snapshots decoded
   by the Flutter compatibility tests.
 - `empty`, `one`, `eight`, and `many` represent 0, 1, 8, and 32 windows.
+- `dart_input_edges.denw` adds Back edge-swipe regions after three windows;
+  layouts without edge swipes omit the field and keep their earlier bytes.
 
 Fixtures intentionally cover Unicode strings, unsigned IDs larger than 32
 bits, negative coordinates, fractional geometry, flags, and ordering.

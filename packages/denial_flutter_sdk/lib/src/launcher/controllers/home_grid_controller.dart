@@ -9,14 +9,11 @@ import '../../state/system_status.dart';
 import '../launcher_providers.dart';
 import '../models/desktop_app.dart';
 import '../models/home_clock_info.dart';
-import '../models/home_drag_session.dart';
 import '../models/home_grid_item.dart';
 import '../repositories/desktop_apps_repository.dart';
 import '../repositories/home_layout_repository.dart';
 import '../services/app_launcher.dart';
 import 'home_grid_layout.dart';
-
-const Object _unset = Object();
 
 final desktopAppsRepositoryProvider = Provider<DesktopAppsRepository>((ref) {
   return DesktopAppsRepository(paths: ref.watch(runtimePathsProvider));
@@ -35,11 +32,6 @@ final homeGridControllerProvider =
       HomeGridController.new,
     );
 
-final homeDragSessionProvider =
-    NotifierProvider<HomeDragSessionController, HomeDragSession?>(
-      HomeDragSessionController.new,
-    );
-
 final homeClockProvider = Provider<HomeClockInfo>((ref) {
   final locale = HomeClockInfo.localeFromEnvironment(
     ref.watch(runtimePathsProvider).environment,
@@ -51,47 +43,22 @@ final homeClockProvider = Provider<HomeClockInfo>((ref) {
   );
 }, isAutoDispose: true);
 
-class HomeDragSessionController extends Notifier<HomeDragSession?> {
-  @override
-  HomeDragSession? build() => null;
-
-  void setSession(HomeDragSession? session) {
-    state = session;
-  }
-
-  void clear() {
-    state = null;
-  }
-}
-
 class HomeGridState {
-  HomeGridState({
-    required List<HomeGridItem?> slots,
-    this.page = 0,
-    this.draggingSourceIndex,
-  }) : slots = List.unmodifiable(slots);
+  HomeGridState({required List<HomeGridItem?> slots, this.page = 0})
+    : slots = List.unmodifiable(slots);
 
-  HomeGridState._({
-    required this.slots,
-    required this.page,
-    required this.draggingSourceIndex,
-  });
+  HomeGridState._({required this.slots, required this.page});
 
   final List<HomeGridItem?> slots;
   final int page;
-  final int? draggingSourceIndex;
 
-  HomeGridState copyWith({
-    List<HomeGridItem?>? slots,
-    int? page,
-    Object? draggingSourceIndex = _unset,
-  }) {
+  /// Every application on the grid, folder contents included.
+  Iterable<HomeGridItem> get apps => HomeGridLayout.appsIn(slots);
+
+  HomeGridState copyWith({List<HomeGridItem?>? slots, int? page}) {
     return HomeGridState._(
       slots: slots == null ? this.slots : List.unmodifiable(slots),
       page: page ?? this.page,
-      draggingSourceIndex: identical(draggingSourceIndex, _unset)
-          ? this.draggingSourceIndex
-          : draggingSourceIndex as int?,
     );
   }
 }
@@ -113,6 +80,13 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
   bool _desktopAppsDirty = false;
   bool _launcherActive = true;
   int _buildGeneration = 0;
+
+  /// The orientation the slots are laid out for; null while they belong to
+  /// whichever orientation the grid shows first.
+  HomeOrientation? _orientation;
+
+  /// Every orientation's saved layout, the shown one as of its last save.
+  Map<HomeOrientation, List<HomeLayoutSlot?>> _layouts = {};
 
   @override
   Future<HomeGridState> build() async {
@@ -148,7 +122,14 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         .toList(growable: false);
     try {
       final apps = await _loadApplications(appsRepository, reason: 'initial');
-      final savedLayout = await layoutRepository.readSavedLayout();
+      final saved = await layoutRepository.readSavedLayouts();
+      // Portrait first, which is where a phone starts.
+      final orientation = HomeOrientation.values
+          .where(saved.layouts.containsKey)
+          .firstOrNull;
+      final savedLayout = orientation == null
+          ? saved.unassigned
+          : saved.layouts[orientation];
       final slots = HomeGridLayout.initialSlotsForApps(
         apps,
         localApps,
@@ -157,9 +138,11 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       if (!_isBuildActive(generation)) {
         return HomeGridState(slots: slots);
       }
+      _orientation = orientation;
+      _layouts = {...saved.layouts};
       _lastDesktopRefresh = DateTime.now();
       if (_savedLayoutNeedsRefresh(apps, localApps, savedLayout, slots)) {
-        unawaited(layoutRepository.saveLayout(slots));
+        _save(slots);
       }
       unawaited(_startDesktopRefreshTriggers(generation, appsRepository));
       return HomeGridState(slots: slots);
@@ -180,7 +163,11 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     final lastRefresh = _lastDesktopRefresh;
     if (reason == 'launcher-visible' &&
         lastRefresh != null &&
-        DateTime.now().difference(lastRefresh) < _visibleRefreshMinInterval) {
+        // A complete watcher already reports every top-level change, so
+        // returning home spends no isolate rescanning unchanged entries.
+        ((_desktopAppsWatcher?.complete ?? false) ||
+            DateTime.now().difference(lastRefresh) <
+                _visibleRefreshMinInterval)) {
       return;
     }
 
@@ -205,10 +192,8 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         return;
       }
 
-      final currentApps = _appsByGridId(current.slots);
-      final refreshedApps = _appsByGridId([
-        for (final app in apps) HomeGridItem.app(app),
-      ]);
+      final currentApps = _appsByGridId(current.apps);
+      final refreshedApps = _appsByGridId(apps.map(HomeGridItem.app));
 
       final addedIds = refreshedApps.keys
           .where((id) => !currentApps.containsKey(id))
@@ -237,7 +222,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         localApps,
       );
       state = AsyncData(current.copyWith(slots: slots));
-      unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(slots));
+      _save(slots);
     } finally {
       if (_isBuildActive(generation)) {
         _desktopRefreshInFlight = false;
@@ -330,6 +315,37 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     );
   }
 
+  /// The orientation the grid shows, null before it first lays out.
+  HomeOrientation? get orientation => _orientation;
+
+  /// Lays the grid out for [orientation], in pages of [pageSize]: its saved
+  /// layout, or the shown one reflowed into the new pages when it has none.
+  void arrange(HomeOrientation orientation, int pageSize) {
+    final current = state.asData?.value;
+    final shown = _orientation;
+    if (current == null || orientation == shown) {
+      return;
+    }
+    _orientation = orientation;
+    if (shown == null) {
+      // The slots are this orientation's layout from now on.
+      _save(current.slots);
+      return;
+    }
+
+    _layouts[shown] = _layoutOf(current.slots);
+    final saved = _layouts[orientation];
+    final slots = saved == null
+        ? HomeGridLayout.reflowSlots(current.slots, pageSize)
+        : HomeGridLayout.initialSlotsForApps(
+            [for (final item in current.apps) ?item.app],
+            ref.read(localFlutterApplicationRegistryProvider).applications,
+            saved,
+          );
+    state = AsyncData(current.copyWith(slots: slots));
+    _save(slots);
+  }
+
   void setPage(int page) {
     final current = state.asData?.value;
     if (current == null || current.page == page) {
@@ -339,102 +355,162 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     state = AsyncData(current.copyWith(page: page));
   }
 
-  void setDraggingSourceIndex(int? index) {
-    final current = state.asData?.value;
-    if (current == null || current.draggingSourceIndex == index) {
-      return;
-    }
-
-    state = AsyncData(current.copyWith(draggingSourceIndex: index));
-  }
-
   bool canMoveSlot(int fromIndex, int toIndex, int pageSize) {
-    final current = state.asData?.value;
-    if (current == null) {
-      return false;
-    }
+    final slots = state.asData?.value.slots;
+    return slots != null &&
+        HomeGridLayout.canMoveSlot(slots, fromIndex, toIndex, pageSize);
+  }
 
-    return HomeGridLayout.canMoveSlot(
-      current.slots,
-      fromIndex,
-      toIndex,
-      pageSize,
+  void moveSlot(int fromIndex, int toIndex, int pageSize) {
+    _update(
+      (slots) => HomeGridLayout.moveSlot(slots, fromIndex, toIndex, pageSize),
     );
   }
 
-  int? moveSlot(int fromIndex, int toIndex, int pageSize) {
-    final current = state.asData?.value;
-    if (current == null) {
-      return null;
-    }
+  bool canResizeSlot(
+    int index,
+    int anchor,
+    int colSpan,
+    int rowSpan,
+    int pageSize,
+  ) {
+    final slots = state.asData?.value.slots;
+    return slots != null &&
+        HomeGridLayout.canResizeSlot(
+          slots,
+          index,
+          anchor,
+          colSpan,
+          rowSpan,
+          pageSize,
+        );
+  }
 
-    final result = HomeGridLayout.moveSlot(
-      current.slots,
-      fromIndex,
-      toIndex,
-      pageSize,
-    );
-    if (result == null) {
-      return null;
-    }
-
-    state = AsyncData(
-      current.copyWith(
-        slots: result.slots,
-        draggingSourceIndex: result.movedToIndex,
+  void resizeSlot(
+    int index,
+    int anchor,
+    int colSpan,
+    int rowSpan,
+    int pageSize,
+  ) {
+    _update(
+      (slots) => HomeGridLayout.resizeSlot(
+        slots,
+        index,
+        anchor,
+        colSpan,
+        rowSpan,
+        pageSize,
       ),
     );
-    unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(result.slots));
-    return result.movedToIndex;
   }
 
-  bool canResizeSlot(int index, int colSpan, int rowSpan, int pageSize) {
-    final current = state.asData?.value;
-    if (current == null) {
-      return false;
-    }
+  bool canMerge(int fromIndex, int targetIndex) {
+    final slots = state.asData?.value.slots;
+    return slots != null &&
+        HomeGridLayout.canMerge(slots, fromIndex, targetIndex);
+  }
 
-    return HomeGridLayout.canResizeSlot(
-      current.slots,
-      index,
-      colSpan,
-      rowSpan,
-      pageSize,
+  /// Drops the app at [fromIndex] on the app or folder at [targetIndex]. A
+  /// new folder is named [folderName].
+  void merge(int fromIndex, int targetIndex, {required String folderName}) {
+    _update(
+      (slots) => HomeGridLayout.merge(
+        slots,
+        fromIndex,
+        targetIndex,
+        folderId: HomeGridLayout.newFolderId(slots),
+        folderName: folderName,
+      ),
     );
   }
 
-  void resizeSlot(int index, int colSpan, int rowSpan, int pageSize) {
+  void moveOutOfFolder(
+    int folderIndex,
+    String appId,
+    int toIndex,
+    int pageSize,
+  ) {
+    _update(
+      (slots) => HomeGridLayout.moveOutOfFolder(
+        slots,
+        folderIndex,
+        appId,
+        toIndex,
+        pageSize,
+      ),
+    );
+  }
+
+  void moveFromFolderInto(
+    int folderIndex,
+    String appId,
+    int targetIndex, {
+    required String folderName,
+  }) {
+    _update(
+      (slots) => HomeGridLayout.moveFromFolderInto(
+        slots,
+        folderIndex,
+        appId,
+        targetIndex,
+        folderId: HomeGridLayout.newFolderId(slots),
+        folderName: folderName,
+      ),
+    );
+  }
+
+  void reorderFolder(int folderIndex, String appId, int position) {
+    _update(
+      (slots) =>
+          HomeGridLayout.reorderFolder(slots, folderIndex, appId, position),
+    );
+  }
+
+  void renameFolder(int folderIndex, String name) {
+    _update((slots) => HomeGridLayout.renameFolder(slots, folderIndex, name));
+  }
+
+  /// Applies one layout operation and saves its result; a null result is a
+  /// change that was not possible.
+  void _update(List<HomeGridItem?>? Function(List<HomeGridItem?> slots) edit) {
     final current = state.asData?.value;
     if (current == null) {
       return;
     }
-
-    final result = HomeGridLayout.resizeSlot(
-      current.slots,
-      index,
-      colSpan,
-      rowSpan,
-      pageSize,
-    );
-    if (result == null) {
+    final slots = edit(current.slots);
+    if (slots == null) {
       return;
     }
+    state = AsyncData(current.copyWith(slots: slots));
+    _save(slots);
+  }
 
-    state = AsyncData(current.copyWith(slots: result.slots));
-    unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(result.slots));
+  /// Saves [slots] as the shown orientation's layout, beside the others.
+  void _save(List<HomeGridItem?> slots) {
+    final layout = _layoutOf(slots);
+    final orientation = _orientation;
+    if (orientation != null) {
+      _layouts[orientation] = layout;
+    }
+    unawaited(
+      ref
+          .read(homeLayoutRepositoryProvider)
+          .saveLayouts(
+            orientation == null
+                ? HomeSavedLayouts(unassigned: layout)
+                : HomeSavedLayouts(layouts: {..._layouts}),
+          ),
+    );
   }
 }
 
-Map<String, DesktopApp> _appsByGridId(List<HomeGridItem?> slots) {
-  final appsById = <String, DesktopApp>{};
-  for (final item in slots) {
-    final app = item?.app;
-    if (app == null) {
-      continue;
-    }
-    appsById[item!.id] = app;
-  }
-  return appsById;
+List<HomeLayoutSlot?> _layoutOf(List<HomeGridItem?> slots) => [
+  for (final slot in slots) slot == null ? null : HomeLayoutSlot.of(slot),
+];
+
+Map<String, DesktopApp> _appsByGridId(Iterable<HomeGridItem> items) {
+  return <String, DesktopApp>{for (final item in items) item.id: ?item.app};
 }
 
 bool _sameDesktopApp(DesktopApp a, DesktopApp b) {
@@ -473,7 +549,10 @@ bool _savedLayoutNeedsRefresh(
     return true;
   }
 
-  final savedIds = <String>{for (final slot in savedLayout) ?slot?.id};
+  final savedIds = <String>{
+    for (final slot in savedLayout) ...?slot?.children,
+    for (final slot in savedLayout) ?slot?.id,
+  };
   if (savedIds.contains('widget:frame-time') ||
       savedIds.contains('widget:battery-discharge')) {
     return true;

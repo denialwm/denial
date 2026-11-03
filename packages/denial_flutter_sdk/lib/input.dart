@@ -1,5 +1,9 @@
 export 'src/input/input_layout.dart'
-    show InputLayoutSnapshot, InputWindowRegion;
+    show
+        InputEdge,
+        InputEdgeSwipeRegion,
+        InputLayoutSnapshot,
+        InputWindowRegion;
 export 'src/input/shell_interaction_registry.dart'
     show
         ShellCompositorPolicy,

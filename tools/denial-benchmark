@@ -1,0 +1,1160 @@
+#!/usr/bin/env python3
+"""Run declarative Denial desktop benchmarks on the tablet (Python stdlib only).
+
+All action deadlines and resource samples use the target's monotonic clock.
+Existing applications receive normal close requests; refusal aborts the run.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import csv
+import datetime
+import gzip
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import pwd
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+
+def write_json(path, value):
+    Path(path).write_text(json.dumps(value, indent=2) + '\n')
+
+
+def read(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return None
+
+
+def rpc(path, method, **params):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(6)
+        connection.connect(str(path))
+        connection.sendall((json.dumps(dict(method=method, **params)) + '\n').encode())
+        with connection.makefile('rb') as source:
+            line = source.readline(8 * 1024 * 1024)
+    response = json.loads(line)
+    if not response.get('ok'):
+        raise RuntimeError(response.get('error', response))
+    return response['result']
+
+
+def wait_state(path, predicate, timeout=12):
+    deadline = time.monotonic() + timeout
+    while True:
+        state = rpc(path, 'state')
+        if state['locked']:
+            raise RuntimeError('Session locked; benchmark stopped')
+        if predicate(state):
+            return state
+        if time.monotonic() >= deadline:
+            raise RuntimeError('State did not converge: ' + json.dumps(state))
+        time.sleep(.05)
+
+
+def stat(path):
+    text = Path(path).read_text()
+    fields = text[text.rindex(')') + 2:].split()
+    return {'name': text[text.index('(') + 1:text.rindex(')')],
+            'ticks': int(fields[11]) + int(fields[12]), 'start': int(fields[19]),
+            'rss_pages': int(fields[21]), 'cpu': int(fields[36]),
+            'minor_faults': int(fields[7]), 'major_faults': int(fields[9]),
+            'nice': int(fields[16]), 'rt_priority': int(fields[37]), 'policy': int(fields[38])}
+
+
+def gpu(pid, known_fds=None):
+    clients = {}
+    errors = []
+    fd_names = []
+    try:
+        directory = Path(f'/proc/{pid}/fdinfo')
+        entries = list(directory.iterdir()) if known_fds is None else [directory / name for name in known_fds]
+    except OSError as error:
+        return {'clients': {}, 'unavailable': str(error)}
+    for entry in entries:
+        try:
+            fields = dict(line.split(':', 1) for line in entry.read_text().splitlines()
+                          if line.startswith('drm-') and ':' in line)
+        except OSError as error:
+            errors.append(type(error).__name__)
+            continue
+        if 'drm-client-id' not in fields:
+            continue
+        key = '/'.join(fields.get(k, '').strip() for k in
+                       ('drm-driver', 'drm-pdev', 'drm-client-id'))
+        # Discovery checks all descriptors. Subsequent cached samples need only
+        # one representative per DRM client, avoiding repeated driver walks of
+        # the same contexts/BOs. Periodic discovery also handles fd replacement.
+        if key not in clients:
+            fd_names.append(getattr(entry, 'name', ''))
+        # Multiple fds may refer to the SAME DRM client. Count its maximum once.
+        client = clients.setdefault(key, {})
+        for name, value in fields.items():
+            if name.startswith('drm-engine-') and value.strip().endswith(' ns'):
+                client[name] = max(client.get(name, 0), int(value.split()[0]))
+            elif name.startswith(('drm-cycles-', 'drm-maxfreq-')):
+                client[name] = max(client.get(name, 0), int(value.split()[0]))
+            elif name in ('drm-total-memory', 'drm-shared-memory',
+                           'drm-resident-memory', 'drm-purgeable-memory'):
+                parts = value.split()
+                if len(parts) == 2 and parts[1] == 'KiB':
+                    client[name] = max(client.get(name, 0), int(parts[0]) * 1024)
+    return {'clients': clients, 'unavailable': sorted(set(errors)), 'fd_names': fd_names}
+
+
+def sample(pid, system_metrics=True, gpu_fds=None):
+    start = time.monotonic_ns()
+    cpu_start = time.thread_time_ns()
+    process = stat(f'/proc/{pid}/stat')
+    threads = {}
+    for entry in Path(f'/proc/{pid}/task').iterdir():
+        with contextlib.suppress(OSError):
+            threads[entry.name] = stat(entry / 'stat')
+    metrics = {}
+    scheduling = {}
+    if system_metrics:
+        fields = {'uclamp.min', 'uclamp.max', 'effective uclamp.min', 'effective uclamp.max',
+                  'se.avg.util_avg', 'nr_switches'}
+        for tid, task in threads.items():
+            if task['name'] not in ('io.flutter.ui', 'io.flutter.rast', 'volition-kms') and tid != str(pid):
+                continue
+            data = read(f'/proc/{pid}/task/{tid}/sched')
+            scheduling[tid] = None if data is None else {
+                key.strip(): value.strip() for line in data.splitlines() if ':' in line
+                for key, value in [line.split(':', 1)] if key.strip() in fields}
+    patterns = (
+        '/sys/devices/system/cpu/cpufreq/policy*/scaling_cur_freq',
+        '/sys/devices/system/cpu/cpufreq/policy*/cpuinfo_cur_freq',
+        '/sys/devices/system/cpu/cpufreq/policy*/scaling_min_freq',
+        '/sys/devices/system/cpu/cpufreq/policy*/scaling_max_freq',
+        '/sys/class/devfreq/*/cur_freq', '/sys/class/devfreq/*/max_freq',
+        '/sys/class/devfreq/*/min_freq', '/sys/class/devfreq/*/target_freq',
+        '/sys/class/thermal/thermal_zone*/temp',
+        '/sys/class/thermal/cooling_device*/cur_state',
+        '/proc/pressure/*', '/sys/class/power_supply/*/temp',
+        '/sys/class/power_supply/*/online', '/sys/class/power_supply/*/status',
+        '/sys/class/udc/*/state',
+    ) if system_metrics else ()
+    for pattern in patterns:
+        import glob
+        for path in glob.glob(pattern):
+            metrics[path] = read(path)
+    gpu_state = gpu(pid, gpu_fds)
+    return {'monotonic_ns': start, 'duration_ns': time.monotonic_ns() - start,
+            'observer_thread_cpu_ns': time.thread_time_ns() - cpu_start,
+            'process': process, 'threads': threads, 'gpu': gpu_state,
+            'metrics': metrics, 'thread_scheduling': scheduling, 'meminfo': read('/proc/meminfo'),
+            'cpu_stat': read('/proc/stat')}
+
+
+class Sampler:
+    def __init__(self, pid, destination, interval):
+        self.pid, self.destination, self.interval = pid, destination, interval
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.error = None
+
+    def run(self):
+        try:
+            with self.destination.open('x') as stream:
+                deadline = time.monotonic()
+                last_system = -math.inf
+                fds = None
+                while not self.stop.is_set():
+                    detailed = time.monotonic() - last_system >= 2
+                    value = sample(self.pid, system_metrics=detailed,
+                                   gpu_fds=None if detailed else fds)
+                    if detailed:
+                        last_system = time.monotonic()
+                        fds = value['gpu'].get('fd_names')
+                    stream.write(json.dumps(value) + '\n')
+                    stream.flush()
+                    deadline += self.interval
+                    self.stop.wait(max(0, deadline - time.monotonic()))
+        except BaseException as error:
+            self.error = str(error)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop.set()
+        self.thread.join(timeout=4)
+        if self.error:
+            raise RuntimeError('Resource sampler failed: ' + self.error)
+
+
+class NativePresentationCounter:
+    """Count native KMS events independently of Flutter/client frame counts.
+
+    This tablet has one active physical DRM output. Reports reject ambiguous
+    streams and trace overruns instead of inventing a frame denominator.
+    """
+    def __init__(self, root, pid):
+        self.root, self.pid, self.instance = root, pid, None
+
+    def start(self):
+        assert os.geteuid() == 0
+        clients = Path('/sys/kernel/debug/dri/0/clients').read_text()
+        master_ids = {line.split()[-1] for line in clients.splitlines()[1:]
+                      if len(line.split()) >= 9 and line.split()[2:4] == ['0', 'y']}
+        own_ids = {key.rsplit('/', 1)[-1] for key in gpu(self.pid)['clients']}
+        if not master_ids.intersection(own_ids):
+            raise RuntimeError('Native frame counter cannot establish ownership of DRM master')
+        self.instance = Path('/sys/kernel/tracing/instances') / f'denial-work-{os.getpid()}'
+        self.instance.mkdir()
+        write_json(self.root / 'native-counter-identity.json',
+                   {'pid': self.pid, 'drm_clients': clients, 'master_client_ids': sorted(master_ids)})
+        (self.instance / 'buffer_size_kb').write_text('2048')
+        (self.instance / 'trace_clock').write_text('mono')
+        (self.instance / 'events/drm/drm_vblank_event_delivered/enable').write_text('1')
+        (self.instance / 'tracing_on').write_text('1')
+
+    def stop(self):
+        if self.instance is None:
+            return
+        instance, self.instance = self.instance, None
+        try:
+            (instance / 'tracing_on').write_text('0')
+            stats = {p.parent.name: p.read_text() for p in instance.glob('per_cpu/cpu*/stats')}
+            lost = sum(int(value) for data in stats.values() for key, value in
+                       (line.split(':', 1) for line in data.splitlines() if ':' in line)
+                       if key in ('overrun', 'commit overrun', 'dropped events'))
+            write_json(self.root / 'native-counter-quality.json', {'lost_events': lost, 'cpu_stats': stats})
+            expression = re.compile(r'(\d+\.\d+): drm_vblank_event_delivered: file=(\S+), crtc=(\d+), seq=(\d+)')
+            with (instance / 'trace').open() as source, gzip.open(
+                    self.root / 'native-presentations.trace.gz', 'wt') as raw, (
+                    self.root / 'native-presentations.jsonl').open('x') as events:
+                for line in source:
+                    raw.write(line)
+                    match = expression.search(line)
+                    if match:
+                        seconds, dot, fraction = match[1].partition('.')
+                        value = {'monotonic_ns': int(seconds) * 10**9 + int(fraction.ljust(9, '0')),
+                                 'file': match[2], 'crtc': int(match[3]), 'sequence': int(match[4])}
+                        events.write(json.dumps(value) + '\n')
+        finally:
+            instance.rmdir()
+
+
+def parse_hardware_counters(path):
+    result = {}
+    for fields in csv.reader(path.read_text().splitlines()):
+        if len(fields) < 5 or not fields[2].strip():
+            continue
+        name = fields[2].strip()
+        try:
+            result[name] = {'count': float(fields[0]), 'runtime_ns': int(fields[3]),
+                            'running_percent': float(fields[4])}
+        except ValueError:
+            result[name] = {'unavailable': fields[0].strip()}
+    return result
+
+
+def summarize_workload_presentation(events, start, end, refresh_ns):
+    started = next((e for e in events if e['event'] == 'started'), {})
+    if started.get('clock_id') != time.CLOCK_MONOTONIC:
+        return {'unavailable': 'Presentation clock is not CLOCK_MONOTONIC'}
+    presented = sorted((e for e in events if e['event'] == 'presented'
+                        and start <= e['presentation_ns'] < end),
+                       key=lambda e: e['presentation_ns'])
+    intervals = [(b['presentation_ns'] - a['presentation_ns']) / 1e6
+                 for a, b in zip(presented, presented[1:])]
+    latency, missing, negative = [], 0, 0
+    for event in presented:
+        submitted = event.get('submitted_ns')
+        if submitted is None:
+            missing += 1
+        elif event['presentation_ns'] < submitted:
+            negative += 1
+        else:
+            latency.append((event['presentation_ns'] - submitted) / 1000)
+    return {
+        'clock_id': started['clock_id'], 'timestamps_comparable': True,
+        'frames': len(presented), 'fps_over_phase': len(presented) / ((end - start) / 1e9),
+        'first_presentation_offset_ms': (presented[0]['presentation_ns'] - start) / 1e6
+            if presented else None,
+        'last_presentation_offset_ms': (presented[-1]['presentation_ns'] - start) / 1e6
+            if presented else None,
+        'interval_ms': distribution(intervals),
+        'intervals_over_1_5_refresh': sum(t > refresh_ns / 1e6 * 1.5 for t in intervals),
+        'discarded_received_during_phase': sum(e['event'] == 'discarded'
+            and start <= e['received_ns'] < end for e in events),
+        # The workload samples submitted_ns before EGL swap. This includes
+        # application/swap/compositor work; it is not isolated input latency.
+        'submit_to_presentation_us': distribution(latency),
+        'submit_latency_quality': {'usable_samples': len(latency),
+            'missing_submit_timestamp': missing, 'negative_intervals': negative},
+    }
+
+
+def native_presentation_count(events, quality):
+    streams = {(e['file'], e['crtc']) for e in events}
+    if not quality or quality['lost_events'] or len(streams) != 1:
+        return None
+    if len({e['sequence'] for e in events}) != len(events):
+        return None
+    return len(events)
+
+
+def digest(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def process_artifacts(pid):
+    artifacts, unavailable = {}, {}
+    try:
+        names = {line.split()[-1] for line in Path(f'/proc/{pid}/maps').read_text().splitlines()
+                 if line.endswith('/libapp.so') or line.endswith('/libflutter_engine.so')}
+        names.add(f'/proc/{pid}/exe')
+        for name in sorted(names):
+            try:
+                artifacts[name] = digest(name)
+            except OSError as error:
+                unavailable[name] = str(error)
+    except OSError as error:
+        unavailable['maps'] = str(error)
+    return {'artifacts_sha256': artifacts, 'unavailable': unavailable}
+
+
+def metadata(pid):
+    policies = {}
+    for root in Path('/sys/devices/system/cpu/cpufreq').glob('policy*'):
+        policies[root.name] = {name: read(root / name) for name in
+                              ('scaling_driver', 'scaling_governor', 'scaling_min_freq',
+                               'scaling_max_freq', 'scaling_cur_freq', 'cpuinfo_cur_freq',
+                               'cpuinfo_min_freq', 'cpuinfo_max_freq', 'affected_cpus')}
+    return {'kernel': os.uname().release, 'host': os.uname().nodename,
+            'boot_id': read('/proc/sys/kernel/random/boot_id'),
+            'root_id': read('/etc/pad4-root-id'), 'pid': pid,
+            'process_start': stat(f'/proc/{pid}/stat')['start'],
+            'clock_ticks': os.sysconf('SC_CLK_TCK'),
+            'page_size': os.sysconf('SC_PAGE_SIZE'),
+            **process_artifacts(pid),
+            'cpu_policies': policies,
+            'memory_policy': {name: read(Path('/sys/kernel/mm/transparent_hugepage') / name)
+                              for name in ('enabled', 'defrag', 'shmem_enabled')},
+            'power': {str(path): read(path) for name in ('online', 'status', 'usb_type')
+                      for path in Path('/sys/class/power_supply').glob('*/' + name)},
+            'thermal_types': {p.parent.name: read(p) for p in
+                              Path('/sys/class/thermal').glob('thermal_zone*/type')},
+            'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+
+
+def distribution(values):
+    values = sorted(values)
+    if not values:
+        return {'count': 0}
+    return {'count': len(values), 'mean': sum(values) / len(values),
+            **{f'p{p}': values[math.ceil(len(values) * p / 100) - 1]
+               for p in (50, 95, 99)}, 'max': values[-1]}
+
+
+def summarize_phase(phase, hz, refresh_ns):
+    first, last = phase['resources_begin'], phase['resources_end']
+    seconds = (last['monotonic_ns'] - first['monotonic_ns']) / 1e9
+    if first['process']['start'] != last['process']['start']:
+        raise RuntimeError('Compositor restarted during phase')
+    threads = []
+    for tid, end in last['threads'].items():
+        begin = first['threads'].get(tid)
+        if begin and begin['start'] == end['start']:
+            threads.append({'tid': tid, 'name': end['name'],
+                            'one_core_percent': (end['ticks'] - begin['ticks']) / hz / seconds * 100})
+    engines = {}
+    for client, values in last['gpu']['clients'].items():
+        before = first['gpu']['clients'].get(client, {})
+        engines[client] = {name: (n - before[name]) / (seconds * 1e9) * 100
+                           for name, n in values.items() if name in before and name.startswith('drm-engine-')}
+    captured_frames = phase['timings']['frames']
+    # Capture RPCs and resource reads bracket the measured interval. Delayed
+    # timing batches can include frames outside it; use the same half-open
+    # monotonic window as native presentation and client-feedback accounting.
+    frames = [frame for frame in captured_frames
+              if phase['begin_ns'] <= frame[0] * 1000 < phase['end_ns']]
+    intervals = [b[0] - a[0] for a, b in zip(frames, frames[1:])]
+    budget = refresh_ns / 1000
+    system_busy = None
+    if first.get('cpu_stat') and last.get('cpu_stat'):
+        begin = list(map(int, first['cpu_stat'].splitlines()[0].split()[1:9]))
+        end = list(map(int, last['cpu_stat'].splitlines()[0].split()[1:9]))
+        delta = [b - a for a, b in zip(begin, end)]
+        if sum(delta) > 0:
+            system_busy = (sum(delta) - delta[3] - delta[4]) / sum(delta) * 100
+    refresh_slots = seconds * 1e9 / refresh_ns
+    cpu_ms = (last['process']['ticks'] - first['process']['ticks']) / hz * 1000
+    gpu_work = {}
+    for client, values in last['gpu']['clients'].items():
+        before = first['gpu']['clients'].get(client, {})
+        if 'drm-engine-gpu' not in before or 'drm-engine-gpu' not in values:
+            continue
+        elapsed_ns = values['drm-engine-gpu'] - before['drm-engine-gpu']
+        cycles = values['drm-cycles-gpu'] - before['drm-cycles-gpu'] if 'drm-cycles-gpu' in values and 'drm-cycles-gpu' in before else None
+        gpu_work[client] = {'execution_ms': elapsed_ns / 1e6, 'cycles': cycles,
+                            'ms_per_refresh_interval': elapsed_ns / 1e6 / refresh_slots,
+                            'effective_clock_mhz': cycles * 1000 / elapsed_ns if cycles is not None and elapsed_ns > 0 else None}
+    return {'name': phase['name'], 'resource_wall_seconds': seconds,
+            'work': {'cpu_ms': cpu_ms, 'cpu_ms_per_refresh_interval': cpu_ms / refresh_slots,
+                     'refresh_budget_ms': refresh_ns / 1e6, 'gpu': gpu_work},
+            'system_cpu_busy_percent_all_cores': system_busy,
+            'cpu_one_core_percent': (last['process']['ticks'] - first['process']['ticks']) / hz / seconds * 100,
+            'rss_mib': last['process']['rss_pages'] * os.sysconf('SC_PAGE_SIZE') / 2**20,
+            'gpu_engine_busy_percent': engines, 'gpu_unavailable': last['gpu']['unavailable'],
+            'threads': sorted(threads, key=lambda t: -t['one_core_percent'])[:15],
+            'timing_window': {'captured_samples': len(captured_frames),
+                              'samples_in_phase': len(frames),
+                              'samples_outside_phase': len(captured_frames) - len(frames)},
+            'build_us': distribution([f[1] for f in frames]),
+            'raster_us': distribution([f[2] for f in frames]),
+            'total_span_us': distribution([f[3] for f in frames]),
+            'vsync_intervals_us': distribution(intervals),
+            'build_over_budget': sum(f[1] > budget for f in frames),
+            'raster_over_budget': sum(f[2] > budget for f in frames),
+            'action_lateness_us': distribution([a['lateness_ns'] / 1000 for a in phase['actions']]),
+            'timing_overflow': phase['timings']['overflow']}
+
+
+def summarize_clocks(rows, policies):
+    result = {}
+    for name, policy in policies.items():
+        minimum, maximum = policy.get('scaling_min_freq'), policy.get('scaling_max_freq')
+        fixed = int(minimum) if minimum is not None and minimum == maximum else None
+        fields = ('cpuinfo_cur_freq', 'scaling_min_freq', 'scaling_max_freq')
+        values = {field: [int(row['metrics'][f'/sys/devices/system/cpu/cpufreq/{name}/{field}'])
+                          for row in rows if row.get('metrics', {}).get(
+                              f'/sys/devices/system/cpu/cpufreq/{name}/{field}') is not None]
+                  for field in fields}
+        result[name] = {'requested_fixed_khz': fixed,
+                        **{field: distribution(v) for field, v in values.items()},
+                        'reported_clock_deviations': None if fixed is None else
+                        sum(v != fixed for v in values['cpuinfo_cur_freq']),
+                        'limit_deviations': None if fixed is None else
+                        sum(v != fixed for field in fields[1:] for v in values[field])}
+    return result
+
+
+def summarize_gpu_memory(rows):
+    clients = {}
+    for row in sorted(rows, key=lambda r: r['monotonic_ns']):
+        for client, values in row['gpu']['clients'].items():
+            for name, value in values.items():
+                if name.endswith('-memory'):
+                    clients.setdefault(client, {}).setdefault(name, []).append(value / 2**20)
+    return {client: {name: {'first': v[0], 'last': v[-1], 'peak': max(v)}
+                     for name, v in values.items()} for client, values in clients.items()}
+
+
+def summarize_system_memory(rows):
+    fields = {'MemAvailable': [], 'Shmem': [], 'AnonPages': []}
+    for row in rows:
+        for name, value in re.findall(r'^(\w+):\s+(\d+) kB\s*$',
+                                      row.get('meminfo') or '', re.MULTILINE):
+            if name in fields:
+                fields[name].append(int(value) / 1024)
+    return {'available_samples': len(fields['MemAvailable']),
+            'min_available_mib': min(fields['MemAvailable'], default=None),
+            'max_shmem_mib': max(fields['Shmem'], default=None),
+            'max_anon_mib': max(fields['AnonPages'], default=None)}
+
+
+AUDIT_NUMBER = re.compile(r'\b([A-Za-z_][A-Za-z_0-9]*)=(-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\b')
+AUDIT_STAGE = re.compile(r'\b([a-z_]+)=(\d+):total_us=([0-9.eE+-]+)/avg_us=([0-9.eE+-]+)/p95_us=([0-9.eE+-]+)/max_us=([0-9.eE+-]+)/pixels=(\d+)')
+
+
+def journal_audit_messages(rows, pid, boot_id):
+    """journalctl JSON may encode ANSI/binary MESSAGE fields as byte arrays."""
+    result = []
+    for row in rows:
+        if str(row.get('_PID')) != str(pid) or row.get('_BOOT_ID') != boot_id.replace('-', ''):
+            continue
+        message = row.get('MESSAGE', '')
+        if isinstance(message, list):
+            message = bytes(message).decode('utf-8', errors='replace')
+        if not isinstance(message, str):
+            continue
+        message = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', message)
+        if any(s in message for s in ('Flutter per-output render audit',
+                                      'Denial/Volition output scheduler audit',
+                                      'Denial GPU stage audit',
+                                      'Denial layered composition audit')):
+            result.append({'monotonic_ns': int(row['__MONOTONIC_TIMESTAMP']) * 1000,
+                           'message': message})
+    return result
+
+
+def summarize_audit_phase(phase, messages):
+    def intervals(pattern):
+        selected = []
+        for row in messages:
+            if pattern not in row['message']:
+                continue
+            values = {k: float(v) for k, v in AUDIT_NUMBER.findall(row['message'])}
+            if values.get('interval_ms', 0) <= 0:
+                continue
+            end = row['monotonic_ns']
+            start = end - values.get('interval_ms', 0) * 1e6
+            # Exclude intervals straddling warmup or another scene.
+            if start >= phase['begin_ns'] and end <= phase['end_ns']:
+                selected.append((values, row['message']))
+        return selected
+
+    native = intervals('Flutter per-output render audit')
+    count = sum(v.get('gpu_render_samples', 0) for v, _ in native)
+    gpu = {'intervals': len(native), 'samples': count,
+           'disjoint_samples': sum(v.get('gpu_timer_disjoint', 0) for v, _ in native),
+           'abandoned_samples': sum(v.get('gpu_timer_abandoned', 0) for v, _ in native)}
+    for field in ('gpu_flutter_render_avg_us', 'gpu_scanout_blit_avg_us', 'gpu_frame_avg_us'):
+        complete = count and all(field in v for v, _ in native if v.get('gpu_render_samples', 0))
+        gpu[field] = sum(v.get(field, 0) * v.get('gpu_render_samples', 0)
+                         for v, _ in native) / count if complete else None
+    tails = [v['gpu_frame_p95_us'] for v, _ in native
+             if v.get('gpu_render_samples', 0) and 'gpu_frame_p95_us' in v]
+    gpu['interval_p95_us_range'] = [min(tails), max(tails)] if tails else None
+    scheduling = intervals('Denial/Volition output scheduler audit')
+    scheduler = {'intervals': len(scheduling)}
+    for field in ('ready_published', 'real_submissions', 'presentations', 'stale_ready_drops'):
+        scheduler[field] = sum(v.get(field, 0) for v, _ in scheduling)
+    scheduler['stale_ready_fraction'] = (
+        scheduler['stale_ready_drops'] / scheduler['ready_published']
+        if scheduler['ready_published'] else None)
+    stages = intervals('Denial GPU stage audit')
+    diagnostic = {'intervals': len(stages),
+                  'disjoint_samples': sum(v.get('disjoint', 0) for v, _ in stages),
+                  'abandoned_samples': sum(v.get('abandoned', 0) for v, _ in stages),
+                  'stages': {}}
+    for _, message in stages:
+        for name, samples, total, average, p95, maximum, pixels in AUDIT_STAGE.findall(message):
+            target = diagnostic['stages'].setdefault(name, {
+                'samples': 0, 'recorded_gpu_us': 0, 'pixels': 0, 'max_us': 0})
+            target['samples'] += int(samples)
+            target['recorded_gpu_us'] += float(total)
+            target['pixels'] += int(pixels)
+            target['max_us'] = max(target['max_us'], float(maximum))
+    diagnostic['recorded_samples'] = sum(v['samples'] for v in diagnostic['stages'].values())
+    diagnostic['timings_usable'] = bool(
+        diagnostic['recorded_samples'] and not diagnostic['disjoint_samples'] and
+        not diagnostic['abandoned_samples'])
+    # Both collectors read the same GL_GPU_DISJOINT_EXT acknowledgement flag.
+    # A stage observer can consume it before the native observer sees it. Keep
+    # recorded values for diagnosis, but do not treat native timings as an
+    # independent quality check when the concurrent stage capture has losses.
+    gpu['timings_usable'] = bool(
+        count and not gpu['disjoint_samples'] and not gpu['abandoned_samples'] and
+        not diagnostic['disjoint_samples'] and not diagnostic['abandoned_samples'] and
+        gpu['gpu_frame_avg_us'] is not None)
+    # Engine-side, only with DENIAL_RENDER_AUDIT=1; one line per output
+    # view and interval. Counters are summed over views, max_* and retained_*
+    # gauges take the maximum.
+    layered_intervals = intervals('Denial layered composition audit')
+    layered = {'intervals': len(layered_intervals),
+               'views': sorted({int(v['view']) for v, _ in layered_intervals if 'view' in v})}
+    for field in ('direct_frames', 'layered_frames', 'recomposed_frames', 'single_slice_frames',
+                  'failed_frames', 'composed_pixels', 'slice_blit_pixels', 'window_cuts',
+                  'material_cuts', 'texture_cuts', 'slices', 'slices_reused', 'slices_rendered',
+                  'rendered_new', 'rendered_bounds', 'rendered_content', 'rendered_pixels',
+                  'rendered_slice_pixels', 'slice_allocations', 'slice_pool_reuses',
+                  'slice_render_total_us', 'compose_total_us', 'recompose_total_us'):
+        total = sum(v.get(field, 0) for v, _ in layered_intervals)
+        layered[field] = total if field.endswith('_us') else int(total)
+    for field in ('max_cuts', 'max_slices', 'retained_slices', 'retained_slice_pixels',
+                  'pooled_slices', 'pooled_slice_pixels', 'compose_max_us', 'recompose_max_us'):
+        peak = max((v.get(field, 0) for v, _ in layered_intervals), default=0)
+        layered[field] = peak if field.endswith('_us') else int(peak)
+    layered['slice_reuse_fraction'] = (
+        layered['slices_reused'] / layered['slices'] if layered['slices'] else None)
+    layered['compose_avg_us'] = (
+        layered['compose_total_us'] / layered['layered_frames'] if layered['layered_frames'] else None)
+    layered['recompose_avg_us'] = (
+        layered['recompose_total_us'] / layered['recomposed_frames']
+        if layered['recomposed_frames'] else None)
+    return {'name': phase['name'], 'native_render_markers': gpu,
+            'scheduler': scheduler, 'engine_gpu_diagnostic': diagnostic,
+            'layered_composition': layered}
+
+
+def audit_report(root, journal):
+    metadata = json.loads((root / 'metadata.json').read_text())
+    opener = gzip.open if journal.suffix == '.gz' else open
+    with opener(journal, 'rt') as stream:
+        messages = journal_audit_messages((json.loads(line) for line in stream),
+                                          metadata['pid'], metadata['boot_id'])
+    if not messages:
+        raise RuntimeError('No audit records match this capture PID and boot')
+    phases = [json.loads(p.read_text()) for p in sorted(root.glob('phase-*.json'))]
+    invasive = any('Denial GPU stage audit' in m['message'] for m in messages)
+    result = {'pid': metadata['pid'], 'boot_id': metadata['boot_id'],
+              'journal_sha256': digest(journal), 'reporter_sha256': digest(__file__),
+              'capture_runner_sha256': metadata.get('runner_sha256'),
+              'invasive_gpu_stage_audit': invasive,
+              'phases': [summarize_audit_phase(p, messages) for p in phases],
+              'scope': ['Native GPU markers bracket output rendering, including discarded frames; they exclude work before backing-store acquisition.',
+                        'Interval p95 ranges are not an aggregate frame p95.',
+                        'Per-draw queries can perturb tiled GPUs. Root command spans overlap their containing passes; do not sum them.',
+                        'Stage pixel counts are target/scissor extents, not covered samples or transferred bytes.',
+                        'Disjoint/abandoned samples are missing evidence; recorded stage totals are not full work totals.',
+                        'Stage timing comparisons require timings_usable=true. Native and engine collectors share the disjoint acknowledgement flag; native timings are also withheld when the concurrent stage capture rejects samples.',
+                        'Layered composition build and recompose times are raster-thread CPU for changed slices and composition encoding, before the present callback; they are not GPU time. Composed pixels are the buffer damage of layered frames.']}
+    write_json(root / 'audit-summary.json', result)
+    lines = ['| Phase | GPU marker samples | Render GPU avg ms | Ready frames | Late ready drops | Late discard % |',
+             '|---|---:|---:|---:|---:|---:|']
+    for p in result['phases']:
+        gpu, scheduler = p['native_render_markers'], p['scheduler']
+        milliseconds = gpu['gpu_frame_avg_us'] if gpu['timings_usable'] else None
+        fraction = scheduler['stale_ready_fraction']
+        lines.append('| {} | {:.0f} | {} | {:.0f} | {:.0f} | {} |'.format(
+            p['name'], gpu['samples'], 'n/a' if milliseconds is None else f'{milliseconds / 1000:.3f}',
+            scheduler['ready_published'], scheduler['stale_ready_drops'],
+            'n/a' if fraction is None else f'{fraction * 100:.2f}'))
+    if invasive:
+        lines += ['', '| Phase | Recorded stage query samples | Invalid/disjoint queries | Abandoned queries | Stage timings usable |',
+                  '|---|---:|---:|---:|---|']
+        for p in result['phases']:
+            d = p['engine_gpu_diagnostic']
+            lines.append('| {} | {} | {:.0f} | {:.0f} | {} |'.format(
+                p['name'], d['recorded_samples'], d['disjoint_samples'],
+                d['abandoned_samples'], d['timings_usable']))
+    if any(p['layered_composition']['intervals'] for p in result['phases']):
+        lines += ['', '| Phase | Direct frames | Layered builds | Recomposed | Single-slice builds | Failed | Composed Mpx | Slice blit Mpx | Max cuts | Slices | Reused % | Re-rendered (new/bounds/content) | Re-rendered Mpx | Allocations | Pool reuses | Build avg ms | Build max ms | Recompose avg ms | Recompose max ms |',
+                  '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|']
+        milliseconds = lambda us: 'n/a' if us is None else f'{us / 1000:.3f}'
+        for p in result['phases']:
+            l = p['layered_composition']
+            reuse = l['slice_reuse_fraction']
+            lines.append('| {} | {} | {} | {} | {} | {} | {:.1f} | {:.1f} | {} | {} | {} | {}/{}/{} | {:.1f} | {} | {} | {} | {} | {} | {} |'.format(
+                p['name'], l['direct_frames'], l['layered_frames'], l['recomposed_frames'],
+                l['single_slice_frames'], l['failed_frames'], l['composed_pixels'] / 1e6,
+                l['slice_blit_pixels'] / 1e6,
+                l['max_cuts'], l['slices'], 'n/a' if reuse is None else f'{reuse * 100:.1f}',
+                l['rendered_new'], l['rendered_bounds'], l['rendered_content'],
+                l['rendered_pixels'] / 1e6, l['slice_allocations'], l['slice_pool_reuses'],
+                milliseconds(l['compose_avg_us']), milliseconds(l['compose_max_us']),
+                milliseconds(l['recompose_avg_us']), milliseconds(l['recompose_max_us'])))
+    lines += ['', f'Invasive engine GPU tracing: {invasive}.', '', *result['scope']]
+    (root / 'audit-summary.md').write_text('\n'.join(lines) + '\n')
+    print('\n'.join(lines))
+
+
+def capture_audit(root, pid):
+    # --all preserves complete fields. Binary/ANSI MESSAGE arrays are decoded
+    # by audit_report; keeping raw JSON also preserves the original evidence.
+    raw = subprocess.check_output(['journalctl', '-b', f'_PID={pid}', '-o', 'json',
+                                   '--all', '--no-pager'])
+    journal = root / 'audit-journal.jsonl.gz'
+    with gzip.open(journal, 'xb') as output:
+        output.write(raw)
+    audit_report(root, journal)
+
+
+def diagnostic_audit_active(environment):
+    native = environment.get('DENIAL_RENDER_AUDIT', environment.get('DENIA_RENDER_AUDIT', ''))
+    native_enabled = native.strip().lower() in ('1', 'true', 'yes', 'on')
+    # The engine's legacy opt-in uses its own literal nonempty/nonzero parser.
+    stage = environment.get('DENIA_GPU_STAGE_AUDIT', '')
+    return native_enabled or stage not in ('', '0')
+
+
+def wait_render_ready(log, process, timeout=25):
+    deadline = time.monotonic() + timeout
+    started = None
+    with log.open() as stream:
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(f'Render client exited before presentation: {process.returncode}')
+            position = stream.tell()
+            line = stream.readline()
+            if not line.endswith('\n'):
+                stream.seek(position)
+                time.sleep(.05)
+                continue
+            event = json.loads(line)
+            if event['event'] == 'started':
+                started = event
+                if not event.get('presentation_available') or event.get('clock_id') != time.CLOCK_MONOTONIC:
+                    raise RuntimeError('Render client requires monotonic presentation feedback')
+            elif event['event'] == 'presented':
+                if started is None:
+                    raise RuntimeError('Presentation arrived before render client start record')
+                return {'started': started, 'first_presented': event,
+                        'ready_observed_monotonic_ns': time.monotonic_ns()}
+    raise RuntimeError('Render client produced no presentation feedback within readiness timeout')
+
+
+def report(root):
+    meta = json.loads((root / 'metadata.json').read_text())
+    outputs = json.loads((root / 'outputs.json').read_text())
+    monitor = json.loads((root / 'scenario.json').read_text())['monitor_id']
+    output = next(o for o in outputs['outputs'] if o['monitor_id'] == monitor)
+    refresh_ns = 1e12 / output['current_mode']['refresh_millihz']
+    phase_paths = sorted(root.glob('phase-*.json'))
+    phases = [json.loads(p.read_text()) for p in phase_paths]
+    results = [summarize_phase(p, meta['clock_ticks'], refresh_ns) for p in phases]
+    native_path = root / 'native-presentations.jsonl'
+    native = [json.loads(line) for line in native_path.read_text().splitlines()] if native_path.exists() else []
+    quality_path = root / 'native-counter-quality.json'
+    quality = json.loads(quality_path.read_text()) if quality_path.exists() else None
+    for path, phase, result in zip(phase_paths, phases, results):
+        samples = root / (path.stem.replace('phase-', 'samples-', 1) + '.jsonl')
+        rows = [json.loads(line) for line in samples.read_text().splitlines()] if samples.exists() else []
+        observations = [row for row in rows if phase['begin_ns'] <= row['monotonic_ns'] < phase['end_ns']]
+        observations += [phase['resources_begin'], phase['resources_end']]
+        result['cpu_frequency'] = summarize_clocks(observations, meta.get('cpu_policies', {}))
+        result['gpu_memory_mib'] = summarize_gpu_memory(observations)
+        result['system_memory'] = summarize_system_memory(observations)
+        events = [e for e in native if phase['begin_ns'] <= e['monotonic_ns'] < phase['end_ns']]
+        work = result['work']
+        work['native_presentations'] = native_presentation_count(events, quality)
+        count = work['native_presentations']
+        work['native_counter_quality'] = {
+            'trace_lost_events': quality['lost_events'] if quality else None,
+            'event_count': len(events),
+            'stream_count': len({(e['file'], e['crtc']) for e in events}),
+            'repeated_sequences': len(events) - len({e['sequence'] for e in events}),
+            'per_presentation_usable': count is not None}
+        if count:
+            work['cpu_ms_per_native_presentation'] = work['cpu_ms'] / count
+            for value in work['gpu'].values():
+                value['ms_per_native_presentation'] = value['execution_ms'] / count
+                value['cycles_per_native_presentation'] = value['cycles'] / count if value['cycles'] is not None else None
+        counters = root / (path.stem.replace('phase-', 'counters-', 1) + '.csv')
+        if counters.exists():
+            work['cpu_hardware_counters'] = parse_hardware_counters(counters)
+            for value in work['cpu_hardware_counters'].values():
+                if 'count' in value:
+                    value['per_native_presentation'] = value['count'] / count if count else None
+    feedback = root / 'render-workload.jsonl'
+    if feedback.exists():
+        events = [json.loads(line) for line in feedback.read_text().splitlines()]
+        for phase, result in zip(phases, results):
+            result['workload_presentation'] = summarize_workload_presentation(
+                events, phase['begin_ns'], phase['end_ns'], refresh_ns)
+    write_json(root / 'summary.json', results)
+    write_json(root / 'summary-provenance.json', {'reporter_sha256': digest(__file__),
+                                               'capture_runner_sha256': meta.get('runner_sha256')})
+    lines = ['| Phase | CPU % of one core | Raster p95 ms | Frames | Render client fps |',
+             '|---|---:|---:|---:|---:|']
+    for result in results:
+        lines.append('| {} | {:.1f} | {} | {} | {:.1f} |'.format(
+            result['name'], result['cpu_one_core_percent'],
+            round(result['raster_us']['p95'] / 1000, 2) if result['raster_us']['count'] else 'n/a',
+            result['raster_us']['count'], result.get('workload_presentation', {}).get('fps_over_phase', 0)))
+    lines += ['', '| Phase | Native presents | CPU ms/present | GPU ms/present | GPU MHz during work |',
+              '|---|---:|---:|---:|---:|']
+    for result in results:
+        work = result['work']
+        values = list(work['gpu'].values())
+        gpu_ms = sum(v['ms_per_native_presentation'] for v in values) if values and work['native_presentations'] else None
+        timed = [v for v in values if v['cycles'] is not None and v['execution_ms'] > 0]
+        effective_clock = sum(v['cycles'] for v in timed) / sum(v['execution_ms'] for v in timed) / 1000 if timed else None
+        display = lambda v: 'n/a' if v is None else f'{v:.3f}'
+        lines.append('| {} | {} | {} | {} | {} |'.format(result['name'],
+            work['native_presentations'] if work['native_presentations'] is not None else 'n/a',
+            display(work.get('cpu_ms_per_native_presentation')), display(gpu_ms),
+            display(effective_clock)))
+    if any('cpu_hardware_counters' in r['work'] for r in results):
+        lines += ['', '| Phase | CPU Mcycles/present | CPU Minstructions/present | L2 refills/present | Bus accesses/present | Min counter running % |',
+                  '|---|---:|---:|---:|---:|---:|']
+        for result in results:
+            counters = result['work'].get('cpu_hardware_counters', {})
+            def event(name, divisor=1):
+                value = counters.get(name, {}).get('per_native_presentation')
+                return 'n/a' if value is None else f'{value / divisor:.3f}'
+            running = [c['running_percent'] for c in counters.values() if 'running_percent' in c]
+            lines.append('| {} | {} | {} | {} | {} | {} |'.format(result['name'],
+                event('cycles', 1e6), event('instructions', 1e6),
+                event('armv8_pmuv3/l2d_cache_refill/'), event('armv8_pmuv3/bus_access/'),
+                f'{min(running):.1f}' if running else 'n/a'))
+    if any(r['system_memory']['available_samples'] for r in results):
+        lines += ['', '| Phase | Min available RAM MiB | Max shmem MiB |',
+                  '|---|---:|---:|']
+        for result in results:
+            memory = result['system_memory']
+            values = [memory['min_available_mib'], memory['max_shmem_mib']]
+            lines.append('| {} | {} | {} |'.format(result['name'],
+                *('n/a' if v is None else f'{v:.1f}' for v in values)))
+    lines += ['', 'CPU/GPU accounting is for deniald. Flutter FrameTiming is build/raster timing,',
+              'not KMS presentation. Client presentation feedback measures that client only.',
+              'Idle or hidden clients are not expected to submit at the refresh rate.',
+              'CPU sums all Denial threads; CPU and GPU work overlap and must not be added.',
+              'Per-presentation cost requires a lossless, unambiguous native KMS event stream.',
+              'Hardware cache/bus events are memory-pressure proxies, not measured DDR bandwidth.']
+    (root / 'summary.md').write_text('\n'.join(lines) + '\n')
+    print('\n'.join(lines), flush=True)
+
+
+def profile_report(args):
+    root = args.directory.resolve()
+    cache = root / 'buildid-cache'
+    env = dict(os.environ, LD_LIBRARY_PATH=str(args.perf.parent.parent / 'lib'))
+    command = [str(args.perf), '--buildid-dir', str(cache)]
+    if args.engine_symbols:
+        notes = subprocess.check_output(['readelf', '-n', str(args.engine_symbols)], text=True)
+        build_id = re.search(r'Build ID: ([0-9a-f]+)', notes).group(1)
+        captured = '\n'.join(subprocess.check_output(command + ['buildid-list', '-i', str(p)],
+                            env=env, text=True) for p in root.glob('perf-*.data'))
+        if build_id not in captured:
+            raise RuntimeError('Engine symbols do not match a captured build ID')
+        subprocess.run(command + ['buildid-cache', '--add', str(args.engine_symbols)],
+                       env=env, check=True)
+    for path in sorted(root.glob('perf-*.data')):
+        for name, graph in [('leaves', 'none'), ('stacks', 'graph,1,caller')]:
+            with path.with_suffix('.' + name + '.txt').open('w') as output:
+                subprocess.run(command + ['report', '--stdio', '-i', str(path),
+                    '--no-children', '--sort', 'comm,dso,symbol', '--percent-limit', '1',
+                    '--call-graph', graph], env=env, stdout=output, check=True)
+        print(path.with_suffix('.leaves.txt').read_text(), flush=True)
+        # The containing benchmark directory is private to the tablet user.
+        # Allow that user to retrieve root-owned perf captures for analysis.
+        path.chmod(0o644)
+
+
+def observe(args):
+    if read('/etc/pad4-root-id') != '59b8e7b3:archroot-v1':
+        raise RuntimeError('Wrong tablet identity')
+    if not 1 <= args.seconds <= 300:
+        raise ValueError('Observation duration must be in [1, 300]')
+    state = rpc(args.socket, 'state')
+    args.output.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(__file__, args.output / 'runner.py')
+    write_json(args.output / 'metadata.json', metadata(state['pid']))
+    write_json(args.output / 'state.json', state)
+    with Sampler(state['pid'], args.output / 'samples.jsonl', .5):
+        time.sleep(args.seconds)
+    rows = [json.loads(line) for line in (args.output / 'samples.jsonl').read_text().splitlines()]
+    wall = (rows[-1]['monotonic_ns'] - rows[0]['monotonic_ns']) / 1e9
+    result = {'seconds': wall, 'samples': len(rows),
+              'observer_one_core_percent': sum(r['observer_thread_cpu_ns'] for r in rows) / 1e9 / wall * 100,
+              'observer_wall_us': distribution([r['duration_ns'] / 1000 for r in rows])}
+    write_json(args.output / 'observer-summary.json', result)
+    print(json.dumps(result, indent=2), flush=True)
+
+
+def run(args):
+    scenario = json.loads(args.scenario.read_text())
+    if args.measure_work and not args.perf:
+        raise ValueError('--measure-work requires the staged --perf executable')
+    if read('/etc/pad4-root-id') != scenario['device_root_id']:
+        raise RuntimeError('Wrong tablet identity')
+    if not .1 <= scenario.get('sample_interval_seconds', .5) <= 5:
+        raise ValueError('Sample interval must be in [0.1, 5] seconds')
+    for phase in scenario['phases']:
+        if not 0 < phase['seconds'] <= 120:
+            raise ValueError('Phase duration must be in (0, 120]')
+        if phase['kind'] not in ('idle', 'workspace', 'overview'):
+            raise ValueError('Unknown phase kind')
+        if phase['kind'] != 'idle' and not .02 <= phase['interval_ms'] / 1000 <= 5:
+            raise ValueError('Action interval must be in [20, 5000] ms')
+    path = args.socket
+    state = rpc(path, 'state')
+    if state['locked'] or state['recording']:
+        raise RuntimeError('Session locked or another capture is active')
+    monitor = scenario['monitor_id']
+    workspace_ids = scenario['workspace_ids']
+    if (not state['workspaces_enabled'] or str(monitor) not in state['active_workspaces']
+            or len(workspace_ids) < 2 or any(not 1 <= w <= state['workspace_count'] for w in workspace_ids)):
+        raise RuntimeError('Scenario workspaces/monitor unavailable')
+    pid = state['pid']
+    user = pwd.getpwuid(Path(f'/proc/{pid}').stat().st_uid)
+    # /proc/PID/environ can require root when deniald has file capabilities.
+    env = dict(item.split('=', 1) for item in
+               Path(f'/proc/{pid}/environ').read_bytes().decode().split('\0') if '=' in item)
+    diagnostic_environment = {name: env[name] for name in
+                              ('DENIAL_RENDER_AUDIT', 'DENIA_RENDER_AUDIT', 'DENIA_GPU_STAGE_AUDIT')
+                              if name in env}
+    if args.capture_audit and not diagnostic_audit_active(diagnostic_environment):
+        raise RuntimeError('--capture-audit requires an already enabled diagnostic audit')
+    env.update(HOME=user.pw_dir, USER=user.pw_name, LOGNAME=user.pw_name,
+               MOZ_ENABLE_WAYLAND='1')
+    # /proc/environ reflects the launch environment; deniald creates its
+    # Wayland socket later. Require a unique live socket rather than guessing.
+    wayland_sockets = [p for p in Path(env['XDG_RUNTIME_DIR']).glob('wayland-*')
+                       if p.is_socket() and p.stat().st_uid == user.pw_uid]
+    if len(wayland_sockets) != 1:
+        raise RuntimeError('Expected exactly one session Wayland socket')
+    env['WAYLAND_DISPLAY'] = wayland_sockets[0].name
+    env['DENIAL_SOCKET'] = str(path.with_name('control.sock'))
+    env.pop('DISPLAY', None)
+    args.output.mkdir(parents=True, exist_ok=False)
+    root = args.output
+    shutil.copy2(__file__, root / 'runner.py')
+    write_json(root / 'scenario.json', scenario)
+    write_json(root / 'initial-state.json', state)
+    meta = metadata(pid)
+    clock_begin = time.monotonic_ns()
+    clock_probe = rpc(path, 'state')['clock_us'] * 1000
+    clock_end = time.monotonic_ns()
+    meta['clock_probe'] = {'python_before_ns': clock_begin,
+                           'dart_ns': clock_probe, 'python_after_ns': clock_end}
+    settings_path = Path(env.get('XDG_CONFIG_HOME', str(Path(user.pw_dir) / '.config'))) / 'denial/settings.json'
+    if settings_path.is_file():
+        settings = json.loads(settings_path.read_text())
+        meta['render_settings'] = {k: settings.get(k) for k in ('appearance', 'layout', 'animations')}
+    meta['runner_sha256'] = digest(__file__)
+    meta['measure_work'] = args.measure_work
+    meta['diagnostic_audit_environment'] = diagnostic_environment
+    meta['firefox_profile_directory'] = str(root / 'firefox-profile')
+    applications = list(scenario.get('applications', []))
+    if scenario.get('render_workload'):
+        applications.append(scenario['render_workload'])
+    meta['application_executables_sha256'] = {app['argv'][0]: digest(app['argv'][0])
+                                           for app in applications}
+    write_json(root / 'metadata.json', meta)
+    # Control protocol has a different envelope from the benchmark socket.
+    control = Path(path).with_name('control.sock')
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(4)
+        connection.connect(str(control))
+        connection.sendall(b'{"version":1,"id":1,"method":"outputs.get"}\n')
+        response = json.loads(connection.makefile('rb').readline())
+    if 'result' not in response:
+        raise RuntimeError(response)
+    write_json(root / 'outputs.json', response['result'])
+    output = next(o for o in response['result']['outputs'] if o['monitor_id'] == monitor)
+    if output['current_mode']['refresh_millihz'] != scenario.get('refresh_millihz', 120000):
+        raise RuntimeError('Output refresh differs from scenario')
+    rpc(path, 'windows.close_all')
+    wait_state(path, lambda s: not s['windows'])
+    rpc(path, 'overview.set', monitor_id=monitor, open=False)
+    processes, streams, profilers = [], [], []
+    # Retain the isolated profile with the run's artifacts. /tmp is RAM-backed
+    # on the tablet: accumulated profiles there caused system-wide reclaim and
+    # contaminated later measurements. The chosen output filesystem owns it.
+    profile = root / 'firefox-profile'
+    profile.mkdir(mode=0o700)
+    if os.geteuid() == 0:
+        os.chown(profile, user.pw_uid, user.pw_gid)
+
+    def drop_privileges():
+        if os.geteuid() == 0:
+            os.initgroups(user.pw_name, user.pw_gid)
+            os.setgid(user.pw_gid)
+            os.setuid(user.pw_uid)
+
+    def launch(application):
+        before = rpc(path, 'state')
+        known = {w['object_id'] for w in before['windows']}
+        rpc(path, 'workspace.switch', monitor_id=monitor, workspace_id=application['workspace'])
+        wait_state(path, lambda s: s['active_workspaces'][str(monitor)] == application['workspace'])
+        argv = [x.replace('{firefox_profile}', str(profile)) for x in application['argv']]
+        stream = (root / application.get('log', application['name'] + '.log')).open('x')
+        streams.append(stream)
+        errors = (root / (application['name'] + '.stderr.log')).open('x')
+        streams.append(errors)
+        process = subprocess.Popen(argv, env=env, stdout=stream, stderr=errors,
+                                   preexec_fn=drop_privileges, start_new_session=True)
+        processes.append(process)
+        match = application['app_id_contains'].lower()
+        def matches(s):
+            if process.poll() is not None:
+                raise RuntimeError(f'{application["name"]} exited: {process.returncode}')
+            return any(w['object_id'] not in known and match in w['app_id'].lower()
+                       for w in s['windows'])
+        opened = wait_state(path, matches, timeout=25)
+        window = next(w for w in opened['windows'] if w['object_id'] not in known
+                      and match in w['app_id'].lower())
+        rpc(path, 'window.move', object_id=window['object_id'], monitor_id=monitor,
+            workspace_id=application['workspace'])
+        wait_state(path, lambda s: any(w['object_id'] == window['object_id']
+            and w['workspace_id'] == application['workspace'] and w['monitor_id'] == monitor
+            for w in s['windows']))
+        if application.get('wait_for_presentation'):
+            ready = wait_render_ready(root / application.get('log', application['name'] + '.log'), process)
+            meta.setdefault('application_presentation_ready', {})[application['name']] = ready
+        meta.setdefault('test_application_processes', {})[application['name']] = {
+            'pid': process.pid, 'process_start': stat(f'/proc/{process.pid}/stat')['start'],
+            'threads': {p.name: read(p / 'comm') for p in Path(f'/proc/{process.pid}/task').iterdir()},
+            **process_artifacts(process.pid)}
+        write_json(root / 'metadata.json', meta)
+        return window
+
+    workload_started = False
+    native_counter = NativePresentationCounter(root, pid) if args.measure_work else None
+    try:
+        if native_counter:
+            native_counter.start()
+        placed = [launch(app) for app in scenario['applications']]
+        write_json(root / 'placed-windows.json', placed)
+        for index, phase in enumerate(scenario['phases']):
+            if phase.get('workload') and not workload_started:
+                requested = time.monotonic_ns()
+                launch(scenario['render_workload'])
+                ready = wait_render_ready(root / scenario['render_workload'].get('log', 'render-workload.jsonl'),
+                                          processes[-1])
+                ready['launch_requested_monotonic_ns'] = requested
+                write_json(root / 'workload-ready.json', ready)
+                workload_started = True
+            target = phase.get('workspace', workspace_ids[0])
+            rpc(path, 'overview.set', monitor_id=monitor, open=False)
+            rpc(path, 'workspace.switch', monitor_id=monitor, workspace_id=target)
+            wait_state(path, lambda s: s['active_workspaces'][str(monitor)] == target)
+            time.sleep(scenario.get('warmup_seconds', 2))
+            print(json.dumps({'event': 'phase', 'index': index, 'name': phase['name']}), flush=True)
+            rpc(path, 'frames.begin')
+            capture = {'name': phase['name'], 'definition': phase, 'actions': [],
+                       'resources_begin': sample(pid), 'state_begin': rpc(path, 'state')}
+            profiler = None
+            counter = None
+            if args.measure_work:
+                counter_errors = (root / f'counters-{index:02}.stderr.log').open('x')
+                streams.append(counter_errors)
+                perf_env = dict(os.environ, LD_LIBRARY_PATH=str(args.perf.parent.parent / 'lib'))
+                capture['counter_start_requested_ns'] = time.monotonic_ns()
+                counter = subprocess.Popen([str(args.perf), 'stat', '-p', str(pid),
+                    '-e', 'cycles,instructions,armv8_pmuv3/l2d_cache_refill/,armv8_pmuv3/mem_access/,armv8_pmuv3/bus_access/',
+                    '-x', ',', '-o', str(root / f'counters-{index:02}.csv'),
+                    '--timeout', str(round(phase['seconds'] * 1000))],
+                    env=perf_env, stdout=counter_errors, stderr=counter_errors)
+                profilers.append(counter)
+            if args.perf and phase['name'] in args.profile_phase:
+                errors = (root / f'perf-{index:02}.stderr.log').open('x')
+                streams.append(errors)
+                perf_env = dict(os.environ, LD_LIBRARY_PATH=str(args.perf.parent.parent / 'lib'))
+                profiler = subprocess.Popen([str(args.perf), 'record', '--no-buildid-cache', '-F', '199',
+                    '-e', args.perf_event, '-p', str(pid), '--call-graph', 'dwarf,8192',
+                    '-o', str(root / f'perf-{index:02}.data'), '--', 'sleep', str(phase['seconds'])],
+                    env=perf_env, stdout=errors, stderr=errors)
+                profilers.append(profiler)
+            with Sampler(pid, root / f'samples-{index:02}.jsonl', scenario.get('sample_interval_seconds', .5)):
+                capture['begin_ns'] = time.monotonic_ns()
+                end = capture['begin_ns'] + int(phase['seconds'] * 1e9)
+                deadline, action_index = capture['begin_ns'], 0
+                while time.monotonic_ns() < end:
+                    if phase['kind'] == 'idle':
+                        time.sleep(min(.1, max(0, (end - time.monotonic_ns()) / 1e9)))
+                        continue
+                    now = time.monotonic_ns()
+                    if now < deadline:
+                        time.sleep((deadline - now) / 1e9)
+                    if time.monotonic_ns() >= end:
+                        break
+                    sent = time.monotonic_ns()
+                    if phase['kind'] == 'workspace':
+                        target = workspace_ids[(action_index + 1) % len(workspace_ids)]
+                        result = rpc(path, 'workspace.switch', monitor_id=monitor, workspace_id=target)
+                    else:
+                        result = rpc(path, 'overview.set', monitor_id=monitor, open=action_index % 2 == 0)
+                        if result['state']['overview'] != (action_index % 2 == 0):
+                            raise RuntimeError('Overview action was not applied')
+                    capture['actions'].append({'index': action_index, 'scheduled_ns': deadline,
+                        'sent_ns': sent, 'lateness_ns': sent - deadline,
+                        'ack_ns': time.monotonic_ns(), 'result': result})
+                    if phase['kind'] == 'workspace' and action_index % 10 == 5:
+                        capture['actions'][-1]['state_during'] = rpc(path, 'state')
+                    deadline += int(phase['interval_ms'] * 1e6)
+                    action_index += 1
+                capture['end_ns'] = time.monotonic_ns()
+                capture['resources_end'] = sample(pid)
+            if profiler:
+                status = profiler.wait(timeout=8)
+                capture['profiler_exit_code'] = status
+            if counter:
+                capture['counter_exit_code'] = counter.wait(timeout=8)
+                capture['counter_observed_exit_ns'] = time.monotonic_ns()
+            capture['timings'] = rpc(path, 'frames.end')
+            settled = wait_state(path, lambda s: s['active_workspaces'][str(monitor)] == target
+                                 and not s['transitions'], timeout=6)
+            capture['state_end'] = settled
+            if phase['kind'] == 'overview' and settled['overview'] != ((action_index - 1) % 2 == 0):
+                raise RuntimeError('Final overview state mismatch')
+            if stat(f'/proc/{pid}/stat')['start'] != meta['process_start']:
+                raise RuntimeError('Compositor identity changed')
+            write_json(root / f'phase-{index:02}.json', capture)
+            if profiler and capture['profiler_exit_code']:
+                raise RuntimeError(f"perf capture exited {capture['profiler_exit_code']}; "
+                                   'phase timings and resources retained; see perf stderr')
+            if counter and capture['counter_exit_code']:
+                raise RuntimeError('Hardware counter capture failed; inspect retained counter stderr')
+        rpc(path, 'overview.set', monitor_id=monitor, open=False)
+        if native_counter:
+            native_counter.stop()
+        report(root)
+        if args.capture_audit:
+            capture_audit(root, pid)
+        write_json(root / 'status.json', {'status': 'complete', 'phases': len(scenario['phases'])})
+    except BaseException as error:
+        write_json(root / 'status.json', {'status': 'failed', 'error': str(error)})
+        raise
+    finally:
+        if native_counter:
+            native_counter.stop()
+        with contextlib.suppress(Exception):
+            rpc(path, 'frames.cancel')
+            rpc(path, 'overview.set', monitor_id=monitor, open=False)
+            # Only test applications exist after the verified initial reset.
+            rpc(path, 'windows.close_all')
+        for process in processes:
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                # These are exclusively the processes created by this run.
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGTERM)
+        for stream in streams:
+            stream.close()
+        for profiler in profilers:
+            if profiler.poll() is None:
+                profiler.send_signal(signal.SIGINT)
+                profiler.wait(timeout=5)
+        with contextlib.suppress(Exception):
+            write_json(root / 'final-state.json', rpc(path, 'state'))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--socket', type=Path, default=Path('/run/user/1000/denial/benchmark.sock'))
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('state')
+    request = commands.add_parser('request')
+    request.add_argument('json')
+    bench = commands.add_parser('run')
+    bench.add_argument('scenario', type=Path)
+    bench.add_argument('--output', type=Path, required=True)
+    bench.add_argument('--perf', type=Path, help='optional staged native perf executable')
+    bench.add_argument('--perf-event', default='cycles', help='sampling event (this Pad4 kernel supports cycles)')
+    bench.add_argument('--profile-phase', action='append', default=[])
+    bench.add_argument('--measure-work', action='store_true', help='capture CPU PMU counters, GPU cycles and independent native presentation counts')
+    bench.add_argument('--capture-audit', action='store_true', help='collect and report an already enabled diagnostic audit; does not enable tracing or restart the session')
+    summary = commands.add_parser('report')
+    summary.add_argument('directory', type=Path)
+    profile = commands.add_parser('profile-report')
+    profile.add_argument('directory', type=Path)
+    profile.add_argument('--perf', type=Path, required=True)
+    profile.add_argument('--engine-symbols', type=Path)
+    audit = commands.add_parser('audit-report', help='attribute existing diagnostic journal intervals to benchmark phases')
+    audit.add_argument('directory', type=Path)
+    audit.add_argument('--journal', type=Path, required=True, help='journalctl -o json --all output, optionally gzip')
+    observer = commands.add_parser('observe', help='read-only resource capture; also works while locked')
+    observer.add_argument('--seconds', type=float, default=12)
+    observer.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    if args.command == 'state':
+        print(json.dumps(rpc(args.socket, 'state'), indent=2))
+    elif args.command == 'request':
+        print(json.dumps(rpc(args.socket, **json.loads(args.json)), indent=2))
+    elif args.command == 'run':
+        run(args)
+    elif args.command == 'report':
+        report(args.directory)
+    elif args.command == 'observe':
+        observe(args)
+    elif args.command == 'audit-report':
+        audit_report(args.directory, args.journal)
+    else:
+        profile_report(args)
+
+
+if __name__ == '__main__':
+    main()

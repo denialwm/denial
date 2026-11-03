@@ -16,7 +16,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tracing::{info, warn};
 use zbus::blocking::Connection;
@@ -31,6 +31,7 @@ const INTERFACE_NAME: &str = "org.freedesktop.Notifications";
 
 const MAX_STRING_BYTES: usize = 4096;
 const MAX_ACTIONS: usize = 16;
+const MAX_MESSAGES: usize = 5;
 const MAX_IMAGE_DATA_BYTES: usize = 512 * 1024;
 const MAX_NOTIFICATIONS: usize = 256;
 const COMMAND_QUEUE_CAPACITY: usize = 128;
@@ -57,6 +58,12 @@ pub(super) enum NotificationUrgency {
 pub(super) struct NotificationAction {
     pub(super) key: String,
     pub(super) label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct NotificationMessage {
+    pub(super) sender: String,
+    pub(super) text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,6 +103,16 @@ pub(super) struct Notification {
     pub(super) progress: i32,
     pub(super) has_progress: bool,
     pub(super) expire_timeout_ms: i32,
+    /// Set by the store: whether this post shows a banner and wakes the screen.
+    pub(super) alert: bool,
+    /// The sender's `x-denial-group` within its app, or just its app.
+    pub(super) group_key: String,
+    pub(super) group_summary: bool,
+    /// Milliseconds since the epoch: `x-denial-time`, else arrival.
+    pub(super) time_ms: i64,
+    pub(super) messages: Vec<NotificationMessage>,
+    /// `x-denial-clearable`: false keeps it until the app closes it.
+    pub(super) clearable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -186,6 +203,11 @@ impl NotificationServer {
         }
     }
 
+    /// Sends every held notification, quietly, to a shell that just started.
+    pub(super) fn replay(&self) -> bool {
+        self.commands.try_send(Command::Replay).is_ok()
+    }
+
     pub(super) fn dismiss(&self, notification_id: u32) -> bool {
         notification_id != 0
             && self
@@ -270,7 +292,7 @@ impl NotificationsInterface {
 impl NotificationsInterface {
     #[zbus(name = "GetCapabilities", out_args("capabilities"))]
     fn get_capabilities(&self) -> Vec<String> {
-        ["actions", "body", "icon-static"]
+        ["actions", "body", "icon-static", "persistence"]
             .into_iter()
             .map(str::to_owned)
             .collect()
@@ -285,7 +307,7 @@ impl NotificationsInterface {
     }
 
     #[zbus(name = "Notify", out_args("id"))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the D-Bus Notify signature")]
     async fn notify(
         &self,
         app_name: String,
@@ -299,6 +321,9 @@ impl NotificationsInterface {
         #[zbus(header)] header: Header<'_>,
     ) -> Result<u32, NotificationMethodError> {
         let sender = header.sender().map(ToString::to_string).unwrap_or_default();
+        let alert = hints
+            .get("x-denial-alert")
+            .and_then(|value| bool::try_from(value).ok());
         let notification = normalize_notification(
             sender,
             app_name,
@@ -312,6 +337,7 @@ impl NotificationsInterface {
         self.request(|reply| Command::Notify {
             replaces_id,
             notification: Box::new(notification),
+            alert,
             reply,
         })
         .await
@@ -360,6 +386,8 @@ enum Command {
     Notify {
         replaces_id: u32,
         notification: Box<Notification>,
+        /// The sender's `x-denial-alert` hint, when it gave one.
+        alert: Option<bool>,
         reply: ReplySender<u32>,
     },
     Close {
@@ -374,6 +402,7 @@ enum Command {
         action_key: String,
         activation_token: Option<String>,
     },
+    Replay,
     Stop,
 }
 
@@ -420,9 +449,10 @@ fn run_worker(
             Ok(Command::Notify {
                 replaces_id,
                 notification,
+                alert,
                 reply,
             }) => {
-                let (id, events) = store.notify(replaces_id, *notification, Instant::now());
+                let (id, events) = store.notify(replaces_id, *notification, alert, Instant::now());
                 publish_events(&connection, &publish, &stopping, events);
                 reply.send(id);
             }
@@ -462,6 +492,7 @@ fn run_worker(
                 action_key,
                 activation_token.as_deref(),
             ),
+            Ok(Command::Replay) => publish_events(&connection, &publish, &stopping, store.replay()),
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
         }
@@ -580,9 +611,18 @@ impl NotificationStore {
         &mut self,
         replaces_id: u32,
         mut notification: Notification,
+        alert: Option<bool>,
         now: Instant,
     ) -> (u32, Vec<NotificationEvent>) {
-        let replacing = replaces_id != 0 && self.notifications.contains_key(&replaces_id);
+        let previous = (replaces_id != 0)
+            .then(|| self.notifications.get(&replaces_id))
+            .flatten();
+        let replacing = previous.is_some();
+        // An update alerts only when it says something new; progress and
+        // action changes update the card quietly.
+        notification.alert = alert.unwrap_or_else(|| {
+            previous.is_none_or(|previous| changes_content(&previous.notification, &notification))
+        });
         let mut events = Vec::with_capacity(2);
         if !replacing
             && self.notifications.len() >= MAX_NOTIFICATIONS
@@ -620,6 +660,23 @@ impl NotificationStore {
             notification,
         ));
         (id, events)
+    }
+
+    /// Oldest first, so the shell's newest-first history keeps its order.
+    fn replay(&self) -> Vec<NotificationEvent> {
+        self.order
+            .iter()
+            .filter_map(|id| self.notifications.get(id))
+            .map(|stored| {
+                NotificationEvent::published(
+                    NotificationEventKind::Added,
+                    Notification {
+                        alert: false,
+                        ..stored.notification.clone()
+                    },
+                )
+            })
+            .collect()
     }
 
     fn close(&mut self, notification_id: u32, reason: u32) -> Option<NotificationEvent> {
@@ -668,8 +725,9 @@ impl NotificationStore {
         if !stored.invoked_actions.insert(action_key.to_owned()) {
             return ActionDecision::AlreadyInvoked;
         }
+        // An action closes the notification unless it stays by design.
         ActionDecision::Invoke {
-            resident: stored.notification.resident,
+            resident: stored.notification.resident || !stored.notification.clearable,
         }
     }
 
@@ -689,6 +747,14 @@ impl NotificationStore {
     }
 }
 
+fn changes_content(previous: &Notification, next: &Notification) -> bool {
+    previous.summary != next.summary
+        || previous.body != next.body
+        || previous.app_icon != next.app_icon
+        || previous.image_path != next.image_path
+        || previous.image_data != next.image_data
+}
+
 enum ActionDecision {
     Invoke { resident: bool },
     AlreadyInvoked,
@@ -696,8 +762,14 @@ enum ActionDecision {
     UnknownAction,
 }
 
+/// Notifications stay until the user dismisses them, the sender closes them or
+/// the store evicts them; the shell times out the banner. Only transient ones,
+/// which never enter history, expire here.
 fn effective_timeout(notification: &Notification) -> Option<Duration> {
-    if notification.urgency == NotificationUrgency::Critical || notification.expire_timeout_ms == 0
+    if !notification.transient
+        || notification.resident
+        || notification.urgency == NotificationUrgency::Critical
+        || notification.expire_timeout_ms == 0
     {
         return None;
     }
@@ -711,7 +783,7 @@ fn effective_timeout(notification: &Notification) -> Option<Duration> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the D-Bus Notify arguments")]
 fn normalize_notification(
     sender: String,
     app_name: String,
@@ -737,6 +809,21 @@ fn normalize_notification(
         _ => (0, 0, false),
     };
     let progress = hint_i32(hints, "value");
+    let desktop_entry = hint_string(hints, "desktop-entry");
+    let app_name = bounded_string(app_name);
+    let sender = bounded_string(sender);
+    // Groups stay inside their app, so a sender cannot join another app's.
+    let app = [&desktop_entry, &app_name, &sender]
+        .into_iter()
+        .find(|identity| !identity.is_empty())
+        .cloned()
+        .unwrap_or_default();
+    let group = hint_string(hints, "x-denial-group");
+    let group_key = if group.is_empty() {
+        app
+    } else {
+        bounded_string(format!("{app}\n{group}"))
+    };
     let image_path = {
         let preferred = hint_string(hints, "image-path");
         if preferred.is_empty() {
@@ -748,15 +835,15 @@ fn normalize_notification(
 
     Notification {
         id: 0,
-        sender: bounded_string(sender),
-        app_name: bounded_string(app_name),
+        sender,
+        app_name,
         app_icon: bounded_string(app_icon),
         summary: bounded_string(summary),
         body: bounded_string(body),
         actions: normalize_actions(actions),
         urgency,
         category: hint_string(hints, "category"),
-        desktop_entry: hint_string(hints, "desktop-entry"),
+        desktop_entry,
         image_path,
         image_data: parse_image_data(hints),
         resident: hint_bool(hints, "resident"),
@@ -771,7 +858,47 @@ fn normalize_notification(
         progress: progress.unwrap_or_default().clamp(0, 100),
         has_progress: progress.is_some(),
         expire_timeout_ms,
+        alert: true,
+        group_key,
+        group_summary: hint_bool(hints, "x-denial-group-summary"),
+        time_ms: hints
+            .get("x-denial-time")
+            .and_then(|value| i64::try_from(value).ok())
+            .filter(|time| *time > 0)
+            .unwrap_or_else(now_ms),
+        messages: parse_messages(hints),
+        clearable: hints
+            .get("x-denial-clearable")
+            .and_then(|value| bool::try_from(value).ok())
+            .unwrap_or(true),
     }
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+        })
+}
+
+fn parse_messages(hints: &HashMap<String, OwnedValue>) -> Vec<NotificationMessage> {
+    hints
+        .get("x-denial-messages")
+        .and_then(|value| value.try_clone().ok())
+        .and_then(|value| Vec::<(String, String)>::try_from(value).ok())
+        .map(|messages| {
+            let skip = messages.len().saturating_sub(MAX_MESSAGES);
+            messages
+                .into_iter()
+                .skip(skip)
+                .map(|(sender, text)| NotificationMessage {
+                    sender: bounded_string(sender),
+                    text: bounded_string(text),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn normalize_actions(actions: Vec<String>) -> Vec<NotificationAction> {
@@ -925,3 +1052,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
+
+#[cfg(test)]
+#[path = "notification_server/tests.rs"]
+mod tests;

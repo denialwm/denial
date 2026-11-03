@@ -126,6 +126,8 @@ SESSION_ENGINE_SHA256=""
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
 PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_TARGET/release/denial-portal}"
+# The Polkit dialog bundle also draws the portal's Access requests.
+DIALOG_BUNDLE="$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
@@ -871,12 +873,11 @@ build_polkit_agent() (
     prepare_sdk_package
     "$ROOT/tools/denial-flutter-engine" prepare-app-build
     run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" -p denial-polkit-agent
-    build_native_application polkit_app denial-app \
-        "$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
+    build_native_application polkit_app denial-app "$DIALOG_BUNDLE"
 )
 
 run_polkit_agent() {
-    local bundle="$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
+    local bundle="$DIALOG_BUNDLE"
     require_file "$RUST_TARGET/release/denial-polkit-agent"
     require_file "$bundle/denial-app"
     exec "$RUST_TARGET/release/denial-polkit-agent" \
@@ -908,6 +909,9 @@ build_plugin_manager() (
             --output="$BUILD_ROOT/plugin-manager/denial-plugins.new"
         mv -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new" "$BUILD_ROOT/plugin-manager/denial-plugins"
     )
+    # The manager runs the Dart it finds first on PATH, and a development kit
+    # attests this SDK's compiler: tools/denial-plugins puts it first.
+    ln -sfn -- "$(dirname -- "$dart")" "$BUILD_ROOT/plugin-manager/dart-bin"
     local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
     # Keep metadata beside the native application after publishing its bundle.
     python3 - "$BUILD_ROOT/plugin-manager" "$RUST_TARGET/release/denialctl" \
@@ -1106,6 +1110,13 @@ test_compositor() {
     (
         cd -- "$COMPOSITOR_ROOT"
         require_file "$XDG_DESKTOP_PORTAL_FRONTEND"
+        # The private bus gets a runtime directory of its own: the Access
+        # backend makes its dialog socket there, and a builder account has none.
+        # The bus's document portal may still hold its FUSE mount in it.
+        runtime_dir="$(mktemp -d)"
+        trap 'fusermount3 -u -z "$runtime_dir/doc" 2>/dev/null || true
+              rm -rf -- "$runtime_dir"' EXIT
+        XDG_RUNTIME_DIR="$runtime_dir" \
         DENIAL_PORTAL_TEST_BUS=1 \
         DENIAL_PORTAL_FRONTEND_TEST="$XDG_DESKTOP_PORTAL_FRONTEND" \
         CARGO_TARGET_DIR="$RUST_TARGET" \
@@ -1163,7 +1174,7 @@ PYSDK
             "$dart" analyze --fatal-infos
             if [[ "$package" == packages/denial_flutter_sdk ]]; then
                 # Core SDK persistence and lifecycle tests need no development engine.
-                "$dart" test test/glass_configuration_test.dart test/surface_events_test.dart test/settings_document_test.dart test/bridge_transport_test.dart test/system_bar_outputs_test.dart
+                "$dart" test test/glass_configuration_test.dart test/surface_events_test.dart test/settings_document_test.dart test/bridge_transport_test.dart test/system_bar_outputs_test.dart test/input_deck_settings_test.dart
             fi
             if [[ "$package" == plugins/denial_pets ]]; then
                 # The perching rule is plain Dart.
@@ -1246,10 +1257,11 @@ run_compositor() {
     export DENIA_SHELL_PROFILE="$shell_profile"
     export DENIAL_SETTINGS_BINARY="$SETTINGS_BINARY"
     # After a Denial update deniald rebuilds the user's plugins with the
-    # locally built Plugin Manager backend, when there is one.
+    # locally built Plugin Manager backend, when there is one, through the
+    # wrapper that runs it with the Dart SDK it was built with.
     if [[ -z "${DENIAL_PLUGINS_BINARY:-}" \
         && -x "$BUILD_ROOT/plugin-manager/denial-plugins" ]]; then
-        export DENIAL_PLUGINS_BINARY="$BUILD_ROOT/plugin-manager/denial-plugins"
+        export DENIAL_PLUGINS_BINARY="$SCRIPT_DIR/denial-plugins"
     fi
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
@@ -1260,8 +1272,7 @@ run_compositor() {
         --wayland \
         "${xwayland_arguments[@]}" \
         "${polkit_arguments[@]}" \
-        --flutter-bundle "$BUNDLE" \
-        --flutter-renderer impeller <&0 &
+        --flutter-bundle "$BUNDLE" <&0 &
     DENIAL_SESSION_PID=$!
     local status=0
     wait "$DENIAL_SESSION_PID" || status=$?
@@ -1480,6 +1491,7 @@ show_session_state() {
         printf 'missing  %-18s %s\n' "portal routing" "$PORTAL_FILE"
     elif grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE" \
         && grep -Fqx "org.freedesktop.impl.portal.Settings=denial;gtk" "$PORTAL_FILE" \
+        && grep -Fqx "org.freedesktop.impl.portal.Access=denial;gtk" "$PORTAL_FILE" \
         && grep -Fqx "org.freedesktop.impl.portal.ScreenCast=wlr" "$PORTAL_FILE" \
         && grep -Fqx "org.freedesktop.impl.portal.Screenshot=wlr" "$PORTAL_FILE"; then
         printf 'ok       %-18s %s\n' "portal routing" "$PORTAL_FILE"
@@ -1589,9 +1601,9 @@ install_session() {
         "$PORTAL_TEMPLATE" > "$portal_rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
         "$WLR_PORTAL_CONFIG_TEMPLATE" > "$wlr_portal_rendered"
-    sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
+    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_BUNDLE@|$DIALOG_BUNDLE|g" \
         "$DENIAL_PORTAL_DBUS_TEMPLATE" > "$dbus_rendered"
-    sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
+    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_BUNDLE@|$DIALOG_BUNDLE|g" \
         "$DENIAL_PORTAL_UNIT_TEMPLATE" > "$unit_rendered"
     sh -n "$SUSPEND_MODE_HOOK_SOURCE"
     if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
@@ -1699,7 +1711,9 @@ remove_denial_portal_metadata() {
     fi
     if [[ -e "$DENIAL_PORTAL_DBUS_SERVICE" ]] \
         && { ! grep -Fqx "Name=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_DBUS_SERVICE" \
-            || ! grep -Fqx "Exec=$PORTAL_BINARY" "$DENIAL_PORTAL_DBUS_SERVICE"; }; then
+            || ! grep -Fqx -e "Exec=$PORTAL_BINARY" \
+                -e "Exec=$PORTAL_BINARY --dialog-bundle $DIALOG_BUNDLE" \
+                "$DENIAL_PORTAL_DBUS_SERVICE"; }; then
         printf 'warning  refusing to remove unrecognized Denial portal D-Bus service %s\n' \
             "$DENIAL_PORTAL_DBUS_SERVICE" >&2
     else
@@ -1707,7 +1721,9 @@ remove_denial_portal_metadata() {
     fi
     if [[ -e "$DENIAL_PORTAL_UNIT" ]] \
         && { ! grep -Fqx "BusName=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_UNIT" \
-            || ! grep -Fqx "ExecStart=$PORTAL_BINARY" "$DENIAL_PORTAL_UNIT"; }; then
+            || ! grep -Fqx -e "ExecStart=$PORTAL_BINARY" \
+                -e "ExecStart=$PORTAL_BINARY --dialog-bundle $DIALOG_BUNDLE" \
+                "$DENIAL_PORTAL_UNIT"; }; then
         printf 'warning  refusing to remove unrecognized Denial portal unit %s\n' \
             "$DENIAL_PORTAL_UNIT" >&2
     else

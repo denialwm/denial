@@ -2,6 +2,33 @@
 
 use super::*;
 
+/// Index of the output that receives a layer surface which names none: the
+/// configured primary (the snapshot's `ticker`), else the first connected one.
+fn default_output_index(ids: &[OutputId], primary: Option<OutputId>) -> Option<usize> {
+    primary
+        .and_then(|primary| ids.iter().position(|id| *id == primary))
+        .or_else(|| (!ids.is_empty()).then_some(0))
+}
+
+#[cfg(test)]
+mod default_output_tests {
+    use super::*;
+
+    const IDS: [OutputId; 3] = [OutputId(1), OutputId(2), OutputId(3)];
+
+    #[test]
+    fn unnamed_layer_surface_goes_to_the_primary_output() {
+        assert_eq!(default_output_index(&IDS, Some(OutputId(2))), Some(1));
+    }
+
+    #[test]
+    fn falls_back_to_first_without_a_connected_primary() {
+        assert_eq!(default_output_index(&IDS, None), Some(0));
+        assert_eq!(default_output_index(&IDS, Some(OutputId(9))), Some(0));
+        assert_eq!(default_output_index(&[], Some(OutputId(2))), None);
+    }
+}
+
 impl WaylandFrontend {
     pub(super) fn layer_surface_for_surface(
         &self,
@@ -97,11 +124,7 @@ impl WaylandFrontend {
 
 impl WlrLayerShellHandler for RuntimeState {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
-        &mut self
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .layer_shell_state
+        &mut self.frontend_mut().layer_shell_state
     }
 
     fn new_layer_surface(
@@ -111,7 +134,7 @@ impl WlrLayerShellHandler for RuntimeState {
         _layer: WlrLayer,
         namespace: String,
     ) {
-        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+        let frontend = self.frontend_mut();
         let output = requested_output
             .as_ref()
             .and_then(Output::from_resource)
@@ -122,7 +145,15 @@ impl WlrLayerShellHandler for RuntimeState {
                     .find(|entry| entry.output == requested)
                     .map(|entry| entry.output.clone())
             })
-            .or_else(|| frontend.outputs.first().map(|entry| entry.output.clone()));
+            .or_else(|| {
+                let ids = frontend
+                    .outputs
+                    .iter()
+                    .map(|entry| entry.id)
+                    .collect::<Vec<_>>();
+                default_output_index(&ids, frontend.ticker_output)
+                    .map(|index| frontend.outputs[index].output.clone())
+            });
         let Some(output) = output else {
             surface.send_close();
             return;
@@ -139,7 +170,7 @@ impl WlrLayerShellHandler for RuntimeState {
     }
 
     fn new_popup(&mut self, parent: WlrLayerSurface, popup: PopupSurface) {
-        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+        let frontend = self.frontend_mut();
         let popup_surface = popup.wl_surface().clone();
         // XdgShellHandler::new_popup already tracks every XDG popup. At that
         // point a layer-shell popup is still parentless, so PopupManager keeps
@@ -156,7 +187,8 @@ impl WlrLayerShellHandler for RuntimeState {
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+        super::input::cancel_touch_for_surface(self, surface.wl_surface());
+        let frontend = self.frontend_mut();
         for output in &frontend.outputs {
             let mut map = layer_map_for_output(&output.output);
             let Some(layer) = map

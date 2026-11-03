@@ -5,6 +5,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/platform.dart';
 
+import 'phone_desk_input.dart';
 import 'reference_shell_state.dart';
 import 'reference_shell_metrics.dart';
 
@@ -14,6 +15,11 @@ class ReferenceInputLayoutCoordinator {
 
   final DenialBridge _bridge;
   int _inputLayoutEpoch = 0;
+
+  /// Beside a desk the phone's layout goes to the composer, from the phone's
+  /// origin in the scene.
+  Offset _sceneOrigin = Offset.zero;
+  PhoneDeskInputComposer? _composer;
   InputLayoutSnapshot? _lastInputLayoutSnapshot;
 
   void invalidate() {
@@ -25,13 +31,17 @@ class ReferenceInputLayoutCoordinator {
     required Size viewSize,
     required ShellInteractionSnapshot interactions,
     double topInset = 0.0,
+    bool appsMoving = false,
+    Offset sceneOrigin = Offset.zero,
+    PhoneDeskInputComposer? composer,
   }) {
     if (viewSize.width <= 0 || viewSize.height <= 0) {
       return;
     }
+    _sceneOrigin = sceneOrigin;
+    _composer = composer;
 
-    final quickSettingsActive =
-        state.quickSettingsVisible || state.quickSettingsDragProgress > 0.0;
+    final quickSettingsActive = state.quickSettingsEngaged;
     final edgePanelActive =
         state.edgePanelVisible || state.edgePanelDragProgress > 0.0;
     final edgePanelProgress = state.edgePanelDragProgress;
@@ -39,11 +49,11 @@ class ReferenceInputLayoutCoordinator {
       viewSize,
       edgePanelProgress,
     );
-    final softwareKeyboardRegions =
+    List<Rect> softwareKeyboardRegions({required bool scrollStripVisible}) =>
         ReferenceShellMetrics.softwareKeyboardRegions(
           viewSize,
           progress: edgePanelProgress,
-          scrollStripVisible: state.edgePanelVisible,
+          scrollStripVisible: scrollStripVisible,
         );
     if (state.lockLayerVisible) {
       final lockBackgroundWindow = state.primaryWindow;
@@ -60,14 +70,52 @@ class ReferenceInputLayoutCoordinator {
               hitTest: false,
             ),
         ],
-        softwareKeyboardRegions: softwareKeyboardRegions,
+        softwareKeyboardRegions: softwareKeyboardRegions(
+          scrollStripVisible: state.edgePanelVisible,
+        ),
         keyboardCapture: true,
         exclusiveShellMode: true,
       );
       return;
     }
 
-    final contentOffset = edgePanelActive
+    // Denial's own overlay is modal: it takes the touches inside its card's
+    // canvas, the shell those around it, and the app none.
+    final overlay = state.systemOverlay;
+    if (overlay != null) {
+      final rect = ReferenceShellMetrics.systemOverlayRect(
+        viewSize,
+        overlay.geometry!.size,
+        edgePanelProgress,
+      );
+      _publishInputLayout(
+        viewSize: viewSize,
+        shellRegions: <Rect>[
+          Rect.fromLTRB(0, 0, viewSize.width, rect.top),
+          Rect.fromLTRB(0, rect.bottom, viewSize.width, viewSize.height),
+          Rect.fromLTRB(0, rect.top, rect.left, rect.bottom),
+          Rect.fromLTRB(rect.right, rect.top, viewSize.width, rect.bottom),
+        ].where((region) => !region.isEmpty).toList(growable: false),
+        windows: <InputWindowRegion>[
+          InputWindowRegion(
+            window: overlay,
+            rect: rect,
+            sourceRect: Offset.zero & rect.size,
+            z: 0,
+            geometryLocked: true,
+          ),
+        ],
+        softwareKeyboardRegions: softwareKeyboardRegions(
+          scrollStripVisible: state.edgePanelVisible,
+        ),
+      );
+      return;
+    }
+
+    // An app laid out around the keyboard stays in place, so its input
+    // regions do too, and there is no lifted scene for the strip to pan.
+    final appLifted = !state.primaryWindowHandlesKeyboard;
+    final contentOffset = edgePanelActive && appLifted
         ? (edgePanelRect.height - state.edgePanelViewportScroll)
               .clamp(0.0, edgePanelRect.height)
               .toDouble()
@@ -77,26 +125,52 @@ class ReferenceInputLayoutCoordinator {
         : viewSize.height;
     final inputWindow = state.inputWindow;
     final canvas = Offset.zero & viewSize;
+    final shellOwnsCanvas =
+        inputWindow == null ||
+        state.overviewVisible ||
+        // While the apps move no app takes a touch, as in Launcher3's
+        // recents animation: the shell holds them until they rest.
+        appsMoving ||
+        state.launchTransitionActive ||
+        quickSettingsActive ||
+        interactions.capturesFullScene;
+    final scrollStripVisible =
+        state.edgePanelVisible && (shellOwnsCanvas || appLifted);
+    // A landscape view shows no status bar, so over an app its strip lets
+    // touches through and claims only a pull down from the top edge.
+    final statusEdge = !ReferenceShellMetrics.statusBarShown(viewSize);
     final shellRegions = <Rect>[
-      if (inputWindow == null ||
-          state.overviewVisible ||
-          state.launchTransitionActive ||
-          quickSettingsActive ||
-          interactions.capturesFullScene)
+      if (shellOwnsCanvas)
         canvas
       else if (edgePanelActive) ...[
-        ReferenceShellMetrics.statusRect(viewSize),
+        if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         if (edgePanelRect.height > 0.0) edgePanelRect,
-        if (state.edgePanelVisible)
+        if (scrollStripVisible)
           ReferenceShellMetrics.edgePanelScrollStripRect(viewSize),
       ] else ...[
-        ReferenceShellMetrics.statusRect(viewSize),
+        if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         ReferenceShellMetrics.gestureRect(viewSize),
         ReferenceShellMetrics.edgePanelGestureRect(viewSize),
       ],
+      // Child regions are in scene coordinates.
       for (final region in interactions.childRegions)
-        if (!region.intersect(canvas).isEmpty) region.intersect(canvas),
+        if (!region.shift(-_sceneOrigin).intersect(canvas).isEmpty)
+          region.shift(-_sceneOrigin).intersect(canvas),
     ];
+
+    // Back swipes and landscape pull-downs start over the app and are handed
+    // to the shell's strips once they move inward. Elsewhere the shell owns
+    // the whole canvas.
+    final edgeSwipeRegions = shellRegions.contains(canvas)
+        ? const <InputEdgeSwipeRegion>[]
+        : <InputEdgeSwipeRegion>[
+            ..._backGestureRegions(viewSize, inputBottom),
+            if (statusEdge)
+              InputEdgeSwipeRegion(
+                rect: ReferenceShellMetrics.statusRect(viewSize),
+                edge: InputEdge.top,
+              ),
+          ];
 
     final inputRegions = inputWindow == null
         ? const <InputWindowRegion>[]
@@ -112,10 +186,29 @@ class ReferenceInputLayoutCoordinator {
       viewSize: viewSize,
       shellRegions: shellRegions,
       windows: inputRegions,
-      softwareKeyboardRegions: softwareKeyboardRegions,
+      softwareKeyboardRegions: softwareKeyboardRegions(
+        scrollStripVisible: scrollStripVisible,
+      ),
+      edgeSwipeRegions: edgeSwipeRegions,
       keyboardCapture: quickSettingsActive || interactions.capturesKeyboard,
       exclusiveShellMode: interactions.compositorExclusive,
     );
+  }
+
+  static List<InputEdgeSwipeRegion> _backGestureRegions(
+    Size viewSize,
+    double bottom,
+  ) {
+    final strips = ReferenceShellMetrics.backGestureRects(
+      viewSize,
+      bottom: bottom,
+    );
+    return <InputEdgeSwipeRegion>[
+      if (!strips.left.isEmpty)
+        InputEdgeSwipeRegion(rect: strips.left, edge: InputEdge.left),
+      if (!strips.right.isEmpty)
+        InputEdgeSwipeRegion(rect: strips.right, edge: InputEdge.right),
+    ];
   }
 
   List<InputWindowRegion> _inputRegionsForWindow({
@@ -208,6 +301,8 @@ class ReferenceInputLayoutCoordinator {
     required List<Rect> shellRegions,
     required List<InputWindowRegion> windows,
     List<Rect> softwareKeyboardRegions = const <Rect>[],
+    List<InputEdgeSwipeRegion> edgeSwipeRegions =
+        const <InputEdgeSwipeRegion>[],
     bool keyboardCapture = false,
     bool exclusiveShellMode = false,
   }) {
@@ -230,6 +325,7 @@ class ReferenceInputLayoutCoordinator {
       shellRegions: shellRegions,
       windows: windows,
       softwareKeyboardRegions: softwareKeyboardRegions,
+      edgeSwipeRegions: edgeSwipeRegions,
       visibleSurfaceIds: visibleSurfaceIds.toList(growable: false),
       keyboardCapture: keyboardCapture,
       exclusiveShellMode: exclusiveShellMode,
@@ -239,7 +335,9 @@ class ReferenceInputLayoutCoordinator {
       return;
     }
 
-    if (!_bridge.publishInputLayout(snapshot)) {
+    final composer = _composer;
+    if (!(composer?.publishPhone(snapshot, _sceneOrigin) ??
+        _bridge.publishInputLayout(snapshot))) {
       return;
     }
     _inputLayoutEpoch = snapshot.epoch;

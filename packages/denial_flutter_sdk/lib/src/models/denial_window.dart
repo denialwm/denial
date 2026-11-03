@@ -146,6 +146,51 @@ class DenialSurfaceLayer {
   ]);
 }
 
+/// A cached native main-surface composition in client-local coordinates.
+/// Per-surface opacity and orientation are already baked into this image.
+class DenialClientTexture {
+  const DenialClientTexture({
+    required this.textureId,
+    required this.width,
+    required this.height,
+    required this.sourceWidth,
+    required this.sourceHeight,
+  });
+  final int textureId;
+  final int width;
+  final int height;
+  final double sourceWidth;
+  final double sourceHeight;
+
+  bool get isValid =>
+      textureId > 0 &&
+      textureId <= 0x7fffffffffffffff &&
+      width > 0 &&
+      width <= 8192 &&
+      height > 0 &&
+      height <= 8192 &&
+      width * height <= 32 * 1024 * 1024 &&
+      sourceWidth.isFinite &&
+      sourceHeight.isFinite &&
+      sourceWidth > 0 &&
+      sourceWidth <= width &&
+      sourceHeight > 0 &&
+      sourceHeight <= height;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DenialClientTexture &&
+          other.textureId == textureId &&
+          other.width == width &&
+          other.height == height &&
+          other.sourceWidth == sourceWidth &&
+          other.sourceHeight == sourceHeight;
+  @override
+  int get hashCode =>
+      Object.hash(textureId, width, height, sourceWidth, sourceHeight);
+}
+
 class DenialWindow {
   const DenialWindow({
     required this.objectId,
@@ -188,9 +233,11 @@ class DenialWindow {
     this.contentWidth = 0.0,
     this.contentHeight = 0.0,
     this.surfaceLayers = const <DenialSurfaceLayer>[],
+    this.clientTexture,
     this.contentKind = DenialWindowContentKind.surfaceTree,
     this.opacityClass = DenialWindowOpacityClass.contentTranslucent,
     this.pet,
+    this.keyboardInset = false,
   });
 
   final int objectId;
@@ -233,12 +280,18 @@ class DenialWindow {
   final double contentWidth;
   final double contentHeight;
   final List<DenialSurfaceLayer> surfaceLayers;
+  final DenialClientTexture? clientTexture;
   final DenialWindowContentKind contentKind;
   final DenialWindowOpacityClass opacityClass;
 
   /// What the shell knows of this layer surface if it is a desktop pet
   /// (denial-pet-v1); null for anything else.
   final DenialPet? pet;
+
+  /// The client lays this window out around the on-screen keyboard
+  /// (denial-insets-v1 keyboard inset), so the mobile shell leaves it in
+  /// place while the keyboard is shown instead of lifting it.
+  final bool keyboardInset;
 
   /// The window holding this layer surface, if it is a pet one holds. A held
   /// pet is drawn and hit with that window instead of in its layer's plane.
@@ -463,6 +516,7 @@ class DenialWindow {
         other.surfaceId == surfaceId &&
         other.windowId == windowId &&
         other.textureId == textureId &&
+        other.clientTexture == clientTexture &&
         other.appId == appId &&
         other.width == width &&
         other.height == height &&
@@ -499,6 +553,7 @@ class DenialWindow {
         other.contentKind == contentKind &&
         other.opacityClass == opacityClass &&
         other.pet == pet &&
+        other.keyboardInset == keyboardInset &&
         listEquals(other.surfaceLayers, surfaceLayers);
   }
 
@@ -517,6 +572,7 @@ class DenialWindow {
     surfaceId,
     windowId,
     textureId,
+    clientTexture,
     title,
     appId,
     width,
@@ -553,6 +609,7 @@ class DenialWindow {
     contentHeight,
     contentKind,
     pet,
+    keyboardInset,
     ...surfaceLayers,
   ]);
 }

@@ -18,6 +18,7 @@ enum SettingsPageId {
   overlays,
   lockScreen,
   fingerprint,
+  permissions,
   audio,
   displays,
   network,
@@ -31,6 +32,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
   String label(BuildContext context) => switch (this) {
     SettingsPageId.you => context.l10n.settingsNavigationYou,
     SettingsPageId.fingerprint => context.l10n.fingerprintSection,
+    SettingsPageId.permissions => context.l10n.settingsNavigationPermissions,
     SettingsPageId.about => context.l10n.settingsNavigationAbout,
     SettingsPageId.appearance => context.l10n.settingsNavigationAppearance,
     SettingsPageId.language => context.l10n.settingsNavigationLanguage,
@@ -53,6 +55,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
   IconData get icon => switch (this) {
     SettingsPageId.you => Icons.person_outline_rounded,
     SettingsPageId.fingerprint => Icons.fingerprint_rounded,
+    SettingsPageId.permissions => Icons.shield_outlined,
     SettingsPageId.about => Icons.info_outline_rounded,
     SettingsPageId.appearance => Icons.palette_outlined,
     SettingsPageId.language => Icons.translate_rounded,

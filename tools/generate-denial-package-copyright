@@ -39,6 +39,8 @@ case "$package_name" in
         "$ROOT/LICENSES/CC-BY-SA-4.0.txt"
       append_license 'SIL Open Font License 1.1' \
         "$ROOT/packages/denial_flutter_sdk/assets/fonts/OFL.txt"
+      append_license 'SIL Open Font License 1.1 (Roboto Flex)' \
+        "$ROOT/packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt"
     } >"$output"
     ;;
   denial-flutter-engine)

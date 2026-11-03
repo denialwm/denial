@@ -4,9 +4,8 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
+        mpsc::{Sender, channel},
     },
-    time::Duration,
 };
 use zbus::{
     blocking::{Connection, Proxy},
@@ -347,8 +346,20 @@ pub fn run(
         return Err(error.into());
     }
     eprintln!("denial-polkit-agent: registered for the current login session");
+    // Check again only when the authority's owner or the session's lock or
+    // activity changes. Subscribe before the first check so no change is missed.
+    let (wake, woken) = channel();
+    forward(
+        zbus::blocking::fdo::DBusProxy::new(&connection)?
+            .receive_name_owner_changed_with_args(&[(0, AUTHORITY)])?,
+        wake.clone(),
+    );
+    forward(
+        session.receive_property_changed::<bool>("LockedHint"),
+        wake.clone(),
+    );
+    forward(session.receive_property_changed::<bool>("Active"), wake);
     loop {
-        std::thread::sleep(Duration::from_millis(250));
         let current_owner: String = dbus.call("GetNameOwner", &(AUTHORITY,))?;
         if current_owner != owner {
             return Err("Polkit authority restarted".into());
@@ -357,7 +368,18 @@ pub fn run(
         if locked.swap(value, Ordering::AcqRel) != value && value {
             events.send(Event::Lock)?;
         }
+        woken.recv()?;
     }
+}
+
+fn forward<I: Iterator + Send + 'static>(signals: I, wake: Sender<()>) {
+    std::thread::spawn(move || {
+        for _ in signals {
+            if wake.send(()).is_err() {
+                break;
+            }
+        }
+    });
 }
 
 #[cfg(test)]

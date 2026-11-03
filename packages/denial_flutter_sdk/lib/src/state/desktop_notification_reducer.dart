@@ -7,7 +7,6 @@ import 'desktop_notifications_state.dart';
 /// untouched. Changed collections are owned by the resulting immutable state.
 final class DesktopNotificationReducer {
   static const maxActiveNotifications = 256;
-  static const maxHistoryEntries = 100;
   static const maxBannerQueue = 24;
 
   int _nextSequence = 1;
@@ -29,21 +28,7 @@ final class DesktopNotificationReducer {
       }
       banners = _removeBanner(banners, id);
       pending = _removePending(pending, id);
-      final index = history.indexWhere(
-        (record) => record.notification.id == id,
-      );
-      if (index >= 0) {
-        final record = history[index];
-        if (record.active || record.closeReason != event.closeReason) {
-          history = UnmodifiableListView(
-            List.of(history)
-              ..[index] = record.copyWith(
-                active: false,
-                closeReason: event.closeReason,
-              ),
-          );
-        }
-      }
+      history = _removeHistory(history, id);
     } else {
       final notification = event.notification!;
       final id = notification.id;
@@ -53,66 +38,66 @@ final class DesktopNotificationReducer {
         updatedActive.remove(evictedId);
         banners = _removeBanner(banners, evictedId);
         pending = _removePending(pending, evictedId);
+        history = _removeHistory(history, evictedId);
       }
       updatedActive[id] = notification;
       active = UnmodifiableMapView(updatedActive);
       pending = _removePending(pending, id);
 
+      // A quiet update leaves a showing banner in place, with the new content.
+      // An alert takes over its group's banner: one banner per group.
       final showBanner =
           !notification.historyOnly &&
           (!state.doNotDisturb ||
               notification.urgency == DesktopNotificationUrgency.critical);
-      if (showBanner) {
+      if (!showBanner) {
+        banners = _removeBanner(banners, id);
+      } else if (notification.alert) {
+        final group = notification.groupingKey;
+        bool sameGroup(int other) =>
+            other != id && active[other]?.groupingKey == group;
         final index = banners.indexOf(id);
-        if (index != 0 || banners.length > maxBannerQueue) {
-          final updated = List<int>.of(banners);
-          if (index >= 0) updated.removeAt(index);
+        if (index != 0 ||
+            banners.length > maxBannerQueue ||
+            banners.any(sameGroup)) {
+          final updated = List<int>.of(banners)
+            ..removeWhere((other) => other == id || sameGroup(other));
           updated.insert(0, id);
           if (updated.length > maxBannerQueue) updated.length = maxBannerQueue;
           banners = UnmodifiableListView(updated);
         }
-      } else {
-        banners = _removeBanner(banners, id);
       }
 
       final index = history.indexWhere(
         (record) => record.notification.id == id,
       );
       if (notification.transient && !notification.historyOnly) {
-        if (index >= 0) {
-          history = UnmodifiableListView(List.of(history)..removeAt(index));
-        }
+        history = _removeHistory(history, id);
       } else if (index >= 0) {
         final record = history[index];
+        final unread = record.unread || notification.alert;
         if (!identical(record.notification, notification) ||
-            !record.active ||
-            !record.unread ||
-            record.closeReason != 0) {
+            record.unread != unread) {
           history = UnmodifiableListView(
             List.of(history)
               ..[index] = record.copyWith(
                 notification: notification,
-                active: true,
-                unread: true,
-                closeReason: 0,
+                unread: unread,
               ),
           );
         }
       } else {
-        final updated = List<DesktopNotificationRecord>.of(history)
-          ..insert(
+        // History follows the active set, so its bound is the active bound.
+        history = UnmodifiableListView(
+          List<DesktopNotificationRecord>.of(history)..insert(
             0,
             DesktopNotificationRecord(
               notification: notification,
               sequence: _nextSequence++,
-              active: true,
               unread: true,
             ),
-          );
-        if (updated.length > maxHistoryEntries) {
-          updated.length = maxHistoryEntries;
-        }
-        history = UnmodifiableListView(updated);
+          ),
+        );
       }
     }
 
@@ -133,6 +118,16 @@ final class DesktopNotificationReducer {
     return index < 0
         ? banners
         : UnmodifiableListView(List.of(banners)..removeAt(index));
+  }
+
+  List<DesktopNotificationRecord> _removeHistory(
+    List<DesktopNotificationRecord> history,
+    int id,
+  ) {
+    final index = history.indexWhere((record) => record.notification.id == id);
+    return index < 0
+        ? history
+        : UnmodifiableListView(List.of(history)..removeAt(index));
   }
 
   Set<int> _removePending(Set<int> pending, int id) => pending.contains(id)

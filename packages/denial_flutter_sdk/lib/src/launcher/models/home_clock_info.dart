@@ -27,6 +27,18 @@ class HomeClockInfo {
 
   List<HomeThermalReading> get thermalReadings => power.thermalReadings;
 
+  // Equal snapshots must not rebuild the clock: telemetry is sampled far
+  // more often than anything shown here changes.
+  @override
+  bool operator ==(Object other) =>
+      other is HomeClockInfo &&
+      other.now == now &&
+      other.locale == locale &&
+      other.power == power;
+
+  @override
+  int get hashCode => Object.hash(now, locale, power);
+
   static String localeFromEnvironment(Map<String, String> environment) {
     final lcTime = _nonEmpty(environment['LC_TIME']);
     if (lcTime != null) {
@@ -83,12 +95,16 @@ class HomePowerStatus {
       pdCharging: power.pdCharging,
       ppsPower: power.ppsPower,
       usbPower: power.usbPower,
-      thermalCpuDeciC: power.thermalCpuDeciC,
-      thermalSvoocDeciC: power.thermalSvoocDeciC,
-      thermalPmicDeciC: power.thermalPmicDeciC,
-      thermalExp2DeciC: power.thermalExp2DeciC,
+      thermalCpuDeciC: _wholeDegrees(power.thermalCpuDeciC),
+      thermalSvoocDeciC: _wholeDegrees(power.thermalSvoocDeciC),
+      thermalPmicDeciC: _wholeDegrees(power.thermalPmicDeciC),
+      thermalExp2DeciC: _wholeDegrees(power.thermalExp2DeciC),
     );
   }
+
+  /// Home shows whole degrees; finer readings would only cause rebuilds.
+  static int? _wholeDegrees(int? deciC) =>
+      deciC == null ? null : (deciC / 10).round() * 10;
 
   final String state;
   final int? capacity;
@@ -130,6 +146,38 @@ class HomePowerStatus {
     }
     return null;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is HomePowerStatus &&
+      other.state == state &&
+      other.capacity == capacity &&
+      other.fastCharge == fastCharge &&
+      other.voocCharging == voocCharging &&
+      other.ppsCharging == ppsCharging &&
+      other.pdCharging == pdCharging &&
+      other.ppsPower == ppsPower &&
+      other.usbPower == usbPower &&
+      other.thermalCpuDeciC == thermalCpuDeciC &&
+      other.thermalSvoocDeciC == thermalSvoocDeciC &&
+      other.thermalPmicDeciC == thermalPmicDeciC &&
+      other.thermalExp2DeciC == thermalExp2DeciC;
+
+  @override
+  int get hashCode => Object.hash(
+    state,
+    capacity,
+    fastCharge,
+    voocCharging,
+    ppsCharging,
+    pdCharging,
+    ppsPower,
+    usbPower,
+    thermalCpuDeciC,
+    thermalSvoocDeciC,
+    thermalPmicDeciC,
+    thermalExp2DeciC,
+  );
 
   List<HomeThermalReading> get thermalReadings {
     return [

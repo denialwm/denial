@@ -36,10 +36,12 @@ export 'src/state/desktop_notifications.dart'
     show
         DesktopNotificationsController,
         desktopNotificationLoggerProvider,
-        desktopNotificationsProvider,
-        notificationPolicyStoreProvider;
+        desktopNotificationsProvider;
 export 'src/state/desktop_notifications_state.dart'
-    show DesktopNotificationRecord, DesktopNotificationsState;
+    show
+        DesktopNotificationGroup,
+        DesktopNotificationRecord,
+        DesktopNotificationsState;
 export 'src/state/desktop_power_modes.dart'
     show
         DesktopPowerModesController,
@@ -76,6 +78,11 @@ export 'src/state/output_configuration.dart'
         OutputConfigurationController,
         OutputConfigurationState,
         outputConfigurationProvider;
+export 'src/state/screen_recording.dart'
+    show
+        ScreenRecordingController,
+        ScreenRecordingState,
+        screenRecordingProvider;
 export 'src/state/screenshot_selection.dart'
     show
         ScreenshotSelectionController,

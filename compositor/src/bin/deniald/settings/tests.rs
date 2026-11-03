@@ -70,6 +70,28 @@ fn shell_document(value: Value) -> String {
 }
 
 #[test]
+fn migrates_idle_timeouts_from_minutes_to_seconds() {
+    let temporary = TemporaryDirectory::new("settings-idle-seconds");
+    let path = temporary.settings_path();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        br#"{"version":29,"power":{"idleDpmsEnabled":true,"idleDpmsTimeoutMinutes":2,"idleLockTimeoutMinutes":16}}"#,
+    )
+    .unwrap();
+
+    let manager = SettingsManager::load_path(path).unwrap();
+    let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    let power = document["power"].as_object().unwrap();
+    assert_eq!(power["idleDpmsTimeoutSeconds"], 120);
+    assert_eq!(power["idleLockTimeoutSeconds"], 960);
+    assert_eq!(power["idleDpmsEnabled"], true);
+    assert!(!power.contains_key("idleDpmsTimeoutMinutes"));
+    assert!(!power.contains_key("idleLockTimeoutMinutes"));
+    assert!(!power.contains_key("idleSuspendTimeoutSeconds"));
+}
+
+#[test]
 fn migrates_existing_shell_document_without_losing_sections() {
     let temporary = TemporaryDirectory::new("settings-migrate");
     let path = temporary.settings_path();
@@ -158,7 +180,10 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         .prepare_keyboard_update(manager.revision(), configured.clone())
         .unwrap();
     manager.commit(update).unwrap();
-    let configured_mouse = MouseSettings { speed: 0.35 };
+    let configured_mouse = MouseSettings {
+        speed: 0.35,
+        acceleration_enabled: false,
+    };
     let update = manager
         .prepare_mouse_update(manager.revision(), configured_mouse.clone())
         .unwrap();
@@ -359,6 +384,102 @@ fn touchpad_update_is_persistent_and_revisioned() {
 }
 
 #[test]
+fn display_color_is_saved_and_kept_from_shell_updates() {
+    use super::super::color_grade::Grade;
+    use super::super::output_color::{HdrMode, SignalPrimaries};
+    let temporary = TemporaryDirectory::new("settings-color-update");
+    let path = temporary.settings_path();
+    let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    assert_eq!(manager.color(), &ColorSettings::default());
+    let hdr = HdrMode {
+        white: 150.0,
+        primaries: SignalPrimaries::Srgb,
+    };
+    let color = manager
+        .color()
+        .clone()
+        .with(ColorChange::Correction(false))
+        .with(ColorChange::DesktopLut(Some("/luts/deep.cube".into())))
+        .with(ColorChange::AppLut(
+            "chromium".to_owned(),
+            Some("/luts/warm.cube".into()),
+        ))
+        .with(ColorChange::Hdr("DP-4".to_owned(), Some(hdr)))
+        .with(ColorChange::DesktopGrade(Some(Grade {
+            exposure: 0.5,
+            lift: [0.0, 0.0, 0.05],
+            ..Grade::default()
+        })))
+        .with(ColorChange::AppGrade(
+            "chromium".to_owned(),
+            Some(Grade {
+                saturation: 0.3,
+                ..Grade::default()
+            }),
+        ));
+    let update = manager
+        .prepare_color_update(manager.revision(), color.clone())
+        .unwrap();
+    manager.commit(update).unwrap();
+    let shell_update = shell_document(serde_json::json!({
+        "appearance": {"colorSchemePreference": "preferDark"},
+        "color": {"correction": true}
+    }));
+    let update = manager
+        .prepare_shell_update(manager.revision(), &shell_update)
+        .unwrap();
+    manager.commit(update).unwrap();
+    assert_eq!(manager.color(), &color);
+
+    let reloaded = SettingsManager::load_path(path).unwrap();
+    assert_eq!(reloaded.color(), &color);
+    assert_eq!(reloaded.color().hdr["DP-4"], hdr);
+    let cleared = color
+        .with(ColorChange::DesktopLut(None))
+        .with(ColorChange::Hdr("DP-4".to_owned(), None))
+        .with(ColorChange::AppGrade("chromium".to_owned(), None));
+    assert_eq!(cleared.desktop_lut, None);
+    assert!(cleared.app_grades.is_empty());
+    assert!(cleared.hdr.is_empty());
+}
+
+#[test]
+fn rejects_relative_luts_and_out_of_range_color() {
+    use super::super::output_color::HdrMode;
+    let temporary = TemporaryDirectory::new("settings-color-validate");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    let relative = ColorSettings::default().with(ColorChange::DesktopLut(Some("deep.cube".into())));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), relative)
+            .is_err()
+    );
+    let bright = ColorSettings::default().with(ColorChange::Hdr(
+        "DP-4".to_owned(),
+        Some(HdrMode {
+            white: 5000.0,
+            primaries: Default::default(),
+        }),
+    ));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), bright)
+            .is_err()
+    );
+    let wild = ColorSettings::default().with(ColorChange::DesktopGrade(Some(
+        super::super::color_grade::Grade {
+            exposure: 40.0,
+            ..Default::default()
+        },
+    )));
+    assert!(
+        manager
+            .prepare_color_update(manager.revision(), wild)
+            .is_err()
+    );
+}
+
+#[test]
 fn rejects_touchpad_scroll_speed_outside_supported_range() {
     let temporary = TemporaryDirectory::new("settings-touchpad-scroll-speed");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
@@ -395,7 +516,10 @@ fn mouse_update_is_persistent_and_revisioned() {
     let temporary = TemporaryDirectory::new("settings-mouse-update");
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
-    let configured = MouseSettings { speed: 0.55 };
+    let configured = MouseSettings {
+        speed: 0.55,
+        acceleration_enabled: false,
+    };
     let old_revision = manager.revision();
     let update = manager
         .prepare_mouse_update(old_revision, configured.clone())
@@ -415,7 +539,13 @@ fn rejects_mouse_speed_outside_supported_range() {
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
     for speed in [-1.001, 1.001, f64::NAN] {
         assert!(matches!(
-            manager.prepare_mouse_update(manager.revision(), MouseSettings { speed }),
+            manager.prepare_mouse_update(
+                manager.revision(),
+                MouseSettings {
+                    speed,
+                    ..MouseSettings::default()
+                }
+            ),
             Err(SettingsError::Mouse(_))
         ));
     }
@@ -474,7 +604,13 @@ fn reloads_external_edit_with_an_authoritative_revision() {
     assert!(manager.prepare_external_reload().unwrap().is_none());
 
     let update = manager
-        .prepare_mouse_update(manager.revision(), MouseSettings { speed: 0.25 })
+        .prepare_mouse_update(
+            manager.revision(),
+            MouseSettings {
+                speed: 0.25,
+                ..MouseSettings::default()
+            },
+        )
         .unwrap();
     manager.commit(update).unwrap();
 }
@@ -485,7 +621,13 @@ fn external_removal_restores_and_recreates_defaults() {
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
     let update = manager
-        .prepare_mouse_update(manager.revision(), MouseSettings { speed: 0.75 })
+        .prepare_mouse_update(
+            manager.revision(),
+            MouseSettings {
+                speed: 0.75,
+                ..MouseSettings::default()
+            },
+        )
         .unwrap();
     manager.commit(update).unwrap();
     let old_revision = manager.revision();

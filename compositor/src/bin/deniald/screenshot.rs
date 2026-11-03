@@ -59,7 +59,10 @@ impl ScreenshotManager {
                             info!(path = %output.path.display(), "saved screenshot");
                             match clipboard.set_image_png(output.png) {
                                 Ok(item_id) => {
-                                    info!(item_id, "published screenshot to the clipboard")
+                                    info!(item_id, "published screenshot to the clipboard");
+                                    // The loop hands the new selection to
+                                    // Wayland and the shell.
+                                    crate::loop_wake::wake();
                                 }
                                 Err(error) => {
                                     warn!(?error, "could not publish screenshot to the clipboard")

@@ -1,6 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+mod access;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
@@ -28,6 +30,8 @@ const INTERFACE_NAME: &str = "org.freedesktop.impl.portal.Settings";
 const APPEARANCE_NAMESPACE: &str = "org.freedesktop.appearance";
 const COLOR_SCHEME_KEY: &str = "color-scheme";
 const ACCENT_COLOR_KEY: &str = "accent-color";
+/// The Polkit dialog bundle, which also draws Access requests.
+const DEFAULT_DIALOG_BUNDLE: &str = "/usr/lib/denial/polkit";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const RETRY_INTERVAL: Duration = Duration::from_millis(40);
 
@@ -127,6 +131,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_target(false)
         .init();
 
+    let bundle = dialog_bundle_argument()?;
     let (socket, initial) = connect_to_compositor(CONNECT_TIMEOUT)?;
     let cache = Arc::new(RwLock::new(Cache { snapshot: initial }));
     let connection = ConnectionBuilder::session()?
@@ -137,6 +142,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 cache: Arc::clone(&cache),
             },
         )?
+        .serve_at(OBJECT_PATH, access::AccessInterface { bundle })?
         .build()?;
     info!(
         service = SERVICE_NAME,
@@ -147,6 +153,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     receive_updates(socket, &connection, &cache)
+}
+
+/// `--dialog-bundle DIR`: the native dialog bundle Access requests open.
+fn dialog_bundle_argument() -> Result<access::DialogBundle, Box<dyn Error>> {
+    let mut bundle = PathBuf::from(DEFAULT_DIALOG_BUNDLE);
+    let mut arguments = std::env::args_os().skip(1);
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
+            Some("--dialog-bundle") => {
+                bundle = arguments
+                    .next()
+                    .ok_or("--dialog-bundle needs a directory")?
+                    .into();
+            }
+            Some("--help") => {
+                println!("denial-portal [--dialog-bundle DIR]");
+                std::process::exit(0);
+            }
+            _ => return Err(format!("unknown argument {}", argument.to_string_lossy()).into()),
+        }
+    }
+    Ok(access::DialogBundle(bundle))
 }
 
 fn receive_updates(

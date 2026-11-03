@@ -21,7 +21,13 @@ export 'src/theme/cursor_themes.dart'
 export 'src/theme/glass_configuration.dart'
     show ShellGlassAppearance, ShellGlassConfiguration, ShellTransparencyMode;
 export 'src/theme/motion.dart'
-    show Motion, MotionTelemetry, interval, springTo, unit;
+    show
+        Motion,
+        MotionTelemetry,
+        interval,
+        springSettleDuration,
+        springTo,
+        unit;
 export 'src/theme/shell_color_scheme.dart' show ShellColorScheme;
 export 'src/theme/shell_font_catalog.dart' show ShellFontCatalog;
 export 'src/theme/shell_text_theme.dart' show ShellTextTheme;

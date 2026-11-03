@@ -24,6 +24,7 @@ export 'src/models/denial_drag_icon.dart'
     show DenialDragIcon, DenialDragIconUpdate;
 export 'src/models/denial_window.dart'
     show
+        DenialClientTexture,
         DenialSurfaceLayer,
         DenialSurfaceRole,
         DenialWindow,
@@ -46,6 +47,7 @@ export 'src/models/desktop_notification.dart'
         DesktopNotificationEvent,
         DesktopNotificationEventKind,
         DesktopNotificationImageData,
+        DesktopNotificationMessage,
         DesktopNotificationUrgency;
 export 'src/models/display_layout.dart'
     show DisplayLayout, DisplayOutput, SystemBarSide;
@@ -70,8 +72,7 @@ export 'src/models/logind.dart'
         LogindCapability,
         LogindInhibitor,
         LogindSnapshot;
-export 'src/models/notification_policy.dart'
-    show NotificationPolicy, NotificationPreviewMode;
+export 'src/models/notification_policy.dart' show NotificationPreviewMode;
 export 'src/models/output_configuration.dart'
     show
         DenialOutput,

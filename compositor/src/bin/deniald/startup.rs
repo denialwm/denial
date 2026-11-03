@@ -69,6 +69,56 @@ fn await_presentable_outputs(
     }
 }
 
+/// LightDM starts the session command before it asks logind to activate the
+/// session, so the first activation typically arrives a few hundred
+/// milliseconds after deniald opens its seat.
+const SEAT_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Waits for logind to activate a session that the display manager started
+/// before activating it. The caller must already hold its DRM device: libseat
+/// 0.8 learns of the activation only through that device's `ResumeDevice`.
+fn wait_for_seat_activation(
+    session: &LibSeatSession,
+    notifier: LibSeatSessionNotifier,
+) -> Result<LibSeatSessionNotifier, Box<dyn Error>> {
+    if session.is_active() {
+        return Ok(notifier);
+    }
+    info!("waiting for logind to activate the session");
+    let started = Instant::now();
+    let mut event_loop = EventLoop::<bool>::try_new()?;
+    let dispatcher = Dispatcher::new(notifier, |event, _, active: &mut bool| {
+        *active = matches!(event, SessionEvent::ActivateSession);
+    });
+    let token = event_loop
+        .handle()
+        .register_dispatcher(dispatcher.clone())?;
+    let mut active = false;
+    while !active {
+        let remaining = SEAT_ACTIVATION_TIMEOUT
+            .checked_sub(started.elapsed())
+            .ok_or("logind did not activate the session")?;
+        event_loop.dispatch(remaining, &mut active)?;
+    }
+    event_loop.handle().remove(token);
+    drop(event_loop);
+    info!(
+        waited_ms = started.elapsed().as_millis(),
+        "logind activated the session"
+    );
+    Ok(dispatcher.into_source_inner())
+}
+
+/// Card and render-node aliases share one physical sysfs device. Paths and
+/// DRM minor numbers identify nodes, not GPU ownership.
+fn physical_drm_identity(path: &Path) -> Result<std::path::PathBuf, Box<dyn Error>> {
+    let device = std::fs::metadata(path)?.rdev();
+    let (major, minor) = (libc::major(device), libc::minor(device));
+    Ok(std::fs::canonicalize(format!(
+        "/sys/dev/char/{major}:{minor}/device"
+    ))?)
+}
+
 pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     #[cfg(not(feature = "flutter"))]
     if options.flutter_bundle.is_some() {
@@ -122,6 +172,10 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         );
         settings.replace_invalid_keyboard_with_default();
     }
+    #[cfg(feature = "flutter")]
+    if let Some(settings) = settings.as_ref() {
+        output_control::restore_color(settings.color());
+    }
 
     #[cfg(feature = "flutter")]
     let portal_ipc_server = if options.flutter_bundle.is_some() && options.wayland {
@@ -135,9 +189,13 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     };
 
     let (mut session, session_notifier) = LibSeatSession::new()?;
-    if !session.is_active() {
-        return Err("libseat did not activate the current TTY session".into());
-    }
+    // logind hands out the device of an inactive session and grants DRM
+    // master when it activates the session.
+    let owned_fd = session.open(
+        Path::new(&options.device),
+        OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
+    )?;
+    let session_notifier = wait_for_seat_activation(&session, session_notifier)?;
     // RTKit grants priority only to active local sessions. Prepare the policy
     // after libseat activation, but keep this thread ordinary until Flutter,
     // graphics drivers, and persistent compositor workers have initialized.
@@ -145,10 +203,8 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let seat_name = session.seat();
     let drm_device_id = std::fs::metadata(&options.device)?.rdev();
 
-    let owned_fd = session.open(
-        Path::new(&options.device),
-        OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
-    )?;
+    // Only after activation: DrmDeviceFd decides once, here, whether it holds
+    // DRM master and so must drop and reacquire it across VT switches.
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(owned_fd));
     let render_device = options.render_device.as_deref().unwrap_or(&options.device);
     let render_fd = if render_device == options.device {
@@ -209,11 +265,13 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     let raw_sequence = metadata.as_ref().map(|metadata| metadata.sequence);
                     let now = monotonic_now();
                     let (clock, last_report, warned) = presentation_clocks.entry(crtc).or_default();
-                    let feedback = clock.observe(now, raw_timestamp, raw_sequence);
+                    let timing = state.presentation_timings
+                        .get(&crtc).copied().unwrap_or_default();
+                    let feedback = clock.observe(now, raw_timestamp, raw_sequence, timing);
                     if raw_timestamp.is_some() && feedback.timestamp.is_none() && !*warned {
                         warn!(?crtc, ?raw_timestamp, ?raw_sequence,
                             reason = feedback.timestamp_status,
-                            "invalid DRM presentation timestamp; using completion delivery without physical clock feedback");
+                            "invalid DRM presentation timestamp; clients get the refresh edge after the last physical one, the output clock gets no feedback");
                         *warned = true;
                     }
                     #[cfg(feature = "flutter")]
@@ -225,6 +283,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                             ?raw_sequence, timestamp_status = feedback.timestamp_status,
                             physical_timestamp = feedback.timestamp.is_some(),
                             valid_sequence = feedback.sequence.is_some(),
+                            blanking_limit_us = timing.blanking_limit.as_micros(),
                             "DRM completion metadata audit");
                         *last_report = Some(delivered_at);
                     }
@@ -239,6 +298,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         crtc,
                         observed_at,
                         presented_at,
+                        edge: feedback.edge,
                         sequence,
                     });
                 }
@@ -371,15 +431,17 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             &seat_name,
             drm_fd.clone(),
             render_fd.clone(),
-            options.xwayland,
-            options.work_area.clone(),
-            output_configuration.scrolling_layout_axes.clone(),
-            settings
-                .take()
-                .expect("Wayland settings were loaded before frontend startup"),
-            shortcuts
-                .take()
-                .expect("Wayland shortcuts were loaded before frontend startup"),
+            wayland_frontend::FrontendConfig {
+                xwayland_enabled: options.xwayland,
+                work_area: options.work_area.clone(),
+                scrolling_layout_axes: output_configuration.scrolling_layout_axes.clone(),
+                settings: settings
+                    .take()
+                    .expect("Wayland settings were loaded before frontend startup"),
+                shortcuts: shortcuts
+                    .take()
+                    .expect("Wayland shortcuts were loaded before frontend startup"),
+            },
         )?;
         let x11_display = frontend.xdisplay_name();
         info!(
@@ -411,6 +473,21 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     };
     kms.scanouts.reserve(outputs.len());
 
+    // Keep each CRTC on the primary plane it already shows: the kernel refuses
+    // to move a plane to another CRTC in one commit, and Smithay otherwise
+    // hands the first free plane to whichever output comes first.
+    let inherited_planes = outputs
+        .iter()
+        .filter_map(|output| {
+            let primary = kms.drm.planes(&output.crtc).ok()?.primary;
+            primary.iter().find_map(|plane| {
+                let shown = kms.drm.get_plane(plane.handle).ok()?.crtc() == Some(output.crtc);
+                shown
+                    .then(|| kms.drm.claim_plane(plane.handle, output.crtc))
+                    .flatten()
+            })
+        })
+        .collect::<Vec<_>>();
     for output in outputs {
         let original_mode = match kms.drm.get_crtc(output.crtc)?.mode() {
             Some(mode) => mode,
@@ -444,8 +521,14 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             powered: true,
         });
     }
+    drop(inherited_planes);
 
-    let cross_device_rendering = render_device != options.device;
+    let cross_device_rendering =
+        physical_drm_identity(render_device)? != physical_drm_identity(&options.device)?;
+    #[cfg(feature = "flutter")]
+    let scene_transfer = options.flutter_bundle.is_some();
+    #[cfg(not(feature = "flutter"))]
+    let scene_transfer = false;
     let gbm = GbmDevice::new(render_fd.clone()).map_err(|error| {
         // This fd is already open. GBM can return ENOENT when loading its
         // backend fails, so its errno must not imply a missing DRM node.
@@ -462,10 +545,18 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     })?;
     let gbm_flags = GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT;
     let mut allocator = GbmAllocator::new(gbm.clone(), gbm_flags);
+    let scanout_gbm = if scene_transfer {
+        GbmDevice::new(drm_fd.clone())?
+    } else {
+        gbm.clone()
+    };
     let mut scanout_allocator = ScanoutAllocator::gbm(
-        GbmAllocator::new(gbm.clone(), scanout_gbm_flags(cross_device_rendering)),
+        GbmAllocator::new(
+            scanout_gbm,
+            scanout_gbm_flags(cross_device_rendering && !scene_transfer),
+        ),
         drm_fd.clone(),
-        cross_device_rendering,
+        !scene_transfer && render_fd.as_raw_fd() != drm_fd.as_raw_fd(),
     );
     // SAFETY: the GBM device outlives the EGL display, context, renderer and
     // every imported dmabuf created below. All of them are dropped in this
@@ -476,6 +567,25 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             render_device.display()
         )
     })?;
+    #[cfg(feature = "flutter")]
+    if scene_transfer {
+        scanout_allocator.enable_scene_transfer(gbm.clone(), render_fd.clone(), &egl_display)?;
+    }
+    if let Ok(Some(node)) = smithay::backend::egl::EGLDevice::device_for_display(&egl_display)
+        .and_then(|device| device.try_get_render_node())
+        && let Some(path) = node.dev_path()
+    {
+        let actual = physical_drm_identity(&path)?;
+        if actual != physical_drm_identity(render_device)? {
+            return Err(format!(
+                "EGL selected {} instead of requested scene GPU {}",
+                path.display(),
+                render_device.display()
+            )
+            .into());
+        }
+        info!(node=%path.display(), device=%actual.display(), "verified scene EGL device identity");
+    }
     let mut swapchains = if options.flutter_bundle.is_some() {
         #[cfg(feature = "flutter")]
         {
@@ -496,12 +606,11 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         #[cfg(not(feature = "flutter"))]
         return Err("Flutter feature was checked before allocating scanout buffers".into());
     } else {
-        let atlas_modifiers =
-            shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
+        let atlas_format = shared_atlas_format(&kms.scanouts, egl_display.dmabuf_render_formats())?;
         let atlas_swapchain = AtlasSwapchain::allocate(
             &mut scanout_allocator,
             atlas.pixel_size,
-            &atlas_modifiers,
+            &atlas_format,
         )
         .map_err(|error| {
             format!(
@@ -526,9 +635,9 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             .ok_or("Flutter output pools were not allocated")?
             .outputs
         {
-            render_blank_target(
+            kms_render::render_blank_output_buffer(
                 &mut renderer,
-                &mut pool.buffers[pool.current].dmabuf,
+                &mut pool.buffers[pool.current],
                 pool.size,
             )?;
         }
@@ -634,43 +743,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             .handle()
             .insert_source(source, |event, _, state: &mut RuntimeState| {
                 if let ChannelEvent::Msg(request) = event {
-                    match request {
-                        ControlEvent::OutputApply(request) => {
-                            state.pending_output_applies.push_back(request);
-                        }
-                        ControlEvent::OutputConfirmation(request) => {
-                            state.pending_output_confirmations.push_back(request);
-                        }
-                        ControlEvent::Shell(request) => {
-                            let result = if state.secure_session_locked() {
-                                Err(OutputControlFailure::new(
-                                    "locked",
-                                    "shell commands are unavailable while the secure session is locked",
-                                ))
-                            } else {
-                                match request.command {
-                                    ShellControlCommand::OpenWallpaper => state.queue_shell_action(
-                                        wire::ShellAction::Wallpaper,
-                                        None,
-                                    ),
-                                }
-                                Ok(())
-                            };
-                            request.reply(result);
-                        }
-                        ControlEvent::Settings(request) => {
-                            state.pending_settings_controls.push_back(request);
-                        }
-                        ControlEvent::SystemControl(request) => {
-                            state.pending_system_controls.push_back(request);
-                        }
-                        ControlEvent::SoftwareDimming(request) => {
-                            state.pending_software_dimming.push_back(request);
-                        }
-                        ControlEvent::UiDevelopment(request) => {
-                            state.pending_ui_development.push_back(request);
-                        }
-                    }
+                    state.receive_control(request);
                 }
             })?;
         Some(server)
@@ -700,7 +773,6 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         Some(FlutterLauncher::new(
             FlutterLaunchConfiguration {
                 bundle,
-                renderer_backend: options.flutter_renderer,
                 offscreen_blit: options.flutter_offscreen_blit,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
@@ -745,7 +817,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     let gamma_control = Arc::new(Mutex::new(gamma_control::GammaController::default()));
-    let mut graphical_session_started = false;
+    let mut systemd_environment_restore = None;
     let runtime_outcome = catch_unwind(AssertUnwindSafe(|| -> Result<_, Box<dyn Error>> {
         for scanout in &kms.scanouts {
             let (_, state) = current_scanout_state(scanout, &swapchains)?;
@@ -771,7 +843,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 None,
                 options.polkit_agent,
             ) {
-                Ok(activation) => graphical_session_started = activation.starts_systemd_target(),
+                Ok(activation) => systemd_environment_restore = activation.into_systemd_restore(),
                 Err(error) => {
                     warn!(%error, "could not activate the compositor session environment")
                 }
@@ -781,7 +853,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         // This starts its backend only; the agent opens UI on a Polkit challenge.
         #[cfg(feature = "flutter")]
         if runtime_limit == RuntimeLimit::UntilLogout
-            && !graphical_session_started
+            && systemd_environment_restore.is_none()
             && wayland.is_some()
             && options.polkit_agent
             && std::env::var("DENIAL_POLKIT_AGENT").as_deref() != Ok("0")
@@ -864,7 +936,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         .ok_or("Flutter output control was not initialized")?
                         .publisher(),
                     portal_ipc: portal_ipc_server.as_ref().map(PortalIpcServer::publisher),
-                    wayland,
+                    wayland: wayland.ok_or("--flutter-bundle requires --wayland")?,
                     gamma_control: Arc::clone(&gamma_control),
                     flutter: &mut flutter,
                     flutter_launcher: flutter_launcher
@@ -957,8 +1029,10 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let mut restore_failures = restore.failures;
     restore_failures.extend(gamma_restore_failures);
 
-    if graphical_session_started && let Err(error) = stop_systemd_graphical_session() {
-        warn!(%error, "could not stop the Denial graphical-session target");
+    if let Some(restore) = systemd_environment_restore.as_ref()
+        && let Err(error) = stop_systemd_graphical_session(restore)
+    {
+        warn!(%error, "could not stop the Denial graphical-session target and restore its activation environment");
     }
 
     match runtime_outcome {

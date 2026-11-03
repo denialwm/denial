@@ -122,10 +122,7 @@ impl FlutterRuntime {
             {
                 continue;
             }
-            self.host()
-                .engine()
-                .unregister_external_texture(texture_id)?;
-            self.handler.remove_external_texture_source(texture_id);
+            self.unregister_external_texture(texture_id)?;
             self.pending_frame_texture_ids
                 .retain(|pending| *pending != texture_id);
             self.texture_output_membership.remove(&texture_id);

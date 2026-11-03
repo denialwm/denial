@@ -248,4 +248,58 @@ void main() {
       replacement,
     );
   });
+
+  group('dmail', () {
+    MobileNetworkSnapshot dmail(
+      String state, {
+      int retries = 3,
+      String data = 'connected',
+      MobileSimPresence previous = MobileSimPresence.unknown,
+    }) => dmailNetworkSnapshot(
+      state: state,
+      technology: '4g',
+      signal: 73,
+      operatorName: 'Iliad',
+      pinRetries: retries,
+      dataEnabled: true,
+      dataState: data,
+      previous: previous,
+    );
+
+    test('registered with data is working, with operator and generation', () {
+      final registered = dmail('registered');
+      expect(registered.cellularWorking, isTrue);
+      expect(registered.operatorName, 'Iliad');
+      expect(registered.technology, '4G');
+      expect(registered.canToggle, isTrue);
+    });
+
+    test('a locked SIM asks for the PIN, a blocked one for the PUK', () {
+      final locked = dmail('locked', data: 'connecting');
+      expect(locked.pinRequired, isTrue);
+      expect(locked.simPath, dmailPath);
+      expect(locked.pinRetries, 3);
+      final blocked = dmail('locked', retries: 0, data: 'connecting');
+      expect(blocked.locked, isTrue);
+      expect(blocked.pinRequired, isFalse);
+    });
+
+    test('no SIM hides cellular; starting keeps what was known', () {
+      expect(dmail('no-sim').showCellular, isFalse);
+      expect(dmail('starting').simPresence, MobileSimPresence.unknown);
+      expect(
+        dmail('starting', previous: MobileSimPresence.present).simPresence,
+        MobileSimPresence.present,
+      );
+      expect(dmail('failed').canToggle, isFalse);
+    });
+  });
+
+  test('ModemManager access technologies map to generations', () {
+    expect(mobileTechnologyFromModemManager(0), '');
+    expect(mobileTechnologyFromModemManager(1 << 4), '2G');
+    expect(mobileTechnologyFromModemManager(1 << 9 | 1 << 4), '3G');
+    expect(mobileTechnologyFromModemManager(1 << 14), '4G');
+    expect(mobileTechnologyFromModemManager(1 << 15 | 1 << 14), '5G');
+  });
 }

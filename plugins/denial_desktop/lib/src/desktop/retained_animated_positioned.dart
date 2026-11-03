@@ -157,7 +157,11 @@ class _RenderRetainedTransformBox extends RenderProxyBox {
       return;
     }
     _visualRect = value;
-    markNeedsPaint();
+    if (isRepaintBoundary) {
+      markNeedsCompositedLayerUpdate();
+    } else {
+      markNeedsPaint();
+    }
     markNeedsSemanticsUpdate();
   }
 
@@ -167,10 +171,25 @@ class _RenderRetainedTransformBox extends RenderProxyBox {
     if (_globalClipRect == value) {
       return;
     }
+    if ((_globalClipRect == null) != (value == null)) {
+      markNeedsCompositingBitsUpdate();
+    }
     _globalClipRect = value;
     markNeedsPaint();
     markNeedsSemanticsUpdate();
   }
+
+  /// Without a scene clip the visual transform is a property of this box's
+  /// own layer, so moving or scaling the retained child repaints nothing:
+  /// neither the child nor the scene behind it. A scene clip applies before
+  /// the transform and is painted instead.
+  @override
+  bool get isRepaintBoundary => _globalClipRect == null;
+
+  @override
+  OffsetLayer updateCompositedLayer({
+    required covariant TransformLayer? oldLayer,
+  }) => (oldLayer ?? TransformLayer())..transform = _visualTransform;
 
   Matrix4 get _visualTransform {
     final scaleX = _retainedSize.width > 0
@@ -218,6 +237,12 @@ class _RenderRetainedTransformBox extends RenderProxyBox {
     if (child == null) {
       return;
     }
+    final clip = _globalClipRect;
+    if (clip == null) {
+      // The composited layer applies the visual transform.
+      super.paint(context, offset);
+      return;
+    }
 
     void paintTransformed(PaintingContext context, Offset offset) {
       context.pushTransform(
@@ -228,11 +253,6 @@ class _RenderRetainedTransformBox extends RenderProxyBox {
       );
     }
 
-    final clip = _globalClipRect;
-    if (clip == null) {
-      paintTransformed(context, offset);
-      return;
-    }
     context.pushClipRect(
       needsCompositing,
       offset,

@@ -61,6 +61,8 @@ pub(super) struct GlApi {
     pub(super) tex_parameter_i: unsafe extern "system" fn(u32, u32, i32),
     pub(super) tex_image_2d:
         unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void),
+    pub(super) tex_image_3d:
+        unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, i32, u32, u32, *const c_void),
     pub(super) image_target_texture: unsafe extern "system" fn(u32, *const c_void),
     pub(super) delete_textures: unsafe extern "system" fn(i32, *const u32),
     pub(super) gen_framebuffers: unsafe extern "system" fn(i32, *mut u32),
@@ -82,6 +84,10 @@ pub(super) struct GlApi {
     pub(super) use_program: unsafe extern "system" fn(u32),
     pub(super) get_uniform_location: unsafe extern "system" fn(u32, *const c_char) -> i32,
     pub(super) uniform_1i: unsafe extern "system" fn(i32, i32),
+    pub(super) uniform_matrix_3fv: unsafe extern "system" fn(i32, i32, u8, *const f32),
+    pub(super) uniform_3fv: unsafe extern "system" fn(i32, i32, *const f32),
+    pub(super) uniform_4fv: unsafe extern "system" fn(i32, i32, *const f32),
+    pub(super) uniform_1f: unsafe extern "system" fn(i32, f32),
     pub(super) active_texture: unsafe extern "system" fn(u32),
     pub(super) enable: unsafe extern "system" fn(u32),
     pub(super) disable: unsafe extern "system" fn(u32),
@@ -124,6 +130,21 @@ impl GlApi {
             tex_image_2d: symbol!(
                 "glTexImage2D",
                 unsafe extern "system" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void)
+            ),
+            tex_image_3d: symbol!(
+                "glTexImage3D",
+                unsafe extern "system" fn(
+                    u32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    i32,
+                    u32,
+                    u32,
+                    *const c_void,
+                )
             ),
             image_target_texture: symbol!(
                 "glEGLImageTargetTexture2DOES",
@@ -179,6 +200,19 @@ impl GlApi {
                 unsafe extern "system" fn(u32, *const c_char) -> i32
             ),
             uniform_1i: symbol!("glUniform1i", unsafe extern "system" fn(i32, i32)),
+            uniform_matrix_3fv: symbol!(
+                "glUniformMatrix3fv",
+                unsafe extern "system" fn(i32, i32, u8, *const f32)
+            ),
+            uniform_3fv: symbol!(
+                "glUniform3fv",
+                unsafe extern "system" fn(i32, i32, *const f32)
+            ),
+            uniform_4fv: symbol!(
+                "glUniform4fv",
+                unsafe extern "system" fn(i32, i32, *const f32)
+            ),
+            uniform_1f: symbol!("glUniform1f", unsafe extern "system" fn(i32, f32)),
             active_texture: symbol!("glActiveTexture", unsafe extern "system" fn(u32)),
             enable: symbol!("glEnable", unsafe extern "system" fn(u32)),
             disable: symbol!("glDisable", unsafe extern "system" fn(u32)),
@@ -229,6 +263,12 @@ pub(super) struct GlTarget {
     pub(super) scanout_framebuffer: u32,
     pub(super) render_texture: u32,
     pub(super) render_framebuffer: u32,
+    /// Color format Flutter is told the render framebuffer holds.
+    pub(super) gl_format: u32,
+    /// Column-major linear-light gamut matrix for the copy to scanout.
+    pub(super) gamut: Option<[f32; 9]>,
+    /// SDR white in cd/m² when the copy encodes PQ, else 0.
+    pub(super) pq_white: f32,
 }
 
 impl GlTarget {
@@ -241,6 +281,22 @@ impl GlTarget {
 pub(super) struct ShaderBlit {
     pub(super) program: u32,
     pub(super) source_uniform: i32,
+    pub(super) correct_uniform: i32,
+    pub(super) gamut_uniform: i32,
+    pub(super) grade_uniform: i32,
+    pub(super) look_uniform: i32,
+    pub(super) alpha_mode_uniform: i32,
+    pub(super) convert_uniform: i32,
+    pub(super) decode_uniform: i32,
+    pub(super) decode_params_uniform: i32,
+    pub(super) to_scene_uniform: i32,
+    pub(super) luma_uniform: i32,
+    pub(super) tone_uniform: i32,
+    pub(super) pq_white_uniform: i32,
+    /// The desktop look's 3D texture, or 0 for none.
+    pub(super) look_texture: u32,
+    /// The desktop look generation `look_texture` holds.
+    pub(super) look_generation: u64,
 }
 
 const SCANOUT_VERTEX_SHADER: &[u8] = b"#version 300 es\n\
@@ -255,11 +311,113 @@ void main() {\n\
 const SCANOUT_FRAGMENT_SHADER: &[u8] = b"#version 300 es\n\
 precision highp float;\n\
 uniform sampler2D source_texture;\n\
+// 0: no alpha (a scene), 1: premultiplied after encoding, 2: premultiplied\n\
+// before encoding, 3: straight.\n\
+uniform int alpha_mode;\n\
+uniform bool convert;\n\
+uniform int decode;\n\
+uniform vec4 decode_params;\n\
+uniform mat3 to_scene;\n\
+uniform vec3 luma;\n\
+// Content peak, knee, headroom, extended.\n\
+uniform vec4 tone;\n\
+uniform bool grade;\n\
+uniform mediump sampler3D look;\n\
+uniform bool correct_gamut;\n\
+uniform mat3 gamut;\n\
+// SDR white in cd/m2 on a PQ output; 0 on an SDR one.\n\
+uniform float pq_white;\n\
 in vec2 texture_coordinate;\n\
 layout(location = 0) out vec4 fragment_color;\n\
+vec3 decode_light(vec3 v) {\n\
+    vec3 a = abs(v);\n\
+    if (decode == 0) return sign(v) * pow(a, vec3(decode_params.x));\n\
+    if (decode == 1) return sign(v) * mix(a / 12.92, pow((a + 0.055) / 1.055, vec3(2.4)), step(0.04045, a));\n\
+    if (decode == 2) return decode_params.y * pow(max(v + decode_params.x, 0.0), vec3(2.4));\n\
+    if (decode == 3) {\n\
+        vec3 e = pow(clamp(v, 0.0, 1.0), vec3(1.0 / 78.84375));\n\
+        return pow(max(e - 0.8359375, 0.0) / (18.8515625 - 18.6875 * e), vec3(1.0 / 0.1593017578125));\n\
+    }\n\
+    if (decode == 4) {\n\
+        vec3 c = clamp(v, 0.0, 1.0);\n\
+        vec3 scene = mix(c * c / 3.0, (exp((c - 0.55991073) / 0.17883277) + 0.28466892) / 12.0, step(0.5, c));\n\
+        return scene * pow(max(dot(luma, scene), 1e-6), decode_params.x);\n\
+    }\n\
+    if (decode == 6) return sign(v) * mix(a / 4.0, pow((a + 0.1115) / 1.1115, vec3(1.0 / 0.45)), step(0.0913, a));\n\
+    if (decode == 7) return pow(vec3(10.0), decode_params.x * (v - 1.0)) * step(1e-7, v);\n\
+    if (decode == 8) return sign(v) * mix(a / 4.5, pow((a + 0.099) / 1.099, vec3(1.0 / 0.45)), step(0.081, a));\n\
+    return v;\n\
+}\n\
+// Highlights above the knee roll off on the largest channel, keeping hue,\n\
+// so the content peak lands on the headroom.\n\
+vec3 tone_map(vec3 rgb) {\n\
+    float peak = tone.x;\n\
+    float knee = tone.y;\n\
+    float headroom = tone.z;\n\
+    float m = max(max(rgb.r, rgb.g), rgb.b);\n\
+    if (peak > headroom && knee < headroom && m > knee) {\n\
+        float span = headroom - knee;\n\
+        float u = (m - knee) / span;\n\
+        float range = (peak - knee) / span;\n\
+        rgb *= (knee + span * u * (1.0 + u / (range * range)) / (1.0 + u)) / m;\n\
+    }\n\
+    return tone.w > 0.5 ? min(rgb, vec3(headroom)) : clamp(rgb, 0.0, headroom);\n\
+}\n\
 void main() {\n\
-    fragment_color = texture(source_texture, texture_coordinate);\n\
+    vec4 color = texture(source_texture, texture_coordinate);\n\
+    float alpha = color.a;\n\
+    // Straight color through every stage, premultiplied again at the end.\n\
+    vec3 rgb = color.rgb;\n\
+    if (alpha_mode == 1) rgb /= max(alpha, 1.0 / 1024.0);\n\
+    if (convert) {\n\
+        vec3 light = decode_light(rgb);\n\
+        if (alpha_mode == 2) light /= max(alpha, 1.0 / 1024.0);\n\
+        light = tone_map(to_scene * light);\n\
+        rgb = sign(light) * pow(abs(light), vec3(1.0 / 2.2));\n\
+    }\n\
+    if (grade) {\n\
+        // Sample texel centres: 0 and 1 land on the first and last entries.\n\
+        float size = float(textureSize(look, 0).x);\n\
+        vec3 at = clamp(rgb, 0.0, 1.0) * ((size - 1.0) / size) + 0.5 / size;\n\
+        // A look grades SDR range; highlights above white keep their excess.\n\
+        rgb = texture(look, at).rgb + max(rgb - 1.0, 0.0);\n\
+    }\n\
+    if (pq_white > 0.0) {\n\
+        // The display reads BT.2100 PQ: scene light into BT.2020 at SDR white.\n\
+        vec3 linear = sign(rgb) * pow(abs(rgb), vec3(2.2));\n\
+        vec3 y = pow(clamp(gamut * linear * (pq_white / 10000.0), 0.0, 1.0), vec3(0.1593017578125));\n\
+        rgb = pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));\n\
+    } else if (correct_gamut) {\n\
+        // Gamma 2.2 both ways keeps neutrals exact; only the gamut moves.\n\
+        vec3 linear = pow(clamp(rgb, 0.0, 1.0), vec3(2.2));\n\
+        rgb = pow(clamp(gamut * linear, 0.0, 1.0), vec3(1.0 / 2.2));\n\
+    }\n\
+    if (alpha_mode != 0) rgb *= alpha;\n\
+    fragment_color = vec4(rgb, alpha);\n\
 }\n\0";
+
+/// The DMA-BUF Flutter renders into. GL renders 10-bit storage only through
+/// a format with alpha: an XR30 EGL image is an incomplete framebuffer on
+/// freedreno, while an AR30 image of the same storage is complete. Scanout
+/// keeps XR30 and ignores the two bits that become alpha.
+pub(super) fn render_view(dmabuf: &Dmabuf) -> Result<Dmabuf, Box<dyn Error>> {
+    let format = AllocatorBuffer::format(dmabuf);
+    if format.code != Fourcc::Xrgb2101010 {
+        return Ok(dmabuf.clone());
+    }
+    let mut builder = Dmabuf::builder(
+        AllocatorBuffer::size(dmabuf),
+        Fourcc::Argb2101010,
+        format.modifier,
+        dmabuf.flags(),
+    );
+    for ((fd, offset), stride) in dmabuf.handles().zip(dmabuf.offsets()).zip(dmabuf.strides()) {
+        builder.add_plane(fd.try_clone_to_owned()?, offset, stride);
+    }
+    builder
+        .build()
+        .ok_or_else(|| "XR30 render view has no planes".into())
+}
 
 pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>> {
     let vertex = compile_shader(gl, gl::VERTEX_SHADER, SCANOUT_VERTEX_SHADER)?;
@@ -303,9 +461,60 @@ pub(super) fn create_shader_blit(gl: GlApi) -> Result<ShaderBlit, Box<dyn Error>
         unsafe { (gl.delete_program)(program) };
         return Err("Flutter scanout-copy shader omitted its source sampler".into());
     }
+    let uniforms = [
+        c"correct_gamut",
+        c"gamut",
+        c"grade",
+        c"look",
+        c"alpha_mode",
+        c"convert",
+        c"decode",
+        c"decode_params",
+        c"to_scene",
+        c"luma",
+        c"tone",
+        c"pq_white",
+    ]
+    .map(|name| {
+        // SAFETY: the names are NUL-terminated and the linked program is live.
+        unsafe { (gl.get_uniform_location)(program, name.as_ptr()) }
+    });
+    let [
+        correct_uniform,
+        gamut_uniform,
+        grade_uniform,
+        look_uniform,
+        alpha_mode_uniform,
+        convert_uniform,
+        decode_uniform,
+        decode_params_uniform,
+        to_scene_uniform,
+        luma_uniform,
+        tone_uniform,
+        pq_white_uniform,
+    ] = uniforms;
+    if uniforms.contains(&-1) {
+        // SAFETY: the linked program remains live until this deletion.
+        unsafe { (gl.delete_program)(program) };
+        return Err("Flutter scanout-copy shader omitted its color uniforms".into());
+    }
     Ok(ShaderBlit {
         program,
         source_uniform,
+        correct_uniform,
+        gamut_uniform,
+        grade_uniform,
+        look_uniform,
+        alpha_mode_uniform,
+        convert_uniform,
+        decode_uniform,
+        decode_params_uniform,
+        to_scene_uniform,
+        luma_uniform,
+        tone_uniform,
+        pq_white_uniform,
+        look_texture: 0,
+        look_generation: 0,
     })
 }
 
@@ -375,6 +584,36 @@ fn gl_info_log(length: i32, read: impl FnOnce(i32, *mut i32, *mut c_char)) -> St
         .to_owned()
 }
 
+/// What the shader copy does to color on the way.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct CopyColor {
+    /// A look's 3D texture, or 0 for none.
+    pub(super) look: u32,
+    /// How the source holds alpha: 0 not at all (a scene), 1 premultiplied
+    /// after encoding, 2 premultiplied before encoding, 3 straight. The copy
+    /// is premultiplied after encoding whenever the source has alpha.
+    pub(super) alpha: i32,
+    /// The source's conversion into the scene.
+    pub(super) convert: Option<Conversion>,
+    /// Column-major linear-light gamut matrix for the display.
+    pub(super) gamut: Option<[f32; 9]>,
+    /// SDR white in cd/m² when the display reads PQ (`gamut` then goes to
+    /// BT.2020); 0 for an SDR display.
+    pub(super) pq_white: f32,
+}
+
+/// Uniforms of the copy shader's conversion stage: decode, matrix to scene
+/// linear light, tone map and gamma 2.2 encoding.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Conversion {
+    pub(super) decode: i32,
+    pub(super) params: [f32; 4],
+    /// Column-major.
+    pub(super) matrix: [f32; 9],
+    pub(super) luma: [f32; 3],
+    pub(super) tone: [f32; 4],
+}
+
 /// Copy a completed scene into its scanout target with the current GLES context.
 /// The compositor and render-node-only profiler share this exact command stream.
 /// The caller must keep every target/program alive and the owning context current.
@@ -384,9 +623,10 @@ pub(super) fn copy_to_scanout(
     scanout_framebuffer: u32,
     size: PixelSize,
     shader_blit: ShaderBlit,
+    color: CopyColor,
 ) -> Result<(), u32> {
     // The raster commands and this draw share one GLES context, so command
-    // ordering makes the completed LINEAR scene texture available without
+    // ordering makes the completed scene texture available without
     // a CPU wait. Use ordinary texture sampling into the compressed KMS
     // target instead of glBlitFramebuffer: the latter enters a faulty CP
     // copy path on this Adreno and eventually faults while reading IOVA 0.
@@ -396,6 +636,7 @@ pub(super) fn copy_to_scanout(
     let mut previous_program = 0;
     let mut previous_active_texture = 0;
     let mut previous_texture_2d = 0;
+    let mut previous_texture_3d = 0;
     let mut previous_viewport = [0; 4];
     let mut previous_color_mask = [gl::FALSE; 4];
     let mut previous_capabilities = [false; 5];
@@ -420,6 +661,8 @@ pub(super) fn copy_to_scanout(
         ]) {
             *saved = (gl.is_enabled)(capability) == gl::TRUE;
         }
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.get_integer_v)(gl::TEXTURE_BINDING_3D, &mut previous_texture_3d);
         (gl.active_texture)(gl::TEXTURE0);
         (gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
 
@@ -432,9 +675,42 @@ pub(super) fn copy_to_scanout(
         (gl.disable)(gl::STENCIL_TEST);
         (gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
         (gl.use_program)(shader_blit.program);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.bind_texture)(gl::TEXTURE_3D, color.look);
+        (gl.uniform_1i)(shader_blit.look_uniform, 1);
+        (gl.uniform_1i)(shader_blit.grade_uniform, i32::from(color.look != 0));
+        (gl.uniform_1i)(shader_blit.alpha_mode_uniform, color.alpha);
+        (gl.uniform_1i)(
+            shader_blit.convert_uniform,
+            i32::from(color.convert.is_some()),
+        );
+        if let Some(convert) = &color.convert {
+            (gl.uniform_1i)(shader_blit.decode_uniform, convert.decode);
+            (gl.uniform_4fv)(
+                shader_blit.decode_params_uniform,
+                1,
+                convert.params.as_ptr(),
+            );
+            (gl.uniform_matrix_3fv)(
+                shader_blit.to_scene_uniform,
+                1,
+                gl::FALSE,
+                convert.matrix.as_ptr(),
+            );
+            (gl.uniform_3fv)(shader_blit.luma_uniform, 1, convert.luma.as_ptr());
+            (gl.uniform_4fv)(shader_blit.tone_uniform, 1, convert.tone.as_ptr());
+        }
         (gl.active_texture)(gl::TEXTURE0);
         (gl.bind_texture)(gl::TEXTURE_2D, render_texture);
         (gl.uniform_1i)(shader_blit.source_uniform, 0);
+        (gl.uniform_1i)(
+            shader_blit.correct_uniform,
+            i32::from(color.gamut.is_some()),
+        );
+        if let Some(gamut) = &color.gamut {
+            (gl.uniform_matrix_3fv)(shader_blit.gamut_uniform, 1, gl::FALSE, gamut.as_ptr());
+        }
+        (gl.uniform_1f)(shader_blit.pq_white_uniform, color.pq_white);
         (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
     }
     // SAFETY: the same render context remains current after the copy.
@@ -446,6 +722,8 @@ pub(super) fn copy_to_scanout(
     unsafe {
         (gl.use_program)(previous_program as u32);
         (gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.bind_texture)(gl::TEXTURE_3D, previous_texture_3d as u32);
         (gl.active_texture)(previous_active_texture as u32);
         (gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
         (gl.viewport)(
@@ -494,7 +772,101 @@ pub(super) fn destroy_shader_blit(gl: GlApi, shader_blit: &mut Option<ShaderBlit
     };
     // SAFETY: cleanup runs with the owning GLES context current and this
     // program was created exactly once by `create_shader_blit`.
-    unsafe { (gl.delete_program)(shader_blit.program) };
+    unsafe {
+        (gl.delete_program)(shader_blit.program);
+        if shader_blit.look_texture != 0 {
+            (gl.delete_textures)(1, &shader_blit.look_texture);
+        }
+    }
+}
+
+/// Replace the copy's desktop look with `lut`, or drop it. The generation is
+/// taken even on failure, so one bad upload is not retried every frame. The
+/// owning context must be current.
+pub(super) fn replace_desktop_look(
+    gl: GlApi,
+    shader_blit: &mut ShaderBlit,
+    lut: Option<(&[f32], usize)>,
+    generation: u64,
+) -> Result<(), u32> {
+    shader_blit.look_generation = generation;
+    delete_look_texture(gl, mem::take(&mut shader_blit.look_texture));
+    if let Some((texels, size)) = lut {
+        shader_blit.look_texture = create_look_texture(gl, texels, size)?;
+    }
+    Ok(())
+}
+
+/// Upload a look (`size`³ RGBA texels, red fastest) as a filtered RGBA16F 3D
+/// texture. The context must be current.
+pub(super) fn create_look_texture(gl: GlApi, texels: &[f32], size: usize) -> Result<u32, u32> {
+    let mut previous_active_texture = 0;
+    let mut previous_texture_3d = 0;
+    let mut unpack = [0; 3];
+    // SAFETY: the caller keeps the context current; `texels` holds `size`³
+    // RGBA float texels (checked below) and the driver copies them.
+    unsafe {
+        for _ in 0..8 {
+            if (gl.get_error)() == gl::NO_ERROR {
+                break;
+            }
+        }
+        // Texels are read from client memory with the default row layout.
+        for (value, name) in unpack.iter_mut().zip([
+            gl::PIXEL_UNPACK_BUFFER_BINDING,
+            gl::UNPACK_ROW_LENGTH,
+            gl::UNPACK_IMAGE_HEIGHT,
+        ]) {
+            (gl.get_integer_v)(name, value);
+        }
+        if unpack != [0; 3] || texels.len() != size.pow(3) * 4 {
+            return Err(gl::INVALID_OPERATION);
+        }
+        (gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
+        (gl.active_texture)(gl::TEXTURE1);
+        (gl.get_integer_v)(gl::TEXTURE_BINDING_3D, &mut previous_texture_3d);
+        let mut texture = 0;
+        (gl.gen_textures)(1, &mut texture);
+        (gl.bind_texture)(gl::TEXTURE_3D, texture);
+        for (name, value) in [
+            (gl::TEXTURE_MIN_FILTER, gl::LINEAR),
+            (gl::TEXTURE_MAG_FILTER, gl::LINEAR),
+            (gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE),
+            (gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE),
+            (gl::TEXTURE_WRAP_R, gl::CLAMP_TO_EDGE),
+        ] {
+            (gl.tex_parameter_i)(gl::TEXTURE_3D, name, value as i32);
+        }
+        let size = size as i32;
+        (gl.tex_image_3d)(
+            gl::TEXTURE_3D,
+            0,
+            gl::RGBA16F as i32,
+            size,
+            size,
+            size,
+            0,
+            gl::RGBA,
+            gl::FLOAT,
+            texels.as_ptr().cast(),
+        );
+        let error = (gl.get_error)();
+        (gl.bind_texture)(gl::TEXTURE_3D, previous_texture_3d as u32);
+        (gl.active_texture)(previous_active_texture as u32);
+        if error != gl::NO_ERROR {
+            (gl.delete_textures)(1, &texture);
+            return Err(error);
+        }
+        Ok(texture)
+    }
+}
+
+pub(super) fn delete_look_texture(gl: GlApi, texture: u32) {
+    if texture != 0 {
+        // SAFETY: the caller keeps the owning context current and passes a
+        // texture made by `create_look_texture` exactly once.
+        unsafe { (gl.delete_textures)(1, &texture) };
+    }
 }
 
 pub(super) fn destroy_targets(gl: GlApi, display: &EGLDisplayHandle, targets: &mut Vec<GlTarget>) {

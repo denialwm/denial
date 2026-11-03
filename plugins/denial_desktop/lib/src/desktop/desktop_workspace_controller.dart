@@ -1247,7 +1247,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     }
     final layoutPreview =
         event.change == DenialWindowPlacementChange.layoutPreview;
-    final placement = state.placements[objectId];
+    var placement = state.placements[objectId];
     if (placement == null) {
       return false;
     }
@@ -1264,6 +1264,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         !layoutPreview &&
         geometryIsNew) {
       activate(objectId);
+      // Activation restacks the whole transient family. Writing back the
+      // placement read before it would put a dialog below its parent again.
+      placement = state.placements[objectId]!;
     }
     if (geometryIsNew) {
       _pendingFlutterProposedFrames.remove(objectId);

@@ -49,6 +49,7 @@ class MobileNetworkSnapshot {
     this.hardwareEnabled = false,
     this.managerAvailable = false,
     this.operatorName = '',
+    this.technology = '',
   });
 
   final String? modemPath;
@@ -63,6 +64,9 @@ class MobileNetworkSnapshot {
   final bool hardwareEnabled;
   final bool managerAvailable;
   final String operatorName;
+
+  /// The network generation: '2G' to '5G', empty when not registered.
+  final String technology;
   bool get showCellular => simPresence != MobileSimPresence.absent;
   bool get cellularWorking =>
       simPresence == MobileSimPresence.present &&
@@ -89,6 +93,40 @@ class MobileNetworkSnapshot {
       unlockRequired > 1 && unlockRequired != 3 && unlockRequired != 5;
   bool get canToggle =>
       managerAvailable && hardwareEnabled && modemPath != null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MobileNetworkSnapshot &&
+      other.modemPath == modemPath &&
+      other.simPath == simPath &&
+      other.simPresence == simPresence &&
+      other.unlockRequired == unlockRequired &&
+      other.pinRetries == pinRetries &&
+      other.strength == strength &&
+      other.registered == registered &&
+      other.connected == connected &&
+      other.enabled == enabled &&
+      other.hardwareEnabled == hardwareEnabled &&
+      other.managerAvailable == managerAvailable &&
+      other.operatorName == operatorName &&
+      other.technology == technology;
+
+  @override
+  int get hashCode => Object.hash(
+    modemPath,
+    simPath,
+    simPresence,
+    unlockRequired,
+    pinRetries,
+    strength,
+    registered,
+    connected,
+    enabled,
+    hardwareEnabled,
+    managerAvailable,
+    operatorName,
+    technology,
+  );
 }
 
 /// Pick one truthful status across modems: never hide a present/unknown SIM
@@ -130,4 +168,64 @@ MobileNetworkSnapshot selectMobileNetworkSnapshot(
     });
   // An empty export can be a service restart/reprobe, not SIM removal.
   return sorted.firstOrNull ?? previous.unavailable();
+}
+
+/// ModemManager's AccessTechnologies flags as a network generation.
+String mobileTechnologyFromModemManager(int flags) {
+  bool any(List<int> bits) => bits.any((bit) => flags & (1 << bit) != 0);
+  // MM_MODEM_ACCESS_TECHNOLOGY bit numbers.
+  if (any([15])) return '5G';
+  if (any([14, 16, 17])) return '4G'; // LTE, LTE Cat-M, NB-IoT
+  if (any([5, 6, 7, 8, 9, 11, 12, 13])) return '3G'; // UMTS to HSPA+, EV-DO
+  if (any([1, 2, 3, 4, 10])) return '2G'; // GSM to EDGE, 1xRTT
+  return '';
+}
+
+/// dmail's single modem and SIM both live at this path.
+const dmailPath = '/org/dmail';
+
+/// A snapshot from dmail's Modem1 and Data1 properties. dmail owns the SIM,
+/// registration and the data session, so it answers for NetworkManager's WWAN
+/// switches too.
+MobileNetworkSnapshot dmailNetworkSnapshot({
+  required String state,
+  required String technology,
+  required int signal,
+  required String operatorName,
+  required int pinRetries,
+  required bool dataEnabled,
+  required String dataState,
+  MobileSimPresence previous = MobileSimPresence.unknown,
+}) {
+  final simPresence = switch (state) {
+    'locked' || 'searching' || 'registered' => MobileSimPresence.present,
+    'no-sim' => MobileSimPresence.absent,
+    // Starting or failed: no evidence either way.
+    _ =>
+      previous == MobileSimPresence.present
+          ? previous
+          : MobileSimPresence.unknown,
+  };
+  final locked = state == 'locked';
+  return MobileNetworkSnapshot(
+    modemPath: state == 'failed' ? null : dmailPath,
+    simPath: simPresence == MobileSimPresence.present ? dmailPath : null,
+    simPresence: simPresence,
+    // ModemManager's lock codes, which the rest of the shell reads: 1 none,
+    // 2 SIM PIN, 4 SIM PUK. dmail reports a blocked PIN as no retries left.
+    unlockRequired: !locked
+        ? 1
+        : pinRetries == 0
+        ? 4
+        : 2,
+    pinRetries: locked ? pinRetries : null,
+    strength: signal.clamp(0, 100),
+    registered: state == 'registered',
+    connected: dataState == 'connected',
+    enabled: dataEnabled,
+    hardwareEnabled: true,
+    managerAvailable: true,
+    operatorName: operatorName,
+    technology: technology == 'none' ? '' : technology.toUpperCase(),
+  );
 }

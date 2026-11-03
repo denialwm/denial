@@ -1,5 +1,5 @@
-# Denial's current protocol set does not include zwlr-layer-shell, which the
-# default slurp chooser requires. Use a regular xdg-shell Zenity window.
+# Choose the shared source in a regular xdg-shell Zenity window instead of the
+# default slurp chooser.
 # xdpw waits synchronously for the chooser. Prevent GTK from calling back into
 # the portal while it is waiting, which can deadlock screen-capture setup.
 [screencast]

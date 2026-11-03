@@ -290,6 +290,13 @@ class MobileConnectivityMarks extends ConsumerWidget {
     final mobile = discovery.isLoading || discovery.hasError
         ? lastMobile.unavailable()
         : lastMobile;
+    final foreground = color ?? context.shellColors.textPrimary;
+    // The bars show the network's signal whenever the SIM is registered, with
+    // or without mobile data; the technology shows while data runs over it.
+    final signal =
+        mobile.simPresence == MobileSimPresence.present &&
+        mobile.registered &&
+        !mobile.locked;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -307,16 +314,31 @@ class MobileConnectivityMarks extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SignalGlyph(
-                  active: mobile.cellularWorking,
+                  active: signal,
                   strength: mobile.strength,
                   scale: 1.25 * scale,
                   color: color,
                 ),
-                if (!mobile.cellularWorking)
+                if (mobile.cellularWorking && mobile.technology.isNotEmpty) ...[
+                  SizedBox(width: 3 * scale),
+                  Text(
+                    mobile.technology,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: ShellText.base.copyWith(
+                      color: foreground,
+                      fontSize: 11 * scale,
+                      height: 1,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+                if (!signal)
                   Icon(
                     Icons.priority_high_rounded,
                     size: 12 * scale,
-                    color: color,
+                    color: foreground,
                   ),
               ],
             ),

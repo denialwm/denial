@@ -6,6 +6,10 @@ DesktopNotificationEvent notificationEvent(
   bool transient = false,
   int timeout = -1,
   int progress = 0,
+  bool alert = true,
+  String groupKey = '',
+  bool groupSummary = false,
+  bool clearable = true,
   DesktopNotificationUrgency urgency = DesktopNotificationUrgency.normal,
   DesktopNotificationEventKind kind = DesktopNotificationEventKind.added,
 }) => DesktopNotificationEvent(
@@ -37,6 +41,10 @@ DesktopNotificationEvent notificationEvent(
     progress: progress,
     hasProgress: true,
     expireTimeoutMs: timeout,
+    alert: alert,
+    groupKey: groupKey,
+    groupSummary: groupSummary,
+    clearable: clearable,
   ),
 );
 

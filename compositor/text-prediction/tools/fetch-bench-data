@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Download the benchmark corpora into one reused cache folder.
+#
+#   tools/fetch-bench-data            fetch what is missing
+#   tools/fetch-bench-data --force    fetch everything again
+#
+# prose/LANG/*.txt  Project Gutenberg books (public domain), headers
+#                 stripped, English and Italian: input for `denial-predict bench`.
+# pairs/*.txt     known misspellings as typo->right lines: input for
+#                 `denial-predict pairs`. Wikipedia's list (CC BY-SA 4.0) and
+#                 Peter Norvig's spell-testset1/2 (from Roger Mitton's
+#                 Birkbeck corpus).
+# None of it is committed; the folder prints at the end.
+set -euo pipefail
+
+DATA=${DENIAL_PREDICTION_DATA:-${XDG_CACHE_HOME:-$HOME/.cache}/denial/text-prediction}
+FORCE=${1:-}
+mkdir -p -- "$DATA/prose/en" "$DATA/prose/it" "$DATA/pairs"
+
+fetch() {
+    local url=$1 target=$2
+    if [[ -s $target && $FORCE != --force ]]; then
+        return
+    fi
+    curl -fsSL --retry 2 -m 120 -o "$target.part" "$url"
+    mv -- "$target.part" "$target"
+}
+
+# lang:id:name, chosen for plain modern-ish narrative and dialogue.
+books=(
+    en:1342:pride-and-prejudice
+    en:11:alice-in-wonderland
+    en:1661:sherlock-holmes
+    en:84:frankenstein
+    en:345:dracula
+    en:174:dorian-gray
+    en:2591:grimm-fairy-tales
+    en:1952:yellow-wallpaper
+    en:514:little-women
+    en:1260:jane-eyre
+    en:16328:beowulf-modern
+    en:5200:metamorphosis
+    en:1232:the-prince
+    en:76:huckleberry-finn
+    en:2814:dubliners
+    it:52484:pinocchio
+    it:45334:promessi-sposi
+    it:61885:ricordi-infanzia
+    it:56775:cavallo-nella-luna
+    it:43226:dopo-il-divorzio
+    it:70993:uomo-di-fuoco
+)
+for book in "${books[@]}"; do
+    IFS=: read -r lang id name <<<"$book"
+    raw=$DATA/prose/$lang/.$name.raw
+    fetch "https://www.gutenberg.org/cache/epub/$id/pg$id.txt" "$raw"
+    # Keep the text between Gutenberg's START and END markers.
+    awk '/\*\*\* *START OF/ {on=1; next} /\*\*\* *END OF/ {on=0} on' "$raw" >"$DATA/prose/$lang/$name.txt"
+done
+
+fetch "https://en.wikipedia.org/w/index.php?title=Wikipedia:Lists_of_common_misspellings/For_machines&action=raw" \
+    "$DATA/pairs/.wikipedia.raw"
+sed -nE 's/^ ?([^ <>]+->[^<>]+)$/\1/p' "$DATA/pairs/.wikipedia.raw" >"$DATA/pairs/wikipedia.txt"
+
+for set in 1 2; do
+    fetch "https://norvig.com/spell-testset$set.txt" "$DATA/pairs/.norvig$set.raw"
+    # "right: wrong wrong ..." -> one typo->right line per wrong spelling.
+    awk -F': ' 'NF == 2 { n = split($2, wrong, " "); for (i = 1; i <= n; i++) print wrong[i] "->" $1 }' \
+        "$DATA/pairs/.norvig$set.raw" >"$DATA/pairs/norvig$set.txt"
+done
+
+for lang in en it; do
+    printf '%s: ' "$lang"; cat "$DATA"/prose/$lang/*.txt | wc -w
+done
+wc -l "$DATA"/pairs/*.txt
+echo "$DATA"

@@ -39,9 +39,9 @@ pub(super) fn try_synchronize_flutter_buffers(
     };
 
     let textures = runtime.sync_wayland_buffers(textures)?;
-    if let Some(frontend) = events.wayland.as_mut() {
-        frontend.recycle_flutter_dirty_textures(textures);
-    }
+    events
+        .frontend_mut()
+        .recycle_flutter_dirty_textures(textures);
     events.scene_sync.mark_buffers_synchronized(buffer_revision);
     Ok(true)
 }
@@ -75,7 +75,7 @@ pub(super) fn synchronize_flutter_scene(
     // Building the live-ID set walks every toplevel. It is only needed to
     // classify events which arrived before their first renderable buffer;
     // the steady-state scene publication normally has none.
-    let live_window_ids = (!events.pending_unpublished_window_events.is_empty()).then(|| {
+    let live_window_ids = (!events.window_events.unpublished.is_empty()).then(|| {
         events
             .wayland
             .as_ref()
@@ -97,39 +97,52 @@ pub(super) fn synchronize_flutter_scene(
         windows,
         textures,
         window_snapshot_changed,
-    } = runtime.sync_wayland_scene(revision, windows, textures, &events.restored_window_ids)?;
+    } = runtime.sync_wayland_scene(
+        revision,
+        windows,
+        textures,
+        events
+            .wayland
+            .as_ref()
+            .map_or(&[], |frontend| frontend.kept_texture_ids()),
+        &events.window_events.restored_ids,
+    )?;
     output_control.publish_wallpaper(runtime.published_window_descriptions());
     if window_snapshot_changed {
         // Buffer-only commits take the texture-source fast path above. Rehash
         // IDs only after accepting a new authoritative metadata revision.
-        let mut published_window_ids = std::mem::take(&mut events.published_window_ids);
+        let mut published_window_ids = std::mem::take(&mut events.window_events.published_ids);
         published_window_ids.clear();
         published_window_ids.extend(runtime.synced_window_ids());
-        events.published_window_ids = published_window_ids;
-        let published_window_ids = &events.published_window_ids;
+        events.window_events.published_ids = published_window_ids;
+        let published_window_ids = &events.window_events.published_ids;
         events
-            .restored_window_ids
+            .window_events
+            .restored_ids
             .retain(|window_id| published_window_ids.contains(window_id));
     }
-    if let Some(frontend) = events.wayland.as_mut() {
-        frontend.recycle_flutter_scene(windows, textures);
-    }
+    events
+        .frontend_mut()
+        .recycle_flutter_scene(windows, textures);
     // A later Wayland commit has a newer revision, so acknowledging this
     // captured revision cannot erase work that arrived while Flutter/KMS was
     // processing the previous frame.
     events
         .scene_sync
         .mark_metadata_synchronized(revision, buffer_revision);
-    if events.pending_unpublished_window_events.is_empty() {
+    if events.window_events.unpublished.is_empty() {
         return Ok(());
     }
     // Events for a freshly mapped window were deferred because Dart could not
     // resolve that ID before this snapshot. Preserve their FIFO order and
     // discard only windows that disappeared before they were ever published.
-    let mut unpublished = events.pending_unpublished_window_events.drain_events();
+    let mut unpublished = events.window_events.unpublished.drain_events();
     for event in unpublished.drain(..) {
         match window_event_disposition(
-            events.published_window_ids.contains(&event.window_id()),
+            events
+                .window_events
+                .published_ids
+                .contains(&event.window_id()),
             live_window_ids
                 .as_ref()
                 .is_some_and(|window_ids| window_ids.contains(&event.window_id())),
@@ -139,13 +152,14 @@ pub(super) fn synchronize_flutter_scene(
             // buffer yet. Keep its ordered events until a later commit makes
             // it publishable; discard only IDs that are no longer alive.
             WindowEventDisposition::Retain => {
-                events.pending_unpublished_window_events.push(event);
+                events.window_events.unpublished.push(event);
             }
             WindowEventDisposition::Drop => {}
         }
     }
     events
-        .pending_unpublished_window_events
+        .window_events
+        .unpublished
         .recycle_drained(unpublished);
     Ok(())
 }
@@ -158,23 +172,13 @@ pub(super) fn synchronize_flutter_input_layout(
     let Some(layout) = runtime.take_input_layout_update() else {
         return Ok(());
     };
-    if events.wayland.is_none() {
-        runtime.recycle_input_layout(layout);
-        return Ok(());
-    }
     let next_shell_capture = layout.keyboard_capture() || layout.exclusive_shell();
-    let previous_shell_capture = events
-        .wayland
-        .as_ref()
-        .is_some_and(wayland_frontend::WaylandFrontend::shell_captures_keyboard);
+    let previous_shell_capture = events.frontend().shell_captures_keyboard();
     if next_shell_capture && !previous_shell_capture {
         wayland_frontend::suspend_keyboard_focus_for_shell(events);
     }
-    let frontend = events
-        .wayland
-        .as_mut()
-        .expect("checked Wayland frontend disappeared");
-    let (previous, sampling_changed, routing_changed) = frontend.install_input_layout(layout);
+    let (previous, sampling_changed, routing_changed) =
+        events.frontend_mut().install_input_layout(layout);
     let first_generation_layout = previous.is_none();
     if let Some(previous) = previous {
         runtime.recycle_input_layout(previous);
@@ -204,29 +208,16 @@ pub(super) fn synchronize_wayland_cursor(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
-    if let Some(shape) = runtime.take_mouse_cursor_request()
-        && let Some(frontend) = events.wayland.as_mut()
-    {
+    let frontend = events.frontend_mut();
+    if let Some(shape) = runtime.take_mouse_cursor_request() {
         frontend.request_flutter_cursor_shape(shape);
     }
-    let (publication, position, output) =
-        events
-            .wayland
-            .as_mut()
-            .map_or((None, None, None), |frontend| {
-                (
-                    frontend.take_cursor_state_update(),
-                    frontend.take_cursor_position_update(),
-                    frontend.cursor_output_id(),
-                )
-            });
+    let publication = frontend.take_cursor_state_update();
+    let position = frontend.take_cursor_position_update();
+    let output = frontend.cursor_output_id();
     runtime.set_cursor_output(output);
     if let Some(publication) = publication {
-        let (state, textures) = events
-            .wayland
-            .as_mut()
-            .expect("cursor publication has no Wayland frontend")
-            .flutter_cursor_state(publication);
+        let (state, textures) = frontend.flutter_cursor_state(publication);
         // FlutterRuntime assigns the monotonic cursor epoch only after it has
         // installed the associated texture set. Validate the compositor-owned
         // payload here without rejecting that intentionally unassigned epoch;
@@ -239,30 +230,14 @@ pub(super) fn synchronize_wayland_cursor(
                 textures = textures.len(),
                 "dropping invalid cursor wire payload"
             );
-            events
-                .wayland
-                .as_mut()
-                .expect("rejected cursor publication lost its Wayland frontend")
-                .recycle_flutter_cursor_state(state, textures);
+            frontend.recycle_flutter_cursor_state(state, textures);
             return Ok(());
         }
         let (state, textures) = runtime.sync_cursor_state(state, textures, output)?;
-        events
-            .wayland
-            .as_mut()
-            .expect("cursor publication lost its Wayland frontend")
-            .recycle_flutter_cursor_state(state, textures);
-    } else if let Some(textures) = events
-        .wayland
-        .as_mut()
-        .and_then(wayland_frontend::WaylandFrontend::take_cursor_buffer_updates)
-    {
+        frontend.recycle_flutter_cursor_state(state, textures);
+    } else if let Some(textures) = frontend.take_cursor_buffer_updates() {
         let textures = runtime.sync_cursor_buffers(textures)?;
-        events
-            .wayland
-            .as_mut()
-            .expect("cursor buffer update lost its Wayland frontend")
-            .recycle_cursor_buffer_updates(textures);
+        frontend.recycle_cursor_buffer_updates(textures);
     }
     if let Some((x, y)) = position {
         runtime.send_cursor_position(x, y)?;

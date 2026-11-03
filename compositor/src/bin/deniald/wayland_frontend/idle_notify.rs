@@ -16,11 +16,7 @@ impl WaylandFrontend {
 
 impl IdleNotifierHandler for RuntimeState {
     fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
-        &mut self
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .idle_notifier
+        &mut self.frontend_mut().idle_notifier
     }
 }
 

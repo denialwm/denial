@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import 'package:denial_flutter_sdk/motion.dart';
+import 'package:denial_flutter_sdk/rendering.dart' show CompositedTranslation;
 
 /// Expansion thresholds and motion taken from ColorOS' layered separate shade.
 abstract final class ColorOsShadeMotion {
@@ -19,13 +20,24 @@ abstract final class ColorOsShadeMotion {
   static const double fixedElementThreshold = 0.05;
   static const double firstElementThreshold = 0.50;
   static const double contentElementThreshold = 0.86;
-  static const Duration nodeStagger = Duration(milliseconds: 16);
+  static const Duration nodeStagger = Duration(milliseconds: 12);
 
-  // COUI's element reveal uses response=0.3 and dampingRatio=1.
+  /// Closing retracts the lowest node first, on a tighter chain.
+  static const Duration exitStagger = Duration(milliseconds: 8);
+
+  // COUI's element reveal uses response=0.3 and dampingRatio=1; Denial runs
+  // it a little quicker at response=0.25.
   static const SpringDescription elementSpring = SpringDescription(
     mass: 1,
-    stiffness: 438.65,
-    damping: 41.89,
+    stiffness: 631.65,
+    damping: 50.27,
+  );
+
+  /// Critically damped, response=0.2: nodes are gone before the blur fades.
+  static const SpringDescription elementExitSpring = SpringDescription(
+    mass: 1,
+    stiffness: 986.96,
+    damping: 62.83,
   );
 }
 
@@ -57,6 +69,7 @@ class _ColorOsShadeContentTranslationState
   late bool _closing;
   late double _anchorProgress;
   late double _anchorOffset;
+  final _translation = ValueNotifier(Offset.zero);
 
   @override
   void initState() {
@@ -70,6 +83,7 @@ class _ColorOsShadeContentTranslationState
     _closing = false;
     _anchorProgress = 0;
     _anchorOffset = -ColorOsShadeMotion.translationDistance;
+    _translation.value = Offset(0, _offsetAt(_lastProgress));
   }
 
   @override
@@ -102,6 +116,7 @@ class _ColorOsShadeContentTranslationState
       _closing = false;
     }
     _lastProgress = next;
+    _translation.value = Offset(0, _offsetAt(next));
   }
 
   double _offsetAt(double progress) {
@@ -124,28 +139,28 @@ class _ColorOsShadeContentTranslationState
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.progress,
+    // The content moves as a layer: the shade's motion neither rebuilds nor
+    // repaints it.
+    return CompositedTranslation(
+      translation: _translation,
       child: widget.child,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _offsetAt(unit(widget.progress.value))),
-          child: child,
-        );
-      },
     );
   }
 
   @override
   void dispose() {
     widget.progress.removeListener(_observeDirection);
+    _translation.dispose();
     super.dispose();
   }
 }
 
 /// ColorOS' independent alpha/scale entrance for header and control nodes.
-/// Once revealed, nodes keep their full geometry while the shade closes; the
-/// shared shade translation carries them away without a grid-wide implosion.
+///
+/// Closing mirrors it: once the shade falls below [threshold] again, the node
+/// shrinks back after [exitDelay] while the shared shade translation carries
+/// the content up. Nodes never move on their own, so an enclosing scroll
+/// viewport never slices them, and they only rebuild while they animate.
 class ColorOsShadeElementReveal extends StatefulWidget {
   const ColorOsShadeElementReveal({
     super.key,
@@ -153,19 +168,14 @@ class ColorOsShadeElementReveal extends StatefulWidget {
     required this.threshold,
     required this.child,
     this.delay = Duration.zero,
+    this.exitDelay = Duration.zero,
     this.fade = true,
-    this.collapseTranslation = 0,
   });
 
   final Animation<double> progress;
   final double threshold;
   final Duration delay;
-
-  /// Upward travel used while this node collapses.
-  ///
-  /// Glass nodes use translation instead of ColorOS' accompanying alpha and
-  /// scale animations so their backdrop sample remains live throughout.
-  final double collapseTranslation;
+  final Duration exitDelay;
 
   /// Whether to use ColorOS' alpha reveal in addition to scale.
   ///
@@ -182,12 +192,12 @@ class ColorOsShadeElementReveal extends StatefulWidget {
 
 class _ColorOsShadeElementRevealState extends State<ColorOsShadeElementReveal>
     with SingleTickerProviderStateMixin {
+  static const double _directionEpsilon = 0.000001;
+
   late final AnimationController _reveal;
   Timer? _delay;
   late bool _shown;
   late double _lastProgress;
-  bool _collapsing = false;
-  double _collapseStart = 1;
   bool _reducedMotion = false;
 
   @override
@@ -220,15 +230,6 @@ class _ColorOsShadeElementRevealState extends State<ColorOsShadeElementReveal>
   void _syncWithProgress() {
     final progress = widget.progress.value;
     final previous = _lastProgress;
-    final closing = progress < previous - 0.000001;
-    final opening = progress > previous + 0.000001;
-    if (closing && !_collapsing) {
-      _collapsing = true;
-      _collapseStart = previous;
-    } else if (opening &&
-        (_lastProgress <= 0.000001 || progress >= _collapseStart)) {
-      _collapsing = false;
-    }
     _lastProgress = progress;
     if (progress <= 0) {
       _delay?.cancel();
@@ -237,37 +238,48 @@ class _ColorOsShadeElementRevealState extends State<ColorOsShadeElementReveal>
       _reveal.value = 0;
       return;
     }
-    if (closing || _shown || progress < widget.threshold) {
-      if (closing) _delay?.cancel();
-      return;
+    final opening = progress > previous + _directionEpsilon;
+    final closing = progress < previous - _directionEpsilon;
+    if (!_shown && opening && progress >= widget.threshold) {
+      _show(true, widget.delay);
+    } else if (_shown && closing && progress < widget.threshold) {
+      _show(false, widget.exitDelay);
     }
-    _shown = true;
+  }
+
+  void _show(bool shown, Duration delay) {
+    _shown = shown;
     _delay?.cancel();
+    final target = shown ? 1.0 : 0.0;
     if (_reducedMotion) {
-      _reveal.value = 1;
+      _reveal.value = target;
       return;
     }
-    if (widget.delay > Duration.zero) {
-      _delay = Timer(widget.delay, () {
-        if (mounted && _shown) _animateTo(1);
+    if (delay > Duration.zero) {
+      _delay = Timer(delay, () {
+        if (mounted && _shown == shown) _animateTo(target);
       });
       return;
     }
-    _animateTo(1);
+    _animateTo(target);
   }
 
   void _animateTo(double target) {
     springTo(
       _reveal,
       target,
-      spring: ColorOsShadeMotion.elementSpring,
-      telemetryLabel: 'shade_element_reveal',
+      spring: target > 0
+          ? ColorOsShadeMotion.elementSpring
+          : ColorOsShadeMotion.elementExitSpring,
+      telemetryLabel: target > 0
+          ? 'shade_element_reveal'
+          : 'shade_element_exit',
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final revealed = AnimatedBuilder(
+    return AnimatedBuilder(
       animation: _reveal,
       child: widget.child,
       builder: (context, child) {
@@ -285,27 +297,6 @@ class _ColorOsShadeElementRevealState extends State<ColorOsShadeElementReveal>
                 ? Opacity(opacity: value, child: scaled)
                 : scaled,
           ),
-        );
-      },
-    );
-    return AnimatedBuilder(
-      animation: widget.progress,
-      child: revealed,
-      builder: (context, child) {
-        final start = _collapseStart < widget.threshold
-            ? _collapseStart
-            : widget.threshold;
-        // Reference second-stage nodes begin their negative-Y spring at 86%
-        // and finish before the shade reaches zero. That avoids a last-frame
-        // pop when the enclosing shade becomes offstage.
-        final finish = start * 0.1;
-        final range = start - finish;
-        final fraction = !_collapsing || range <= 0
-            ? 0.0
-            : unit((start - widget.progress.value) / range);
-        return Transform.translate(
-          offset: Offset(0, -widget.collapseTranslation * fraction),
-          child: child,
         );
       },
     );

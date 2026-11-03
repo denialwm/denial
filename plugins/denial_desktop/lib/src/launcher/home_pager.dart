@@ -1,133 +1,177 @@
-part of 'home_surface.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-typedef _HomePageContents = ({
-  List<HomeGridItem?>? slots,
-  int? draggingSourceIndex,
-  bool hasError,
-});
+import 'package:denial_flutter_sdk/applications.dart';
+import 'package:denial_flutter_sdk/localization.dart';
+import 'package:denial_flutter_sdk/motion.dart' show SelectedListenable;
 
-class _HomePager extends StatelessWidget {
-  const _HomePager({required this.owner, required this.contents});
+import 'home_grid_geometry.dart';
+import 'home_interactions.dart';
+import 'widgets/home_empty_state.dart';
+import 'widgets/home_grid_page.dart';
+import 'widgets/page_dots.dart';
 
-  final _HomeSurfaceState owner;
-  final _HomePageContents contents;
+/// The paged home grid and its page dots.
+class HomePager extends StatefulWidget {
+  const HomePager({
+    super.key,
+    required this.slots,
+    required this.hasError,
+    required this.controller,
+    required this.viewportKey,
+    required this.onLayout,
+    required this.onPageChanged,
+  });
+
+  /// Null while the grid loads.
+  final List<HomeGridItem?>? slots;
+  final bool hasError;
+  final PageController controller;
+
+  /// Marks the grid viewport, whose coordinates [HomeGridGeometry] uses.
+  final GlobalKey viewportKey;
+  final ValueChanged<HomeGridGeometry> onLayout;
+  final ValueChanged<int> onPageChanged;
+
+  static const double inset = 22;
+  static const double dotsReservedHeight = 7;
+
+  /// Icon and label of a phone tile; rows below a taller cell show no more.
+  static const double _rowVisualHeight = 126;
+
+  @override
+  State<HomePager> createState() => _HomePagerState();
+}
+
+typedef _PagerMode = ({bool locked, bool extraPage});
+
+class _HomePagerState extends State<HomePager> {
+  HomeInteractions? _interactions;
+  SelectedListenable<_PagerMode>? _mode;
+
+  /// Built pages, reused while slots and geometry hold: locking the pager
+  /// for a drag must not rebuild every tile on its pages.
+  final _pages = <int, Widget>{};
+  List<HomeGridItem?>? _pagesSlots;
+  HomeGridGeometry? _pagesGeometry;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final interactions = HomeInteractionScope.of(context);
+    if (identical(interactions, _interactions)) return;
+    _interactions = interactions;
+    _mode?.dispose();
+    // A held tile or widget frame owns the finger: the pager stays put, and
+    // a drag gets an empty page past the last to drop onto.
+    _mode = SelectedListenable<_PagerMode>(
+      Listenable.merge([interactions.drag.drag, interactions.resize.target]),
+      () => (
+        locked: interactions.drag.active || interactions.resize.active,
+        extraPage: interactions.drag.active,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _mode?.dispose();
+    super.dispose();
+  }
+
+  Widget _page(int page, List<HomeGridItem?> slots, HomeGridGeometry geometry) {
+    if (!identical(slots, _pagesSlots) || geometry != _pagesGeometry) {
+      _pages.clear();
+      _pagesSlots = slots;
+      _pagesGeometry = geometry;
+    }
+    return _pages[page] ??= _KeptAlivePage(
+      child: HomeGridPage(slots: slots, page: page, geometry: geometry),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final gridWidth =
-            constraints.maxWidth - _HomeSurfaceState._pageHorizontalPadding * 2;
-        // Wide panels get more columns (not smaller pages):
-        // full-bleed paging and no vertical overflow.
-        HomeGridLayout.columns = HomeGridLayout.columnsForViewport(gridWidth);
-        final tileWidth =
-            (gridWidth -
-                HomeGridLayout.gridGap * (HomeGridLayout.columns - 1)) /
-            HomeGridLayout.columns;
-        // Cell content is fixed-size, so height must not
-        // follow width past its cap (phone tiles never
-        // reach it and keep the tuned aspect).
-        final tileHeight = math.min(
-          tileWidth / HomeAppPage.childAspectRatio,
-          HomeGridLayout.maxTileHeight,
+        final geometry = HomeGridGeometry.forViewport(
+          Size(
+            constraints.maxWidth,
+            constraints.maxHeight - HomePager.dotsReservedHeight,
+          ),
+          inset: HomePager.inset,
         );
-        final rows = HomeGridLayout.rowsForHeight(
-          constraints.maxHeight - _HomeSurfaceState._pageDotsReservedHeight,
-          tileHeight,
+        HomeGridLayout.columns = geometry.columns;
+        widget.onLayout(geometry);
+
+        final slots = widget.slots;
+        final rowVisualHeight = geometry.tileSize.height.clamp(
+          0.0,
+          HomePager._rowVisualHeight,
         );
-        final pageSize = HomeGridLayout.columns * rows;
-        final gridHeight =
-            rows * tileHeight + (rows - 1) * HomeGridLayout.gridGap;
-        final rowVisualHeight = math.min(
-          tileHeight,
-          _HomeSurfaceState._appRowVisualHeight,
-        );
-        final visualRowsHeight =
-            (rows - 1) * (tileHeight + HomeGridLayout.gridGap) +
-            rowVisualHeight;
-        final pageDotsTop =
-            visualRowsHeight +
-            math.max(
-                  0,
-                  constraints.maxHeight -
-                      visualRowsHeight -
-                      _HomeSurfaceState._pageDotsReservedHeight,
-                ) /
+        final visualHeight =
+            (geometry.rows - 1) * geometry.stepY + rowVisualHeight;
+        final dotsTop =
+            visualHeight +
+            (constraints.maxHeight -
+                        visualHeight -
+                        HomePager.dotsReservedHeight)
+                    .clamp(0.0, double.infinity) /
                 3;
-        owner._currentTileWidth = tileWidth;
-        owner._currentTileHeight = tileHeight;
-        owner._currentRows = rows;
 
-        final slots = contents.slots ?? const <HomeGridItem?>[];
-        final pageCount = HomeGridLayout.pageCountForSlots(slots, pageSize);
-        owner._currentPageCount = pageCount;
-        final currentPage =
-            owner.ref.read(homeGridControllerProvider).asData?.value.page ?? 0;
-        final safePage = currentPage.clamp(0, pageCount - 1).toInt();
-        owner._syncSafePage(currentPage, safePage);
-
-        final content = contents.slots == null
-            ? contents.hasError
-                  ? HomeEmptyState(label: context.l10n.commonError)
-                  : HomeEmptyState(label: context.l10n.commonLoading)
-            : PageView.builder(
-                controller: owner._pageController,
-                itemCount: pageCount,
-                onPageChanged: (page) =>
-                    owner._handlePageChanged(page, pageCount),
-                itemBuilder: (context, page) {
-                  final start = page * pageSize;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: _HomeSurfaceState._pageHorizontalPadding,
-                    ),
-                    child: HomeAppPage(
-                      slots: slots,
-                      startIndex: start,
-                      pageSize: pageSize,
-                      columns: HomeGridLayout.columns,
-                      gap: HomeGridLayout.gridGap,
-                      tileWidth: tileWidth,
-                      tileHeight: tileHeight,
-                      draggingSourceIndex: contents.draggingSourceIndex,
-                      resizeModeIndex: owner._resizeModeIndex,
-                      onLaunch: owner._launchApp,
-                      onDragStart: owner._handleItemDragStart,
-                      onDragEnd: owner._handleItemDragEnd,
-                      onDragUpdate: (details) {
-                        owner._handleItemDragUpdate(details, pageCount);
-                      },
-                      onResizeModeStart: owner._handleItemResizeModeStart,
-                      onResizeModeMove: owner._handleItemResizeModeMove,
-                      onResizeModeEnd: owner._handleItemResizeModeEnd,
-                      onResizeStart: owner._handleItemResizeStart,
-                      onResizeUpdate: owner._handleItemResizeUpdate,
-                      onResizeEnd: owner._handleItemResizeEnd,
-                    ),
-                  );
-                },
-              );
+        final Widget content;
+        if (slots == null) {
+          content = HomeEmptyState(
+            label: widget.hasError
+                ? context.l10n.commonError
+                : context.l10n.commonLoading,
+          );
+        } else {
+          final pageCount = HomeGridLayout.pageCountForSlots(
+            slots,
+            geometry.pageSize,
+          );
+          content = ValueListenableBuilder<_PagerMode>(
+            valueListenable: _mode!,
+            builder: (context, mode, _) => PageView.builder(
+              controller: widget.controller,
+              physics: mode.locked
+                  ? const NeverScrollableScrollPhysics()
+                  : null,
+              // Keep the neighbors built, and every visited page alive: a
+              // swipe would otherwise build its incoming page's tiles, and
+              // re-decode their vector icons, on its first frame.
+              allowImplicitScrolling: true,
+              itemCount: pageCount + (mode.extraPage ? 1 : 0),
+              onPageChanged: widget.onPageChanged,
+              itemBuilder: (context, page) => _page(page, slots, geometry),
+            ),
+          );
+        }
 
         return Stack(
           children: [
             Align(
               alignment: Alignment.topCenter,
               child: SizedBox(
+                key: widget.viewportKey,
                 width: double.infinity,
-                height: gridHeight,
-                child: SizedBox.expand(
-                  key: owner._gridViewportKey,
-                  child: content,
-                ),
+                height: geometry.height,
+                child: content,
               ),
             ),
-            Positioned(
-              top: pageDotsTop,
-              left: 0,
-              right: 0,
-              child: _HomePageDots(count: pageCount),
-            ),
+            if (slots != null)
+              Positioned(
+                top: dotsTop,
+                left: 0,
+                right: 0,
+                child: _HomePageDots(
+                  count: HomeGridLayout.pageCountForSlots(
+                    slots,
+                    geometry.pageSize,
+                  ),
+                ),
+              ),
           ],
         );
       },
@@ -148,5 +192,26 @@ class _HomePageDots extends ConsumerWidget {
       ),
     );
     return PageDots(count: count, active: page.clamp(0, count - 1));
+  }
+}
+
+class _KeptAlivePage extends StatefulWidget {
+  const _KeptAlivePage({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeptAlivePage> createState() => _KeptAlivePageState();
+}
+
+class _KeptAlivePageState extends State<_KeptAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

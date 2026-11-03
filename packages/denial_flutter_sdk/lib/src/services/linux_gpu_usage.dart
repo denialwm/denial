@@ -200,7 +200,8 @@ class _SysfsGpu {
 
   Future<GpuSample?> read() async {
     try {
-      final usage = parseGpuBusyPercent(await busyFile.readAsString());
+      // Synchronous for the reason given in CpuUsageService.read.
+      final usage = parseGpuBusyPercent(busyFile.readAsStringSync());
       if (usage == null) {
         return null;
       }
@@ -208,9 +209,7 @@ class _SysfsGpu {
       final temperature = temperatureFile;
       if (temperature != null) {
         try {
-          temperatureC = parseLinuxTemperatureC(
-            await temperature.readAsString(),
-          );
+          temperatureC = parseLinuxTemperatureC(temperature.readAsStringSync());
         } on FileSystemException {
           // Utilization remains useful when an optional sensor disappears.
         }
@@ -278,10 +277,19 @@ class NvmlReader {
 
   final ShellWorker _worker;
 
+  /// Without NVML, stop messaging the worker isolate on every sample.
+  bool _absent = false;
+
   Future<List<GpuSample>> read() async {
+    if (_absent) return const <GpuSample>[];
     try {
+      final samples = await _worker.readNvidiaGpuSamples();
+      if (samples == null) {
+        _absent = true;
+        return const <GpuSample>[];
+      }
       return <GpuSample>[
-        for (final sample in await _worker.readNvidiaGpuSamples())
+        for (final sample in samples)
           GpuSample(
             id: 'nvml${sample.index}',
             label: 'NV',

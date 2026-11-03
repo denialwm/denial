@@ -6,8 +6,11 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [dependencies]
+async-channel = "=2.5.0"
 denial-core = { package = "denial", path = ".." }
 libc = "0.2"
+serde_json = "=1.0.151"
+tempfile = "=3.27.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 zbus = "=5.18.0"

@@ -34,6 +34,65 @@ double-buffered state applied by `wl_surface.commit`; see the
 Popups and subsurfaces continue using their owning toplevel's coordinates.
 Desktop layout remains unaffected.
 
+## Keyboard inset
+
+Version 2 of `denial_insets_manager_v1` lets an application lay a surface out
+around the on-screen keyboard instead of having the shell lift it. The client
+calls `get_keyboard_inset(id, wl_surface)` and keeps the returned
+`denial_keyboard_inset_v1` for as long as it wants that behaviour. gpui-touch
+does this in `Window::handle_keyboard_inset`:
+
+```rust
+if window.handle_keyboard_inset() {
+    cx.observe_keyboard_inset(window, |this, window, cx| {
+        this.keyboard_moved(window.keyboard_inset(), cx);
+    })
+    .detach();
+}
+```
+
+The request is immediate state, like `set_self_managed`, and may be sent at
+any time, with or without a committed buffer. It does not require
+`set_self_managed`: an app that leaves the status strip to Denial can still
+take over the keyboard. A surface has at most one object; a second
+request raises `keyboard_inset_exists`. Destroying the object returns the
+surface to the lift. Destroying the manager leaves existing objects in place.
+Clients bind version 1 when they need only `set_self_managed`, as Droidloom
+does.
+
+While the object exists, deniald marks the window `keyboard_inset` in the
+scene snapshot, and the mobile scene stays in place while that window is the
+primary one. Touch routing follows: the window's input region stays in place
+and ends at the keyboard's top edge, and the 18 lp right-edge strip that pans
+a lifted scene is absent. The lift of min(30% of view height, **368**) and
+its viewport scroll are unchanged for every other window, the lock screen and
+the wallpaper selector.
+
+The object's `inset(height, duration)` event says that the keyboard covers the
+bottom `height` logical pixels of the surface, or will once a motion of
+`duration` milliseconds ends. It arrives once right after creation with the
+current height and zero duration, then whenever the height changes. It is
+immediate state too: no configure follows, the surface keeps its size, and
+the client moves its own content. Only the mobile presentation reports a
+non-zero height, since only there do app windows reach the bottom of the
+output; switching presentation sends the new height with zero duration. Other
+compositors need not expose version 2.
+
+There is no per-frame traffic. The shell reports each keyboard motion once,
+when its spring starts: the height it settles at, zero when hidden, and how
+long the spring takes to come within a tenth of a logical pixel of rest
+(`springSettleDuration`, about 450 ms for a full 368 lp show). A drag of the
+keyboard by hand is reported when released, and a rotation that changes the
+keyboard height while it is shown is reported with zero duration. The report
+travels as one `KeyboardCommand` of kind `PanelMotion` from the shell to
+deniald, which forwards it to every keyboard inset object whose last height
+differs. A client that animates its layout over `duration`, decelerating,
+moves in step with the keyboard.
+
+While the height is non-zero the 52 lp gesture zone lies under the keyboard,
+so the bottom inset is the keyboard height alone: a composer sits directly on
+the keys and the content area above it shrinks.
+
 ## Geometry and rendering
 
 `wayland_frontend/insets.rs` owns mobile client geometry before the first

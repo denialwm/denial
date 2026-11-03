@@ -22,6 +22,7 @@ class ShellBackdropBlur extends StatelessWidget {
     this.borderRadius,
     this.blendMode = ui.BlendMode.src,
     this.opacity,
+    this.clipUnfiltered = true,
     super.key,
   }) : assert(strength >= 0 && strength <= 1),
        assert(!separateChild || !useWindowAlphaThreshold),
@@ -44,6 +45,11 @@ class ShellBackdropBlur extends StatelessWidget {
   /// Fade the completed backdrop and foreground independently. In particular,
   /// separate-child glass must not be isolated with controls in an opacity group.
   final Animation<double>? opacity;
+
+  /// Clip [child] to [borderRadius] even when no filter runs. Pass false for
+  /// a child that paints its own rounded shape, such as a decorated tile, to
+  /// spare it a clip on every frame.
+  final bool clipUnfiltered;
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +104,9 @@ class ShellBackdropBlur extends StatelessWidget {
       filtered = fade(child);
     }
 
+    if (!available && !clipUnfiltered) {
+      return filtered;
+    }
     if (radius == null) {
       return available
           ? ClipRect(clipBehavior: Clip.hardEdge, child: filtered)

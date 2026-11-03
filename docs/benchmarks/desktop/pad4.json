@@ -1,0 +1,40 @@
+{
+  "name": "pad4-desktop-baseline-v1",
+  "device_root_id": "59b8e7b3:archroot-v1",
+  "monitor_id": 36,
+  "refresh_millihz": 120000,
+  "workspace_ids": [1, 2, 3],
+  "warmup_seconds": 2,
+  "sample_interval_seconds": 0.5,
+  "applications": [
+    {
+      "name": "firefox",
+      "argv": ["/usr/bin/firefox", "--no-remote", "--profile", "{firefox_profile}", "--new-window", "about:blank"],
+      "app_id_contains": "firefox",
+      "workspace": 1
+    },
+    {
+      "name": "settings",
+      "argv": ["/opt/denial/pad4-settings-wallpaper-dedup-20261015/settings/denial-settings"],
+      "app_id_contains": "settings",
+      "workspace": 2
+    }
+  ],
+  "render_workload": {
+    "name": "render-workload",
+    "argv": ["/home/logix/denial-benchmark/denial-render-workload-eventloop01", "180"],
+    "app_id_contains": "dev.denial.RenderWorkload",
+    "workspace": 3,
+    "log": "render-workload.jsonl"
+  },
+  "phases": [
+    {"name": "idle", "kind": "idle", "seconds": 8},
+    {"name": "workspace-settled", "kind": "workspace", "seconds": 12, "interval_ms": 650},
+    {"name": "workspace-interrupted", "kind": "workspace", "seconds": 12, "interval_ms": 80},
+    {"name": "overview-settled", "kind": "overview", "seconds": 10, "interval_ms": 500},
+    {"name": "overview-interrupted", "kind": "overview", "seconds": 10, "interval_ms": 80},
+    {"name": "render-120", "kind": "idle", "seconds": 12, "workspace": 3, "workload": true},
+    {"name": "render-workspace-interrupted", "kind": "workspace", "seconds": 12, "interval_ms": 80, "workspace": 3, "workload": true},
+    {"name": "render-overview-interrupted", "kind": "overview", "seconds": 12, "interval_ms": 80, "workspace": 3, "workload": true}
+  ]
+}

@@ -173,7 +173,7 @@ impl PresentationTracker {
         &mut self,
         output: &Output,
         sampled: &[crate::surface_feedback::SurfaceFeedback],
-        kernel_timestamp: Option<Duration>,
+        edge: Option<Duration>,
         observation_delay: Duration,
         kernel_sequence: Option<u64>,
     ) -> bool {
@@ -181,7 +181,7 @@ impl PresentationTracker {
             self.sequence = next_presentation_sequence(self.sequence);
             self.sequence
         });
-        let presented_at: Time<Monotonic> = kernel_timestamp
+        let presented_at: Time<Monotonic> = edge
             .unwrap_or_else(|| {
                 let now: Duration = self.clock.now().into();
                 now.saturating_sub(observation_delay)

@@ -80,6 +80,10 @@ pub(super) fn enabled() -> bool {
     GROUPS.get().is_some_and(Option::is_some)
 }
 
+pub(super) fn groups() -> Option<Groups> {
+    GROUPS.get().copied().flatten()
+}
+
 fn apply(tid: Option<Pid>, mask: &CpuSet) -> io::Result<()> {
     if sched_getaffinity(tid)? != *mask {
         sched_setaffinity(tid, mask)?;
@@ -147,6 +151,7 @@ fn background_name(name: &str) -> bool {
             | "denial-xembed-t"
             | "denial-child-re"
             | "denial-clipboar"
+            | "denial-cpu-hint"
             | "Shm dropping th"
             | "Dart Profiler T"
     ) || name.strip_prefix("deniald:zcq").is_some_and(decimal_suffix)
@@ -157,38 +162,31 @@ fn decimal_suffix(s: &str) -> bool {
 }
 
 /// Late library workers can overwrite inherited affinity (Mesa disk cache).
-/// Reuse the existing slow priority guard; native owned workers are set at entry.
-/// This reconciler deliberately does not promise pre-first-job classification
-/// for unmodified third-party background queues.
-pub(super) fn reconcile() {
+/// The priority guard passes each thread until it has settled; native
+/// owned workers are set at entry. This reconciler deliberately does not
+/// promise pre-first-job classification for unmodified third-party background
+/// queues.
+pub(super) fn reconcile(tids: &[libc::pid_t]) {
     let Some(Some(groups)) = GROUPS.get() else {
         return;
     };
     let _guard = LIBRARY_LAUNCH
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Ok(tasks) = fs::read_dir("/proc/self/task") else {
-        return;
-    };
-    for entry in tasks.flatten() {
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<i32>().ok())
-            .and_then(Pid::from_raw)
-        else {
+    for &raw in tids {
+        let Some(tid) = Pid::from_raw(raw) else {
             continue;
         };
-        let Ok(name) = fs::read_to_string(entry.path().join("comm")) else {
+        let Ok(name) = fs::read_to_string(format!("/proc/self/task/{raw}/comm")) else {
             continue;
         };
         let name = name.trim();
         let background = background_name(name)
             || matches!(
-                super::scheduler_policy(tid.as_raw_pid()),
+                super::scheduler_policy(raw),
                 Ok(libc::SCHED_BATCH | libc::SCHED_IDLE)
             )
-            || super::nice_for_tid(tid.as_raw_pid()).is_ok_and(|nice| nice == 19);
+            || super::nice_for_tid(raw).is_ok_and(|nice| nice == 19);
         if let Err(error) = apply(
             Some(tid),
             if background {
@@ -198,7 +196,7 @@ pub(super) fn reconcile() {
             },
         ) {
             if error.raw_os_error() != Some(libc::ESRCH) {
-                tracing::warn!(%error, tid=tid.as_raw_pid(), %name, "could not reconcile Denial CPU allocation");
+                tracing::warn!(%error, tid=raw, %name, "could not reconcile Denial CPU allocation");
             }
         }
     }
@@ -287,6 +285,7 @@ mod tests {
             "denial-screensh",
             "Shm dropping th",
             "denial-control-",
+            "denial-cpu-hint",
         ] {
             assert!(background_name(name), "{name}");
         }

@@ -16,6 +16,7 @@ class RetainedWindowMotion extends SingleChildRenderObjectWidget {
     this.endRadius = 0,
     this.curve = Curves.linear,
     this.transformChild = true,
+    this.cover = false,
     super.child,
   });
 
@@ -33,6 +34,11 @@ class RetainedWindowMotion extends SingleChildRenderObjectWidget {
   /// resizing it, for overlays such as a launch icon that keeps its size.
   final bool transformChild;
 
+  /// Scales the child uniformly to cover the moving rectangle, cropping what
+  /// overflows, instead of stretching it to fill. A window shrinking into a
+  /// square icon keeps its proportions.
+  final bool cover;
+
   @override
   RenderObject createRenderObject(BuildContext context) => _RenderWindowMotion(
     progress,
@@ -43,6 +49,7 @@ class RetainedWindowMotion extends SingleChildRenderObjectWidget {
     endRadius,
     curve,
     transformChild,
+    cover,
   );
 
   @override
@@ -56,6 +63,7 @@ class RetainedWindowMotion extends SingleChildRenderObjectWidget {
       endRadius,
       curve,
       transformChild,
+      cover,
     );
   }
 }
@@ -70,6 +78,7 @@ class _RenderWindowMotion extends RenderProxyBox {
     this.endRadius,
     this.curve,
     this.transformChild,
+    this.cover,
   );
 
   Animation<double> _progress;
@@ -80,6 +89,7 @@ class _RenderWindowMotion extends RenderProxyBox {
   double endRadius;
   Curve curve;
   bool transformChild;
+  bool cover;
   final LayerHandle<ClipRRectLayer> _clip = LayerHandle<ClipRRectLayer>();
   final LayerHandle<TransformLayer> _transform = LayerHandle<TransformLayer>();
 
@@ -92,6 +102,7 @@ class _RenderWindowMotion extends RenderProxyBox {
     double nextEndRadius,
     Curve nextCurve,
     bool nextTransformChild,
+    bool nextCover,
   ) {
     if (_progress == progress &&
         begin == nextBegin &&
@@ -100,7 +111,8 @@ class _RenderWindowMotion extends RenderProxyBox {
         beginRadius == nextBeginRadius &&
         endRadius == nextEndRadius &&
         curve == nextCurve &&
-        transformChild == nextTransformChild) {
+        transformChild == nextTransformChild &&
+        cover == nextCover) {
       return;
     }
     if (_progress != progress) {
@@ -115,6 +127,7 @@ class _RenderWindowMotion extends RenderProxyBox {
     endRadius = nextEndRadius;
     curve = nextCurve;
     transformChild = nextTransformChild;
+    cover = nextCover;
     _changed();
   }
 
@@ -151,11 +164,17 @@ class _RenderWindowMotion extends RenderProxyBox {
 
   Matrix4 _matrixFor(Rect rect) {
     if (!transformChild || size.isEmpty) return Matrix4.identity();
-    return Matrix4.diagonal3Values(
-      rect.width / size.width,
-      rect.height / size.height,
-      1,
-    )..setTranslationRaw(rect.left, rect.top, 0);
+    var scaleX = rect.width / size.width;
+    var scaleY = rect.height / size.height;
+    var left = rect.left;
+    var top = rect.top;
+    if (cover) {
+      scaleX = scaleY = scaleX > scaleY ? scaleX : scaleY;
+      left = rect.center.dx - size.width * scaleX / 2;
+      top = rect.center.dy - size.height * scaleY / 2;
+    }
+    return Matrix4.diagonal3Values(scaleX, scaleY, 1)
+      ..setTranslationRaw(left, top, 0);
   }
 
   @override

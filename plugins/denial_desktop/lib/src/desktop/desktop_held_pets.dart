@@ -157,7 +157,7 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
     final window =
         ref.watch(
           referenceShellProvider.select(
-            (state) => state.windowByObjectId(this.window.objectId),
+            (state) => state.desk.windowByObjectId(this.window.objectId),
           ),
         ) ??
         this.window;
@@ -165,7 +165,7 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
       for (final id in petIds)
         if (ref.watch(
               referenceShellProvider.select(
-                (state) => _layerByObjectId(state.layerSurfaces, id),
+                (state) => _layerByObjectId(state.desk.layerSurfaces, id),
               ),
             )
             case final pet?

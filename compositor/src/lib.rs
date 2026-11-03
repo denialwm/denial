@@ -8,6 +8,8 @@ pub mod environment;
 pub mod portal_protocol;
 pub mod topology;
 #[cfg(feature = "kms")]
+pub mod touch_grab;
+#[cfg(feature = "kms")]
 pub mod volition;
 
 /// The identity compiled into a candidate binary.

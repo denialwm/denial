@@ -6,8 +6,6 @@
 //! position at startup, and again whenever libinput may have missed a change:
 //! after the session returns to its VT and after system sleep.
 
-use std::time::Duration;
-
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::channel::Sender;
 #[cfg(feature = "flutter")]
@@ -17,16 +15,11 @@ use tracing::{debug, info};
 const LOGIND: &str = "org.freedesktop.login1";
 const LOGIND_PATH: &str = "/org/freedesktop/login1";
 const LOGIND_MANAGER: &str = "org.freedesktop.login1.Manager";
-/// logind answers property reads at once. The bound only keeps a wedged
-/// system bus from holding startup or a reader thread indefinitely.
-const LOGIND_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Reads whether the lid is closed. logind reports a machine without a lid
 /// as open.
 pub(super) fn read_closed() -> zbus::Result<bool> {
-    let connection = zbus::blocking::connection::Builder::system()?
-        .method_timeout(LOGIND_TIMEOUT)
-        .build()?;
+    let connection = crate::bus::blocking_system()?;
     let reply = connection.call_method(
         Some(LOGIND),
         LOGIND_PATH,

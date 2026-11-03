@@ -7,7 +7,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, ThreadId};
@@ -210,59 +209,6 @@ pub enum DartRuntimeMode {
     Jit,
 }
 
-/// Flutter renderer used with Denial's existing OpenGL embedder surface.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum RendererBackend {
-    SkiaGles,
-    #[default]
-    ImpellerGles,
-}
-
-impl RendererBackend {
-    pub const VALUES: &'static str = "skia or impeller";
-
-    fn uses_impeller(self) -> bool {
-        self == Self::ImpellerGles
-    }
-}
-
-impl fmt::Display for RendererBackend {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::SkiaGles => "skia",
-            Self::ImpellerGles => "impeller",
-        })
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParseRendererBackendError(String);
-
-impl fmt::Display for ParseRendererBackendError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "unknown Flutter renderer {:?}; expected {}",
-            self.0,
-            RendererBackend::VALUES
-        )
-    }
-}
-
-impl Error for ParseRendererBackendError {}
-
-impl FromStr for RendererBackend {
-    type Err = ParseRendererBackendError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "skia" => Ok(Self::SkiaGles),
-            "impeller" => Ok(Self::ImpellerGles),
-            _ => Err(ParseRendererBackendError(value.to_owned())),
-        }
-    }
-}
-
 impl DartRuntimeMode {
     fn runs_aot(self) -> bool {
         matches!(self, Self::Aot | Self::AotProfile)
@@ -280,10 +226,12 @@ pub struct EngineProject {
     pub icu_data: PathBuf,
     pub runtime: DartRuntimeMode,
     pub aot_library: Option<PathBuf>,
-    pub renderer_backend: RendererBackend,
     /// Upper bound for Flutter's viewport-derived Ganesh resource cache.
     /// Zero leaves the engine's calculated limit unchanged.
     pub resource_cache_max_bytes_threshold: usize,
+    /// Denial engines only: Impeller's offscreen targets are half float, so
+    /// HDR content brighter than SDR white survives layers and filters.
+    pub float_color: bool,
 }
 
 #[derive(Debug)]
@@ -471,13 +419,16 @@ thread_local! {
 
 fn engine_command_line(project: &EngineProject) -> Vec<CString> {
     let mut arguments = vec![CString::new("deniald").expect("static argv has no NUL")];
-    if project.renderer_backend.uses_impeller() {
-        for argument in [
-            "--enable-impeller=true",
-            "--denial-gl-fbo-zero-is-no-target",
-        ] {
-            arguments.push(CString::new(argument).expect("static argv has no NUL"));
-        }
+    // Denial engines are Slimpeller builds. The handoff switch makes a frame
+    // without a target a skipped frame instead of a failed one.
+    for argument in [
+        "--enable-impeller=true",
+        "--denial-gl-fbo-zero-is-no-target",
+    ] {
+        arguments.push(CString::new(argument).expect("static argv has no NUL"));
+    }
+    if project.float_color {
+        arguments.push(CString::new("--denial-float-color").expect("static argv has no NUL"));
     }
     if project.resource_cache_max_bytes_threshold != 0 {
         arguments.push(

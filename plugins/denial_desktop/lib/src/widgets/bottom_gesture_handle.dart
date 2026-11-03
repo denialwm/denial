@@ -2,19 +2,24 @@ import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_state.dart';
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 
-import 'dart:math' as math;
-
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:denial_flutter_sdk/motion.dart';
+import 'package:denial_flutter_sdk/rendering.dart' show CompositedTranslation;
+import 'package:denial_flutter_sdk/system_services.dart'
+    show hapticsServiceProvider;
 
-import 'gesture_pill.dart';
+import 'liquid_pill.dart';
 
-/// The home pill at the bottom of the screen. An upward pull opens recents;
-/// a fast flick sends an app home or opens recents from home. A downward swipe
-/// closes recents, and a horizontal swipe switches between adjacent apps.
+/// The home pill at the bottom of the screen. An upward pull arms recents,
+/// with a tap of the haptic motor, and opens it on release; a fast flick
+/// sends an app home or opens recents from home. A downward swipe
+/// closes recents, and a horizontal swipe moves the row of apps, whose
+/// release sends it to the adjacent app or back. A swipe that starts while
+/// the apps still move takes them from where they are: sideways it holds
+/// the row, upward it lifts the app in front as the row settles.
 class BottomGestureHandle extends ConsumerStatefulWidget {
   const BottomGestureHandle({super.key});
 
@@ -32,13 +37,27 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
   static const double _axisLockRatio = 1.18;
 
   /// A faster upward fling sends an app home or opens recents from home. A
-  /// slower pull opens recents after [_recentsTravelFraction] of the screen.
+  /// slower pull arms recents after [_recentsArmFraction] of the screen and
+  /// stays armed until it comes back below [_recentsDisarmFraction], so a
+  /// finger resting at the threshold does not flicker it.
   static const double _homeFlickVelocity = 1100.0;
-  static const double _recentsTravelFraction = 0.16;
+  static const double _recentsArmFraction = 0.06;
+  static const double _recentsDisarmFraction = 0.045;
 
-  late final AnimationController _switchController;
-  Animation<double>? _switchAnimation;
-  int _switchDirection = 0;
+  // The pill follows the drag without rebuilding: its lift moves a retained
+  // layer, and only a change of [_armed] rebuilds it.
+  late final ValueListenable<Offset> _drag;
+  final _lift = ValueNotifier(Offset.zero);
+  final _armed = ValueNotifier(false);
+
+  /// How the pill looks: liquid that follows the finger. It never decides
+  /// anything about the gesture.
+  late final PillLiquid _liquid = PillLiquid(this);
+  bool _overviewVisible = false;
+  bool _hasSwitchTarget = false;
+  double _recentsArmTravel = double.infinity;
+  double _recentsDisarmTravel = double.infinity;
+  bool _recentsArmed = false;
 
   // Keep an independent velocity estimate for compositor-generated pointer
   // streams, where event coalescing can otherwise under-report a short flick.
@@ -51,68 +70,124 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
   @override
   void initState() {
     super.initState();
-    _switchController = AnimationController(vsync: this)
-      ..addListener(_syncSwitchAnimation)
-      ..addStatusListener(_handleSwitchStatus);
+    _drag = ref.read(referenceShellProvider.notifier).gestureDrag
+      ..addListener(_dragged);
+    ref.read(hapticsServiceProvider).prewarm();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _liquid.reduced = MediaQuery.disableAnimationsOf(context);
   }
 
   @override
   void dispose() {
-    _switchController.dispose();
+    _liquid.dispose();
+    _drag.removeListener(_dragged);
+    _lift.dispose();
+    _armed.dispose();
     super.dispose();
+  }
+
+  void _dragged() {
+    final armed = _recentsArmed;
+    _syncPill();
+    if (_recentsArmed != armed) {
+      ref.read(referenceShellProvider.notifier).armRecents(_recentsArmed);
+    }
+  }
+
+  void _syncPill() {
+    final drag = _drag.value;
+    final lift = (-drag.dy / ReferenceShellMetrics.gesturePillLiftTravel).clamp(
+      0.0,
+      1.0,
+    );
+    _lift.value = Offset(0, -lift * 8.0);
+    final up = -drag.dy;
+    final recents =
+        !_overviewVisible &&
+        up > (_recentsArmed ? _recentsDisarmTravel : _recentsArmTravel);
+    if (recents != _recentsArmed) {
+      _recentsArmed = recents;
+      if (recents) ref.read(hapticsServiceProvider).pulse();
+    }
+    _armed.value = _overviewVisible
+        ? drag.dy > _closeDistance
+        : recents || _horizontalSwitchArmed(drag, hasTarget: _hasSwitchTarget);
+    final progress = _overviewVisible
+        ? drag.dy / _closeDistance
+        : [
+            up / _recentsArmTravel,
+            if (_hasSwitchTarget) drag.dx.abs() / _switchDistance,
+          ].reduce((a, b) => a > b ? a : b);
+    _liquid.arm(progress, armed: _armed.value);
   }
 
   @override
   Widget build(BuildContext context) {
-    final visual = ref.watch(
+    final shell = ref.watch(
       referenceShellProvider.select(
         (state) => (
-          gestureDrag: state.gestureDrag,
           overviewVisible: state.overviewVisible,
-          appSwitchTargetWindow: state.appSwitchTargetWindow,
+          hasSwitchTarget: state.canSwitchApps,
         ),
       ),
     );
+    _overviewVisible = shell.overviewVisible;
+    _hasSwitchTarget = shell.hasSwitchTarget;
+    final size = MediaQuery.sizeOf(context);
+    _recentsArmTravel = size.height * _recentsArmFraction;
+    _recentsDisarmTravel = size.height * _recentsDisarmFraction;
+    _syncPill();
     final controller = ref.read(referenceShellProvider.notifier);
-    final lift = (-visual.gestureDrag.dy / 280.0).clamp(0.0, 1.0);
-    final recentsTravel =
-        MediaQuery.sizeOf(context).height * _recentsTravelFraction;
-    final armed = visual.overviewVisible
-        ? visual.gestureDrag.dy > _closeDistance
-        : -visual.gestureDrag.dy > recentsTravel ||
-              _horizontalSwitchArmed(
-                visual.gestureDrag,
-                hasTarget: visual.appSwitchTargetWindow != null,
-              );
 
     return Positioned(
       left: 0,
       right: 0,
       bottom: ReferenceShellMetrics.gestureBottomInset,
       child: Center(
-        child: Transform.translate(
-          offset: Offset(0, -lift * 8.0),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanStart: (_) {
-              _switchController.stop();
-              _switchAnimation = null;
-              _switchDirection = 0;
-              controller.resetGestureDrag();
-              _beginPanTracking();
-            },
-            onPanUpdate: (details) {
-              controller.updateGestureDrag(details.delta);
-              _trackPan(details.delta);
-            },
-            onPanCancel: controller.resetGestureDrag,
-            onPanEnd: (details) => _handlePanEnd(controller, details),
-            child: SizedBox(
-              width: ReferenceShellMetrics.gestureHitWidth,
-              height: ReferenceShellMetrics.gestureHitHeight,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 20),
-                child: Center(child: GesturePill(armed: armed)),
+        child: RepaintBoundary(
+          child: Listener(
+            onPointerDown: (event) => _liquid.touch(
+              event.localPosition.dx -
+                  ReferenceShellMetrics.gestureHitWidth / 2,
+            ),
+            // A tap, or a swipe the pan has not settled yet.
+            onPointerUp: (_) => _liquid.release(PillRelease.settle),
+            onPointerCancel: (_) => _liquid.release(PillRelease.settle),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (_) {
+                _beginPanTracking();
+                controller.resetGestureDrag();
+              },
+              onPanUpdate: (details) {
+                _trackPan(details.delta);
+                controller.updateGestureDrag(details.delta);
+                _liquid.drag(
+                  _panTravel,
+                  _panVelocity.getVelocity().pixelsPerSecond.dx,
+                );
+              },
+              onPanCancel: () {
+                controller.resetGestureDrag();
+                _liquid.release(PillRelease.settle);
+              },
+              onPanEnd: (details) => _handlePanEnd(controller, details),
+              child: SizedBox(
+                width: ReferenceShellMetrics.gestureHitWidth,
+                height: ReferenceShellMetrics.gestureHitHeight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: Center(
+                    child: CompositedTranslation(
+                      translation: _lift,
+                      child: LiquidPill(liquid: _liquid),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -126,7 +201,6 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
     DragEndDetails details,
   ) {
     _panClock.stop();
-    final currentState = ref.read(referenceShellProvider);
     // Raw travel (not the axis-locked visual drag, which is zeroed for short
     // gestures) and the stronger of our / Flutter's velocity estimate.
     final drag = _panTravel;
@@ -134,56 +208,62 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
       _panVelocity.getVelocity().pixelsPerSecond,
       details.velocity.pixelsPerSecond,
     );
+    final acted = _resolvePan(controller, drag, velocity);
+    _liquid.release(
+      acted ? PillRelease.launch : PillRelease.settle,
+      velocity: velocity,
+    );
+  }
+
+  /// Whether the swipe did something: closed recents, moved the row, went
+  /// home or opened recents.
+  bool _resolvePan(
+    ReferenceShellController controller,
+    Offset drag,
+    Offset velocity,
+  ) {
+    final currentState = ref.read(referenceShellProvider);
 
     if (currentState.overviewVisible) {
       if (drag.dy > _closeDistance || velocity.dy > _flickVelocity) {
         controller.closeOverview();
-      } else {
-        controller.resetGestureDrag();
+        return true;
       }
-      return;
+      controller.resetGestureDrag(releaseVelocity: velocity.dy);
+      return false;
     }
 
-    final switchDirection = _horizontalSwitchDirection(
-      currentState,
-      drag,
-      velocity,
-    );
-    if (switchDirection != 0) {
-      _animateSwitch(
-        controller: controller,
-        state: currentState,
-        direction: switchDirection,
-        velocityX: velocity.dx,
-      );
-      return;
+    if (controller.holdsRow || _horizontalFlick(currentState, drag, velocity)) {
+      controller.releaseRow(velocity.dx);
+      return drag.dx.abs() > _switchDistance ||
+          velocity.dx.abs() > _switchFlickVelocity;
     }
 
     // A fast up-flick sends an app home or opens recents when already home.
     // A longer pull also opens recents; smaller gestures cancel.
     final hasForeground = currentState.foregroundWindow != null;
-    final upTravel = -drag.dy;
-    final screenHeight = MediaQuery.sizeOf(context).height;
+    final armed = _recentsArmed || -drag.dy > _recentsArmTravel;
     if (currentState.launchTransitionActive) {
-      if (velocity.dy < -_homeFlickVelocity ||
-          upTravel > screenHeight * _recentsTravelFraction) {
-        controller.goHome();
-      } else {
-        controller.resetGestureDrag();
+      if (velocity.dy < -_homeFlickVelocity || armed) {
+        controller.goHome(releaseVelocity: velocity.dy);
+        return true;
       }
-      return;
+      controller.resetGestureDrag(releaseVelocity: velocity.dy);
+      return false;
     }
     if (velocity.dy < -_homeFlickVelocity) {
       if (hasForeground) {
-        controller.goHome();
+        controller.goHome(releaseVelocity: velocity.dy);
       } else {
-        controller.openOverview();
+        controller.openOverview(releaseVelocity: velocity.dy);
       }
-    } else if (upTravel > screenHeight * _recentsTravelFraction) {
-      controller.openOverview();
-    } else {
-      controller.resetGestureDrag();
+      return true;
+    } else if (armed) {
+      controller.openOverview(releaseVelocity: velocity.dy);
+      return true;
     }
+    controller.resetGestureDrag(releaseVelocity: velocity.dy);
+    return false;
   }
 
   void _beginPanTracking() {
@@ -217,85 +297,17 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
         drag.dx.abs() > drag.dy.abs() * _axisLockRatio;
   }
 
-  int _horizontalSwitchDirection(
+  /// A short sideways flick, too quick for the axis to lock, still switches.
+  bool _horizontalFlick(
     ReferenceShellState state,
     Offset drag,
     Offset velocity,
   ) {
-    if (state.openAppWindowCount < 2 || state.overviewVisible) {
-      return 0;
+    if (state.launchTransitionActive ||
+        velocity.dx.abs() <= _switchFlickVelocity) {
+      return false;
     }
-
-    final horizontalIntent =
-        drag.dx.abs() > drag.dy.abs() * _axisLockRatio ||
+    return drag.dx.abs() > drag.dy.abs() * _axisLockRatio ||
         velocity.dx.abs() > velocity.dy.abs() * _axisLockRatio;
-    if (!horizontalIntent) {
-      return 0;
-    }
-
-    var direction = 0;
-    if (velocity.dx.abs() > _switchFlickVelocity) {
-      direction = velocity.dx > 0.0 ? -1 : 1;
-    } else if (drag.dx.abs() > _switchDistance) {
-      direction = drag.dx > 0.0 ? -1 : 1;
-    }
-
-    if (direction == 0 || state.adjacentOpenAppWindow(direction) == null) {
-      return 0;
-    }
-    return direction;
-  }
-
-  /// Slides the current app off-screen toward [direction] until the incoming
-  /// app lands centred. The switch is a directed commit, so it rides a curve
-  /// whose duration is derived from the fling velocity (a faster flick lands
-  /// sooner) rather than a spring, which would creep at the tail.
-  void _animateSwitch({
-    required ReferenceShellController controller,
-    required ReferenceShellState state,
-    required int direction,
-    required double velocityX,
-  }) {
-    final width = MediaQuery.sizeOf(context).width;
-    if (width <= 0.0) {
-      controller.completeAdjacentWindowSwitch(direction);
-      return;
-    }
-
-    final startX = state.gestureDrag.dx;
-    final travel = width + ReferenceShellMetrics.appSwitchGap;
-    final endX = direction < 0 ? travel : -travel;
-    final distance = (endX - startX).abs();
-    final speed = math.max(velocityX.abs(), 1450.0);
-    final durationMs = ((distance / speed) * 1000.0).clamp(170.0, 340.0);
-
-    _switchDirection = direction;
-    _switchAnimation = Tween<double>(begin: startX, end: endX).animate(
-      CurvedAnimation(parent: _switchController, curve: Motion.emphasized),
-    );
-    _switchController.duration = Duration(milliseconds: durationMs.round());
-    _switchController.forward(from: 0.0);
-  }
-
-  void _syncSwitchAnimation() {
-    final value = _switchAnimation?.value;
-    if (value == null) {
-      return;
-    }
-    ref
-        .read(referenceShellProvider.notifier)
-        .setGestureDragForAnimation(Offset(value, 0.0));
-  }
-
-  void _handleSwitchStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || _switchDirection == 0) {
-      return;
-    }
-    final direction = _switchDirection;
-    _switchAnimation = null;
-    _switchDirection = 0;
-    ref
-        .read(referenceShellProvider.notifier)
-        .completeAdjacentWindowSwitch(direction);
   }
 }

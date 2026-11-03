@@ -39,7 +39,10 @@ DenialSurfaceLayer layer(
   opacity: opacity,
 );
 
-DenialWindow window(List<DenialSurfaceLayer> layers) => DenialWindow(
+DenialWindow window(
+  List<DenialSurfaceLayer> layers, {
+  DenialClientTexture? client,
+}) => DenialWindow(
   objectId: 1,
   objectKind: 'root_surface',
   surfaceId: 1,
@@ -65,9 +68,36 @@ DenialWindow window(List<DenialSurfaceLayer> layers) => DenialWindow(
   transform: 0,
   scale120: 120,
   surfaceLayers: layers,
+  clientTexture: client,
 );
 
 void main() {
+  test('native client image selects one texture and preserves input and popup tree', () {
+    const client = DenialClientTexture(
+      textureId: 1 << 62,
+      width: 126,
+      height: 101,
+      sourceWidth: 125.25,
+      sourceHeight: 100.5,
+    );
+    final app = window([
+      layer(1, opaque: false),
+      layer(2, opacity: 0.6),
+      layer(3, popup: true),
+    ], client: client);
+    final texture = singleWindowPlaneTexture(app)!;
+    expect(texture.id, client.textureId);
+    expect(texture.bufferSize, const Size(126, 101));
+    expect(texture.source, const Rect.fromLTWH(0, 0, 125.25, 100.5));
+    expect(texture.opacity, 1);
+    expect(texture.transform, 0);
+    expect(app.mainVisibleSurfaceIds, [1, 2]);
+    expect(app.popupSurfaceLayers.single.surfaceId, 3);
+    final original = window(app.surfaceLayers);
+    expect(singleWindowPlaneTexture(original), isNull);
+    expect(app.hasSameSceneDescriptionAs(original), isFalse);
+  });
+
   test(
     'opaque child selects direct texture and stops sampling covered root',
     () {

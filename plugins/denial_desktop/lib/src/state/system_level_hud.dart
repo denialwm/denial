@@ -68,7 +68,8 @@ class SystemLevelHudState {
     required this.visible,
     required this.revision,
     this.monitorId,
-  });
+    double? previousLevel,
+  }) : previousLevel = previousLevel ?? level;
 
   final SystemLevelHudKind kind;
   final int? monitorId;
@@ -76,6 +77,9 @@ class SystemLevelHudState {
   final bool muted;
   final bool limitReached;
   final bool visible;
+
+  /// The level before this change, so the HUD can move from it.
+  final double previousLevel;
 
   /// Changes every time a native update is presented in the HUD.
   final int revision;
@@ -89,6 +93,7 @@ class SystemLevelHudState {
       limitReached: limitReached,
       visible: visible ?? this.visible,
       revision: revision,
+      previousLevel: previousLevel,
     );
   }
 }
@@ -168,6 +173,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     _show(
       kind: SystemLevelHudKind.audio,
       level: level,
+      previousLevel: previousLevel,
       muted: update.muted,
       limitReached: update.limitReached,
     );
@@ -179,6 +185,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     required bool muted,
     required bool limitReached,
     int? monitorId,
+    double? previousLevel,
   }) {
     _hideTimer?.cancel();
     _revision += 1;
@@ -190,6 +197,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
       limitReached: limitReached,
       visible: true,
       revision: _revision,
+      previousLevel: previousLevel?.clamp(0.0, 1.0).toDouble(),
     );
     final generation = _buildGeneration;
     _hideTimer = Timer(_visibleDuration, () {

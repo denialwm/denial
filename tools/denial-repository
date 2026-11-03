@@ -103,7 +103,7 @@ for expected in \
 done
 (
   cd "$PACKAGE_INPUT"
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
 ) || fail 'unsigned package checksums failed'
 
 if [[ -e "$OUTPUT_ROOT" ]] \
@@ -702,7 +702,7 @@ EOF
   ((${#checksum_inputs[@]} > 0)) \
     || fail 'signed repository has no files to checksum'
   sha256sum -- "${checksum_inputs[@]}" >SHA256SUMS
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
   gpg \
     --batch \
     --yes \

@@ -191,3 +191,44 @@ fn theme_id_tracks_only_supported_values_and_defaults_to_enabled() {
     document.get_mut("appearance").unwrap()["glass"] = serde_json::json!({"opacity": 0.4});
     assert_eq!(Theme::from_document(&document).opacity, 0.4);
 }
+
+#[test]
+fn opacity_follows_the_selected_transparency_mode() {
+    let opacity = |appearance: Value| {
+        let document = serde_json::json!({ "appearance": appearance });
+        Theme::from_document(document.as_object().unwrap()).opacity
+    };
+    let glass = serde_json::json!({"windowOpacity": 0.6});
+    assert_eq!(
+        opacity(
+            serde_json::json!({"transparencyMode": "glass", "panelOpacity": 0.3, "glass": glass})
+        ),
+        0.6
+    );
+    assert_eq!(
+        opacity(
+            serde_json::json!({"transparencyMode": "blur", "panelOpacity": 0.3, "glass": glass})
+        ),
+        0.3
+    );
+    assert_eq!(
+        opacity(serde_json::json!({"transparencyMode": "blur"})),
+        0.5
+    );
+    assert_eq!(
+        opacity(serde_json::json!({"transparencyMode": "blur", "panelOpacity": 0.0})),
+        0.05
+    );
+    assert_eq!(
+        opacity(serde_json::json!({"transparencyMode": "off", "glass": glass})),
+        1.0
+    );
+    assert_eq!(
+        opacity(serde_json::json!({"backdropBlurEnabled": true, "panelOpacity": 0.3})),
+        0.3
+    );
+    assert_eq!(
+        opacity(serde_json::json!({"backdropBlurEnabled": false})),
+        1.0
+    );
+}

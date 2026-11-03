@@ -9,6 +9,7 @@ void main() {
     const settings = ShellSettings(
       localization: ShellLocalizationSettings(
         locale: ShellLocalePreference.simplifiedChinese,
+        twentyFourHourClock: false,
       ),
       appearance: ShellAppearanceSettings(
         colorSchemePreference: DesktopColorSchemePreference.preferLight,
@@ -84,11 +85,11 @@ void main() {
       power: ShellPowerSettings(
         powerButtonAction: PowerButtonAction.hibernate,
         idleLockEnabled: false,
-        idleLockTimeoutMinutes: 13,
+        idleLockTimeoutSeconds: 13 * 60,
         idleDpmsEnabled: false,
-        idleDpmsTimeoutMinutes: 47,
+        idleDpmsTimeoutSeconds: 47,
         idleSuspendEnabled: true,
-        idleSuspendTimeoutMinutes: 72,
+        idleSuspendTimeoutSeconds: 72 * 60,
         suspendMode: SuspendMode.deep,
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings(
@@ -151,11 +152,11 @@ void main() {
       },
       'power': <String, dynamic>{
         'idleLockEnabled': 'sometimes',
-        'idleLockTimeoutMinutes': 900,
+        'idleLockTimeoutSeconds': 90000,
         'idleDpmsEnabled': 'sometimes',
-        'idleDpmsTimeoutMinutes': 900,
+        'idleDpmsTimeoutSeconds': 90000,
         'idleSuspendEnabled': 'sometimes',
-        'idleSuspendTimeoutMinutes': 2,
+        'idleSuspendTimeoutSeconds': 2,
       },
     });
 
@@ -178,25 +179,61 @@ void main() {
     );
     expect(settings.layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
     expect(settings.power.idleLockEnabled, isTrue);
-    expect(settings.power.idleLockTimeoutMinutes, 120);
+    expect(settings.power.idleLockTimeoutSeconds, 7200);
     expect(settings.power.idleDpmsEnabled, isTrue);
-    expect(settings.power.idleDpmsTimeoutMinutes, 120);
+    expect(settings.power.idleDpmsTimeoutSeconds, 7200);
     expect(settings.power.idleSuspendEnabled, isFalse);
-    expect(settings.power.idleSuspendTimeoutMinutes, 120);
+    expect(settings.power.idleSuspendTimeoutSeconds, 7200);
   });
 
   test('idle timeout ordering is repaired without shortening display off', () {
     final settings = ShellSettings.fromJson(<String, dynamic>{
       'power': <String, dynamic>{
-        'idleLockTimeoutMinutes': 90,
-        'idleDpmsTimeoutMinutes': 80,
-        'idleSuspendTimeoutMinutes': 30,
+        'idleLockTimeoutSeconds': 5400,
+        'idleDpmsTimeoutSeconds': 4800,
+        'idleSuspendTimeoutSeconds': 1800,
       },
     });
 
-    expect(settings.power.idleDpmsTimeoutMinutes, 80);
-    expect(settings.power.idleSuspendTimeoutMinutes, 80);
-    expect(settings.power.idleLockTimeoutMinutes, 80);
+    expect(settings.power.idleDpmsTimeoutSeconds, 4800);
+    expect(settings.power.idleSuspendTimeoutSeconds, 4800);
+    expect(settings.power.idleLockTimeoutSeconds, 4800);
+  });
+
+  test('idle timeouts go down to half a minute', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'power': <String, dynamic>{
+        'idleLockTimeoutSeconds': 10,
+        'idleDpmsTimeoutSeconds': 30,
+      },
+    });
+
+    expect(settings.power.idleDpmsTimeoutSeconds, 30);
+    expect(settings.power.idleLockTimeoutSeconds, 30);
+  });
+
+  test('phone lock and notification choices survive a round trip', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'lockScreen': <String, dynamic>{'fingerprintUnlock': false},
+      'power': <String, dynamic>{'screenOffLockDelaySeconds': 7200},
+      'notifications': <String, dynamic>{
+        'doNotDisturb': true,
+        'lockPreview': 'hidden',
+        'wakeScreen': false,
+      },
+      'sound': <String, dynamic>{'keyboardVibration': false},
+    });
+
+    expect(settings.lockScreen.fingerprintUnlock, isFalse);
+    expect(
+      settings.power.screenOffLockDelaySeconds,
+      ShellPowerSettings.maximumScreenOffLockDelaySeconds,
+    );
+    expect(settings.notifications.doNotDisturb, isTrue);
+    expect(settings.notifications.lockPreview, NotificationPreviewMode.hidden);
+    expect(settings.notifications.wakeScreen, isFalse);
+    expect(settings.sound.keyboardVibration, isFalse);
+    expect(ShellSettings.fromJson(settings.toJson()), settings);
   });
 
   test('legacy panel radius migrates to the global roundness scale', () {

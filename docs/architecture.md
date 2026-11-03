@@ -19,7 +19,7 @@ deniald
   Rust Flutter host
     dynamic Flutter Engine ABI
     external textures and platform channels
-    frame scheduling and atlas buffer ownership
+    frame scheduling and per-output buffer ownership
 
   Flutter engine
     Dart shell
@@ -58,16 +58,23 @@ a Wayland resource, file descriptor, EGL image, fence or KMS buffer.
 
 ## Scene and outputs
 
-Flutter renders one desktop-wide XRGB8888 GBM atlas. Each connected CRTC scans
-a distinct source rectangle from the same framebuffer, so output count does
-not introduce a compositor copy. Flutter renders through one shared atlas pool
-whose ownership is synchronized with the independently clocked outputs.
+Dart builds one logical scene spanning every output. Each output has its own
+pool of GBM scanout buffers at that connector's physical mode size: three
+buffers, or four when the output renders ahead (`DENIAL_RENDER_AHEAD`). The
+pools prefer XRGB2101010 and keep XRGB8888 for planes or renderers without it;
+cross-device transfers stay 8-bit. Flutter renders each output's part of the
+scene into that output's own buffer, so outputs are clocked and
+backpressured independently. Output views are composed from retained slices
+([layered composition](LAYERED_COMPOSITION.md)).
+
+A build without the Flutter feature allocates one desktop-wide atlas instead,
+with each CRTC scanning a distinct source rectangle of it.
 
 Denial's Flutter engine is a Slimpeller build: it runs Impeller GLES, while
 Skia's Ganesh and Graphite renderers are disabled at engine-generation time.
 The locked engine fork connects Impeller directly to the rotating
-compositor-owned FBOs, preserves atlas damage, and keeps external client
-textures alive through native GPU fences.
+compositor-owned FBOs, preserves each buffer's damage, and keeps external
+client textures alive through native GPU fences.
 
 Atomic presentation synchronization lives in the in-tree
 `denial_core::volition` library module at `compositor/src/volition/`. Volition
@@ -76,14 +83,11 @@ lookahead lanes. Denial's output scheduler remains the caller: it chooses the
 frame, retains buffer ownership through page-flip completion, and handles
 Flutter, Wayland, DPMS, and screenshot policy.
 
-Topology changes are validated atomically before allocation. Atlas axes above
-16,384 pixels and complete pools above 1 GiB are rejected. The compositor
+Topology changes are validated atomically before allocation. Scanout axes
+above 16,384 pixels and pools above 1 GiB in total are rejected; unsupported
+layouts fail explicitly instead of presenting corrupt state. The compositor
 captures and pins the pre-Denial KMS state before the first modeset and restores
 it on normal finite or session teardown.
-
-The current implementation requires a layout compatible with the direct atlas
-path. A more general per-output fallback remains roadmap work; unsupported
-layouts fail explicitly instead of silently presenting corrupt state.
 
 ## Client surfaces
 
@@ -101,6 +105,30 @@ is consumed once by the first completed presentation.
 The Flutter path publishes physical Wayland output enter/leave events when a
 window is mapped, moved, resized or unmapped. Clients can therefore follow the
 monitor's refresh rate without a whole-desktop membership sweep each frame.
+
+Clients describe their pixels with `wp_color_management_v1` parametric image
+descriptions and `wp_color_representation_v1` alpha modes; ICC profiles are not
+accepted. The scene uses sRGB primaries and gamma 2.2, with SDR reference white
+at 1.0, and outputs and surface feedback advertise exactly that, so a client
+that renders in it costs nothing extra. Any other surface is converted once
+per committed buffer: decoded with its transfer function, anchored at its
+reference white, moved to sRGB primaries with Bradford adaptation, then tone
+mapped (perceptual intent) or clipped (relative intent) and encoded again. The
+deprecated `srgb` transfer function is read as gamma 2.2, which is what sRGB
+displays show; `compound_power_2_4` keeps its piecewise curve.
+
+A display whose EDID offers PQ can show HDR (`denialctl color hdr OUTPUT on
+[WHITE]`). Its connector then receives BT.2020 colorimetry and HDR static
+metadata with the display's own primaries and luminance, and its scene is half
+float. The scene becomes extended: SDR white stays 1.0 and highlights reach
+the display's peak over the chosen SDR white, so tagged HDR content is mapped
+to that headroom instead of SDR. Impeller's layers and filters turn half float
+with it (`--denial-float-color`), and the copy to scanout encodes BT.2100 PQ.
+That output advertises BT.2020 and PQ, with the SDR white as reference
+luminance. Some displays show a PQ signal stated as BT.2020 with sRGB primaries;
+`srgb` after the white sends them sRGB values, and the output advertises sRGB
+and PQ. The connector's
+previous colorimetry and metadata return when Denial exits.
 
 Synchronized surface trees preserve per-surface `wp_alpha_modifier_v1` state
 and all eight Wayland buffer orientations. Opacity changes publish with the
@@ -131,6 +159,10 @@ four fingers toward a window's center does not count as closing it.
 
 - shell hits become Flutter pointer events;
 - client hits are transformed and delivered through the Wayland seat;
+- clients that bind `zwp_input_timestamps_manager_v1` receive libinput's
+  microsecond time before each key, pointer motion, button and axis, and touch
+  down, motion and up; events Denial makes itself carry the current monotonic
+  time at millisecond precision;
 - graphics tablets are advertised through `zwp_tablet_manager_v2`; tool
   proximity, motion, pressure, distance, tilt, rotation, wheel, tip and button
   events use the same published client hit-test. An explicit libinput output
@@ -267,16 +299,43 @@ projection; it does not affect two-finger content scrolling or shortcut swipes.
 The shell receives touchpad presence separately so controls are disabled when
 no suitable hardware is connected.
 
-## Desktop Settings portal
+## Desktop portal
 
 `denial-portal` owns
-`org.freedesktop.impl.portal.desktop.denial` and implements only
-`org.freedesktop.impl.portal.Settings` at
+`org.freedesktop.impl.portal.desktop.denial` and implements
+`org.freedesktop.impl.portal.Settings` and
+`org.freedesktop.impl.portal.Access` at
 `/org/freedesktop/portal/desktop`. Its authoritative appearance keys are
 `org.freedesktop.appearance/color-scheme` and `accent-color`; unknown keys
 return the standard portal `NotFound` error. Portal routing selects
 `denial;gtk` for Settings, so GTK remains the fallback for namespaces Denial
 does not own.
+
+Access asks the user whether an app may have something and returns the
+answer; callers keep it. Each request starts the Polkit dialog bundle in its
+access mode as a centered overlay, over a private socket described in
+`compositor/denial-portal/src/access.rs`. A boolean choice named `remember`
+becomes once-or-always buttons for both answers: "Always allow", "Allow once",
+"Never allow" and "Decline once". Its value is reported with a denial too,
+where `true` means "never". The request handle exports
+`org.freedesktop.impl.portal.Request`, whose `Close` withdraws the dialog.
+
+### Keyboard shortcuts inhibition
+
+deniald serves `zwp_keyboard_shortcuts_inhibit_manager_v1`. An inhibitor is
+active only while its surface has keyboard focus and its app is allowed. The
+first time an app asks, deniald calls Access off the compositor thread. The
+portal permission store keeps each app's answer in table `denial`, entry
+`shortcuts-inhibit`, by app ID: `yes` for "Always allow", `no` for "Never
+allow", and `ask` for an app that was asked. "Allow once" and "Decline once"
+last while the app stays connected. Settings > Permissions lists the asked apps
+and changes their stored answers; deniald follows the store's `Changed` signal
+and asks again an app whose stored answer changed. While an inhibitor is
+active, keys go to the app even when they would trigger a Denial shortcut,
+except the pointer release shortcut, VT switching, the emergency exit and the
+volume and brightness keys. The shortcut engine still observes every key, and
+each release goes where its press went. The pointer release shortcut also
+deactivates the inhibitor until the app is focused again.
 
 The compositor publishes complete, revisioned `DesktopThemeSnapshot` records
 over a mode-`0600`, same-user `SOCK_SEQPACKET` endpoint at

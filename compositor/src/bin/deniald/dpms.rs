@@ -129,31 +129,75 @@ impl DpmsTopologyGuard {
     }
 }
 
+/// KEY_WAKEUP, such as a touch controller's double tap, is a key press that
+/// also lights the built-in panel, even beside a desk where other keys leave
+/// it dark. It never turns a lit panel off and never unlocks.
 #[cfg(feature = "flutter")]
-pub(super) fn synchronize_wake_gestures(scanouts: &[Scanout], events: &mut RuntimeState) {
-    for name in std::mem::take(&mut events.wake_gesture_outputs) {
-        let Some(scanout) = scanouts.iter().find(|s| s.output.name == name) else {
-            continue;
-        };
-        let output = scanout.output.id;
-        let powered = events
-            .output_power_requests
-            .get(&output)
-            .copied()
-            .unwrap_or(scanout.powered);
-        if powered && !events.fingerprint.exclusive_for(output) {
-            continue;
-        }
-        events.fingerprint.independent_wake();
-        let request = events.idle_policy.wake_output_now(output, Instant::now());
-        events.queue_idle_power_requests([request]);
-        info!(output = %name, "hardware double tap requested display wake");
+pub(super) fn synchronize_wake_key(scanouts: &[Scanout], events: &mut RuntimeState) {
+    if !std::mem::take(&mut events.wake_key_pressed) {
+        return;
     }
+    let panel = scanouts
+        .iter()
+        .find(|scanout| output_policy::is_internal_panel(&scanout.output.name))
+        .filter(|scanout| {
+            let output = scanout.output.id;
+            let powered = events
+                .output_power_requests
+                .get(&output)
+                .copied()
+                .unwrap_or(scanout.powered);
+            !powered || events.fingerprint.exclusive_for(output)
+        });
+    events.note_user_activity();
+    let Some(panel) = panel else {
+        return;
+    };
+    events.fingerprint.independent_wake();
+    let request = events
+        .idle_policy
+        .wake_output_now(panel.output.id, Instant::now());
+    events.queue_idle_power_requests([request]);
+    info!(output = %panel.output.name, "wake key requested display wake");
 }
 
 #[cfg(feature = "flutter")]
+/// Tells the idle policy whether a desk shares the session with the phone,
+/// and locks if the phone's panel is left dark and alone.
+#[cfg(feature = "flutter")]
+fn synchronize_phone_with_desk(events: &mut RuntimeState, now: Instant) {
+    let phone = events
+        .wayland
+        .as_ref()
+        .and_then(wayland_frontend::WaylandFrontend::phone_beside_desk);
+    if !events.idle_policy.set_phone_with_desk(phone, now) {
+        return;
+    }
+    if let Some(authentication) = events.authentication.as_ref() {
+        if authentication.lock_automatically() {
+            synchronize_authentication_boundary(events);
+            info!("locked the session: the desk left and the phone is dark");
+        }
+    } else {
+        warn!("could not lock after the desk left: authentication is unavailable");
+    }
+}
+
 pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut RuntimeState) {
-    if !events.power_button.take_toggle() {
+    if events.power_button.take_screenshot() {
+        events.screenshot_requested = true;
+    }
+    #[cfg(feature = "flutter")]
+    synchronize_phone_with_desk(events, Instant::now());
+    let phone = events.idle_policy.phone_output();
+    // In the mobile shell a lit screen goes dark on release, so Volume Down
+    // can still make the press a screenshot. A dark screen wakes at once.
+    let mobile = events
+        .wayland
+        .as_ref()
+        .is_some_and(|frontend| frontend.mobile_shell());
+    let lit = power_button_screen_lit(phone, scanouts, events);
+    if !events.power_button.take_toggle(mobile && lit) {
         return;
     }
     let action = events.idle_policy.power_button_action();
@@ -169,6 +213,33 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         }
         return;
     }
+    toggle_screen(scanouts, events);
+    info!("power button requested compositor-owned display power toggle");
+}
+
+/// Whether the screen the power button turns off is lit. An output lit only
+/// to draw the always-on clock counts as dark. Beside a desk the button
+/// belongs to the phone's panel alone.
+fn power_button_screen_lit(
+    phone: Option<OutputId>,
+    scanouts: &[Scanout],
+    events: &RuntimeState,
+) -> bool {
+    scanouts
+        .iter()
+        .filter(|scanout| phone.is_none_or(|phone| scanout.output.id == phone))
+        .any(|scanout| {
+            events
+                .output_power_requests
+                .get(&scanout.output.id)
+                .copied()
+                .unwrap_or(scanout.powered)
+                && !events.ambient_display.refreshing(scanout.output.id)
+        })
+}
+
+/// Turns the screen off or on as the power button does.
+fn toggle_screen(scanouts: &[Scanout], events: &mut RuntimeState) {
     events.fingerprint.independent_wake();
     // Queued requests are the effective state until the atomic KMS gate runs.
     let outputs = scanouts
@@ -181,7 +252,8 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
                     .output_power_requests
                     .get(&output)
                     .copied()
-                    .unwrap_or(scanout.powered),
+                    .unwrap_or(scanout.powered)
+                    && !events.ambient_display.refreshing(output),
             )
         })
         .collect::<Vec<_>>();
@@ -199,19 +271,27 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         }
     }
     events.queue_idle_power_requests(actions.power_requests);
-    info!("power button requested compositor-owned display power toggle");
 }
 
 #[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
-    // Presentation owns a bounded wake and restores its prior power state.
-    if events.fingerprint.active() {
+    // Presentation and the always-on clock own bounded wakes and restore
+    // the prior power state.
+    if events.fingerprint.active() || events.ambient_display.refresh_under_way() {
         return;
     }
-    let inhibited = events
-        .wayland
-        .as_mut()
-        .is_some_and(wayland_frontend::WaylandFrontend::idle_inhibited);
+    synchronize_phone_with_desk(events, now);
+    if let Some(phone) = events.idle_policy.phone_output() {
+        let inhibited = events.frontend_mut().phone_idle_inhibited();
+        let powered = scanouts
+            .iter()
+            .any(|scanout| scanout.output.id == phone && scanout.powered);
+        if let Some(request) = events.idle_policy.evaluate_phone(now, inhibited, powered) {
+            events.queue_idle_power_requests([request]);
+            info!("turned the phone's idle panel off beside the desk");
+        }
+    }
+    let inhibited = events.frontend_mut().idle_inhibited();
     let idle_policy::IdlePolicyActions {
         power_requests,
         lock,
@@ -251,9 +331,18 @@ pub(super) fn synchronize_idle_dpms_configuration(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) {
-    let Some(configuration) = runtime.take_idle_policy() else {
+    let Some(mut configuration) = runtime.take_idle_policy() else {
         return;
     };
+    // A phone's power button turns the screen off and on; it is pressed far
+    // too often to suspend or power off.
+    if events
+        .wayland
+        .as_ref()
+        .is_some_and(|frontend| frontend.mobile_shell())
+    {
+        configuration.power_button_action = idle_policy::PowerButtonAction::Dpms;
+    }
     if events
         .system_controls
         .as_ref()
@@ -279,21 +368,31 @@ pub(super) fn synchronize_idle_dpms_configuration(
 }
 
 #[cfg(feature = "flutter")]
-pub(super) fn synchronize_requested_dpms_off(
+pub(super) fn synchronize_requested_display_power(
     runtime: &mut flutter_runtime::FlutterRuntime,
     scanouts: &[Scanout],
     events: &mut RuntimeState,
 ) {
-    if !runtime.take_dpms_off_requested() {
-        return;
+    match runtime.take_display_power_request() {
+        None => {}
+        Some(idle_policy::DisplayPowerRequest::Off) => {
+            // A double tap to sleep is the power button pressed on a lit
+            // screen: beside a desk it turns off the phone's panel alone.
+            synchronize_phone_with_desk(events, Instant::now());
+            let phone = events.idle_policy.phone_output();
+            if power_button_screen_lit(phone, scanouts, events) {
+                toggle_screen(scanouts, events);
+                info!("shell turned the screen off as the power button does");
+            }
+        }
+        Some(idle_policy::DisplayPowerRequest::On) => {
+            // The idle timer starts again, so the screen stays on for the
+            // usual timeout; clients are not told of user activity.
+            let requests = events.idle_policy.note_activity(Instant::now());
+            events.queue_idle_power_requests(requests);
+            info!("requested compositor-owned display power-on");
+        }
     }
-    let requests = events.idle_policy.blank_now(
-        scanouts
-            .iter()
-            .map(|scanout| (scanout.output.id, scanout.powered)),
-    );
-    events.queue_idle_power_requests(requests);
-    info!("requested immediate compositor-owned display power-off");
 }
 
 #[cfg(feature = "flutter")]
@@ -318,9 +417,7 @@ pub(super) fn apply_output_power_requests(
             events
                 .idle_policy
                 .note_power_failure(output, Instant::now());
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.fail_output_power(output);
-            }
+            events.frontend_mut().fail_output_power(output);
             continue;
         };
         let current = scanouts[scanout_index].powered;
@@ -329,9 +426,10 @@ pub(super) fn apply_output_power_requests(
                 scheduler.cancel_power_off(output, scanouts);
             }
             if !powered || !scheduler.power_on_pending(output) {
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.output_power_applied(output, powered);
-                }
+                let announce = !events.ambient_display.refreshing(output);
+                events
+                    .frontend_mut()
+                    .output_power_applied(output, powered, announce);
             }
             continue;
         }
@@ -403,9 +501,7 @@ pub(super) fn apply_output_power_requests(
                 events
                     .idle_policy
                     .note_power_failure(output, Instant::now());
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
+                events.frontend_mut().fail_output_power(output);
             }
             warn!(
                 output = scanouts[failed_index].output.name,
@@ -433,9 +529,10 @@ pub(super) fn apply_output_power_requests(
                     output = scanouts[scanout_index].output.name,
                     "powered off KMS output through DRM DPMS"
                 );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.output_power_applied(output, false);
-                }
+                let announce = !events.ambient_display.refreshing(output);
+                events
+                    .frontend_mut()
+                    .output_power_applied(output, false, announce);
             }
         }
     }

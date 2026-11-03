@@ -8,21 +8,24 @@ use zbus::zvariant::OwnedObjectPath;
 const SERVICE: &str = "org.freedesktop.login1";
 const MANAGER: &str = "/org/freedesktop/login1";
 const SESSION_INTERFACE: &str = "org.freedesktop.login1.Session";
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 fn stopping(shared: &SharedAuthentication) -> bool {
     lock_unpoisoned(&shared.state).stopping
 }
 
+/// Returns once the controller stops.
+async fn stopped(shared: &SharedAuthentication) {
+    while !stopping(shared) {
+        shared.changed.wait().await;
+    }
+}
+
 pub(super) fn run_worker(shared: &Arc<SharedAuthentication>) {
     future::block_on(async {
         while !stopping(shared) {
             let result = async {
-                let connection = zbus::connection::Builder::system()?
-                    .method_timeout(Duration::from_secs(3))
-                    .build()
-                    .await?;
+                let connection = crate::bus::system().await?;
                 monitor(&connection, shared).await
             }
             .await;
@@ -31,19 +34,23 @@ pub(super) fn run_worker(shared: &Arc<SharedAuthentication>) {
             {
                 warn!(%error, "logind session lock monitoring is unavailable; retrying");
             }
-            let retry = Instant::now() + RETRY_INTERVAL;
-            while !stopping(shared) && Instant::now() < retry {
-                async_io::Timer::after(POLL_INTERVAL).await;
-            }
+            future::race(stopped(shared), async {
+                async_io::Timer::after(RETRY_INTERVAL).await;
+            })
+            .await;
         }
     });
 }
 
 async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -> zbus::Result<()> {
     let bus = zbus::fdo::DBusProxy::new(connection).await?;
-    // Resolve the process's actual session, then pin subscriptions to logind's
-    // unique owner and the returned object path. Never subscribe to session/auto:
-    // it is a method-call alias, not the path used by session signals.
+    // Resolve the session, then pin subscriptions to logind's unique owner and
+    // the returned object path. Never subscribe to session/auto: it is a
+    // method-call alias, not the path used by session signals. Like libseat,
+    // take the session that started Denial first: under UWSM deniald runs in
+    // a user service, outside any session scope, and "auto" would fall back
+    // to whichever session logind elected as the user's display.
+    let id = std::env::var("XDG_SESSION_ID").unwrap_or_else(|_| "auto".into());
     let manager = zbus::Proxy::new(
         connection,
         SERVICE,
@@ -51,9 +58,7 @@ async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -
         "org.freedesktop.login1.Manager",
     )
     .await?;
-    let _: OwnedObjectPath = manager
-        .call("GetSessionByPID", &(std::process::id(),))
-        .await?;
+    let _: OwnedObjectPath = manager.call("GetSession", &(id.as_str(),)).await?;
     let owner = bus.get_name_owner(SERVICE.try_into()?).await?;
     let manager = zbus::Proxy::new(
         connection,
@@ -62,9 +67,7 @@ async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -
         "org.freedesktop.login1.Manager",
     )
     .await?;
-    let path: OwnedObjectPath = manager
-        .call("GetSessionByPID", &(std::process::id(),))
-        .await?;
+    let path: OwnedObjectPath = manager.call("GetSession", &(id.as_str(),)).await?;
     let session = zbus::Proxy::new(connection, owner, path, SESSION_INTERFACE).await?;
     let mut locks = session.receive_signal("Lock").await?;
     let mut owners = session.receive_owner_changed().await?;
@@ -84,13 +87,24 @@ async fn monitor(connection: &zbus::Connection, shared: &SharedAuthentication) -
                 }
             }
         }
+        // Sleep until logind speaks, the lock state changes or the worker
+        // stops, or until a failed hint is due again.
+        let retry = (published_hint != Some(locked)).then_some(hint_retry);
         let signal = future::race(
             future::race(async { Some(locks.next().await) }, async {
                 owners.next().await;
                 Some(None)
             }),
             async {
-                async_io::Timer::after(POLL_INTERVAL).await;
+                match retry {
+                    Some(at) => {
+                        future::race(shared.changed.wait(), async {
+                            async_io::Timer::at(at).await;
+                        })
+                        .await;
+                    }
+                    None => shared.changed.wait().await,
+                }
                 None
             },
         )
@@ -123,9 +137,9 @@ mod tests {
     struct Manager;
     #[zbus::interface(name = "org.freedesktop.login1.Manager")]
     impl Manager {
-        #[zbus(name = "GetSessionByPID")]
-        fn get_session_by_pid(&self, pid: u32) -> OwnedObjectPath {
-            assert_eq!(pid, std::process::id());
+        fn get_session(&self, id: &str) -> OwnedObjectPath {
+            let expected = std::env::var("XDG_SESSION_ID").unwrap_or_else(|_| "auto".into());
+            assert_eq!(id, expected);
             PATH.try_into().unwrap()
         }
     }
@@ -158,6 +172,7 @@ mod tests {
             Box::new(UnavailableBackend {
                 reason: "test backend".into(),
             }),
+            None,
             false,
         )
         .unwrap();
@@ -190,8 +205,8 @@ mod tests {
         assert!(received.recv_timeout(Duration::from_millis(600)).is_err());
         assert!(!controller.locked());
 
-        // Capability guards must not suppress an explicit logind request.
-        lock_unpoisoned(&controller.shared.state).automatic_lock =
+        // An account without credentials still honors an explicit logind request.
+        lock_unpoisoned(&controller.shared.state).account_credential =
             lock_capability::Capability::Unavailable;
         server
             .emit_signal(None::<&str>, PATH, SESSION_INTERFACE, "Lock", &())
@@ -212,6 +227,7 @@ mod tests {
         controller.acknowledge_unlocked_boundary();
         assert!(!received.recv_timeout(Duration::from_secs(3)).unwrap());
         lock_unpoisoned(&controller.shared.state).stopping = true;
+        controller.shared.notify();
         worker.join().unwrap();
     }
 }

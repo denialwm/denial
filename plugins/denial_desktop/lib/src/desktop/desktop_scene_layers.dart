@@ -11,11 +11,21 @@ class DesktopLayerShellSurface extends StatelessWidget {
   const DesktopLayerShellSurface({
     required this.surface,
     required this.displayLayout,
+    this.rect,
+    this.material = true,
     super.key,
   });
 
   final DenialWindow surface;
   final DisplayLayout? displayLayout;
+
+  /// Where the shell places the surface instead of its own geometry, as a
+  /// phone places system overlays above its keyboard.
+  final Rect? rect;
+
+  /// False when the caller draws the glass under the surface itself, as a
+  /// phone does for its own overlays.
+  final bool material;
 
   static final _overlayMaterialThemes = Expando<ShellThemeData>();
 
@@ -62,7 +72,7 @@ class DesktopLayerShellSurface extends StatelessWidget {
         ? singleWindowPlaneTexture(surface)
         : null;
     return Positioned.fromRect(
-      rect: geometry,
+      rect: rect ?? geometry,
       // Flutter paints the client texture, while DesktopInputLayoutPublisher
       // transfers pointer and touch ownership to the native Wayland route.
       // Keeping this widget transparent avoids duplicating that lifecycle in
@@ -81,7 +91,9 @@ class DesktopLayerShellSurface extends StatelessWidget {
               // the user's opacity threshold is frosted, never its shadow.
               : WindowPlane.texture(
                   texture: texture,
-                  backdrop: _overlayBackdrop(ShellTheme.of(context)),
+                  backdrop: material
+                      ? _overlayBackdrop(ShellTheme.of(context))
+                      : null,
                   presentationScale:
                       outputPixelGrid?.scale ??
                       MediaQuery.devicePixelRatioOf(context),

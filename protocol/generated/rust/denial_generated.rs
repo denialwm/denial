@@ -397,10 +397,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 9;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 10] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 12] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
@@ -411,6 +411,8 @@ pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 10] = [
   WindowRequestKind::SwitchWorkspace,
   WindowRequestKind::MoveWindowToWorkspace,
   WindowRequestKind::MinimizeWindow,
+  WindowRequestKind::NavigateBack,
+  WindowRequestKind::MoveWindowToOutput,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -428,9 +430,11 @@ impl WindowRequestKind {
   pub const SwitchWorkspace: Self = Self(7);
   pub const MoveWindowToWorkspace: Self = Self(8);
   pub const MinimizeWindow: Self = Self(9);
+  pub const NavigateBack: Self = Self(10);
+  pub const MoveWindowToOutput: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
@@ -442,6 +446,8 @@ impl WindowRequestKind {
     Self::SwitchWorkspace,
     Self::MoveWindowToWorkspace,
     Self::MinimizeWindow,
+    Self::NavigateBack,
+    Self::MoveWindowToOutput,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -456,6 +462,8 @@ impl WindowRequestKind {
       Self::SwitchWorkspace => Some("SwitchWorkspace"),
       Self::MoveWindowToWorkspace => Some("MoveWindowToWorkspace"),
       Self::MinimizeWindow => Some("MinimizeWindow"),
+      Self::NavigateBack => Some("NavigateBack"),
+      Self::MoveWindowToOutput => Some("MoveWindowToOutput"),
       _ => None,
     }
   }
@@ -789,10 +797,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 17;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 18;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 18] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 19] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -811,6 +819,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 18] = [
   ShellActionKind::FocusRight,
   ShellActionKind::FocusUp,
   ShellActionKind::FocusDown,
+  ShellActionKind::ScreenshotCaptured,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -836,9 +845,10 @@ impl ShellActionKind {
   pub const FocusRight: Self = Self(15);
   pub const FocusUp: Self = Self(16);
   pub const FocusDown: Self = Self(17);
+  pub const ScreenshotCaptured: Self = Self(18);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 17;
+  pub const ENUM_MAX: u8 = 18;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -858,6 +868,7 @@ impl ShellActionKind {
     Self::FocusRight,
     Self::FocusUp,
     Self::FocusDown,
+    Self::ScreenshotCaptured,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -880,6 +891,7 @@ impl ShellActionKind {
       Self::FocusRight => Some("FocusRight"),
       Self::FocusUp => Some("FocusUp"),
       Self::FocusDown => Some("FocusDown"),
+      Self::ScreenshotCaptured => Some("ScreenshotCaptured"),
       _ => None,
     }
   }
@@ -938,13 +950,15 @@ impl flatbuffers::SimpleToVerifyInSlice for ShellActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_KEYBOARD_COMMAND_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 2;
+pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 4;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 3] = [
+pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 5] = [
   KeyboardCommandKind::Text,
   KeyboardCommandKind::Key,
   KeyboardCommandKind::DismissPanel,
+  KeyboardCommandKind::PanelMotion,
+  KeyboardCommandKind::Replace,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -955,13 +969,17 @@ impl KeyboardCommandKind {
   pub const Text: Self = Self(0);
   pub const Key: Self = Self(1);
   pub const DismissPanel: Self = Self(2);
+  pub const PanelMotion: Self = Self(3);
+  pub const Replace: Self = Self(4);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_MAX: u8 = 4;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Text,
     Self::Key,
     Self::DismissPanel,
+    Self::PanelMotion,
+    Self::Replace,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -969,6 +987,8 @@ impl KeyboardCommandKind {
       Self::Text => Some("Text"),
       Self::Key => Some("Key"),
       Self::DismissPanel => Some("DismissPanel"),
+      Self::PanelMotion => Some("PanelMotion"),
+      Self::Replace => Some("Replace"),
       _ => None,
     }
   }
@@ -2486,6 +2506,95 @@ impl<'a> flatbuffers::Verifiable for CursorStateKind {
 
 impl flatbuffers::SimpleToVerifyInSlice for CursorStateKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_INPUT_EDGE: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_INPUT_EDGE: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_INPUT_EDGE: [InputEdge; 3] = [
+  InputEdge::Left,
+  InputEdge::Right,
+  InputEdge::Top,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct InputEdge(pub u8);
+#[allow(non_upper_case_globals)]
+impl InputEdge {
+  pub const Left: Self = Self(0);
+  pub const Right: Self = Self(1);
+  pub const Top: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Left,
+    Self::Right,
+    Self::Top,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Left => Some("Left"),
+      Self::Right => Some("Right"),
+      Self::Top => Some("Top"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for InputEdge {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for InputEdge {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for InputEdge {
+    type Output = InputEdge;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for InputEdge {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for InputEdge {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for InputEdge {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_TARGET: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_SHORTCUT_TARGET: u8 = 4;
@@ -2672,10 +2781,10 @@ impl flatbuffers::SimpleToVerifyInSlice for PetRequestKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 22;
+pub const ENUM_MAX_PAYLOAD: u8 = 24;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 23] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 25] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -2699,6 +2808,8 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 23] = [
   Payload::PluginActionCatalog,
   Payload::PluginActionInvocation,
   Payload::PetRequest,
+  Payload::TextPredictionRequest,
+  Payload::TextPrediction,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2729,9 +2840,11 @@ impl Payload {
   pub const PluginActionCatalog: Self = Self(20);
   pub const PluginActionInvocation: Self = Self(21);
   pub const PetRequest: Self = Self(22);
+  pub const TextPredictionRequest: Self = Self(23);
+  pub const TextPrediction: Self = Self(24);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 22;
+  pub const ENUM_MAX: u8 = 24;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -2756,6 +2869,8 @@ impl Payload {
     Self::PluginActionCatalog,
     Self::PluginActionInvocation,
     Self::PetRequest,
+    Self::TextPredictionRequest,
+    Self::TextPrediction,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -2783,6 +2898,8 @@ impl Payload {
       Self::PluginActionCatalog => Some("PluginActionCatalog"),
       Self::PluginActionInvocation => Some("PluginActionInvocation"),
       Self::PetRequest => Some("PetRequest"),
+      Self::TextPredictionRequest => Some("TextPredictionRequest"),
+      Self::TextPrediction => Some("TextPrediction"),
       _ => None,
     }
   }
@@ -3542,6 +3659,117 @@ impl<'a> InputWindowRegion {
 
 }
 
+// struct EdgeSwipeRegion, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct EdgeSwipeRegion(pub [u8; 40]);
+impl Default for EdgeSwipeRegion { 
+  fn default() -> Self { 
+    Self([0; 40])
+  }
+}
+impl core::fmt::Debug for EdgeSwipeRegion {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    f.debug_struct("EdgeSwipeRegion")
+      .field("rect", &self.rect())
+      .field("edge", &self.edge())
+      .finish()
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for EdgeSwipeRegion {}
+impl<'a> flatbuffers::Follow<'a> for EdgeSwipeRegion {
+  type Inner = &'a EdgeSwipeRegion;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a EdgeSwipeRegion>::follow(buf, loc) }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a EdgeSwipeRegion {
+  type Inner = &'a EdgeSwipeRegion;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { flatbuffers::follow_cast_ref::<EdgeSwipeRegion>(buf, loc) }
+  }
+}
+impl<'b> flatbuffers::Push for EdgeSwipeRegion {
+    type Output = EdgeSwipeRegion;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const EdgeSwipeRegion as *const u8, <Self as flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> flatbuffers::PushAlignment {
+        flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for EdgeSwipeRegion {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> EdgeSwipeRegion {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    rect: &WireRect,
+    edge: InputEdge,
+  ) -> Self {
+    let mut s = Self([0; 40]);
+    s.set_rect(rect);
+    s.set_edge(edge);
+    s
+  }
+
+  pub fn rect(&self) -> &WireRect {
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid struct in this slot
+    unsafe { &*(self.0[0..].as_ptr() as *const WireRect) }
+  }
+
+  #[allow(clippy::identity_op)]
+  pub fn set_rect(&mut self, x: &WireRect) {
+    self.0[0..0 + 32].copy_from_slice(&x.0)
+  }
+
+  pub fn edge(&self) -> InputEdge {
+    let mut mem = core::mem::MaybeUninit::<<InputEdge as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[32..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<InputEdge as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_edge(&mut self, x: InputEdge) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[32..].as_mut_ptr(),
+        core::mem::size_of::<<InputEdge as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
 pub enum InputLayoutOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3564,6 +3792,7 @@ impl<'a> InputLayout<'a> {
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 10;
   pub const VT_VISIBLE_SURFACE_IDS: flatbuffers::VOffsetT = 12;
   pub const VT_SOFTWARE_KEYBOARD_REGIONS: flatbuffers::VOffsetT = 14;
+  pub const VT_EDGE_SWIPE_REGIONS: flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3576,6 +3805,7 @@ impl<'a> InputLayout<'a> {
   ) -> flatbuffers::WIPOffset<InputLayout<'bldr>> {
     let mut builder = InputLayoutBuilder::new(_fbb);
     builder.add_epoch(args.epoch);
+    if let Some(x) = args.edge_swipe_regions { builder.add_edge_swipe_regions(x); }
     if let Some(x) = args.software_keyboard_regions { builder.add_software_keyboard_regions(x); }
     if let Some(x) = args.visible_surface_ids { builder.add_visible_surface_ids(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
@@ -3627,6 +3857,13 @@ impl<'a> InputLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, WireRect>>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, None)}
   }
+  #[inline]
+  pub fn edge_swipe_regions(&self) -> Option<flatbuffers::Vector<'a, EdgeSwipeRegion>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, EdgeSwipeRegion>>>(InputLayout::VT_EDGE_SWIPE_REGIONS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for InputLayout<'_> {
@@ -3642,6 +3879,7 @@ impl flatbuffers::Verifiable for InputLayout<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, InputWindowRegion>>>("windows", Self::VT_WINDOWS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("visible_surface_ids", Self::VT_VISIBLE_SURFACE_IDS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, WireRect>>>("software_keyboard_regions", Self::VT_SOFTWARE_KEYBOARD_REGIONS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, EdgeSwipeRegion>>>("edge_swipe_regions", Self::VT_EDGE_SWIPE_REGIONS, false)?
      .finish();
     Ok(())
   }
@@ -3653,6 +3891,7 @@ pub struct InputLayoutArgs<'a> {
     pub windows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, InputWindowRegion>>>,
     pub visible_surface_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
     pub software_keyboard_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, WireRect>>>,
+    pub edge_swipe_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, EdgeSwipeRegion>>>,
 }
 impl<'a> Default for InputLayoutArgs<'a> {
   #[inline]
@@ -3664,6 +3903,7 @@ impl<'a> Default for InputLayoutArgs<'a> {
       windows: None,
       visible_surface_ids: None,
       software_keyboard_regions: None,
+      edge_swipe_regions: None,
     }
   }
 }
@@ -3698,6 +3938,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> InputLayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, software_keyboard_regions);
   }
   #[inline]
+  pub fn add_edge_swipe_regions(&mut self, edge_swipe_regions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , EdgeSwipeRegion>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_EDGE_SWIPE_REGIONS, edge_swipe_regions);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> InputLayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     InputLayoutBuilder {
@@ -3721,6 +3965,7 @@ impl core::fmt::Debug for InputLayout<'_> {
       ds.field("windows", &self.windows());
       ds.field("visible_surface_ids", &self.visible_surface_ids());
       ds.field("software_keyboard_regions", &self.software_keyboard_regions());
+      ds.field("edge_swipe_regions", &self.edge_swipe_regions());
       ds.finish()
   }
 }
@@ -4161,6 +4406,171 @@ impl core::fmt::Debug for SurfaceLayer<'_> {
       ds.finish()
   }
 }
+pub enum ClientTextureOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ClientTexture<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ClientTexture<'a> {
+  type Inner = ClientTexture<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ClientTexture<'a> {
+  pub const VT_TEXTURE_ID: flatbuffers::VOffsetT = 4;
+  pub const VT_WIDTH: flatbuffers::VOffsetT = 6;
+  pub const VT_HEIGHT: flatbuffers::VOffsetT = 8;
+  pub const VT_SOURCE_WIDTH: flatbuffers::VOffsetT = 10;
+  pub const VT_SOURCE_HEIGHT: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ClientTexture { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ClientTextureArgs
+  ) -> flatbuffers::WIPOffset<ClientTexture<'bldr>> {
+    let mut builder = ClientTextureBuilder::new(_fbb);
+    builder.add_source_height(args.source_height);
+    builder.add_source_width(args.source_width);
+    builder.add_texture_id(args.texture_id);
+    builder.add_height(args.height);
+    builder.add_width(args.width);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn texture_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ClientTexture::VT_TEXTURE_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn width(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ClientTexture::VT_WIDTH, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn height(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ClientTexture::VT_HEIGHT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn source_width(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClientTexture::VT_SOURCE_WIDTH, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn source_height(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClientTexture::VT_SOURCE_HEIGHT, Some(0.0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for ClientTexture<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("texture_id", Self::VT_TEXTURE_ID, false)?
+     .visit_field::<u32>("width", Self::VT_WIDTH, false)?
+     .visit_field::<u32>("height", Self::VT_HEIGHT, false)?
+     .visit_field::<f64>("source_width", Self::VT_SOURCE_WIDTH, false)?
+     .visit_field::<f64>("source_height", Self::VT_SOURCE_HEIGHT, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ClientTextureArgs {
+    pub texture_id: u64,
+    pub width: u32,
+    pub height: u32,
+    pub source_width: f64,
+    pub source_height: f64,
+}
+impl<'a> Default for ClientTextureArgs {
+  #[inline]
+  fn default() -> Self {
+    ClientTextureArgs {
+      texture_id: 0,
+      width: 0,
+      height: 0,
+      source_width: 0.0,
+      source_height: 0.0,
+    }
+  }
+}
+
+pub struct ClientTextureBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ClientTextureBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_texture_id(&mut self, texture_id: u64) {
+    self.fbb_.push_slot::<u64>(ClientTexture::VT_TEXTURE_ID, texture_id, 0);
+  }
+  #[inline]
+  pub fn add_width(&mut self, width: u32) {
+    self.fbb_.push_slot::<u32>(ClientTexture::VT_WIDTH, width, 0);
+  }
+  #[inline]
+  pub fn add_height(&mut self, height: u32) {
+    self.fbb_.push_slot::<u32>(ClientTexture::VT_HEIGHT, height, 0);
+  }
+  #[inline]
+  pub fn add_source_width(&mut self, source_width: f64) {
+    self.fbb_.push_slot::<f64>(ClientTexture::VT_SOURCE_WIDTH, source_width, 0.0);
+  }
+  #[inline]
+  pub fn add_source_height(&mut self, source_height: f64) {
+    self.fbb_.push_slot::<f64>(ClientTexture::VT_SOURCE_HEIGHT, source_height, 0.0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ClientTextureBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ClientTextureBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ClientTexture<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ClientTexture<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ClientTexture");
+      ds.field("texture_id", &self.texture_id());
+      ds.field("width", &self.width());
+      ds.field("height", &self.height());
+      ds.field("source_width", &self.source_width());
+      ds.field("source_height", &self.source_height());
+      ds.finish()
+  }
+}
 pub enum WindowOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4228,6 +4638,8 @@ impl<'a> Window<'a> {
   pub const VT_PET: flatbuffers::VOffsetT = 100;
   pub const VT_PET_HOLDS: flatbuffers::VOffsetT = 102;
   pub const VT_PET_DRAGGED: flatbuffers::VOffsetT = 104;
+  pub const VT_CLIENT_TEXTURE: flatbuffers::VOffsetT = 106;
+  pub const VT_KEYBOARD_INSET: flatbuffers::VOffsetT = 108;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4266,6 +4678,7 @@ impl<'a> Window<'a> {
     builder.add_window_id(args.window_id);
     builder.add_surface_id(args.surface_id);
     builder.add_object_id(args.object_id);
+    if let Some(x) = args.client_texture { builder.add_client_texture(x); }
     builder.add_pet_holds(args.pet_holds);
     builder.add_held_hold(args.held_hold);
     builder.add_opacity(args.opacity);
@@ -4277,6 +4690,7 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_keyboard_inset(args.keyboard_inset);
     builder.add_pet_dragged(args.pet_dragged);
     builder.add_pet(args.pet);
     builder.add_pet_below(args.pet_below);
@@ -4651,6 +5065,20 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(Window::VT_PET_DRAGGED, Some(false)).unwrap()}
   }
+  #[inline]
+  pub fn client_texture(&self) -> Option<ClientTexture<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ClientTexture>>(Window::VT_CLIENT_TEXTURE, None)}
+  }
+  #[inline]
+  pub fn keyboard_inset(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_KEYBOARD_INSET, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -4711,6 +5139,8 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<bool>("pet", Self::VT_PET, false)?
      .visit_field::<u32>("pet_holds", Self::VT_PET_HOLDS, false)?
      .visit_field::<bool>("pet_dragged", Self::VT_PET_DRAGGED, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ClientTexture>>("client_texture", Self::VT_CLIENT_TEXTURE, false)?
+     .visit_field::<bool>("keyboard_inset", Self::VT_KEYBOARD_INSET, false)?
      .finish();
     Ok(())
   }
@@ -4767,6 +5197,8 @@ pub struct WindowArgs<'a> {
     pub pet: bool,
     pub pet_holds: u32,
     pub pet_dragged: bool,
+    pub client_texture: Option<flatbuffers::WIPOffset<ClientTexture<'a>>>,
+    pub keyboard_inset: bool,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -4823,6 +5255,8 @@ impl<'a> Default for WindowArgs<'a> {
       pet: false,
       pet_holds: 0,
       pet_dragged: false,
+      client_texture: None,
+      keyboard_inset: false,
     }
   }
 }
@@ -5037,6 +5471,14 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<bool>(Window::VT_PET_DRAGGED, pet_dragged, false);
   }
   #[inline]
+  pub fn add_client_texture(&mut self, client_texture: flatbuffers::WIPOffset<ClientTexture<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ClientTexture>>(Window::VT_CLIENT_TEXTURE, client_texture);
+  }
+  #[inline]
+  pub fn add_keyboard_inset(&mut self, keyboard_inset: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_KEYBOARD_INSET, keyboard_inset, false);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -5105,6 +5547,8 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("pet", &self.pet());
       ds.field("pet_holds", &self.pet_holds());
       ds.field("pet_dragged", &self.pet_dragged());
+      ds.field("client_texture", &self.client_texture());
+      ds.field("keyboard_inset", &self.keyboard_inset());
       ds.finish()
   }
 }
@@ -7131,6 +7575,9 @@ impl<'a> KeyboardCommand<'a> {
   pub const VT_KEY: flatbuffers::VOffsetT = 8;
   pub const VT_FLAGS: flatbuffers::VOffsetT = 10;
   pub const VT_ACTIVATION_SERIAL: flatbuffers::VOffsetT = 12;
+  pub const VT_PANEL_HEIGHT: flatbuffers::VOffsetT = 14;
+  pub const VT_PANEL_DURATION_MS: flatbuffers::VOffsetT = 16;
+  pub const VT_REPLACED: flatbuffers::VOffsetT = 18;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7143,6 +7590,9 @@ impl<'a> KeyboardCommand<'a> {
   ) -> flatbuffers::WIPOffset<KeyboardCommand<'bldr>> {
     let mut builder = KeyboardCommandBuilder::new(_fbb);
     builder.add_activation_serial(args.activation_serial);
+    if let Some(x) = args.replaced { builder.add_replaced(x); }
+    builder.add_panel_duration_ms(args.panel_duration_ms);
+    builder.add_panel_height(args.panel_height);
     builder.add_flags(args.flags);
     if let Some(x) = args.key { builder.add_key(x); }
     if let Some(x) = args.text { builder.add_text(x); }
@@ -7186,6 +7636,27 @@ impl<'a> KeyboardCommand<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn panel_height(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(KeyboardCommand::VT_PANEL_HEIGHT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn panel_duration_ms(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(KeyboardCommand::VT_PANEL_DURATION_MS, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn replaced(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(KeyboardCommand::VT_REPLACED, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for KeyboardCommand<'_> {
@@ -7200,6 +7671,9 @@ impl flatbuffers::Verifiable for KeyboardCommand<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("key", Self::VT_KEY, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
      .visit_field::<u64>("activation_serial", Self::VT_ACTIVATION_SERIAL, false)?
+     .visit_field::<u32>("panel_height", Self::VT_PANEL_HEIGHT, false)?
+     .visit_field::<u32>("panel_duration_ms", Self::VT_PANEL_DURATION_MS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("replaced", Self::VT_REPLACED, false)?
      .finish();
     Ok(())
   }
@@ -7210,6 +7684,9 @@ pub struct KeyboardCommandArgs<'a> {
     pub key: Option<flatbuffers::WIPOffset<&'a str>>,
     pub flags: u32,
     pub activation_serial: u64,
+    pub panel_height: u32,
+    pub panel_duration_ms: u32,
+    pub replaced: Option<flatbuffers::WIPOffset<&'a str>>,
 }
 impl<'a> Default for KeyboardCommandArgs<'a> {
   #[inline]
@@ -7220,6 +7697,9 @@ impl<'a> Default for KeyboardCommandArgs<'a> {
       key: None,
       flags: 0,
       activation_serial: 0,
+      panel_height: 0,
+      panel_duration_ms: 0,
+      replaced: None,
     }
   }
 }
@@ -7250,6 +7730,18 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> KeyboardCommandBuilder<'a, 'b, 
     self.fbb_.push_slot::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, activation_serial, 0);
   }
   #[inline]
+  pub fn add_panel_height(&mut self, panel_height: u32) {
+    self.fbb_.push_slot::<u32>(KeyboardCommand::VT_PANEL_HEIGHT, panel_height, 0);
+  }
+  #[inline]
+  pub fn add_panel_duration_ms(&mut self, panel_duration_ms: u32) {
+    self.fbb_.push_slot::<u32>(KeyboardCommand::VT_PANEL_DURATION_MS, panel_duration_ms, 0);
+  }
+  #[inline]
+  pub fn add_replaced(&mut self, replaced: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardCommand::VT_REPLACED, replaced);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> KeyboardCommandBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     KeyboardCommandBuilder {
@@ -7272,6 +7764,339 @@ impl core::fmt::Debug for KeyboardCommand<'_> {
       ds.field("key", &self.key());
       ds.field("flags", &self.flags());
       ds.field("activation_serial", &self.activation_serial());
+      ds.field("panel_height", &self.panel_height());
+      ds.field("panel_duration_ms", &self.panel_duration_ms());
+      ds.field("replaced", &self.replaced());
+      ds.finish()
+  }
+}
+pub enum TextPredictionRequestOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TextPredictionRequest<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TextPredictionRequest<'a> {
+  type Inner = TextPredictionRequest<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TextPredictionRequest<'a> {
+  pub const VT_SERIAL: flatbuffers::VOffsetT = 4;
+  pub const VT_WORD: flatbuffers::VOffsetT = 6;
+  pub const VT_TOUCH_X: flatbuffers::VOffsetT = 8;
+  pub const VT_TOUCH_Y: flatbuffers::VOffsetT = 10;
+  pub const VT_MANUAL_CAPITAL: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TextPredictionRequest { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TextPredictionRequestArgs<'args>
+  ) -> flatbuffers::WIPOffset<TextPredictionRequest<'bldr>> {
+    let mut builder = TextPredictionRequestBuilder::new(_fbb);
+    builder.add_serial(args.serial);
+    if let Some(x) = args.touch_y { builder.add_touch_y(x); }
+    if let Some(x) = args.touch_x { builder.add_touch_x(x); }
+    if let Some(x) = args.word { builder.add_word(x); }
+    builder.add_manual_capital(args.manual_capital);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(TextPredictionRequest::VT_SERIAL, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn word(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(TextPredictionRequest::VT_WORD, None)}
+  }
+  #[inline]
+  pub fn touch_x(&self) -> Option<flatbuffers::Vector<'a, f32>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, f32>>>(TextPredictionRequest::VT_TOUCH_X, None)}
+  }
+  #[inline]
+  pub fn touch_y(&self) -> Option<flatbuffers::Vector<'a, f32>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, f32>>>(TextPredictionRequest::VT_TOUCH_Y, None)}
+  }
+  #[inline]
+  pub fn manual_capital(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextPredictionRequest::VT_MANUAL_CAPITAL, Some(false)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for TextPredictionRequest<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("serial", Self::VT_SERIAL, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("word", Self::VT_WORD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, f32>>>("touch_x", Self::VT_TOUCH_X, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, f32>>>("touch_y", Self::VT_TOUCH_Y, false)?
+     .visit_field::<bool>("manual_capital", Self::VT_MANUAL_CAPITAL, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TextPredictionRequestArgs<'a> {
+    pub serial: u64,
+    pub word: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub touch_x: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, f32>>>,
+    pub touch_y: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, f32>>>,
+    pub manual_capital: bool,
+}
+impl<'a> Default for TextPredictionRequestArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    TextPredictionRequestArgs {
+      serial: 0,
+      word: None,
+      touch_x: None,
+      touch_y: None,
+      manual_capital: false,
+    }
+  }
+}
+
+pub struct TextPredictionRequestBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextPredictionRequestBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_serial(&mut self, serial: u64) {
+    self.fbb_.push_slot::<u64>(TextPredictionRequest::VT_SERIAL, serial, 0);
+  }
+  #[inline]
+  pub fn add_word(&mut self, word: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPredictionRequest::VT_WORD, word);
+  }
+  #[inline]
+  pub fn add_touch_x(&mut self, touch_x: flatbuffers::WIPOffset<flatbuffers::Vector<'b , f32>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPredictionRequest::VT_TOUCH_X, touch_x);
+  }
+  #[inline]
+  pub fn add_touch_y(&mut self, touch_y: flatbuffers::WIPOffset<flatbuffers::Vector<'b , f32>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPredictionRequest::VT_TOUCH_Y, touch_y);
+  }
+  #[inline]
+  pub fn add_manual_capital(&mut self, manual_capital: bool) {
+    self.fbb_.push_slot::<bool>(TextPredictionRequest::VT_MANUAL_CAPITAL, manual_capital, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextPredictionRequestBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TextPredictionRequestBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TextPredictionRequest<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TextPredictionRequest<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TextPredictionRequest");
+      ds.field("serial", &self.serial());
+      ds.field("word", &self.word());
+      ds.field("touch_x", &self.touch_x());
+      ds.field("touch_y", &self.touch_y());
+      ds.field("manual_capital", &self.manual_capital());
+      ds.finish()
+  }
+}
+pub enum TextPredictionOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TextPrediction<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TextPrediction<'a> {
+  type Inner = TextPrediction<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TextPrediction<'a> {
+  pub const VT_SERIAL: flatbuffers::VOffsetT = 4;
+  pub const VT_WORD: flatbuffers::VOffsetT = 6;
+  pub const VT_CORRECTION: flatbuffers::VOffsetT = 8;
+  pub const VT_SUGGESTIONS: flatbuffers::VOffsetT = 10;
+  pub const VT_LANGUAGES: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TextPrediction { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TextPredictionArgs<'args>
+  ) -> flatbuffers::WIPOffset<TextPrediction<'bldr>> {
+    let mut builder = TextPredictionBuilder::new(_fbb);
+    builder.add_serial(args.serial);
+    if let Some(x) = args.languages { builder.add_languages(x); }
+    if let Some(x) = args.suggestions { builder.add_suggestions(x); }
+    if let Some(x) = args.correction { builder.add_correction(x); }
+    if let Some(x) = args.word { builder.add_word(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(TextPrediction::VT_SERIAL, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn word(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(TextPrediction::VT_WORD, None)}
+  }
+  #[inline]
+  pub fn correction(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(TextPrediction::VT_CORRECTION, None)}
+  }
+  #[inline]
+  pub fn suggestions(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(TextPrediction::VT_SUGGESTIONS, None)}
+  }
+  #[inline]
+  pub fn languages(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(TextPrediction::VT_LANGUAGES, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for TextPrediction<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("serial", Self::VT_SERIAL, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("word", Self::VT_WORD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("correction", Self::VT_CORRECTION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("suggestions", Self::VT_SUGGESTIONS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("languages", Self::VT_LANGUAGES, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TextPredictionArgs<'a> {
+    pub serial: u64,
+    pub word: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub correction: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub suggestions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub languages: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+}
+impl<'a> Default for TextPredictionArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    TextPredictionArgs {
+      serial: 0,
+      word: None,
+      correction: None,
+      suggestions: None,
+      languages: None,
+    }
+  }
+}
+
+pub struct TextPredictionBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextPredictionBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_serial(&mut self, serial: u64) {
+    self.fbb_.push_slot::<u64>(TextPrediction::VT_SERIAL, serial, 0);
+  }
+  #[inline]
+  pub fn add_word(&mut self, word: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPrediction::VT_WORD, word);
+  }
+  #[inline]
+  pub fn add_correction(&mut self, correction: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPrediction::VT_CORRECTION, correction);
+  }
+  #[inline]
+  pub fn add_suggestions(&mut self, suggestions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPrediction::VT_SUGGESTIONS, suggestions);
+  }
+  #[inline]
+  pub fn add_languages(&mut self, languages: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(TextPrediction::VT_LANGUAGES, languages);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextPredictionBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TextPredictionBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TextPrediction<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TextPrediction<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TextPrediction");
+      ds.field("serial", &self.serial());
+      ds.field("word", &self.word());
+      ds.field("correction", &self.correction());
+      ds.field("suggestions", &self.suggestions());
+      ds.field("languages", &self.languages());
       ds.finish()
   }
 }
@@ -8981,6 +9806,7 @@ impl<'a> flatbuffers::Follow<'a> for MouseConfiguration<'a> {
 
 impl<'a> MouseConfiguration<'a> {
   pub const VT_SPEED: flatbuffers::VOffsetT = 4;
+  pub const VT_ACCELERATION_ENABLED: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -8993,6 +9819,7 @@ impl<'a> MouseConfiguration<'a> {
   ) -> flatbuffers::WIPOffset<MouseConfiguration<'bldr>> {
     let mut builder = MouseConfigurationBuilder::new(_fbb);
     builder.add_speed(args.speed);
+    builder.add_acceleration_enabled(args.acceleration_enabled);
     builder.finish()
   }
 
@@ -9004,6 +9831,13 @@ impl<'a> MouseConfiguration<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f64>(MouseConfiguration::VT_SPEED, Some(0.0)).unwrap()}
   }
+  #[inline]
+  pub fn acceleration_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, Some(true)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for MouseConfiguration<'_> {
@@ -9014,18 +9848,21 @@ impl flatbuffers::Verifiable for MouseConfiguration<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<f64>("speed", Self::VT_SPEED, false)?
+     .visit_field::<bool>("acceleration_enabled", Self::VT_ACCELERATION_ENABLED, false)?
      .finish();
     Ok(())
   }
 }
 pub struct MouseConfigurationArgs {
     pub speed: f64,
+    pub acceleration_enabled: bool,
 }
 impl<'a> Default for MouseConfigurationArgs {
   #[inline]
   fn default() -> Self {
     MouseConfigurationArgs {
       speed: 0.0,
+      acceleration_enabled: true,
     }
   }
 }
@@ -9038,6 +9875,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> MouseConfigurationBuilder<'a, '
   #[inline]
   pub fn add_speed(&mut self, speed: f64) {
     self.fbb_.push_slot::<f64>(MouseConfiguration::VT_SPEED, speed, 0.0);
+  }
+  #[inline]
+  pub fn add_acceleration_enabled(&mut self, acceleration_enabled: bool) {
+    self.fbb_.push_slot::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, acceleration_enabled, true);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> MouseConfigurationBuilder<'a, 'b, A> {
@@ -9058,6 +9899,7 @@ impl core::fmt::Debug for MouseConfiguration<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("MouseConfiguration");
       ds.field("speed", &self.speed());
+      ds.field("acceleration_enabled", &self.acceleration_enabled());
       ds.finish()
   }
 }
@@ -9823,6 +10665,120 @@ impl core::fmt::Debug for DesktopNotificationImageData<'_> {
       ds.finish()
   }
 }
+pub enum DesktopNotificationMessageOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct DesktopNotificationMessage<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for DesktopNotificationMessage<'a> {
+  type Inner = DesktopNotificationMessage<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> DesktopNotificationMessage<'a> {
+  pub const VT_SENDER: flatbuffers::VOffsetT = 4;
+  pub const VT_TEXT: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    DesktopNotificationMessage { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args DesktopNotificationMessageArgs<'args>
+  ) -> flatbuffers::WIPOffset<DesktopNotificationMessage<'bldr>> {
+    let mut builder = DesktopNotificationMessageBuilder::new(_fbb);
+    if let Some(x) = args.text { builder.add_text(x); }
+    if let Some(x) = args.sender { builder.add_sender(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn sender(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(DesktopNotificationMessage::VT_SENDER, None)}
+  }
+  #[inline]
+  pub fn text(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(DesktopNotificationMessage::VT_TEXT, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for DesktopNotificationMessage<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("sender", Self::VT_SENDER, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("text", Self::VT_TEXT, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct DesktopNotificationMessageArgs<'a> {
+    pub sender: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub text: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for DesktopNotificationMessageArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    DesktopNotificationMessageArgs {
+      sender: None,
+      text: None,
+    }
+  }
+}
+
+pub struct DesktopNotificationMessageBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DesktopNotificationMessageBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_sender(&mut self, sender: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DesktopNotificationMessage::VT_SENDER, sender);
+  }
+  #[inline]
+  pub fn add_text(&mut self, text: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DesktopNotificationMessage::VT_TEXT, text);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DesktopNotificationMessageBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    DesktopNotificationMessageBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<DesktopNotificationMessage<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for DesktopNotificationMessage<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("DesktopNotificationMessage");
+      ds.field("sender", &self.sender());
+      ds.field("text", &self.text());
+      ds.finish()
+  }
+}
 pub enum DesktopNotificationOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9863,6 +10819,12 @@ impl<'a> DesktopNotification<'a> {
   pub const VT_PROGRESS: flatbuffers::VOffsetT = 46;
   pub const VT_HAS_PROGRESS: flatbuffers::VOffsetT = 48;
   pub const VT_EXPIRE_TIMEOUT_MS: flatbuffers::VOffsetT = 50;
+  pub const VT_ALERT: flatbuffers::VOffsetT = 52;
+  pub const VT_GROUP_KEY: flatbuffers::VOffsetT = 54;
+  pub const VT_GROUP_SUMMARY: flatbuffers::VOffsetT = 56;
+  pub const VT_TIME_MS: flatbuffers::VOffsetT = 58;
+  pub const VT_MESSAGES: flatbuffers::VOffsetT = 60;
+  pub const VT_CLEARABLE: flatbuffers::VOffsetT = 62;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -9874,6 +10836,9 @@ impl<'a> DesktopNotification<'a> {
     args: &'args DesktopNotificationArgs<'args>
   ) -> flatbuffers::WIPOffset<DesktopNotification<'bldr>> {
     let mut builder = DesktopNotificationBuilder::new(_fbb);
+    builder.add_time_ms(args.time_ms);
+    if let Some(x) = args.messages { builder.add_messages(x); }
+    if let Some(x) = args.group_key { builder.add_group_key(x); }
     builder.add_expire_timeout_ms(args.expire_timeout_ms);
     builder.add_progress(args.progress);
     builder.add_y(args.y);
@@ -9891,6 +10856,9 @@ impl<'a> DesktopNotification<'a> {
     if let Some(x) = args.app_name { builder.add_app_name(x); }
     if let Some(x) = args.sender { builder.add_sender(x); }
     builder.add_id(args.id);
+    builder.add_clearable(args.clearable);
+    builder.add_group_summary(args.group_summary);
+    builder.add_alert(args.alert);
     builder.add_has_progress(args.has_progress);
     builder.add_has_position(args.has_position);
     builder.add_action_icons(args.action_icons);
@@ -10070,6 +11038,48 @@ impl<'a> DesktopNotification<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<i32>(DesktopNotification::VT_EXPIRE_TIMEOUT_MS, Some(-1)).unwrap()}
   }
+  #[inline]
+  pub fn alert(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(DesktopNotification::VT_ALERT, Some(true)).unwrap()}
+  }
+  #[inline]
+  pub fn group_key(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(DesktopNotification::VT_GROUP_KEY, None)}
+  }
+  #[inline]
+  pub fn group_summary(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(DesktopNotification::VT_GROUP_SUMMARY, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn time_ms(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(DesktopNotification::VT_TIME_MS, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn messages(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DesktopNotificationMessage<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DesktopNotificationMessage>>>>(DesktopNotification::VT_MESSAGES, None)}
+  }
+  #[inline]
+  pub fn clearable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(DesktopNotification::VT_CLEARABLE, Some(true)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for DesktopNotification<'_> {
@@ -10103,6 +11113,12 @@ impl flatbuffers::Verifiable for DesktopNotification<'_> {
      .visit_field::<i32>("progress", Self::VT_PROGRESS, false)?
      .visit_field::<bool>("has_progress", Self::VT_HAS_PROGRESS, false)?
      .visit_field::<i32>("expire_timeout_ms", Self::VT_EXPIRE_TIMEOUT_MS, false)?
+     .visit_field::<bool>("alert", Self::VT_ALERT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("group_key", Self::VT_GROUP_KEY, false)?
+     .visit_field::<bool>("group_summary", Self::VT_GROUP_SUMMARY, false)?
+     .visit_field::<i64>("time_ms", Self::VT_TIME_MS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<DesktopNotificationMessage>>>>("messages", Self::VT_MESSAGES, false)?
+     .visit_field::<bool>("clearable", Self::VT_CLEARABLE, false)?
      .finish();
     Ok(())
   }
@@ -10132,6 +11148,12 @@ pub struct DesktopNotificationArgs<'a> {
     pub progress: i32,
     pub has_progress: bool,
     pub expire_timeout_ms: i32,
+    pub alert: bool,
+    pub group_key: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub group_summary: bool,
+    pub time_ms: i64,
+    pub messages: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DesktopNotificationMessage<'a>>>>>,
+    pub clearable: bool,
 }
 impl<'a> Default for DesktopNotificationArgs<'a> {
   #[inline]
@@ -10161,6 +11183,12 @@ impl<'a> Default for DesktopNotificationArgs<'a> {
       progress: 0,
       has_progress: false,
       expire_timeout_ms: -1,
+      alert: true,
+      group_key: None,
+      group_summary: false,
+      time_ms: 0,
+      messages: None,
+      clearable: true,
     }
   }
 }
@@ -10267,6 +11295,30 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DesktopNotificationBuilder<'a, 
     self.fbb_.push_slot::<i32>(DesktopNotification::VT_EXPIRE_TIMEOUT_MS, expire_timeout_ms, -1);
   }
   #[inline]
+  pub fn add_alert(&mut self, alert: bool) {
+    self.fbb_.push_slot::<bool>(DesktopNotification::VT_ALERT, alert, true);
+  }
+  #[inline]
+  pub fn add_group_key(&mut self, group_key: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DesktopNotification::VT_GROUP_KEY, group_key);
+  }
+  #[inline]
+  pub fn add_group_summary(&mut self, group_summary: bool) {
+    self.fbb_.push_slot::<bool>(DesktopNotification::VT_GROUP_SUMMARY, group_summary, false);
+  }
+  #[inline]
+  pub fn add_time_ms(&mut self, time_ms: i64) {
+    self.fbb_.push_slot::<i64>(DesktopNotification::VT_TIME_MS, time_ms, 0);
+  }
+  #[inline]
+  pub fn add_messages(&mut self, messages: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<DesktopNotificationMessage<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DesktopNotification::VT_MESSAGES, messages);
+  }
+  #[inline]
+  pub fn add_clearable(&mut self, clearable: bool) {
+    self.fbb_.push_slot::<bool>(DesktopNotification::VT_CLEARABLE, clearable, true);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DesktopNotificationBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     DesktopNotificationBuilder {
@@ -10308,6 +11360,12 @@ impl core::fmt::Debug for DesktopNotification<'_> {
       ds.field("progress", &self.progress());
       ds.field("has_progress", &self.has_progress());
       ds.field("expire_timeout_ms", &self.expire_timeout_ms());
+      ds.field("alert", &self.alert());
+      ds.field("group_key", &self.group_key());
+      ds.field("group_summary", &self.group_summary());
+      ds.field("time_ms", &self.time_ms());
+      ds.field("messages", &self.messages());
+      ds.field("clearable", &self.clearable());
       ds.finish()
   }
 }
@@ -11981,6 +13039,36 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_text_prediction_request(&self) -> Option<TextPredictionRequest<'a>> {
+    if self.payload_type() == Payload::TextPredictionRequest {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { TextPredictionRequest::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_text_prediction(&self) -> Option<TextPrediction<'a>> {
+    if self.payload_type() == Payload::TextPrediction {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { TextPrediction::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -12017,6 +13105,8 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::PluginActionCatalog => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PluginActionCatalog>>("Payload::PluginActionCatalog", pos),
           Payload::PluginActionInvocation => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PluginActionInvocation>>("Payload::PluginActionInvocation", pos),
           Payload::PetRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PetRequest>>("Payload::PetRequest", pos),
+          Payload::TextPredictionRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextPredictionRequest>>("Payload::TextPredictionRequest", pos),
+          Payload::TextPrediction => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextPrediction>>("Payload::TextPrediction", pos),
           _ => Ok(()),
         }
      })?
@@ -12241,6 +13331,20 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::PetRequest => {
           if let Some(x) = self.payload_as_pet_request() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::TextPredictionRequest => {
+          if let Some(x) = self.payload_as_text_prediction_request() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::TextPrediction => {
+          if let Some(x) = self.payload_as_text_prediction() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

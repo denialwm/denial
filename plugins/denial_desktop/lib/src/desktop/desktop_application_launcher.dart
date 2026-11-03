@@ -56,9 +56,9 @@ class _DesktopApplicationLauncherHostState
     _slots = slots;
     _registry = registry;
     _locale = locale;
-    final desktopApps =
-        slots?.map((slot) => slot?.app).whereType<DesktopApp>() ??
-        const <DesktopApp>[];
+    final desktopApps = HomeGridLayout.appsIn(slots ?? const <HomeGridItem?>[])
+        .map((item) => item.app)
+        .whereType<DesktopApp>();
     _desktopApps = {
       for (final app in desktopApps) desktopApplicationRecentId(app.id): app,
     };

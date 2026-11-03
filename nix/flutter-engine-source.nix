@@ -33,6 +33,38 @@ let
     };
   });
 
+  # The builder's Nix daemon exposes this directory to the sandbox
+  # (packaging/arch/runner/install-host), so an engine commit recompiles only
+  # what it changed. Without it the wrapper compiles directly; the output is
+  # the same either way.
+  ccacheDir = "/var/cache/denial-nix-ccache";
+  # GN calls this before every clang compile. Ninja runs below the output
+  # path, which changes with every engine commit; debug info records "."
+  # instead, so objects do not depend on it and the linked build-ids match
+  # with or without the cache.
+  engineCcache = pkgs.writeShellScriptBin "ccache" ''
+    if [[ -w ${ccacheDir} ]]; then
+      exec ${lib.getExe pkgs.ccache} "$@" -ffile-compilation-dir=.
+    fi
+    exec "$@" -ffile-compilation-dir=.
+  '';
+  engineCcacheSetup = ''
+    export CCACHE_DIR=${ccacheDir} CCACHE_UMASK=007
+    export CCACHE_NOHASHDIR=1
+    export CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime
+    # The compiler is the wrapped clang plus the flags Nix passes through
+    # the environment, less -frandom-seed: it carries the output path, and
+    # clang ignores it.
+    export CCACHE_COMPILERCHECK="string:$(
+      {
+        readlink -f src/buildtools/*/clang/bin/clang++
+        env | grep -E '^NIX_(CFLAGS_COMPILE|CXXSTDLIB_COMPILE|HARDENING_ENABLE|CC)' \
+          | sed -E 's/ ?-frandom-seed=[^ ]*//g' | sort
+      } | sha256sum | cut -d ' ' -f 1
+    )"
+    export CCACHE_STATSLOG=$TMPDIR/ccache-stats
+  '';
+
   engineTools = pkgs.callPackage (flutterNix + "/engine/tools.nix") {
     inherit (stdenv) hostPlatform buildPlatform;
     depot_toolsCommit = sourceLock.depot_tools.revision;
@@ -67,7 +99,15 @@ let
         preInstall = (oldAttrs.preInstall or "") + ''
           cp $out/out/host_release/args.gn $out/denial-args.gn
         '';
+        nativeBuildInputs = (oldAttrs.nativeBuildInputs or [ ]) ++ [ engineCcache ];
+        preBuild = (oldAttrs.preBuild or "") + engineCcacheSetup;
+        postBuild = ''
+          if [[ -s $CCACHE_STATSLOG ]]; then
+            ${lib.getExe pkgs.ccache} --show-log-stats
+          fi
+        '' + (oldAttrs.postBuild or "");
         configureFlags = (oldAttrs.configureFlags or [ ]) ++ [
+          "--ccache"
           "--slimpeller"
           "--gn-args=shell_enable_vulkan=false"
           "--gn-args=test_enable_vulkan=false"

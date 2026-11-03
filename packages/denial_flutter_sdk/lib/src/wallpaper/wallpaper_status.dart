@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 class WallpaperStatus {
   const WallpaperStatus.unavailable() : available = false, surfaces = const [];
   const WallpaperStatus({required this.available, required this.surfaces});
@@ -23,6 +25,19 @@ class WallpaperStatus {
       surfaces: List.unmodifiable(surfaces),
     );
   }
+
+  static const _surfacesEquality =
+      ListEquality<({int monitorId, String appId})>();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WallpaperStatus &&
+          available == other.available &&
+          _surfacesEquality.equals(surfaces, other.surfaces);
+
+  @override
+  int get hashCode => Object.hash(available, _surfacesEquality.hash(surfaces));
 
   final bool available;
   final List<({int monitorId, String appId})> surfaces;

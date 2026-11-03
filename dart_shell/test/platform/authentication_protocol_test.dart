@@ -137,6 +137,47 @@ void main() {
     expect(result.success, isTrue);
     expect(result.cancelled, isFalse);
   });
+
+  test('decodes PIN prompts and credential packets', () {
+    final prompt = AuthenticationProtocol.decode(
+      ByteData.sublistView(
+        _eventPacket(
+          AuthenticationPacketKind.prompt,
+          flags: 1 | 2 | 4 | (5 << 4),
+          attemptId: 4,
+          argument: 2,
+          payload: 'PIN',
+        ),
+      ),
+    )!;
+    expect(prompt.promptStyle, AuthenticationPromptStyle.pin);
+    expect(prompt.promptStyle!.requiresResponse, isTrue);
+
+    final credential = AuthenticationProtocol.decode(
+      ByteData.sublistView(
+        _eventPacket(
+          AuthenticationPacketKind.credential,
+          flags: 1 | 2,
+          argument: 6,
+        ),
+      ),
+    )!;
+    expect(credential.kind, AuthenticationPacketKind.credential);
+    expect(credential.argument, 6);
+    expect(
+      AuthenticationProtocol.encodeCommand(AuthenticationPacketKind.credential),
+      isNull,
+    );
+
+    final begin = AuthenticationProtocol.encodeCommand(
+      AuthenticationPacketKind.begin,
+      argument: AuthenticationProtocol.beginPassword,
+    )!;
+    expect(
+      ByteData.sublistView(begin).getUint32(16, Endian.little),
+      AuthenticationProtocol.beginPassword,
+    );
+  });
 }
 
 Uint8List _eventPacket(

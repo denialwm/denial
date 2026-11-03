@@ -295,6 +295,8 @@ install -Dm644 "$ROOT/packages/denial_flutter_sdk/assets/fonts/README.md" \
   "$denial_root/usr/share/doc/denial/FONTS.md"
 install -Dm644 "$ROOT/packages/denial_flutter_sdk/assets/fonts/JetBrainsMono.sha256" \
   "$denial_root/usr/share/doc/denial/JETBRAINS_MONO.sha256"
+install -Dm644 "$ROOT/packages/denial_flutter_sdk/assets/fonts/roboto_flex/RobotoFlex.sha256" \
+  "$denial_root/usr/share/doc/denial/ROBOTO_FLEX.sha256"
 install -Dm644 "$ROOT/third_party/bibata/Bibata_Cursor-v2.0.7-source.tar.gz" \
   "$denial_root/usr/share/doc/denial/sources/Bibata_Cursor-v2.0.7-source.tar.gz"
 install -Dm644 "$ROOT/LICENSES/CC-BY-SA-4.0.txt" \
@@ -303,6 +305,8 @@ install -Dm644 "$ROOT/LICENSES/GPL-3.0-only.txt" \
   "$denial_root/usr/share/licenses/denial/GPL-3.0-only.txt"
 install -Dm644 "$ROOT/packages/denial_flutter_sdk/assets/fonts/OFL.txt" \
   "$denial_root/usr/share/licenses/denial/OFL-1.1.txt"
+install -Dm644 "$ROOT/packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt" \
+  "$denial_root/usr/share/licenses/denial/OFL-1.1-RobotoFlex.txt"
 install -Dm644 "$ROOT/LICENSE" \
   "$denial_root/usr/share/licenses/denial/LICENSE"
 

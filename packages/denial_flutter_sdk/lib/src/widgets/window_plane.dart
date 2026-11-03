@@ -32,6 +32,20 @@ class WindowPlaneTexture {
       !source.isEmpty &&
       destination.isFinite &&
       !destination.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowPlaneTexture &&
+      other.id == id &&
+      other.bufferSize == bufferSize &&
+      other.source == source &&
+      other.destination == destination &&
+      other.transform == transform &&
+      other.opacity == opacity;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, bufferSize, source, destination, transform, opacity);
 }
 
 /// Denial's window rendering primitive.
@@ -101,9 +115,22 @@ class RenderWindowPlane extends RenderShiftedBox {
 
   WindowPlane _configuration;
   set configuration(WindowPlane value) {
-    final layoutChanged = value.frameWidth != _configuration.frameWidth;
+    final previous = _configuration;
     _configuration = value;
-    layoutChanged ? markNeedsLayout() : markNeedsPaint();
+    if (value.frameWidth != previous.frameWidth) {
+      markNeedsLayout();
+    } else if (value.texture != previous.texture ||
+        value.radius != previous.radius ||
+        value.frameColor != previous.frameColor ||
+        value.backdrop != previous.backdrop ||
+        value.materialRegion != previous.materialRegion ||
+        value.filterQuality != previous.filterQuality ||
+        value.presentationScale != previous.presentationScale ||
+        value.pixelGridOrigin != previous.pixelGridOrigin) {
+      // A rebuild with the same window, as when its card's list rebuilds,
+      // keeps the painted plane.
+      markNeedsPaint();
+    }
   }
 
   final LayerHandle<_WindowPlaneLayer> _windowLayer = LayerHandle();

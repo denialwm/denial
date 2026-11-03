@@ -1,12 +1,13 @@
 //! Flutter-session adapters for fences, screenshots, reload, and shutdown.
 
 use super::kms_render::{physical_rect, smithay_output_transform};
-use super::kms_session::service_session_lifecycle;
 use super::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FlutterReloadOutcome {
     Replaced,
+    /// The refreshed bundle failed; the shell was started again instead.
+    RolledBack,
     Retained,
 }
 
@@ -111,7 +112,6 @@ pub(super) fn begin_output_confirmation(
 }
 
 #[cfg(feature = "flutter")]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn cancel_active_screenshot(
     manager: &mut Option<screenshot::ScreenshotManager>,
     runtime: &mut flutter_runtime::FlutterRuntime,
@@ -164,7 +164,7 @@ pub(super) fn screenshot_composite_sources(
                 .for_output(output.id)
                 .and_then(|pool| pool.buffers.get(index))
                 .ok_or("screenshot output buffer exceeds its native pool")?
-                .dmabuf
+                .scene_dmabuf()
                 .clone();
             Ok(wayland_frontend::OutputCompositeSource {
                 dmabuf,
@@ -173,196 +173,4 @@ pub(super) fn screenshot_composite_sources(
             })
         })
         .collect()
-}
-
-#[cfg(feature = "flutter")]
-#[allow(clippy::too_many_arguments)]
-pub(super) fn reload_flutter_runtime(
-    renderer: &mut GlesRenderer,
-    swapchain: &RenderSwapchains,
-    scanouts: &[Scanout],
-    topology: &TopologyManager,
-    events: &mut RuntimeState,
-    flutter: &mut Option<flutter_runtime::FlutterRuntime>,
-    flutter_launcher: &mut FlutterLauncher,
-) -> Result<FlutterReloadOutcome, Box<dyn Error>> {
-    let snapshot = topology.snapshot();
-    let atlas = AtlasPlan::for_snapshot(&snapshot)
-        .ok_or("current topology produced no atlas during Flutter bundle refresh")?;
-    let output_swapchains = swapchain
-        .outputs()
-        .ok_or("Flutter bundle refresh has no physical output pools")?;
-    // Validate every replacement context and FBO while the active runtime and
-    // its imports remain alive. Some EGL drivers cannot reliably tear down an
-    // engine and then immediately reimport the same DMA-BUF pool; a failed
-    // preflight is still reversible because Flutter has not been taken yet.
-    let prepared = match flutter_launcher.prepare_output_targets(
-        renderer,
-        output_swapchains,
-        atlas.pixel_size,
-    ) {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            let runtime = flutter
-                .as_mut()
-                .ok_or("Flutter runtime disappeared after bundle refresh preflight")?;
-            flutter_launcher.retain_runtime_after_switch_failure(runtime, error.as_ref());
-            warn!(
-                %error,
-                "Flutter bundle refresh renderer preflight failed; retaining the active runtime"
-            );
-            return Ok(FlutterReloadOutcome::Retained);
-        }
-    };
-    let Some(mut old_runtime) = flutter.take() else {
-        return Err("Flutter runtime disappeared during bundle refresh".into());
-    };
-    let prepare_restart = (|| -> Result<(), Box<dyn Error>> {
-        old_runtime.process_events(events.flutter_events.drain(..))?;
-        let _ = flutter_launcher.synchronize_ui_development(&mut old_runtime)?;
-        synchronize_authentication_boundary(events);
-        synchronize_clipboard(&mut old_runtime, events)?;
-        synchronize_system_control_events(&mut old_runtime, events)?;
-        synchronize_shell_keyboard(&mut old_runtime, events)?;
-        synchronize_settings(&mut old_runtime, events)?;
-        synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
-        synchronize_flutter_window_management(&mut old_runtime, events)?;
-        synchronize_flutter_input_layout(&mut old_runtime, events)?;
-        Ok(())
-    })();
-    if let Err(error) = prepare_restart {
-        *flutter = Some(old_runtime);
-        let runtime = flutter
-            .as_mut()
-            .expect("restored Flutter runtime after pre-refresh drain failure");
-        flutter_launcher.retain_runtime_after_switch_failure(runtime, error.as_ref());
-        warn!(
-            %error,
-            "Flutter pre-refresh drain failed; retaining the active runtime"
-        );
-        return Ok(FlutterReloadOutcome::Retained);
-    }
-    events.plugin_actions = Default::default();
-    events
-        .native_escape_shortcut
-        .set_plugin_actions(&events.plugin_actions);
-    old_runtime
-        .shutdown()
-        .map_err(|error| format!("Flutter shutdown before refresh failed: {error}"))?;
-    events.flutter_events.clear();
-
-    let mut replacement = flutter_launcher.start_with_targets(
-        renderer,
-        output_swapchains,
-        scanouts,
-        &snapshot,
-        &atlas,
-        Some(prepared),
-    )?;
-    events.install_workspace_snapshot(&mut replacement)?;
-    *flutter = Some(replacement);
-    events.begin_replacement_flutter_generation(swapchain.desktop_size());
-    Ok(FlutterReloadOutcome::Replaced)
-}
-
-#[cfg(feature = "flutter")]
-#[allow(clippy::too_many_arguments)]
-pub(super) fn quiesce_flutter_page_flips(
-    runtime: &mut flutter_runtime::FlutterRuntime,
-    scheduler: &mut output_scheduler::OutputScheduler,
-    drm: &mut DrmDevice,
-    swapchain: &mut RenderSwapchains,
-    scanouts: &[Scanout],
-    event_loop: &mut EventLoop<'_, RuntimeState>,
-    events: &mut RuntimeState,
-    release_drm_master: bool,
-) {
-    const PAGE_FLIP_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
-    const MAX_DISPATCH_SLICE: Duration = Duration::from_millis(20);
-
-    let deadline = Instant::now() + PAGE_FLIP_DRAIN_TIMEOUT;
-    while scheduler.has_submitted() && drm.is_active() {
-        let now = Instant::now();
-        if now >= deadline {
-            warn!(
-                timeout_ms = PAGE_FLIP_DRAIN_TIMEOUT.as_millis(),
-                "KMS page flips did not quiesce during shutdown; releasing DRM master without atomic restore"
-            );
-            drm.pause();
-            break;
-        }
-
-        if let Err(error) = event_loop.dispatch(
-            MAX_DISPATCH_SLICE.min(deadline.saturating_duration_since(now)),
-            events,
-        ) {
-            warn!(
-                %error,
-                "event dispatch failed while draining shutdown page flips; releasing DRM master"
-            );
-            drm.pause();
-            return;
-        }
-        if let Err(error) =
-            service_session_lifecycle(drm, scanouts, swapchain, event_loop, events, Some(deadline))
-        {
-            warn!(
-                %error,
-                "session transition failed while draining shutdown page flips; releasing DRM master"
-            );
-            drm.pause();
-            return;
-        }
-        if let Err(error) = install_sampled_buffer_releases(event_loop, events) {
-            warn!(%error, "could not install sampled-buffer release fence during shutdown");
-            drm.pause();
-            return;
-        }
-        if !drm.is_active() {
-            break;
-        }
-        if events.scanout_rebased {
-            // Resume establishes a synchronous scanout state and invalidates
-            // every pre-pause scheduler ownership record. Teardown does not
-            // need to rebuild the runtime: release master and let the next
-            // compositor establish its own modeset.
-            warn!("KMS session was rebased during shutdown; skipping atomic restore");
-            drm.pause();
-            break;
-        }
-        if let Some(error) = events.error.take() {
-            warn!(
-                error,
-                "DRM event failed while draining shutdown page flips; skipping atomic restore"
-            );
-            drm.pause();
-            break;
-        }
-        let Some(output_swapchains) = swapchain.outputs_mut() else {
-            warn!("shutdown retirement lost its physical output pools");
-            drm.pause();
-            return;
-        };
-        if let Err(error) =
-            scheduler.retire_completions_for_shutdown(runtime, output_swapchains, scanouts, events)
-        {
-            warn!(
-                %error,
-                "page-flip retirement failed during shutdown; releasing DRM master"
-            );
-            drm.pause();
-            return;
-        }
-    }
-
-    if release_drm_master && drm.is_active() {
-        // Closing a full display-manager session is an ownership handoff,
-        // not a temporary KMS experiment. Release the device before Flutter
-        // destroys its contexts and buffers; the display manager will
-        // establish its own mode when logind activates it.
-        // KmsContext::restore_once observes the inactive device and deliberately
-        // skips every blocking atomic ioctl.
-        drm.pause();
-        info!("released DRM master for graphical-session handoff");
-    }
 }

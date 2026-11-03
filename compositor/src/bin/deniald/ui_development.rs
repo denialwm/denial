@@ -23,6 +23,10 @@ const MAX_WORKSPACE_BYTES: usize = 4096;
 const MAX_DIAGNOSTICS: usize = 64;
 const MAX_CONFIG_BYTES: usize = 64 * 1024;
 const CONFIG_SCHEMA_VERSION: u32 = 1;
+/// A compiled plugin that draws a frame and keeps running this long is kept.
+const PLUGIN_CONFIRM_DELAY: Duration = Duration::from_secs(3);
+/// A compiled plugin without a first frame by then is replaced.
+const PLUGIN_START_TIMEOUT: Duration = Duration::from_secs(20);
 static CONFIG_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -275,11 +279,26 @@ pub(super) struct UiDevelopmentState {
     #[serde(skip_serializing_if = "Option::is_none")]
     session_activity: Option<SessionActivity>,
     capabilities: Vec<&'static str>,
+    // Query-only JSON telemetry; not part of the Dart UI state packet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_client_composition: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_frame_delivery: Option<serde_json::Value>,
 }
 
 impl UiDevelopmentState {
     pub(super) fn error_message(&self) -> Option<&str> {
         (!self.error.is_empty()).then_some(&self.error)
+    }
+
+    pub(super) fn with_output_frame_delivery(mut self, trace: serde_json::Value) -> Self {
+        self.output_frame_delivery = Some(trace);
+        self
+    }
+
+    pub(super) fn with_native_client_composition(mut self, stats: serde_json::Value) -> Self {
+        self.native_client_composition = Some(stats);
+        self
     }
 
     pub(super) fn with_session_activity(mut self, activity: SessionActivity) -> Self {
@@ -561,6 +580,8 @@ impl UiDevelopmentController {
                 plugin_healthy: false,
                 plugin_rebuild,
                 session_activity: None,
+                native_client_composition: None,
+                output_frame_delivery: None,
                 capabilities: vec!["pluginActionsV1"],
             },
         }
@@ -730,12 +751,22 @@ impl UiDevelopmentController {
         self.release_bundle.is_some()
     }
 
+    /// When `poll_plugin_health` next has something to decide: the plugin
+    /// confirms after 3 s with a frame, and fails after 20 s without one.
+    pub(super) fn plugin_health_deadline(&self, now: Instant) -> Option<Instant> {
+        let started = self.plugin_start?;
+        [PLUGIN_CONFIRM_DELAY, PLUGIN_START_TIMEOUT]
+            .into_iter()
+            .map(|delay| started + delay)
+            .find(|deadline| *deadline > now)
+    }
+
     pub(super) fn poll_plugin_health(
         &mut self,
         produced_frame: bool,
     ) -> Option<UiDevelopmentEffect> {
         let started = self.plugin_start?;
-        if produced_frame && started.elapsed() >= Duration::from_secs(3) {
+        if produced_frame && started.elapsed() >= PLUGIN_CONFIRM_DELAY {
             match self.plugins.confirm() {
                 Ok(()) => {
                     self.plugin_start = None;
@@ -755,7 +786,7 @@ impl UiDevelopmentController {
                 }
             }
         }
-        if started.elapsed() >= Duration::from_secs(20) {
+        if started.elapsed() >= PLUGIN_START_TIMEOUT {
             self.runtime_failed(
                 UiRuntimeMode::CustomOptimized,
                 &"No initial frame arrived within 20 seconds",

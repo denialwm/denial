@@ -93,11 +93,11 @@ done
 
 (
   cd "$CANDIDATE_PACKAGES"
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
 ) || fail 'candidate package checksums failed'
 (
   cd "$CANDIDATE_STAGE"
-  sha256sum --check --strict NATIVE-SHA256SUMS
+  sha256sum --check --strict --quiet NATIVE-SHA256SUMS
 ) || fail 'candidate native-payload checksums failed'
 
 mapfile -t native_metadata < <(

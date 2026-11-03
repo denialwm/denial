@@ -18,10 +18,12 @@ Future<int?> readSysInt(String path) async {
   return value == null ? null : int.tryParse(value);
 }
 
+/// Reads a small runtime file synchronously: an async read hops to an IO
+/// worker and back for every step, which costs more than the read itself.
 Future<Map<String, String>> readKeyValueFile(String path) async {
   try {
     final fields = <String, String>{};
-    final content = await File(path).readAsString();
+    final content = File(path).readAsStringSync();
     for (final line in const LineSplitter().convert(content)) {
       final split = line.indexOf('=');
       if (split > 0) {

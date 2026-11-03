@@ -11,6 +11,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 
 import 'settings_controls.dart';
+import 'settings_lock_pin_section.dart';
 
 class SettingsLockScreenPage extends StatelessWidget {
   const SettingsLockScreenPage({
@@ -44,6 +45,7 @@ class SettingsLockScreenPage extends StatelessWidget {
       onReset: onReset,
       children: [
         _LockPreview(settings: settings, wallpaper: wallpaper),
+        const SettingsCardGroup(children: [SettingsLockPinSection()]),
         SettingsCardGroup(
           children: [
             SettingsSection(

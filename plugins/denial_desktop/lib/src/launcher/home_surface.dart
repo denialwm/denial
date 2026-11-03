@@ -1,98 +1,90 @@
-import 'package:denial_desktop/src/state/reference_shell_controller.dart';
-import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
-
 import 'dart:async';
-import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/localization.dart';
-import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 
-import 'widgets/home_app_page.dart';
+import '../state/reference_shell_controller.dart';
+import 'home_drag_controller.dart';
+import 'home_grid_geometry.dart';
+import 'home_icon_locator.dart';
+import 'home_interactions.dart';
+import 'home_launch.dart';
+import 'home_pager.dart';
+import 'home_resize_controller.dart';
 import 'widgets/home_backdrop.dart';
-import 'widgets/home_empty_state.dart';
-import 'widgets/home_tiles.dart';
-import 'widgets/page_dots.dart';
+import 'widgets/home_drag_layer.dart';
+import 'widgets/home_folder_panel.dart';
+import 'widgets/home_resize_frame.dart';
 
-part 'home_surface_view.dart';
-part 'home_pager.dart';
-part 'home_drag_overlay.dart';
-part 'home_surface_models.dart';
-
+/// The mobile home screen: paged apps, folders and widgets over the
+/// wallpaper.
 class HomeSurface extends ConsumerStatefulWidget {
   const HomeSurface({
     super.key,
     this.active = true,
     this.interactive = true,
     this.contentOpacity,
-    this.useShellLaunchTransition = false,
   });
 
-  /// Whether the built-in launcher is currently part of the visible shell
-  /// scene. Its laid-out subtree is retained offstage while inactive, avoiding
-  /// a cold grid/icon rebuild on the first frame of a swipe back to home.
+  /// Whether home is part of the visible shell scene. Its laid-out subtree
+  /// is retained offstage while inactive, avoiding a cold grid and icon
+  /// rebuild on the first frame of a swipe back to home.
   final bool active;
 
-  /// Whether pointer events may reach launcher content. The launcher can stay
-  /// visible behind shell-owned transitions without accepting accidental taps.
+  /// Whether pointer events may reach home. Home can stay visible behind
+  /// shell-owned transitions without accepting accidental taps.
   final bool interactive;
 
   /// Fades icons, widgets and page indicators independently of the backdrop.
   /// The animation updates composited opacity without rebuilding the grid.
   final Animation<double>? contentOpacity;
 
-  /// Coordinates launches with the integrated shell's placeholder and window
-  /// matching. The standalone launcher leaves this off and starts apps
-  /// directly because it does not render the shell transition layer.
-  final bool useShellLaunchTransition;
-
   @override
   ConsumerState<HomeSurface> createState() => _HomeSurfaceState();
 }
 
-class _HomeSurfaceState extends ConsumerState<HomeSurface> {
-  static const double _pageHorizontalPadding = 22;
-  static const double _appRowVisualHeight = 126;
-  static const double _pageDotsReservedHeight = 7;
+class _HomeSurfaceState extends ConsumerState<HomeSurface>
+    implements HomeGridHost, HomeInteractions {
   static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(0, 66, 0, 4);
-  static const Duration _backgroundTapMaxDuration = Duration(milliseconds: 260);
-  static const Duration _doubleTapMaxInterval = Duration(milliseconds: 360);
-  static const double _tapMoveTolerance = 18;
-  static const double _doubleTapDistanceTolerance = 72;
 
-  late final PageController _pageController;
-  final GlobalKey _homeStackKey = GlobalKey();
-  final GlobalKey _gridViewportKey = GlobalKey();
-  _HomeResizeSession? _resizeSession;
-  int? _resizeModeIndex;
-  double _currentTileWidth = 0;
-  double _currentTileHeight = 0;
-  int _currentRows = 0;
-  int _currentPageCount = 0;
-  Timer? _dragEndTimer;
-  bool _interactionResetScheduled = false;
-  DateTime _lastAutoPageTurn = DateTime.fromMillisecondsSinceEpoch(0);
-  int? _activePointer;
-  Offset? _tapStartGlobalPosition;
-  Duration? _tapStartTime;
-  bool _tapMoved = false;
-  bool _tapStartedOnInteractiveItem = false;
-  Duration? _lastBackgroundTapTime;
-  Offset? _lastBackgroundTapPosition;
-  DateTime _lastScreenOffRequest = DateTime.fromMillisecondsSinceEpoch(0);
+  /// A widget held in its resize frame starts moving past this distance.
+  static const double _widgetDragSlop = 28;
+
+  final _pages = PageController();
+  final _viewportKey = GlobalKey();
+  final _surfaceKey = GlobalKey();
+  late final HomeIconLocator _locator = ref.read(homeIconLocatorProvider);
+  late final _taps = _BackgroundTaps(onDoubleTap: _sleepFromDoubleTap);
+
+  @override
+  final folders = HomeFolderController();
+  @override
+  late final drag = HomeDragController(this);
+  @override
+  late final resize = HomeResizeController(this);
+
+  HomeGridGeometry? _geometry;
+  int? _pointer;
+
+  /// A widget whose long press opened its resize frame; moving the finger
+  /// on lifts it instead.
+  ({HomeGridItem item, int index, Rect rect, Offset start})? _heldWidget;
+
+  /// The press that dismissed a resize frame does nothing else.
+  bool _swallowTap = false;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _locator.attach(_iconFor);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ref
           .read(homeGridControllerProvider.notifier)
           .setLauncherActive(widget.active && widget.interactive);
@@ -102,923 +94,455 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
   @override
   void didUpdateWidget(covariant HomeSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final wasRefreshActive = oldWidget.active && oldWidget.interactive;
-    final isRefreshActive = widget.active && widget.interactive;
-    if (wasRefreshActive != isRefreshActive) {
-      ref
-          .read(homeGridControllerProvider.notifier)
-          .setLauncherActive(isRefreshActive);
+    final wasVisible = oldWidget.active && oldWidget.interactive;
+    final visible = widget.active && widget.interactive;
+    if (wasVisible != visible) {
+      ref.read(homeGridControllerProvider.notifier).setLauncherActive(visible);
     }
-    if ((oldWidget.active && !widget.active) ||
-        (oldWidget.interactive && !widget.interactive)) {
-      _cancelInteraction();
-    }
+    if (wasVisible && !visible) _cancelInteraction();
   }
 
   @override
   void dispose() {
-    _dragEndTimer?.cancel();
-    _pageController.dispose();
+    _locator.detach(_iconFor);
+    drag.dispose();
+    resize.dispose();
+    folders.dispose();
+    _pages.dispose();
     super.dispose();
   }
 
   void _cancelInteraction() {
-    _dragEndTimer?.cancel();
-    _dragEndTimer = null;
-    _activePointer = null;
-    _resetTapTracking();
-    _resizeSession = null;
-    _resizeModeIndex = null;
-    if (_interactionResetScheduled) {
-      return;
-    }
-    _interactionResetScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _interactionResetScheduled = false;
-      if (!mounted) {
-        return;
-      }
-      ref.read(homeDragSessionProvider.notifier).clear();
-      ref
-          .read(homeGridControllerProvider.notifier)
-          .setDraggingSourceIndex(null);
-    });
+    _pointer = null;
+    _heldWidget = null;
+    _taps.reset();
+    resize.exit();
+    drag.abandon();
   }
 
-  void _handlePointerDown(PointerDownEvent event) {
-    final resizeModeWasActive = _resizeModeIndex != null;
-    _dismissResizeModeIfPointerOutside(event.position);
-    if (_activePointer != null) {
-      return;
-    }
+  // HomeGridHost -------------------------------------------------------------
 
-    _activePointer = event.pointer;
-    _tapStartGlobalPosition = event.position;
-    _tapStartTime = event.timeStamp;
-    _tapMoved = false;
-    _tapStartedOnInteractiveItem =
-        resizeModeWasActive || _pointerInsideHomeItem(event.position);
+  @override
+  HomeGridState? get grid => ref.read(homeGridControllerProvider).asData?.value;
+
+  @override
+  HomeGridController get gridController =>
+      ref.read(homeGridControllerProvider.notifier);
+
+  @override
+  HomeGridGeometry? get geometry => _geometry;
+
+  RenderBox? _boxOf(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject();
+    return box is RenderBox && box.hasSize ? box : null;
   }
 
-  void _handlePointerMove(PointerMoveEvent event) {
-    if (event.pointer != _activePointer) {
-      return;
-    }
-    final tapStart = _tapStartGlobalPosition;
-    if (tapStart != null &&
-        (event.position - tapStart).distance > _tapMoveTolerance) {
-      _tapMoved = true;
-    }
-    _syncDragSessionToPointer(
-      event.position,
-      pageCount: _currentPageCount,
-      autoPage: true,
+  @override
+  Offset globalToGrid(Offset global) =>
+      _boxOf(_viewportKey)?.globalToLocal(global) ?? global;
+
+  @override
+  Rect gridToGlobal(Rect rect) {
+    final box = _boxOf(_viewportKey);
+    return box == null ? rect : rect.shift(box.localToGlobal(Offset.zero));
+  }
+
+  Rect _gridToSurface(Rect rect) {
+    final surface = _boxOf(_surfaceKey);
+    final global = gridToGlobal(rect);
+    return surface == null
+        ? global
+        : global.shift(surface.globalToLocal(Offset.zero));
+  }
+
+  @override
+  void turnPage(int direction) {
+    final page = grid?.page ?? 0;
+    final target = page + direction;
+    if (target < 0) return;
+    unawaited(
+      _pages.animateToPage(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      ),
     );
   }
 
-  void _handlePointerUp(PointerEvent event) {
-    if (event.pointer != _activePointer) {
+  @override
+  String folderNameFor(List<HomeGridItem> apps) {
+    final l10n = context.l10n;
+    Set<String> categoriesOf(HomeGridItem app) => {
+      for (final category in [
+        ...?app.app?.categories,
+        ...?app.localApp?.categories,
+      ])
+        category.toLowerCase(),
+    };
+    final shared = apps.map(categoriesOf).reduce((a, b) => a.intersection(b));
+    // Freedesktop main categories, most specific first.
+    final names = <String, String>{
+      'game': l10n.homeFolderGames,
+      'development': l10n.homeFolderDevelopment,
+      'graphics': l10n.homeFolderGraphics,
+      'audiovideo': l10n.homeFolderMedia,
+      'audio': l10n.homeFolderMedia,
+      'video': l10n.homeFolderMedia,
+      'office': l10n.homeFolderOffice,
+      'network': l10n.homeFolderInternet,
+      'education': l10n.homeFolderEducation,
+      'science': l10n.homeFolderScience,
+      'settings': l10n.homeFolderSettings,
+      'system': l10n.homeFolderSystem,
+      'utility': l10n.homeFolderUtilities,
+    };
+    for (final MapEntry(key: category, value: name) in names.entries) {
+      if (shared.contains(category)) return name;
+    }
+    return l10n.homeFolderDefaultName;
+  }
+
+  // HomeInteractions ---------------------------------------------------------
+
+  @override
+  ValueListenable<Set<String>> get hiddenItems => _locator.hidden;
+
+  @override
+  void launch(HomeGridItem app, Rect iconRect) {
+    if (_swallowTap || drag.active) return;
+    unawaited(launchHomeApp(context, ref, app, iconRect));
+  }
+
+  @override
+  void openFolder(HomeGridItem folder, Rect iconRect) {
+    if (_swallowTap || drag.active) return;
+    folders.show(folder.id, iconRect);
+  }
+
+  @override
+  void hold(
+    HomeGridItem item,
+    int index,
+    Rect tileRect,
+    Offset pointer, {
+    bool inFolder = false,
+  }) {
+    if (drag.active) return;
+    if (item.resizable) {
+      resize.enter(index);
+      _heldWidget = (item: item, index: index, rect: tileRect, start: pointer);
       return;
     }
-    _activePointer = null;
+    resize.exit();
+    drag.start(
+      item: item,
+      source: index,
+      inFolder: inFolder,
+      tileRect: tileRect,
+      global: pointer,
+    );
+  }
+
+  // Input --------------------------------------------------------------------
+
+  void _pointerDown(PointerDownEvent event) {
+    if (_pointer != null) return;
+    _pointer = event.pointer;
+    _swallowTap = false;
+    if (resize.active && !_onResizeFrame(event.position)) {
+      resize.exit();
+      _swallowTap = true;
+    }
+    final onBackground =
+        !_swallowTap &&
+        !resize.active &&
+        folders.open.value == null &&
+        !_onItem(event.position);
+    _taps.down(event, onBackground: onBackground);
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    if (event.pointer != _pointer) return;
+    _taps.move(event);
+    final held = _heldWidget;
+    if (held != null &&
+        !drag.active &&
+        (event.position - held.start).distance > _widgetDragSlop) {
+      _heldWidget = null;
+      resize.exit();
+      drag.start(
+        item: held.item,
+        source: held.index,
+        inFolder: false,
+        tileRect: held.rect,
+        global: held.start,
+      );
+    }
+    drag.move(event.position);
+  }
+
+  void _pointerUp(PointerEvent event) {
+    if (event.pointer != _pointer) return;
+    _pointer = null;
+    _heldWidget = null;
+    if (drag.active) {
+      drag.move(event.position);
+      drag.end(cancelled: event is PointerCancelEvent);
+    }
     if (event is PointerUpEvent) {
-      if (ref.read(homeDragSessionProvider) != null) {
-        _handleItemDragEnd(event.position);
-      }
-      _handlePotentialBackgroundTap(event);
+      _taps.up(event);
     } else {
-      if (ref.read(homeDragSessionProvider) != null) {
-        _handleItemDragEnd();
-      }
-      _resetTapTracking();
+      _taps.reset();
     }
   }
 
-  Future<void> _launchApp(HomeGridItem item, Rect sourceRect) async {
-    final localApp = item.localApp;
-    if (localApp != null) {
-      _launchLocalApp(localApp, sourceRect);
-      return;
-    }
-
-    final app = item.app;
-    if (app == null) {
-      return;
-    }
-    ref
-        .read(applicationRecentsProvider.notifier)
-        .record(desktopApplicationRecentId(app.id));
-    final launcher = ref.read(appLauncherProvider);
-    if (!widget.useShellLaunchTransition) {
-      await launcher.launch(app);
-      return;
-    }
-
-    final shellController = ref.read(referenceShellProvider.notifier);
-    final expectedAppIds = launcher.expectedWindowAppIds(app);
-    if (launcher.usesLegacyTextInput(app)) {
-      shellController.registerLegacyTextInputAppIds(expectedAppIds);
-    }
-    final existingWindow = launcher.findOpenWindow(
-      app,
-      ref.read(referenceShellProvider).openAppWindows,
-    );
-    if (existingWindow != null) {
-      shellController.activateAppFromLauncher(
-        window: existingWindow,
-        appName: app.name,
-        iconPath: app.iconPath,
-        sourceRect: sourceRect,
-      );
-      return;
-    }
-    final requestId = shellController.beginAppLaunch(
-      appName: app.name,
-      iconPath: app.iconPath,
-      expectedAppIds: expectedAppIds,
-    );
-    if (requestId == null) {
-      return;
-    }
-
-    final started = await launcher.launch(app, launchRequestId: requestId);
-    if (mounted && !started) {
-      shellController.failAppLaunch(requestId);
-    }
+  bool _onItem(Offset global) {
+    final grid = this.grid;
+    final geometry = _geometry;
+    if (grid == null || geometry == null) return false;
+    final cell = geometry.cellAt(globalToGrid(global), grid.page);
+    return cell != null &&
+        HomeGridLayout.anchorForCell(cell, grid.slots) != null;
   }
 
-  void _launchLocalApp(LocalFlutterApplication app, Rect sourceRect) {
-    ref
-        .read(applicationRecentsProvider.notifier)
-        .record(localApplicationRecentId(app.id));
-    final displayLayout = ref.read(displayLayoutProvider);
-    final mainOutput = displayLayout?.mainOutput;
-    final availableBounds = mainOutput == null
-        ? Offset.zero & MediaQuery.sizeOf(context)
-        : displayLayout!.workAreaOf(mainOutput);
-    final statusBarHeight =
-        MediaQuery.paddingOf(context).top +
-        ReferenceShellMetrics.appStatusBarHeight;
-    final applicationBounds = Rect.fromLTWH(
-      availableBounds.left,
-      availableBounds.top + statusBarHeight,
-      availableBounds.width,
-      math.max(64.0, availableBounds.height - statusBarHeight),
-    );
-    final title = app.titleFor(context);
-    final launcher = ref.read(localFlutterApplicationLauncherProvider);
-    if (!widget.useShellLaunchTransition) {
-      launcher.launch(
-        app.id,
-        availableBounds: availableBounds,
-        geometry: applicationBounds,
-        title: title,
-      );
-      return;
-    }
-
-    final shellState = ref.read(referenceShellProvider);
-    for (final window in shellState.windows) {
-      if (window.isLocalFlutter && window.appId == app.id) {
-        ref
-            .read(referenceShellProvider.notifier)
-            .activateAppFromLauncher(
-              window: window,
-              appName: title,
-              iconPath: null,
-              sourceRect: sourceRect,
-            );
-        launcher.launch(
-          app.id,
-          availableBounds: availableBounds,
-          geometry: applicationBounds,
-          title: title,
-        );
-        return;
-      }
-    }
-
-    final shellController = ref.read(referenceShellProvider.notifier);
-    final requestId = shellController.beginAppLaunch(
-      appName: title,
-      iconPath: null,
-      expectedAppIds: <String>[app.id],
-    );
-    if (requestId == null) {
-      return;
-    }
-    final started = launcher.launch(
-      app.id,
-      availableBounds: availableBounds,
-      geometry: applicationBounds,
-      title: title,
-    );
-    if (!started) {
-      shellController.failAppLaunch(requestId);
-    }
+  bool _onResizeFrame(Offset global) {
+    final index = resize.target.value;
+    final grid = this.grid;
+    final geometry = _geometry;
+    final item = index == null || grid == null ? null : grid.slots[index];
+    if (geometry == null || item == null) return false;
+    return gridToGlobal(geometry.itemRect(index!, item))
+        .inflate(HomeResizeFrame.handleExtent / 2)
+        .contains(global);
   }
 
-  void _handlePotentialBackgroundTap(PointerUpEvent event) {
-    final startPosition = _tapStartGlobalPosition;
-    final startTime = _tapStartTime;
-    final invalidTap =
-        startPosition == null ||
-        startTime == null ||
-        _tapMoved ||
-        _tapStartedOnInteractiveItem ||
-        (event.position - startPosition).distance > _tapMoveTolerance ||
-        event.timeStamp - startTime > _backgroundTapMaxDuration ||
-        _pointerInsideHomeItem(event.position);
-    _resetTapTracking();
+  void _sleepFromDoubleTap() =>
+      ref.read(referenceShellProvider.notifier).blankDisplays();
 
-    if (invalidTap) {
-      _lastBackgroundTapTime = null;
-      _lastBackgroundTapPosition = null;
-      return;
-    }
-
-    final lastTime = _lastBackgroundTapTime;
-    final lastPosition = _lastBackgroundTapPosition;
-    if (lastTime != null &&
-        lastPosition != null &&
-        event.timeStamp - lastTime <= _doubleTapMaxInterval &&
-        (event.position - lastPosition).distance <=
-            _doubleTapDistanceTolerance) {
-      _lastBackgroundTapTime = null;
-      _lastBackgroundTapPosition = null;
-      _requestLockAndScreenOffFromDoubleTap();
-      return;
-    }
-
-    _lastBackgroundTapTime = event.timeStamp;
-    _lastBackgroundTapPosition = event.position;
+  void _pageChanged(int page) {
+    resize.exit();
+    gridController.setPage(page);
+    drag.refresh();
   }
 
-  void _resetTapTracking() {
-    _tapStartGlobalPosition = null;
-    _tapStartTime = null;
-    _tapMoved = false;
-    _tapStartedOnInteractiveItem = false;
-  }
-
-  void _requestLockAndScreenOffFromDoubleTap() {
-    final now = DateTime.now();
-    if (now.difference(_lastScreenOffRequest) < const Duration(seconds: 1)) {
-      return;
-    }
-
-    _lastScreenOffRequest = now;
-    ref.read(referenceShellProvider.notifier).lockAndBlankDisplays();
-  }
-
-  bool _pointerInsideHomeItem(Offset globalPosition) {
-    if (_currentRows <= 0 ||
-        _currentTileWidth <= 0 ||
-        _currentTileHeight <= 0) {
-      return false;
-    }
-
-    final gridState = ref.read(homeGridControllerProvider).asData?.value;
-    if (gridState == null) {
-      return false;
-    }
-
-    final context = _gridViewportKey.currentContext;
-    final renderObject = context?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
-      return false;
-    }
-
-    final pageSize = HomeGridLayout.columns * _currentRows;
-    if (pageSize <= 0) {
-      return false;
-    }
-
-    final pageStart = gridState.page * pageSize;
-    final pageEnd = pageStart + pageSize;
-    final localPosition = renderObject.globalToLocal(globalPosition);
-    for (
-      var index = pageStart;
-      index < pageEnd && index < gridState.slots.length;
-      index += 1
-    ) {
-      final item = gridState.slots[index];
-      if (item == null) {
-        continue;
-      }
-
-      final cells = HomeGridLayout.cellsFor(
-        index,
-        item,
-        columns: HomeGridLayout.columns,
-      );
-      if (cells.any((cell) => cell < pageStart || cell >= pageEnd)) {
-        continue;
-      }
-
-      final localIndex = index - pageStart;
-      final row = localIndex ~/ HomeGridLayout.columns;
-      final column = localIndex % HomeGridLayout.columns;
-      final rect = Rect.fromLTWH(
-        _pageHorizontalPadding +
-            column * (_currentTileWidth + HomeGridLayout.gridGap),
-        row * (_currentTileHeight + HomeGridLayout.gridGap),
-        item.colSpan * _currentTileWidth +
-            (item.colSpan - 1) * HomeGridLayout.gridGap,
-        item.rowSpan * _currentTileHeight +
-            (item.rowSpan - 1) * HomeGridLayout.gridGap,
-      ).inflate(8);
-
-      if (rect.contains(localPosition)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  void _handleItemDragAutoPage(Offset globalPosition, int pageCount) {
-    final now = DateTime.now();
-    if (now.difference(_lastAutoPageTurn) < const Duration(milliseconds: 520)) {
-      return;
-    }
-
-    final page = ref.read(homeGridControllerProvider).asData?.value.page ?? 0;
-    final width = MediaQuery.sizeOf(context).width;
-    final x = globalPosition.dx;
-    if (x > width - 64 && page < pageCount - 1) {
-      _lastAutoPageTurn = now;
-      unawaited(
-        _pageController.nextPage(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-        ),
-      );
-    } else if (x < 64 && page > 0) {
-      _lastAutoPageTurn = now;
-      unawaited(
-        _pageController.previousPage(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-        ),
-      );
-    }
-  }
-
-  void _handleItemDragStart(
-    HomeGridItem item,
-    int fromIndex,
-    int pageSize,
-    LongPressStartDetails details,
-    Size feedbackSize,
-  ) {
-    _startItemDrag(
-      item: item,
-      fromIndex: fromIndex,
-      pageSize: pageSize,
-      pointerGlobalPosition: details.globalPosition,
-      localAnchor: details.localPosition,
-      feedbackSize: feedbackSize,
-    );
-  }
-
-  void _startItemDrag({
-    required HomeGridItem item,
-    required int fromIndex,
-    required int pageSize,
-    required Offset pointerGlobalPosition,
-    required Offset localAnchor,
-    required Size feedbackSize,
-  }) {
-    _dragEndTimer?.cancel();
-    _dragEndTimer = null;
-    final session = HomeDragSession(
-      item: item,
-      fromIndex: fromIndex,
-      pageSize: pageSize,
-      pointerGlobalPosition: pointerGlobalPosition,
-      localAnchor: _clampDragAnchor(localAnchor, feedbackSize),
-      feedbackSize: feedbackSize,
-    );
-    final targetedSession = session.copyWith(
-      targetIndex: _targetIndexForDragSession(session),
-      replaceTargetIndex: true,
-    );
-    ref
-        .read(homeGridControllerProvider.notifier)
-        .setDraggingSourceIndex(fromIndex);
-    ref.read(homeDragSessionProvider.notifier).setSession(targetedSession);
-  }
-
-  void _handleItemResizeModeStart(
-    HomeGridItem item,
-    int index,
-    int pageSize,
-    LongPressStartDetails details,
-  ) {
-    if (!item.resizable) {
-      return;
-    }
-    _dragEndTimer?.cancel();
-    _dragEndTimer = null;
-    _resizeSession = null;
-    ref.read(homeDragSessionProvider.notifier).clear();
-    ref.read(homeGridControllerProvider.notifier).setDraggingSourceIndex(null);
-    setState(() {
-      _resizeModeIndex = index;
-    });
-  }
-
-  void _handleItemResizeModeMove(
-    HomeGridItem item,
-    int index,
-    int pageSize,
-    LongPressMoveUpdateDetails details,
-    Size feedbackSize,
-  ) {
-    if (_resizeModeIndex == null) {
-      return;
-    }
-    if (details.offsetFromOrigin.distance < 28) {
-      return;
-    }
-
-    final localAnchor = details.localPosition - details.localOffsetFromOrigin;
-    _clearResizeMode();
-    _startItemDrag(
-      item: item,
-      fromIndex: index,
-      pageSize: pageSize,
-      pointerGlobalPosition: details.globalPosition,
-      localAnchor: localAnchor,
-      feedbackSize: feedbackSize,
-    );
-    _syncDragSessionToPointer(
-      details.globalPosition,
-      pageCount: _currentPageCount,
-      autoPage: true,
-    );
-  }
-
-  void _handleItemResizeModeEnd() {
-    _resizeSession = null;
-  }
-
-  void _handleItemResizeStart(
-    HomeGridItem item,
-    int index,
-    int pageSize,
-    DragStartDetails details,
-  ) {
-    if (!item.resizable ||
-        pageSize <= 0 ||
-        _currentRows <= 0 ||
-        _currentTileWidth <= 0 ||
-        _currentTileHeight <= 0) {
-      return;
-    }
-    _dragEndTimer?.cancel();
-    _dragEndTimer = null;
-    ref.read(homeDragSessionProvider.notifier).clear();
-    ref.read(homeGridControllerProvider.notifier).setDraggingSourceIndex(null);
-    _resizeSession = _HomeResizeSession(
-      item: item,
-      index: index,
-      pageSize: pageSize,
-      startGlobalPosition: details.globalPosition,
-      startColSpan: item.colSpan,
-      startRowSpan: item.rowSpan,
-    );
-  }
-
-  void _handleItemResizeUpdate(DragUpdateDetails details) {
-    final session = _resizeSession;
-    if (session == null) {
-      return;
-    }
-    final target = _targetSpanForResizeSession(session, details.globalPosition);
-    final best = _bestResizableSpan(session, target);
-    if (best == null) {
-      return;
-    }
-
-    final gridState = ref.read(homeGridControllerProvider).asData?.value;
-    final currentItem =
-        gridState != null && session.index < gridState.slots.length
-        ? gridState.slots[session.index]
-        : null;
-    if (currentItem == null ||
-        (currentItem.colSpan == best.colSpan &&
-            currentItem.rowSpan == best.rowSpan)) {
-      return;
-    }
-
-    ref
-        .read(homeGridControllerProvider.notifier)
-        .resizeSlot(
-          session.index,
-          best.colSpan,
-          best.rowSpan,
-          session.pageSize,
-        );
-  }
-
-  void _handleItemResizeEnd() {
-    final session = _resizeSession;
-    if (session == null) {
-      return;
-    }
-    _resizeSession = null;
-  }
-
-  void _clearResizeMode() {
-    if (_resizeModeIndex == null && _resizeSession == null) {
-      return;
-    }
-
-    _resizeSession = null;
-    if (mounted) {
-      setState(() {
-        _resizeModeIndex = null;
+  void _layout(HomeGridGeometry geometry) {
+    _geometry = geometry;
+    final grid = this.grid;
+    if (grid == null || drag.active) return;
+    if (geometry.orientation != gridController.orientation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          gridController.arrange(geometry.orientation, geometry.pageSize);
+        }
       });
-    } else {
-      _resizeModeIndex = null;
-    }
-  }
-
-  void _dismissResizeModeIfPointerOutside(Offset globalPosition) {
-    if (_resizeModeIndex == null ||
-        _currentRows <= 0 ||
-        _currentTileWidth <= 0 ||
-        _currentTileHeight <= 0) {
       return;
     }
-
-    if (_pointerInsideResizeModeItem(globalPosition)) {
-      return;
-    }
-
-    _clearResizeMode();
-  }
-
-  bool _pointerInsideResizeModeItem(Offset globalPosition) {
-    final index = _resizeModeIndex;
-    if (index == null) {
-      return false;
-    }
-
-    final gridState = ref.read(homeGridControllerProvider).asData?.value;
-    if (gridState == null || index < 0 || index >= gridState.slots.length) {
-      return false;
-    }
-
-    final item = gridState.slots[index];
-    if (item == null) {
-      return false;
-    }
-
-    final context = _gridViewportKey.currentContext;
-    final renderObject = context?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
-      return false;
-    }
-
-    final pageSize = HomeGridLayout.columns * _currentRows;
-    if (pageSize <= 0) {
-      return false;
-    }
-    final page = gridState.page;
-    final localIndex = index - page * pageSize;
-    if (localIndex < 0 || localIndex >= pageSize) {
-      return false;
-    }
-
-    final row = localIndex ~/ HomeGridLayout.columns;
-    final column = localIndex % HomeGridLayout.columns;
-    final localPosition = renderObject.globalToLocal(globalPosition);
-    final rect = Rect.fromLTWH(
-      _pageHorizontalPadding +
-          column * (_currentTileWidth + HomeGridLayout.gridGap),
-      row * (_currentTileHeight + HomeGridLayout.gridGap),
-      item.colSpan * _currentTileWidth +
-          (item.colSpan - 1) * HomeGridLayout.gridGap,
-      item.rowSpan * _currentTileHeight +
-          (item.rowSpan - 1) * HomeGridLayout.gridGap,
-    ).inflate(14);
-    return rect.contains(localPosition);
-  }
-
-  void _handleItemDragUpdate(
-    LongPressMoveUpdateDetails details,
-    int pageCount,
-  ) {
-    _syncDragSessionToPointer(
-      details.globalPosition,
-      pageCount: pageCount,
-      autoPage: true,
-    );
-  }
-
-  void _syncDragSessionToPointer(
-    Offset globalPosition, {
-    required int pageCount,
-    required bool autoPage,
-  }) {
-    final session = ref.read(homeDragSessionProvider);
-    if (session == null) {
-      return;
-    }
-    final next = session.copyWith(
-      pointerGlobalPosition: globalPosition,
-      replaceTargetIndex: true,
-    );
-    final targetedNext = next.copyWith(
-      targetIndex: _targetIndexForDragSession(next),
-      replaceTargetIndex: true,
-    );
-    ref.read(homeDragSessionProvider.notifier).setSession(targetedNext);
-    if (autoPage && pageCount > 1) {
-      _handleItemDragAutoPage(globalPosition, pageCount);
+    final last =
+        HomeGridLayout.pageCountForSlots(grid.slots, geometry.pageSize) - 1;
+    if (grid.page > last) {
+      // The last page emptied: return to the one before it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) gridController.setPage(last);
+      });
     }
   }
 
-  _HomeGridSpan _targetSpanForResizeSession(
-    _HomeResizeSession session,
-    Offset globalPosition,
-  ) {
-    final stepX = _currentTileWidth + HomeGridLayout.gridGap;
-    final stepY = _currentTileHeight + HomeGridLayout.gridGap;
-    final delta = globalPosition - session.startGlobalPosition;
-    final colSpan = session.startColSpan + (delta.dx / stepX).round();
-    final rowSpan = session.startRowSpan + (delta.dy / stepY).round();
+  /// The icon a window transition starts or ends on: in the open folder, or
+  /// on the current page.
+  HomeIconTarget? _iconFor(DenialWindow window) {
+    final grid = this.grid;
+    final geometry = _geometry;
+    if (grid == null || geometry == null) return null;
+    final launcher = ref.read(appLauncherProvider);
+    bool shows(HomeGridItem app) =>
+        launcherAppShowsWindow(app, window, launcher);
 
-    return _HomeGridSpan(
-      colSpan: colSpan
-          .clamp(session.item.minColSpan, _maxColSpan(session))
-          .toInt(),
-      rowSpan: rowSpan
-          .clamp(session.item.minRowSpan, _maxRowSpan(session))
-          .toInt(),
-    );
-  }
-
-  _HomeGridSpan? _bestResizableSpan(
-    _HomeResizeSession session,
-    _HomeGridSpan target,
-  ) {
-    final controller = ref.read(homeGridControllerProvider.notifier);
-    _HomeGridSpan? best;
-    var bestDistance = double.infinity;
-    var bestAreaDistance = double.infinity;
-
-    for (
-      var rowSpan = session.item.minRowSpan;
-      rowSpan <= _maxRowSpan(session);
-      rowSpan += 1
-    ) {
-      for (
-        var colSpan = session.item.minColSpan;
-        colSpan <= _maxColSpan(session);
-        colSpan += 1
-      ) {
-        if (!controller.canResizeSlot(
-          session.index,
-          colSpan,
-          rowSpan,
-          session.pageSize,
-        )) {
-          continue;
-        }
-
-        final distance =
-            math.pow(colSpan - target.colSpan, 2) +
-            math.pow(rowSpan - target.rowSpan, 2);
-        final areaDistance =
-            (colSpan * rowSpan - target.colSpan * target.rowSpan).abs();
-        if (distance < bestDistance ||
-            (distance == bestDistance && areaDistance < bestAreaDistance)) {
-          best = _HomeGridSpan(colSpan: colSpan, rowSpan: rowSpan);
-          bestDistance = distance.toDouble();
-          bestAreaDistance = areaDistance.toDouble();
-        }
-      }
-    }
-
-    return best;
-  }
-
-  int _maxColSpan(_HomeResizeSession session) {
-    final localIndex = session.index % session.pageSize;
-    final column = localIndex % HomeGridLayout.columns;
-    return math.min(session.item.maxColSpan, HomeGridLayout.columns - column);
-  }
-
-  int _maxRowSpan(_HomeResizeSession session) {
-    final localIndex = session.index % session.pageSize;
-    final row = localIndex ~/ HomeGridLayout.columns;
-    return math.min(
-      session.item.maxRowSpan,
-      math.max(session.item.minRowSpan, _currentRows - row),
-    );
-  }
-
-  void _handleItemDragEnd([Offset? finalGlobalPosition]) {
-    var session = ref.read(homeDragSessionProvider);
-    if (session == null) {
-      return;
-    }
-    if (finalGlobalPosition != null) {
-      session = session.copyWith(
-        pointerGlobalPosition: finalGlobalPosition,
-        replaceTargetIndex: true,
-      );
-      session = session.copyWith(
-        targetIndex: _targetIndexForDragSession(session),
-        replaceTargetIndex: true,
-      );
-      ref.read(homeDragSessionProvider.notifier).setSession(session);
-    }
-
-    final targetIndex = session.targetIndex;
-    final gridController = ref.read(homeGridControllerProvider.notifier);
-    if (targetIndex != null &&
-        gridController.canMoveSlot(
-          session.fromIndex,
-          targetIndex,
-          session.pageSize,
-        )) {
-      gridController.moveSlot(session.fromIndex, targetIndex, session.pageSize);
-    }
-
-    _dragEndTimer?.cancel();
-    _dragEndTimer = Timer(const Duration(milliseconds: 70), () {
-      _dragEndTimer = null;
-      if (!mounted || ref.read(homeDragSessionProvider) != session) {
-        return;
-      }
-      ref.read(homeDragSessionProvider.notifier).clear();
-      ref
-          .read(homeGridControllerProvider.notifier)
-          .setDraggingSourceIndex(null);
-    });
-  }
-
-  Offset _clampDragAnchor(Offset anchor, Size size) {
-    return Offset(
-      anchor.dx.clamp(0.0, size.width).toDouble(),
-      anchor.dy.clamp(0.0, size.height).toDouble(),
-    );
-  }
-
-  int? _targetIndexForDragSession(HomeDragSession session) {
-    if (session.pageSize <= 0 ||
-        _currentRows <= 0 ||
-        _currentTileWidth <= 0 ||
-        _currentTileHeight <= 0) {
-      return null;
-    }
-
-    final gridState = ref.read(homeGridControllerProvider).asData?.value;
-    if (gridState == null) {
-      return null;
-    }
-
-    final context = _gridViewportKey.currentContext;
-    final renderObject = context?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
-      return null;
-    }
-
-    final pointerLocal = renderObject.globalToLocal(
-      session.pointerGlobalPosition,
-    );
-    final dragRect = session.localAnchor & session.feedbackSize;
-    final localRect = Rect.fromLTWH(
-      pointerLocal.dx - dragRect.left,
-      pointerLocal.dy - dragRect.top,
-      dragRect.width,
-      dragRect.height,
-    );
-    final gridRect = Rect.fromLTWH(
-      _pageHorizontalPadding,
-      0,
-      renderObject.size.width - _pageHorizontalPadding * 2,
-      renderObject.size.height,
-    );
-    if (!localRect.overlaps(gridRect)) {
-      return null;
-    }
-
-    final stepX = _currentTileWidth + HomeGridLayout.gridGap;
-    final stepY = _currentTileHeight + HomeGridLayout.gridGap;
-    final pageStart = gridState.page * session.pageSize;
-    var bestIndex = pageStart;
-    var bestOverlap = -1.0;
-    var bestDistance = double.infinity;
-    final dragCenter = localRect.center;
-    final gridController = ref.read(homeGridControllerProvider.notifier);
-
-    for (var row = 0; row <= _currentRows - session.item.rowSpan; row += 1) {
-      for (
-        var column = 0;
-        column <= HomeGridLayout.columns - session.item.colSpan;
-        column += 1
-      ) {
-        final left = _pageHorizontalPadding + column * stepX;
-        final top = row * stepY;
-        final candidateRect = Rect.fromLTWH(
-          left,
-          top,
-          session.item.colSpan * _currentTileWidth +
-              (session.item.colSpan - 1) * HomeGridLayout.gridGap,
-          session.item.rowSpan * _currentTileHeight +
-              (session.item.rowSpan - 1) * HomeGridLayout.gridGap,
+    final open = folders.open.value;
+    final layout = folders.layout;
+    if (open != null && layout != null) {
+      final folder = grid.slots
+          .where((item) => item?.id == open.id)
+          .firstOrNull;
+      final apps = folder?.folderApps ?? const <HomeGridItem>[];
+      final position = apps.indexWhere(shows);
+      if (position >= 0) {
+        return HomeIconTarget(
+          item: apps[position],
+          rect: HomeTileMetrics.iconRectIn(layout.tileRect(position)),
         );
-        final overlap = HomeGridLayout.rectOverlapArea(
-          localRect,
-          candidateRect,
+      }
+    }
+
+    final start = grid.page * geometry.pageSize;
+    for (var index = start; index < start + geometry.pageSize; index++) {
+      if (index >= grid.slots.length) break;
+      final item = grid.slots[index];
+      if (item == null) continue;
+      if ((item.isApp && shows(item)) ||
+          (item.isFolder && item.folderApps.any(shows))) {
+        return HomeIconTarget(
+          item: item,
+          rect: gridToGlobal(
+            HomeTileMetrics.iconRectIn(geometry.rectAt(index)),
+          ),
         );
-        if (overlap <= 0) {
-          continue;
-        }
-
-        final index = pageStart + row * HomeGridLayout.columns + column;
-        if (!gridController.canMoveSlot(
-          session.fromIndex,
-          index,
-          session.pageSize,
-        )) {
-          continue;
-        }
-
-        final distance = (dragCenter - candidateRect.center).distanceSquared;
-        if (overlap > bestOverlap ||
-            (overlap == bestOverlap && distance < bestDistance)) {
-          bestIndex = index;
-          bestOverlap = overlap;
-          bestDistance = distance;
-        }
       }
     }
-
-    return bestOverlap > 0 ? bestIndex : null;
+    return null;
   }
 
-  Offset? _dragOverlayOffset(HomeDragSession session) {
-    final context = _homeStackKey.currentContext;
-    final renderObject = context?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) {
-      return null;
-    }
+  // Building -----------------------------------------------------------------
 
-    return renderObject.globalToLocal(session.pointerGlobalPosition) -
-        session.localAnchor;
-  }
+  Widget? _content;
+  List<HomeGridItem?>? _contentSlots;
+  bool? _contentError;
 
-  void _syncSafePage(int currentPage, int safePage) {
-    if (currentPage == safePage) {
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      ref.read(homeGridControllerProvider.notifier).setPage(safePage);
-    });
-  }
-
-  void _handlePageChanged(int page, int pageCount) {
-    _clearResizeMode();
-    ref.read(homeGridControllerProvider.notifier).setPage(page);
-    final activeDrag = ref.read(homeDragSessionProvider);
-    if (activeDrag != null) {
-      _syncDragSessionToPointer(
-        activeDrag.pointerGlobalPosition,
-        pageCount: pageCount,
-        autoPage: false,
+  /// The same grid widget while its slots hold: visibility, interactivity and
+  /// opacity changes then rebuild only the wrappers above it, not each tile.
+  Widget _contentFor(List<HomeGridItem?>? slots, bool hasError) {
+    if (_content == null ||
+        !identical(slots, _contentSlots) ||
+        hasError != _contentError) {
+      _contentSlots = slots;
+      _contentError = hasError;
+      _content = HomeInteractionScope(
+        interactions: this,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Padding(
+              padding: _contentPadding,
+              child: HomePager(
+                slots: slots,
+                hasError: hasError,
+                controller: _pages,
+                viewportKey: _viewportKey,
+                onLayout: _layout,
+                onPageChanged: _pageChanged,
+              ),
+            ),
+            Positioned.fill(
+              child: HomeResizeFrame(
+                geometry: () => _geometry,
+                gridToLocal: _gridToSurface,
+              ),
+            ),
+            const Positioned.fill(child: HomeFolderPanel()),
+            const Positioned.fill(child: HomeDragLayer()),
+          ],
+        ),
       );
     }
+    return _content!;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Page changes happen midway through a swipe. Only the dots need that
-    // signal; rebuilding both visible icon grids here disrupts the gesture.
     final contents = ref.watch(
       homeGridControllerProvider.select(
-        (value) => (
-          slots: value.asData?.value.slots,
-          draggingSourceIndex: value.asData?.value.draggingSourceIndex,
-          hasError: value.hasError,
+        (value) => (slots: value.asData?.value.slots, hasError: value.hasError),
+      ),
+    );
+    final opacity = widget.contentOpacity;
+    final content = _contentFor(contents.slots, contents.hasError);
+    return Offstage(
+      offstage: !widget.active,
+      child: TickerMode(
+        enabled: widget.active,
+        child: IgnorePointer(
+          ignoring: !widget.interactive,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: _pointerDown,
+            onPointerMove: _pointerMove,
+            onPointerUp: _pointerUp,
+            onPointerCancel: _pointerUp,
+            child: Stack(
+              key: _surfaceKey,
+              fit: StackFit.expand,
+              children: [
+                CustomPaint(painter: HomeBackdropPainter(opacity: opacity)),
+                if (opacity == null)
+                  content
+                else
+                  FadeSnapshot(opacity: opacity, child: content),
+              ],
+            ),
+          ),
         ),
       ),
     );
-    return _HomeSurfaceView(
-      owner: this,
-      active: widget.active,
-      interactive: widget.interactive,
-      contents: contents,
-    );
+  }
+}
+
+/// A double tap on home's empty background locks the device and blanks the
+/// screen.
+class _BackgroundTaps {
+  _BackgroundTaps({required this.onDoubleTap});
+
+  final VoidCallback onDoubleTap;
+
+  static const Duration _maxTapDuration = Duration(milliseconds: 260);
+  static const Duration _maxInterval = Duration(milliseconds: 360);
+  static const double _moveTolerance = 18;
+  static const double _distanceTolerance = 72;
+
+  Offset? _start;
+  Duration? _startTime;
+  bool _valid = false;
+  Offset? _lastTap;
+  Duration? _lastTapTime;
+  DateTime _lastFired = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void down(PointerDownEvent event, {required bool onBackground}) {
+    _start = event.position;
+    _startTime = event.timeStamp;
+    _valid = onBackground;
+  }
+
+  void move(PointerMoveEvent event) {
+    final start = _start;
+    if (start != null && (event.position - start).distance > _moveTolerance) {
+      _valid = false;
+    }
+  }
+
+  void up(PointerUpEvent event) {
+    final startTime = _startTime;
+    final isTap =
+        _valid &&
+        startTime != null &&
+        event.timeStamp - startTime <= _maxTapDuration;
+    _start = null;
+    _startTime = null;
+    _valid = false;
+    if (!isTap) {
+      _lastTap = null;
+      _lastTapTime = null;
+      return;
+    }
+    final lastTap = _lastTap;
+    final lastTime = _lastTapTime;
+    if (lastTap != null &&
+        lastTime != null &&
+        event.timeStamp - lastTime <= _maxInterval &&
+        (event.position - lastTap).distance <= _distanceTolerance) {
+      _lastTap = null;
+      _lastTapTime = null;
+      final now = DateTime.now();
+      if (now.difference(_lastFired) >= const Duration(seconds: 1)) {
+        _lastFired = now;
+        onDoubleTap();
+      }
+      return;
+    }
+    _lastTap = event.position;
+    _lastTapTime = event.timeStamp;
+  }
+
+  void reset() {
+    _start = null;
+    _startTime = null;
+    _valid = false;
   }
 }

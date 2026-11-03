@@ -216,6 +216,10 @@ jobs:
         run: |
           set -euo pipefail
           cache_name="$(jq -er '.name' nix/cachix-cache.json)"
+          # The newest build of each branch stays a GC root, so cleaning
+          # the store keeps what the next run would otherwise rebuild.
+          nix_roots="/srv/denial-builder/cache/nix-roots/$VALIDATION_BRANCH"
+          mkdir -p "$nix_roots"
           mapfile -t nix_paths < <(
             nix build \
               .#denial \
@@ -230,9 +234,9 @@ jobs:
               .#checks.x86_64-linux.engine-cache-unstable \
               .#checks.x86_64-linux.path-contract \
               --accept-flake-config \
+              --max-jobs 3 \
               --cores 16 \
-              --out-link "$RUNNER_TEMP/denial-nix-cache" \
-              --print-build-logs \
+              --out-link "$nix_roots/result" \
               --print-out-paths \
               2> >(tee "$EVIDENCE_ROOT/nix-build.txt" >&2)
           )
@@ -249,6 +253,36 @@ jobs:
             printf 'cache_name=%s\n' "$cache_name"
             printf 'paths=%s\n' "$cache_paths"
           } >>"$GITHUB_OUTPUT"
+
+      - name: Resolve pinned Cachix CLI
+        id: cachix_cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t cachix_paths < <(
+            nix build \
+              .#denial-cachix-cli \
+              --accept-flake-config \
+              --no-link \
+              --print-out-paths
+          )
+          ((${#cachix_paths[@]} == 1))
+          cachix_bin="${cachix_paths[0]}/bin/cachix"
+          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
+          test -x "$cachix_bin"
+          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
+
+      # The action pushes in its post step, at the end of the job, also when
+      # a later step fails. Set up here, it keeps what the Nix build made,
+      # the engine above all, out of the next run's work.
+      - name: Publish Nix closures to Cachix
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ steps.nix_cache_build.outputs.cache_name }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
+          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
+          skipAddingSubstituter: true
 
       - name: Bootstrap pinned development toolchains
         shell: bash
@@ -321,6 +355,17 @@ jobs:
           install -d -m 0755 "$failure_root"
           if [[ -n "${EVIDENCE_ROOT:-}" && -d "$EVIDENCE_ROOT" ]]; then
             cp -a -- "$EVIDENCE_ROOT" "$failure_root/evidence"
+          fi
+          # The job log keeps only the tail of a failed Nix build; keep the
+          # full builder logs here.
+          if [[ -f "${EVIDENCE_ROOT:-}/nix-build.txt" ]]; then
+            install -d -m 0755 "$failure_root/nix-logs"
+            { grep -E "builder for|Cannot build" "$EVIDENCE_ROOT/nix-build.txt" || true; } \
+              | grep -oE "/nix/store/[a-z0-9]{32}-[^' ]+\.drv" \
+              | sort --unique \
+              | while read -r drv; do
+                  nix log "$drv" >"$failure_root/nix-logs/${drv##*/}.log" 2>&1 || true
+                done
           fi
 
       - name: Upload failed build diagnostics
@@ -414,11 +459,11 @@ jobs:
               find . -type f ! -name NATIVE-SHA256SUMS -print0 | sort -z
             )
             sha256sum -- "${native_files[@]}" >NATIVE-SHA256SUMS
-            sha256sum --check --strict NATIVE-SHA256SUMS
+            sha256sum --check --strict --quiet NATIVE-SHA256SUMS
           )
           (
             cd "$CANDIDATE_ROOT/alpine-payload"
-            sha256sum --check --strict ALPINE-SHA256SUMS
+            sha256sum --check --strict --quiet ALPINE-SHA256SUMS
           )
 
           for package in "${arch_packages[@]}"; do
@@ -497,7 +542,7 @@ jobs:
           (
             cd "$CANDIDATE_ROOT/packages"
             sha256sum -- *.pkg.tar.zst *.deb *.rpm *.apk >SHA256SUMS
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
             2>&1 | tee "$CANDIDATE_ROOT/evidence/namcap.txt"
@@ -515,33 +560,6 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
           compression-level: 0
-
-      - name: Resolve pinned Cachix CLI
-        id: cachix_cli
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t cachix_paths < <(
-            nix build \
-              .#denial-cachix-cli \
-              --accept-flake-config \
-              --no-link \
-              --print-out-paths
-          )
-          ((${#cachix_paths[@]} == 1))
-          cachix_bin="${cachix_paths[0]}/bin/cachix"
-          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
-          test -x "$cachix_bin"
-          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
-
-      - name: Publish Nix closures to Cachix
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: ${{ steps.nix_cache_build.outputs.cache_name }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
-          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
-          skipAddingSubstituter: true
 
   verify:
     name: Independently verify candidate artifact
@@ -686,7 +704,7 @@ jobs:
           fi
           (
             cd "$CANDIDATE_ROOT/packages"
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
 
           denial_packages=0
@@ -810,7 +828,7 @@ jobs:
           test -f "$native_payload/metadata.json"
           (
             cd "$native_payload"
-            sha256sum --check --strict NATIVE-SHA256SUMS
+            sha256sum --check --strict --quiet NATIVE-SHA256SUMS
           )
           mapfile -t native_metadata < <(
             tools/read-denial-native-metadata \
@@ -933,7 +951,7 @@ jobs:
           test -f "$alpine_payload/adapter.txt"
           (
             cd "$alpine_payload"
-            sha256sum --check --strict ALPINE-SHA256SUMS
+            sha256sum --check --strict --quiet ALPINE-SHA256SUMS
           )
           cmp -- \
             "$native_payload/metadata.json" \
@@ -1107,7 +1125,7 @@ jobs:
           (
             cd "$output_root"
             sha256sum -- *.apk >SHA256SUMS
-            sha256sum --check --strict SHA256SUMS
+            sha256sum --check --strict --quiet SHA256SUMS
           )
           tar \
             --create \

@@ -1,6 +1,7 @@
 import 'package:denial_flutter_sdk/materials.dart';
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -114,8 +115,8 @@ class SettingsPowerPage extends ConsumerWidget {
     AsyncValue<SuspendModeCapabilities> suspendModes,
   ) {
     final l10n = context.l10n;
-    final lockMaximum = settings.idleSuspendTimeoutMinutes;
-    final suspendMinimum = settings.idleDpmsTimeoutMinutes;
+    final lockMaximum = settings.idleSuspendTimeoutSeconds;
+    final suspendMinimum = settings.idleDpmsTimeoutSeconds;
     return SettingsSection(
       title: l10n.settingsAutomaticIdleTitle,
       leading: _PowerIcon(accent: ShellTheme.of(context).accent),
@@ -129,8 +130,8 @@ class SettingsPowerPage extends ConsumerWidget {
             description: l10n.settingsAutomaticLockToggleDescription,
             timeoutLabel: l10n.settingsLockTimeout,
             enabled: settings.idleLockEnabled,
-            timeoutMinutes: settings.idleLockTimeoutMinutes,
-            minimum: ShellPowerSettings.minimumIdleTimeoutMinutes,
+            timeoutSeconds: settings.idleLockTimeoutSeconds,
+            minimum: ShellPowerSettings.minimumIdleTimeoutSeconds,
             maximum: lockMaximum,
             onEnabledChanged: onLockEnabledChanged,
             onTimeoutChanged: onLockTimeoutChanged,
@@ -145,9 +146,9 @@ class SettingsPowerPage extends ConsumerWidget {
             description: l10n.settingsAutomaticDisplayPowerToggleDescription,
             timeoutLabel: l10n.settingsDisplayOffTimeout,
             enabled: settings.idleDpmsEnabled,
-            timeoutMinutes: settings.idleDpmsTimeoutMinutes,
-            minimum: ShellPowerSettings.minimumIdleTimeoutMinutes,
-            maximum: settings.idleSuspendTimeoutMinutes,
+            timeoutSeconds: settings.idleDpmsTimeoutSeconds,
+            minimum: ShellPowerSettings.minimumIdleTimeoutSeconds,
+            maximum: settings.idleSuspendTimeoutSeconds,
             onEnabledChanged: onDpmsEnabledChanged,
             onTimeoutChanged: onDpmsTimeoutChanged,
           ),
@@ -161,9 +162,9 @@ class SettingsPowerPage extends ConsumerWidget {
             description: l10n.settingsAutomaticSuspendToggleDescription,
             timeoutLabel: l10n.settingsSuspendTimeout,
             enabled: settings.idleSuspendEnabled,
-            timeoutMinutes: settings.idleSuspendTimeoutMinutes,
+            timeoutSeconds: settings.idleSuspendTimeoutSeconds,
             minimum: suspendMinimum,
-            maximum: ShellPowerSettings.maximumIdleTimeoutMinutes,
+            maximum: ShellPowerSettings.maximumIdleTimeoutSeconds,
             onEnabledChanged: onSuspendEnabledChanged,
             onTimeoutChanged: onSuspendTimeoutChanged,
           ),
@@ -192,7 +193,7 @@ class _IdleActionControls extends StatelessWidget {
     required this.description,
     required this.timeoutLabel,
     required this.enabled,
-    required this.timeoutMinutes,
+    required this.timeoutSeconds,
     required this.minimum,
     required this.maximum,
     required this.onEnabledChanged,
@@ -205,7 +206,9 @@ class _IdleActionControls extends StatelessWidget {
   final String description;
   final String timeoutLabel;
   final bool enabled;
-  final int timeoutMinutes;
+
+  /// Timeouts arrive and leave in seconds; the slider moves whole minutes.
+  final int timeoutSeconds;
   final int minimum;
   final int maximum;
   final ValueChanged<bool> onEnabledChanged;
@@ -213,7 +216,13 @@ class _IdleActionControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final divisions = maximum - minimum;
+    final minimumMinutes = (minimum / 60).ceil();
+    final maximumMinutes = math.max(minimumMinutes, maximum ~/ 60);
+    final timeoutMinutes = (timeoutSeconds / 60)
+        .round()
+        .clamp(minimumMinutes, maximumMinutes)
+        .toInt();
+    final divisions = maximumMinutes - minimumMinutes;
     final sliderEnabled = enabled && divisions > 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -230,12 +239,12 @@ class _IdleActionControls extends StatelessWidget {
           key: sliderKey,
           label: timeoutLabel,
           value: timeoutMinutes.toDouble(),
-          minimum: minimum.toDouble(),
-          maximum: maximum.toDouble(),
+          minimum: minimumMinutes.toDouble(),
+          maximum: maximumMinutes.toDouble(),
           divisions: divisions > 0 ? divisions : null,
           enabled: sliderEnabled,
           valueLabel: _timeoutLabel(context.l10n, timeoutMinutes),
-          onChanged: (value) => onTimeoutChanged(value.round()),
+          onChanged: (value) => onTimeoutChanged(value.round() * 60),
         ),
       ],
     );

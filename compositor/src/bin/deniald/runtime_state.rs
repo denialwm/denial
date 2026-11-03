@@ -1,13 +1,80 @@
 //! Shared calloop state and bounded cross-stage event queues.
 
 use super::*;
+use std::collections::HashMap;
+
+/// Requests from the control socket, each waiting for its stage of the loop.
+#[cfg(feature = "flutter")]
+#[derive(Default)]
+pub(super) struct ControlRequests {
+    pub(super) output_applies: VecDeque<PendingOutputApply>,
+    pub(super) output_confirmations: VecDeque<PendingOutputConfirmation>,
+    pub(super) settings: VecDeque<PendingSettingsControl>,
+    pub(super) system: VecDeque<PendingSystemControl>,
+    /// System controls that answer once the state they set is observed.
+    pub(super) system_waits: VecDeque<PendingSystemControlWait>,
+    pub(super) software_dimming: VecDeque<PendingSoftwareDimming>,
+    pub(super) ui_development: VecDeque<PendingUiDevelopment>,
+    /// Every output draws a new frame on the next pass.
+    pub(super) repaint_outputs: bool,
+    /// Apps whose windows are sampled again on the next pass.
+    pub(super) repaint_apps: Vec<String>,
+}
+
+/// Window events on their way to Flutter, and the windows its scene knows.
+#[cfg(feature = "flutter")]
+#[derive(Default)]
+pub(super) struct WindowEventState {
+    pub(super) pending: PendingWindowEventQueue,
+    /// Events held until their window reaches Flutter's scene.
+    pub(super) unpublished: PendingWindowEventQueue,
+    pub(super) published_ids: HashSet<u64>,
+    /// Windows a replacement Flutter generation receives as already mapped.
+    pub(super) restored_ids: BTreeSet<u64>,
+}
+
+/// libinput devices by sysname, for each kind deniald configures or reads.
+#[derive(Default)]
+pub(super) struct InputDevices {
+    #[cfg(feature = "flutter")]
+    pub(super) touchscreens: BTreeMap<String, smithay::reexports::input::Device>,
+    pub(super) keyboards: BTreeMap<String, smithay::reexports::input::Device>,
+    #[cfg(feature = "flutter")]
+    pub(super) mice: BTreeMap<String, smithay::reexports::input::Device>,
+    #[cfg(feature = "flutter")]
+    pub(super) touchpads: BTreeMap<String, smithay::reexports::input::Device>,
+}
+
+impl InputDevices {
+    /// Whether a touchpad and a mouse are present; the shell's pointer
+    /// settings depend on both.
+    #[cfg(feature = "flutter")]
+    pub(super) fn pointer_kinds(&self) -> (bool, bool) {
+        (!self.touchpads.is_empty(), !self.mice.is_empty())
+    }
+
+    pub(super) fn remove(&mut self, sysname: &str) {
+        self.keyboards.remove(sysname);
+        #[cfg(feature = "flutter")]
+        {
+            self.touchscreens.remove(sysname);
+            self.mice.remove(sysname);
+            self.touchpads.remove(sysname);
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) fingerprint: fingerprint_presentation::Controller,
+    #[cfg(feature = "flutter")]
+    pub(super) screen_off_touch: screen_off_touch::Filter,
+    #[cfg(feature = "flutter")]
+    pub(super) wifi_power_save: wifi_power_save::WifiPowerSave,
     pub(super) pending: HashSet<crtc::Handle>,
     pub(super) completed_page_flips: VecDeque<PageFlipCompletion>,
+    pub(super) presentation_timings: HashMap<crtc::Handle, presentation_clock::ModeTiming>,
     pub(super) scanout_rebased: bool,
     pub(super) error: Option<String>,
     pub(super) lifecycle: LifecycleState,
@@ -53,30 +120,26 @@ pub(super) struct RuntimeState {
     pub(super) flutter_input: flutter_runtime::InputQueue,
     #[cfg(feature = "flutter")]
     pub(super) touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
-    pub(super) keyboard_devices: BTreeMap<String, smithay::reexports::input::Device>,
     #[cfg(feature = "flutter")]
-    pub(super) mouse_devices: BTreeMap<String, smithay::reexports::input::Device>,
-    #[cfg(feature = "flutter")]
-    pub(super) touchpad_devices: BTreeMap<String, smithay::reexports::input::Device>,
+    pub(super) input_deck: input_deck::Controller,
+    pub(super) input_devices: InputDevices,
     #[cfg(feature = "flutter")]
     pub(super) input_device_capabilities_changed: bool,
     #[cfg(feature = "flutter")]
     pub(super) settings_external_change_pending: bool,
     #[cfg(feature = "flutter")]
-    pub(super) pending_window_events: PendingWindowEventQueue,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_unpublished_window_events: PendingWindowEventQueue,
+    pub(super) window_events: WindowEventState,
     #[cfg(feature = "flutter")]
     pub(super) pending_shell_actions: VecDeque<PendingShellAction>,
     pub(super) plugin_actions: plugin_actions::ActionCatalog,
+    /// The color tuning editor shows again once the restarted shell
+    /// publishes its actions.
+    #[cfg(feature = "flutter")]
+    pub(super) reopen_color_tuning: bool,
     #[cfg(feature = "flutter")]
     pub(super) pending_shortcut_launches: VecDeque<native_shortcut::ShortcutTarget>,
     #[cfg(feature = "flutter")]
     pub(super) pending_screenshot_selection: Option<OutputId>,
-    #[cfg(feature = "flutter")]
-    pub(super) published_window_ids: HashSet<u64>,
-    #[cfg(feature = "flutter")]
-    pub(super) restored_window_ids: BTreeSet<u64>,
     #[cfg(feature = "flutter")]
     pub(super) replacement_flutter_rehydration_pending: bool,
     #[cfg(feature = "flutter")]
@@ -92,19 +155,16 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) pending_notification_events: VecDeque<notification_server::NotificationEvent>,
     #[cfg(feature = "flutter")]
-    pub(super) pending_output_applies: VecDeque<PendingOutputApply>,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_output_confirmations: VecDeque<PendingOutputConfirmation>,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_settings_controls: VecDeque<PendingSettingsControl>,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_system_controls: VecDeque<PendingSystemControl>,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_software_dimming: VecDeque<PendingSoftwareDimming>,
-    #[cfg(feature = "flutter")]
-    pub(super) pending_system_control_waits: VecDeque<PendingSystemControlWait>,
+    pub(super) control: ControlRequests,
     #[cfg(feature = "flutter")]
     pub(super) pending_orientation: Option<orientation_sensor::Orientation>,
+    /// Power plus Volume Down asked for a full-screen screenshot.
+    #[cfg(feature = "flutter")]
+    pub(super) screenshot_requested: bool,
+    #[cfg(feature = "flutter")]
+    pub(super) text_prediction: Option<text_prediction::TextPredictionService>,
+    #[cfg(feature = "flutter")]
+    pub(super) pending_text_prediction: Option<wire::TextPrediction>,
     #[cfg(feature = "flutter")]
     pub(super) lid: lid_switch::LidSwitch,
     #[cfg(feature = "flutter")]
@@ -114,19 +174,79 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) dpms_topology: dpms::DpmsTopologyGuard,
     #[cfg(feature = "flutter")]
-    pub(super) sleep_transition: sleep_transition::SleepTransitionState,
+    pub(super) ambient_display: ambient_display::AmbientDisplay,
     #[cfg(feature = "flutter")]
-    pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
+    pub(super) sleep_transition: sleep_transition::SleepTransitionState,
     #[cfg(feature = "flutter")]
     pub(super) idle_policy: idle_policy::IdlePolicy,
     #[cfg(feature = "flutter")]
     pub(super) power_button: idle_policy::PowerButton,
     #[cfg(feature = "flutter")]
-    pub(super) wake_gesture_outputs: BTreeSet<String>,
+    /// KEY_WAKEUP was pressed since the last frame.
+    pub(super) wake_key_pressed: bool,
 }
 
 #[cfg(feature = "flutter")]
 impl RuntimeState {
+    /// Takes one control-socket request. Shell commands are answered at
+    /// once; the rest wait for the loop stage that serves them.
+    pub(super) fn receive_control(&mut self, event: ControlEvent) {
+        let control = &mut self.control;
+        match event {
+            ControlEvent::OutputApply(request) => control.output_applies.push_back(request),
+            ControlEvent::OutputConfirmation(request) => {
+                control.output_confirmations.push_back(request);
+            }
+            ControlEvent::Settings(request) => control.settings.push_back(request),
+            ControlEvent::SystemControl(request) => control.system.push_back(request),
+            ControlEvent::SoftwareDimming(request) => control.software_dimming.push_back(request),
+            ControlEvent::UiDevelopment(request) => control.ui_development.push_back(request),
+            ControlEvent::RepaintOutputs => control.repaint_outputs = true,
+            ControlEvent::RepaintApp(app_id) => control.repaint_apps.push(app_id),
+            ControlEvent::RebuildOutputs => {
+                info!("rebuilding output pools for a display color change");
+                self.kms_reconfigure_requested = true;
+                self.topology_dirty = true;
+            }
+            ControlEvent::OpenColorTuning => {
+                if !self
+                    .plugin_actions
+                    .queue(crate::plugin_actions::COLOR_TUNING_ACTION.to_owned(), None)
+                {
+                    warn!("the shell has no color tuning editor");
+                }
+            }
+            ControlEvent::ReopenColorTuning => self.reopen_color_tuning = true,
+            ControlEvent::SaveColor(change) => {
+                let settings = &mut self.frontend_mut().settings;
+                let color = settings.color().clone().with(change);
+                if color != *settings.color()
+                    && let Err(error) = settings
+                        .prepare_color_update(settings.revision(), color)
+                        .and_then(|prepared| settings.commit(prepared))
+                {
+                    warn!(%error, "could not save the display color settings");
+                }
+            }
+            ControlEvent::Shell(request) => {
+                let result = if self.secure_session_locked() {
+                    Err(OutputControlFailure::new(
+                        "locked",
+                        "shell commands are unavailable while the secure session is locked",
+                    ))
+                } else {
+                    match request.command {
+                        ShellControlCommand::OpenWallpaper => {
+                            self.queue_shell_action(wire::ShellAction::Wallpaper, None)
+                        }
+                    }
+                    Ok(())
+                };
+                request.reply(result);
+            }
+        }
+    }
+
     pub(super) fn secure_session_locked(&self) -> bool {
         self.session_lock_applied
             || self
@@ -214,9 +334,9 @@ impl RuntimeState {
     /// set with its first window snapshot and can suppress entrance effects
     /// without changing lasting animation policy for those windows.
     pub(super) fn begin_replacement_flutter_generation(&mut self, size: PixelSize) {
-        self.restored_window_ids.clear();
-        self.restored_window_ids
-            .extend(self.published_window_ids.drain());
+        let windows = &mut self.window_events;
+        windows.restored_ids.clear();
+        windows.restored_ids.extend(windows.published_ids.drain());
         self.flutter_input.resize(size);
         let restore_shell_focus = self
             .wayland
@@ -228,8 +348,8 @@ impl RuntimeState {
         self.synchronize_flutter_pointer_position();
         self.flutter_channel_closed = false;
         self.scene_sync.invalidate_runtime();
-        self.pending_window_events.clear();
-        self.pending_unpublished_window_events.clear();
+        self.window_events.pending.clear();
+        self.window_events.unpublished.clear();
         // The replacement engine can accept platform messages before its
         // widget tree has subscribed to broadcast event streams. The first
         // fresh InputLayout is the generation-ready acknowledgement: it is
@@ -257,7 +377,12 @@ impl RuntimeState {
             },
         );
         if let Some(window_focus) = window_focus {
-            self.pending_window_events.push(window_focus);
+            self.window_events.pending.push(window_focus);
+        }
+        if let Some(server) = &self.notification_server
+            && !server.replay()
+        {
+            warn!("could not queue the notification replay for the new shell");
         }
         for (monitor_id, workspace_id) in workspace_states {
             self.queue_workspace_action(monitor_id, workspace_id);
@@ -265,6 +390,7 @@ impl RuntimeState {
     }
 
     pub(super) fn note_user_activity(&mut self) {
+        crate::cpu_scheduling::note_interaction();
         let requests = self.idle_policy.note_activity(Instant::now());
         self.queue_idle_power_requests(requests);
         if let Some(frontend) = self.wayland.as_mut() {
@@ -291,6 +417,16 @@ pub(super) struct PendingShellAction {
 }
 
 impl RuntimeState {
+    /// The Wayland frontend, for code that only runs once it exists: Wayland
+    /// requests and the work they cause.
+    pub(super) fn frontend(&self) -> &wayland_frontend::WaylandFrontend {
+        self.wayland.as_ref().expect("missing Wayland frontend")
+    }
+
+    pub(super) fn frontend_mut(&mut self) -> &mut wayland_frontend::WaylandFrontend {
+        self.wayland.as_mut().expect("missing Wayland frontend")
+    }
+
     pub(super) fn client_activation_permitted(&self) -> bool {
         #[cfg(feature = "flutter")]
         {

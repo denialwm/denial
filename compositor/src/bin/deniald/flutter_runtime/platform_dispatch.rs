@@ -16,10 +16,7 @@ impl FlutterRuntime {
             {
                 continue;
             }
-            self.host()
-                .engine()
-                .unregister_external_texture(texture_id)?;
-            self.handler.remove_external_texture_source(texture_id);
+            self.unregister_external_texture(texture_id)?;
             self.pending_frame_texture_ids
                 .retain(|pending| *pending != texture_id);
             self.registered_external_textures.remove(&texture_id);
@@ -77,6 +74,16 @@ impl FlutterRuntime {
         // a lock request cannot be followed by one last unredacted read.
         self.clipboard
             .set_locked(self.authentication.security_gate_locked());
+        if message.channel == crate::input_deck::CONTROL_CHANNEL {
+            crate::input_deck::enqueue(&mut self.input_deck_commands, &message.data);
+            self.host().respond(&mut message, &[])?;
+            return Ok(());
+        }
+        if message.channel == "denial/animation" {
+            crate::cpu_scheduling::note_animation(message.data.first() == Some(&1));
+            self.host().respond(&mut message, &[])?;
+            return Ok(());
+        }
         if message.channel == "denial/haptics" {
             let result = self.authentication.handle_haptics_packet(&message.data);
             self.host().respond(&mut message, &[])?;
@@ -214,9 +221,15 @@ impl FlutterRuntime {
                 Err(error) => warn!(%error, "rejected Denial idle policy from Flutter"),
             }
         } else if message.channel.as_bytes() == idle_policy::DISPLAY_POWER_CHANNEL.to_bytes() {
-            match idle_policy::decode_display_power_off(&message.data) {
-                Ok(()) => self.pending_dpms_off = true,
+            match idle_policy::decode_display_power(&message.data) {
+                Ok(request) => self.pending_display_power = Some(request),
                 Err(error) => warn!(%error, "rejected Denial display-power request from Flutter"),
+            }
+        } else if message.channel.as_bytes() == ambient_display::CHANNEL.to_bytes() {
+            if ambient_display::decode_ready(&message.data) {
+                self.pending_ambient_display_ready = true;
+            } else {
+                warn!("rejected malformed always-on display message from Flutter");
             }
         } else if message.channel.as_bytes() == WINDOW_CLOSE_COMPLETE_CHANNEL.to_bytes() {
             match decode_window_close_complete(&message.data) {
@@ -246,8 +259,43 @@ impl FlutterRuntime {
             .expect("Flutter runtime is shutting down")
     }
 
-    pub fn shutdown(mut self) -> Result<(), EngineError> {
+    /// Unregisters one external texture and returns its producer buffers
+    /// without waiting for the engine to retire its last image of them.
+    /// Impeller GLES retires that image only when a later frame is rendered,
+    /// which a still screen can postpone indefinitely while the producer
+    /// waits for the buffer.
+    pub(super) fn unregister_external_texture(
+        &self,
+        texture_id: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self.host().engine();
+        engine.unregister_external_texture(texture_id)?;
+        self.handler.remove_external_texture_source(texture_id);
+        let buffers = self.handler.take_leased_buffers(texture_id);
+        if buffers.is_empty() {
+            return Ok(());
+        }
+        let handler = Arc::downgrade(&self.handler);
+        if let Err(error) = engine.post_render_thread_task(Box::new(move || {
+            if let Some(handler) = handler.upgrade() {
+                handler.release_unregistered_buffers(buffers);
+            }
+        })) {
+            // The engine images keep their buffers until Flutter retires them.
+            warn!(%error, texture_id, "could not release an unregistered texture's buffers");
+        }
+        Ok(())
+    }
+
+    /// Stops the engine and releases its resources; the runtime stays inert
+    /// afterwards, so a replacement can be installed in its place.
+    pub fn shutdown(&mut self) -> Result<(), EngineError> {
         self.shutdown_engine()
+    }
+
+    /// False once the engine has been shut down.
+    pub fn is_running(&self) -> bool {
+        self.host.is_some()
     }
 
     pub(super) fn shutdown_engine(&mut self) -> Result<(), EngineError> {

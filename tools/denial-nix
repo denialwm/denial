@@ -18,12 +18,16 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+# The engine source download can push the store under Nix's min-free and start
+# an automatic collection, so the tools stay behind a reused GC root.
 ensure_nix_maintenance_tools() {
   local tools_path
+  local tools_root="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/nix-maintenance-tools"
   require_command nix
+  mkdir -p -- "$(dirname -- "$tools_root")"
   tools_path="$(
     nix build "$ROOT#denial-nix-maintenance-tools" \
-      --no-link --print-out-paths
+      --out-link "$tools_root" --print-out-paths
   )"
   JQ="$tools_path/bin/jq"
   YQ_GO="$tools_path/bin/yq"
@@ -315,7 +319,7 @@ refresh_engine_lock() {
   replace_engine_lock '.engine.source_hash = $hash' --arg hash "$engine_hash"
 
   nix build "$ROOT#denial-flutter-framework-source" \
-    "$ROOT#denial-flutter-engine-source" --no-link --print-build-logs
+    "$ROOT#denial-flutter-engine-source" --no-link
   verify_engine_lock
   rm -f -- "$DENIAL_NIX_LOCK_BACKUP"
   trap - EXIT

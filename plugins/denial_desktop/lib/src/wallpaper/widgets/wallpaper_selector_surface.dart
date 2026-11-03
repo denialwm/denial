@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/models.dart';
-import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
@@ -20,6 +19,7 @@ import 'wallpaper_search_controls.dart';
 import 'wallpaper_span_controls.dart';
 import 'wallpaper_strip.dart';
 import 'wallpaper_target_selector.dart';
+import '../../state/phone_desk.dart';
 
 class WallpaperSelectorOverlay extends StatelessWidget {
   const WallpaperSelectorOverlay({
@@ -177,7 +177,7 @@ class _WallpaperSelectorSurfaceState
     final target = wallpaperState.target;
     final targetPixelSize = wallpaperState.targetPixelSize;
     final outputs =
-        ref.read(displayLayoutProvider)?.outputs ?? const <DisplayOutput>[];
+        ref.read(deskDisplayLayoutProvider)?.outputs ?? const <DisplayOutput>[];
     final revealOriginFraction = _revealOriginFraction(
       globalOrigin,
       target,
@@ -359,7 +359,7 @@ class _WallpaperSelectorSurfaceState
     );
     final l10n = context.l10n;
     final state = ref.watch(wallpaperControllerProvider);
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final displayLayout = ref.watch(deskDisplayLayoutProvider);
     final outputs = displayLayout?.outputs ?? const <DisplayOutput>[];
     final candidates = state.candidates;
     if (_focusedIndex >= candidates.length && candidates.isNotEmpty) {

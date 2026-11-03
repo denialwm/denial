@@ -25,7 +25,7 @@ use denial_core::topology::OutputTransform;
 
 use super::window_layout::WindowLayoutKind;
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 28;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 30;
 pub(super) const MIN_WORKSPACE_COUNT: u8 = 2;
 pub(super) const MAX_WORKSPACE_COUNT: u8 = 9;
 pub(super) const DEFAULT_WORKSPACE_COUNT: u8 = 4;
@@ -453,12 +453,15 @@ impl KeyboardSettings {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct MouseSettings {
     pub(super) speed: f64,
+    /// libinput's adaptive profile when on, its flat profile when off.
+    pub(super) acceleration_enabled: bool,
 }
 
 impl Default for MouseSettings {
     fn default() -> Self {
         Self {
             speed: DEFAULT_MOUSE_SPEED,
+            acceleration_enabled: true,
         }
     }
 }
@@ -601,6 +604,139 @@ impl From<serde_json::Error> for SettingsError {
     }
 }
 
+const MAX_SAVED_APP_LUTS: usize = 64;
+const MAX_SAVED_APP_GRADES: usize = 64;
+const MAX_SAVED_HDR_OUTPUTS: usize = 16;
+const MAX_SAVED_NAME_BYTES: usize = 255;
+
+/// The display color deniald restores at start. `denialctl color` changes
+/// save it; the shell cannot replace it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub(super) struct ColorSettings {
+    pub(super) correction: bool,
+    pub(super) desktop_lut: Option<PathBuf>,
+    pub(super) app_luts: BTreeMap<String, PathBuf>,
+    /// The tuning editor's grades over those LUTs.
+    pub(super) desktop_grade: Option<super::color_grade::Grade>,
+    pub(super) app_grades: BTreeMap<String, super::color_grade::Grade>,
+    /// Per connector name.
+    pub(super) hdr: BTreeMap<String, super::output_color::HdrMode>,
+}
+
+impl Default for ColorSettings {
+    fn default() -> Self {
+        Self {
+            correction: true,
+            desktop_lut: None,
+            app_luts: BTreeMap::new(),
+            desktop_grade: None,
+            app_grades: BTreeMap::new(),
+            hdr: BTreeMap::new(),
+        }
+    }
+}
+
+/// One change to the saved display color.
+#[derive(Debug)]
+pub(super) enum ColorChange {
+    Correction(bool),
+    DesktopLut(Option<PathBuf>),
+    AppLut(String, Option<PathBuf>),
+    /// None for a neutral grade.
+    DesktopGrade(Option<super::color_grade::Grade>),
+    AppGrade(String, Option<super::color_grade::Grade>),
+    Hdr(String, Option<super::output_color::HdrMode>),
+}
+
+impl ColorSettings {
+    pub(super) fn with(mut self, change: ColorChange) -> Self {
+        match change {
+            ColorChange::Correction(enabled) => self.correction = enabled,
+            ColorChange::DesktopLut(path) => self.desktop_lut = path,
+            ColorChange::AppLut(app_id, Some(path)) => {
+                self.app_luts.insert(app_id, path);
+            }
+            ColorChange::AppLut(app_id, None) => {
+                self.app_luts.remove(&app_id);
+            }
+            ColorChange::DesktopGrade(grade) => self.desktop_grade = grade,
+            ColorChange::AppGrade(app_id, Some(grade)) => {
+                self.app_grades.insert(app_id, grade);
+            }
+            ColorChange::AppGrade(app_id, None) => {
+                self.app_grades.remove(&app_id);
+            }
+            ColorChange::Hdr(output, Some(mode)) => {
+                self.hdr.insert(output, mode);
+            }
+            ColorChange::Hdr(output, None) => {
+                self.hdr.remove(&output);
+            }
+        }
+        self
+    }
+
+    fn validate(&self) -> Result<(), SettingsError> {
+        let invalid = |message: String| Err(SettingsError::Document(message));
+        if self.app_luts.len() > MAX_SAVED_APP_LUTS {
+            return invalid(format!("color.appLuts exceeds {MAX_SAVED_APP_LUTS} apps"));
+        }
+        if self.hdr.len() > MAX_SAVED_HDR_OUTPUTS {
+            return invalid(format!("color.hdr exceeds {MAX_SAVED_HDR_OUTPUTS} outputs"));
+        }
+        if self.app_grades.len() > MAX_SAVED_APP_GRADES {
+            return invalid(format!(
+                "color.appGrades exceeds {MAX_SAVED_APP_GRADES} apps"
+            ));
+        }
+        let grades = self.desktop_grade.iter().chain(self.app_grades.values());
+        for grade in grades {
+            grade
+                .validate()
+                .map_err(|error| SettingsError::Document(format!("color grade: {error}")))?;
+        }
+        let mut names = self
+            .app_luts
+            .keys()
+            .chain(self.app_grades.keys())
+            .chain(self.hdr.keys());
+        if let Some(name) = names.find(|name| name.is_empty() || name.len() > MAX_SAVED_NAME_BYTES)
+        {
+            return invalid(format!("color has an invalid app or output name {name:?}"));
+        }
+        let mut paths = self.desktop_lut.iter().chain(self.app_luts.values());
+        if let Some(path) = paths.find(|path| !path.is_absolute()) {
+            return invalid(format!("color LUT path {} is not absolute", path.display()));
+        }
+        let range = super::output_color::SDR_WHITE_RANGE;
+        if let Some((output, mode)) = self
+            .hdr
+            .iter()
+            .find(|(_, mode)| !range.contains(&mode.white))
+        {
+            return invalid(format!(
+                "color.hdr.{output} SDR white {} is outside {}..={} cd/m²",
+                mode.white,
+                range.start(),
+                range.end()
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The document sections deniald applies itself, parsed into their types.
+#[derive(Clone)]
+struct TypedSettings {
+    keyboard: KeyboardSettings,
+    mouse: MouseSettings,
+    touchpad: TouchpadSettings,
+    color: ColorSettings,
+    color_scheme_preference: DesktopColorSchemePreference,
+    allow_client_cursor_surfaces: bool,
+}
+
 pub(super) struct SettingsManager {
     application_theming: Option<super::application_theming::ApplicationTheming>,
     pub(super) rotation_lock_supported: bool,
@@ -608,11 +744,7 @@ pub(super) struct SettingsManager {
     path: PathBuf,
     document: Map<String, Value>,
     revision: u64,
-    keyboard: KeyboardSettings,
-    mouse: MouseSettings,
-    touchpad: TouchpadSettings,
-    color_scheme_preference: DesktopColorSchemePreference,
-    allow_client_cursor_surfaces: bool,
+    typed: TypedSettings,
     /// Exact bytes last observed or committed by deniald. This catches an
     /// editor changing the file while the session is live, even if it forgets
     /// to update the human-visible revision field.
@@ -639,11 +771,7 @@ impl SettingsManager {
                         path,
                         document: parsed.document,
                         revision: parsed.revision,
-                        keyboard: parsed.keyboard,
-                        mouse: parsed.mouse,
-                        touchpad: parsed.touchpad,
-                        color_scheme_preference: parsed.color_scheme_preference,
-                        allow_client_cursor_surfaces: parsed.allow_client_cursor_surfaces,
+                        typed: parsed.typed,
                         persisted_bytes: existing,
                     };
                     if parsed.migrated
@@ -659,15 +787,7 @@ impl SettingsManager {
             }
         }
 
-        let (
-            document,
-            revision,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
-        ) = default_document();
+        let (document, revision, typed) = default_document();
         let mut manager = Self {
             application_theming: None,
             rotation_lock_supported: false,
@@ -675,11 +795,7 @@ impl SettingsManager {
             path,
             document,
             revision,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
+            typed,
             persisted_bytes: existing,
         };
         if manager.persisted_bytes.is_none()
@@ -699,23 +815,27 @@ impl SettingsManager {
     }
 
     pub(super) fn keyboard(&self) -> &KeyboardSettings {
-        &self.keyboard
+        &self.typed.keyboard
     }
 
     pub(super) fn mouse(&self) -> &MouseSettings {
-        &self.mouse
+        &self.typed.mouse
     }
 
     pub(super) fn touchpad(&self) -> &TouchpadSettings {
-        &self.touchpad
+        &self.typed.touchpad
+    }
+
+    pub(super) fn color(&self) -> &ColorSettings {
+        &self.typed.color
     }
 
     pub(super) fn theme_snapshot(&self) -> DesktopThemeSnapshot {
-        DesktopThemeSnapshot::new(self.revision, self.color_scheme_preference)
+        DesktopThemeSnapshot::new(self.revision, self.typed.color_scheme_preference)
     }
 
     pub(super) fn allow_client_cursor_surfaces(&self) -> bool {
-        self.allow_client_cursor_surfaces
+        self.typed.allow_client_cursor_surfaces
     }
 
     pub(super) fn cursor_size(&self) -> u32 {
@@ -739,6 +859,16 @@ impl SettingsManager {
 
     pub(super) fn scrolling_layout_wheel_settings(&self) -> ScrollingLayoutWheelSettings {
         parse_scrolling_layout_wheel_settings(&self.document).unwrap_or_default()
+    }
+
+    /// The lock screen offers the fingerprint unless the user turned it off.
+    pub(super) fn fingerprint_unlock(&self) -> bool {
+        self.document
+            .get("lockScreen")
+            .and_then(Value::as_object)
+            .and_then(|lock| lock.get("fingerprintUnlock"))
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
     }
 
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
@@ -767,7 +897,7 @@ impl SettingsManager {
             "keyboard".to_owned(),
             serde_json::to_value(&keyboard).expect("default keyboard settings serialize"),
         );
-        self.keyboard = keyboard;
+        self.typed.keyboard = keyboard;
     }
 
     pub(super) fn prepare_shell_update(
@@ -814,19 +944,26 @@ impl SettingsManager {
         incoming.remove("keyboard");
         incoming.remove("mouse");
         incoming.remove("touchpad");
+        incoming.remove("color");
         incoming.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
         incoming.insert("revision".to_owned(), Value::from(self.next_revision()?));
         incoming.insert(
             "keyboard".to_owned(),
-            serde_json::to_value(&self.keyboard).expect("validated keyboard settings serialize"),
+            serde_json::to_value(&self.typed.keyboard)
+                .expect("validated keyboard settings serialize"),
         );
         incoming.insert(
             "mouse".to_owned(),
-            serde_json::to_value(&self.mouse).expect("validated mouse settings serialize"),
+            serde_json::to_value(&self.typed.mouse).expect("validated mouse settings serialize"),
         );
         incoming.insert(
             "touchpad".to_owned(),
-            serde_json::to_value(&self.touchpad).expect("validated touchpad settings serialize"),
+            serde_json::to_value(&self.typed.touchpad)
+                .expect("validated touchpad settings serialize"),
+        );
+        incoming.insert(
+            "color".to_owned(),
+            serde_json::to_value(&self.typed.color).expect("validated color settings serialize"),
         );
         let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
         let allow_client_cursor_surfaces = parse_allow_client_cursor_surfaces(&incoming)?;
@@ -838,11 +975,11 @@ impl SettingsManager {
         parse_workspace_settings(&incoming)?;
         self.prepare(
             incoming,
-            self.keyboard.clone(),
-            self.mouse.clone(),
-            self.touchpad.clone(),
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
+            TypedSettings {
+                color_scheme_preference,
+                allow_client_cursor_surfaces,
+                ..self.typed.clone()
+            },
         )
     }
 
@@ -883,11 +1020,10 @@ impl SettingsManager {
         );
         self.prepare(
             document,
-            keyboard,
-            self.mouse.clone(),
-            self.touchpad.clone(),
-            self.color_scheme_preference,
-            self.allow_client_cursor_surfaces,
+            TypedSettings {
+                keyboard,
+                ..self.typed.clone()
+            },
         )
     }
 
@@ -906,11 +1042,10 @@ impl SettingsManager {
         );
         self.prepare(
             document,
-            self.keyboard.clone(),
-            self.mouse.clone(),
-            touchpad,
-            self.color_scheme_preference,
-            self.allow_client_cursor_surfaces,
+            TypedSettings {
+                touchpad,
+                ..self.typed.clone()
+            },
         )
     }
 
@@ -929,11 +1064,32 @@ impl SettingsManager {
         );
         self.prepare(
             document,
-            self.keyboard.clone(),
-            mouse,
-            self.touchpad.clone(),
-            self.color_scheme_preference,
-            self.allow_client_cursor_surfaces,
+            TypedSettings {
+                mouse,
+                ..self.typed.clone()
+            },
+        )
+    }
+
+    pub(super) fn prepare_color_update(
+        &self,
+        expected_revision: u64,
+        color: ColorSettings,
+    ) -> Result<PreparedSettingsUpdate, SettingsError> {
+        self.check_revision(expected_revision)?;
+        color.validate()?;
+        let mut document = self.document.clone();
+        document.insert("revision".to_owned(), Value::from(self.next_revision()?));
+        document.insert(
+            "color".to_owned(),
+            serde_json::to_value(&color).expect("validated color settings serialize"),
+        );
+        self.prepare(
+            document,
+            TypedSettings {
+                color,
+                ..self.typed.clone()
+            },
         )
     }
 
@@ -952,43 +1108,14 @@ impl SettingsManager {
             return Ok(None);
         }
 
-        let (
-            mut document,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
-        ) = match observed.as_deref() {
+        let (mut document, typed) = match observed.as_deref() {
             Some(bytes) => {
                 let parsed = parse_document(bytes)?;
-                (
-                    parsed.document,
-                    parsed.keyboard,
-                    parsed.mouse,
-                    parsed.touchpad,
-                    parsed.color_scheme_preference,
-                    parsed.allow_client_cursor_surfaces,
-                )
+                (parsed.document, parsed.typed)
             }
             None => {
-                let (
-                    document,
-                    _,
-                    keyboard,
-                    mouse,
-                    touchpad,
-                    color_scheme_preference,
-                    allow_client_cursor_surfaces,
-                ) = default_document();
-                (
-                    document,
-                    keyboard,
-                    mouse,
-                    touchpad,
-                    color_scheme_preference,
-                    allow_client_cursor_surfaces,
-                )
+                let (document, _, typed) = default_document();
+                (document, typed)
             }
         };
         // Live editor changes have the same freeze-current semantics as a
@@ -997,19 +1124,10 @@ impl SettingsManager {
         self.capture_rotation_lock(&mut document)?;
         // Grammar validation is not enough for an external keymap edit. Do
         // the installed-XKB preflight before any live input state is changed.
-        keyboard.compiled_layout_names()?;
+        typed.keyboard.compiled_layout_names()?;
         document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
         document.insert("revision".to_owned(), Value::from(self.next_revision()?));
-        self.prepare_against(
-            document,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
-            observed,
-        )
-        .map(Some)
+        self.prepare_against(document, typed, observed).map(Some)
     }
 
     pub(super) fn commit(
@@ -1028,11 +1146,7 @@ impl SettingsManager {
         prepared.committed = true;
         self.document = std::mem::take(&mut prepared.document);
         self.revision = prepared.revision;
-        self.keyboard = std::mem::take(&mut prepared.keyboard);
-        self.mouse = std::mem::take(&mut prepared.mouse);
-        self.touchpad = std::mem::take(&mut prepared.touchpad);
-        self.color_scheme_preference = prepared.color_scheme_preference;
-        self.allow_client_cursor_surfaces = prepared.allow_client_cursor_surfaces;
+        std::mem::swap(&mut self.typed, &mut prepared.typed);
         self.persisted_bytes = Some(std::mem::take(&mut prepared.bytes));
         // Rename is the transaction's point of no return. Keep memory and the
         // live keyboard aligned with the renamed file even on filesystems
@@ -1066,31 +1180,15 @@ impl SettingsManager {
     fn prepare(
         &self,
         document: Map<String, Value>,
-        keyboard: KeyboardSettings,
-        mouse: MouseSettings,
-        touchpad: TouchpadSettings,
-        color_scheme_preference: DesktopColorSchemePreference,
-        allow_client_cursor_surfaces: bool,
+        typed: TypedSettings,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
-        self.prepare_against(
-            document,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
-            self.persisted_bytes.clone(),
-        )
+        self.prepare_against(document, typed, self.persisted_bytes.clone())
     }
 
     fn prepare_against(
         &self,
         mut document: Map<String, Value>,
-        keyboard: KeyboardSettings,
-        mouse: MouseSettings,
-        touchpad: TouchpadSettings,
-        color_scheme_preference: DesktopColorSchemePreference,
-        allow_client_cursor_surfaces: bool,
+        typed: TypedSettings,
         expected_disk_bytes: Option<Vec<u8>>,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         let application_environment = ApplicationEnvironment::from_document(&document)?;
@@ -1106,11 +1204,7 @@ impl SettingsManager {
             temporary,
             document,
             revision,
-            keyboard,
-            mouse,
-            touchpad,
-            color_scheme_preference,
-            allow_client_cursor_surfaces,
+            typed,
             bytes,
             expected_disk_bytes,
             committed: false,
@@ -1138,11 +1232,7 @@ pub(super) struct PreparedSettingsUpdate {
     temporary: PathBuf,
     document: Map<String, Value>,
     revision: u64,
-    keyboard: KeyboardSettings,
-    mouse: MouseSettings,
-    touchpad: TouchpadSettings,
-    color_scheme_preference: DesktopColorSchemePreference,
-    allow_client_cursor_surfaces: bool,
+    typed: TypedSettings,
     bytes: Vec<u8>,
     expected_disk_bytes: Option<Vec<u8>>,
     committed: bool,
@@ -1150,15 +1240,15 @@ pub(super) struct PreparedSettingsUpdate {
 
 impl PreparedSettingsUpdate {
     pub(super) fn keyboard(&self) -> &KeyboardSettings {
-        &self.keyboard
+        &self.typed.keyboard
     }
 
     pub(super) fn mouse(&self) -> &MouseSettings {
-        &self.mouse
+        &self.typed.mouse
     }
 
     pub(super) fn touchpad(&self) -> &TouchpadSettings {
-        &self.touchpad
+        &self.typed.touchpad
     }
 }
 
@@ -1173,11 +1263,7 @@ impl Drop for PreparedSettingsUpdate {
 struct ParsedSettingsDocument {
     document: Map<String, Value>,
     revision: u64,
-    keyboard: KeyboardSettings,
-    mouse: MouseSettings,
-    touchpad: TouchpadSettings,
-    color_scheme_preference: DesktopColorSchemePreference,
-    allow_client_cursor_surfaces: bool,
+    typed: TypedSettings,
     application_environment: ApplicationEnvironment,
     migrated: bool,
 }
@@ -1350,6 +1436,11 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         None => TouchpadSettings::default(),
     };
     touchpad.validate()?;
+    let color = match document.get("color") {
+        Some(value) => serde_json::from_value::<ColorSettings>(value.clone())?,
+        None => ColorSettings::default(),
+    };
+    color.validate()?;
     let had_application_environment = document.contains_key("applicationEnvironment");
     let application_environment = ApplicationEnvironment::from_document(&document)?;
     application_environment.write_to_document(&mut document);
@@ -1431,6 +1522,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         WorkspaceSettings::default()
     };
     set_workspace_settings(&mut document, workspace_settings)?;
+    migrate_idle_timeouts(&mut document);
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
@@ -1458,33 +1550,33 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("validated touchpad settings serialize"),
     );
+    document.insert(
+        "color".to_owned(),
+        serde_json::to_value(&color).expect("validated color settings serialize"),
+    );
     parse_rotation_lock(&document)?;
     Ok(ParsedSettingsDocument {
         document,
         revision,
-        keyboard,
-        mouse,
-        touchpad,
-        color_scheme_preference,
-        allow_client_cursor_surfaces,
+        typed: TypedSettings {
+            keyboard,
+            mouse,
+            touchpad,
+            color,
+            color_scheme_preference,
+            allow_client_cursor_surfaces,
+        },
         application_environment,
         migrated,
     })
 }
 
-fn default_document() -> (
-    Map<String, Value>,
-    u64,
-    KeyboardSettings,
-    MouseSettings,
-    TouchpadSettings,
-    DesktopColorSchemePreference,
-    bool,
-) {
+fn default_document() -> (Map<String, Value>, u64, TypedSettings) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
     let mouse = MouseSettings::default();
     let touchpad = TouchpadSettings::default();
+    let color = ColorSettings::default();
     let color_scheme_preference = DesktopColorSchemePreference::PreferDark;
     let allow_client_cursor_surfaces = true;
     let mut document = Map::new();
@@ -1501,6 +1593,10 @@ fn default_document() -> (
     document.insert(
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("default touchpad settings serialize"),
+    );
+    document.insert(
+        "color".to_owned(),
+        serde_json::to_value(&color).expect("default color settings serialize"),
     );
     ApplicationEnvironment::default().write_to_document(&mut document);
     set_color_scheme_preference(&mut document, color_scheme_preference)
@@ -1522,15 +1618,15 @@ fn default_document() -> (
         .and_then(Value::as_object_mut)
         .expect("default layout is an object")
         .insert("systemBarSide".to_owned(), Value::String("top".to_owned()));
-    (
-        document,
-        revision,
+    let typed = TypedSettings {
         keyboard,
         mouse,
         touchpad,
+        color,
         color_scheme_preference,
         allow_client_cursor_surfaces,
-    )
+    };
+    (document, revision, typed)
 }
 
 fn parse_color_scheme_preference(
@@ -1551,6 +1647,22 @@ fn parse_color_scheme_preference(
             "unsupported appearance.colorSchemePreference {value:?}"
         ))
     })
+}
+
+/// Schema 30 counts the idle timeouts in seconds; earlier documents kept
+/// whole minutes.
+fn migrate_idle_timeouts(document: &mut Map<String, Value>) {
+    let Some(power) = document.get_mut("power").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for action in ["Lock", "Dpms", "Suspend"] {
+        let minutes = power.remove(&format!("idle{action}TimeoutMinutes"));
+        if let Some(minutes) = minutes.as_ref().and_then(Value::as_u64) {
+            power
+                .entry(format!("idle{action}TimeoutSeconds"))
+                .or_insert_with(|| Value::from(minutes.saturating_mul(60)));
+        }
+    }
 }
 
 fn set_color_scheme_preference(

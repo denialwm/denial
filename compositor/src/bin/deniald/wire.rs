@@ -24,6 +24,7 @@ use super::options::{
     WorkAreaOptions,
 };
 use super::settings::{KeyboardLayout, KeyboardSettings, MouseSettings, TouchpadSettings};
+use super::wayland_frontend::SoftwareKeyboardState;
 use super::xembed_tray_protocol::{
     XEmbedTrayAction, XEmbedTrayCommand, XEmbedTrayEvent, XEmbedTrayEventKind,
 };
@@ -93,6 +94,11 @@ const KEYBOARD_PRESSED: u32 = 1 << 1;
 const KEYBOARD_RELEASED: u32 = 1 << 2;
 const KEYBOARD_PHASE_MASK: u32 = KEYBOARD_PRESSED | KEYBOARD_RELEASED;
 const KEYBOARD_FLAGS_MASK: u32 = KEYBOARD_CTRL | KEYBOARD_PHASE_MASK;
+const MAX_KEYBOARD_PANEL_HEIGHT: u32 = 16_384;
+const MAX_KEYBOARD_PANEL_DURATION_MS: u32 = 10_000;
+/// Longest word the keyboard asks suggestions for, in characters.
+const MAX_PREDICTION_WORD_CHARS: usize = 64;
+const MAX_PREDICTION_SUGGESTIONS: usize = 16;
 
 pub const INPUT_LAYOUT_KEYBOARD_CAPTURE: u32 = 1 << 0;
 pub const INPUT_LAYOUT_EXCLUSIVE_SHELL: u32 = 1 << 1;
@@ -135,6 +141,10 @@ pub enum WindowCommand {
     Minimize {
         window_id: u64,
     },
+    /// The system Back action, as Android's navigation bar sends it.
+    NavigateBack {
+        window_id: u64,
+    },
     Configure {
         window_id: u64,
         geometry: WindowGeometry,
@@ -150,6 +160,11 @@ pub enum WindowCommand {
         monitor_id: Option<i64>,
         workspace_id: u8,
         follow: bool,
+    },
+    /// Between the phone and a desk output.
+    MoveToOutput {
+        window_id: u64,
+        monitor_id: i64,
     },
     /// Overview drop onto one workspace of an output, which may be hidden.
     /// `geometry` is the dragged preview in that workspace's own coordinates;
@@ -195,12 +210,53 @@ pub enum KeyboardCommand {
     DismissPanel {
         activation_serial: u64,
     },
+    /// The keyboard panel starts moving to `height` logical pixels, zero
+    /// when hidden, over `duration_ms`.
+    PanelMotion {
+        height: u32,
+        duration_ms: u32,
+    },
     Text(String),
     Key {
         key: String,
         ctrl: bool,
         phase: KeyboardKeyPhase,
     },
+    /// Replaces `replaced`, the text just before the cursor, with `text`.
+    Replace {
+        replaced: String,
+        text: String,
+    },
+}
+
+/// Pointer settings the shell edits, and whether a device of each kind exists.
+#[derive(Clone, Copy, Debug)]
+pub struct InputDeviceSettings<'a> {
+    pub has_touchpad: bool,
+    pub touchpad: &'a TouchpadSettings,
+    pub has_mouse: bool,
+    pub mouse: &'a MouseSettings,
+}
+
+/// The word the software keyboard is typing, for suggestions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextPredictionRequest {
+    pub serial: u64,
+    pub word: String,
+    /// One per character when present: where its key was hit, in key
+    /// pitches from the key's center.
+    pub touches: Vec<Option<(f32, f32)>>,
+    pub manual_capital: bool,
+}
+
+/// Suggestions for the newest [`TextPredictionRequest`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TextPrediction {
+    pub serial: u64,
+    pub word: String,
+    pub correction: Option<String>,
+    pub suggestions: Vec<String>,
+    pub languages: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -273,8 +329,10 @@ impl WindowCommand {
             Self::Close { window_id }
             | Self::Focus { window_id }
             | Self::Minimize { window_id }
+            | Self::NavigateBack { window_id }
             | Self::Configure { window_id, .. }
             | Self::MoveToWorkspace { window_id, .. }
+            | Self::MoveToOutput { window_id, .. }
             | Self::DropOnWorkspace { window_id, .. }
             | Self::PreviewWorkspaceDrop { window_id, .. } => Some(*window_id),
         }
@@ -318,6 +376,7 @@ pub enum ShellAction {
     FocusRight,
     FocusUp,
     FocusDown,
+    ScreenshotCaptured,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -355,6 +414,7 @@ impl ShellAction {
             Self::FocusRight => fb::ShellActionKind::FocusRight,
             Self::FocusUp => fb::ShellActionKind::FocusUp,
             Self::FocusDown => fb::ShellActionKind::FocusDown,
+            Self::ScreenshotCaptured => fb::ShellActionKind::ScreenshotCaptured,
         }
     }
 }
@@ -441,12 +501,28 @@ impl InputWindowRegion {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputEdge {
+    Left,
+    Right,
+    Top,
+}
+
+/// A touch starting in `rect` over a client stays with that client until it
+/// travels inward from `edge`; the shell then claims it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeSwipeRegion {
+    pub rect: InputRect,
+    pub edge: InputEdge,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InputLayoutSnapshot {
     pub epoch: u64,
     pub flags: u32,
     pub shell_regions: Vec<InputRect>,
     pub software_keyboard_regions: Vec<InputRect>,
+    pub edge_swipe_regions: Vec<EdgeSwipeRegion>,
     pub windows: Vec<InputWindowRegion>,
     pub visible_surface_ids: Vec<u64>,
 }
@@ -615,12 +691,41 @@ impl SurfaceRoleDescription {
     }
 }
 
+/// A native merged main-surface image; popups and input retain the real tree.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClientTextureDescription {
+    pub texture_id: u64,
+    pub width: u32,
+    pub height: u32,
+    pub source_width: f64,
+    pub source_height: f64,
+}
+
+impl ClientTextureDescription {
+    fn valid(self) -> bool {
+        self.texture_id > 0
+            && self.texture_id <= i64::MAX as u64
+            && self.width > 0
+            && self.width <= 8192
+            && self.height > 0
+            && self.height <= 8192
+            && u64::from(self.width) * u64::from(self.height) <= 32 * 1024 * 1024
+            && self.source_width.is_finite()
+            && self.source_height.is_finite()
+            && self.source_width > 0.0
+            && self.source_width <= f64::from(self.width)
+            && self.source_height > 0.0
+            && self.source_height <= f64::from(self.height)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowDescription {
     pub object_id: u64,
     pub surface_id: u64,
     pub window_id: u64,
     pub texture_id: u64,
+    pub client_texture: Option<ClientTextureDescription>,
     pub title: String,
     pub app_id: String,
     pub width: u32,
@@ -659,6 +764,9 @@ pub struct WindowDescription {
     /// What the shell knows of this layer surface if it is a desktop pet
     /// (denial-pet-v1).
     pub pet: Option<PetDescription>,
+    /// The client lays the window out around the on-screen keyboard
+    /// (denial-insets-v1), so the mobile shell does not lift it.
+    pub keyboard_inset: bool,
 }
 
 /// A desktop pet (denial-pet-v1) as the shell knows it. A held pet is drawn
@@ -762,6 +870,7 @@ pub struct WireBridge {
     input_layout_identities_scratch: HashSet<u64>,
     pending_window_commands: VecDeque<WindowCommand>,
     pending_keyboard_commands: VecDeque<KeyboardCommand>,
+    pending_text_prediction: Option<TextPredictionRequest>,
     pending_notification_commands: VecDeque<NotificationCommand>,
     pending_xembed_tray_commands: VecDeque<XEmbedTrayCommand>,
     pending_settings_commands: VecDeque<SettingsCommand>,
@@ -802,6 +911,7 @@ impl WireBridge {
             input_layout_identities_scratch: HashSet::new(),
             pending_window_commands: VecDeque::new(),
             pending_keyboard_commands: VecDeque::new(),
+            pending_text_prediction: None,
             pending_notification_commands: VecDeque::new(),
             pending_xembed_tray_commands: VecDeque::new(),
             pending_settings_commands: VecDeque::new(),
@@ -837,6 +947,11 @@ impl WireBridge {
 
     pub fn drain_keyboard_commands(&mut self) -> impl Iterator<Item = KeyboardCommand> + '_ {
         self.pending_keyboard_commands.drain(..)
+    }
+
+    /// The newest suggestion request; older ones are superseded.
+    pub fn take_text_prediction_request(&mut self) -> Option<TextPredictionRequest> {
+        self.pending_text_prediction.take()
     }
 
     pub fn drain_notification_commands(
@@ -962,6 +1077,12 @@ fn validate_windows(windows: &[WindowDescription]) -> Result<(), WireError> {
         if window.content_kind == WindowContentKind::LocalFlutter
             && (window.texture_id != 0 || !window.surfaces.is_empty())
         {
+            return Err(WireError::Payload);
+        }
+
+        if window.client_texture.is_some_and(|texture| {
+            !texture.valid() || window.content_kind != WindowContentKind::SurfaceTree
+        }) {
             return Err(WireError::Payload);
         }
 

@@ -14,35 +14,50 @@
 
 #[path = "cpu_scheduling/capacity.rs"]
 mod capacity;
+#[path = "cpu_scheduling/gpu_floor.rs"]
+mod gpu_floor;
+#[path = "cpu_scheduling/hints.rs"]
+mod hints;
 #[path = "cpu_scheduling/placement.rs"]
 mod placement;
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 #[cfg(feature = "flutter")]
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
-use std::sync::{Once, OnceLock};
-use std::time::Duration;
+use std::sync::{Condvar, Mutex, Once, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "flutter")]
 use denial_flutter_engine::sys;
 use tracing::{debug, info, warn};
-use zbus::blocking::connection::Builder as ConnectionBuilder;
 use zbus::blocking::{Connection, Proxy};
 
 const RTKIT_SERVICE: &str = "org.freedesktop.RealtimeKit1";
 const RTKIT_OBJECT: &str = "/org/freedesktop/RealtimeKit1";
 const RTKIT_INTERFACE: &str = "org.freedesktop.RealtimeKit1";
-const RTKIT_DBUS_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_RT_TIME_SOFT_US: libc::rlim_t = 200_000;
 const PREFERRED_NICE_LEVEL: libc::c_int = -10;
 const MAX_REGISTERED_PRIORITY_THREADS: usize = 8;
+/// How long the UI floor outlasts the last wanted frame, so content that
+/// updates at a steady pace below the refresh rate keeps it between frames.
+const UI_FLOOR_HOLD: Duration = Duration::from_millis(250);
+const PRIORITY_GUARD_INTERVAL: Duration = Duration::from_secs(5);
+/// Libraries name, place and lower a worker right after creating it, so the
+/// guard checks a thread until it is this old and never again after.
+const THREAD_SETTLE_AGE: Duration = Duration::from_secs(1);
 
 static INITIALIZE: Once = Once::new();
 
 static PRIORITY_GUARD_START: Once = Once::new();
+/// Whether any output is powered. The guard sleeps while none is, and checks
+/// the threads created meanwhile once one is powered on again.
+static OUTPUTS_VISIBLE: (Mutex<bool>, Condvar) = (Mutex::new(true), Condvar::new());
+/// Live threads the guard checked once they were settled.
+static SETTLED_THREADS: Mutex<BTreeSet<libc::pid_t>> = Mutex::new(BTreeSet::new());
 static RTKIT: OnceLock<RtKitClient> = OnceLock::new();
 static SCHEDULING_ENABLED: AtomicBool = AtomicBool::new(false);
 static RT_PRIORITY: AtomicI32 = AtomicI32::new(0);
@@ -53,6 +68,7 @@ static PRIORITY_THREAD_IDS: [AtomicI32; MAX_REGISTERED_PRIORITY_THREADS] =
     [const { AtomicI32::new(0) }; MAX_REGISTERED_PRIORITY_THREADS];
 static PRIORITY_THREAD_ROLES: [AtomicU8; MAX_REGISTERED_PRIORITY_THREADS] =
     [const { AtomicU8::new(PriorityRole::Unknown as u8) }; MAX_REGISTERED_PRIORITY_THREADS];
+static UI_FLOOR_RAISED: AtomicBool = AtomicBool::new(true);
 
 pub(super) fn initialize_placement() -> Option<String> {
     placement::initialize()
@@ -96,6 +112,14 @@ impl PriorityRole {
             Self::FlutterRaster => "flutter-raster",
             Self::Volition => "volition",
         }
+    }
+
+    /// Threads that request DENIAL_UI_CPU_MIN.
+    const fn has_ui_floor(self) -> bool {
+        matches!(
+            self,
+            Self::Compositor | Self::FlutterDisplay | Self::FlutterRaster
+        )
     }
 
     const fn from_code(code: u8) -> Self {
@@ -143,10 +167,9 @@ struct RtKitClient {
 
 impl RtKitClient {
     fn connect() -> zbus::Result<Self> {
-        let connection = ConnectionBuilder::system()?
-            .method_timeout(RTKIT_DBUS_TIMEOUT)
-            .build()?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection: crate::bus::blocking_system()?,
+        })
     }
 
     fn minimum_nice_level(&self) -> zbus::Result<libc::c_int> {
@@ -200,7 +223,122 @@ impl Drop for ThreadRegistration {
 /// RTKit, graphics drivers, Flutter, and Denial's persistent workers must be
 /// allowed to create their helper threads before the compositor is elevated.
 pub(super) fn initialize() {
-    INITIALIZE.call_once(initialize_once);
+    INITIALIZE.call_once(|| {
+        initialize_once();
+        hints::start();
+    });
+}
+
+/// Keyboard focus moved to the Wayland client with this PID, or to no client.
+pub(super) fn focus_changed(pid: Option<libc::pid_t>) {
+    hints::focus_changed(pid);
+}
+
+/// The user produced an input event.
+pub(super) fn note_interaction() {
+    hints::note_interaction();
+}
+
+/// Some output was powered on, or every output was powered off.
+pub(super) fn outputs_visible(visible: bool) {
+    let (state, changed) = &OUTPUTS_VISIBLE;
+    *state.lock().unwrap_or_else(PoisonError::into_inner) = visible;
+    changed.notify_all();
+}
+
+/// The shell started or stopped animating.
+pub(super) fn note_animation(active: bool) {
+    hints::note_animation(active);
+}
+
+/// Requests DENIAL_UI_CPU_MIN for the realtime frame threads only while the
+/// compositor produces frames. A floor acts whenever its thread runs, so each
+/// wake of an idle compositor, for a service or a timer, would otherwise raise
+/// its CPU cluster's clock and memory-bandwidth votes and drop them again a
+/// moment later.
+pub(super) struct UiFloor {
+    enabled: bool,
+    hold_until: Option<Instant>,
+}
+
+impl UiFloor {
+    /// Frame threads start with the floor; an idle compositor lowers it once
+    /// the hold expires.
+    pub(super) fn new(now: Instant) -> Self {
+        let enabled = capacity::configured().is_some_and(|minimum| minimum > 0);
+        if enabled {
+            info!(
+                hold_ms = UI_FLOOR_HOLD.as_millis() as u64,
+                "the UI CPU floor follows frame activity"
+            );
+        }
+        Self::with_state(enabled, now)
+    }
+
+    fn with_state(enabled: bool, now: Instant) -> Self {
+        Self {
+            enabled,
+            hold_until: enabled.then(|| hold_deadline(now)),
+        }
+    }
+
+    /// Called once per event-loop iteration, with whether any output wants
+    /// frames.
+    pub(super) fn update(&mut self, frames_wanted: bool, now: Instant) {
+        if let Some(raised) = self.transition(frames_wanted, now) {
+            set_ui_floor(raised);
+        }
+    }
+
+    fn transition(&mut self, frames_wanted: bool, now: Instant) -> Option<bool> {
+        if !self.enabled {
+            return None;
+        }
+        if frames_wanted {
+            return self
+                .hold_until
+                .replace(hold_deadline(now))
+                .is_none()
+                .then_some(true);
+        }
+        if self.hold_until.is_some_and(|until| now >= until) {
+            self.hold_until = None;
+            return Some(false);
+        }
+        None
+    }
+
+    /// A raised floor wakes the loop when its hold expires, so it never
+    /// outlives the frames into a long idle period.
+    pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        self.hold_until.map_or(timeout, |until| {
+            timeout.min(until.saturating_duration_since(now))
+        })
+    }
+}
+
+fn hold_deadline(now: Instant) -> Instant {
+    now.checked_add(UI_FLOOR_HOLD).unwrap_or(now)
+}
+
+fn set_ui_floor(raised: bool) {
+    let Some(minimum) = capacity::configured() else {
+        return;
+    };
+    UI_FLOOR_RAISED.store(raised, Ordering::Release);
+    let minimum = if raised { minimum } else { 0 };
+    for (thread, role) in PRIORITY_THREAD_IDS.iter().zip(&PRIORITY_THREAD_ROLES) {
+        let tid = thread.load(Ordering::Acquire);
+        if tid <= 0
+            || !PriorityRole::from_code(role.load(Ordering::Acquire)).has_ui_floor()
+            || !scheduler_policy(tid).is_ok_and(is_realtime_policy)
+        {
+            continue;
+        }
+        if let Err(error) = capacity::request_minimum(tid, minimum) {
+            debug!(tid, minimum, %error, "could not update the UI CPU capacity request");
+        }
+    }
 }
 
 fn initialize_once() {
@@ -321,7 +459,16 @@ fn start_priority_guard() {
             .spawn(|| {
                 normalize_current_worker("priority-guard");
                 loop {
-                    std::thread::sleep(Duration::from_secs(1));
+                    std::thread::sleep(PRIORITY_GUARD_INTERVAL);
+                    let (state, changed) = &OUTPUTS_VISIBLE;
+                    drop(
+                        changed
+                            .wait_while(
+                                state.lock().unwrap_or_else(PoisonError::into_inner),
+                                |visible| !*visible,
+                            )
+                            .unwrap_or_else(PoisonError::into_inner),
+                    );
                     contain_unregistered_priority_threads();
                 }
             });
@@ -366,12 +513,13 @@ fn promote_and_log(role: PriorityRole) {
         ),
     }
     // Apply at thread creation, including replacement Flutter engines after
-    // output changes. A startup PID scan cannot follow that lifecycle.
-    if matches!(
-        role,
-        PriorityRole::Compositor | PriorityRole::FlutterDisplay | PriorityRole::FlutterRaster
-    ) {
-        match capacity::apply_configured() {
+    // output changes. A startup PID scan cannot follow that lifecycle. Only a
+    // realtime thread follows an idle compositor's lowered floor; the hint
+    // worker owns the floors of ordinary-policy frame threads.
+    if role.has_ui_floor() {
+        let raised = UI_FLOOR_RAISED.load(Ordering::Acquire)
+            || !scheduler_policy(0).is_ok_and(is_realtime_policy);
+        match capacity::apply_configured(raised) {
             Ok(Some(minimum)) => info!(
                 thread = role.label(),
                 tid = current_tid(),
@@ -436,6 +584,7 @@ pub(super) fn normalize_current_worker(role: &'static str) {
             | "xembed tray"
             | "child-reaper"
             | "clipboard-dnd"
+            | "cpu-hints"
     ));
     if let Err(error) = normalize_current_thread() {
         warn!(
@@ -465,53 +614,91 @@ fn normalize_current_thread() -> io::Result<()> {
 /// registered compositor/Flutter thread set. This is a defense for native
 /// libraries whose internal pthreads inherit Linux scheduling attributes.
 pub(super) fn contain_unregistered_priority_threads() {
-    placement::reconcile();
-    if !SCHEDULING_ENABLED.load(Ordering::Acquire) {
-        return;
-    }
     let Ok(tasks) = fs::read_dir("/proc/self/task") else {
         return;
     };
-    for task in tasks.flatten() {
-        let Some(tid) = task
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<libc::pid_t>().ok())
-        else {
-            continue;
-        };
-        if is_registered_priority_thread(tid) {
-            continue;
+    let present = tasks
+        .flatten()
+        .filter_map(|task| task.file_name().to_str()?.parse::<libc::pid_t>().ok())
+        .collect::<BTreeSet<_>>();
+    let mut settled = SETTLED_THREADS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    settled.retain(|tid| present.contains(tid));
+    let due = present.difference(&settled).copied().collect::<Vec<_>>();
+    // Read the ages before the checks, so a thread counts as settled only if
+    // it already was when it was checked.
+    settled.extend(
+        due.iter()
+            .copied()
+            .filter(|tid| thread_age(*tid).is_some_and(|age| age >= THREAD_SETTLE_AGE)),
+    );
+    drop(settled);
+    placement::reconcile(&due);
+    if SCHEDULING_ENABLED.load(Ordering::Acquire) {
+        for tid in due {
+            contain_thread_priority(tid);
         }
-        let policy = scheduler_policy(tid).ok();
-        let realtime = policy.is_some_and(is_realtime_policy);
-        let elevated_nice = nice_for_tid(tid).is_ok_and(|nice| nice < 0);
-        if !realtime && !elevated_nice {
-            continue;
-        }
-        let scheduler_demoted = !realtime
-            || set_scheduler(
-                tid,
-                normal_policy_preserving_reset(policy.unwrap_or(libc::SCHED_OTHER)),
-                0,
-            )
-            .is_ok();
-        let nice_demoted = !elevated_nice || set_nice(tid, 0).is_ok();
-        if scheduler_demoted && nice_demoted {
-            warn!(
-                tid,
-                realtime,
-                elevated_nice,
-                "removed inherited CPU priority from an unregistered helper thread"
-            );
-        } else {
-            warn!(
-                tid,
-                realtime,
-                elevated_nice,
-                "could not remove inherited CPU priority from an unregistered helper thread"
-            );
-        }
+    }
+}
+
+fn thread_age(tid: libc::pid_t) -> Option<Duration> {
+    let stat = fs::read_to_string(format!("/proc/self/task/{tid}/stat")).ok()?;
+    // Field 22, start time in clock ticks since boot, counted after the
+    // parenthesized name, which may itself contain spaces.
+    let started: u64 = stat
+        .rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()?;
+    // SAFETY: sysconf has no pointer arguments.
+    let ticks = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?;
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: now is a valid timespec for the kernel to fill.
+    if ticks == 0 || unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) } != 0 {
+        return None;
+    }
+    let now = Duration::new(now.tv_sec as u64, now.tv_nsec as u32);
+    Some(now.saturating_sub(Duration::from_secs_f64(started as f64 / ticks as f64)))
+}
+
+fn contain_thread_priority(tid: libc::pid_t) {
+    if is_registered_priority_thread(tid) {
+        return;
+    }
+    let policy = scheduler_policy(tid).ok();
+    let realtime = policy.is_some_and(is_realtime_policy);
+    let elevated_nice = nice_for_tid(tid).is_ok_and(|nice| nice < 0);
+    if !realtime && !elevated_nice {
+        return;
+    }
+    let scheduler_demoted = !realtime
+        || set_scheduler(
+            tid,
+            normal_policy_preserving_reset(policy.unwrap_or(libc::SCHED_OTHER)),
+            0,
+        )
+        .is_ok();
+    let nice_demoted = !elevated_nice || set_nice(tid, 0).is_ok();
+    if scheduler_demoted && nice_demoted {
+        warn!(
+            tid,
+            realtime,
+            elevated_nice,
+            "removed inherited CPU priority from an unregistered helper thread"
+        );
+    } else {
+        warn!(
+            tid,
+            realtime,
+            elevated_nice,
+            "could not remove inherited CPU priority from an unregistered helper thread"
+        );
     }
 }
 
@@ -962,4 +1149,54 @@ fn flag_value_enabled(value: &str) -> bool {
         value.trim().to_ascii_lowercase().as_str(),
         "1" | "true" | "yes" | "on"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_thread_is_not_settled() {
+        let age = std::thread::spawn(|| thread_age(current_tid()))
+            .join()
+            .unwrap();
+        assert!(age.is_some_and(|age| age < THREAD_SETTLE_AGE));
+    }
+
+    #[test]
+    fn ui_floor_follows_frames_with_a_hold() {
+        let start = Instant::now();
+        let mut floor = UiFloor::with_state(true, start);
+        // Threads start raised; an idle compositor lowers them after the hold.
+        assert_eq!(floor.transition(false, start), None);
+        assert_eq!(
+            floor.limit_dispatch_timeout(start, Duration::from_secs(1)),
+            UI_FLOOR_HOLD
+        );
+        let expired = start + UI_FLOOR_HOLD;
+        assert_eq!(floor.transition(false, expired), Some(false));
+        assert_eq!(floor.transition(false, expired), None);
+        // Lowered, the floor never shortens an idle sleep.
+        let idle = Duration::from_secs(5);
+        assert_eq!(floor.limit_dispatch_timeout(expired, idle), idle);
+
+        let frame = expired + Duration::from_secs(1);
+        assert_eq!(floor.transition(true, frame), Some(true));
+        assert_eq!(floor.transition(true, frame), None);
+        // A gap shorter than the hold between frames keeps it.
+        let gap = frame + UI_FLOOR_HOLD / 2;
+        assert_eq!(floor.transition(false, gap), None);
+        assert_eq!(floor.transition(true, gap), None);
+        assert_eq!(floor.transition(false, gap + UI_FLOOR_HOLD), Some(false));
+    }
+
+    #[test]
+    fn unconfigured_ui_floor_changes_nothing() {
+        let start = Instant::now();
+        let mut floor = UiFloor::with_state(false, start);
+        assert_eq!(floor.transition(true, start), None);
+        assert_eq!(floor.transition(false, start + UI_FLOOR_HOLD), None);
+        let idle = Duration::from_secs(5);
+        assert_eq!(floor.limit_dispatch_timeout(start, idle), idle);
+    }
 }

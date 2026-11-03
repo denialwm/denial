@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,9 +16,13 @@ import '../wallpaper/wallpaper.dart';
 import '../wallpaper/widgets/wallpaper_image.dart';
 
 class ShellWallpaper extends ConsumerWidget {
-  const ShellWallpaper({super.key});
+  const ShellWallpaper({super.key, this.onPainted});
 
   static const String assetPath = defaultShellWallpaperAsset;
+
+  /// Called from paint whenever the wallpaper repaints, with the boundary
+  /// that holds it, for a consumer that captures the wallpaper.
+  final ValueChanged<RenderRepaintBoundary>? onPainted;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,7 +62,8 @@ class ShellWallpaper extends ConsumerWidget {
           });
         }
 
-        return RepaintBoundary(
+        return _WallpaperBoundary(
+          onPainted: onPainted,
           child: ColoredBox(
             color: context.shellColors.launchSurface,
             child: Stack(
@@ -147,6 +153,31 @@ class ShellWallpaper extends ConsumerWidget {
   }
 }
 
+class _WallpaperBoundary extends SingleChildRenderObjectWidget {
+  const _WallpaperBoundary({required this.onPainted, super.child});
+
+  final ValueChanged<RenderRepaintBoundary>? onPainted;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderWallpaperBoundary()..onPainted = onPainted;
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderWallpaperBoundary).onPainted = onPainted;
+  }
+}
+
+class _RenderWallpaperBoundary extends RenderRepaintBoundary {
+  ValueChanged<RenderRepaintBoundary>? onPainted;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    onPainted?.call(this);
+  }
+}
+
 /// Paints one output's wallpaper in output-local coordinates.
 ///
 /// Filtering the complete irregular desktop atlas lets a blur kernel sample
@@ -177,6 +208,7 @@ class ShellOutputWallpaper extends ConsumerWidget {
                 assignment.alignmentForOutput(output.name).x,
                 assignment.alignmentForOutput(output.name).y,
               ),
+              zoom: assignment.zoomForOutput(output.name),
             ),
             if (darkness > 0)
               _WallpaperDarknessLayer(
@@ -220,6 +252,7 @@ class WallpaperScene extends StatelessWidget {
                 assignment.spanAlignment.x,
                 assignment.spanAlignment.y,
               ),
+              zoom: assignment.zoom,
             ),
           ),
         for (final output in outputs)
@@ -233,6 +266,7 @@ class WallpaperScene extends StatelessWidget {
                 assignment.alignmentForOutput(output.name).x,
                 assignment.alignmentForOutput(output.name).y,
               ),
+              zoom: assignment.zoomForOutput(output.name),
             ),
           ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)
@@ -278,11 +312,19 @@ class _WallpaperImage extends StatefulWidget {
     required this.resource,
     required this.targetPixelSize,
     this.alignment = Alignment.center,
+    this.zoom = 1.0,
   });
 
   final WallpaperResource resource;
   final Size targetPixelSize;
   final Alignment alignment;
+
+  /// Enlarges the covering image about [alignment]'s point.
+  final double zoom;
+
+  /// The size to decode at: zoomed in steps of a half, so a zoom being
+  /// changed decodes the picture again only now and then.
+  Size get _decodeSize => targetPixelSize * ((zoom * 2).ceil() / 2);
 
   @override
   State<_WallpaperImage> createState() => _WallpaperImageState();
@@ -297,7 +339,7 @@ class _WallpaperImageState extends State<_WallpaperImage> {
     super.didChangeDependencies();
     final provider = wallpaperImageProvider(
       widget.resource,
-      targetPixelSize: widget.targetPixelSize,
+      targetPixelSize: widget._decodeSize,
     );
     final configuration = createLocalImageConfiguration(context);
     final currentLease = _cacheLease;
@@ -315,7 +357,7 @@ class _WallpaperImageState extends State<_WallpaperImage> {
     super.didUpdateWidget(oldWidget);
     final provider = wallpaperImageProvider(
       widget.resource,
-      targetPixelSize: widget.targetPixelSize,
+      targetPixelSize: widget._decodeSize,
     );
     if (provider == _provider) {
       return;
@@ -336,6 +378,20 @@ class _WallpaperImageState extends State<_WallpaperImage> {
 
   @override
   Widget build(BuildContext context) {
+    final image = _image();
+    if (widget.zoom == 1.0) {
+      return image;
+    }
+    return ClipRect(
+      child: Transform.scale(
+        scale: widget.zoom,
+        alignment: widget.alignment,
+        child: image,
+      ),
+    );
+  }
+
+  Widget _image() {
     return Image(
       image: _provider,
       fit: BoxFit.cover,

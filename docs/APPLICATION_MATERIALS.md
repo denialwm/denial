@@ -1,5 +1,7 @@
 # Denial application materials
 
+Scope: desktop applications. Native phone apps follow [MOBILE_APP_MATERIALS.md](MOBILE_APP_MATERIALS.md).
+
 Status: repository-local API under active design. Plugins is the first consumer.
 This implements [GLASS_UI_DESIGN_SKILL.md](GLASS_UI_DESIGN_SKILL.md).
 The latest user direction supersedes the earlier side-by-side desktop-glass

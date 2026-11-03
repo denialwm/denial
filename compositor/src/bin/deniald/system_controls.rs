@@ -4,9 +4,7 @@
 //! DDC/CI traffic stays on dedicated workers because either native library can
 //! block while reconnecting or waiting for hardware.
 
-use std::collections::HashMap;
-#[cfg(feature = "flutter")]
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt;
@@ -268,7 +266,21 @@ enum BrightnessCommand {
         monitor_id: i64,
         delta: f64,
     },
+    Fade {
+        connector: String,
+        toward: BrightnessFade,
+    },
     Stop,
+}
+
+/// A backlight fade that runs beside a shell fade: the shell's level never
+/// changes, and the slider hears nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum BrightnessFade {
+    /// Down to a raw backlight code, keeping the level it left.
+    Dim { raw: u32, duration: Duration },
+    /// Back to the kept level.
+    Restore { duration: Duration },
 }
 
 #[cfg(feature = "flutter")]
@@ -289,17 +301,28 @@ pub(super) enum SleepTransition {
 }
 
 #[cfg(feature = "flutter")]
-#[derive(Default)]
 struct SleepMonitorShared {
     transitions: Mutex<VecDeque<SleepTransition>>,
     transitions_pending: AtomicBool,
     delay_inhibitor: Mutex<Option<OwnedFd>>,
     power_key_inhibitor: Mutex<Option<OwnedFd>>,
     stop: AtomicBool,
+    stop_wake: crate::wakeup::Wakeup,
 }
 
 #[cfg(feature = "flutter")]
 impl SleepMonitorShared {
+    fn new() -> io::Result<Self> {
+        Ok(Self {
+            transitions: Mutex::default(),
+            transitions_pending: AtomicBool::new(false),
+            delay_inhibitor: Mutex::default(),
+            power_key_inhibitor: Mutex::default(),
+            stop: AtomicBool::new(false),
+            stop_wake: crate::wakeup::Wakeup::new()?,
+        })
+    }
+
     fn publish(&self, transition: SleepTransition) {
         let mut transitions = self
             .transitions
@@ -311,6 +334,8 @@ impl SleepMonitorShared {
         }
         transitions.push_back(transition);
         self.transitions_pending.store(true, Ordering::Release);
+        drop(transitions);
+        crate::loop_wake::wake();
     }
 
     fn take_transition(&self) -> Option<SleepTransition> {
@@ -323,7 +348,7 @@ impl SleepMonitorShared {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let transition = transitions.pop_front();
         // Serialize clearing with producers so no queued transition loses its
-        // readiness flag. Existing service deadlines still bound wake latency.
+        // readiness flag.
         self.transitions_pending
             .store(!transitions.is_empty(), Ordering::Release);
         transition
@@ -360,12 +385,20 @@ impl SleepMonitorShared {
 
     fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
+        self.stop_wake.wake();
         self.release_delay_inhibitor();
         self.release_power_key_inhibitor();
     }
 
     fn stopping(&self) -> bool {
         self.stop.load(Ordering::Acquire)
+    }
+
+    /// Returns once a stop is requested.
+    async fn stopped(&self) {
+        while !self.stopping() {
+            self.stop_wake.wait().await;
+        }
     }
 }
 
@@ -388,6 +421,7 @@ impl SystemControlEventSender {
         if self.sender.try_send(event).is_ok() {
             self.pending.store(true, Ordering::Release);
         }
+        crate::loop_wake::wake();
     }
 }
 
@@ -414,6 +448,8 @@ pub(super) struct SystemControls {
 
 impl SystemControls {
     pub(super) fn new() -> io::Result<Self> {
+        #[cfg(feature = "flutter")]
+        let sleep_monitor = Arc::new(SleepMonitorShared::new()?);
         let (events_tx, events) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
         let events_pending = Arc::new(AtomicBool::new(false));
         let events_tx = SystemControlEventSender::new(events_tx, Arc::clone(&events_pending));
@@ -461,8 +497,6 @@ impl SystemControls {
             }
         };
 
-        #[cfg(feature = "flutter")]
-        let sleep_monitor = Arc::new(SleepMonitorShared::default());
         #[cfg(feature = "flutter")]
         let sleep_monitor_worker = {
             let monitor = Arc::clone(&sleep_monitor);
@@ -625,6 +659,13 @@ impl SystemControls {
         self.adjust_brightness(connector, monitor_id, -CONTROL_STEP);
     }
 
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub(super) fn fade_brightness(&self, connector: String, toward: BrightnessFade) {
+        let _ = self
+            .brightness_commands
+            .try_send(BrightnessCommand::Fade { connector, toward });
+    }
+
     fn adjust_brightness(&self, connector: String, monitor_id: i64, delta: f64) {
         let _ = self
             .brightness_commands
@@ -707,7 +748,7 @@ mod sleep_readiness_tests {
 
     #[test]
     fn idle_sleep_check_does_not_lock_the_queue() {
-        let monitor = SleepMonitorShared::default();
+        let monitor = SleepMonitorShared::new().unwrap();
         let queue = monitor.transitions.lock().unwrap();
         assert_eq!(monitor.take_transition(), None);
         drop(queue);
@@ -715,7 +756,7 @@ mod sleep_readiness_tests {
 
     #[test]
     fn readiness_stays_set_until_all_transitions_are_consumed() {
-        let monitor = SleepMonitorShared::default();
+        let monitor = SleepMonitorShared::new().unwrap();
         monitor.publish(SleepTransition::Preparing);
         monitor.publish(SleepTransition::Resumed);
         assert_eq!(monitor.take_transition(), Some(SleepTransition::Preparing));
@@ -729,7 +770,7 @@ mod sleep_readiness_tests {
 
     #[test]
     fn producer_and_consumer_do_not_lose_readiness() {
-        let monitor = SleepMonitorShared::default();
+        let monitor = SleepMonitorShared::new().unwrap();
         let barrier = std::sync::Barrier::new(2);
         std::thread::scope(|scope| {
             scope.spawn(|| {

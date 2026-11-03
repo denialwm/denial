@@ -91,6 +91,21 @@ final class BridgeWindowsClient {
     );
   }
 
+  /// Sends the system Back action to [window], as Android's navigation bar
+  /// does: the compositor taps the Back key at the window's keyboard focus.
+  void navigateBack(DenialWindow window) {
+    if (window.windowId <= 0) {
+      return;
+    }
+
+    _context.sendWire(
+      _context.codec.encodeWindowRequest(
+        wire.WindowRequestKind.NavigateBack,
+        windowId: window.windowId,
+      ),
+    );
+  }
+
   /// Releases the native last-frame texture retained for a finished close
   /// animation. Native also owns a bounded watchdog, so a lost message cannot
   /// leak a client buffer or Flutter texture.
@@ -174,6 +189,22 @@ final class BridgeWindowsClient {
         monitorId: monitorId ?? -1,
         workspaceId: workspaceId,
         flags: follow ? 1 : 0,
+      ),
+    );
+  }
+
+  /// Moves [window] between the phone and the desk output [monitorId]. Native
+  /// ignores the request unless the mobile shell shares the session with a
+  /// desk, and when the window is already on that side.
+  void moveWindowToOutput(DenialWindow window, {required int monitorId}) {
+    if (window.windowId <= 0 || monitorId < 0) {
+      return;
+    }
+    _context.sendWire(
+      _context.codec.encodeWindowRequest(
+        wire.WindowRequestKind.MoveWindowToOutput,
+        windowId: window.windowId,
+        monitorId: monitorId,
       ),
     );
   }

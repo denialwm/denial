@@ -1,5 +1,7 @@
 //! GLES atlas rendering and DRM plane-state construction primitives.
 
+#[cfg(feature = "flutter")]
+use super::kms_state::ScanoutBuffer;
 use super::*;
 
 pub(super) fn render_diagnostic_atlas(
@@ -83,7 +85,43 @@ pub(super) fn render_blank_output_swapchains(
             .buffers
             .get_mut(pool.current)
             .ok_or("physical output's initial scanout index exceeds its pool")?;
-        render_blank_target(renderer, &mut buffer.dmabuf, pool.size)?;
+        render_blank_output_buffer(renderer, buffer, pool.size)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn render_blank_output_buffer(
+    renderer: &mut GlesRenderer,
+    buffer: &mut ScanoutBuffer,
+    size: PixelSize,
+) -> Result<(), Box<dyn Error>> {
+    let mut source = buffer.flutter_target_dmabufs().0.clone();
+    render_blank_target(renderer, &mut source, size)?;
+    if let Some(target) = buffer.transfer_target() {
+        let fence =
+            smithay::backend::egl::fence::EGLFence::create(renderer.egl_context().display())?;
+        // SAFETY: render_blank_target left this renderer's GLES context current;
+        // the core GLES glFlush signature is fixed and the symbol is checked.
+        unsafe {
+            let address = smithay::backend::egl::get_proc_address("glFlush");
+            if address.is_null() {
+                return Err("glFlush unavailable for initial transfer".into());
+            }
+            let flush = std::mem::transmute::<*const std::ffi::c_void, unsafe extern "system" fn()>(
+                address,
+            );
+            flush();
+        }
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        target.submit(
+            fence.export()?,
+            Box::new(move |result| {
+                let _ = send.send(result);
+            }),
+        )?;
+        // Initial/hotplug preparation is outside steady-state raster/KMS jobs.
+        receive.recv_timeout(Duration::from_secs(3))??;
     }
     Ok(())
 }

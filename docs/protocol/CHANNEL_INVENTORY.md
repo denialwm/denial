@@ -7,6 +7,8 @@ Flutter channels are outside this inventory.
 | --- | --- | --- | --- |
 | `denial/wire/to_native` | Dart → native | FlatBuffers `DENW` | Input layout, window requests, OSK keys, notification commands, revisioned settings requests |
 | `denial/wire/to_flutter` | Native → Dart | FlatBuffers `DENW` or fixed `DENP` | Window/display state, actions, cursor state, notifications, settings state, ordered placement |
+| `denial/input_deck` | Dart → native | UTF-8 JSON, at most 1 KiB | Embedded-shell input display selection, raw evdev keys, relative motion, buttons, finger axes and touch-cancellation acknowledgements |
+| `denial/input_deck_state` | Native → Dart | UTF-8 JSON | Mapped touch outputs, availability, active reservation and current XKB key legends |
 | `denial/haptics` | Dart → native | 1 byte | Prewarm or tap through the optional hapticd system D-Bus service |
 | `denial/audio` | Dart → native | bounded fixed packet | Read/set default output and enumerate/control application streams |
 | `denial/audio_state` | Native → Dart | 5 bytes | Level and request serial |
@@ -18,7 +20,8 @@ Flutter channels are outside this inventory.
 | `denial/clipboard_state` | Native → Dart | bounded `DCLS` snapshot | Authoritative, lock-redacted clipboard-history metadata |
 | `denial/brightness` | Dart → native | little-endian `float64` | Absolute level for the output under the cursor |
 | `denial/brightness_state` | Native → Dart | monitor ID + level | Authoritative native brightness update |
-| `denial/idle_policy` | Dart → native | little-endian `uint64` milliseconds | Configure native idle display power-off; zero disables it |
+| `denial/idle_policy` | Dart → native | 32 bytes, version 4: flags (lock, display off, suspend, lock after screen off), suspend mode, power button action, `uint32` screen-off lock delay ms, then `uint64` lock, display-off and suspend timeouts ms (little-endian); versions 1–3 and a bare `uint64` display-off timeout still decode | Configure native idle locking, display power-off and suspend, and how long a dark screen stays unlocked |
+| `denial/display_power` | Dart → native | one byte: 1 off, 2 on | Turn the screen off as the power button does until the next input, or light the dark displays as an input would |
 | `denial/ui_development/control` | Dart → native | bounded versioned packet | Query or change the Flutter workspace/runtime and request development or recovery actions |
 | `denial/ui_development/state` | Native → Dart | bounded versioned packet | Active/desired runtime, capabilities, operation progress, VM-service URI, errors, and source diagnostics |
 | `denial/system_command` | Dart → native | bounded length-prefixed packet | Launch application, toggle OSK, take screenshot, or log out |

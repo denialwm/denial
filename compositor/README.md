@@ -9,12 +9,13 @@ The Rust workspace contains four deliberately separate layers:
 - a shell-independent native control client for the compositor's versioned
   per-user IPC.
 
-The KMS backend allocates one desktop-wide XRGB8888 GBM atlas.  Every connected
-CRTC scans a different source rectangle of that same framebuffer; there is no
-per-output copy. Flutter uses one global atlas pool sized for independently
-clocked output ownership. Pathological layouts are rejected before GBM
-allocation if either atlas axis exceeds 16384 pixels or the complete pool
-exceeds 1 GiB. The pre-Denial atomic state and framebuffer objects are pinned
+With Flutter, the KMS backend allocates a separate pool of GBM scanout buffers
+for each output at its physical mode size: three buffers, or four when the
+output renders ahead. Pools prefer XRGB2101010 and fall back to XRGB8888.
+Builds without the `flutter` feature allocate one desktop-wide atlas instead,
+and every CRTC scans a different source rectangle of it. Pathological layouts
+are rejected before GBM allocation if a scanout axis exceeds 16384 pixels or
+the pools exceed 1 GiB in total. The pre-Denial atomic state and framebuffer objects are pinned
 before the first modeset and restored on normal exit.
 
 ## Fast checks
@@ -154,12 +155,20 @@ disabled, and lets that client capture the pointer again only after a plain
 click on its window.
 
 Direct touch uses a small compositor-owned gesture vocabulary over normal
-windows. Dragging within the top 48 logical pixels moves the window, pinching
-anywhere resizes it about its center, a two-finger downward swipe begun in that
-top strip minimizes it, and three simultaneous contacts close it. Recognition
+windows. Dragging from a 64-logical-pixel corner moves the window, pinching
+resizes it, and a two-finger downward swipe begun in the bottom 48 logical pixels
+minimizes it. Three- and four-finger swipes use the shared shortcut bindings;
+a four-finger inward crush closes the target window. Recognition
 is resolved before ordinary touch routing; when a later finger promotes a
 client touch to a window gesture, Denial cancels that client sequence and emits
 the same placement, minimize, and close actions used by non-touch controls.
+
+A window pinch requires both contacts to move at least 8 logical pixels, with
+opposing motion and a separation change of at least 16 pixels. Repeated motion
+samples from a resting finger do not establish pinch intent. Once a normal
+one-finger app drag has crossed the drag threshold, adding another finger keeps
+that sequence in the app until release; explicit corner movement and bottom-strip
+window gestures still use their dedicated routes.
 
 `--frames` and `--commit-seconds` remain available for bounded diagnostics.
 
@@ -183,15 +192,16 @@ validates mode and VRR changes with an atomic `TEST_ONLY` commit before
 changing live KMS state. Unlisted outputs use the deterministic left-to-right
 fallback.
 
-When `iio-sensor-proxy` exposes an accelerometer, Denial automatically rotates
-built-in `DSI-*`, `eDP-*`, and `LVDS-*` panels. The configured `transform=` is
-the panel's fixed mounting transform; sensor rotation is transient and is not
-written back to the output file. Sensor and manual transform-only changes keep
-the Flutter engine, native output buffers, and compressed/tiled modifiers
-resident. Automatic cardinal changes animate the retained composited scene for
-300 ms on the physical output clock. The old-size scene starts rotating first;
-Flutter receives the new logical canvas during the final quarter. Projection-
-only frames do not drive Dart or advance client textures.
+When steinerd (Phonewave `services/sensors/steinerd`) offers orientation,
+Denial automatically rotates built-in `DSI-*`, `eDP-*`, and `LVDS-*` panels.
+The configured `transform=` is the panel's fixed mounting transform; sensor
+rotation is transient and is not written back to the output file. Sensor and
+manual transform-only changes keep the Flutter engine, native output buffers,
+and compressed/tiled modifiers resident. Automatic cardinal changes animate the
+retained composited scene for 300 ms on the physical output clock. The old-size
+scene starts rotating first; Flutter receives the new logical canvas during the
+final quarter. Projection-only frames do not drive Dart or advance client
+textures.
 
 `disabled=` is a preference rather than a hard rule. When the preferences
 disable every connected output, Denial lights one anyway: a built-in panel
@@ -257,7 +267,7 @@ activity feeds `ext-idle-notify-v1`, so clients such as desktop pets learn
 when the user goes idle and comes back; its idle notifications honour those
 inhibitors, and its input-idle ones (version 2) ignore them. DPMS-off
 outputs remain in the logical desktop while their KMS pipeline is disabled;
-waking them restores a complete scanout atlas without rebuilding the Wayland
+waking them restores their scanout buffers without rebuilding the Wayland
 topology. A Vulkan Wayland client has been validated through DP-5
 removal/reconnection while its four dma-bufs remained imported and the client
 kept presenting.
@@ -266,9 +276,9 @@ Denial also owns the desktop application colour-scheme and accent preferences.
 Committed settings select the Flutter shell's semantic dark/light theme;
 Flutter resolves custom or wallpaper-derived accent color, and deniald copies
 the complete state as a bounded snapshot to the separate `denial-portal`
-process. That helper implements `org.freedesktop.impl.portal.Settings`; it
-neither parses the settings document nor runs D-Bus work on the compositor
-event loop.
+process. That helper implements `org.freedesktop.impl.portal.Settings` and
+`org.freedesktop.impl.portal.Access`; it neither parses the settings document
+nor runs D-Bus work on the compositor event loop.
 
 Measured on the current DP-4/DP-5 setup, the steady dual-output loop runs at
 about 180 Hz (the slower output), with roughly 0.32 ms average render time while

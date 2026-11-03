@@ -23,3 +23,23 @@ character, so `ShellText.fallbackFontFamilies` explicitly requests Source Han
 Sans CN and then Noto Sans CJK SC. The Arch package depends on Source Han Sans
 CN so the Simplified Chinese shell catalog has a deterministic fallback even
 on a minimal installation.
+
+# Roboto Flex font asset
+
+`roboto_flex/` holds the Roboto Flex 3.200 variable TTF, which the clock uses
+when it stretches the time: its width and weight axes keep a taller time at
+the plain time's width and stroke. `RobotoFlex.ttf` and `OFL.txt` are
+byte-identical to `ofl/robotoflex/` in
+[google/fonts](https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/robotoflex)
+at commit `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`, where the font is named
+`RobotoFlex[GRAD,XOPQ,XTRA,YOPQ,YTAS,YTDE,YTFI,YTLC,YTUC,opsz,slnt,wdth,wght].ttf`.
+
+- License: SIL Open Font License 1.1
+- Upstream project:
+  [googlefonts/roboto-flex](https://github.com/googlefonts/roboto-flex)
+
+Verify the retained files from `roboto_flex/` with:
+
+```sh
+sha256sum --check --strict RobotoFlex.sha256
+```

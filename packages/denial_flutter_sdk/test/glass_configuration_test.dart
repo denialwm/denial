@@ -74,6 +74,14 @@ void main() {
     expect(ShellGlassConfiguration.fromJson({}, defaults), defaults);
   });
 
+  test('the phone app-panel floor follows the appearance, not the value', () {
+    const dark = ShellGlassConfiguration(appPanelOpacity: .1);
+    expect(dark.mobileAppPanelFloor, .30);
+    final light = dark.copyWith(appearance: ShellGlassAppearance.light);
+    expect(light.mobileAppPanelFloor, .50);
+    expect(light.appPanelOpacity, .1);
+  });
+
   test('theme transitions interpolate all three values independently', () {
     const first = ShellGlassConfiguration(
       opacity: .2,

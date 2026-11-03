@@ -9,8 +9,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
-#[cfg(feature = "flutter")]
-use denial_flutter_engine::RendererBackend;
 
 use super::output_topology::ScrollingLayoutAxis;
 
@@ -128,8 +126,6 @@ pub(super) struct Options {
     /// Whether the session starts Denial's PolicyKit authentication agent.
     pub(super) polkit_agent: bool,
     pub(super) flutter_bundle: Option<PathBuf>,
-    #[cfg(feature = "flutter")]
-    pub(super) flutter_renderer: RendererBackend,
     pub(super) software_rendering: bool,
     pub(super) flutter_offscreen_blit: bool,
     pub(super) flutter_debug_bundle: Option<PathBuf>,
@@ -172,8 +168,6 @@ impl Options {
             xwayland: false,
             polkit_agent: true,
             flutter_bundle: None,
-            #[cfg(feature = "flutter")]
-            flutter_renderer: RendererBackend::default(),
             software_rendering: false,
             flutter_offscreen_blit: false,
             flutter_debug_bundle: None,
@@ -211,8 +205,6 @@ impl Options {
         let mut xwayland = cfg!(feature = "xwayland");
         let mut polkit_agent = true;
         let mut flutter_bundle = None;
-        #[cfg(feature = "flutter")]
-        let mut flutter_renderer = None;
         let mut software_rendering = false;
         let mut flutter_offscreen_blit = false;
         let mut flutter_debug_bundle = None;
@@ -302,17 +294,6 @@ impl Options {
                         args.next().ok_or("--flutter-bundle needs a path")?,
                     ));
                 }
-                #[cfg(feature = "flutter")]
-                "--flutter-renderer" => {
-                    if flutter_renderer.is_some() {
-                        return Err("--flutter-renderer may only be specified once".into());
-                    }
-                    flutter_renderer = Some(
-                        args.next()
-                            .ok_or("--flutter-renderer needs skia or impeller")?
-                            .parse()?,
-                    );
-                }
                 "--software-rendering" => software_rendering = true,
                 "--flutter-offscreen-blit" => flutter_offscreen_blit = true,
                 "--flutter-debug-bundle" => {
@@ -355,7 +336,6 @@ impl Options {
                          [--no-xwayland] \
                          [--no-polkit-agent] \
                          [--flutter-bundle PATH] \
-                         [--flutter-renderer skia|impeller] \
                          [--software-rendering] \
                          [--flutter-offscreen-blit] \
                          [--flutter-debug-bundle PATH] \
@@ -460,10 +440,6 @@ impl Options {
         if flutter_bundle.is_some() && !wayland {
             return Err("--flutter-bundle requires --wayland".into());
         }
-        #[cfg(feature = "flutter")]
-        if flutter_renderer.is_some() && flutter_bundle.is_none() {
-            return Err("--flutter-renderer requires --flutter-bundle".into());
-        }
         if flutter_offscreen_blit && flutter_bundle.is_none() {
             return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
         }
@@ -503,8 +479,6 @@ impl Options {
             xwayland,
             polkit_agent,
             flutter_bundle,
-            #[cfg(feature = "flutter")]
-            flutter_renderer: flutter_renderer.unwrap_or_default(),
             software_rendering,
             flutter_offscreen_blit,
             flutter_debug_bundle,

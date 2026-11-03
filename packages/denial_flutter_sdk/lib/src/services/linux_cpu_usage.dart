@@ -42,7 +42,9 @@ class CpuUsageService {
 
   Future<CpuSample?> read() async {
     try {
-      final content = await File(_statPath).readAsString();
+      // Telemetry reads are tiny kernel files: read them synchronously, as an
+      // async read hops to an IO worker and back for every step.
+      final content = File(_statPath).readAsStringSync();
       final sample = parseProcStat(content);
       if (sample == null) {
         return null;
@@ -76,7 +78,7 @@ class CpuTemperatureReader {
       return null;
     }
     try {
-      return parseLinuxTemperatureC(await sensor.readAsString());
+      return parseLinuxTemperatureC(sensor.readAsStringSync());
     } on FileSystemException {
       return null;
     }

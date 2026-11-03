@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/materials.dart';
@@ -11,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'agent.dart';
+import 'card.dart';
+import 'controls.dart';
 import 'glass.dart';
 import 'identity.dart';
 import 'secret_field.dart';
@@ -41,8 +42,6 @@ class AuthenticationDialog extends StatefulWidget {
 
 class _AuthenticationDialogState extends State<AuthenticationDialog>
     with SingleTickerProviderStateMixin {
-  static const _cardWidth = 520.0;
-  static const _canvasMargin = 28.0;
   static const _avatarSize = 72.0;
   static const _accountWidth = 96.0;
   static const _gap = 16.0;
@@ -196,13 +195,11 @@ class _AuthenticationDialogState extends State<AuthenticationDialog>
     final theme = ShellTheme.of(context);
     final palette = PromptPalette.of(theme);
     final session = _session;
-    final radius = BorderRadius.circular(theme.panelRadius.clamp(8.0, 44.0));
     final unavailable = session.phase == AgentPhase.unavailable;
     final prompting = session.phase == AgentPhase.prompting;
     final choosing =
         session.phase == AgentPhase.choosing && session.identities.length > 1;
     final identity = session.selectedIdentity;
-    final fontFamily = theme.fontFamily.isEmpty ? null : theme.fontFamily;
     final (described, messageTimeout) = _splitTimeout(session.message.trim());
     final (label, labelTimeout) = _splitTimeout(session.promptLabel);
     final l10n = context.l10n;
@@ -338,14 +335,14 @@ class _AuthenticationDialogState extends State<AuthenticationDialog>
               ),
             ),
             const SizedBox(width: 20),
-            _PromptButton(
+            PromptButton(
               label: unavailable ? l10n.polkitClose : l10n.commonCancel,
               autofocus: unavailable,
               onPressed: _cancel,
             ),
             if (!unavailable) ...[
               const SizedBox(width: 10),
-              _PromptButton(
+              PromptButton(
                 label: choosing ? l10n.polkitContinue : l10n.polkitConfirm,
                 primary: true,
                 // Verification keeps the action legible while inert.
@@ -356,25 +353,6 @@ class _AuthenticationDialogState extends State<AuthenticationDialog>
           ],
         ),
       ],
-    );
-
-    final card = CustomPaint(
-      painter: CardShadowPainter(palette: palette, borderRadius: radius),
-      child: CustomPaint(
-        painter: CardPainter(palette: palette, borderRadius: radius),
-        foregroundPainter: RimPainter(
-          borderRadius: radius,
-          top: palette.rimTop.withValues(alpha: palette.rimTop.a * .5),
-          bottom: palette.rimTop.withValues(alpha: palette.rimTop.a * .5),
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-            child: content,
-          ),
-        ),
-      ),
     );
 
     return Actions(
@@ -388,62 +366,7 @@ class _AuthenticationDialogState extends State<AuthenticationDialog>
       },
       child: FocusScope(
         autofocus: true,
-        child: DefaultTextStyle(
-          style: TextStyle(
-            fontFamily: fontFamily,
-            fontFamilyFallback: ShellText.fallbackFontFamilies,
-            fontSize: 14,
-            color: palette.foreground,
-            decoration: TextDecoration.none,
-          ),
-          // The overlay canvas has a fixed size. An unusually long message
-          // scrolls rather than overflowing it.
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: _canvasMargin,
-                    ),
-                    child: SizedBox(
-                      width: math.max(
-                        0,
-                        math.min(
-                          _cardWidth,
-                          constraints.maxWidth - _canvasMargin * 2,
-                        ),
-                      ),
-                      // Hidden, not faded, until its final colors are known.
-                      child: IgnorePointer(
-                        ignoring: !_revealed,
-                        child: Opacity(
-                          opacity: _revealed ? 1 : 0,
-                          child: AnimatedBuilder(
-                            animation: _shake,
-                            builder: (context, card) {
-                              final t = _shake.value;
-                              return Transform.translate(
-                                offset: Offset(
-                                  10 * math.sin(t * math.pi * 6) * (1 - t),
-                                  0,
-                                ),
-                                child: card,
-                              );
-                            },
-                            child: card,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        child: PromptCanvas(revealed: _revealed, shake: _shake, child: content),
       ),
     );
   }
@@ -664,7 +587,7 @@ class _IdentityRow extends StatelessWidget {
     final palette = PromptPalette.of(ShellTheme.of(context));
     final colors = context.applicationColors;
     final name = profile?.displayName ?? identity.name;
-    return _Pressable(
+    return Pressable(
       autofocus: selected,
       semanticLabel: name,
       onPressed: onSelect,
@@ -674,7 +597,7 @@ class _IdentityRow extends StatelessWidget {
       onFocus: onSelect,
       builder: (context, state) => Container(
         height: height,
-        color: _overlay(colors, state),
+        color: pressOverlay(colors, state),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: [
@@ -711,14 +634,6 @@ class _IdentityRow extends StatelessWidget {
     );
   }
 }
-
-/// Hover and press feedback over a toolbar material, without transitions.
-Color _overlay(DenialApplicationColors colors, _PressState state) =>
-    state.pressed
-    ? colors.foreground.withValues(alpha: .1)
-    : state.hovered
-    ? colors.foreground.withValues(alpha: .06)
-    : Colors.transparent;
 
 /// Info and error messages from the PAM conversation and the agent.
 class _NoticeLine extends StatelessWidget {
@@ -762,173 +677,6 @@ class _NoticeLine extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _PressState {
-  const _PressState({
-    required this.enabled,
-    required this.hovered,
-    required this.pressed,
-    required this.focused,
-  });
-
-  final bool enabled;
-  final bool hovered;
-  final bool pressed;
-  final bool focused;
-}
-
-/// Pointer, keyboard and focus behavior shared by the prompt's controls.
-class _Pressable extends StatefulWidget {
-  const _Pressable({
-    required this.onPressed,
-    required this.builder,
-    this.onActivate,
-    this.onDoubleTap,
-    this.onFocus,
-    this.autofocus = false,
-    this.semanticLabel,
-  });
-
-  final VoidCallback? onPressed;
-
-  /// Keyboard activation, when it differs from a pointer press.
-  final VoidCallback? onActivate;
-  final VoidCallback? onDoubleTap;
-  final VoidCallback? onFocus;
-  final bool autofocus;
-  final String? semanticLabel;
-  final Widget Function(BuildContext context, _PressState state) builder;
-
-  @override
-  State<_Pressable> createState() => _PressableState();
-}
-
-class _PressableState extends State<_Pressable> {
-  bool _hovered = false;
-  bool _pressed = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: widget.semanticLabel,
-      child: FocusableActionDetector(
-        enabled: enabled,
-        autofocus: widget.autofocus,
-        mouseCursor: enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        actions: {
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              (widget.onActivate ?? widget.onPressed)?.call();
-              return null;
-            },
-          ),
-        },
-        onShowHoverHighlight: (value) => setState(() => _hovered = value),
-        onShowFocusHighlight: (value) => setState(() => _focused = value),
-        onFocusChange: (focused) {
-          if (focused) widget.onFocus?.call();
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-          onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-          onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
-          onTap: widget.onPressed,
-          onDoubleTap: widget.onDoubleTap,
-          child: widget.builder(
-            context,
-            _PressState(
-              enabled: enabled,
-              hovered: enabled && _hovered,
-              pressed: enabled && _pressed,
-              focused: enabled && _focused,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// An action on the floating toolbar material, like application toolbar
-/// actions. The primary action is told apart by its accent label alone.
-class _PromptButton extends StatelessWidget {
-  const _PromptButton({
-    required this.label,
-    required this.onPressed,
-    this.primary = false,
-    this.held = false,
-    this.autofocus = false,
-  });
-
-  final String label;
-  final VoidCallback? onPressed;
-  final bool primary;
-
-  /// Inert, but drawn as available, while the agent verifies a reply.
-  final bool held;
-  final bool autofocus;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = PromptPalette.of(ShellTheme.of(context));
-    final colors = context.applicationColors;
-    const inset = DenialApplicationFrame.defaultInset;
-    return _Pressable(
-      onPressed: onPressed,
-      autofocus: autofocus,
-      semanticLabel: label,
-      builder: (context, state) {
-        final color = colors.foreground;
-        return CustomPaint(
-          foregroundPainter: state.focused
-              ? OutlinePainter(
-                  borderRadius: DenialSurfaceGeometry.borderRadiusOf(
-                    context,
-                    inset: inset,
-                  ),
-                  color: palette.accent,
-                  outset: 2.5,
-                )
-              : null,
-          child: DenialMaterial(
-            role: DenialMaterialRole.toolbar,
-            floating: true,
-            inset: inset,
-            child: Container(
-              height: 44,
-              constraints: const BoxConstraints(minWidth: 84),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              color: Color.alphaBlend(
-                _overlay(colors, state),
-                primary
-                    ? palette.accent.withValues(alpha: .28)
-                    : Colors.transparent,
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: state.enabled || held
-                      ? color
-                      : color.withValues(alpha: color.a * .45),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

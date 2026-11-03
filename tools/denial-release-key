@@ -179,7 +179,7 @@ verify_backup_files() {
     bsdtar -xf "${verify_root}/recovery.tar.zst" -C "${verify_root}/kit"
     (
       cd -- "${verify_root}/kit"
-      sha256sum --check --strict SHA256SUMS
+      sha256sum --check --strict --quiet SHA256SUMS
     )
     verified_fingerprint="$(
       public_key_fingerprint "${verify_root}/kit/public-key.asc"
@@ -379,7 +379,7 @@ EOF
       secret-subkeys.asc \
       signing-key-passphrase \
       >SHA256SUMS
-    sha256sum --check --strict SHA256SUMS
+    sha256sum --check --strict --quiet SHA256SUMS
   )
 
   backup_archive="${backup_directory}/denial-release-key-${fingerprint}.tar.zst.gpg"
@@ -574,7 +574,7 @@ sign_release_tag() {
   bsdtar -xf "${signing_root}/recovery.tar.zst" -C "${signing_root}/kit"
   (
     cd -- "${signing_root}/kit"
-    sha256sum --check --strict SHA256SUMS
+    sha256sum --check --strict --quiet SHA256SUMS
   )
   [[ "$(public_key_fingerprint "${signing_root}/kit/public-key.asc")" \
     == "$expected_fingerprint" ]] \

@@ -29,6 +29,7 @@ import 'desktop_window_frame_painter.dart';
 import 'desktop_workspace.dart';
 import 'retained_animated_positioned.dart';
 import 'window_backdrop_blur_policy.dart';
+import '../state/phone_desk.dart';
 
 /// Keeps native glass in one compositing mode across minimized presentations.
 ///
@@ -206,7 +207,7 @@ class DesktopWindowFrame extends ConsumerWidget {
     final window =
         ref.watch(
           referenceShellProvider.select(
-            (state) => state.windowByObjectId(this.window.objectId),
+            (state) => state.desk.windowByObjectId(this.window.objectId),
           ),
         ) ??
         this.window;
@@ -239,7 +240,7 @@ class DesktopWindowFrame extends ConsumerWidget {
         selectedPlacement != null;
     final placement = followsLivePlacement ? selectedPlacement : this.placement;
     final outputPixelGrid = ref.watch(
-      displayLayoutProvider.select(
+      deskDisplayLayoutProvider.select(
         (layout) =>
             desktopOutputPixelGridForMonitor(layout, placement.monitorId),
       ),

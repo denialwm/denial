@@ -1,5 +1,5 @@
 {
-  "source_sha256": "a3c7a188c56fc76593094612ee0bd2a441b5bf15dfb5ad2bd9001d27f01aaea5",
+  "source_sha256": "24486257302f83e699d3209e0fedfd00b278fc532688c10feacb644c1b93cf5b",
   "packages": {
     "archive": {
       "dependency": "transitive",
@@ -117,6 +117,16 @@
       },
       "source": "path",
       "version": "0.1.0"
+    },
+    "equatable": {
+      "dependency": "transitive",
+      "description": {
+        "name": "equatable",
+        "sha256": "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2",
+        "url": "https://pub.dev"
+      },
+      "source": "hosted",
+      "version": "2.1.0"
     },
     "fake_async": {
       "dependency": "transitive",
@@ -315,6 +325,16 @@
       },
       "source": "hosted",
       "version": "1.19.0"
+    },
+    "motor": {
+      "dependency": "transitive",
+      "description": {
+        "name": "motor",
+        "sha256": "cbd49f21b00e568c2b1a55f134ed803614a107782f4fea7769693bca32940c58",
+        "url": "https://pub.dev"
+      },
+      "source": "hosted",
+      "version": "1.1.0"
     },
     "path": {
       "dependency": "transitive",

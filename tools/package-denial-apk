@@ -119,12 +119,12 @@ elif [[ ! -f "$archive" ]]; then
     --output "$partial" \
     "$MINIROOTFS_URL"
   printf '%s  %s\n' "$MINIROOTFS_SHA256" "$partial" \
-    | sha256sum --check --strict -
+    | sha256sum --check --strict --quiet -
   mv -- "$partial" "$archive"
   trap - EXIT
 fi
 printf '%s  %s\n' "$MINIROOTFS_SHA256" "$archive" \
-  | sha256sum --check --strict -
+  | sha256sum --check --strict --quiet -
 
 work_root="$(mktemp -d "$ALPINE_ROOT/build.XXXXXX")"
 cleanup() {
@@ -374,7 +374,7 @@ if [[ -z "$PREPARED_STAGE" ]]; then
       find . -type f ! -name ALPINE-SHA256SUMS -print0 | sort -z
     )
     sha256sum -- "${stage_files[@]}" >ALPINE-SHA256SUMS
-    sha256sum --check --strict ALPINE-SHA256SUMS
+    sha256sum --check --strict --quiet ALPINE-SHA256SUMS
   )
   if [[ -e "$ALPINE_STAGE" ]]; then
     [[ -d "$ALPINE_STAGE" && ! -L "$ALPINE_STAGE" ]] \

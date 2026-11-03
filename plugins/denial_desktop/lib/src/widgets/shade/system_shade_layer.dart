@@ -1,5 +1,7 @@
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
+import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -28,6 +30,7 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final ProxyAnimation _sharedProgress;
+  late final ValueListenable<double> _drag;
   bool _mountedPanel = false;
   bool _offstage = true;
   ShadePage _page = ShadePage.quickSettings;
@@ -36,9 +39,11 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
   void initState() {
     super.initState();
     final state = ref.read(referenceShellProvider);
+    _drag = ref.read(referenceShellProvider.notifier).quickSettingsDrag
+      ..addListener(_followDrag);
     _controller = AnimationController(
       vsync: this,
-      value: state.quickSettingsVisible ? 1.0 : state.quickSettingsDragProgress,
+      value: state.quickSettingsVisible ? 1.0 : _drag.value,
     )..addListener(_updateVisibility);
     _mountedPanel = _controller.value > 0;
     _offstage = !_mountedPanel;
@@ -54,8 +59,16 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     });
   }
 
+  // The drag moves the shade on every frame without touching the shell state.
+  void _followDrag() {
+    if (!ref.read(referenceShellProvider).quickSettingsDragActive) return;
+    _controller.stop();
+    _controller.value = _drag.value;
+  }
+
   @override
   void dispose() {
+    _drag.removeListener(_followDrag);
     if (identical(_sharedProgress.parent, _controller)) {
       _sharedProgress.parent = const AlwaysStoppedAnimation(0.0);
     }
@@ -63,18 +76,35 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     super.dispose();
   }
 
-  void _onShadeChanged((bool, double, bool) signal) {
-    final (visible, drag, dragActive) = signal;
+  void _onShadeChanged((bool, bool) signal) {
+    final (visible, dragActive) = signal;
+    if (visible &&
+        ref
+            .read(referenceShellProvider.notifier)
+            .takeNotificationPageRequest() &&
+        _page != ShadePage.notifications) {
+      setState(() => _page = ShadePage.notifications);
+    }
     if (dragActive) {
       // Live drag: follow the finger exactly.
       _controller.stop();
-      _controller.value = drag;
+      _controller.value = _drag.value;
     } else {
-      // Released: settle open or closed.
+      // Released: settle open or closed, continuing the finger's velocity.
+      // A drag moves the shade by one panel extent per extent of travel.
+      final extent = ReferenceShellMetrics.quickSettingsPanelExtent(
+        MediaQuery.sizeOf(context),
+      );
       springTo(
         _controller,
         visible ? 1.0 : 0.0,
-        spring: Motion.gentle,
+        velocity:
+            ref
+                .read(referenceShellProvider.notifier)
+                .quickSettingsReleaseVelocity /
+            extent,
+        // Opening settles a little quicker than closing.
+        spring: visible ? Motion.snappy : Motion.gentle,
         telemetryLabel: 'shade_settle',
       );
     }
@@ -99,13 +129,9 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
             !state.quickSettingsVisible && !state.quickSettingsDragActive,
       ),
     );
-    ref.listen<(bool, double, bool)>(
+    ref.listen<(bool, bool)>(
       referenceShellProvider.select(
-        (state) => (
-          state.quickSettingsVisible,
-          state.quickSettingsDragProgress,
-          state.quickSettingsDragActive,
-        ),
+        (state) => (state.quickSettingsVisible, state.quickSettingsDragActive),
       ),
       (_, next) => _onShadeChanged(next),
     );

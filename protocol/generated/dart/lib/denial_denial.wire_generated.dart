@@ -167,7 +167,9 @@ enum WindowRequestKind {
   ConfigureSystemBar(6),
   SwitchWorkspace(7),
   MoveWindowToWorkspace(8),
-  MinimizeWindow(9);
+  MinimizeWindow(9),
+  NavigateBack(10),
+  MoveWindowToOutput(11);
 
   final int value;
   const WindowRequestKind(this.value);
@@ -184,6 +186,8 @@ enum WindowRequestKind {
       case 7: return WindowRequestKind.SwitchWorkspace;
       case 8: return WindowRequestKind.MoveWindowToWorkspace;
       case 9: return WindowRequestKind.MinimizeWindow;
+      case 10: return WindowRequestKind.NavigateBack;
+      case 11: return WindowRequestKind.MoveWindowToOutput;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -192,7 +196,7 @@ enum WindowRequestKind {
       value == null ? null : WindowRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 9;
+  static const int maxValue = 11;
   static const fb.Reader<WindowRequestKind> reader = _WindowRequestKindReader();
 }
 
@@ -337,7 +341,8 @@ enum ShellActionKind {
   FocusLeft(14),
   FocusRight(15),
   FocusUp(16),
-  FocusDown(17);
+  FocusDown(17),
+  ScreenshotCaptured(18);
 
   final int value;
   const ShellActionKind(this.value);
@@ -362,6 +367,7 @@ enum ShellActionKind {
       case 15: return ShellActionKind.FocusRight;
       case 16: return ShellActionKind.FocusUp;
       case 17: return ShellActionKind.FocusDown;
+      case 18: return ShellActionKind.ScreenshotCaptured;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -370,7 +376,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 17;
+  static const int maxValue = 18;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -388,7 +394,9 @@ class _ShellActionKindReader extends fb.Reader<ShellActionKind> {
 enum KeyboardCommandKind {
   Text(0),
   Key(1),
-  DismissPanel(2);
+  DismissPanel(2),
+  PanelMotion(3),
+  Replace(4);
 
   final int value;
   const KeyboardCommandKind(this.value);
@@ -398,6 +406,8 @@ enum KeyboardCommandKind {
       case 0: return KeyboardCommandKind.Text;
       case 1: return KeyboardCommandKind.Key;
       case 2: return KeyboardCommandKind.DismissPanel;
+      case 3: return KeyboardCommandKind.PanelMotion;
+      case 4: return KeyboardCommandKind.Replace;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -406,7 +416,7 @@ enum KeyboardCommandKind {
       value == null ? null : KeyboardCommandKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 2;
+  static const int maxValue = 4;
   static const fb.Reader<KeyboardCommandKind> reader = _KeyboardCommandKindReader();
 }
 
@@ -1041,6 +1051,42 @@ class _CursorStateKindReader extends fb.Reader<CursorStateKind> {
       CursorStateKind.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum InputEdge {
+  Left(0),
+  Right(1),
+  Top(2);
+
+  final int value;
+  const InputEdge(this.value);
+
+  factory InputEdge.fromValue(int value) {
+    switch (value) {
+      case 0: return InputEdge.Left;
+      case 1: return InputEdge.Right;
+      case 2: return InputEdge.Top;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static InputEdge? _createOrNull(int? value) =>
+      value == null ? null : InputEdge.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<InputEdge> reader = _InputEdgeReader();
+}
+
+class _InputEdgeReader extends fb.Reader<InputEdge> {
+  const _InputEdgeReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  InputEdge read(fb.BufferContext bc, int offset) =>
+      InputEdge.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum ShortcutTargetTypeId {
   NONE(0),
   ShortcutDenialActionTarget(1),
@@ -1138,7 +1184,9 @@ enum PayloadTypeId {
   CursorState(19),
   PluginActionCatalog(20),
   PluginActionInvocation(21),
-  PetRequest(22);
+  PetRequest(22),
+  TextPredictionRequest(23),
+  TextPrediction(24);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -1168,6 +1216,8 @@ enum PayloadTypeId {
       case 20: return PayloadTypeId.PluginActionCatalog;
       case 21: return PayloadTypeId.PluginActionInvocation;
       case 22: return PayloadTypeId.PetRequest;
+      case 23: return PayloadTypeId.TextPredictionRequest;
+      case 24: return PayloadTypeId.TextPrediction;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -1176,7 +1226,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 22;
+  static const int maxValue = 24;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -1505,6 +1555,76 @@ class InputWindowRegionObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class EdgeSwipeRegion {
+  EdgeSwipeRegion._(this._bc, this._bcOffset);
+
+  static const fb.Reader<EdgeSwipeRegion> reader = _EdgeSwipeRegionReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  WireRect get rect => WireRect.reader.read(_bc, _bcOffset + 0);
+  InputEdge get edge => InputEdge.fromValue(const fb.Uint8Reader().read(_bc, _bcOffset + 32));
+
+  @override
+  String toString() {
+    return 'EdgeSwipeRegion{rect: ${rect}, edge: ${edge}}';
+  }
+}
+
+class _EdgeSwipeRegionReader extends fb.StructReader<EdgeSwipeRegion> {
+  const _EdgeSwipeRegionReader();
+
+  @override
+  int get size => 40;
+
+  @override
+  EdgeSwipeRegion createObject(fb.BufferContext bc, int offset) => 
+    EdgeSwipeRegion._(bc, offset);
+}
+
+class EdgeSwipeRegionBuilder {
+  EdgeSwipeRegionBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  int finish(fb.StructBuilder rect, InputEdge edge) {
+    fbBuilder.pad(7);
+    fbBuilder.putUint8(edge.value);
+    rect();
+    return fbBuilder.offset;
+  }
+
+}
+
+class EdgeSwipeRegionObjectBuilder extends fb.ObjectBuilder {
+  final WireRectObjectBuilder _rect;
+  final InputEdge _edge;
+
+  EdgeSwipeRegionObjectBuilder({
+    required WireRectObjectBuilder rect,
+    required InputEdge edge,
+  })
+      : _rect = rect,
+        _edge = edge;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.pad(7);
+    fbBuilder.putUint8(_edge.value);
+    _rect.finish(fbBuilder);
+    return fbBuilder.offset;
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class InputLayout {
   InputLayout._(this._bc, this._bcOffset);
   factory InputLayout(List<int> bytes) {
@@ -1523,10 +1643,11 @@ class InputLayout {
   List<InputWindowRegion>? get windows => const fb.ListReader<InputWindowRegion>(InputWindowRegion.reader).vTableGetNullable(_bc, _bcOffset, 10);
   List<int>? get visibleSurfaceIds => const fb.ListReader<int>(fb.Uint64Reader()).vTableGetNullable(_bc, _bcOffset, 12);
   List<WireRect>? get softwareKeyboardRegions => const fb.ListReader<WireRect>(WireRect.reader).vTableGetNullable(_bc, _bcOffset, 14);
+  List<EdgeSwipeRegion>? get edgeSwipeRegions => const fb.ListReader<EdgeSwipeRegion>(EdgeSwipeRegion.reader).vTableGetNullable(_bc, _bcOffset, 16);
 
   @override
   String toString() {
-    return 'InputLayout{epoch: ${epoch}, flags: ${flags}, shellRegions: ${shellRegions}, windows: ${windows}, visibleSurfaceIds: ${visibleSurfaceIds}, softwareKeyboardRegions: ${softwareKeyboardRegions}}';
+    return 'InputLayout{epoch: ${epoch}, flags: ${flags}, shellRegions: ${shellRegions}, windows: ${windows}, visibleSurfaceIds: ${visibleSurfaceIds}, softwareKeyboardRegions: ${softwareKeyboardRegions}, edgeSwipeRegions: ${edgeSwipeRegions}}';
   }
 }
 
@@ -1544,7 +1665,7 @@ class InputLayoutBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(6);
+    fbBuilder.startTable(7);
   }
 
   int addEpoch(int? epoch) {
@@ -1571,6 +1692,10 @@ class InputLayoutBuilder {
     fbBuilder.addOffset(5, offset);
     return fbBuilder.offset;
   }
+  int addEdgeSwipeRegionsOffset(int? offset) {
+    fbBuilder.addOffset(6, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1584,6 +1709,7 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<InputWindowRegionObjectBuilder>? _windows;
   final List<int>? _visibleSurfaceIds;
   final List<WireRectObjectBuilder>? _softwareKeyboardRegions;
+  final List<EdgeSwipeRegionObjectBuilder>? _edgeSwipeRegions;
 
   InputLayoutObjectBuilder({
     int? epoch,
@@ -1592,13 +1718,15 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
     List<InputWindowRegionObjectBuilder>? windows,
     List<int>? visibleSurfaceIds,
     List<WireRectObjectBuilder>? softwareKeyboardRegions,
+    List<EdgeSwipeRegionObjectBuilder>? edgeSwipeRegions,
   })
       : _epoch = epoch,
         _flags = flags,
         _shellRegions = shellRegions,
         _windows = windows,
         _visibleSurfaceIds = visibleSurfaceIds,
-        _softwareKeyboardRegions = softwareKeyboardRegions;
+        _softwareKeyboardRegions = softwareKeyboardRegions,
+        _edgeSwipeRegions = edgeSwipeRegions;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -1611,13 +1739,16 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeListUint64(_visibleSurfaceIds!);
     final int? softwareKeyboardRegionsOffset = _softwareKeyboardRegions == null ? null
         : fbBuilder.writeListOfStructs(_softwareKeyboardRegions!);
-    fbBuilder.startTable(6);
+    final int? edgeSwipeRegionsOffset = _edgeSwipeRegions == null ? null
+        : fbBuilder.writeListOfStructs(_edgeSwipeRegions!);
+    fbBuilder.startTable(7);
     fbBuilder.addUint64(0, _epoch);
     fbBuilder.addUint32(1, _flags);
     fbBuilder.addOffset(2, shellRegionsOffset);
     fbBuilder.addOffset(3, windowsOffset);
     fbBuilder.addOffset(4, visibleSurfaceIdsOffset);
     fbBuilder.addOffset(5, softwareKeyboardRegionsOffset);
+    fbBuilder.addOffset(6, edgeSwipeRegionsOffset);
     return fbBuilder.endTable();
   }
 
@@ -1882,6 +2013,113 @@ class SurfaceLayerObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class ClientTexture {
+  ClientTexture._(this._bc, this._bcOffset);
+  factory ClientTexture(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ClientTexture> reader = _ClientTextureReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get textureId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  int get width => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 6, 0);
+  int get height => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 8, 0);
+  double get sourceWidth => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 10, 0.0);
+  double get sourceHeight => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 12, 0.0);
+
+  @override
+  String toString() {
+    return 'ClientTexture{textureId: ${textureId}, width: ${width}, height: ${height}, sourceWidth: ${sourceWidth}, sourceHeight: ${sourceHeight}}';
+  }
+}
+
+class _ClientTextureReader extends fb.TableReader<ClientTexture> {
+  const _ClientTextureReader();
+
+  @override
+  ClientTexture createObject(fb.BufferContext bc, int offset) => 
+    ClientTexture._(bc, offset);
+}
+
+class ClientTextureBuilder {
+  ClientTextureBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addTextureId(int? textureId) {
+    fbBuilder.addUint64(0, textureId);
+    return fbBuilder.offset;
+  }
+  int addWidth(int? width) {
+    fbBuilder.addUint32(1, width);
+    return fbBuilder.offset;
+  }
+  int addHeight(int? height) {
+    fbBuilder.addUint32(2, height);
+    return fbBuilder.offset;
+  }
+  int addSourceWidth(double? sourceWidth) {
+    fbBuilder.addFloat64(3, sourceWidth);
+    return fbBuilder.offset;
+  }
+  int addSourceHeight(double? sourceHeight) {
+    fbBuilder.addFloat64(4, sourceHeight);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ClientTextureObjectBuilder extends fb.ObjectBuilder {
+  final int? _textureId;
+  final int? _width;
+  final int? _height;
+  final double? _sourceWidth;
+  final double? _sourceHeight;
+
+  ClientTextureObjectBuilder({
+    int? textureId,
+    int? width,
+    int? height,
+    double? sourceWidth,
+    double? sourceHeight,
+  })
+      : _textureId = textureId,
+        _width = width,
+        _height = height,
+        _sourceWidth = sourceWidth,
+        _sourceHeight = sourceHeight;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(5);
+    fbBuilder.addUint64(0, _textureId);
+    fbBuilder.addUint32(1, _width);
+    fbBuilder.addUint32(2, _height);
+    fbBuilder.addFloat64(3, _sourceWidth);
+    fbBuilder.addFloat64(4, _sourceHeight);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class Window {
   Window._(this._bc, this._bcOffset);
   factory Window(List<int> bytes) {
@@ -1945,10 +2183,12 @@ class Window {
   bool get pet => const fb.BoolReader().vTableGet(_bc, _bcOffset, 100, false);
   int get petHolds => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 102, 0);
   bool get petDragged => const fb.BoolReader().vTableGet(_bc, _bcOffset, 104, false);
+  ClientTexture? get clientTexture => ClientTexture.reader.vTableGetNullable(_bc, _bcOffset, 106);
+  bool get keyboardInset => const fb.BoolReader().vTableGet(_bc, _bcOffset, 108, false);
 
   @override
   String toString() {
-    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}, workspaceId: ${workspaceId}, minimized: ${minimized}, fullscreen: ${fullscreen}, maximized: ${maximized}, transientParentId: ${transientParentId}, heldByWindowId: ${heldByWindowId}, heldHold: ${heldHold}, heldShare: ${heldShare}, petAnchorX: ${petAnchorX}, petAnchorY: ${petAnchorY}, petBelow: ${petBelow}, pet: ${pet}, petHolds: ${petHolds}, petDragged: ${petDragged}}';
+    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}, workspaceId: ${workspaceId}, minimized: ${minimized}, fullscreen: ${fullscreen}, maximized: ${maximized}, transientParentId: ${transientParentId}, heldByWindowId: ${heldByWindowId}, heldHold: ${heldHold}, heldShare: ${heldShare}, petAnchorX: ${petAnchorX}, petAnchorY: ${petAnchorY}, petBelow: ${petBelow}, pet: ${pet}, petHolds: ${petHolds}, petDragged: ${petDragged}, clientTexture: ${clientTexture}, keyboardInset: ${keyboardInset}}';
   }
 }
 
@@ -1966,7 +2206,7 @@ class WindowBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(51);
+    fbBuilder.startTable(53);
   }
 
   int addObjectId(int? objectId) {
@@ -2173,6 +2413,14 @@ class WindowBuilder {
     fbBuilder.addBool(50, petDragged);
     return fbBuilder.offset;
   }
+  int addClientTextureOffset(int? offset) {
+    fbBuilder.addOffset(51, offset);
+    return fbBuilder.offset;
+  }
+  int addKeyboardInset(bool? keyboardInset) {
+    fbBuilder.addBool(52, keyboardInset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2231,6 +2479,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
   final bool? _pet;
   final int? _petHolds;
   final bool? _petDragged;
+  final ClientTextureObjectBuilder? _clientTexture;
+  final bool? _keyboardInset;
 
   WindowObjectBuilder({
     int? objectId,
@@ -2284,6 +2534,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     bool? pet,
     int? petHolds,
     bool? petDragged,
+    ClientTextureObjectBuilder? clientTexture,
+    bool? keyboardInset,
   })
       : _objectId = objectId,
         _objectKind = objectKind,
@@ -2335,7 +2587,9 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         _petBelow = petBelow,
         _pet = pet,
         _petHolds = petHolds,
-        _petDragged = petDragged;
+        _petDragged = petDragged,
+        _clientTexture = clientTexture,
+        _keyboardInset = keyboardInset;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -2346,7 +2600,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_appId!);
     final int? surfacesOffset = _surfaces == null ? null
         : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(51);
+    final int? clientTextureOffset = _clientTexture?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(53);
     fbBuilder.addUint64(0, _objectId);
     fbBuilder.addUint8(1, _objectKind?.value);
     fbBuilder.addUint64(2, _surfaceId);
@@ -2398,6 +2653,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addBool(48, _pet);
     fbBuilder.addUint32(49, _petHolds);
     fbBuilder.addBool(50, _petDragged);
+    fbBuilder.addOffset(51, clientTextureOffset);
+    fbBuilder.addBool(52, _keyboardInset);
     return fbBuilder.endTable();
   }
 
@@ -3748,10 +4005,13 @@ class KeyboardCommand {
   String? get key => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
   int get flags => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
   int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 12, 0);
+  int get panelHeight => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 14, 0);
+  int get panelDurationMs => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 16, 0);
+  String? get replaced => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 18);
 
   @override
   String toString() {
-    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}, activationSerial: ${activationSerial}}';
+    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}, activationSerial: ${activationSerial}, panelHeight: ${panelHeight}, panelDurationMs: ${panelDurationMs}, replaced: ${replaced}}';
   }
 }
 
@@ -3769,7 +4029,7 @@ class KeyboardCommandBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(8);
   }
 
   int addKind(KeyboardCommandKind? kind) {
@@ -3792,6 +4052,18 @@ class KeyboardCommandBuilder {
     fbBuilder.addUint64(4, activationSerial);
     return fbBuilder.offset;
   }
+  int addPanelHeight(int? panelHeight) {
+    fbBuilder.addUint32(5, panelHeight);
+    return fbBuilder.offset;
+  }
+  int addPanelDurationMs(int? panelDurationMs) {
+    fbBuilder.addUint32(6, panelDurationMs);
+    return fbBuilder.offset;
+  }
+  int addReplacedOffset(int? offset) {
+    fbBuilder.addOffset(7, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3804,6 +4076,9 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
   final String? _key;
   final int? _flags;
   final int? _activationSerial;
+  final int? _panelHeight;
+  final int? _panelDurationMs;
+  final String? _replaced;
 
   KeyboardCommandObjectBuilder({
     KeyboardCommandKind? kind,
@@ -3811,12 +4086,18 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
     String? key,
     int? flags,
     int? activationSerial,
+    int? panelHeight,
+    int? panelDurationMs,
+    String? replaced,
   })
       : _kind = kind,
         _text = text,
         _key = key,
         _flags = flags,
-        _activationSerial = activationSerial;
+        _activationSerial = activationSerial,
+        _panelHeight = panelHeight,
+        _panelDurationMs = panelDurationMs,
+        _replaced = replaced;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -3825,12 +4106,245 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_text!);
     final int? keyOffset = _key == null ? null
         : fbBuilder.writeString(_key!);
-    fbBuilder.startTable(5);
+    final int? replacedOffset = _replaced == null ? null
+        : fbBuilder.writeString(_replaced!);
+    fbBuilder.startTable(8);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addOffset(1, textOffset);
     fbBuilder.addOffset(2, keyOffset);
     fbBuilder.addUint32(3, _flags);
     fbBuilder.addUint64(4, _activationSerial);
+    fbBuilder.addUint32(5, _panelHeight);
+    fbBuilder.addUint32(6, _panelDurationMs);
+    fbBuilder.addOffset(7, replacedOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class TextPredictionRequest {
+  TextPredictionRequest._(this._bc, this._bcOffset);
+  factory TextPredictionRequest(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<TextPredictionRequest> reader = _TextPredictionRequestReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get serial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  String? get word => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+  List<double>? get touchX => const fb.ListReader<double>(fb.Float32Reader()).vTableGetNullable(_bc, _bcOffset, 8);
+  List<double>? get touchY => const fb.ListReader<double>(fb.Float32Reader()).vTableGetNullable(_bc, _bcOffset, 10);
+  bool get manualCapital => const fb.BoolReader().vTableGet(_bc, _bcOffset, 12, false);
+
+  @override
+  String toString() {
+    return 'TextPredictionRequest{serial: ${serial}, word: ${word}, touchX: ${touchX}, touchY: ${touchY}, manualCapital: ${manualCapital}}';
+  }
+}
+
+class _TextPredictionRequestReader extends fb.TableReader<TextPredictionRequest> {
+  const _TextPredictionRequestReader();
+
+  @override
+  TextPredictionRequest createObject(fb.BufferContext bc, int offset) => 
+    TextPredictionRequest._(bc, offset);
+}
+
+class TextPredictionRequestBuilder {
+  TextPredictionRequestBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addSerial(int? serial) {
+    fbBuilder.addUint64(0, serial);
+    return fbBuilder.offset;
+  }
+  int addWordOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addTouchXOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addTouchYOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+  int addManualCapital(bool? manualCapital) {
+    fbBuilder.addBool(4, manualCapital);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class TextPredictionRequestObjectBuilder extends fb.ObjectBuilder {
+  final int? _serial;
+  final String? _word;
+  final List<double>? _touchX;
+  final List<double>? _touchY;
+  final bool? _manualCapital;
+
+  TextPredictionRequestObjectBuilder({
+    int? serial,
+    String? word,
+    List<double>? touchX,
+    List<double>? touchY,
+    bool? manualCapital,
+  })
+      : _serial = serial,
+        _word = word,
+        _touchX = touchX,
+        _touchY = touchY,
+        _manualCapital = manualCapital;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? wordOffset = _word == null ? null
+        : fbBuilder.writeString(_word!);
+    final int? touchXOffset = _touchX == null ? null
+        : fbBuilder.writeListFloat32(_touchX!);
+    final int? touchYOffset = _touchY == null ? null
+        : fbBuilder.writeListFloat32(_touchY!);
+    fbBuilder.startTable(5);
+    fbBuilder.addUint64(0, _serial);
+    fbBuilder.addOffset(1, wordOffset);
+    fbBuilder.addOffset(2, touchXOffset);
+    fbBuilder.addOffset(3, touchYOffset);
+    fbBuilder.addBool(4, _manualCapital);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class TextPrediction {
+  TextPrediction._(this._bc, this._bcOffset);
+  factory TextPrediction(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<TextPrediction> reader = _TextPredictionReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get serial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  String? get word => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+  String? get correction => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
+  List<String>? get suggestions => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 10);
+  List<String>? get languages => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 12);
+
+  @override
+  String toString() {
+    return 'TextPrediction{serial: ${serial}, word: ${word}, correction: ${correction}, suggestions: ${suggestions}, languages: ${languages}}';
+  }
+}
+
+class _TextPredictionReader extends fb.TableReader<TextPrediction> {
+  const _TextPredictionReader();
+
+  @override
+  TextPrediction createObject(fb.BufferContext bc, int offset) => 
+    TextPrediction._(bc, offset);
+}
+
+class TextPredictionBuilder {
+  TextPredictionBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addSerial(int? serial) {
+    fbBuilder.addUint64(0, serial);
+    return fbBuilder.offset;
+  }
+  int addWordOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addCorrectionOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addSuggestionsOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+  int addLanguagesOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class TextPredictionObjectBuilder extends fb.ObjectBuilder {
+  final int? _serial;
+  final String? _word;
+  final String? _correction;
+  final List<String>? _suggestions;
+  final List<String>? _languages;
+
+  TextPredictionObjectBuilder({
+    int? serial,
+    String? word,
+    String? correction,
+    List<String>? suggestions,
+    List<String>? languages,
+  })
+      : _serial = serial,
+        _word = word,
+        _correction = correction,
+        _suggestions = suggestions,
+        _languages = languages;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? wordOffset = _word == null ? null
+        : fbBuilder.writeString(_word!);
+    final int? correctionOffset = _correction == null ? null
+        : fbBuilder.writeString(_correction!);
+    final int? suggestionsOffset = _suggestions == null ? null
+        : fbBuilder.writeList(_suggestions!.map(fbBuilder.writeString).toList());
+    final int? languagesOffset = _languages == null ? null
+        : fbBuilder.writeList(_languages!.map(fbBuilder.writeString).toList());
+    fbBuilder.startTable(5);
+    fbBuilder.addUint64(0, _serial);
+    fbBuilder.addOffset(1, wordOffset);
+    fbBuilder.addOffset(2, correctionOffset);
+    fbBuilder.addOffset(3, suggestionsOffset);
+    fbBuilder.addOffset(4, languagesOffset);
     return fbBuilder.endTable();
   }
 
@@ -4980,10 +5494,11 @@ class MouseConfiguration {
   final int _bcOffset;
 
   double get speed => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 4, 0.0);
+  bool get accelerationEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, true);
 
   @override
   String toString() {
-    return 'MouseConfiguration{speed: ${speed}}';
+    return 'MouseConfiguration{speed: ${speed}, accelerationEnabled: ${accelerationEnabled}}';
   }
 }
 
@@ -5001,11 +5516,15 @@ class MouseConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
   }
 
   int addSpeed(double? speed) {
     fbBuilder.addFloat64(0, speed);
+    return fbBuilder.offset;
+  }
+  int addAccelerationEnabled(bool? accelerationEnabled) {
+    fbBuilder.addBool(1, accelerationEnabled);
     return fbBuilder.offset;
   }
 
@@ -5016,17 +5535,21 @@ class MouseConfigurationBuilder {
 
 class MouseConfigurationObjectBuilder extends fb.ObjectBuilder {
   final double? _speed;
+  final bool? _accelerationEnabled;
 
   MouseConfigurationObjectBuilder({
     double? speed,
+    bool? accelerationEnabled,
   })
-      : _speed = speed;
+      : _speed = speed,
+        _accelerationEnabled = accelerationEnabled;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
     fbBuilder.addFloat64(0, _speed);
+    fbBuilder.addBool(1, _accelerationEnabled);
     return fbBuilder.endTable();
   }
 
@@ -5542,6 +6065,90 @@ class DesktopNotificationImageDataObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class DesktopNotificationMessage {
+  DesktopNotificationMessage._(this._bc, this._bcOffset);
+  factory DesktopNotificationMessage(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<DesktopNotificationMessage> reader = _DesktopNotificationMessageReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  String? get sender => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 4);
+  String? get text => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+
+  @override
+  String toString() {
+    return 'DesktopNotificationMessage{sender: ${sender}, text: ${text}}';
+  }
+}
+
+class _DesktopNotificationMessageReader extends fb.TableReader<DesktopNotificationMessage> {
+  const _DesktopNotificationMessageReader();
+
+  @override
+  DesktopNotificationMessage createObject(fb.BufferContext bc, int offset) => 
+    DesktopNotificationMessage._(bc, offset);
+}
+
+class DesktopNotificationMessageBuilder {
+  DesktopNotificationMessageBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(2);
+  }
+
+  int addSenderOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addTextOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class DesktopNotificationMessageObjectBuilder extends fb.ObjectBuilder {
+  final String? _sender;
+  final String? _text;
+
+  DesktopNotificationMessageObjectBuilder({
+    String? sender,
+    String? text,
+  })
+      : _sender = sender,
+        _text = text;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? senderOffset = _sender == null ? null
+        : fbBuilder.writeString(_sender!);
+    final int? textOffset = _text == null ? null
+        : fbBuilder.writeString(_text!);
+    fbBuilder.startTable(2);
+    fbBuilder.addOffset(0, senderOffset);
+    fbBuilder.addOffset(1, textOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class DesktopNotification {
   DesktopNotification._(this._bc, this._bcOffset);
   factory DesktopNotification(List<int> bytes) {
@@ -5578,10 +6185,16 @@ class DesktopNotification {
   int get progress => const fb.Int32Reader().vTableGet(_bc, _bcOffset, 46, 0);
   bool get hasProgress => const fb.BoolReader().vTableGet(_bc, _bcOffset, 48, false);
   int get expireTimeoutMs => const fb.Int32Reader().vTableGet(_bc, _bcOffset, 50, -1);
+  bool get alert => const fb.BoolReader().vTableGet(_bc, _bcOffset, 52, true);
+  String? get groupKey => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 54);
+  bool get groupSummary => const fb.BoolReader().vTableGet(_bc, _bcOffset, 56, false);
+  int get timeMs => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 58, 0);
+  List<DesktopNotificationMessage>? get messages => const fb.ListReader<DesktopNotificationMessage>(DesktopNotificationMessage.reader).vTableGetNullable(_bc, _bcOffset, 60);
+  bool get clearable => const fb.BoolReader().vTableGet(_bc, _bcOffset, 62, true);
 
   @override
   String toString() {
-    return 'DesktopNotification{id: ${id}, sender: ${sender}, appName: ${appName}, appIcon: ${appIcon}, summary: ${summary}, body: ${body}, actions: ${actions}, urgency: ${urgency}, category: ${category}, desktopEntry: ${desktopEntry}, imagePath: ${imagePath}, imageData: ${imageData}, resident: ${resident}, transient: ${transient}, suppressSound: ${suppressSound}, actionIcons: ${actionIcons}, soundName: ${soundName}, soundFile: ${soundFile}, x: ${x}, y: ${y}, hasPosition: ${hasPosition}, progress: ${progress}, hasProgress: ${hasProgress}, expireTimeoutMs: ${expireTimeoutMs}}';
+    return 'DesktopNotification{id: ${id}, sender: ${sender}, appName: ${appName}, appIcon: ${appIcon}, summary: ${summary}, body: ${body}, actions: ${actions}, urgency: ${urgency}, category: ${category}, desktopEntry: ${desktopEntry}, imagePath: ${imagePath}, imageData: ${imageData}, resident: ${resident}, transient: ${transient}, suppressSound: ${suppressSound}, actionIcons: ${actionIcons}, soundName: ${soundName}, soundFile: ${soundFile}, x: ${x}, y: ${y}, hasPosition: ${hasPosition}, progress: ${progress}, hasProgress: ${hasProgress}, expireTimeoutMs: ${expireTimeoutMs}, alert: ${alert}, groupKey: ${groupKey}, groupSummary: ${groupSummary}, timeMs: ${timeMs}, messages: ${messages}, clearable: ${clearable}}';
   }
 }
 
@@ -5599,7 +6212,7 @@ class DesktopNotificationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(24);
+    fbBuilder.startTable(30);
   }
 
   int addId(int? id) {
@@ -5698,6 +6311,30 @@ class DesktopNotificationBuilder {
     fbBuilder.addInt32(23, expireTimeoutMs);
     return fbBuilder.offset;
   }
+  int addAlert(bool? alert) {
+    fbBuilder.addBool(24, alert);
+    return fbBuilder.offset;
+  }
+  int addGroupKeyOffset(int? offset) {
+    fbBuilder.addOffset(25, offset);
+    return fbBuilder.offset;
+  }
+  int addGroupSummary(bool? groupSummary) {
+    fbBuilder.addBool(26, groupSummary);
+    return fbBuilder.offset;
+  }
+  int addTimeMs(int? timeMs) {
+    fbBuilder.addInt64(27, timeMs);
+    return fbBuilder.offset;
+  }
+  int addMessagesOffset(int? offset) {
+    fbBuilder.addOffset(28, offset);
+    return fbBuilder.offset;
+  }
+  int addClearable(bool? clearable) {
+    fbBuilder.addBool(29, clearable);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -5729,6 +6366,12 @@ class DesktopNotificationObjectBuilder extends fb.ObjectBuilder {
   final int? _progress;
   final bool? _hasProgress;
   final int? _expireTimeoutMs;
+  final bool? _alert;
+  final String? _groupKey;
+  final bool? _groupSummary;
+  final int? _timeMs;
+  final List<DesktopNotificationMessageObjectBuilder>? _messages;
+  final bool? _clearable;
 
   DesktopNotificationObjectBuilder({
     int? id,
@@ -5755,6 +6398,12 @@ class DesktopNotificationObjectBuilder extends fb.ObjectBuilder {
     int? progress,
     bool? hasProgress,
     int? expireTimeoutMs,
+    bool? alert,
+    String? groupKey,
+    bool? groupSummary,
+    int? timeMs,
+    List<DesktopNotificationMessageObjectBuilder>? messages,
+    bool? clearable,
   })
       : _id = id,
         _sender = sender,
@@ -5779,7 +6428,13 @@ class DesktopNotificationObjectBuilder extends fb.ObjectBuilder {
         _hasPosition = hasPosition,
         _progress = progress,
         _hasProgress = hasProgress,
-        _expireTimeoutMs = expireTimeoutMs;
+        _expireTimeoutMs = expireTimeoutMs,
+        _alert = alert,
+        _groupKey = groupKey,
+        _groupSummary = groupSummary,
+        _timeMs = timeMs,
+        _messages = messages,
+        _clearable = clearable;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -5807,7 +6462,11 @@ class DesktopNotificationObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_soundName!);
     final int? soundFileOffset = _soundFile == null ? null
         : fbBuilder.writeString(_soundFile!);
-    fbBuilder.startTable(24);
+    final int? groupKeyOffset = _groupKey == null ? null
+        : fbBuilder.writeString(_groupKey!);
+    final int? messagesOffset = _messages == null ? null
+        : fbBuilder.writeList(_messages!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    fbBuilder.startTable(30);
     fbBuilder.addUint32(0, _id);
     fbBuilder.addOffset(1, senderOffset);
     fbBuilder.addOffset(2, appNameOffset);
@@ -5832,6 +6491,12 @@ class DesktopNotificationObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addInt32(21, _progress);
     fbBuilder.addBool(22, _hasProgress);
     fbBuilder.addInt32(23, _expireTimeoutMs);
+    fbBuilder.addBool(24, _alert);
+    fbBuilder.addOffset(25, groupKeyOffset);
+    fbBuilder.addBool(26, _groupSummary);
+    fbBuilder.addInt64(27, _timeMs);
+    fbBuilder.addOffset(28, messagesOffset);
+    fbBuilder.addBool(29, _clearable);
     return fbBuilder.endTable();
   }
 
@@ -6741,6 +7406,8 @@ class Envelope {
       case 20: return PluginActionCatalog.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 21: return PluginActionInvocation.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 22: return PetRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 23: return TextPredictionRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 24: return TextPrediction.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

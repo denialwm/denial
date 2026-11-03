@@ -64,6 +64,7 @@ pub(super) fn synchronize_authentication_boundary(events: &mut RuntimeState) {
     {
         events.scene_sync.mark_dirty();
     }
+    events.frontend_mut().set_windows_covered(locked);
     if locked {
         events.pending_shell_actions.clear();
         events.plugin_actions.pending.clear();
@@ -111,7 +112,7 @@ pub(super) fn synchronize_system_control_events(
     let Some(controls) = events.system_controls.as_ref() else {
         runtime.drain_audio_requests().for_each(drop);
         runtime.drain_brightness_requests().for_each(drop);
-        while let Some(request) = events.pending_system_controls.pop_front() {
+        while let Some(request) = events.control.system.pop_front() {
             let (_, reply) = request.into_parts();
             let _ = reply.send(Err(OutputControlFailure::new(
                 "unavailable",
@@ -123,7 +124,7 @@ pub(super) fn synchronize_system_control_events(
     if events.secure_session_locked() {
         runtime.drain_audio_requests().for_each(drop);
         runtime.drain_brightness_requests().for_each(drop);
-        while let Some(request) = events.pending_system_controls.pop_front() {
+        while let Some(request) = events.control.system.pop_front() {
             let (_, reply) = request.into_parts();
             let _ = reply.send(Err(OutputControlFailure::new(
                 "locked",
@@ -137,7 +138,7 @@ pub(super) fn synchronize_system_control_events(
         for request in runtime.drain_brightness_requests() {
             controls.handle_brightness_request(request);
         }
-        while let Some(request) = events.pending_system_controls.pop_front() {
+        while let Some(request) = events.control.system.pop_front() {
             let (command, reply) = request.into_parts();
             let (accepted, wait) = match command {
                 SystemControlCommand::Audio(request) => {
@@ -174,14 +175,15 @@ pub(super) fn synchronize_system_control_events(
                 )));
             } else if let Some(kind) = wait {
                 const MAX_PENDING_SYSTEM_CONTROL_WAITS: usize = 64;
-                if events.pending_system_control_waits.len() >= MAX_PENDING_SYSTEM_CONTROL_WAITS {
+                if events.control.system_waits.len() >= MAX_PENDING_SYSTEM_CONTROL_WAITS {
                     let _ = reply.send(Err(OutputControlFailure::new(
                         "busy",
                         "too many system-control reads are pending",
                     )));
                 } else {
                     events
-                        .pending_system_control_waits
+                        .control
+                        .system_waits
                         .push_back(PendingSystemControlWait::new(kind, reply));
                 }
             } else {
@@ -191,7 +193,7 @@ pub(super) fn synchronize_system_control_events(
     }
     if controls.take_event_signal() {
         while let Some(event) = controls.try_event() {
-            resolve_system_control_waits(&mut events.pending_system_control_waits, &event);
+            resolve_system_control_waits(&mut events.control.system_waits, &event);
             runtime.send_system_control_event(&event)?;
         }
     }
@@ -201,9 +203,9 @@ pub(super) fn synchronize_system_control_events(
 #[cfg(feature = "flutter")]
 fn expire_system_control_waits(events: &mut RuntimeState) {
     let now = Instant::now();
-    let pending = events.pending_system_control_waits.len();
+    let pending = events.control.system_waits.len();
     for _ in 0..pending {
-        let Some(wait) = events.pending_system_control_waits.pop_front() else {
+        let Some(wait) = events.control.system_waits.pop_front() else {
             break;
         };
         if wait.expired(now) {
@@ -212,7 +214,7 @@ fn expire_system_control_waits(events: &mut RuntimeState) {
                 "the native system-control worker did not answer in time",
             )));
         } else {
-            events.pending_system_control_waits.push_back(wait);
+            events.control.system_waits.push_back(wait);
         }
     }
 }
@@ -387,6 +389,54 @@ pub(super) fn synchronize_shell_keyboard(
         events.scene_sync.mark_dirty();
     }
 
+    deliver_flutter_input_method_transactions(runtime, events)?;
+    if let Some((generation, snapshot)) = runtime.take_text_input_state()
+        && events
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
+    {
+        events.scene_sync.mark_dirty();
+    }
+    wayland_frontend::synchronize_input_deck(runtime, events)?;
+    publish_software_keyboard_state(runtime, events)?;
+    if let Some(request) = runtime.take_text_prediction_request()
+        && !events.secure_session_locked()
+        && let Some(service) = events.text_prediction.as_ref()
+    {
+        service.ask(request);
+    }
+    if let Some(prediction) = events.pending_text_prediction.take() {
+        runtime.send_text_prediction(&prediction)?;
+    }
+    let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
+    // The OSK is a virtual keyboard source. Rust converts each intent into
+    // complete key transitions and feeds the same focus/XKB/seat-or-Flutter
+    // router used by libinput; there is no separate text-delivery path.
+    let mut flush_wayland_clients = false;
+    for command in commands {
+        let delivered = wayland_frontend::dispatch_shell_keyboard(events, &command);
+        flush_wayland_clients |= delivered;
+        if !delivered {
+            warn!(
+                ?command,
+                "virtual keyboard could not produce this key transition"
+            );
+        }
+    }
+    // Shell-keyboard text committed to a Flutter editor.
+    deliver_flutter_input_method_transactions(runtime, events)?;
+    if flush_wayland_clients && let Some(frontend) = events.wayland.as_mut() {
+        frontend.display_handle.flush_clients()?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn deliver_flutter_input_method_transactions(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
     let input_method_transactions = events
         .wayland
         .as_mut()
@@ -406,33 +456,6 @@ pub(super) fn synchronize_shell_keyboard(
             }
         }
     }
-    if let Some((generation, snapshot)) = runtime.take_text_input_state()
-        && events
-            .wayland
-            .as_mut()
-            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
-    {
-        events.scene_sync.mark_dirty();
-    }
-    publish_software_keyboard_state(runtime, events)?;
-    let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
-    // The OSK is a virtual keyboard source. Rust converts each intent into
-    // complete key transitions and feeds the same focus/XKB/seat-or-Flutter
-    // router used by libinput; there is no separate text-delivery path.
-    let mut flush_wayland_clients = false;
-    for command in commands {
-        let delivered = wayland_frontend::dispatch_shell_keyboard(events, &command);
-        flush_wayland_clients |= delivered;
-        if !delivered {
-            warn!(
-                ?command,
-                "virtual keyboard could not produce this key transition"
-            );
-        }
-    }
-    if flush_wayland_clients && let Some(frontend) = events.wayland.as_mut() {
-        frontend.display_handle.flush_clients()?;
-    }
     Ok(())
 }
 
@@ -441,17 +464,5 @@ pub(super) fn publish_software_keyboard_state(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
-    let keyboard = events
-        .wayland
-        .as_ref()
-        .map(|frontend| frontend.software_keyboard_state())
-        .unwrap_or_default();
-    runtime.publish_text_input_state(
-        keyboard.active,
-        keyboard.input_panel_visible,
-        keyboard.legacy,
-        keyboard.content_hint,
-        keyboard.content_purpose,
-        keyboard.activation_serial,
-    )
+    runtime.publish_text_input_state(events.frontend().software_keyboard_state())
 }

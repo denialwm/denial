@@ -8,6 +8,164 @@ boundaries may change before 1.0.
 
 ### Added
 
+- A phone running the mobile shell keeps working as a phone when a monitor is
+  plugged in: the monitor runs the desktop shell beside it. Apps open on the
+  screen they were started from. A recents card's monitor button, or opening
+  the app from the monitor's launcher, moves an app to the monitor; dropping
+  a window on the phone's screen, or opening it from the phone, brings it
+  back. With the monitor in use the power button turns off only the phone,
+  each screen dims on its own, and unplugging moves the monitor's windows to
+  the phone until it returns. The monitor has its own roundness
+  (`appearance.monitorCornerRadiusScale`) and its own wallpaper, placed and
+  zoomed apart from the phone's (`outputZooms` in the wallpaper file). See
+  [docs/PHONE_AND_MONITOR.md](docs/PHONE_AND_MONITOR.md).
+- Color management. Output buffers are 10-bit where the display planes allow
+  it, and each display gets the desktop converted from sRGB to its own gamut,
+  read from its EDID. `denialctl color correction off` and `on` compare a
+  display with and without it. Screenshots and screen capture stay sRGB.
+- `denialctl color lut load FILE.cube` grades the whole desktop with a 3D LUT,
+  and `denialctl color app APP_ID lut load FILE.cube` grades one app's
+  windows. Display color settings are saved and applied again at the next
+  start.
+- HDR on displays whose EDID offers PQ. `denialctl color hdr OUTPUT on`
+  switches the output to BT.2100 with SDR content at a chosen white (203 cd/m²
+  by default), and HDR windows keep the display's headroom. `srgb` is for
+  displays that ignore BT.2020 and show PQ with sRGB primaries.
+- Apps can describe their colors through `wp_color_management_v1` and
+  `wp_color_representation_v1`; Denial converts tagged windows into the
+  desktop's colors.
+- A color tuning panel, opened with Super+Alt+P or `denialctl color tune`,
+  grades the desktop or a tapped app live: lift, gamma and gain wheels and
+  exposure, contrast, saturation, vibrance, warmth and tint sliders, over a
+  base look from `~/.local/share/denial/luts`. It has built-in looks (Warm,
+  Cool, Logix, Matte, Film, Night and Mono), shows the target ungraded while
+  Before is held, and saves on release.
+- Mouse & touchpad settings can switch mouse acceleration off, which gives
+  libinput's flat pointer profile.
+- `zwp_input_timestamps_v1`: clients get libinput's microsecond time for each
+  key, pointer and touch event.
+- `denial_keyboard_inset_v1` lets an app follow the on-screen keyboard's
+  height as it opens, closes and is dragged, and lay itself out around the
+  keys instead of being moved above them.
+- Input deck: a touch display can become a full-screen keyboard and touchpad
+  for the desktop shown on another display.
+- Remote desktops, virtual machines and other apps that ask for it through
+  `zwp_keyboard_shortcuts_inhibit_v1` can now receive Super and Denial's other
+  shortcuts while they have focus. Denial asks first: Allow once, Always allow,
+  Decline once or Never allow. The pointer release shortcut (Super+Escape by default), VT
+  switching, the emergency exit and the volume and brightness keys stay with
+  Denial, and the release shortcut gives the shortcuts back until the app is
+  focused again.
+- Settings has a Permissions page. It lists the apps that asked for Denial's
+  keyboard shortcuts and sets each to Ask, Always allow or Never allow,
+  effective at once.
+- `denial-portal` now implements `org.freedesktop.impl.portal.Access`, so
+  portal permission questions, such as camera access for sandboxed apps,
+  appear in Denial's own dialog.
+- Notifications stay until they are closed, are grouped, and open their app
+  on tap. A notification alerts once; an update alerts again only when its
+  summary, body or image changed.
+- The mobile keyboard is rewritten. Each touch goes to the key whose area
+  holds it, gaps and edges included, and a strip above the keys suggests
+  words. Space or punctuation corrects a mistyped word and the next Backspace
+  takes the correction back; a long press on a vowel offers its accents, and a
+  double tap on Shift locks capitals. English is built in; another language
+  turns on when `denial/dictionaries/<language>.words.gz` is installed in a
+  data directory.
+- The mobile lock screen asks for a six-digit PIN; a PIN of 4 to 12 digits set
+  earlier keeps working until it is changed. Fingerprint unlock needs that PIN,
+  shows scan feedback and retries at once after a rejected scan. The SIM PIN is
+  asked on the lock screen's own keypad, the newest notifications show there
+  and swipe away, and a double tap turns the screen off. An account with no
+  password, PIN or fingerprint still locks, and opens with a swipe.
+- Always-on display for the mobile shell, on panels that keep showing their
+  last frame while the output is off. `/etc/denial/ambient-display.json` names
+  the output; the locked phone then shows the time, the date, the wallpaper's
+  subject and the fingerprint mark on black, and the clock moves on each
+  minute.
+- With Phonewave's optional `wallpaper-depth` program installed, the lock
+  screen draws its clock behind the wallpaper's subject. The mask is made in
+  the background when the wallpaper picker closes and kept for that file.
+- The mobile shell moves as one app deck: opening, switching, recents and
+  going home follow the finger and settle with its speed, and apps open from
+  their icon. The volume indicator, quick settings tiles, toggles and sliders
+  move like liquid.
+- On the mobile shell, Power plus Volume Down takes a screenshot.
+- The shade has a Screen recording tile when Phonewave's `screen-record` is
+  installed, and the shell's clocks can show 24-hour time.
+- The mobile home screen keeps its own layout for portrait and for landscape,
+  and in landscape its cells shrink to fit and the keyboard gets taller rows.
+- In landscape the mobile shell hides its status bar and apps get the full
+  height; a swipe down from the top edge still opens the shade.
+- Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
+
+### Changed
+
+- Output views are composed from retained slices by default.
+- Client buffers are released as soon as the last frame that sampled them is
+  done. Denial follows upstream Smithay instead of a fork.
+- An idle Denial wakes far less often. deniald, the polkit agent, the X11 tray,
+  the lock check and the input device scans wait for events instead of
+  polling, and shell telemetry and the thread priority guard sleep while the
+  outputs are off.
+- While any screen is lit, Denial holds Wi-Fi power save off on drivers that
+  offer `power_save_allowed`, so a reply after a quiet gap no longer waits for
+  the chip to wake. Power save comes back once every screen is dark.
+- Minimized mobile windows pause, and on the mobile shell every app stays
+  suspended while the session is locked.
+- On the mobile shell the power button only turns the screen off and on.
+- Auto-rotation follows Phonewave's `steinerd` (`org.steinerd.Sensors1`)
+  instead of iio-sensor-proxy.
+- Do not disturb, lock-screen previews, waking the screen for notifications,
+  keyboard vibration and fingerprint unlock are keys in the settings
+  document; the separate notification-policy file is gone. On a phone,
+  `idleLockEnabled` turns locking on or off and `screenOffLockDelaySeconds`
+  sets how long a dark screen stays unlocked.
+
+### Removed
+
+- The Skia renderer. Denial engines are Impeller-only Slimpeller builds, and
+  deniald no longer accepts `--flutter-renderer`; `denial-app` no longer
+  accepts `--renderer`.
+
+### Fixed
+
+- Logging in to Denial from LightDM no longer drops back to the greeter with
+  "libseat did not activate the current TTY session". Display managers that
+  start the session before logind activates it are now waited for, also with
+  libseat 0.8 (#185).
+- Returning to full brightness, and quitting Denial, restore the display's
+  original gamma LUT instead of leaving the output dimmed (#176).
+- When the session ends, Denial gives the systemd user manager back the
+  environment it replaced, so a later Plasma login no longer waits about two
+  minutes on the portal (#152).
+- A monitor that disconnects while it sleeps no longer disconnects every
+  Wayland client, Xwayland included, with "Invalid binding of wl_output".
+- A client that renders faster than the display no longer stalls on buffers
+  Denial held; Denial keeps only its newest frame.
+- Coming back from another VT no longer logs "could not acquire Flutter
+  embedder backing store ... MissingAuthorization".
+- An output no longer stays black after a frame ends without presenting.
+- When a shell bundle refresh fails, Denial starts the shell again.
+- Presentation times stay in order on drivers that repeat the previous
+  completion timestamp, such as msm.
+- With Fcitx, a modifier released after the input method dropped its grab no
+  longer stays held.
+- The Plugin Manager runs with the Dart SDK it was built with, not whichever
+  Dart comes first on `PATH`.
+- Android apps under Droidloom no longer show a notification twice after it
+  times out.
+- Started through UWSM, Denial finds its logind session: `loginctl
+  lock-session` locks it, logind sees whether it is locked, and it no longer
+  retries the lookup every two seconds.
+
+## [0.5.1] - 2026-10-11
+
+Everything since 0.2.6. Releases 0.3.0 through 0.5.1 each published this
+section as it stood at their tag.
+
+### Added
+
 - Denial can now compose its Flutter shell from typed built-in and external
   plugins. The optional `denial-plugin-manager` package provides the graphical
   manager, CLI, version-matched compiler kit, validated Apply/recovery flow,

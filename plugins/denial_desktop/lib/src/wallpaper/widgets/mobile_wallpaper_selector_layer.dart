@@ -16,6 +16,7 @@ import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import 'mobile_wallpaper_selector_surface.dart';
+import '../../state/phone_desk.dart';
 
 /// Presents the shared wallpaper experience above the complete mobile shell.
 ///
@@ -46,7 +47,7 @@ class _MobileWallpaperSelectorLayerState
 
   Future<void> _openSelector() async {
     if (ref.read(referenceShellProvider).lockLayerVisible) return;
-    var layout = ref.read(displayLayoutProvider);
+    var layout = ref.read(sceneDisplayLayoutProvider(ShellPart.of(context)));
     layout ??= await ref.read(displayLayoutProvider.notifier).ensureLoaded();
     // The profile may have changed or the session locked while loading outputs.
     if (!mounted || ref.read(referenceShellProvider).lockLayerVisible) return;
@@ -68,7 +69,9 @@ class _MobileWallpaperSelectorLayerState
     final visible = ref.watch(
       wallpaperControllerProvider.select((state) => state.selectorVisible),
     );
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final displayLayout = ref.watch(
+      sceneDisplayLayoutProvider(ShellPart.of(context)),
+    );
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final duration = reduceMotion ? Duration.zero : Motion.wallpaperSelector;
     return TextFieldTapRegion(

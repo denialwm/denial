@@ -12,15 +12,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay::reexports::rustix::{io, ioctl};
 
-#[cfg(feature = "flutter")]
-use smithay::backend::egl::EGLContext;
-
+/// Atlas formats in preference order. XR30 keeps 10 bits per channel from
+/// composition to scanout, the headroom color transforms need; XR24 serves
+/// planes or renderers without it. Both store 32 bits per pixel.
+const SCANOUT_FOURCCS: [Fourcc; 2] = [Fourcc::Xrgb2101010, Fourcc::Xrgb8888];
 const SCANOUT_BYTES_PER_PIXEL: u64 = 4;
 const MAX_SCANOUT_DIMENSION: u32 = 16_384;
 const MAX_SCANOUT_POOL_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_SCANOUT_BUFFERS: usize = 49;
+/// Scanout, a commit in KMS, a frame awaiting its GPU work, and the frame
+/// Flutter renders: an output that renders ahead needs a fourth buffer, or
+/// the frame it starts early leaves no free buffer for the next tick.
 #[cfg(feature = "flutter")]
-pub(super) const OUTPUT_POOL_LENGTH: usize = 3;
+fn output_pool_length() -> usize {
+    if super::output_scheduler::render_ahead() {
+        4
+    } else {
+        3
+    }
+}
 
 /// Request local scanout constraints only when the render device also owns
 /// KMS. A render-only GPU exports the atlas to another DRM device, so asking
@@ -44,6 +54,8 @@ pub(super) struct ConnectedOutput {
     pub(super) mode: Mode,
     pub(super) transform: OutputTransform,
     pub(super) vrr_enabled: bool,
+    /// The scale used when the configuration names none for this output.
+    pub(super) default_scale_120: u32,
 }
 
 pub(super) struct Scanout {
@@ -448,6 +460,16 @@ pub(super) struct ScanoutAllocator {
     allocator: GbmAllocator<DrmDeviceFd>,
     drm_fd: DrmDeviceFd,
     cross_device: bool,
+    #[cfg(feature = "flutter")]
+    transfer: Option<SceneTransferAllocator>,
+}
+
+#[cfg(feature = "flutter")]
+struct SceneTransferAllocator {
+    source_gbm: GbmDevice<DrmDeviceFd>,
+    scene_formats: FormatSet,
+    source_probe: GlesRenderer,
+    device: Arc<crate::gpu_transfer::TransferDevice>,
 }
 
 impl ScanoutAllocator {
@@ -460,50 +482,286 @@ impl ScanoutAllocator {
             allocator,
             drm_fd,
             cross_device,
+            #[cfg(feature = "flutter")]
+            transfer: None,
         }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn enable_scene_transfer(
+        &mut self,
+        source_gbm: GbmDevice<DrmDeviceFd>,
+        source_fd: DrmDeviceFd,
+        scene_display: &smithay::backend::egl::EGLDisplay,
+    ) -> Result<(), Box<dyn Error>> {
+        let context = egl_context::create_render_context(scene_display)?;
+        // SAFETY: this context belongs exclusively to this allocation probe.
+        let source_probe = unsafe { GlesRenderer::new(context)? };
+        let scene_formats = scene_display.dmabuf_render_formats().clone();
+        let device = crate::gpu_transfer::TransferDevice::new(source_fd, self.drm_fd.clone())?;
+        self.transfer = Some(SceneTransferAllocator {
+            source_gbm,
+            scene_formats,
+            source_probe,
+            device,
+        });
+        Ok(())
     }
 
     fn allocate(
         &mut self,
         size: PixelSize,
+        code: Fourcc,
         modifiers: &[Modifier],
-        linear_render_target: bool,
+        mut scene_target: SceneTarget,
+        scene_code: Option<Fourcc>,
     ) -> Result<ScanoutBuffer, Box<dyn Error>> {
         let mut buffer = ScanoutBuffer::allocate_gbm(
             &mut self.allocator,
             &self.drm_fd,
             self.cross_device,
             size,
+            code,
             modifiers,
         )?;
-        if linear_render_target {
-            buffer.render_target = Some(LinearRenderBuffer::allocate(&mut self.allocator, size)?);
+        #[cfg(feature = "flutter")]
+        if let Some(transfer) = &mut self.transfer {
+            // Probe actual output-local storage, not physical-device identity.
+            // A successful scene FBO import retains the existing direct pool.
+            let mut direct = buffer.dmabuf.clone();
+            if let Err(error) = transfer.source_probe.bind(&mut direct) {
+                match scene_target {
+                    SceneTarget::Required => {
+                        return Err(format!(
+                            "--flutter-offscreen-blit requires direct scene FBO import: {error}"
+                        )
+                        .into());
+                    }
+                    SceneTarget::IfDirect => scene_target = SceneTarget::None,
+                    SceneTarget::None => {}
+                }
+                if code != Fourcc::Xrgb8888 {
+                    return Err(format!(
+                        "scene cannot render output-local {code:?} scanout ({error}); the transfer copies XR24 only"
+                    )
+                    .into());
+                }
+                info!(%error, "scene cannot render output-local scanout; negotiating destination import");
+                buffer.scene_transfer =
+                    Some(transfer.allocate(self.allocator.as_ref(), &buffer.dmabuf, size)?);
+            } else {
+                info!(format=?buffer.format, "scene imported output-local scanout directly; retaining direct Flutter pool");
+            }
+        }
+        // Only the GPU draws and samples a display-color scene, so it takes
+        // the scanout's layout, LINEAR where the scene format has none.
+        // `--flutter-offscreen-blit` keeps its LINEAR scene.
+        let layouts = match scene_target {
+            SceneTarget::None => &[][..],
+            SceneTarget::Required => &[Modifier::Linear][..],
+            SceneTarget::IfDirect => &[buffer.format.modifier, Modifier::Linear][..],
+        };
+        if !layouts.is_empty() {
+            buffer.render_target = Some(SceneRenderBuffer::allocate(
+                &mut self.allocator,
+                size,
+                scene_code.unwrap_or(code),
+                layouts,
+            )?);
         }
         Ok(buffer)
     }
 }
 
-struct LinearRenderBuffer {
+#[cfg(feature = "flutter")]
+impl SceneTransferAllocator {
+    fn allocate(
+        &mut self,
+        destination_gbm: &GbmDevice<DrmDeviceFd>,
+        destination: &Dmabuf,
+        size: PixelSize,
+    ) -> Result<SceneTransferBuffers, Box<dyn Error>> {
+        let mut failures = Vec::new();
+        // Try every direct layout before requesting any Vulkan capabilities.
+        for use_bridge in [false, true] {
+            for fourcc in [
+                Fourcc::Abgr8888,
+                Fourcc::Argb8888,
+                Fourcc::Xbgr8888,
+                Fourcc::Xrgb8888,
+            ] {
+                let candidates = if use_bridge {
+                    self.device
+                        .source_modifiers(fourcc, size.width, size.height)
+                } else {
+                    self.device.direct_source_modifiers(fourcc)
+                };
+                let modifiers = candidates
+                    .into_iter()
+                    .filter(|modifier| {
+                        self.scene_formats.contains(&Format {
+                            code: fourcc,
+                            modifier: *modifier,
+                        })
+                    })
+                    .take(16)
+                    .collect::<Vec<_>>();
+                if modifiers.is_empty() {
+                    continue;
+                }
+                let bridge = if use_bridge {
+                    let bo = match destination_gbm.create_buffer_object_with_modifiers2::<()>(
+                        size.width,
+                        size.height,
+                        fourcc,
+                        [Modifier::Linear].into_iter(),
+                        GbmBufferFlags::empty(),
+                    ) {
+                        Ok(bo) => bo,
+                        Err(error) => {
+                            failures
+                                .push(format!("{fourcc:?} destination LINEAR allocation: {error}"));
+                            continue;
+                        }
+                    };
+                    let bridge = GbmBuffer::from_bo(bo, false);
+                    if AllocatorBuffer::format(&bridge)
+                        != (Format {
+                            code: fourcc,
+                            modifier: Modifier::Linear,
+                        })
+                        || bridge.plane_count() != 1
+                    {
+                        failures.push("bridge allocator returned unsupported layout".into());
+                        continue;
+                    }
+                    Some(bridge)
+                } else {
+                    None
+                };
+                let bridge_dmabuf = bridge.as_ref().map(|buffer| buffer.export()).transpose()?;
+                for flags in [
+                    GbmBufferFlags::RENDERING,
+                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+                ] {
+                    // Some GBM backends expose their real EGL/Vulkan-compatible
+                    // layout only through ordinary allocation. Its *returned*
+                    // modifier is checked identically, never labelled LINEAR.
+                    for requested_modifier in
+                        crate::gpu_transfer::source_allocation_candidates(&modifiers, use_bridge)
+                    {
+                        let explicit = requested_modifier.is_some();
+                        let allocation = if let Some(modifier) = requested_modifier {
+                            self.source_gbm.create_buffer_object_with_modifiers2::<()>(
+                                size.width,
+                                size.height,
+                                fourcc,
+                                std::iter::once(modifier),
+                                flags,
+                            )
+                        } else {
+                            self.source_gbm.create_buffer_object::<()>(
+                                size.width,
+                                size.height,
+                                fourcc,
+                                flags,
+                            )
+                        };
+                        let source_buffer = match allocation {
+                            Ok(bo) => GbmBuffer::from_bo(bo, false),
+                            Err(error) => {
+                                failures.push(format!(
+                                    "{fourcc:?} source flags={flags:?} explicit={explicit}: {error}"
+                                ));
+                                continue;
+                            }
+                        };
+                        let actual = AllocatorBuffer::format(&source_buffer);
+                        if actual.code != fourcc
+                            || !modifiers.contains(&actual.modifier)
+                            || source_buffer.plane_count() != 1
+                        {
+                            failures.push(format!(
+                                "source allocator returned unnegotiated layout {actual:?}"
+                            ));
+                            continue;
+                        }
+                        let mut source = source_buffer.export()?;
+                        if let Err(error) = self.source_probe.bind(&mut source) {
+                            failures.push(format!("{actual:?} source EGL FBO import: {error}"));
+                            continue;
+                        }
+                        match self.device.prepare(
+                            source.clone(),
+                            bridge_dmabuf.clone(),
+                            destination.clone(),
+                        ) {
+                            Ok(target) => {
+                                info!(
+                                    ?actual,
+                                    ?flags,
+                                    explicit,
+                                    width = size.width,
+                                    height = size.height,
+                                    bridge_allocated = bridge_dmabuf.is_some(),
+                                    "negotiated destination-owned scene transfer"
+                                );
+                                return Ok(SceneTransferBuffers {
+                                    source,
+                                    bridge: bridge_dmabuf.clone(),
+                                    target,
+                                    _source_buffer: source_buffer,
+                                    _bridge_buffer: bridge,
+                                });
+                            }
+                            Err(error) => failures.push(format!(
+                                "{actual:?} use_bridge={use_bridge} destination import: {error}"
+                            )),
+                        }
+                    }
+                }
+            }
+        }
+        Err(format!(
+            "no usable direct destination import or Vulkan transfer for {}x{}: {}",
+            size.width,
+            size.height,
+            failures.join("; ")
+        )
+        .into())
+    }
+}
+
+/// Whether an output buffer gets an off-screen scene for Flutter to render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SceneTarget {
+    None,
+    /// `--flutter-offscreen-blit`: an output that cannot have one fails.
+    Required,
+    /// Display color: only where the scene renders this output directly;
+    /// a transfer-fed output goes without.
+    IfDirect,
+}
+
+struct SceneRenderBuffer {
     dmabuf: Dmabuf,
     _buffer: GbmBuffer,
 }
 
-impl LinearRenderBuffer {
+impl SceneRenderBuffer {
     fn allocate(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         size: PixelSize,
+        code: Fourcc,
+        layouts: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        let buffer = allocator.create_buffer(
-            size.width,
-            size.height,
-            Fourcc::Xrgb8888,
-            &[Modifier::Linear],
-        )?;
+        let buffer = allocator.create_buffer(size.width, size.height, code, layouts)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
-        if format.code != Fourcc::Xrgb8888 || format.modifier != Modifier::Linear {
-            return Err(
-                format!("offscreen Flutter render target is not linear XR24: {format:?}").into(),
-            );
+        if format.code != code || !layouts.contains(&format.modifier) {
+            return Err(format!(
+                "offscreen Flutter render target {format:?} is not {code:?} in {layouts:?}"
+            )
+            .into());
         }
         let dmabuf = buffer.export()?;
         Ok(Self {
@@ -519,8 +777,19 @@ pub(super) struct ScanoutBuffer {
     framebuffer: ScanoutFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
-    render_target: Option<LinearRenderBuffer>,
+    render_target: Option<SceneRenderBuffer>,
     _buffer: GbmBuffer,
+    #[cfg(feature = "flutter")]
+    scene_transfer: Option<SceneTransferBuffers>,
+}
+
+#[cfg(feature = "flutter")]
+struct SceneTransferBuffers {
+    source: Dmabuf,
+    bridge: Option<Dmabuf>,
+    target: Arc<crate::gpu_transfer::TransferTarget>,
+    _source_buffer: GbmBuffer,
+    _bridge_buffer: Option<GbmBuffer>,
 }
 
 impl ScanoutBuffer {
@@ -529,16 +798,16 @@ impl ScanoutBuffer {
         drm_fd: &DrmDeviceFd,
         cross_device: bool,
         size: PixelSize,
+        code: Fourcc,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        let buffer =
-            allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, modifiers)?;
+        let buffer = allocator.create_buffer(size.width, size.height, code, modifiers)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
         let framebuffer = if cross_device {
             framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?
         } else {
-            framebuffer_from_scanout_bo(drm_fd, &buffer)?
+            framebuffer_from_scanout_bo(drm_fd, &buffer, code)?
         };
         Ok(Self {
             framebuffer,
@@ -546,6 +815,8 @@ impl ScanoutBuffer {
             format,
             render_target: None,
             _buffer: buffer,
+            #[cfg(feature = "flutter")]
+            scene_transfer: None,
         })
     }
 
@@ -557,25 +828,77 @@ impl ScanoutBuffer {
         self.format
     }
 
+    /// The composed scene before any output correction: what captures read.
+    #[cfg(feature = "flutter")]
+    pub(super) fn scene_dmabuf(&self) -> &Dmabuf {
+        self.render_target
+            .as_ref()
+            .map_or(&self.dmabuf, |target| &target.dmabuf)
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn flutter_target_dmabufs(&self) -> (&Dmabuf, Option<&Dmabuf>) {
         (
-            &self.dmabuf,
+            self.scene_transfer
+                .as_ref()
+                .map_or(&self.dmabuf, |transfer| &transfer.source),
             self.render_target.as_ref().map(|target| &target.dmabuf),
         )
+    }
+    #[cfg(feature = "flutter")]
+    fn allocation_bytes(&self) -> Result<u64, Box<dyn Error>> {
+        let mut buffers = vec![&self.dmabuf];
+        if let Some(render) = &self.render_target {
+            buffers.push(&render.dmabuf);
+        }
+        if let Some(transfer) = &self.scene_transfer {
+            buffers.push(&transfer.source);
+            if let Some(bridge) = &transfer.bridge {
+                buffers.push(bridge);
+            }
+        }
+        let mut bytes = 0u64;
+        for buffer in buffers {
+            for fd in buffer.handles() {
+                // SAFETY: DMA-BUF descriptors support seeking to their backing
+                // extent. No CPU mapping or pixel access is performed here.
+                let extent = unsafe { libc::lseek(fd.as_raw_fd(), 0, libc::SEEK_END) };
+                if extent <= 0 {
+                    return Err("cannot determine DMA-BUF backing extent".into());
+                }
+                bytes = bytes
+                    .checked_add(extent as u64)
+                    .ok_or("DMA-BUF backing byte count overflow")?;
+            }
+        }
+        // Shared aux-plane FDs may be counted twice, a conservative reservation.
+        Ok(bytes)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn transfer_target(&self) -> Option<Arc<crate::gpu_transfer::TransferTarget>> {
+        self.scene_transfer
+            .as_ref()
+            .map(|transfer| Arc::clone(&transfer.target))
     }
 }
 
 fn framebuffer_from_scanout_bo(
     drm: &DrmDeviceFd,
     buffer: &GbmBuffer,
+    code: Fourcc,
 ) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
-    // This allocator requests opaque XR24 only. Register the existing GBM
-    // handles directly: PRIME-importing them back onto the same DRM fd could
-    // return GBM's handles and incorrectly make us responsible for closing them.
-    if PlanarBuffer::format(buffer) != Fourcc::Xrgb8888 {
-        return Err("GBM scanout allocation did not preserve the requested XR24 format".into());
+    // This allocator requests opaque XR30 or XR24 only. Register the existing
+    // GBM handles directly: PRIME-importing them back onto the same DRM fd
+    // could return GBM's handles and incorrectly make us responsible for
+    // closing them.
+    if PlanarBuffer::format(buffer) != code {
+        return Err(format!(
+            "GBM scanout allocation did not preserve the requested {code:?} format"
+        )
+        .into());
     }
+    let depth = if code == Fourcc::Xrgb2101010 { 30 } else { 24 };
     let flags = if PlanarBuffer::modifier(buffer).is_some() {
         FbCmd2Flags::MODIFIERS
     } else {
@@ -585,12 +908,13 @@ fn framebuffer_from_scanout_bo(
         Ok(handle) => handle,
         Err(error) => {
             // Preserve Smithay's legacy ADDFB fallback for single-plane GBM
-            // allocations. XR24 has depth 24 and 32 storage bits per pixel.
+            // allocations. XR30 and XR24 have depth 30 and 24 and 32 storage
+            // bits per pixel.
             if buffer.plane_count() > 1 {
                 return Err(error.into());
             }
             warn!(%error, "ADDFB2 failed for GBM scanout; trying legacy ADDFB");
-            drm.add_framebuffer(buffer, 24, 32)?
+            drm.add_framebuffer(buffer, depth, 32)?
         }
     };
     Ok(ScanoutFramebuffer {
@@ -693,6 +1017,8 @@ pub(super) struct OutputSwapchain {
     pub(super) size: PixelSize,
     pub(super) buffers: Vec<ScanoutBuffer>,
     pub(super) current: usize,
+    /// Gamut correction applied when copying Flutter's scene to scanout.
+    pub(super) color: Option<super::output_color::OutputColor>,
 }
 
 #[cfg(feature = "flutter")]
@@ -707,7 +1033,7 @@ impl OutputSwapchains {
         plans: &[RenderOutputPlan],
         scanouts: &[Scanout],
         render_formats: &FormatSet,
-        linear_render_targets: bool,
+        offscreen_blit: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if plans.len() != scanouts.len() || plans.is_empty() {
             return Err("physical output pools do not match the active scanouts".into());
@@ -715,18 +1041,33 @@ impl OutputSwapchains {
 
         let mut outputs = Vec::with_capacity(plans.len());
         let mut allocated_bytes = 0u64;
+        let mut hdr_displays = Vec::new();
         for plan in plans {
             let scanout = scanouts
                 .iter()
                 .find(|scanout| scanout.output.id == plan.output_id)
                 .ok_or("physical output pool has no matching scanout")?;
-            let modifiers = compatible_xrgb8888_modifiers(
-                std::iter::once(&scanout.surface.plane_info().formats),
+            #[cfg(feature = "flutter")]
+            let render_formats = allocator
+                .transfer
+                .as_ref()
+                .map_or(render_formats, |transfer| transfer.device.render_formats());
+            // A corrected, graded or HDR output renders off-screen; the copy
+            // to scanout converts it, and captures read the untouched scene.
+            let display_color = super::output_color::read(&allocator.drm_fd, scanout.output.id);
+            let desktop_look = super::output_color::desktop_lut().is_some();
+            let mut hdr = display_color
+                .hdr
+                .zip(super::output_color::hdr_request(&scanout.output.name))
+                .map(|(display, mode)| super::output_color::HdrOutput::new(display, mode));
+            let formats = compatible_scanout_formats(
+                &SCANOUT_FOURCCS,
+                &[&scanout.surface.plane_info().formats],
                 render_formats,
             );
-            if modifiers.is_empty() {
+            if formats.is_empty() {
                 return Err(format!(
-                    "no XR24 modifier is common to EGL rendering and {}'s primary plane",
+                    "no XR30 or XR24 modifier is common to EGL rendering and {}'s primary plane",
                     scanout.output.name
                 )
                 .into());
@@ -734,8 +1075,9 @@ impl OutputSwapchains {
             let pool_bytes = u64::from(plan.target_size.width)
                 .checked_mul(u64::from(plan.target_size.height))
                 .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
-                .and_then(|bytes| bytes.checked_mul(OUTPUT_POOL_LENGTH as u64))
+                .and_then(|bytes| bytes.checked_mul(output_pool_length() as u64))
                 .ok_or("physical output pool byte count overflow")?;
+            let previous_bytes = allocated_bytes;
             allocated_bytes = allocated_bytes
                 .checked_add(pool_bytes)
                 .ok_or("physical output pool aggregate byte count overflow")?;
@@ -746,13 +1088,97 @@ impl OutputSwapchains {
                 .into());
             }
 
-            let buffers = allocate_scanout_pool(
-                allocator,
-                plan.target_size,
-                OUTPUT_POOL_LENGTH,
-                &modifiers,
-                linear_render_targets,
-            )?;
+            // Take the first format whose whole pool allocates, imports and
+            // registers: a driver may advertise XR30 and still refuse it. HDR
+            // scenes are half float; a display that cannot have one shows SDR.
+            let mut allocate_pool = |hdr: Option<super::output_color::HdrOutput>| {
+                let color = hdr.map_or(display_color.correction, |hdr| Some(hdr.output_color()));
+                let scene_target = if offscreen_blit {
+                    SceneTarget::Required
+                } else if color.is_some() || desktop_look {
+                    SceneTarget::IfDirect
+                } else {
+                    SceneTarget::None
+                };
+                let scene_code = hdr.map(|_| Fourcc::Abgr16161616f);
+                for (index, format) in formats.iter().enumerate() {
+                    match allocate_scanout_pool(
+                        allocator,
+                        plan.target_size,
+                        output_pool_length(),
+                        format,
+                        scene_target,
+                        scene_code,
+                        MAX_SCANOUT_POOL_BYTES - previous_bytes,
+                    ) {
+                        Ok(pool) => {
+                            info!(
+                                output = %scanout.output.name,
+                                format = ?format.code,
+                                scanout = ?pool.first().map(ScanoutBuffer::format),
+                                scene = ?pool.first().and_then(|buffer| buffer.render_target.as_ref()).map(|target| smithay::backend::allocator::Buffer::format(&target.dmabuf)),
+                                gamut_correction = display_color.correction.is_some(),
+                                hdr = hdr.is_some(),
+                                desktop_look,
+                                "allocated output pool"
+                            );
+                            return Ok((pool, color, scene_target));
+                        }
+                        Err(error) if index + 1 < formats.len() => {
+                            warn!(output = %scanout.output.name, format = ?format.code, %error, "output pool format failed; trying the next");
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err::<_, Box<dyn Error>>("no output pool format allocated".into())
+            };
+            let (buffers, mut color, scene_target) = match allocate_pool(hdr) {
+                Err(error) if hdr.is_some() => {
+                    warn!(output = %scanout.output.name, %error, "could not allocate a half-float scene; showing SDR");
+                    hdr = None;
+                    allocate_pool(None)?
+                }
+                result => result?,
+            };
+            if scene_target == SceneTarget::IfDirect
+                && !buffers.iter().all(|buffer| buffer.render_target.is_some())
+            {
+                warn!(
+                    output = %scanout.output.name,
+                    "the scene reaches this output through the GPU transfer; showing it without display color"
+                );
+                color = None;
+                hdr = None;
+            }
+            if let Err(error) =
+                apply_connector_hdr(&allocator.drm_fd, scanout.output.connector, hdr)
+            {
+                warn!(output = %scanout.output.name, %error, "the display did not take the HDR signal; showing SDR");
+                if hdr.take().is_some() {
+                    color = display_color.correction;
+                }
+            }
+            if let Some(capability) = display_color.hdr {
+                hdr_displays.push(super::output_color::HdrDisplay {
+                    id: scanout.output.id,
+                    name: scanout.output.name.clone(),
+                    display: capability,
+                    active: hdr.map(super::output_color::HdrOutput::mode),
+                });
+            }
+            let actual_bytes = buffers.iter().try_fold(0u64, |bytes, buffer| {
+                bytes
+                    .checked_add(buffer.allocation_bytes()?)
+                    .ok_or_else(|| -> Box<dyn Error> {
+                        "physical output backing byte count overflow".into()
+                    })
+            })?;
+            allocated_bytes = previous_bytes
+                .checked_add(actual_bytes)
+                .ok_or("physical output backing aggregate overflow")?;
+            if allocated_bytes > MAX_SCANOUT_POOL_BYTES {
+                return Err(format!("physical source/bridge/scanout backings reserve {allocated_bytes} bytes, above {MAX_SCANOUT_POOL_BYTES}").into());
+            }
             outputs.push(OutputSwapchain {
                 output_id: plan.output_id,
                 render_view_id: plan.render_view_id,
@@ -760,8 +1186,10 @@ impl OutputSwapchains {
                 size: plan.target_size,
                 buffers,
                 current: 0,
+                color,
             });
         }
+        super::output_color::set_hdr_displays(hdr_displays);
         Ok(Self { outputs })
     }
 
@@ -890,6 +1318,12 @@ fn flutter_render_target_pools(
             configuration_generation: pool.configuration_generation,
             size: pool.size,
             initial_scanout: pool.current,
+            color: pool.color,
+            transfers: pool
+                .buffers
+                .iter()
+                .map(ScanoutBuffer::transfer_target)
+                .collect(),
             dmabufs: pool
                 .buffers
                 .iter()
@@ -928,7 +1362,6 @@ pub(super) struct LayoutTransition {
 #[cfg(feature = "flutter")]
 pub(super) struct FlutterLauncher {
     factory: Option<flutter_runtime::FlutterRuntimeFactory>,
-    renderer_backend: denial_flutter_engine::RendererBackend,
     offscreen_blit: bool,
     active_mode: ui_development::UiRuntimeMode,
     resident_jit_engine_fingerprint: Option<[u8; 32]>,
@@ -946,7 +1379,6 @@ pub(super) struct FlutterLauncher {
 #[cfg(feature = "flutter")]
 pub(super) struct FlutterLaunchConfiguration<'a> {
     pub(super) bundle: &'a Path,
-    pub(super) renderer_backend: denial_flutter_engine::RendererBackend,
     pub(super) offscreen_blit: bool,
     pub(super) debug_bundle: Option<PathBuf>,
     pub(super) ui_workspace: Option<PathBuf>,
@@ -956,6 +1388,10 @@ pub(super) struct FlutterLaunchConfiguration<'a> {
 impl FlutterLauncher {
     pub(super) fn plugin_rebuild_needed(&self) -> bool {
         self.ui_development.plugin_rebuild_needed()
+    }
+
+    pub(super) fn ui_development_deadline(&self, now: Instant) -> Option<Instant> {
+        self.ui_development.plugin_health_deadline(now)
     }
 
     pub(super) fn new(
@@ -976,9 +1412,7 @@ impl FlutterLauncher {
             factory: Some(flutter_runtime::FlutterRuntimeFactory::new(
                 configuration.bundle,
                 denial_flutter_engine::DartRuntimeMode::Aot,
-                configuration.renderer_backend,
             )?),
-            renderer_backend: configuration.renderer_backend,
             offscreen_blit: configuration.offscreen_blit,
             active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
             resident_jit_engine_fingerprint: None,
@@ -1008,7 +1442,6 @@ impl FlutterLauncher {
             renderer.egl_context(),
             flutter_render_target_pools(swapchains),
             desktop_size,
-            self.renderer_backend,
             self.offscreen_blit,
             self.events.clone(),
         )
@@ -1025,7 +1458,6 @@ impl FlutterLauncher {
         self.start_with_targets(renderer, output_swapchains, scanouts, snapshot, atlas, None)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn start_with_targets(
         &mut self,
         renderer: &GlesRenderer,
@@ -1050,19 +1482,13 @@ impl FlutterLauncher {
             );
             self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
         }
-        let refresh_millihz = scanouts
-            .iter()
-            .map(|scanout| OutputMode::from(scanout.output.mode).refresh)
-            .max()
-            .ok_or("Flutter runtime has no output refresh")?;
         let using_prepared = prepared.is_some();
         let runtime = self.start_with_current_factory(
-            renderer.egl_context(),
-            flutter_render_target_pools(output_swapchains),
+            renderer,
+            output_swapchains,
+            scanouts,
             snapshot,
             atlas,
-            scanouts,
-            u32::try_from(refresh_millihz)?,
             prepared,
         );
         let mut runtime = match runtime {
@@ -1084,12 +1510,11 @@ impl FlutterLauncher {
                     return Err(error);
                 }
                 self.start_with_current_factory(
-                    renderer.egl_context(),
-                    flutter_render_target_pools(output_swapchains),
+                    renderer,
+                    output_swapchains,
+                    scanouts,
                     snapshot,
                     atlas,
-                    scanouts,
-                    u32::try_from(refresh_millihz)?,
                     None,
                 )?
             }
@@ -1101,15 +1526,13 @@ impl FlutterLauncher {
         Ok(runtime)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn start_with_current_factory<'a>(
+    fn start_with_current_factory(
         &self,
-        shared_context: &EGLContext,
-        output_pools: impl IntoIterator<Item = flutter_runtime::OutputRenderTargetPool<'a>>,
+        renderer: &GlesRenderer,
+        output_swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
-        scanouts: &[Scanout],
-        refresh_millihz: u32,
         prepared: Option<flutter_runtime::PreparedFlutterRenderer>,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         if let Some(scanout) = scanouts
@@ -1122,24 +1545,33 @@ impl FlutterLauncher {
             )
             .into());
         }
-        flutter_runtime::FlutterRuntime::start(
-            shared_context,
-            output_pools,
-            snapshot,
-            atlas,
-            refresh_millihz,
-            self.offscreen_blit,
-            self.factory
+        let refresh_millihz = scanouts
+            .iter()
+            .map(|scanout| OutputMode::from(scanout.output.mode).refresh)
+            .max()
+            .ok_or("Flutter runtime has no output refresh")?;
+        let launch = flutter_runtime::FlutterLaunch {
+            factory: self
+                .factory
                 .as_ref()
                 .ok_or("Flutter launcher has no active runtime factory")?,
-            self.events.clone(),
-            Arc::clone(&self.authentication),
-            self.clipboard.clone(),
-            self.work_area.clone(),
-            self.generation,
-            self.wayland_display.clone(),
-            self.x11_display.clone(),
-            self.output_control_socket.clone(),
+            generation: self.generation,
+            offscreen_blit: self.offscreen_blit,
+            events: self.events.clone(),
+            authentication: Arc::clone(&self.authentication),
+            clipboard: self.clipboard.clone(),
+            work_area: self.work_area.clone(),
+            wayland_display: self.wayland_display.clone(),
+            x11_display: self.x11_display.clone(),
+            output_control_socket: self.output_control_socket.clone(),
+        };
+        flutter_runtime::FlutterRuntime::start(
+            launch,
+            renderer.egl_context(),
+            flutter_render_target_pools(output_swapchains),
+            snapshot,
+            atlas,
+            u32::try_from(refresh_millihz)?,
             prepared,
         )
     }
@@ -1219,14 +1651,9 @@ impl FlutterLauncher {
                         .bundle_for(ui_development::UiRuntimeMode::OfficialOptimized)
                         .expect("packaged recovery bundle"),
                     runtime,
-                    self.renderer_backend,
                 )?
             } else {
-                flutter_runtime::FlutterRuntimeFactory::new(
-                    &bundle,
-                    runtime,
-                    self.renderer_backend,
-                )?
+                flutter_runtime::FlutterRuntimeFactory::new(&bundle, runtime)?
             },
         );
         if let Some(fingerprint) = jit_engine_fingerprint {
@@ -1348,35 +1775,54 @@ fn ensure_resident_jit_engine_matches(
     Ok(())
 }
 
-fn common_xrgb8888_modifiers<'a>(
-    format_sets: impl IntoIterator<Item = &'a FormatSet>,
-) -> Vec<Modifier> {
-    let mut format_sets = format_sets.into_iter();
-    let Some(first) = format_sets.next() else {
+/// An atlas pixel format and the modifiers every consumer can use with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct AtlasFormat {
+    pub(super) code: Fourcc,
+    pub(super) modifiers: Vec<Modifier>,
+}
+
+/// Return, in the order of `fourccs`, each format that every plane can scan
+/// out and EGL can render into, with its usable modifiers.
+fn compatible_scanout_formats(
+    fourccs: &[Fourcc],
+    plane_formats: &[&FormatSet],
+    render_formats: &FormatSet,
+) -> Vec<AtlasFormat> {
+    fourccs
+        .iter()
+        .filter_map(|&code| {
+            let modifiers = compatible_modifiers(code, plane_formats, render_formats);
+            (!modifiers.is_empty()).then_some(AtlasFormat { code, modifiers })
+        })
+        .collect()
+}
+
+fn common_modifiers(code: Fourcc, format_sets: &[&FormatSet]) -> Vec<Modifier> {
+    let Some((first, remaining)) = format_sets.split_first() else {
         return Vec::new();
     };
-    let remaining = format_sets.collect::<Vec<_>>();
     first
         .iter()
-        .filter(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid)
+        .filter(|format| format.code == code && format.modifier != Modifier::Invalid)
         .filter(|format| remaining.iter().all(|formats| formats.contains(format)))
         .map(|format| format.modifier)
         .collect()
 }
 
-fn compatible_xrgb8888_modifiers<'a>(
-    plane_formats: impl IntoIterator<Item = &'a FormatSet>,
+fn compatible_modifiers(
+    code: Fourcc,
+    plane_formats: &[&FormatSet],
     render_formats: &FormatSet,
 ) -> Vec<Modifier> {
-    let plane_formats = plane_formats.into_iter().collect::<Vec<_>>();
-    let mut modifiers = common_xrgb8888_modifiers(plane_formats.iter().copied());
+    let mut modifiers = common_modifiers(code, plane_formats);
     let renderer_has_explicit_modifiers = render_formats
         .iter()
-        .any(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid);
+        .any(|format| format.code == code && format.modifier != Modifier::Invalid);
     if renderer_has_explicit_modifiers {
         modifiers.retain(|modifier| {
             render_formats.contains(&Format {
-                code: Fourcc::Xrgb8888,
+                code,
                 modifier: *modifier,
             })
         });
@@ -1384,79 +1830,91 @@ fn compatible_xrgb8888_modifiers<'a>(
         modifiers.retain(|modifier| *modifier == Modifier::Linear);
     }
 
-    let implicit_xrgb8888 = Format {
-        code: Fourcc::Xrgb8888,
+    let implicit = Format {
+        code,
         modifier: Modifier::Invalid,
     };
     if modifiers.is_empty()
         && !plane_formats.is_empty()
         && plane_formats
             .iter()
-            .all(|formats| formats.contains(&implicit_xrgb8888))
-        && render_formats.contains(&implicit_xrgb8888)
+            .all(|formats| formats.contains(&implicit))
+        && render_formats.contains(&implicit)
     {
         // GBM may satisfy this through an explicit LINEAR allocation or its
         // legacy implicit allocation path. Both are safe when every consumer
-        // advertises implicit XR24, unlike guessing a vendor modifier.
+        // advertises the implicit format, unlike guessing a vendor modifier.
         modifiers.push(Modifier::Linear);
     }
 
     modifiers
 }
 
-/// Return XR24 modifiers that every primary plane can scan out and EGL can
-/// render into. Plane order is retained: DRM exposes the driver's preferred
-/// tiled/compressed layouts first and LINEAR last on hardware that supports
-/// both. If there is no explicit intersection but every consumer advertises
-/// legacy implicit XR24, fall back to a LINEAR allocation request rather than
-/// guessing that a vendor modifier is renderable.
-pub(super) fn shared_atlas_modifiers(
+/// Return the atlas format every primary plane can scan out and EGL can
+/// render into: XR30 when all of them support it, otherwise XR24. Plane order
+/// is retained: DRM exposes the driver's preferred tiled/compressed layouts
+/// first and LINEAR last on hardware that supports both. If there is no
+/// explicit intersection but every consumer advertises the legacy implicit
+/// format, fall back to a LINEAR allocation request rather than guessing that
+/// a vendor modifier is renderable.
+pub(super) fn shared_atlas_format(
     scanouts: &[Scanout],
     render_formats: &FormatSet,
-) -> Result<Vec<Modifier>, Box<dyn Error>> {
+) -> Result<AtlasFormat, Box<dyn Error>> {
     if scanouts.is_empty() {
-        return Err("shared atlas modifier selection needs at least one primary plane".into());
+        return Err("shared atlas format selection needs at least one primary plane".into());
     }
 
-    let modifiers = compatible_xrgb8888_modifiers(
-        scanouts
-            .iter()
-            .map(|scanout| &scanout.surface.plane_info().formats),
-        render_formats,
-    );
-
-    if modifiers.is_empty() {
+    let plane_formats = scanouts
+        .iter()
+        .map(|scanout| &scanout.surface.plane_info().formats)
+        .collect::<Vec<_>>();
+    compatible_scanout_formats(&SCANOUT_FOURCCS, &plane_formats, render_formats)
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
         let outputs = scanouts
             .iter()
             .map(|scanout| scanout.output.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        return Err(format!(
-            "no XR24 modifier is common to EGL rendering and the primary planes for {outputs}"
+        format!(
+            "no XR30 or XR24 modifier is common to EGL rendering and the primary planes for {outputs}"
         )
-        .into());
-    }
-    Ok(modifiers)
+        .into()
+    })
 }
 
 impl AtlasSwapchain {
     pub(super) fn allocate(
         allocator: &mut ScanoutAllocator,
         size: PixelSize,
-        modifiers: &[Modifier],
+        format: &AtlasFormat,
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, size, 2, modifiers, false)
+        Self::allocate_pool(allocator, size, 2, format, false)
     }
 
     pub(super) fn allocate_pool(
         allocator: &mut ScanoutAllocator,
         size: PixelSize,
         length: usize,
-        modifiers: &[Modifier],
+        format: &AtlasFormat,
         linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
-        let buffers =
-            allocate_scanout_pool(allocator, size, length, modifiers, linear_render_targets)?;
+        let scene_target = if linear_render_targets {
+            SceneTarget::Required
+        } else {
+            SceneTarget::None
+        };
+        let buffers = allocate_scanout_pool(
+            allocator,
+            size,
+            length,
+            format,
+            scene_target,
+            None,
+            MAX_SCANOUT_POOL_BYTES,
+        )?;
         Ok(Self {
             size,
             buffers,
@@ -1482,10 +1940,13 @@ fn allocate_scanout_pool(
     allocator: &mut ScanoutAllocator,
     size: PixelSize,
     length: usize,
-    modifiers: &[Modifier],
-    linear_render_targets: bool,
+    format: &AtlasFormat,
+    scene_target: SceneTarget,
+    scene_code: Option<Fourcc>,
+    _byte_budget: u64,
 ) -> Result<Vec<ScanoutBuffer>, Box<dyn Error>> {
     validate_scanout_pool_allocation(size, length)?;
+    let modifiers = &format.modifiers;
     let optimized = modifiers
         .iter()
         .copied()
@@ -1497,9 +1958,27 @@ fn allocate_scanout_pool(
     }
 
     let allocate = |allocator: &mut ScanoutAllocator, modifiers: &[Modifier]| {
-        (0..length)
-            .map(|_| allocator.allocate(size, modifiers, linear_render_targets))
-            .collect::<Result<Vec<_>, _>>()
+        let mut buffers = Vec::with_capacity(length);
+        #[cfg(feature = "flutter")]
+        let mut bytes = 0u64;
+        for _ in 0..length {
+            let buffer =
+                allocator.allocate(size, format.code, modifiers, scene_target, scene_code)?;
+            #[cfg(feature = "flutter")]
+            {
+                bytes = bytes
+                    .checked_add(buffer.allocation_bytes()?)
+                    .ok_or("physical output backing byte count overflow")?;
+                if bytes > _byte_budget {
+                    return Err(format!(
+                        "negotiated output pool exceeds its {_byte_budget}-byte budget"
+                    )
+                    .into());
+                }
+            }
+            buffers.push(buffer);
+        }
+        Ok::<_, Box<dyn Error>>(buffers)
     };
     let buffers = if optimized.is_empty() {
         allocate(allocator, &[Modifier::Linear])?
@@ -1799,7 +2278,7 @@ impl RestoreState {
     }
 
     pub(super) fn capture(drm: &DrmDevice, scanouts: &[Scanout]) -> Result<Self, Box<dyn Error>> {
-        const CONNECTOR_PROPERTIES: &[&str] = &["CRTC_ID"];
+        const CONNECTOR_PROPERTIES: &[&str] = &["CRTC_ID", "Colorspace"];
         const CRTC_PROPERTIES: &[&str] = &["ACTIVE", "VRR_ENABLED"];
         const PLANE_PROPERTIES: &[&str] = &[
             "CRTC_ID",
@@ -1849,6 +2328,7 @@ impl RestoreState {
                 CONNECTOR_PROPERTIES,
                 &mut properties,
             )?;
+            capture_owned_hdr_metadata(drm, scanout.output.connector, &mut properties)?;
             capture_named_properties(drm, scanout.output.crtc, CRTC_PROPERTIES, &mut properties)?;
             capture_owned_mode_blob(drm, scanout.output.crtc, &mut properties)?;
             let mut plane_properties = Vec::new();
@@ -2046,6 +2526,143 @@ fn capture_owned_mode_blob(
     Ok(())
 }
 
+/// The predecessor's HDR metadata, copied into a blob this process owns so
+/// the restore does not depend on the predecessor keeping its own alive.
+fn capture_owned_hdr_metadata(
+    drm: &DrmDevice,
+    connector: connector::Handle,
+    destination: &mut Vec<SavedAtomicProperty>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(property) = optional_named_property(drm, connector, "HDR_OUTPUT_METADATA")? else {
+        return Ok(());
+    };
+    let blob = drm
+        .get_properties(connector)?
+        .into_iter()
+        .find_map(|(handle, value)| (handle == property).then_some(value))
+        .unwrap_or(0);
+    let value = if blob == 0 {
+        0
+    } else {
+        let metadata =
+            <[u8; HDR_OUTPUT_METADATA_BYTES]>::try_from(drm.get_property_blob(blob)?.as_slice())
+                .map_err(|_| "the predecessor's HDR metadata has an unknown size")?;
+        drm.create_property_blob(&metadata)?
+            .as_blob()
+            .ok_or("HDR metadata blob has the wrong type")?
+    };
+    destination.push(SavedAtomicProperty {
+        object: connector.into(),
+        property,
+        value,
+    });
+    Ok(())
+}
+
+/// `struct hdr_output_metadata` in the DRM UAPI.
+const HDR_OUTPUT_METADATA_BYTES: usize = 32;
+
+/// Static metadata type 1 for a display showing PQ: its own primaries and
+/// luminance, since Denial already fits the content to them.
+fn hdr_output_metadata(hdr: super::output_color::HdrOutput) -> [u8; HDR_OUTPUT_METADATA_BYTES] {
+    const SMPTE_ST2084: u8 = 2;
+    let display = hdr.display;
+    let mut bytes = [0; HDR_OUTPUT_METADATA_BYTES];
+    // metadata_type (u32) stays HDMI_STATIC_METADATA_TYPE1 = 0.
+    bytes[4] = SMPTE_ST2084;
+    let mut put = |at: usize, value: f64| {
+        let value = value.round().clamp(0.0, f64::from(u16::MAX)) as u16;
+        bytes[at..at + 2].copy_from_slice(&value.to_ne_bytes());
+    };
+    // Chromaticities in units of 0.00002: red, green, blue, then white.
+    for (index, (x, y)) in display.primaries.into_iter().enumerate() {
+        put(6 + index * 4, x * 50_000.0);
+        put(8 + index * 4, y * 50_000.0);
+    }
+    put(22, display.max_luminance);
+    put(24, display.min_luminance * 10_000.0);
+    put(26, display.max_luminance);
+    put(28, display.max_frame_average);
+    bytes
+}
+
+/// Puts the connector's signal in BT.2100 PQ for `hdr`, or back in SDR. A
+/// change of transfer function is a modeset on amdgpu, so it is committed on
+/// its own, before the pools reach the planes.
+fn apply_connector_hdr(
+    drm: &DrmDeviceFd,
+    connector: connector::Handle,
+    hdr: Option<super::output_color::HdrOutput>,
+) -> Result<(), Box<dyn Error>> {
+    let metadata_property = optional_named_property(drm, connector, "HDR_OUTPUT_METADATA")?;
+    let colorspace_property = optional_named_property(drm, connector, "Colorspace")?;
+    let (Some(metadata_property), Some(colorspace_property)) =
+        (metadata_property, colorspace_property)
+    else {
+        return match hdr {
+            Some(_) => Err("the connector has no HDR_OUTPUT_METADATA or Colorspace".into()),
+            None => Ok(()),
+        };
+    };
+    let colorspace_name = if hdr.is_some() {
+        "BT2020_RGB"
+    } else {
+        "Default"
+    };
+    let colorspace = match drm.get_property(colorspace_property)?.value_type() {
+        property::ValueType::Enum(values) => values
+            .values()
+            .1
+            .iter()
+            .find(|value| value.name().to_str() == Ok(colorspace_name))
+            .map(|value| value.value()),
+        _ => None,
+    }
+    .ok_or_else(|| format!("the connector has no {colorspace_name} colorspace"))?;
+    let metadata = hdr.map(hdr_output_metadata);
+    let (mut current_blob, mut current_colorspace) = (0, None);
+    for (handle, value) in drm.get_properties(connector)? {
+        if handle == metadata_property {
+            current_blob = value;
+        } else if handle == colorspace_property {
+            current_colorspace = Some(value);
+        }
+    }
+    let current_metadata = match current_blob {
+        0 => None,
+        blob => Some(drm.get_property_blob(blob)?),
+    };
+    if current_colorspace == Some(colorspace)
+        && current_metadata.as_deref() == metadata.as_ref().map(<[u8; 32]>::as_slice)
+    {
+        return Ok(());
+    }
+    let blob = match &metadata {
+        Some(metadata) => drm
+            .create_property_blob(metadata)?
+            .as_blob()
+            .ok_or("HDR metadata blob has the wrong type")?,
+        None => 0,
+    };
+    let mut request = AtomicModeReq::new();
+    request.add_raw_property(connector.into(), metadata_property, blob);
+    request.add_raw_property(connector.into(), colorspace_property, colorspace);
+    let committed = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request);
+    // The committed connector state holds its own reference to the blob.
+    if blob != 0 {
+        let _ = drm.destroy_property_blob(blob);
+    }
+    committed?;
+    info!(
+        ?connector,
+        signal = if hdr.is_some() { "BT.2100 PQ" } else { "SDR" },
+        white = hdr.map(|hdr| hdr.white),
+        primaries = hdr.map(|hdr| hdr.primaries.name()),
+        "switched the display signal"
+    );
+    Ok(())
+}
+
 fn primary_framebuffer(
     drm: &DrmDevice,
     plane: plane::Handle,
@@ -2111,7 +2728,7 @@ where
 }
 
 fn optional_named_property<H>(
-    drm: &DrmDevice,
+    drm: &impl ControlDevice,
     object: H,
     expected_name: &str,
 ) -> Result<Option<property::Handle>, Box<dyn Error>>

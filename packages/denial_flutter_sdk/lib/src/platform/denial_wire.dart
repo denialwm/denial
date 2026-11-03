@@ -32,6 +32,7 @@ const int denialWireMaxRegions = 8192;
 const int denialWireMaxSurfaces = 32768;
 const int denialWireMaxStringLength = 4096;
 const int denialWireMaxNotificationActions = 16;
+const int denialWireMaxNotificationMessages = 5;
 const int denialWireMaxNotificationImageBytes = 512 * 1024;
 const int denialWireMaxTrayIconBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
@@ -164,6 +165,7 @@ class DenialWireCodec {
   Uint8List? encodeInputLayout(InputLayoutSnapshot snapshot) {
     if (snapshot.shellRegions.length > denialWireMaxRegions ||
         snapshot.softwareKeyboardRegions.length > denialWireMaxRegions ||
+        snapshot.edgeSwipeRegions.length > denialWireMaxRegions ||
         snapshot.windows.length > denialWireMaxRegions ||
         snapshot.visibleSurfaceIds.length > denialWireMaxSurfaces ||
         snapshot.visibleSurfaceIds.any((surfaceId) => surfaceId <= 0)) {
@@ -184,6 +186,23 @@ class DenialWireCodec {
         return null;
       }
       softwareKeyboardRegions.add(_rectBuilder(rect));
+    }
+
+    final edgeSwipeRegions = <generated.EdgeSwipeRegionObjectBuilder>[];
+    for (final region in snapshot.edgeSwipeRegions) {
+      if (!_validRect(region.rect)) {
+        return null;
+      }
+      edgeSwipeRegions.add(
+        generated.EdgeSwipeRegionObjectBuilder(
+          rect: _rectBuilder(region.rect),
+          edge: switch (region.edge) {
+            InputEdge.left => generated.InputEdge.Left,
+            InputEdge.right => generated.InputEdge.Right,
+            InputEdge.top => generated.InputEdge.Top,
+          },
+        ),
+      );
     }
 
     final orderedWindows = _inputWindowsAreOrdered(snapshot.windows)
@@ -250,6 +269,7 @@ class DenialWireCodec {
         windows: windows,
         visibleSurfaceIds: snapshot.visibleSurfaceIds,
         softwareKeyboardRegions: softwareKeyboardRegions,
+        edgeSwipeRegions: edgeSwipeRegions,
       ),
     );
   }
@@ -360,12 +380,55 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List encodeKeyboardReplace(String replaced, String text) {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.KeyboardCommand,
+      generated.KeyboardCommandObjectBuilder(
+        kind: generated.KeyboardCommandKind.Replace,
+        replaced: replaced,
+        text: text,
+      ),
+    );
+  }
+
+  /// [touchX] and [touchY] hold one offset per character of [word], in key
+  /// pitches from the key's center (NaN when unknown), or are both empty.
+  Uint8List encodeTextPredictionRequest({
+    required int serial,
+    required String word,
+    required List<double> touchX,
+    required List<double> touchY,
+    required bool manualCapital,
+  }) {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.TextPredictionRequest,
+      generated.TextPredictionRequestObjectBuilder(
+        serial: serial,
+        word: word,
+        touchX: touchX,
+        touchY: touchY,
+        manualCapital: manualCapital,
+      ),
+    );
+  }
+
   Uint8List encodeKeyboardPanelDismissal(int activationSerial) {
     return _encodeEnvelope(
       generated.PayloadTypeId.KeyboardCommand,
       generated.KeyboardCommandObjectBuilder(
         kind: generated.KeyboardCommandKind.DismissPanel,
         activationSerial: activationSerial,
+      ),
+    );
+  }
+
+  Uint8List encodeKeyboardPanelMotion(int height, Duration duration) {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.KeyboardCommand,
+      generated.KeyboardCommandObjectBuilder(
+        kind: generated.KeyboardCommandKind.PanelMotion,
+        panelHeight: height,
+        panelDurationMs: duration.inMilliseconds,
       ),
     );
   }
@@ -531,6 +594,7 @@ class DenialWireCodec {
         expectedRevision: capabilities.revision,
         mouse: generated.MouseConfigurationObjectBuilder(
           speed: capabilities.mouseSpeed,
+          accelerationEnabled: capabilities.mouseAccelerationEnabled,
         ),
       ),
       requestId: requestId,
@@ -648,6 +712,7 @@ class DenialWireCodec {
       revision: response.revision,
       hasMouse: inputDevices.hasMouse,
       mouseSpeed: mouseSpeed,
+      mouseAccelerationEnabled: mouse.accelerationEnabled,
       hasTouchpad: inputDevices.hasTouchpad,
       tapToClickEnabled: touchpad.tapToClickEnabled,
       naturalScrollEnabled: touchpad.naturalScrollEnabled,
@@ -1292,6 +1357,9 @@ class DenialWireCodec {
     final imagePath = source.imagePath ?? '';
     final soundName = source.soundName ?? '';
     final soundFile = source.soundFile ?? '';
+    final groupKey = source.groupKey ?? '';
+    final sourceMessages =
+        source.messages ?? const <generated.DesktopNotificationMessage>[];
     final sourceActions =
         source.actions ?? const <generated.DesktopNotificationAction>[];
     if (sender.length > denialWireMaxStringLength ||
@@ -1304,7 +1372,9 @@ class DenialWireCodec {
         imagePath.length > denialWireMaxStringLength ||
         soundName.length > denialWireMaxStringLength ||
         soundFile.length > denialWireMaxStringLength ||
-        sourceActions.length > denialWireMaxNotificationActions) {
+        groupKey.length > denialWireMaxStringLength ||
+        sourceActions.length > denialWireMaxNotificationActions ||
+        sourceMessages.length > denialWireMaxNotificationMessages) {
       rejectedStructuredMessages += 1;
       return null;
     }
@@ -1319,6 +1389,20 @@ class DenialWireCodec {
         return null;
       }
       actions.add(model.DesktopNotificationAction(key: key, label: label));
+    }
+
+    final messages = <model.DesktopNotificationMessage>[];
+    for (final message in sourceMessages) {
+      final sender = message.sender ?? '';
+      final text = message.text ?? '';
+      if (sender.length > denialWireMaxStringLength ||
+          text.length > denialWireMaxStringLength) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      messages.add(
+        model.DesktopNotificationMessage(sender: sender, text: text),
+      );
     }
 
     model.DesktopNotificationImageData? image;
@@ -1387,6 +1471,12 @@ class DenialWireCodec {
         progress: source.progress,
         hasProgress: source.hasProgress,
         expireTimeoutMs: source.expireTimeoutMs,
+        alert: source.alert,
+        groupKey: groupKey,
+        groupSummary: source.groupSummary,
+        timeMs: source.timeMs,
+        messages: List<model.DesktopNotificationMessage>.unmodifiable(messages),
+        clearable: source.clearable,
       ),
     );
   }
@@ -1491,6 +1581,16 @@ class DenialWireCodec {
         lastCompositionOrder = layer.compositionOrder;
         layers.add(layer);
       }
+      final nativeClient = window.clientTexture;
+      final clientTexture = nativeClient == null
+          ? null
+          : DenialClientTexture(
+              textureId: nativeClient.textureId,
+              width: nativeClient.width,
+              height: nativeClient.height,
+              sourceWidth: nativeClient.sourceWidth,
+              sourceHeight: nativeClient.sourceHeight,
+            );
       final transientParentId = window.transientParentId;
       final decoded = DenialWindow(
         objectId: objectId,
@@ -1537,6 +1637,7 @@ class DenialWireCodec {
         contentWidth: window.contentWidth,
         contentHeight: window.contentHeight,
         surfaceLayers: List<DenialSurfaceLayer>.unmodifiable(layers),
+        clientTexture: clientTexture,
         contentKind: contentKind,
         opacityClass: switch (window.opacityClass) {
           generated.WindowOpacityClass.BorderAlphaOnly =>
@@ -1563,6 +1664,7 @@ class DenialWireCodec {
                 },
               )
             : null,
+        keyboardInset: window.keyboardInset,
       );
       // FlatBuffers getters parse their field on each access. Validate the
       // materialized snapshot so geometry and layer fields are read only once.

@@ -59,7 +59,7 @@ class _ShadeDismissGestureState extends ConsumerState<ShadeDismissGesture> {
         _dragging = false;
         final velocity = details.primaryVelocity ?? 0;
         if (_distance <= -48 || velocity <= -500) {
-          controller.closeQuickSettings();
+          controller.closeQuickSettings(releaseVelocity: velocity);
         } else {
           controller.endQuickSettingsDrag(velocity);
         }

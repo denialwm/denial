@@ -1,9 +1,9 @@
 use std::{env, ffi::CString, path::PathBuf, sync::Arc};
 
-use denial_flutter_engine::{DartRuntimeMode, EngineLibrary, EngineProject, RendererBackend};
+use denial_flutter_engine::{DartRuntimeMode, EngineLibrary, EngineProject};
 
 pub const HELP: &str = "denial-app --bundle DIR --engine FILE [--app-id ID] [--title TITLE]
-           [--width PIXELS] [--height PIXELS] [--renderer impeller|skia] [--overlay]
+           [--width PIXELS] [--height PIXELS] [--overlay]
            [--check] [-- DART_ARGS...]
 
 Runs one existing release Flutter AOT bundle as a native Wayland application.
@@ -44,7 +44,6 @@ impl Config {
         let mut app_id = "org.denial.NativeApp".to_owned();
         let mut title = "Denial app".to_owned();
         let (mut width, mut height) = (1000, 700);
-        let mut renderer = RendererBackend::ImpellerGles;
         let mut overlay = false;
         let mut check = false;
         let mut dart_arguments = Vec::new();
@@ -96,13 +95,7 @@ impl Config {
             }
             if !matches!(
                 arg,
-                "--bundle"
-                    | "--engine"
-                    | "--app-id"
-                    | "--title"
-                    | "--width"
-                    | "--height"
-                    | "--renderer"
+                "--bundle" | "--engine" | "--app-id" | "--title" | "--width" | "--height"
             ) {
                 return Err(format!("unknown option: {arg}"));
             }
@@ -125,15 +118,6 @@ impl Config {
                     } else {
                         height = n;
                     }
-                }
-                "--renderer" => {
-                    renderer = value
-                        .to_str()
-                        .ok_or("renderer is not UTF-8")?
-                        .parse()
-                        .map_err(|e: denial_flutter_engine::ParseRendererBackendError| {
-                            e.to_string()
-                        })?
                 }
                 _ => unreachable!(),
             }
@@ -167,8 +151,8 @@ impl Config {
             icu_data: bundle.join("data/icudtl.dat"),
             runtime: DartRuntimeMode::Aot,
             aot_library: Some(bundle.join("lib/libapp.so")),
-            renderer_backend: renderer,
             resource_cache_max_bytes_threshold: 64 * 1024 * 1024,
+            float_color: false,
         };
         for path in [
             &project.assets,

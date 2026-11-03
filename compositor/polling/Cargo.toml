@@ -1,0 +1,11 @@
+[package]
+# Replaces crates.io `polling` through `[patch.crates-io]` in the workspace
+# manifest; the version must keep satisfying calloop's `polling = "3"`.
+name = "polling"
+version = "3.11.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[dependencies]
+libc = "0.2.188"

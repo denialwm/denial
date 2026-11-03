@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/startup_environment.dart';
 import '../models/display_layout.dart';
+import '../models/notification_policy.dart';
 import '../models/power_button_action.dart';
 import '../models/shell_popup_placement.dart';
 import '../models/suspend_mode.dart';
@@ -309,6 +310,12 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setInputDeck(InputDeckSettings value) {
+    _update(
+      state.copyWith(inputDeck: InputDeckSettings.fromJson(value.toJson())),
+    );
+  }
+
   void setDesktopWindowLayout(DesktopWindowLayout value) {
     _update(state.copyWith(layout: state.layout.copyWith(windowLayout: value)));
   }
@@ -504,14 +511,44 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setIdleLockTimeoutMinutes(int value) {
+  void setDoNotDisturb(bool value) {
+    _update(
+      state.copyWith(
+        notifications: state.notifications.copyWith(doNotDisturb: value),
+      ),
+    );
+  }
+
+  void setLockPreview(NotificationPreviewMode value) {
+    _update(
+      state.copyWith(
+        notifications: state.notifications.copyWith(lockPreview: value),
+      ),
+    );
+  }
+
+  void setWakeScreen(bool value) {
+    _update(
+      state.copyWith(
+        notifications: state.notifications.copyWith(wakeScreen: value),
+      ),
+    );
+  }
+
+  void setKeyboardVibration(bool value) {
+    _update(
+      state.copyWith(sound: state.sound.copyWith(keyboardVibration: value)),
+    );
+  }
+
+  void setIdleLockTimeoutSeconds(int value) {
     _update(
       state.copyWith(
         power: state.power.copyWith(
-          idleLockTimeoutMinutes: value
+          idleLockTimeoutSeconds: value
               .clamp(
-                ShellPowerSettings.minimumIdleTimeoutMinutes,
-                state.power.idleSuspendTimeoutMinutes,
+                ShellPowerSettings.minimumIdleTimeoutSeconds,
+                state.power.idleSuspendTimeoutSeconds,
               )
               .toInt(),
         ),
@@ -519,21 +556,21 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setIdleDpmsTimeoutMinutes(int value) {
+  void setIdleDpmsTimeoutSeconds(int value) {
     final timeout = value
         .clamp(
-          ShellPowerSettings.minimumIdleTimeoutMinutes,
-          ShellPowerSettings.maximumIdleTimeoutMinutes,
+          ShellPowerSettings.minimumIdleTimeoutSeconds,
+          ShellPowerSettings.maximumIdleTimeoutSeconds,
         )
         .toInt();
     _update(
       state.copyWith(
         power: state.power.copyWith(
-          idleDpmsTimeoutMinutes: timeout,
-          idleSuspendTimeoutMinutes:
-              timeout > state.power.idleSuspendTimeoutMinutes
+          idleDpmsTimeoutSeconds: timeout,
+          idleSuspendTimeoutSeconds:
+              timeout > state.power.idleSuspendTimeoutSeconds
               ? timeout
-              : state.power.idleSuspendTimeoutMinutes,
+              : state.power.idleSuspendTimeoutSeconds,
         ),
       ),
     );
@@ -549,23 +586,23 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(state.copyWith(power: state.power.copyWith(suspendMode: value)));
   }
 
-  void setIdleSuspendTimeoutMinutes(int value) {
+  void setIdleSuspendTimeoutSeconds(int value) {
     final timeout = value
         .clamp(
-          ShellPowerSettings.minimumIdleTimeoutMinutes,
-          ShellPowerSettings.maximumIdleTimeoutMinutes,
+          ShellPowerSettings.minimumIdleTimeoutSeconds,
+          ShellPowerSettings.maximumIdleTimeoutSeconds,
         )
         .toInt();
     _update(
       state.copyWith(
         power: state.power.copyWith(
-          idleLockTimeoutMinutes: state.power.idleLockTimeoutMinutes > timeout
+          idleLockTimeoutSeconds: state.power.idleLockTimeoutSeconds > timeout
               ? timeout
-              : state.power.idleLockTimeoutMinutes,
-          idleDpmsTimeoutMinutes: state.power.idleDpmsTimeoutMinutes > timeout
+              : state.power.idleLockTimeoutSeconds,
+          idleDpmsTimeoutSeconds: state.power.idleDpmsTimeoutSeconds > timeout
               ? timeout
-              : state.power.idleDpmsTimeoutMinutes,
-          idleSuspendTimeoutMinutes: timeout,
+              : state.power.idleDpmsTimeoutSeconds,
+          idleSuspendTimeoutSeconds: timeout,
         ),
       ),
     );

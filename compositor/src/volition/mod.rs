@@ -531,9 +531,13 @@ fn is_recoverable_kms_error(error: &io::Error) -> bool {
     )
 }
 
-fn lookahead_not_before(presentation_target: Instant, now: Instant) -> Instant {
+fn lookahead_not_before(
+    presentation_target: Instant,
+    now: Instant,
+    submit_lead: Duration,
+) -> Instant {
     presentation_target
-        .checked_sub(LOOKAHEAD_SUBMIT_LEAD)
+        .checked_sub(submit_lead)
         .unwrap_or(now)
         .max(now)
 }
@@ -590,7 +594,29 @@ impl Volition {
         framebuffer: framebuffer::Handle,
         presentation_target: Instant,
     ) -> io::Result<Submission> {
-        let not_before = lookahead_not_before(presentation_target, Instant::now());
+        self.submit_for_target_with_lead(
+            commit,
+            request,
+            framebuffer,
+            presentation_target,
+            LOOKAHEAD_SUBMIT_LEAD,
+        )
+    }
+
+    /// Queues the same target with a driver/output-specific latch lead.
+    ///
+    /// This changes only when the ioctl may start, never the selected target
+    /// or commit identity. The caller must bound the lead within its output
+    /// period so the request cannot latch an earlier physical opportunity.
+    pub fn submit_for_target_with_lead(
+        &mut self,
+        commit: CommitId,
+        request: &PlaneCommit,
+        framebuffer: framebuffer::Handle,
+        presentation_target: Instant,
+        submit_lead: Duration,
+    ) -> io::Result<Submission> {
+        let not_before = lookahead_not_before(presentation_target, Instant::now(), submit_lead);
         self.scheduler.try_submit(CommitJob {
             instance: self.instance,
             commit,
@@ -616,5 +642,38 @@ impl Volition {
 impl Drop for Volition {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod submit_lead_tests {
+    use super::*;
+
+    #[test]
+    fn configured_lead_controls_the_ioctl_not_before_time() {
+        let now = Instant::now();
+        let target = now + Duration::from_millis(8);
+        assert_eq!(
+            lookahead_not_before(target, now, Duration::from_millis(2)),
+            now + Duration::from_millis(6)
+        );
+        assert_eq!(
+            lookahead_not_before(target, now, Duration::from_millis(3)),
+            now + Duration::from_millis(5)
+        );
+    }
+
+    #[test]
+    fn a_late_or_underflowed_submit_time_is_immediate() {
+        let now = Instant::now();
+        assert_eq!(
+            lookahead_not_before(
+                now - Duration::from_millis(1),
+                now,
+                Duration::from_millis(2)
+            ),
+            now
+        );
+        assert_eq!(lookahead_not_before(now, now, Duration::MAX), now);
     }
 }

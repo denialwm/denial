@@ -15,6 +15,7 @@ class HomeEmptyState extends StatelessWidget {
         style: TextStyle(
           color: ShellMediaColors.lightForeground.withValues(alpha: 0.67),
           fontSize: 16,
+
           height: 1.2,
           fontWeight: FontWeight.w600,
           letterSpacing: 0,

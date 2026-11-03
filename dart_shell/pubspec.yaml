@@ -46,6 +46,7 @@ dev_dependencies:
   flutter_svg: ^2.3.0
   intl: ^0.20.2
   meta: ^1.19.0
+  motor: ^1.1.0
   path: ^1.9.1
   vector_graphics: ^1.2.2
   denial_wire_protocol:

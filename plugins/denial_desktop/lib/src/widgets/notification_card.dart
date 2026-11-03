@@ -9,8 +9,11 @@ class NotificationCard extends StatelessWidget {
     this.compact = false,
     this.mobile = false,
     this.groupedBackdrop = false,
+    this.cachedBackdrop = false,
     this.expanded = false,
     this.showActions = true,
+    this.group,
+    this.onExpandGroup,
     this.onDismiss,
     this.onDefaultAction,
     this.onAction,
@@ -23,8 +26,20 @@ class NotificationCard extends StatelessWidget {
   final bool mobile;
   final bool groupedBackdrop;
 
+  /// Draw the enclosing [WindowBackdropCache]'s frost as the glass instead
+  /// of filtering the live scene, when one is in scope.
+  final bool cachedBackdrop;
+
   final bool expanded;
   final bool showActions;
+
+  /// The stacked group this card, its newest member, stands for: a header
+  /// with app, count and time, and lines for the next members.
+  final DesktopNotificationGroup? group;
+
+  /// A tap on a stacked card shows the group's members instead of opening.
+  final VoidCallback? onExpandGroup;
+
   final VoidCallback? onDismiss;
   final VoidCallback? onDefaultAction;
   final ValueChanged<String>? onAction;
@@ -42,17 +57,20 @@ class NotificationCard extends StatelessWidget {
               ? l10n.notificationGeneric
               : notification.summary)
         : l10n.notificationNew;
-    final body = fullPreview ? plainNotificationBody(notification.body) : '';
+    final messages = notification.messages;
+    final body = !fullPreview
+        ? ''
+        : messages.isEmpty
+        ? plainNotificationBody(notification.body)
+        : notificationMessageLines(messages, l10n, expanded ? null : 2);
+    final stack = group?.stacked ?? false ? group : null;
     var hasDefaultAction = false;
     final namedActions = <DesktopNotificationAction>[];
-    if (fullPreview) {
+    if (fullPreview && stack == null) {
       for (final action in notification.actions) {
-        if (action.key == 'default') {
-          hasDefaultAction = onDefaultAction != null;
-        } else {
-          namedActions.add(action);
-        }
+        if (action.key != 'default') namedActions.add(action);
       }
+      hasDefaultAction = onDefaultAction != null && notification.opensApp;
     }
     final semanticLabel = body.isEmpty
         ? l10n.notificationSemantics(appName, summary)
@@ -67,6 +85,16 @@ class NotificationCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (stack != null) ...[
+          _NotificationGroupHeader(
+            notification: notification,
+            count: stack.members.length,
+            mobile: mobile,
+          ),
+          SizedBox(
+            height: mobile ? visual(MobileNotificationMetrics.copySpacing) : 4,
+          ),
+        ],
         _NotificationBody(
           notification: notification,
           summary: mobile && !fullPreview ? appName : summary,
@@ -76,6 +104,12 @@ class NotificationCard extends StatelessWidget {
           mobile: mobile,
           expanded: expanded,
         ),
+        if (stack != null && fullPreview)
+          for (final record in stack.members.skip(1).take(2))
+            _NotificationGroupLine(
+              notification: record.notification,
+              mobile: mobile,
+            ),
         if (fullPreview && notification.hasProgress) ...[
           SizedBox(
             height: mobile
@@ -129,12 +163,19 @@ class NotificationCard extends StatelessWidget {
         color: panelSurface
             ? null
             : theme.cardColor(context.shellColors.surfaceContainerLow),
-        gradient: panelSurface
-            ? theme.panelGradient(
+        // A phone's notifications are cards, wherever they show; in glass
+        // their opacity is the panels' anyway.
+        gradient: !panelSurface
+            ? null
+            : mobile
+            ? theme.cardGradient(
                 context.shellColors.panelBackground,
                 context.shellColors.panelBackgroundBottom,
               )
-            : null,
+            : theme.panelGradient(
+                context.shellColors.panelBackground,
+                context.shellColors.panelBackgroundBottom,
+              ),
         borderRadius: radius,
         border: mobile && theme.transparencyMode == ShellTransparencyMode.glass
             ? null
@@ -182,18 +223,43 @@ class NotificationCard extends StatelessWidget {
       ),
     );
 
-    final content = mobile
-        ? ShellBackdropBlur(
-            grouped: groupedBackdrop,
-            blur:
-                !ShadeBackdropScene.sharesBlur(context) &&
-                theme.effectivePanelOpacity < 1.0,
-            separateChild: true,
-            borderRadius: radius,
-            child: decoration,
-          )
-        : decoration;
+    final cache = mobile && cachedBackdrop && theme.effectivePanelOpacity < 1.0
+        ? WindowBackdropCache.maybeOf(context)
+        : null;
+    final Widget content;
+    if (!mobile) {
+      content = decoration;
+    } else if (cache != null) {
+      // The shared frost replaces a live blur pass per card.
+      content = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: WindowBackdropSlice(
+              cache: cache,
+              borderRadius: radius,
+              glass: theme.windowGlassShading,
+              opacity: NotificationReveal.maybeOf(context),
+              fadeOverlay: true,
+            ),
+          ),
+          NotificationReveal.revealed(context, decoration),
+        ],
+      );
+    } else {
+      content = ShellBackdropBlur(
+        grouped: groupedBackdrop,
+        blur:
+            !ShadeBackdropScene.sharesBlur(context) &&
+            theme.effectivePanelOpacity < 1.0,
+        separateChild: true,
+        borderRadius: radius,
+        child: decoration,
+      );
+    }
 
+    final expandGroup = stack == null ? null : onExpandGroup;
+    final activate = expandGroup ?? (hasDefaultAction ? onDefaultAction : null);
     return Semantics(
       container: true,
       explicitChildNodes: true,
@@ -202,14 +268,17 @@ class NotificationCard extends StatelessWidget {
                 ? .alert
                 : .status
           : null,
-      button: hasDefaultAction,
+      button: activate != null,
+      expanded: stack == null ? null : false,
       label: semanticLabel,
-      onTap: hasDefaultAction ? onDefaultAction : null,
+      onTap: activate,
       onDismiss: onDismiss,
-      child: hasDefaultAction
+      child: activate != null
           ? _NotificationActivator(
-              semanticLabel: l10n.notificationOpen(summary),
-              onActivate: onDefaultAction!,
+              semanticLabel: stack == null
+                  ? l10n.notificationOpen(summary)
+                  : l10n.notificationGroupExpand(stack.members.length, appName),
+              onActivate: activate,
               borderRadius: radius,
               child: content,
             )
@@ -325,6 +394,120 @@ class _NotificationProgress extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A conversation's last [count] messages, one per line; all when null.
+String notificationMessageLines(
+  List<DesktopNotificationMessage> messages,
+  AppLocalizations l10n, [
+  int? count,
+]) {
+  final shown = count == null || messages.length <= count
+      ? messages
+      : messages.sublist(messages.length - count);
+  return [
+    for (final message in shown)
+      message.sender.isEmpty
+          ? message.text
+          : l10n.notificationMessage(message.sender, message.text),
+  ].join('\n');
+}
+
+/// App, count and time of the newest member, above a stacked group's card.
+class _NotificationGroupHeader extends StatelessWidget {
+  const _NotificationGroupHeader({
+    required this.notification,
+    required this.count,
+    required this.mobile,
+  });
+
+  final DesktopNotification notification;
+  final int count;
+  final bool mobile;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final header = l10n.notificationGroupHeader(
+      notificationAppName(notification, l10n),
+      count,
+    );
+    final time = notification.timeMs > 0
+        ? _notificationTime(
+            context,
+            DateTime.fromMillisecondsSinceEpoch(notification.timeMs),
+          )
+        : null;
+    return Text(
+      time == null ? header : '$header · $time',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: ShellText.base.copyWith(
+        color: context.shellColors.textSecondary,
+        fontSize: mobile ? MobileNotificationMetrics.groupHeaderFontSize : 11.5,
+        fontWeight: FontWeight.w600,
+        height: 1.2,
+      ),
+    );
+  }
+}
+
+String _notificationTime(BuildContext context, DateTime time) {
+  final now = DateTime.now();
+  final today =
+      time.year == now.year && time.month == now.month && time.day == now.day;
+  return today
+      ? localizedTime(context, time)
+      : localizedShortDate(context, time);
+}
+
+/// One more member of a stacked group, on a single line under the newest.
+class _NotificationGroupLine extends StatelessWidget {
+  const _NotificationGroupLine({
+    required this.notification,
+    required this.mobile,
+  });
+
+  final DesktopNotification notification;
+  final bool mobile;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final messages = notification.messages;
+    final detail = messages.isEmpty
+        ? plainNotificationBody(notification.body)
+        : notificationMessageLines(messages, l10n, 1);
+    final visual = MobileUiMetrics.of(context).visual;
+    final fontSize = mobile ? MobileNotificationMetrics.bodyFontSize : 12.0;
+    return Padding(
+      padding: EdgeInsets.only(
+        top: mobile ? visual(MobileNotificationMetrics.copySpacing) : 3,
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: notification.summary.isEmpty
+                  ? l10n.notificationGeneric
+                  : notification.summary,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            if (detail.isNotEmpty)
+              TextSpan(text: '  ${detail.split('\n').first}'),
+          ],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: ShellText.base.copyWith(
+          color: context.shellColors.textSecondary,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w400,
+          height: 1.3,
         ),
       ),
     );

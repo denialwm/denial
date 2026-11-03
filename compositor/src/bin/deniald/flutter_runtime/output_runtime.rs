@@ -163,6 +163,14 @@ impl FlutterRuntime {
         self.output_rotation_animation.is_some()
     }
 
+    /// Whether Flutter needs the next output tick: it awaits a vsync, staged
+    /// texture damage, or an output rotation sample.
+    pub fn wants_output_ticks(&self) -> bool {
+        self.handler.has_pending_vsync()
+            || self.has_output_updates()
+            || self.output_rotation_animation_active()
+    }
+
     /// Advances only the synthetic output projection. The engine applies this
     /// to its retained layer tree, so the Dart scene, external textures, EGL
     /// targets and native scanout buffers remain untouched between samples.
@@ -273,6 +281,9 @@ impl FlutterRuntime {
                 }
             };
             remember(window.texture_id);
+            if let Some(client) = window.client_texture {
+                remember(client.texture_id);
+            }
             for surface in &window.surfaces {
                 remember(surface.texture_id);
             }
@@ -280,6 +291,8 @@ impl FlutterRuntime {
     }
 
     pub(super) fn stage_changed_textures(&mut self) {
+        self.handler
+            .expand_native_texture_changes(&mut self.changed_texture_scratch);
         for texture_id in self.changed_texture_scratch.drain(..) {
             if let Some(outputs) = self.texture_output_membership.get(&texture_id) {
                 for output in outputs.outputs() {
@@ -350,8 +363,10 @@ impl FlutterRuntime {
     }
 
     pub(super) fn collect_external_texture_updates(&mut self) {
-        self.handler
-            .advance_all_external_texture_sources(&mut self.pending_frame_texture_ids);
+        self.handler.advance_all_external_texture_sources(
+            self.frame_interval,
+            &mut self.pending_frame_texture_ids,
+        );
         self.pending_frame_texture_ids.sort_unstable();
         self.pending_frame_texture_ids.dedup();
     }
@@ -428,8 +443,14 @@ impl FlutterRuntime {
         self.render_texture_scratch.sort_unstable();
         self.render_texture_scratch.dedup();
         self.changed_texture_scratch.clear();
+        let output_interval = requests
+            .iter()
+            .map(|request| request.tick.nominal_interval)
+            .min()
+            .unwrap_or(self.frame_interval);
         self.handler.advance_external_texture_sources(
             &self.render_texture_scratch,
+            output_interval,
             &mut self.changed_texture_scratch,
         );
         self.stage_changed_textures();

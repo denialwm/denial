@@ -149,12 +149,12 @@ not have to determine what it can become.
 ## Made through dialogue
 
 Denial was conceived, architected, directed, and tested by Doctor Logix, and
-developed in continuous collaboration with OpenAI Codex. Its initial
-implementation was generated through that dialogue.
+developed in continuous collaboration with AI models, mostly Sol 6.1 and
+Opus 5.5. Its initial implementation was generated through that dialogue.
 
 Doctor Logix made the design and technical decisions, tested the results on
-real hardware, and sent the work back when it wasn't right. Codex investigated
-problems, proposed solutions, and wrote the code.
+real hardware, and sent the work back when it wasn't right. The models
+investigated problems, proposed solutions, and wrote the code.
 
 Authorship is more than typing source code.
 

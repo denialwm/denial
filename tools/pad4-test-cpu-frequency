@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Run a finite tablet experiment at fixed CPU/optional GPU clocks, then restore.
+
+Frequency limits constrain both clusters; thermal cooling remains enabled.
+Reported hardware clocks are recorded separately from the requested limits.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+
+ROOT = Path('/sys/devices/system/cpu/cpufreq')
+GPU = Path('/sys/class/devfreq/3d00000.gpu')
+GPU_FIELDS = ('governor', 'min_freq', 'max_freq', 'cur_freq', 'target_freq',
+              'available_frequencies')
+FIELDS = ('affected_cpus', 'scaling_driver', 'scaling_governor',
+          'scaling_min_freq', 'scaling_max_freq', 'scaling_cur_freq',
+          'cpuinfo_cur_freq', 'scaling_available_frequencies')
+
+
+def snapshot(policies):
+    return {p.name: {name: (p / name).read_text().strip()
+                     for name in FIELDS if (p / name).exists()} for p in policies}
+
+
+def gpu_snapshot():
+    return {name: (GPU / name).read_text().strip()
+            for name in GPU_FIELDS if (GPU / name).exists()}
+
+
+def gpu_bounds(minimum, maximum):
+    order = [('min_freq', minimum), ('max_freq', maximum)]
+    if maximum >= int((GPU / 'min_freq').read_text()):
+        order.reverse()
+    for name, value in order:
+        (GPU / name).write_text(str(value))
+
+
+def wait_gpu(minimum, maximum, settle_clock=False):
+    deadline = time.monotonic() + 8
+    consecutive = 0
+    while True:
+        current = gpu_snapshot()
+        matches = (int(current['min_freq']) == minimum and
+                   int(current['max_freq']) == maximum and
+                   (not settle_clock or int(current['cur_freq']) == minimum))
+        consecutive = consecutive + 1 if matches else 0
+        if consecutive >= (5 if settle_clock else 1):
+            return current
+        if time.monotonic() >= deadline:
+            raise RuntimeError('GPU limits/clocks did not settle: ' + json.dumps(current))
+        time.sleep(0.1)
+
+
+def bounds(policy, minimum, maximum):
+    # Avoid an intermediate min > max when lowering or raising both limits.
+    current_minimum = int((policy / 'scaling_min_freq').read_text())
+    order = [('scaling_min_freq', minimum), ('scaling_max_freq', maximum)]
+    if maximum >= current_minimum:
+        order.reverse()
+    for name, value in order:
+        (policy / name).write_text(str(value))
+
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt(f'signal {signum}')
+
+
+def wait_bounds(policies, expected):
+    # cpufreq QoS updates queue policy work; sysfs writes can precede readback.
+    deadline = time.monotonic() + 5
+    while True:
+        current = snapshot(policies)
+        if all(current[name][field] == str(value)
+               for name, values in expected.items() for field, value in values.items()):
+            return current
+        if time.monotonic() >= deadline:
+            raise RuntimeError('CPU limits did not settle: ' + json.dumps(current))
+        time.sleep(0.05)
+
+
+def wait_clocks(policies, frequency):
+    deadline = time.monotonic() + 8
+    consecutive = 0
+    while True:
+        current = snapshot(policies)
+        consecutive = consecutive + 1 if all(
+            int(values.get('cpuinfo_cur_freq', -1)) == frequency
+            for values in current.values()) else 0
+        if consecutive >= 5:
+            return current
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Reported CPU clocks did not settle: ' + json.dumps(current))
+        time.sleep(0.1)
+
+
+def stop_child(child):
+    if child is None or child.poll() is not None:
+        return
+    for sig, timeout in ((signal.SIGINT, 8), (signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+        os.killpg(child.pid, sig)
+        try:
+            child.wait(timeout=timeout)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--khz', type=int, default=2112000)
+    parser.add_argument('--gpu-hz', type=int, help='also pin GPU to a supported OPP')
+    parser.add_argument('--timeout', type=float, default=300)
+    parser.add_argument('--record', type=Path, required=True)
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    assert os.geteuid() == 0 and os.uname().machine == 'aarch64'
+    assert Path('/etc/pad4-root-id').read_text().strip() == '59b8e7b3:archroot-v1'
+    assert command and not args.record.exists() and 0 < args.timeout <= 600
+    policies = sorted(ROOT.glob('policy*'))
+    assert {p.name for p in policies} == {'policy0', 'policy6'}
+    lock = Path('/run/pad4-test-cpu-frequency.lock').open('w')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    before = snapshot(policies)
+    for values in before.values():
+        assert args.khz in [int(v) for v in values['scaling_available_frequencies'].split()]
+    gpu_before = gpu_snapshot() if args.gpu_hz is not None else None
+    if gpu_before is not None:
+        assert args.gpu_hz in [int(v) for v in gpu_before['available_frequencies'].split()]
+    record = {'requested_khz': args.khz, 'command': command,
+              'wrapper_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              'timeout_seconds': args.timeout, 'kernel': os.uname().release,
+              'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+              'before_monotonic_ns': time.monotonic_ns(), 'before': before}
+    if gpu_before is not None:
+        record['gpu'] = {'requested_hz': args.gpu_hz, 'before': gpu_before}
+    args.record.parent.mkdir(parents=True, exist_ok=True)
+    save = lambda: args.record.write_text(json.dumps(record, indent=2) + '\n')
+    save()
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, interrupted)
+    changed, gpu_changed, child, exit_code = [], False, None, 1
+    try:
+        for policy in policies:
+            changed.append(policy)
+            bounds(policy, args.khz, args.khz)
+        if gpu_before is not None:
+            gpu_changed = True
+            gpu_bounds(args.gpu_hz, args.gpu_hz)
+            record['gpu']['settled'] = wait_gpu(args.gpu_hz, args.gpu_hz, True)
+        record['active'] = wait_bounds(policies, {
+            p.name: {'scaling_min_freq': args.khz, 'scaling_max_freq': args.khz}
+            for p in policies})
+        save()
+        for values in record['active'].values():
+            assert int(values['scaling_min_freq']) == args.khz
+            assert int(values['scaling_max_freq']) == args.khz
+        record['settled'] = wait_clocks(policies, args.khz)
+        record['settled_monotonic_ns'] = time.monotonic_ns()
+        save()
+        child = subprocess.Popen(command, start_new_session=True)
+        exit_code = child.wait(timeout=args.timeout)
+        record['exit_code'] = exit_code
+        record['after_command'] = snapshot(policies)
+        if gpu_before is not None:
+            record['gpu']['after_command'] = gpu_snapshot()
+    except BaseException as error:
+        record['error'] = repr(error)
+        stop_child(child)
+        raise
+    finally:
+        # A second terminal signal must not interrupt restoration halfway through.
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
+        errors = {}
+        if gpu_changed:
+            try:
+                gpu_bounds(int(gpu_before['min_freq']), int(gpu_before['max_freq']))
+                record['gpu']['restored'] = wait_gpu(
+                    int(gpu_before['min_freq']), int(gpu_before['max_freq']))
+                for field in ('min_freq', 'max_freq', 'governor'):
+                    if record['gpu']['restored'][field] != gpu_before[field]:
+                        errors['gpu/' + field] = 'does not match original value'
+            except (OSError, RuntimeError) as error:
+                errors['gpu'] = repr(error)
+                try:
+                    record['gpu']['restored'] = gpu_snapshot()
+                except OSError as read_error:
+                    record['gpu']['restored'] = {'unavailable': repr(read_error)}
+        for policy in reversed(changed):
+            original = before[policy.name]
+            try:
+                bounds(policy, int(original['scaling_min_freq']), int(original['scaling_max_freq']))
+            except OSError as error:
+                errors[policy.name] = repr(error)
+        try:
+            record['restored'] = wait_bounds(policies, {
+                p.name: {field: before[p.name][field] for field in
+                         ('scaling_min_freq', 'scaling_max_freq')}
+                for p in policies})
+        except RuntimeError as error:
+            errors['settling'] = str(error)
+            record['restored'] = snapshot(policies)
+        for policy in changed:
+            for field in ('scaling_min_freq', 'scaling_max_freq', 'scaling_governor'):
+                if record['restored'][policy.name][field] != before[policy.name][field]:
+                    errors[f'{policy.name}/{field}'] = 'does not match original value'
+        record['restore_errors'] = errors
+        record['after_monotonic_ns'] = time.monotonic_ns()
+        save()
+        if errors:
+            raise RuntimeError('Frequency policy restoration failed; inspect ' + str(args.record))
+    raise SystemExit(exit_code)
+
+
+if __name__ == '__main__':
+    main()

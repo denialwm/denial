@@ -70,12 +70,7 @@ impl Theme {
             enabled: appearance["applicationThemingEnabled"]
                 .as_bool()
                 .unwrap_or(true),
-            opacity: appearance
-                .pointer("/glass/windowOpacity")
-                .or_else(|| appearance.pointer("/glass/opacity"))
-                .and_then(Value::as_f64)
-                .unwrap_or(0.4)
-                .clamp(0.0, 1.0),
+            opacity: window_opacity(appearance),
         }
     }
 
@@ -83,6 +78,28 @@ impl Theme {
         // Stable across unrelated settings commits and restarts. Bump the prefix
         // when the adapter's generated settings change; no file-value comparisons.
         format!("{BEGIN}: 1-{:016x}", self.opacity.to_bits())
+    }
+}
+
+/// The window opacity of the selected transparency mode, as the shell's
+/// application theme resolves it. Mirrors the settings defaults and bounds.
+fn window_opacity(appearance: &Value) -> f64 {
+    let number = |pointer: &str| appearance.pointer(pointer).and_then(Value::as_f64);
+    let mode =
+        appearance["transparencyMode"]
+            .as_str()
+            .or_else(|| match appearance["backdropBlurEnabled"].as_bool() {
+                Some(true) => Some("blur"),
+                Some(false) => Some("off"),
+                None => None,
+            });
+    match mode {
+        Some("off") => 1.0,
+        Some("blur") => number("/panelOpacity").unwrap_or(0.5).clamp(0.05, 1.0),
+        _ => number("/glass/windowOpacity")
+            .or_else(|| number("/glass/opacity"))
+            .unwrap_or(0.4)
+            .clamp(0.0, 1.0),
     }
 }
 

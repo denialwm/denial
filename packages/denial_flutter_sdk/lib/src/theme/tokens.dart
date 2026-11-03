@@ -88,6 +88,11 @@ abstract final class ShellText {
   /// fixed advance; the rest of the shell stays on the default family.
   static const String systemBarFontFamily =
       'packages/denial_flutter_sdk/JetBrainsMono';
+
+  /// Variable family bundled for type set on its axes, such as the clock's
+  /// stretched time.
+  static const String variableFontFamily =
+      'packages/denial_flutter_sdk/RobotoFlex';
   static const List<String> fallbackFontFamilies = <String>[
     'Source Han Sans CN',
     'Noto Sans CJK SC',

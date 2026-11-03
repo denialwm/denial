@@ -4,7 +4,6 @@ import 'package:denial_flutter_sdk/state.dart';
 
 class LegacyNotificationReducer {
   static const maxActiveNotifications = 256;
-  static const maxHistoryEntries = 100;
   static const maxBannerQueue = 24;
   int _nextSequence = 1;
 
@@ -22,15 +21,9 @@ class LegacyNotificationReducer {
       active.remove(event.notificationId);
       bannerQueue.remove(event.notificationId);
       pending.remove(event.notificationId);
-      final historyIndex = history.indexWhere(
+      history.removeWhere(
         (record) => record.notification.id == event.notificationId,
       );
-      if (historyIndex >= 0) {
-        history[historyIndex] = history[historyIndex].copyWith(
-          active: false,
-          closeReason: event.closeReason,
-        );
-      }
     } else {
       final notification = event.notification!;
       if (!active.containsKey(notification.id) &&
@@ -39,6 +32,7 @@ class LegacyNotificationReducer {
         active.remove(evictedId);
         bannerQueue.remove(evictedId);
         pending.remove(evictedId);
+        history.removeWhere((record) => record.notification.id == evictedId);
       }
       active[notification.id] = notification;
       pending.remove(notification.id);
@@ -63,9 +57,7 @@ class LegacyNotificationReducer {
       } else if (historyIndex >= 0) {
         history[historyIndex] = history[historyIndex].copyWith(
           notification: notification,
-          active: true,
           unread: true,
-          closeReason: 0,
         );
       } else {
         history.insert(
@@ -73,13 +65,9 @@ class LegacyNotificationReducer {
           DesktopNotificationRecord(
             notification: notification,
             sequence: _nextSequence++,
-            active: true,
             unread: true,
           ),
         );
-      }
-      if (history.length > maxHistoryEntries) {
-        history.removeRange(maxHistoryEntries, history.length);
       }
     }
 
@@ -89,7 +77,6 @@ class LegacyNotificationReducer {
       bannerQueue: List<int>.unmodifiable(bannerQueue),
       pendingDismissals: Set<int>.unmodifiable(pending),
       doNotDisturb: state.doNotDisturb,
-      policyLoaded: state.policyLoaded,
       lockPreview: state.lockPreview,
       lastEvent: event,
     );

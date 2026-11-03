@@ -1,4 +1,6 @@
+import 'package:denial_desktop/src/state/notification_groups.dart';
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
+import 'package:denial_desktop/src/widgets/notification_open.dart';
 
 import 'dart:async';
 
@@ -26,6 +28,7 @@ class ShellRuntimeBindings extends ConsumerStatefulWidget {
     this.onLocked,
     this.workArea,
     this.mobilePresentation = false,
+    this.deskBeside = false,
   });
 
   final Widget child;
@@ -33,6 +36,10 @@ class ShellRuntimeBindings extends ConsumerStatefulWidget {
   final DenialShellEffect? onLocked;
   final ShellWorkArea? workArea;
   final bool mobilePresentation;
+
+  /// A monitor runs the desktop shell beside the phone: its windows keep
+  /// desktop padding and it locks after its own idle timeout.
+  final bool deskBeside;
 
   @override
   ConsumerState<ShellRuntimeBindings> createState() =>
@@ -44,8 +51,13 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
   void didUpdateWidget(ShellRuntimeBindings oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workArea != widget.workArea ||
-        oldWidget.mobilePresentation != widget.mobilePresentation) {
+        oldWidget.mobilePresentation != widget.mobilePresentation ||
+        oldWidget.deskBeside != widget.deskBeside) {
       _scheduleLayoutSync(ref.read(shellSettingsProvider).layout);
+    }
+    if (oldWidget.mobilePresentation != widget.mobilePresentation ||
+        oldWidget.deskBeside != widget.deskBeside) {
+      _schedulePowerSync(ref.read(shellSettingsProvider).power);
     }
   }
 
@@ -79,8 +91,10 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
       referenceShellProvider.select((state) => state.lockLayerVisible),
       (_, lockLayerVisible) {
         if (!lockLayerVisible) {
+          openLockNotification(ref);
           return;
         }
+        ref.read(lockNotificationOpenProvider.notifier).clear();
         ref.read(shellPopupControllerProvider.notifier).dismissAllImmediately();
         widget.onLocked?.call(ref);
       },
@@ -138,7 +152,7 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
             side: reservation?.edge ?? PanelEdge.hidden,
             outputNames: reservation?.outputNames ?? const [],
             systemBarThickness: reservation?.thickness ?? 0,
-            maximizePadding: widget.mobilePresentation
+            maximizePadding: widget.mobilePresentation && !widget.deskBeside
                 ? 0
                 : layout.maximizePadding,
           );
@@ -154,13 +168,21 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
           .read(denialBridgeProvider)
           .setIdlePolicy(
             powerButtonAction: power.powerButtonAction,
-            lockEnabled: power.idleLockEnabled,
-            lockTimeout: Duration(minutes: power.idleLockTimeoutMinutes),
+            // A phone locks a set time after its screen goes dark, or never.
+            // Beside a desk, the desk's idle timeout locks both screens.
+            lockEnabled:
+                power.idleLockEnabled &&
+                (!widget.mobilePresentation || widget.deskBeside),
+            lockTimeout: Duration(seconds: power.idleLockTimeoutSeconds),
             dpmsEnabled: power.idleDpmsEnabled,
-            dpmsTimeout: Duration(minutes: power.idleDpmsTimeoutMinutes),
+            dpmsTimeout: Duration(seconds: power.idleDpmsTimeoutSeconds),
             suspendEnabled: power.idleSuspendEnabled,
-            suspendTimeout: Duration(minutes: power.idleSuspendTimeoutMinutes),
+            suspendTimeout: Duration(seconds: power.idleSuspendTimeoutSeconds),
             suspendMode: power.suspendMode,
+            lockAfterScreenOff:
+                power.idleLockEnabled && widget.mobilePresentation
+                ? Duration(seconds: power.screenOffLockDelaySeconds)
+                : null,
           );
     });
   }

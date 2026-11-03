@@ -41,6 +41,56 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeResizeWidget => 'Resize widget';
 
   @override
+  String get homeFolderDefaultName => 'Folder';
+
+  @override
+  String get homeFolderGames => 'Games';
+
+  @override
+  String get homeFolderInternet => 'Internet';
+
+  @override
+  String get homeFolderOffice => 'Office';
+
+  @override
+  String get homeFolderGraphics => 'Graphics';
+
+  @override
+  String get homeFolderMedia => 'Media';
+
+  @override
+  String get homeFolderDevelopment => 'Development';
+
+  @override
+  String get homeFolderEducation => 'Education';
+
+  @override
+  String get homeFolderScience => 'Science';
+
+  @override
+  String get homeFolderSystem => 'System';
+
+  @override
+  String get homeFolderUtilities => 'Utilities';
+
+  @override
+  String get homeFolderSettings => 'Settings';
+
+  @override
+  String get homeFolderRename => 'Rename folder';
+
+  @override
+  String homeFolderApps(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count apps',
+      one: '1 app',
+    );
+    return '$name, $_temp0';
+  }
+
+  @override
   String get actionCancel => 'Cancel';
 
   @override
@@ -773,6 +823,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get lockCpuLabel => 'CPU';
 
   @override
+  String get lockDesktopModeEnabled => 'Desktop mode enabled';
+
+  @override
   String get lockDesktopPromptDescription =>
       'Enter your password to unlock this desktop session.';
 
@@ -935,6 +988,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notificationGeneric => 'Notification';
 
   @override
+  String notificationGroupCollapse(String applicationName) {
+    return 'Collapse notifications from $applicationName';
+  }
+
+  @override
+  String notificationGroupExpand(int count, String applicationName) {
+    return 'Show $count notifications from $applicationName';
+  }
+
+  @override
+  String notificationGroupHeader(String applicationName, int count) {
+    return '$applicationName · $count';
+  }
+
+  @override
+  String notificationMessage(String sender, String text) {
+    return '$sender: $text';
+  }
+
+  @override
   String get notificationNew => 'New notification';
 
   @override
@@ -971,16 +1044,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get notificationsCloseCenter => 'Close notification center';
 
   @override
-  String get notificationsClosed => 'Closed';
-
-  @override
-  String get notificationsClosedByApplication => 'Closed by application';
-
-  @override
   String get notificationsDisableDoNotDisturb => 'Disable do not disturb';
-
-  @override
-  String get notificationsDismissed => 'Dismissed';
 
   @override
   String get notificationsDoNotDisturbSemantics =>
@@ -992,9 +1056,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationsEnableDoNotDisturb => 'Enable do not disturb';
-
-  @override
-  String get notificationsExpired => 'Expired';
 
   @override
   String get notificationsLoadingPolicy => 'Loading do not disturb policy';
@@ -1047,6 +1108,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get oskBackspace => 'Backspace';
+
+  @override
+  String get oskCapsLock => 'Caps lock';
 
   @override
   String get oskControlKey => 'CTRL';
@@ -1234,7 +1298,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get quickSettingsAutomatic => 'Automatic';
+  String get quickSettingsAutoRotate => 'Auto-rotate';
+
+  @override
+  String get quickSettingsScreenRecording => 'Screen recording';
+
+  @override
+  String get quickSettingsRecording => 'Recording';
 
   @override
   String get quickSettingsBalanced => 'Balanced';
@@ -1249,18 +1319,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quickSettingsControls => 'Controls';
 
   @override
-  String quickSettingsDate(String weekday, int day) {
-    return '$weekday $day';
-  }
-
-  @override
   String get quickSettingsHighPerformance => 'High performance';
 
   @override
   String get quickSettingsKeyboard => 'Keyboard';
-
-  @override
-  String get quickSettingsLocked => 'Locked';
 
   @override
   String get quickSettingsNormal => 'Normal';
@@ -1285,9 +1347,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quickSettingsPerformance => 'Performance';
 
   @override
-  String get quickSettingsRotation => 'Rotation';
-
-  @override
   String get quickSettingsSettingsUnavailable => 'Settings are unavailable.';
 
   @override
@@ -1302,7 +1361,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAboutCollaboration =>
-      'Built in continuous collaboration with OpenAI Codex.';
+      'Built in continuous collaboration with AI models, mostly Sol 6.1 and Opus 5.5.';
 
   @override
   String get settingsAboutCreditLabel => 'CONCEIVED, DIRECTED & TESTED BY';
@@ -2316,6 +2375,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsMousePointerSpeed => 'Mouse pointer speed';
+
+  @override
+  String get settingsMouseAcceleration => 'Mouse acceleration';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.';
 
   @override
   String get settingsShortcutsSection => 'Shortcuts';
@@ -3920,11 +3986,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fingerprintSection => 'Fingerprint';
 
   @override
-  String get fingerprintPasswordPrompt =>
-      'Enter your sudo password to manage fingerprints.';
+  String get fingerprintPinPrompt =>
+      'Enter your lock PIN to manage fingerprints.';
 
   @override
-  String get fingerprintSudoPassword => 'Sudo password';
+  String get fingerprintPin => 'PIN';
 
   @override
   String get fingerprintContinue => 'Continue';
@@ -3950,11 +4016,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fingerprintAdd => 'Add fingerprint';
 
   @override
-  String get fingerprintAuthenticationFailed =>
-      'Password verification failed. Try again.';
+  String get fingerprintPinNotSet => 'Set a lock PIN first.';
 
   @override
-  String get fingerprintExpired => 'Enter your password again to continue.';
+  String get fingerprintExpired => 'Enter your PIN again to continue.';
 
   @override
   String get fingerprintPreparing => 'Preparing the fingerprint reader…';
@@ -4036,17 +4101,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get simPinTitle => 'Unlock SIM';
 
   @override
-  String get simPinLabel => 'SIM PIN';
-
-  @override
   String get simPinUnlock => 'Unlock SIM';
 
   @override
   String get simPinLater => 'Later';
-
-  @override
-  String get simPinFailed =>
-      'SIM could not be unlocked. Check your PIN and remaining attempts.';
 
   @override
   String get simPukRequired => 'SIM requires a PUK. Contact your carrier.';
@@ -4362,6 +4420,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get polkitLocked => 'Temporarily locked';
+
+  @override
+  String get accessAllow => 'Allow';
+
+  @override
+  String get accessAllowOnce => 'Allow once';
+
+  @override
+  String get accessAlwaysAllow => 'Always allow';
+
+  @override
+  String get accessDecline => 'Decline';
+
+  @override
+  String get accessNeverAllow => 'Never allow';
+
+  @override
+  String get accessDeclineOnce => 'Decline once';
+
+  @override
+  String get accessUnknownApp => 'An app';
 
   @override
   String get pluginsAppTitle => 'Denial Plugins';
@@ -4900,4 +4979,289 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get pluginsDesktopFeature => 'Desktop';
+
+  @override
+  String get inputDeckTitle => 'Keyboard & touchpad display';
+
+  @override
+  String get inputDeckHeading => 'Keyboard & touchpad';
+
+  @override
+  String get inputDeckEnable => 'Use touch display as keyboard and touchpad';
+
+  @override
+  String get inputDeckUnavailable =>
+      'Connect a touch display to configure this mode.';
+
+  @override
+  String inputDeckEnableDescription(String output) {
+    return 'Use $output for input whenever another display is available. Disconnect the external display to return to tablet mode.';
+  }
+
+  @override
+  String get inputDeckWaiting =>
+      'Ready when a second display is connected and powered on.';
+
+  @override
+  String get inputDeckTouchDisplay => 'Touch display';
+
+  @override
+  String get inputDeckTouchDisplayDescription =>
+      'Display to use for keyboard and touchpad input.';
+
+  @override
+  String get inputDeckKeyboardSize => 'Keyboard size';
+
+  @override
+  String get inputDeckTouchpadWidth => 'Touchpad width';
+
+  @override
+  String get inputDeckTouchpadHeight => 'Touchpad height';
+
+  @override
+  String get inputDeckPointerSpeed => 'Pointer speed';
+
+  @override
+  String get inputDeckNaturalScroll => 'Natural scrolling';
+
+  @override
+  String get inputDeckNaturalScrollDescription =>
+      'Content follows the movement of your fingers.';
+
+  @override
+  String get inputDeckCpuChart => 'CPU chart';
+
+  @override
+  String get inputDeckCpuDescription =>
+      'Show processor usage above the keyboard.';
+
+  @override
+  String get inputDeckGpuCharts => 'GPU charts';
+
+  @override
+  String get inputDeckGpuDescription => 'Show usage for GPUs that report it.';
+
+  @override
+  String get inputDeckUseAsDisplay => 'Use as display';
+
+  @override
+  String get inputDeckTouchpad => 'Touchpad';
+
+  @override
+  String get inputDeckTouchpadHint =>
+      'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.';
+
+  @override
+  String get inputDeckLeftClick => 'Left click';
+
+  @override
+  String get inputDeckRightClick => 'Right click';
+
+  @override
+  String get lockEnterPin => 'Enter PIN';
+
+  @override
+  String lockEnterPinToOpen(String applicationName) {
+    return 'Enter PIN to open $applicationName';
+  }
+
+  @override
+  String lockPinProgress(int entered, int length) {
+    return 'PIN, $entered of $length digits entered';
+  }
+
+  @override
+  String get lockPinObscured => 'PIN, obscured';
+
+  @override
+  String get lockWrongPin => 'Wrong PIN';
+
+  @override
+  String get lockUsePassword => 'Use password';
+
+  @override
+  String get lockUsePin => 'Use PIN';
+
+  @override
+  String get lockPinDelete => 'Delete';
+
+  @override
+  String get settingsLockPinTitle => 'PIN';
+
+  @override
+  String get settingsLockPinLabel => 'Unlock with a PIN';
+
+  @override
+  String get settingsLockPinDescription =>
+      'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.';
+
+  @override
+  String settingsLockPinOn(int length) {
+    return 'On, $length digits';
+  }
+
+  @override
+  String get settingsLockPinOff => 'Off';
+
+  @override
+  String get settingsLockPinSetUp => 'Set up PIN';
+
+  @override
+  String get settingsLockPinChange => 'Change PIN';
+
+  @override
+  String get settingsLockPinRemove => 'Remove PIN';
+
+  @override
+  String get settingsLockPinSave => 'Save PIN';
+
+  @override
+  String get settingsLockPinPassword => 'Account password';
+
+  @override
+  String get settingsLockPinNew => 'New PIN';
+
+  @override
+  String get settingsLockPinConfirm => 'Confirm PIN';
+
+  @override
+  String get settingsLockPinLengthHint => '4 to 12 digits';
+
+  @override
+  String get settingsLockPinMismatch => 'The PINs don’t match';
+
+  @override
+  String get settingsLockPinWrongPassword => 'Wrong password';
+
+  @override
+  String get settingsLockPinUnavailable =>
+      'Couldn’t change the PIN. Try again.';
+
+  @override
+  String timeTwelveHour(String hour, String minute, String period) {
+    return '$hour:$minute $period';
+  }
+
+  @override
+  String get timeMorning => 'AM';
+
+  @override
+  String get timeAfternoon => 'PM';
+
+  @override
+  String get settingsNavigationPermissions => 'Permissions';
+
+  @override
+  String get settingsPermissionsSection => 'Permissions';
+
+  @override
+  String get settingsPermissionsTitle =>
+      'Choose what apps may do. An app appears here once it has asked.';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsTitle => 'Keyboard shortcuts';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsDescription =>
+      'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.';
+
+  @override
+  String get settingsPermissionsNone => 'No app has asked yet.';
+
+  @override
+  String get settingsPermissionsUnavailable =>
+      'Permissions can’t be read: the portal permission store is not available.';
+
+  @override
+  String get settingsPermissionsSaveFailed => 'Couldn’t save the change.';
+
+  @override
+  String get settingsPermissionAsk => 'Ask';
+
+  @override
+  String get settingsPermissionAllow => 'Always allow';
+
+  @override
+  String get settingsPermissionDeny => 'Never allow';
+
+  @override
+  String get colorTuningAction => 'Tune colors';
+
+  @override
+  String get colorTuningDesktop => 'Desktop';
+
+  @override
+  String get colorTuningNoApp => 'Tap a window';
+
+  @override
+  String get colorTuningBase => 'Look';
+
+  @override
+  String get colorTuningNoBase => 'None';
+
+  @override
+  String get colorTuningBefore => 'Before';
+
+  @override
+  String get colorTuningReset => 'Reset';
+
+  @override
+  String get colorTuningClose => 'Close';
+
+  @override
+  String get colorTuningShadows => 'Shadows';
+
+  @override
+  String get colorTuningMidtones => 'Midtones';
+
+  @override
+  String get colorTuningHighlights => 'Highlights';
+
+  @override
+  String get colorTuningExposure => 'Exposure';
+
+  @override
+  String get colorTuningContrast => 'Contrast';
+
+  @override
+  String get colorTuningSaturation => 'Saturation';
+
+  @override
+  String get colorTuningVibrance => 'Vibrance';
+
+  @override
+  String get colorTuningWarmth => 'Warmth';
+
+  @override
+  String get colorTuningTint => 'Tint';
+
+  @override
+  String get colorTuningFailed => 'Couldn’t change the colors.';
+
+  @override
+  String get colorPresetWarm => 'Warm';
+
+  @override
+  String get colorPresetCool => 'Cool';
+
+  @override
+  String get colorPresetLogix => 'Logix';
+
+  @override
+  String get colorPresetMatte => 'Matte';
+
+  @override
+  String get colorPresetFilm => 'Film';
+
+  @override
+  String get colorPresetNight => 'Night';
+
+  @override
+  String get colorPresetMono => 'Mono';
+
+  @override
+  String get colorTuningPresets => 'Presets';
+
+  @override
+  String get moveToMonitor => 'Move to monitor';
 }

@@ -47,6 +47,7 @@ use wayland_client::{
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
 };
 
+use crate::ime::Ime;
 use crate::touch::{TouchEvent, TouchInput};
 use crate::{AppExtension, config::Config, platform::Platform, renderer::Renderer};
 
@@ -106,6 +107,7 @@ pub fn run(config: Config, extension: AppExtension) -> Result<(), Box<dyn std::e
         output_state: OutputState::new(&globals, &qh),
         cursor_manager: CursorShapeManager::bind(&globals, &qh).ok(),
         cursor_device: None,
+        ime: Ime::bind(&globals, &qh),
         keyboard: None,
         pointer: None,
         touch: None,
@@ -189,7 +191,7 @@ impl ShellSurface {
     }
 }
 
-struct App {
+pub(crate) struct App {
     host: Option<EngineHost>,
     renderer: Option<Arc<Renderer>>,
     surface: ShellSurface,
@@ -198,6 +200,7 @@ struct App {
     output_state: OutputState,
     cursor_manager: Option<CursorShapeManager>,
     cursor_device: Option<WpCursorShapeDeviceV1>,
+    pub(crate) ime: Ime,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     touch: Option<wl_touch::WlTouch>,
@@ -361,7 +364,23 @@ impl App {
                     });
                     return;
                 }
+                if message.channel == "denial/overlay" {
+                    let reply = self.overlay_call(&message.data);
+                    if let Some(host) = &self.host
+                        && let Err(error) = host.respond(&mut message, reply)
+                    {
+                        self.fail(error);
+                    }
+                    return;
+                }
                 let mut reply = self.platform.handle(&message.channel, &message.data);
+                if message.channel == "flutter/textinput" {
+                    // A tap on a field asks again, even when it has the
+                    // keyboard already: the compositor may have dismissed it.
+                    let engage = serde_json::from_slice::<serde_json::Value>(&message.data)
+                        .is_ok_and(|call| call["method"] == "TextInput.show");
+                    self.ime.follow(self.platform.text_input_change(), engage);
+                }
                 if reply.data.is_empty()
                     && !reply.close
                     && reply.cursor.is_none()
@@ -406,6 +425,34 @@ impl App {
                 }
             }
         }
+    }
+
+    /// An overlay sizes itself to what it draws, so the compositor can
+    /// treat all of it as the dialog: `resize` takes logical pixels.
+    fn overlay_call(&mut self, data: &[u8]) -> &'static [u8] {
+        let Ok(call) = serde_json::from_slice::<serde_json::Value>(data) else {
+            return b"";
+        };
+        let ShellSurface::Overlay(layer) = &self.surface else {
+            return b"";
+        };
+        if call["method"] != "resize" {
+            return b"";
+        }
+        let size = |ix: usize| {
+            call["args"][ix]
+                .as_f64()
+                .filter(|value| value.is_finite() && *value >= 1.0)
+                .map(|value| value.ceil().min(4096.0) as u32)
+        };
+        let (Some(width), Some(height)) = (size(0), size(1)) else {
+            return br#"["bad-size","Expected a width and a height",null]"#;
+        };
+        if (width, height) != (self.width, self.height) {
+            layer.set_size(width, height);
+            layer.commit();
+        }
+        b"[null]"
     }
 
     fn request_frame(&mut self) {
@@ -499,6 +546,23 @@ impl App {
         {
             self.fail(error);
         }
+        self.ime.follow(self.platform.text_input_change(), false);
+    }
+
+    /// The on-screen keyboard's edit, for Flutter's `client`.
+    pub(crate) fn input_method(
+        &mut self,
+        client: i64,
+        transaction: &crate::wayland_frontend::input_method::InputMethodTransaction,
+    ) {
+        if let Some(host) = &self.host
+            && let Err(error) = self
+                .platform
+                .input_method(host.engine(), client, transaction)
+        {
+            self.fail(error);
+        }
+        self.ime.follow(self.platform.text_input_change(), false);
     }
 
     fn send_key(&mut self, code: u32, key: (u32, u32), down: bool) {
@@ -706,6 +770,7 @@ impl SeatHandler for App {
             return;
         }
         self.input_seat = Some(seat.clone());
+        self.ime.seat(&seat, qh);
         match capability {
             Capability::Keyboard if self.keyboard.is_none() => {
                 match self.seat_state.get_keyboard_with_repeat(
@@ -785,6 +850,7 @@ impl SeatHandler for App {
         self.remove_capability(conn, qh, seat.clone(), Capability::Touch);
         if self.input_seat.as_ref() == Some(&seat) {
             self.input_seat = None;
+            self.ime.remove_seat();
         }
     }
 }

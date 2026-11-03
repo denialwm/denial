@@ -6,14 +6,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const SUSPEND_MODE_DIRECTORY: &str = "denial";
-const SLEEP_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const SLEEP_MONITOR_RECONNECT_DELAY: Duration = Duration::from_secs(2);
 static SUSPEND_MODE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-enum SleepSignalPoll {
-    Signal(Option<zbus::Message>),
-    StopCheck,
-}
 
 pub(super) fn run_session_worker(commands: Receiver<SessionCommand>) {
     while let Ok(command) = commands.recv() {
@@ -51,16 +45,16 @@ pub(super) fn run_sleep_monitor(shared: Arc<SleepMonitorShared>) {
             }
             shared.release_delay_inhibitor();
             shared.release_power_key_inhibitor();
-            let retry_until = Instant::now() + SLEEP_MONITOR_RECONNECT_DELAY;
-            while !shared.stopping() && Instant::now() < retry_until {
-                async_io::Timer::after(SLEEP_MONITOR_POLL_INTERVAL).await;
-            }
+            future::race(shared.stopped(), async {
+                async_io::Timer::after(SLEEP_MONITOR_RECONNECT_DELAY).await;
+            })
+            .await;
         }
     });
 }
 
 async fn monitor_sleep_transitions(shared: &Arc<SleepMonitorShared>) -> Result<(), String> {
-    let connection = zbus::Connection::system()
+    let connection = crate::bus::system()
         .await
         .map_err(|error| format!("could not connect to the system bus: {error}"))?;
     let manager = zbus::Proxy::new(
@@ -86,16 +80,13 @@ async fn monitor_sleep_transitions(shared: &Arc<SleepMonitorShared>) -> Result<(
         if shared.stopping() {
             return Ok(());
         }
-        let signal = future::race(
-            async { SleepSignalPoll::Signal(signals.next().await) },
-            async {
-                async_io::Timer::after(SLEEP_MONITOR_POLL_INTERVAL).await;
-                SleepSignalPoll::StopCheck
-            },
-        )
+        let signal = future::race(async { Some(signals.next().await) }, async {
+            shared.stopped().await;
+            None
+        })
         .await;
-        let SleepSignalPoll::Signal(message) = signal else {
-            continue;
+        let Some(message) = signal else {
+            return Ok(());
         };
         let message = message.ok_or_else(|| "PrepareForSleep stream ended".to_owned())?;
         let preparing = message

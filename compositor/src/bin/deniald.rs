@@ -1,13 +1,24 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+#[cfg(feature = "flutter")]
+#[path = "deniald/ambient_display.rs"]
+mod ambient_display;
 #[path = "deniald/application_theming.rs"]
 mod application_theming;
 #[cfg(feature = "flutter")]
 #[path = "deniald/authentication.rs"]
 mod authentication;
+#[path = "deniald/bus.rs"]
+mod bus;
+#[path = "deniald/client_release.rs"]
+mod client_release;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
+#[path = "deniald/color_grade.rs"]
+mod color_grade;
+#[path = "deniald/color_space.rs"]
+mod color_space;
 #[path = "deniald/cpu_scheduling.rs"]
 mod cpu_scheduling;
 #[cfg(feature = "flutter")]
@@ -44,6 +55,9 @@ mod frame_scheduler;
 #[path = "deniald/gamma_control.rs"]
 mod gamma_control;
 #[cfg(feature = "flutter")]
+#[path = "deniald/gpu_transfer/mod.rs"]
+mod gpu_transfer;
+#[cfg(feature = "flutter")]
 #[path = "deniald/haptics.rs"]
 mod haptics;
 #[path = "deniald/hotplug_transaction.rs"]
@@ -51,6 +65,9 @@ mod hotplug_transaction;
 #[cfg(feature = "flutter")]
 #[path = "deniald/idle_policy.rs"]
 mod idle_policy;
+#[cfg(feature = "flutter")]
+#[path = "deniald/input_deck.rs"]
+mod input_deck;
 #[path = "deniald/keyboard_resize.rs"]
 mod keyboard_resize;
 #[path = "deniald/kms_pipeline.rs"]
@@ -68,6 +85,8 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
+#[path = "deniald/loop_wake.rs"]
+mod loop_wake;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -78,6 +97,8 @@ mod options;
 #[cfg(feature = "flutter")]
 #[path = "deniald/orientation_sensor.rs"]
 mod orientation_sensor;
+#[path = "deniald/output_color.rs"]
+mod output_color;
 #[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
@@ -102,6 +123,9 @@ mod runtime_state;
 #[path = "deniald/scene_sync.rs"]
 mod scene_sync;
 #[cfg(feature = "flutter")]
+#[path = "deniald/screen_off_touch.rs"]
+mod screen_off_touch;
+#[cfg(feature = "flutter")]
 #[path = "deniald/screenshot.rs"]
 mod screenshot;
 #[path = "deniald/session_activation.rs"]
@@ -122,15 +146,24 @@ mod surface_feedback;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
+#[path = "deniald/text_prediction.rs"]
+mod text_prediction;
+#[cfg(feature = "flutter")]
 #[path = "deniald/touchpad_gestures.rs"]
 mod touchpad_gestures;
 #[cfg(feature = "flutter")]
 #[path = "deniald/ui_development.rs"]
 mod ui_development;
+#[cfg(feature = "flutter")]
+#[path = "deniald/wakeup.rs"]
+mod wakeup;
 #[path = "deniald/wayland_frontend.rs"]
 mod wayland_frontend;
 #[path = "deniald/welcome.rs"]
 mod welcome;
+#[cfg(feature = "flutter")]
+#[path = "deniald/wifi_power_save.rs"]
+mod wifi_power_save;
 #[cfg(feature = "flutter")]
 #[path = "deniald/window_events.rs"]
 mod window_events;
@@ -192,13 +225,13 @@ use smithay::backend::egl::EGLDisplay;
 use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
-use smithay::backend::session::libseat::LibSeatSession;
+use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
 use smithay::output::Mode as OutputMode;
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::channel::Sender;
-use smithay::reexports::calloop::{EventLoop, RegistrationToken};
+use smithay::reexports::calloop::{Dispatcher, EventLoop, RegistrationToken};
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::{Interest, Mode as PollMode, PostAction, generic::Generic};
 use smithay::reexports::drm::buffer::{
@@ -219,7 +252,8 @@ const DEFAULT_QT_QPA_PLATFORMTHEME: &str = "xdgdesktopportal";
 #[cfg(feature = "flutter")]
 use dpms::{
     apply_output_power_requests, collect_output_power_requests, synchronize_idle_dpms,
-    synchronize_idle_dpms_configuration, synchronize_power_button, synchronize_requested_dpms_off,
+    synchronize_idle_dpms_configuration, synchronize_power_button,
+    synchronize_requested_display_power,
 };
 #[cfg(feature = "flutter")]
 use flutter_event_loop::{FlutterEventLoopContext, run_flutter_event_loop};
@@ -238,30 +272,27 @@ use flutter_service_sync::{
 use flutter_session::{
     ActiveOutputConfirmation, FlutterReloadOutcome, begin_output_confirmation,
     cancel_active_screenshot, install_ready_fence_watch, install_sampled_buffer_releases,
-    quiesce_flutter_page_flips, reload_flutter_runtime, screenshot_buffer_modifier,
-    screenshot_composite_sources, submit_ready_frames,
+    screenshot_buffer_modifier, screenshot_composite_sources, submit_ready_frames,
 };
 #[cfg(feature = "flutter")]
 use flutter_settings_sync::{
-    apply_automatic_orientation, apply_resident_output_geometry, send_flutter_window_event,
-    synchronize_flutter_window_commands, synchronize_flutter_window_management,
-    synchronize_resident_flutter_geometry_state, synchronize_settings,
-    synchronize_system_bar_configuration,
+    ResidentGeometry, apply_automatic_orientation, apply_resident_output_geometry,
+    send_flutter_window_event, synchronize_fingerprint_unlock, synchronize_flutter_window_commands,
+    synchronize_flutter_window_management, synchronize_resident_flutter_geometry_state,
+    synchronize_settings, synchronize_system_bar_configuration,
 };
 use frame_loop::{FrameLoopContext, run_frame_loop};
 use hotplug_transaction::{
     HotplugProgress, ScanoutKey, ScanoutOrigin, append_quarantined, install_candidate,
     plan_reconcile,
 };
-use kms_render::{
-    current_scanout_state, plane_state, render_blank_target, render_diagnostic_atlas,
-};
+use kms_render::{current_scanout_state, plane_state, render_diagnostic_atlas};
 use kms_session::hold_static_scanout;
 use kms_state::{
     AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext, LayoutTransition,
     PreviousScanoutState, ReconciledScanoutOrigin, RenderSwapchains, RestoreState, Scanout,
     ScanoutAllocator, ScanoutReconciliation, ScanoutRollbackFramebuffers, scanout_gbm_flags,
-    shared_atlas_modifiers,
+    shared_atlas_format,
 };
 #[cfg(feature = "flutter")]
 use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, OutputSwapchains};
@@ -369,8 +400,23 @@ fn main() {
         }
         return;
     }
+    #[cfg(feature = "flutter")]
+    if std::env::args_os()
+        .skip(1)
+        .eq([std::ffi::OsString::from("--lock-pin")])
+    {
+        if let Err(error) = authentication::pin::run_settings() {
+            println!("{}", serde_json::json!({"event":"unavailable"}));
+            eprintln!("deniald lock PIN: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
-    if let Err(error) = denial_main() {
+    let result = denial_main();
+    #[cfg(feature = "flutter")]
+    let result = result.and_then(|()| gpu_transfer::finish_process_workers().map_err(Into::into));
+    if let Err(error) = result {
         // Returning Result::Err from main becomes status 1, which display
         // managers can mistake for an orderly session exit. Preserve the
         // abnormal-termination distinction (and a usable core dump) for the

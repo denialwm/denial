@@ -163,24 +163,60 @@ class DesktopWindowShadowPainter extends CustomPainter {
     }
 
     final frame = Offset.zero & size;
+    final outer = frame.inflate(shadowOutset);
     final frameShape = RRect.fromRectAndRadius(frame, Radius.circular(radius));
     final outsideFrame = Path()
       ..fillType = PathFillType.evenOdd
-      ..addRect(frame.inflate(shadowOutset))
+      ..addRect(outer)
       ..addRRect(frameShape);
     final shadowRect = frame.shift(const Offset(0, 12)).inflate(2);
+    final shadow = RRect.fromRectAndRadius(
+      shadowRect,
+      Radius.circular(radius * 1.25),
+    );
     final shadowPaint = Paint()
       ..color = shadowColor
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16.5);
 
-    canvas
-      ..save()
-      ..clipPath(outsideFrame)
-      ..drawRRect(
-        RRect.fromRectAndRadius(shadowRect, Radius.circular(radius * 1.25)),
-        shadowPaint,
-      )
-      ..restore();
+    // The shadow is visible only around the frame. Painting it in four
+    // disjoint bands keeps its recorded bounds a ring instead of the whole
+    // window, so a retained layer does not carry and blend the transparent
+    // area under the window. Beside the straight edges the frame boundary is
+    // the band edge itself; only the bands with the rounded corners need the
+    // path clip. Aliased band clips give every pixel to exactly one band.
+    final corner = math.min(radius, size.shortestSide / 2);
+    final cornersEnd = frame.top + corner;
+    final cornersStart = frame.bottom - corner;
+    void band(Rect bounds, {required bool corners}) {
+      canvas
+        ..save()
+        ..clipRect(bounds, doAntiAlias: false);
+      if (corners) {
+        canvas.clipPath(outsideFrame);
+      }
+      canvas
+        ..drawRRect(shadow, shadowPaint)
+        ..restore();
+    }
+
+    band(
+      Rect.fromLTRB(outer.left, outer.top, outer.right, cornersEnd),
+      corners: true,
+    );
+    band(
+      Rect.fromLTRB(outer.left, cornersStart, outer.right, outer.bottom),
+      corners: true,
+    );
+    if (cornersStart > cornersEnd) {
+      band(
+        Rect.fromLTRB(outer.left, cornersEnd, frame.left, cornersStart),
+        corners: false,
+      );
+      band(
+        Rect.fromLTRB(frame.right, cornersEnd, outer.right, cornersStart),
+        corners: false,
+      );
+    }
   }
 
   @override

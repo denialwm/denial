@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use smithay::backend::input::{ButtonState, KeyState};
+use smithay::backend::input::{ButtonState, InputTime, KeyState};
 use smithay::input::dnd::{DnDGrab, DndAction, Source, SourceMetadata};
 use smithay::input::keyboard::{FilterResult, Keycode};
 use smithay::input::pointer::{ButtonEvent, Focus, GrabStartData};
@@ -217,12 +217,7 @@ pub(super) fn observe_selection(
 }
 
 fn schedule_capture(state: &mut RuntimeState, owner: CaptureOwner, plan: ClipboardCapturePlan) {
-    let handle = state
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .loop_handle
-        .clone();
+    let handle = state.frontend().loop_handle.clone();
     handle.insert_idle(move |state| start_capture(state, owner, plan));
 }
 
@@ -297,7 +292,7 @@ fn start_representation_capture(
     let reader_completed = Arc::clone(&completed);
     let reader_mime = mime_type.clone();
     let mut payload = Vec::new();
-    let reader_token = state.wayland.as_ref().expect("missing Wayland frontend").loop_handle.insert_source(
+    let reader_token = state.frontend().loop_handle.insert_source(
         Generic::new(reader, Interest::READ, Mode::Level),
         move |_, reader, _| {
             let mut chunk = [0u8; TRANSFER_CHUNK_BYTES];
@@ -344,7 +339,7 @@ fn start_representation_capture(
 
     let request = match owner {
         CaptureOwner::Wayland => {
-            let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+            let frontend = state.frontend();
             request_data_device_client_selection(
                 &frontend.seat,
                 mime_type.clone(),
@@ -353,24 +348,14 @@ fn start_representation_capture(
             .map_err(|error| error.to_string())
         }
         #[cfg(feature = "xwayland")]
-        CaptureOwner::Xwayland => state
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .xwayland
-            .send_selection(
-                SelectionTarget::Clipboard,
-                mime_type.clone(),
-                OwnedFd::from(writer),
-            ),
+        CaptureOwner::Xwayland => state.frontend_mut().xwayland.send_selection(
+            SelectionTarget::Clipboard,
+            mime_type.clone(),
+            OwnedFd::from(writer),
+        ),
     };
     if let Err(error) = request {
-        state
-            .wayland
-            .as_ref()
-            .expect("missing Wayland frontend")
-            .loop_handle
-            .remove(reader_token);
+        state.frontend().loop_handle.remove(reader_token);
         if !completed.swap(true, Ordering::AcqRel) {
             state.clipboard.finish_capture(epoch, &mime_type, None);
         }
@@ -380,12 +365,7 @@ fn start_representation_capture(
     let timeout_completed = Arc::clone(&completed);
     let timeout_manager = state.clipboard.clone();
     let timeout_mime = mime_type;
-    let timeout_handle = state
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .loop_handle
-        .clone();
+    let timeout_handle = state.frontend().loop_handle.clone();
     let removal_handle = timeout_handle.clone();
     let timer_token =
         timeout_handle.insert_source(Timer::from_duration(CAPTURE_TIMEOUT), move |_, _, _| {
@@ -412,12 +392,7 @@ pub(super) fn send_retained_selection(
         );
         return;
     };
-    let handle = state
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .loop_handle
-        .clone();
+    let handle = state.frontend().loop_handle.clone();
     if let Err(error) = install_nonblocking_writer(handle, fd, data) {
         warn!(%error, item_id, mime_type, "could not serve retained clipboard data");
     }
@@ -478,7 +453,7 @@ pub(crate) fn apply_clipboard_actions(state: &mut RuntimeState, actions: Vec<Cli
                     continue;
                 };
                 {
-                    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                    let frontend = state.frontend_mut();
                     set_data_device_selection(
                         &frontend.display_handle,
                         &frontend.seat,
@@ -498,7 +473,7 @@ pub(crate) fn apply_clipboard_actions(state: &mut RuntimeState, actions: Vec<Cli
             }
             ClipboardAction::Clear { epoch } => {
                 let _ = epoch;
-                let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                let frontend = state.frontend_mut();
                 let should_clear = current_data_device_selection_userdata(&frontend.seat)
                     .and_then(|selection| selection.history_item_id())
                     .is_some();
@@ -526,10 +501,10 @@ fn paste_into_focused_client(state: &mut RuntimeState) {
     const XKB_V: u32 = 47 + 8;
 
     let (keyboard, time) = {
-        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        let frontend = state.frontend();
         (
             frontend.seat.get_keyboard().expect("seat has no keyboard"),
-            frontend.start_time.elapsed().as_millis() as u32,
+            InputTime::now(),
         )
     };
     if keyboard.current_focus().is_none() {
@@ -611,7 +586,7 @@ fn start_retained_drag(state: &mut RuntimeState, item_id: u64) {
         return;
     };
     let (press, seat, display_handle) = {
-        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        let frontend = state.frontend_mut();
         let Some(press) = frontend.flutter_pointer_press.take() else {
             warn!(
                 item_id,
@@ -659,11 +634,7 @@ fn start_retained_drag(state: &mut RuntimeState, item_id: u64) {
         location: press.location,
     };
 
-    state
-        .wayland
-        .as_mut()
-        .expect("missing Wayland frontend")
-        .set_clipboard_drag_active(true);
+    state.frontend_mut().set_clipboard_drag_active(true);
     let source = ClipboardDndSource::new(payload);
     let grab = DnDGrab::new_pointer(&display_handle, start_data, source, seat);
     pointer.set_grab(state, grab, press.serial, Focus::Keep);

@@ -1,0 +1,13 @@
+[package]
+name = "denial-text-prediction"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+flate2 = "1.1.9"
+
+[[bin]]
+name = "denial-predict"
+path = "src/bin/denial-predict.rs"

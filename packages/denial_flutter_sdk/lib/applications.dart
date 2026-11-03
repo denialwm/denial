@@ -13,24 +13,20 @@ export 'src/launcher/controllers/application_recents_controller.dart'
         localApplicationRecentId;
 export 'src/launcher/controllers/home_grid_controller.dart'
     show
-        HomeDragSessionController,
         HomeGridController,
         HomeGridState,
         appLauncherProvider,
         desktopAppsRepositoryProvider,
         homeClockProvider,
-        homeDragSessionProvider,
         homeGridControllerProvider,
         homeLayoutRepositoryProvider;
-export 'src/launcher/controllers/home_grid_layout.dart'
-    show HomeGridLayout, HomeGridMoveResult, HomeGridResizeResult;
+export 'src/launcher/controllers/home_grid_layout.dart' show HomeGridLayout;
 export 'src/launcher/launcher_providers.dart'
     show homeTitleProvider, runtimePathsProvider, screenPowerServiceProvider;
 export 'src/launcher/models/home_clock_info.dart'
     show HomeClockInfo, HomePowerStatus, HomeThermalReading;
-export 'src/launcher/models/home_drag_session.dart' show HomeDragSession;
 export 'src/launcher/models/home_grid_item.dart'
-    show HomeGridItem, HomeGridItemType, HomeLayoutSlot;
+    show HomeGridItem, HomeGridItemType, HomeLayoutSlot, HomeOrientation;
 export 'src/launcher/repositories/application_recents_repository.dart'
     show
         ApplicationRecentsRepository,
@@ -39,7 +35,7 @@ export 'src/launcher/repositories/application_recents_repository.dart'
 export 'src/launcher/repositories/desktop_apps_repository.dart'
     show DesktopAppsRepository, DesktopAppsWatcher;
 export 'src/launcher/repositories/home_layout_repository.dart'
-    show HomeLayoutRepository;
+    show HomeLayoutRepository, HomeSavedLayouts;
 export 'src/launcher/runtime_paths.dart' show RuntimePaths;
 export 'src/launcher/services/app_launcher.dart' show AppLauncher;
 export 'src/launcher/services/desktop_exec_parser.dart' show DesktopExecParser;

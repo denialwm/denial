@@ -16,6 +16,7 @@ class AppLaunchRequest {
     required Iterable<int> existingObjectIds,
     this.targetObjectId,
     this.sourceRect,
+    this.sourceItemId,
   }) : expectedAppIds = Set<String>.unmodifiable(
          expectedAppIds
              .map(normalizeAppId)
@@ -32,6 +33,10 @@ class AppLaunchRequest {
 
   /// The tapped Home icon's bounds in global logical coordinates.
   final Rect? sourceRect;
+
+  /// The Home item whose icon the launch grows out of. Home hides it while
+  /// the transition draws it.
+  final String? sourceItemId;
 
   bool matchesWindow(DenialWindow window) {
     if (!window.isUserApp) {

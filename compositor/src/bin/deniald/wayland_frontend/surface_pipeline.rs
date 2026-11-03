@@ -283,7 +283,7 @@ mod popup_visible_geometry_tests {
 
 /// Maps a rectangle in a [`cropped_buffer_canvas`] back to buffer pixels.
 #[cfg(feature = "flutter")]
-pub(super) fn canvas_rect_to_buffer(
+pub(crate) fn canvas_rect_to_buffer(
     canvas: Option<&denial_flutter_engine::ExternalTexturePresentation>,
     rect: [f64; 4],
 ) -> [f64; 4] {
@@ -420,6 +420,17 @@ mod surface_crop_tests {
     }
 }
 
+/// The top of a surface tree: a window's own surface, or a popup above it.
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy)]
+pub(super) enum SurfaceTreeRoot {
+    Window,
+    Popup {
+        parent_surface_id: u64,
+        popup_surface_id: u64,
+    },
+}
+
 impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub(super) fn surface_id(&self, surface: &WlSurface) -> Option<u64> {
@@ -445,6 +456,17 @@ impl WaylandFrontend {
             .find_popup(&tree_root)
             .and_then(|popup| find_popup_root_surface(&popup).ok())
             .unwrap_or(tree_root)
+    }
+
+    /// The output a surface is shown on: its window's or its layer's.
+    pub(super) fn surface_output_id(&self, surface: &WlSurface) -> Option<OutputId> {
+        let root = self.toplevel_candidate_surface(surface);
+        self.window_for_root_surface(&root)
+            .and_then(|window| {
+                self.output_for_geometry(self.window_geometry_target(&window))
+                    .map(|output| output.id)
+            })
+            .or_else(|| self.layer_root_surface(surface).map(|(_, output)| output))
     }
 
     pub(super) fn update_surface_fractional_scale(&self, surface: &WlSurface) {
@@ -502,12 +524,14 @@ impl WaylandFrontend {
         self.shm_snapshot_bytes = self.shm_snapshot_bytes.saturating_sub(bytes);
     }
 
+    /// Snapshots an SHM buffer for Flutter. Returns whether the surface now
+    /// presents that snapshot, so the buffer itself is no longer read.
     #[cfg(feature = "flutter")]
     pub(super) fn update_surface_shm_frame(
         &mut self,
         surface: &WlSurface,
         buffer: &wl_buffer::WlBuffer,
-    ) {
+    ) -> bool {
         let surface_id = surface.id();
         // Drop the previous CPU snapshot before reserving its replacement, so
         // repeated commits cannot transiently grow the owned cache without a
@@ -533,8 +557,9 @@ impl WaylandFrontend {
                     .expect("bounded SHM snapshot accounting must not overflow");
                 self.next_shm_revision = revision.wrapping_add(1).max(1);
                 self.surface_shm_frames.insert(surface_id, frame);
+                true
             }
-            Ok(None) => {}
+            Ok(None) => false,
             Err(error) => {
                 warn!(
                     %error,
@@ -544,6 +569,7 @@ impl WaylandFrontend {
                     cache_budget_bytes = self.shm_snapshot_budget_bytes,
                     "could not snapshot Wayland SHM buffer for Flutter"
                 );
+                false
             }
         }
     }
@@ -575,6 +601,19 @@ impl WaylandFrontend {
         root: &WlSurface,
         cursor_fast_path: bool,
     ) -> PublishedSurfaceCommits {
+        // A frozen window's commits wait, unpublished, for it to thaw: its
+        // buffers are neither snapshotted nor released early meanwhile.
+        if !cursor_fast_path
+            && self.mobile_shell
+            && self
+                .owning_toplevel_surface(root)
+                .is_some_and(|toplevel| self.window_frozen(&toplevel.id()))
+        {
+            return PublishedSurfaceCommits {
+                metadata_changed: false,
+                buffer_surface_ids: std::mem::take(&mut self.published_surface_ids_scratch),
+            };
+        }
         let mut committed_surfaces = std::mem::take(&mut self.committed_surfaces_scratch);
         committed_surfaces.clear();
         let mut buffer_surface_ids = std::mem::take(&mut self.published_surface_ids_scratch);
@@ -629,10 +668,19 @@ impl WaylandFrontend {
                 self.remove_surface_shm_frame(&surface.id());
             } else if let Some(buffer) = current_buffer {
                 self.surface_buffer_revisions.remove(&surface.id());
-                if self.pending_shm_snapshots.remove(&surface.id())
-                    || !self.surface_shm_frames.contains_key(&surface.id())
+                if (self.pending_shm_snapshots.remove(&surface.id())
+                    || !self.surface_shm_frames.contains_key(&surface.id()))
+                    && self.update_surface_shm_frame(&surface, &buffer)
                 {
-                    self.update_surface_shm_frame(&surface, &buffer);
+                    // Flutter composes the snapshot, so release the buffer
+                    // now rather than when the client attaches another one.
+                    // Toolkits such as GTK 3 draw the next frame into the
+                    // buffer once it is released; while it is held they
+                    // allocate and map a new window-sized pool every frame,
+                    // and deniald then unmaps the old one. Smithay still
+                    // sends its own release when the buffer is replaced;
+                    // a second release of a free buffer is harmless.
+                    buffer.release();
                 }
             } else {
                 self.surface_buffer_revisions.remove(&surface.id());
@@ -693,6 +741,8 @@ impl WaylandFrontend {
 
         #[cfg(feature = "flutter")]
         self.init_screencopy_worker(renderer)?;
+        #[cfg(feature = "flutter")]
+        self.shm_snapshot_pool.enable_mapped(renderer);
 
         let render_node = match EGLDevice::device_for_display(renderer.egl_context().display())
             .and_then(|device| device.try_get_render_node())
@@ -775,20 +825,29 @@ impl WaylandFrontend {
         self.pending_dmabuf_imports.push((dmabuf, notifier));
     }
 
+    /// Appends `root` and its subsurfaces. A layer's composition order is its
+    /// index in `layers`, which starts empty for each window or cursor.
     #[cfg(feature = "flutter")]
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn append_surface_tree(
         &self,
         root: &WlSurface,
         origin: Point<i32, Logical>,
-        root_role: SurfaceRoleDescription,
-        root_parent_surface_id: u64,
-        popup_root_surface_id: u64,
+        tree: SurfaceTreeRoot,
         expects_sample: bool,
-        composition_order: &mut u32,
         layers: &mut Vec<SurfaceLayerDescription>,
         textures: &mut Vec<ExternalTextureFrame>,
     ) {
+        let (root_role, root_parent_surface_id, popup_root_surface_id) = match tree {
+            SurfaceTreeRoot::Window => (SurfaceRoleDescription::Root, 0, 0),
+            SurfaceTreeRoot::Popup {
+                parent_surface_id,
+                popup_surface_id,
+            } => (
+                SurfaceRoleDescription::Popup,
+                parent_surface_id,
+                popup_surface_id,
+            ),
+        };
         with_surface_tree_upward(
             root,
             SurfaceTreeContext {
@@ -869,6 +928,7 @@ impl WaylandFrontend {
                     .and_then(|buffer| get_dmabuf(buffer).ok())
                     .cloned();
                 let buffer_guard = dmabuf.as_ref().and_then(|_| renderer_buffer.cloned());
+                let release = crate::client_release::current(states);
                 let (texture_id, width, height) = if let (Some(dmabuf), Some(buffer_guard)) =
                     (dmabuf, buffer_guard)
                 {
@@ -886,6 +946,7 @@ impl WaylandFrontend {
                         texture_id,
                         dmabuf,
                         buffer_guard,
+                        release,
                         revision,
                         expects_sample,
                     ));
@@ -913,6 +974,7 @@ impl WaylandFrontend {
                     .filter(|frame| frame.texture_id == surface_id as i64)
                 {
                     frame.set_feedback(super::presentation::surface_feedback(states));
+                    frame.set_color(super::color_management::surface_color(states));
                     frame.presentation = Some(canvas.unwrap_or_default());
                 }
                 let (width, height, source) = match canvas {
@@ -956,12 +1018,11 @@ impl WaylandFrontend {
                     texture_source_height: source.size.h,
                     transform: transform_to_wire(transform),
                     scale_120: u32::try_from(scale).unwrap_or(1).saturating_mul(120),
-                    composition_order: *composition_order,
+                    composition_order: u32::try_from(layers.len()).unwrap_or(u32::MAX),
                     opacity,
                     opaque,
                     window_geometry,
                 });
-                *composition_order = composition_order.saturating_add(1);
             },
             |_, _, _| true,
         );
@@ -996,6 +1057,7 @@ impl WaylandFrontend {
             let buffer_guard = dmabuf.as_ref().and_then(|_| renderer_buffer.cloned());
             (renderable, dmabuf.zip(buffer_guard))
         })?;
+        let release = with_states(surface, crate::client_release::current);
         if !renderable {
             return None;
         }
@@ -1011,10 +1073,12 @@ impl WaylandFrontend {
                     texture_id,
                     dmabuf,
                     buffer_guard,
+                    release,
                     revision,
                     expects_sample,
                 )
-                .with_feedback(with_states(surface, super::presentation::surface_feedback)),
+                .with_feedback(with_states(surface, super::presentation::surface_feedback))
+                .with_color(with_states(surface, super::color_management::surface_color)),
             );
         }
         self.surface_shm_frames
@@ -1023,6 +1087,7 @@ impl WaylandFrontend {
             .map(|frame| {
                 ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
                     .with_feedback(with_states(surface, super::presentation::surface_feedback))
+                    .with_color(with_states(surface, super::color_management::surface_color))
             })
     }
 
@@ -1163,12 +1228,13 @@ impl WaylandFrontend {
         dirty_windows: Option<&HashSet<u64>>,
         previous_windows: &[WindowDescription],
     ) -> Result<(Vec<WindowDescription>, Vec<ExternalTextureFrame>), Box<dyn Error>> {
-        let previous_by_id = dirty_windows.map(|_| {
+        let previous_by_id = (dirty_windows.is_some() || self.mobile_shell).then(|| {
             previous_windows
                 .iter()
                 .map(|window| (window.window_id, window))
                 .collect::<HashMap<_, _>>()
         });
+        self.clear_kept_textures();
         // Pets whose windows went go back to their own place first.
         self.settle_pets();
         let mut windows = std::mem::take(&mut self.scene_windows_scratch);
@@ -1208,6 +1274,29 @@ impl WaylandFrontend {
                 // Xwayland override-redirect remaps.
                 continue;
             };
+            if self.window_frozen(&surface.id())
+                && let Some(previous) = previous_by_id
+                    .as_ref()
+                    .and_then(|windows| windows.get(&stable_id))
+            {
+                // A frozen window keeps its last frame: the same layers and
+                // textures, with no new texture frames. Only its minimized
+                // state follows the window.
+                for layer in &previous.surfaces {
+                    if layer.texture_id > 0 {
+                        surface_windows.insert(layer.surface_id, stable_id);
+                        self.keep_texture(layer.texture_id);
+                    }
+                }
+                if let Some(description) = windows.get_mut(window_count) {
+                    description.clone_from(previous);
+                } else {
+                    windows.push((*previous).clone());
+                }
+                windows[window_count].minimized = self.surface_is_minimized(&surface.id());
+                window_count += 1;
+                continue;
+            }
             if !self.mobile_shell
                 && dirty_windows.is_some_and(|dirty| !dirty.contains(&stable_id))
                 && let Some(previous) = previous_by_id
@@ -1258,7 +1347,6 @@ impl WaylandFrontend {
             app_id.clear();
             layers.clear();
             managed_window.write_metadata(&mut title, &mut app_id);
-            let mut composition_order = 0;
             // Flutter does not sample a texture after its window leaves the
             // visible scene (for example, once a minimize animation reaches
             // zero opacity). Mailbox those buffers without waiting for a
@@ -1269,11 +1357,8 @@ impl WaylandFrontend {
             self.append_surface_tree(
                 &surface,
                 (0, 0).into(),
-                SurfaceRoleDescription::Root,
-                0,
-                0,
+                SurfaceTreeRoot::Window,
                 expects_sample,
-                &mut composition_order,
                 &mut layers,
                 &mut textures,
             );
@@ -1299,11 +1384,11 @@ impl WaylandFrontend {
                 self.append_surface_tree(
                     popup_surface,
                     popup_origin,
-                    SurfaceRoleDescription::Popup,
-                    parent_surface_id,
-                    popup_surface_id,
+                    SurfaceTreeRoot::Popup {
+                        parent_surface_id: parent_surface_id,
+                        popup_surface_id: popup_surface_id,
+                    },
                     expects_sample,
-                    &mut composition_order,
                     &mut layers,
                     &mut textures,
                 );
@@ -1437,6 +1522,7 @@ impl WaylandFrontend {
             let description = WindowDescription {
                 object_id: stable_id,
                 surface_id: stable_id,
+                client_texture: None,
                 window_id: stable_id,
                 texture_id,
                 title,
@@ -1479,6 +1565,7 @@ impl WaylandFrontend {
                 content_kind: client_surface_content_kind(protocol_facts.override_redirect),
                 opacity_class,
                 pet: None,
+                keyboard_inset: self.keyboard_inset_surface(&surface),
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1548,6 +1635,7 @@ impl WaylandFrontend {
             let description = WindowDescription {
                 object_id: local_window.id,
                 surface_id: local_window.id,
+                client_texture: None,
                 window_id: local_window.id,
                 texture_id: 0,
                 title,
@@ -1586,6 +1674,7 @@ impl WaylandFrontend {
                 content_kind: WindowContentKind::LocalFlutter,
                 opacity_class: WindowOpacityClass::FullyOpaque,
                 pet: None,
+                keyboard_inset: false,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1627,16 +1716,11 @@ impl WaylandFrontend {
                 app_id.clear();
                 app_id.push_str(layer.namespace());
                 layers.clear();
-
-                let mut composition_order = 0;
                 self.append_surface_tree(
                     surface,
                     (0, 0).into(),
-                    SurfaceRoleDescription::Root,
-                    0,
-                    0,
+                    SurfaceTreeRoot::Window,
                     true,
-                    &mut composition_order,
                     &mut layers,
                     &mut textures,
                 );
@@ -1657,11 +1741,11 @@ impl WaylandFrontend {
                     self.append_surface_tree(
                         popup_surface,
                         saturating_point_sub(popup_location, popup.geometry().loc),
-                        SurfaceRoleDescription::Popup,
-                        parent_surface_id,
-                        popup_surface_id,
+                        SurfaceTreeRoot::Popup {
+                            parent_surface_id: parent_surface_id,
+                            popup_surface_id: popup_surface_id,
+                        },
                         true,
-                        &mut composition_order,
                         &mut layers,
                         &mut textures,
                     );
@@ -1733,6 +1817,7 @@ impl WaylandFrontend {
                 let description = WindowDescription {
                     object_id: stable_id,
                     surface_id: stable_id,
+                    client_texture: None,
                     window_id: stable_id,
                     texture_id,
                     title,
@@ -1771,6 +1856,7 @@ impl WaylandFrontend {
                     content_kind: layer_shell_content_kind(layer.layer()),
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet,
+                    keyboard_inset: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;
@@ -1802,15 +1888,11 @@ impl WaylandFrontend {
                 app_id.push_str("denia-systemui-input-method");
                 layers.clear();
                 let expects_sample = self.window_expects_sample(stable_id);
-                let mut composition_order = 0;
                 self.append_surface_tree(
                     surface,
                     (0, 0).into(),
-                    SurfaceRoleDescription::Root,
-                    0,
-                    0,
+                    SurfaceTreeRoot::Window,
                     expects_sample,
-                    &mut composition_order,
                     &mut layers,
                     &mut textures,
                 );
@@ -1875,6 +1957,7 @@ impl WaylandFrontend {
                 let description = WindowDescription {
                     object_id: stable_id,
                     surface_id: stable_id,
+                    client_texture: None,
                     window_id: stable_id,
                     texture_id,
                     title,
@@ -1913,6 +1996,7 @@ impl WaylandFrontend {
                     content_kind: WindowContentKind::PopupSurface,
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet: None,
+                    keyboard_inset: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;

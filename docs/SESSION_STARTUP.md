@@ -27,13 +27,17 @@ desktop entries from `$XDG_CONFIG_HOME/autostart` and the `autostart` child of
 every directory in `$XDG_CONFIG_DIRS` only after Denial is ready. Entries can
 target Denial with `OnlyShowIn=Denial;`. Denial stops the graphical-session
 target on shutdown, and the launcher provides a cleanup fallback after the
-compositor process exits.
+compositor process exits. It also restores the systemd user-manager environment
+that preceded Denial, so its display, desktop, cursor and Qt platform-theme
+values do not reach a later graphical session while the same user manager
+remains alive.
 
 The D-Bus-activated `denial-portal.service` is part of that target. It connects
 to deniald's private appearance-state socket before owning the Settings portal
 bus name, then stops when the compositor disconnects. XDG desktop portal
 routing selects it for `org.freedesktop.impl.portal.Settings` with GTK as the
-fallback for keys Denial does not implement. No portal process is placed on
+fallback for keys Denial does not implement, and for
+`org.freedesktop.impl.portal.Access` with GTK as the fallback. No portal process is placed on
 the compositor render or input path.
 
 On a system without a systemd user manager, such as a runit system using
@@ -319,14 +323,43 @@ DENIAL_FPRINT_TEST_BUS=1 dbus-run-session -- \
   cargo test --locked --features flutter --bin deniald authentication::
 ```
 
+## NX809J native PIN authorization
+
+On NX809J, `deniald --lock-pin` uses the socket-activated
+`goodix-gatekeeper-worker` through `/run/nx809j-gatekeeper/worker.sock`.
+The socket is owned by the configured session account and mode 0600; the
+service runs one root worker per connection. Denial checks the server's root
+peer credentials. Install the worker and the device's `nx809j-gatekeeper.socket`
+and `nx809j-gatekeeper@.service` units before enabling the socket.
+
+The user's existing lock-PIN state file stores a version-2 record containing
+PIN length, enabled state, native namespace 941003, returned secure user ID and
+opaque handle. PIN bytes and HATs are never stored in that record. Changes use
+the current PIN and preserve the SID; credential changes are serialized and
+records are replaced atomically with fsync. Native checks fail when the provider
+fails. Disabling PIN unlock keeps the handle for authenticated re-enablement;
+a missing/corrupt handle requires explicit recovery, not automatic enrollment.
+
+Fingerprint settings continues using fprintd's standard `EnrollStart`. Its
+privileged session accepts the entered PIN on a separate private input line,
+then creates a root-only one-enrollment broker before calling `EnrollStart`.
+The native sensor worker submits its fresh challenge directly to that broker.
+The broker asks Gatekeeper to verify the PIN for the challenge and returns the
+69-byte signed HAT to the same sensor session. The worker consumes it internally,
+so the libfprint helper sees the normal prepared/capture/progress records.
+There is no PIN/HAT argument added to fprintd, and the broker does not publish
+a reusable authorization ticket. Cancellation and completion remove the broker;
+trusted PIN rejection and retry delays are reported separately.
+
+This code is host-tested and cross-compiled. Real PIN provisioning, signed-token
+acceptance and complete NX809J enrollment/matching still need hardware
+validation and the NX809J libfprint/helper adapter. No deployment or credential
+provisioning is performed by the build.
+
 ## Renderer selection
 
-Official Denial engines are Slimpeller builds. They run Impeller GLES; Skia's
-Ganesh and Graphite renderers are omitted.
-
-The low-level `--flutter-renderer` switch remains available for developers who
-pair deniald with a custom non-Slimpeller engine, but packaged and PC
-development sessions use Impeller.
+Denial engines are Slimpeller builds: deniald always runs Flutter on Impeller
+GLES, and Skia's Ganesh and Graphite renderers are not compiled.
 
 Denial environment variables use the `DENIAL_*` prefix. The former `DENIA_*`
 spellings remain compatibility aliases during the transition; when both forms

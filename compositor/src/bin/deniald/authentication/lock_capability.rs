@@ -1,11 +1,14 @@
-//! Advisory account metadata prevents automatic locks with no unlock method.
-//! Unknown providers preserve the configured security policy; explicit locks
-//! never depend on this probe. No password or fingerprint scan is attempted.
+//! Account metadata tells whether the account has a password or fingerprint.
+//! With neither and no PIN record, the lock screen opens with a swipe. Unknown
+//! providers keep the password prompt. No password or fingerprint scan is
+//! attempted.
 
 use super::*;
+use futures_lite::future;
 use std::io::Read;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::process::{Command, Stdio};
-use zbus::blocking::{Connection, Proxy, connection::Builder};
+use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::OwnedObjectPath;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,12 +17,6 @@ pub(super) enum Capability {
     Unknown,
     Available,
     Unavailable,
-}
-
-impl Capability {
-    pub(super) fn permits_lock(self) -> bool {
-        matches!(self, Self::Unknown | Self::Available)
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -50,62 +47,158 @@ fn classify(account: Option<Account>, fingerprint: Option<bool>) -> Capability {
     }
 }
 
+/// fprintd announces no enrollment changes, so a capability that rests on
+/// fingerprints is read again after this.
+const FINGERPRINT_RECHECK: Duration = Duration::from_secs(30);
+
 pub(super) fn run_worker(shared: &Arc<SharedAuthentication>) {
-    loop {
-        if lock_unpoisoned(&shared.state).stopping {
-            return;
-        }
-        let capability = probe().unwrap_or_else(|error| {
-            tracing::debug!(%error, "could not determine automatic lock capability");
-            Capability::Unknown
-        });
-        let mut state = lock_unpoisoned(&shared.state);
-        // Losing the metadata provider must not re-arm an account previously
-        // established to have no unlock method.
-        let capability = if capability == Capability::Unknown
-            && state.automatic_lock == Capability::Unavailable
-        {
-            Capability::Unavailable
-        } else {
-            capability
-        };
-        if state.automatic_lock != capability {
-            state.automatic_lock = capability;
-            state.automatic_lock_warning_shown = false;
-            match capability {
-                Capability::Unavailable => warn!(
-                    "automatic session locking disabled: account has no usable password or fingerprint unlock; explicit locking remains available"
-                ),
-                Capability::Unknown => warn!(
-                    "automatic lock capability is unknown; retaining configured locking policy"
-                ),
-                _ => info!(?capability, "automatic session lock capability changed"),
-            }
-        }
-        // Recheck changes to passwords, account locks, and fingerprint
-        // enrollment. The condvar lets shutdown complete without waiting 30s.
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while !state.stopping {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
+    let shadow = ShadowWatch::new()
+        .inspect_err(|error| {
+            warn!(%error, "cannot watch /etc/shadow; rechecking the lock capability every 30 s");
+        })
+        .ok();
+    future::block_on(async {
+        while !lock_unpoisoned(&shared.state).stopping {
+            let (capability, settled) = probe().unwrap_or_else(|error| {
+                tracing::debug!(%error, "could not determine automatic lock capability");
+                (Capability::Unknown, false)
+            });
+            publish(shared, capability);
+            // Passwords and account locks change only with /etc/shadow.
+            let recheck = async {
+                match &shadow {
+                    Some(shadow) if settled => shadow.changed().await,
+                    Some(shadow) => {
+                        future::race(shadow.changed(), async {
+                            async_io::Timer::after(FINGERPRINT_RECHECK).await;
+                        })
+                        .await
+                    }
+                    None => {
+                        async_io::Timer::after(FINGERPRINT_RECHECK).await;
+                    }
+                }
             };
-            state = shared
-                .condition
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|error| error.into_inner())
-                .0;
+            future::race(recheck, shared.capability_stop.wait()).await;
+        }
+    });
+}
+
+fn publish(shared: &SharedAuthentication, capability: Capability) {
+    let mut state = lock_unpoisoned(&shared.state);
+    // Losing the metadata provider must not lock out an account previously
+    // established to have no credential.
+    let capability = if capability == Capability::Unknown
+        && state.account_credential == Capability::Unavailable
+    {
+        Capability::Unavailable
+    } else {
+        capability
+    };
+    if state.account_credential == capability {
+        return;
+    }
+    state.account_credential = capability;
+    match capability {
+        Capability::Unavailable => info!(
+            "account has no usable password or fingerprint; the lock screen opens with a swipe unless a PIN is set"
+        ),
+        Capability::Unknown => {
+            warn!("account credentials are unknown; the lock screen asks for the password")
+        }
+        _ => info!(?capability, "account credential changed"),
+    }
+}
+
+/// Reports a replaced or rewritten /etc/shadow. passwd, usermod and
+/// AccountsService write a new file and rename it over the old one.
+struct ShadowWatch {
+    inotify: async_io::Async<OwnedFd>,
+}
+
+impl ShadowWatch {
+    fn new() -> io::Result<Self> {
+        // SAFETY: inotify_init1 has no pointer arguments.
+        let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: inotify_init1 returned a new descriptor that nothing else owns.
+        let inotify = unsafe { OwnedFd::from_raw_fd(fd) };
+        // SAFETY: the path is a NUL-terminated literal.
+        let watch = unsafe {
+            libc::inotify_add_watch(
+                inotify.as_raw_fd(),
+                c"/etc".as_ptr(),
+                libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO,
+            )
+        };
+        if watch < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            inotify: async_io::Async::new(inotify)?,
+        })
+    }
+
+    /// Returns once /etc/shadow changed, or when the watch failed.
+    async fn changed(&self) {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            if self.inotify.readable().await.is_err() {
+                return;
+            }
+            // SAFETY: the buffer is valid for its whole length.
+            let read = unsafe {
+                libc::read(
+                    self.inotify.get_ref().as_raw_fd(),
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                )
+            };
+            if read < 0 {
+                let error = io::Error::last_os_error();
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) {
+                    continue;
+                }
+                return;
+            }
+            if names_shadow(&buffer[..read as usize]) {
+                return;
+            }
         }
     }
 }
 
-fn probe() -> Result<Capability, String> {
+/// Whether a run of inotify events names /etc/shadow.
+fn names_shadow(mut events: &[u8]) -> bool {
+    const HEADER: usize = std::mem::size_of::<libc::inotify_event>();
+    while events.len() >= HEADER {
+        // SAFETY: the kernel wrote a whole event header here; read_unaligned
+        // copies it out of the byte buffer.
+        let event =
+            unsafe { std::ptr::read_unaligned(events.as_ptr().cast::<libc::inotify_event>()) };
+        let end = HEADER.saturating_add(event.len as usize).min(events.len());
+        let name = &events[HEADER..end];
+        if name.split(|byte| *byte == 0).next() == Some(b"shadow".as_slice()) {
+            return true;
+        }
+        events = &events[end..];
+    }
+    false
+}
+
+/// The capability, and whether only a change to /etc/shadow can alter it.
+fn probe() -> Result<(Capability, bool), String> {
     // An explicitly selected PAM stack can authenticate independently of a
     // local password. AccountsService cannot establish its capabilities.
     if configured_pam_service() != "login" {
-        return Ok(Capability::Unknown);
+        return Ok((Capability::Unknown, true));
     }
-    let connection = Builder::system()
-        .and_then(|builder| builder.method_timeout(Duration::from_secs(3)).build());
+    let connection = crate::bus::blocking_system();
     let account = match connection
         .as_ref()
         .ok()
@@ -115,7 +208,7 @@ fn probe() -> Result<Capability, String> {
         None => password_status().ok_or("account metadata is unavailable")?,
     };
     if !account.locked && account.password_mode == 0 {
-        return Ok(Capability::Available);
+        return Ok((Capability::Available, true));
     }
     let fingerprint = connection
         .as_ref()
@@ -127,7 +220,7 @@ fn probe() -> Result<Capability, String> {
                     .and_then(|backend| backend.validate_account())
                     .is_ok()
         });
-    Ok(classify(Some(account), fingerprint))
+    Ok((classify(Some(account), fingerprint), false))
 }
 
 fn parse_password_status(output: &str, username: &str) -> Option<Account> {
@@ -287,9 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_metadata_does_not_disable_configured_security() {
-        assert!(Capability::Unknown.permits_lock());
-        assert!(!Capability::Pending.permits_lock());
+    fn unknown_metadata_is_never_credential_free() {
         assert_eq!(classify(None, Some(false)), Capability::Unknown);
         assert_eq!(
             classify(
@@ -311,6 +402,26 @@ mod tests {
             ),
             Capability::Available
         );
+    }
+
+    #[test]
+    fn only_events_naming_shadow_count() {
+        fn event(name: &[u8]) -> Vec<u8> {
+            let mut padded = name.to_vec();
+            padded.resize(16, 0);
+            let mut bytes = Vec::new();
+            for field in [1_u32, libc::IN_MOVED_TO, 0, padded.len() as u32] {
+                bytes.extend_from_slice(&field.to_ne_bytes());
+            }
+            bytes.extend_from_slice(&padded);
+            bytes
+        }
+        assert!(!names_shadow(
+            &[event(b"nshadow"), event(b"shadow-")].concat()
+        ));
+        assert!(!names_shadow(&event(b"gshadow")));
+        assert!(names_shadow(&[event(b"passwd"), event(b"shadow")].concat()));
+        assert!(!names_shadow(&event(b"shadow")[..10]));
     }
 
     #[test]

@@ -43,7 +43,7 @@ responsible for their normal lifecycle/disposal.
 
 The installation supplies both SDK packages by default. Optional `DENIAL_SDK_PATH`
 points to a directory containing `denial_sdk/` and `denial_flutter_sdk/` (for this
-checkout, `/home/logix/denial/packages`). It changes only the snapshotted SDK inputs,
+checkout, `/mnt/development/denial-os/denial/packages`). It changes only the snapshotted SDK inputs,
 not the locked compiler or engine. It is the only plugin infrastructure environment
 override. All packages resolve against that one SDK pair, including local plugins
 whose pubspecs point to another checkout. SDK version constraints remain checked;

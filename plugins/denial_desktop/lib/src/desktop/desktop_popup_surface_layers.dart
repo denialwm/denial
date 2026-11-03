@@ -7,11 +7,11 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../state/clipboard_tray.dart';
 import 'desktop_pixel_alignment.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_frame.dart';
 import 'desktop_workspace.dart';
+import '../state/phone_desk.dart';
 
 class DesktopPopupSurfaceLayers extends StatelessWidget {
   const DesktopPopupSurfaceLayers({
@@ -44,7 +44,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
         final window =
             ref.watch(
               referenceShellProvider.select(
-                (state) => state.windowByObjectId(this.window.objectId),
+                (state) => state.desk.windowByObjectId(this.window.objectId),
               ),
             ) ??
             this.window;
@@ -72,7 +72,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
             ? selectedPlacement
             : this.placement;
         final outputPixelGrid = ref.watch(
-          displayLayoutProvider.select(
+          deskDisplayLayoutProvider.select(
             (layout) =>
                 desktopOutputPixelGridForMonitor(layout, placement.monitorId),
           ),

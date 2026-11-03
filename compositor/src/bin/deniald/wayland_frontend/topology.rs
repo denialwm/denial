@@ -23,6 +23,8 @@ use super::{RuntimeState, WaylandFrontend, WaylandOutput};
 pub(crate) struct TopologyWindowReconciliation {
     pub(super) layout_membership_changed: bool,
     pub(super) windows_to_minimize: Vec<u64>,
+    /// Windows going back to a desk plugged in again.
+    pub(super) windows_to_return: Vec<(u64, OutputId)>,
 }
 
 #[cfg(feature = "flutter")]
@@ -90,6 +92,12 @@ impl WaylandFrontend {
         let center = rectangle_center(geometry);
         let mut best: Option<(usize, OutputCandidateScore)> = None;
         for (index, entry) in self.outputs.iter().enumerate() {
+            #[cfg(feature = "flutter")]
+            if self.input_deck_output == Some(entry.id)
+                || (self.input_deck_output.is_some() && !entry.powered)
+            {
+                continue;
+            }
             let output_geometry = entry.logical_geometry;
             let score = OutputCandidateScore {
                 contains_center: output_geometry.contains(center),
@@ -224,6 +232,14 @@ impl WaylandFrontend {
                 .collect::<std::collections::HashSet<_>>();
             windows_on_retired_outputs(&self.window_registry, &retained_outputs)
         };
+        #[cfg(feature = "flutter")]
+        self.remember_windows_of_leaving_desks(
+            &snapshot
+                .outputs
+                .iter()
+                .map(|output| (output.id, output.name.as_str()))
+                .collect::<Vec<_>>(),
+        );
         let window_records = self
             .space
             .elements()
@@ -381,6 +397,7 @@ impl WaylandFrontend {
         for output in &self.outputs {
             layer_map_for_output(&output.output).arrange();
         }
+        self.refresh_color_outputs();
         #[cfg(feature = "flutter")]
         self.reconcile_workspace_outputs();
 
@@ -389,6 +406,14 @@ impl WaylandFrontend {
             .iter()
             .map(|entry| (entry.id, entry.logical_geometry))
             .collect::<Vec<_>>();
+        #[cfg(feature = "flutter")]
+        let windows_to_return = self.windows_returning_to_desks(
+            &new_output_geometries
+                .iter()
+                .map(|(id, _)| *id)
+                .filter(|id| !old_output_geometries.iter().any(|(old, _)| old == id))
+                .collect::<Vec<_>>(),
+        );
         let layout_membership_changed =
             output_membership_changed(&old_output_geometries, &new_output_geometries);
         let mut migrated_windows = 0usize;
@@ -556,6 +581,12 @@ impl WaylandFrontend {
         }
         self.space.refresh();
         self.refresh_image_copy_constraints();
+        // Hotplug runs outside Wayland client dispatch. Deliver global and
+        // global_remove now: a sleeping client may send nothing for minutes,
+        // and a bind that arrives after a retired global's grace is fatal.
+        if let Err(error) = self.display_handle.flush_clients() {
+            tracing::warn!(%error, "failed to flush Wayland topology changes");
+        }
         info!(
             epoch = snapshot.epoch,
             outputs = self.outputs.len(),
@@ -569,6 +600,7 @@ impl WaylandFrontend {
             Ok(TopologyWindowReconciliation {
                 layout_membership_changed,
                 windows_to_minimize,
+                windows_to_return,
             })
         }
         #[cfg(not(feature = "flutter"))]

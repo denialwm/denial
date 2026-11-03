@@ -26,9 +26,10 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import '../widgets/notification_media.dart';
+import '../state/phone_desk.dart';
 
 final _monitorBounds = Provider.autoDispose.family<Rect?, int>((ref, id) {
-  for (final output in ref.watch(displayLayoutProvider)?.outputs ?? []) {
+  for (final output in ref.watch(deskDisplayLayoutProvider)?.outputs ?? []) {
     if (output.monitorId == id) return output.logicalRect;
   }
   return null;
@@ -91,8 +92,8 @@ final _applications = Provider<List<LaunchableApplication>>((ref) {
   final launcher = ref.watch(appLauncherProvider);
   final local = ref.watch(localFlutterApplicationRegistryProvider);
   return List.unmodifiable([
-    for (final slot in grid?.slots ?? [])
-      if (slot?.app case final app?)
+    for (final item in grid?.apps ?? const <HomeGridItem>[])
+      if (item.app case final app?)
         LaunchableApplication(
           id: desktopApplicationRecentId(app.id),
           appId: app.id,
@@ -123,7 +124,7 @@ final _windows = Provider.autoDispose.family<List<ApplicationWindow>, int>((
     ),
   );
   return List.unmodifiable([
-    for (final window in shell.openAppWindows)
+    for (final window in shell.desk.openAppWindows)
       if (window.monitorId == monitorId &&
           (window.minimized ||
               window.pinned ||
@@ -134,7 +135,7 @@ final _windows = Provider.autoDispose.family<List<ApplicationWindow>, int>((
           title: window.title.isEmpty ? window.appId : window.title,
           active:
               !desktopVisible &&
-              shell.foregroundObjectId == window.objectId &&
+              shell.deskForegroundObjectId == window.objectId &&
               !window.minimized,
           minimized: window.minimized,
           tiled: tiled,
@@ -159,6 +160,26 @@ final class DesktopShellServices implements ShellServices {
   final VoidCallback onOpenDashboard;
   final VoidCallback onToggleDashboard;
 
+  // Stateless adapters with the same ref and callbacks are interchangeable;
+  // the scene keeps an equal one so its identity survives rebuilds.
+  @override
+  bool operator ==(Object other) =>
+      other is DesktopShellServices &&
+      identical(ref, other.ref) &&
+      onOpenPowerSettings == other.onOpenPowerSettings &&
+      onToggleLauncher == other.onToggleLauncher &&
+      onOpenDashboard == other.onOpenDashboard &&
+      onToggleDashboard == other.onToggleDashboard;
+
+  @override
+  int get hashCode => Object.hash(
+    ref,
+    onOpenPowerSettings,
+    onToggleLauncher,
+    onOpenDashboard,
+    onToggleDashboard,
+  );
+
   @override
   ProviderListenable<List<ApplicationWindow>> windows(int monitorId) =>
       _windows(monitorId);
@@ -172,15 +193,16 @@ final class DesktopShellServices implements ShellServices {
     ref.read(windowEmphasisProvider.notifier).clear();
     ref.read(desktopVisibleProvider.notifier).restore();
     bool started = false;
-    for (final slot
-        in ref.read(homeGridControllerProvider).value?.slots ?? []) {
-      final app = slot?.app;
+    for (final item
+        in ref.read(homeGridControllerProvider).value?.apps ??
+            const <HomeGridItem>[]) {
+      final app = item.app;
       if (app == null || desktopApplicationRecentId(app.id) != id) continue;
       started = await ref.read(appLauncherProvider).launch(app);
       break;
     }
     if (!started && ref.context.mounted) {
-      final layout = ref.read(displayLayoutProvider);
+      final layout = ref.read(deskDisplayLayoutProvider);
       final output =
           layout?.outputs
               .where((output) => output.monitorId == monitorId)
@@ -212,7 +234,7 @@ final class DesktopShellServices implements ShellServices {
   void activateWindow(int id) {
     ref.read(windowEmphasisProvider.notifier).clear();
     ref.read(desktopVisibleProvider.notifier).restore();
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId != id) continue;
       ref.read(desktopWorkspaceProvider.notifier).activate(id);
       ref.read(referenceShellProvider.notifier).focusWindow(window);
@@ -223,7 +245,7 @@ final class DesktopShellServices implements ShellServices {
   @override
   void minimizeWindow(int id) {
     ref.read(windowEmphasisProvider.notifier).clear();
-    for (final window in ref.read(referenceShellProvider).openAppWindows) {
+    for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
       if (window.objectId != id) continue;
       ref.read(denialBridgeProvider).minimizeWindow(window);
       return;
@@ -378,8 +400,8 @@ class _ApplicationIcon extends ConsumerWidget {
     final path = ref.watch(
       homeGridControllerProvider.select((value) {
         final id = appId.toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '');
-        for (final slot in value.value?.slots ?? []) {
-          final app = slot?.app;
+        for (final item in value.value?.apps ?? const <HomeGridItem>[]) {
+          final app = item.app;
           if (app == null) continue;
           if (app.id.toLowerCase().replaceFirst(RegExp(r'\.desktop$'), '') ==
                   id ||

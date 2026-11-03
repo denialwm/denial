@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/settings.dart';
-import 'package:denial_flutter_sdk/state.dart';
 
 import '../state/system_level_hud.dart';
 
@@ -15,6 +14,8 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 import 'package:denial_flutter_sdk/effects.dart';
+
+import '../state/phone_desk.dart';
 
 class SystemLevelHudLayer extends ConsumerWidget {
   const SystemLevelHudLayer({super.key});
@@ -24,8 +25,8 @@ class SystemLevelHudLayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hud = ref.watch(systemLevelHudProvider);
-    final output = _outputFor(ref.watch(displayLayoutProvider), hud);
-    if (hud == null || output == null) {
+    final output = _outputFor(ref.watch(deskDisplayLayoutProvider), hud);
+    if (hud == null || output == null || !showsTransientOverlay(context, ref)) {
       return const SizedBox.shrink();
     }
 

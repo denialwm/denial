@@ -41,8 +41,8 @@ type SetTexturePresentationCallback = unsafe extern "C" fn(
 
 pub use host::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineEvent, EngineHost,
-    EngineProject, HostError, OpenGlHandler, ParseRendererBackendError, PlatformMessage,
-    PresentFrame, PresentView, RendererBackend, ScheduledTask,
+    EngineProject, HostError, OpenGlHandler, PlatformMessage, PresentFrame, PresentView,
+    ScheduledTask,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -152,7 +152,10 @@ pub enum LoadError {
         path: PathBuf,
         source: libloading::Error,
     },
-    Symbol(libloading::Error),
+    Symbol {
+        name: &'static CStr,
+        source: libloading::Error,
+    },
     ProcTable(sys::FlutterEngineResult),
     MissingProc(&'static str),
 }
@@ -163,10 +166,11 @@ impl fmt::Display for LoadError {
             Self::Library { path, source } => {
                 write!(formatter, "could not load {}: {source}", path.display())
             }
-            Self::Symbol(source) => {
+            Self::Symbol { name, source } => {
                 write!(
                     formatter,
-                    "required Flutter engine symbol is unavailable: {source}"
+                    "required Flutter engine symbol {} is unavailable: {source}",
+                    name.to_string_lossy()
                 )
             }
             Self::ProcTable(result) => {
@@ -180,7 +184,7 @@ impl fmt::Display for LoadError {
 impl Error for LoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Library { source, .. } | Self::Symbol(source) => Some(source),
+            Self::Library { source, .. } | Self::Symbol { source, .. } => Some(source),
             Self::ProcTable(_) | Self::MissingProc(_) => None,
         }
     }
@@ -259,6 +263,18 @@ unsafe extern "C" fn render_outputs_progress(
     }
 }
 
+type RenderThreadTask = Box<dyn FnOnce() + Send>;
+
+unsafe extern "C" fn run_render_thread_task(data: *mut c_void) {
+    // SAFETY: post_render_thread_task produced this pointer with Box::into_raw
+    // and Flutter runs each accepted task exactly once.
+    let task = unsafe { Box::from_raw(data.cast::<RenderThreadTask>()) };
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(move || (*task)())) {
+        // Dropping an arbitrary panic payload may panic again across C.
+        mem::forget(payload);
+    }
+}
+
 pub struct EngineLibrary {
     table: sys::FlutterEngineProcTable,
     set_render_outputs: unsafe extern "C" fn(
@@ -290,6 +306,16 @@ pub struct EngineLibrary {
     _library: Library,
 }
 
+/// # Safety
+///
+/// `T` must be the exact type of the item `name` exports.
+unsafe fn required_symbol<T: Copy>(library: &Library, name: &'static CStr) -> Result<T, LoadError> {
+    // SAFETY: the caller supplies the declared type of `name`.
+    unsafe { library.get::<T>(name.to_bytes_with_nul()) }
+        .map(|symbol| *symbol)
+        .map_err(|source| LoadError::Symbol { name, source })
+}
+
 impl EngineLibrary {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, LoadError> {
         let path = path.as_ref();
@@ -304,31 +330,27 @@ impl EngineLibrary {
         // SAFETY: the symbol name and signature come from the versioned
         // Flutter embedder bindings generated for this engine revision.
         let get_proc_addresses = unsafe {
-            *library
-                .get::<GetProcAddresses>(b"FlutterEngineGetProcAddresses\0")
-                .map_err(LoadError::Symbol)?
+            required_symbol::<GetProcAddresses>(&library, c"FlutterEngineGetProcAddresses")?
         };
         type RequestFrameForExternalTextures =
             unsafe extern "C" fn(sys::FlutterEngine) -> sys::FlutterEngineResult;
         // SAFETY: this Denial-specific symbol is declared by the versioned
         // embedder header shipped with our coupled Flutter engine.
         let request_frame_for_external_textures = unsafe {
-            *library
-                .get::<RequestFrameForExternalTextures>(
-                    b"DenialFlutterEngineRequestFrameForExternalTextures\0",
-                )
-                .map_err(LoadError::Symbol)?
+            required_symbol::<RequestFrameForExternalTextures>(
+                &library,
+                c"DenialFlutterEngineRequestFrameForExternalTextures",
+            )?
         };
         type ScheduleFrameForExternalTextures =
             unsafe extern "C" fn(sys::FlutterEngine, *const i64, usize) -> sys::FlutterEngineResult;
         // SAFETY: this Denial-specific symbol is declared by the versioned
         // embedder header shipped with our coupled Flutter engine.
         let schedule_frame_for_external_textures = unsafe {
-            *library
-                .get::<ScheduleFrameForExternalTextures>(
-                    b"DenialFlutterEngineScheduleFrameForExternalTextures\0",
-                )
-                .map_err(LoadError::Symbol)?
+            required_symbol::<ScheduleFrameForExternalTextures>(
+                &library,
+                c"DenialFlutterEngineScheduleFrameForExternalTextures",
+            )?
         };
         type RenderOutputs = unsafe extern "C" fn(
             sys::FlutterEngine,
@@ -343,9 +365,7 @@ impl EngineLibrary {
         // SAFETY: this Denial-specific symbol is declared by the versioned
         // embedder header shipped with our coupled Flutter engine.
         let render_outputs = unsafe {
-            *library
-                .get::<RenderOutputs>(b"DenialFlutterEngineRenderOutputs\0")
-                .map_err(LoadError::Symbol)?
+            required_symbol::<RenderOutputs>(&library, c"DenialFlutterEngineRenderOutputs")?
         };
         // SAFETY: this additive extension has the signature above. Keeping it
         // optional lets an isolated engine experiment retain the pinned ABI.
@@ -365,9 +385,7 @@ impl EngineLibrary {
         // SAFETY: this Denial-specific symbol is declared by the versioned
         // embedder header shipped with our coupled Flutter engine.
         let set_render_outputs = unsafe {
-            *library
-                .get::<SetRenderOutputs>(b"DenialFlutterEngineSetRenderOutputs\0")
-                .map_err(LoadError::Symbol)?
+            required_symbol::<SetRenderOutputs>(&library, c"DenialFlutterEngineSetRenderOutputs")?
         };
         type SetExternalTextureGlStateCallback = unsafe extern "C" fn(
             sys::FlutterEngine,
@@ -378,20 +396,18 @@ impl EngineLibrary {
         // SAFETY: this callback registration is part of Denial's versioned
         // engine extension and is loaded from the same retained library.
         let set_external_texture_gl_state_callback = unsafe {
-            *library
-                .get::<SetExternalTextureGlStateCallback>(
-                    b"DenialFlutterEngineSetExternalTextureGlStateCallback\0",
-                )
-                .map_err(LoadError::Symbol)?
+            required_symbol::<SetExternalTextureGlStateCallback>(
+                &library,
+                c"DenialFlutterEngineSetExternalTextureGlStateCallback",
+            )?
         };
         // SAFETY: this extension has the C layout declared above and remains
         // loaded with the same engine library for the entire host lifetime.
         let set_texture_presentation_callback = unsafe {
-            *library
-                .get::<SetTexturePresentationCallback>(
-                    b"DenialFlutterEngineSetExternalTexturePresentationCallback\0",
-                )
-                .map_err(LoadError::Symbol)?
+            required_symbol::<SetTexturePresentationCallback>(
+                &library,
+                c"DenialFlutterEngineSetExternalTexturePresentationCallback",
+            )?
         };
         // SAFETY: the C API explicitly requires a zero-initialized table with
         // only `struct_size` populated before the call.
@@ -882,6 +898,29 @@ impl RunningEngine {
         check_result("UnregisterExternalTexture", unsafe {
             function(self.handle, texture_id)
         })
+    }
+
+    /// Runs `task` on Flutter's render thread after every render task queued
+    /// before this call, including a preceding texture unregistration. A task
+    /// still queued when the engine shuts down is leaked unrun.
+    pub fn post_render_thread_task(
+        &self,
+        task: Box<dyn FnOnce() + Send>,
+    ) -> Result<(), EngineError> {
+        let function = self
+            .library
+            .table
+            .PostRenderThreadTask
+            .expect("validated Flutter proc table");
+        let task = Box::into_raw(Box::new(task));
+        // SAFETY: the engine handle is live and `run_render_thread_task`
+        // reclaims `task` exactly once if Flutter accepts it.
+        let result = unsafe { function(self.handle, Some(run_render_thread_task), task.cast()) };
+        if result != sys::FlutterEngineResult_kSuccess {
+            // SAFETY: Flutter rejected the task and will never run it.
+            drop(unsafe { Box::from_raw(task) });
+        }
+        check_result("PostRenderThreadTask", result)
     }
 
     pub fn mark_external_texture_frame_available(

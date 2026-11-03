@@ -385,7 +385,16 @@ fn run() -> Result<(), String> {
     };
     loop {
         session::dispatch();
-        match receiver.recv_timeout(Duration::from_millis(20)) {
+        // GLib sessions, the dialog and deadlines need polling only while a
+        // request is in progress. Idle, sleep until the next event.
+        let event = if controller.active.is_some() || !controller.pending.is_empty() {
+            receiver.recv_timeout(Duration::from_millis(20))
+        } else {
+            receiver
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        };
+        match event {
             Ok(event) => {
                 if let Some(result) = controller.event(event) {
                     return result;

@@ -26,6 +26,7 @@ import 'desktop_dashboard_bluetooth.dart';
 import 'desktop_dashboard_controls.dart';
 import 'desktop_dashboard_power_modes.dart';
 import 'desktop_workspace.dart';
+import '../state/phone_desk.dart';
 
 const _dashboardBluetoothMaxHeight = 240.0;
 
@@ -384,7 +385,7 @@ class _DashboardHeader extends ConsumerWidget {
     final l10n = context.l10n;
     final presentation = ref.watch(referenceShellPresentationProvider);
     final singleOutput =
-        (ref.watch(displayLayoutProvider)?.outputs.length ?? 0) <= 1;
+        (ref.watch(deskDisplayLayoutProvider)?.outputs.length ?? 0) <= 1;
 
     return Row(
       children: [

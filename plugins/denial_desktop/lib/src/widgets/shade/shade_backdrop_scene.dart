@@ -13,9 +13,17 @@ class ShadeBackdropScene extends SingleChildRenderObjectWidget {
   const ShadeBackdropScene({
     required this.progress,
     required super.child,
+    this.cached = false,
     super.key,
   });
   final Animation<double> progress;
+
+  /// The shade shows a backdrop frosted once instead of live material. It
+  /// dims the scene with [dim] itself, so this neither dims nor filters.
+  final bool cached;
+
+  /// Dims the scene beneath an open shade, scaled by its blur fraction.
+  static const Color dim = Color.fromRGBO(0, 0, 0, 0.2);
 
   static bool sharesBlur(BuildContext context) =>
       context.findAncestorRenderObjectOfType<RenderShadeBackdropScene>() !=
@@ -24,32 +32,34 @@ class ShadeBackdropScene extends SingleChildRenderObjectWidget {
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      RenderShadeBackdropScene(progress, ShellTheme.of(context));
+      RenderShadeBackdropScene(progress, ShellTheme.of(context), cached);
 
   @override
   void updateRenderObject(
     BuildContext context,
     covariant RenderShadeBackdropScene renderObject,
   ) {
-    renderObject.update(progress, ShellTheme.of(context));
+    renderObject.update(progress, ShellTheme.of(context), cached);
   }
 }
 
 class RenderShadeBackdropScene extends RenderProxyBox {
-  RenderShadeBackdropScene(this._progress, this._theme);
+  RenderShadeBackdropScene(this._progress, this._theme, this._cached);
   Animation<double> _progress;
   ShellThemeData _theme;
+  bool _cached;
   final _regions = <_RenderShadeBackdropRegion>{};
   final _clip = LayerHandle<ClipPathLayer>();
   final _filter = LayerHandle<BackdropFilterLayer>();
 
-  void update(Animation<double> progress, ShellThemeData theme) {
+  void update(Animation<double> progress, ShellThemeData theme, bool cached) {
     if (_progress != progress) {
       if (attached) _progress.removeListener(markNeedsPaint);
       _progress = progress;
       if (attached) _progress.addListener(markNeedsPaint);
     }
     _theme = theme;
+    _cached = cached;
     markNeedsPaint();
   }
 
@@ -79,12 +89,19 @@ class RenderShadeBackdropScene extends RenderProxyBox {
   @override
   void paint(PaintingContext context, Offset offset) {
     if (_progress.value <= 0) return;
+    if (_cached) {
+      super.paint(context, offset);
+      return;
+    }
     final blurFraction = ColorOsShadeMotion.blurFraction(_progress.value);
     // Dim the scene before taking its shared backdrop sample. The panel and
     // cards stay bright, and the shade follows interactive motion directly.
     context.canvas.drawRect(
       offset & size,
-      Paint()..color = Color.fromRGBO(0, 0, 0, 0.2 * blurFraction),
+      Paint()
+        ..color = ShadeBackdropScene.dim.withValues(
+          alpha: ShadeBackdropScene.dim.a * blurFraction,
+        ),
     );
     if (_theme.transparencyMode == ShellTransparencyMode.blur &&
         _theme.backdropBlurSigma > 0 &&

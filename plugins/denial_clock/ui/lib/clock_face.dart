@@ -1,20 +1,49 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 import 'package:denial_flutter_sdk/applications.dart';
+
+/// The pieces of the clock face, for drawing them on separate layers.
+enum HomeClockPart { time, date, status }
 
 class HomeClockWidget extends StatelessWidget {
   const HomeClockWidget({
     super.key,
     required this.clock,
     this.showStatus = true,
+    this.timeStretch = 1.0,
+    this.detailsAbove = false,
+    this.dateColor = ShellMediaColors.lightForegroundSecondary,
+    this.caption,
+    this.parts = const {
+      HomeClockPart.time,
+      HomeClockPart.date,
+      HomeClockPart.status,
+    },
   });
 
   final HomeClockInfo clock;
   final bool showStatus;
+
+  /// Sets the time this many times taller, growing upward from its baseline.
+  /// Layout is unchanged: the bottom of the time stays put.
+  final double timeStretch;
+
+  /// Sets the status row and the date above the time, the status row on top,
+  /// riding on top of a stretched time.
+  final bool detailsAbove;
+  final Color dateColor;
+
+  /// A line over the date, part of the date.
+  final String? caption;
+
+  /// Parts to paint. The others keep their space, so two faces with
+  /// complementary parts stack into one clock.
+  final Set<HomeClockPart> parts;
 
   @override
   Widget build(BuildContext context) {
@@ -25,10 +54,63 @@ class HomeClockWidget extends StatelessWidget {
             .clamp(46.0, 124.0)
             .toDouble();
         final detailScale = (timeSize / 58).clamp(0.9, 1.28).toDouble();
+        Widget part(HomeClockPart kind, Widget child) => parts.contains(kind)
+            ? child
+            : Visibility(
+                visible: false,
+                maintainState: true,
+                maintainAnimation: true,
+                maintainSize: true,
+                child: child,
+              );
+        final dateGap = _scaled(7, detailScale, 5, 9);
+        Text line(String text, double fontSize) => Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: dateColor,
+            fontSize: fontSize,
+            height: 1,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0,
+          ),
+        );
+        final dateLine = line(
+          localizedLongDate(context, clock.now),
+          _scaled(15, detailScale, 13, 19),
+        );
+        final caption = this.caption;
+        final date = part(
+          HomeClockPart.date,
+          caption == null
+              ? dateLine
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    line(caption, _scaled(13, detailScale, 11, 16)),
+                    SizedBox(height: dateGap),
+                    dateLine,
+                  ],
+                ),
+        );
+        final status = showStatus
+            ? part(
+                HomeClockPart.status,
+                _HomeClockStatus(
+                  power: clock.power,
+                  thermalReadings: clock.thermalReadings,
+                  scale: detailScale,
+                ),
+              )
+            : null;
+        final horizontalPadding = math.max(2.0, constraints.maxWidth * 0.035);
         return SizedBox.expand(
           child: Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: math.max(2, constraints.maxWidth * 0.035),
+              horizontal: horizontalPadding,
               vertical: math.max(0, constraints.maxHeight * 0.035),
             ),
             child: Center(
@@ -38,42 +120,45 @@ class HomeClockWidget extends StatelessWidget {
                 children: [
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(
-                      localizedTime(context, clock.now),
-                      maxLines: 1,
-                      overflow: TextOverflow.fade,
-                      softWrap: false,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: ShellMediaColors.lightForeground,
-                        fontSize: timeSize,
-                        height: 0.95,
-                        fontWeight: FontWeight.w300,
-                        letterSpacing: 0,
+                    child: _GrowUp(
+                      factor: timeStretch,
+                      gap: dateGap,
+                      // The details take the column's width: the time's
+                      // FittedBox lays its child out unbounded.
+                      lead: detailsAbove
+                          ? SizedBox(
+                              width:
+                                  constraints.maxWidth - horizontalPadding * 2,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (status != null) ...[
+                                    status,
+                                    SizedBox(height: dateGap),
+                                  ],
+                                  date,
+                                ],
+                              ),
+                            )
+                          : null,
+                      time: part(
+                        HomeClockPart.time,
+                        Text(
+                          localizedTime(context, clock.now),
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                          softWrap: false,
+                          textAlign: TextAlign.center,
+                          style: _timeStyle(timeSize, timeStretch),
+                        ),
                       ),
                     ),
                   ),
-                  SizedBox(height: _scaled(7, detailScale, 5, 9)),
-                  Text(
-                    localizedLongDate(context, clock.now),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ShellMediaColors.lightForegroundSecondary,
-                      fontSize: _scaled(15, detailScale, 13, 19),
-                      height: 1,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0,
-                    ),
-                  ),
-                  if (showStatus)
-                    _HomeClockStatus(
-                      power: clock.power,
-                      thermalReadings: clock.thermalReadings,
-                      scale: detailScale,
-                    ),
+                  if (!detailsAbove) ...[
+                    SizedBox(height: dateGap),
+                    date,
+                    ?status,
+                  ],
                 ],
               ),
             ),
@@ -370,6 +455,36 @@ class _HomeClockThermalText extends StatelessWidget {
   }
 }
 
+/// A stretched time is set [stretch] times larger in the bundled variable
+/// family, narrowed and lightened on its width and weight axes so it keeps the
+/// width and stroke the plain size has in that family. The exponents are
+/// fitted to Roboto Flex's outlines at display sizes.
+TextStyle _timeStyle(double size, double stretch) {
+  const style = TextStyle(
+    color: ShellMediaColors.lightForeground,
+    height: 0.95,
+    fontWeight: FontWeight.w300,
+    letterSpacing: 0,
+  );
+  if (stretch == 1.0) {
+    return style.copyWith(fontSize: size);
+  }
+  final fontSize = size * stretch;
+  return style.copyWith(
+    fontFamily: ShellText.variableFontFamily,
+    fontSize: fontSize,
+    fontVariations: [
+      FontVariation.weight(
+        (300 * math.pow(stretch, -0.55)).clamp(100.0, 1000.0).toDouble(),
+      ),
+      FontVariation.width(
+        (100 * math.pow(stretch, -1.09)).clamp(25.0, 151.0).toDouble(),
+      ),
+      FontVariation.opticalSize(fontSize.clamp(8.0, 144.0).toDouble()),
+    ],
+  );
+}
+
 double _scaled(double value, double scale, double min, double max) {
   return (value * scale).clamp(min, max).toDouble();
 }
@@ -411,4 +526,152 @@ Color _temperatureColor(int deciC) {
     return ShellTelemetryColors.warning;
   }
   return ShellTelemetryColors.nominal;
+}
+
+/// Lays [time] out at its own size but takes 1/[factor] of its height, with
+/// the baseline scaled to match: type set [factor] times larger lays out like
+/// the plain size and grows upward from where it stands, painting above the
+/// box. [lead] rides [gap] above the grown time.
+class _GrowUp extends MultiChildRenderObjectWidget {
+  _GrowUp({
+    required this.factor,
+    required this.gap,
+    required Widget time,
+    Widget? lead,
+  }) : super(children: [time, ?lead]);
+
+  final double factor;
+  final double gap;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderGrowUp(factor, gap);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderGrowUp renderObject) {
+    renderObject
+      ..factor = factor
+      ..gap = gap;
+  }
+}
+
+class _GrowUpParentData extends ContainerBoxParentData<RenderBox> {}
+
+class _RenderGrowUp extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _GrowUpParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _GrowUpParentData> {
+  _RenderGrowUp(this._factor, this._gap);
+
+  double _factor;
+  double _gap;
+
+  set factor(double value) {
+    if (value == _factor) {
+      return;
+    }
+    _factor = value;
+    markNeedsLayout();
+  }
+
+  set gap(double value) {
+    if (value == _gap) {
+      return;
+    }
+    _gap = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _GrowUpParentData) {
+      child.parentData = _GrowUpParentData();
+    }
+  }
+
+  BoxConstraints _childConstraints(BoxConstraints constraints) =>
+      BoxConstraints(maxWidth: constraints.maxWidth);
+
+  double _widest(double Function(RenderBox child) width) {
+    var result = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      result = math.max(result, width(child));
+    }
+    return result;
+  }
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      _widest((child) => child.getMinIntrinsicWidth(double.infinity));
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      _widest((child) => child.getMaxIntrinsicWidth(double.infinity));
+
+  @override
+  double computeMinIntrinsicHeight(double width) =>
+      (firstChild?.getMinIntrinsicHeight(width) ?? 0.0) / _factor;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) =>
+      (firstChild?.getMaxIntrinsicHeight(width) ?? 0.0) / _factor;
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    final time = firstChild;
+    if (time == null) {
+      return constraints.smallest;
+    }
+    final childConstraints = _childConstraints(constraints);
+    final size = time.getDryLayout(childConstraints);
+    final width = _widest(
+      (child) => child.getDryLayout(childConstraints).width,
+    );
+    return constraints.constrain(Size(width, size.height / _factor));
+  }
+
+  @override
+  void performLayout() {
+    final time = firstChild;
+    if (time == null) {
+      size = constraints.smallest;
+      return;
+    }
+    final childConstraints = _childConstraints(constraints);
+    time.layout(childConstraints, parentUsesSize: true);
+    final lead = childAfter(time);
+    lead?.layout(childConstraints, parentUsesSize: true);
+    size = constraints.constrain(
+      Size(
+        math.max(time.size.width, lead?.size.width ?? 0.0),
+        time.size.height / _factor,
+      ),
+    );
+    final baseline =
+        time.getDistanceToBaseline(TextBaseline.alphabetic, onlyReal: true) ??
+        time.size.height;
+    final top = baseline / _factor - baseline;
+    (time.parentData! as _GrowUpParentData).offset = Offset(
+      (size.width - time.size.width) / 2,
+      top,
+    );
+    if (lead != null) {
+      (lead.parentData! as _GrowUpParentData).offset = Offset(
+        (size.width - lead.size.width) / 2,
+        top - _gap - lead.size.height,
+      );
+    }
+  }
+
+  @override
+  double? computeDistanceToActualBaseline(TextBaseline baseline) =>
+      defaultComputeDistanceToFirstActualBaseline(baseline);
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
 }

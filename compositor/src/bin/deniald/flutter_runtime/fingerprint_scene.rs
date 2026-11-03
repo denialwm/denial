@@ -3,6 +3,19 @@ use super::*;
 
 pub(super) const CHANNEL: &CStr = c"denial/fingerprint_scene";
 
+/// One fingerprint layout for the shell to draw on an output.
+pub(crate) struct FingerprintLayout {
+    pub(crate) epoch: u64,
+    pub(crate) black: bool,
+    pub(crate) image: bool,
+    pub(crate) reveal: bool,
+    pub(crate) fade: bool,
+    /// The sensor's x, y, width and height, in panel pixels.
+    pub(crate) rectangle: [f64; 4],
+    /// The panel's width and height in pixels.
+    pub(crate) panel: [f64; 2],
+}
+
 #[derive(Default)]
 pub(super) struct FingerprintScene {
     pub(super) output: Option<OutputId>,
@@ -63,14 +76,17 @@ impl FlutterRuntime {
     pub(crate) fn set_fingerprint_scene(
         &mut self,
         output: OutputId,
-        epoch: u64,
-        black: bool,
-        image: bool,
-        reveal: bool,
-        fade: bool,
-        rectangle: [f64; 4],
-        panel: [f64; 2],
+        layout: FingerprintLayout,
     ) -> Result<(), Box<dyn Error>> {
+        let FingerprintLayout {
+            epoch,
+            black,
+            image,
+            reveal,
+            fade,
+            rectangle,
+            panel,
+        } = layout;
         let geometry = self
             .render_outputs
             .iter()

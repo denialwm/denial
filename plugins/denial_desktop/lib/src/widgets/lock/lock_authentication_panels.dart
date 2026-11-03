@@ -9,6 +9,8 @@ class _LockAuthenticationPanel extends StatelessWidget {
     required this.onSubmit,
     required this.onBegin,
     required this.onCancel,
+    required this.onSwitchCredential,
+    required this.usingPin,
   });
 
   final bool desktop;
@@ -19,14 +21,19 @@ class _LockAuthenticationPanel extends StatelessWidget {
   final VoidCallback onBegin;
   final VoidCallback onCancel;
 
+  /// Offered only when a PIN is set: switches between PIN and password.
+  final VoidCallback? onSwitchCredential;
+  final bool usingPin;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final prompt = state.prompt;
+    final pin = prompt?.isPin ?? false;
     final message =
         state.resultMessage ??
         state.statusMessage ??
-        prompt?.message ??
+        (pin ? l10n.lockEnterPin : prompt?.message) ??
         (state.busy ? l10n.lockWaitingForAuthentication : null);
     final error =
         state.resultIsError || prompt?.style == AuthenticationPromptStyle.error;
@@ -50,6 +57,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
         onSubmit: onSubmit,
         onBegin: onBegin,
         onCancel: onCancel,
+        onUsePin: onSwitchCredential,
       );
     }
 
@@ -178,11 +186,13 @@ class _LockAuthenticationPanel extends StatelessWidget {
                       if (canRespond) ...[
                         const SizedBox(height: 14),
                         Semantics(
-                          label: prompt!.obscure
+                          label: pin
+                              ? l10n.lockPinObscured
+                              : prompt!.obscure
                               ? l10n.lockPasswordObscured
                               : l10n.lockAuthenticationResponse,
                           textField: true,
-                          obscured: prompt.obscure,
+                          obscured: prompt!.obscure,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: context.shellColors.surfaceContainerHigh,
@@ -203,7 +213,11 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 focusNode: focusNode,
                                 style: context.shellTheme.text.base.copyWith(
                                   fontSize: 16,
-                                  letterSpacing: prompt.obscure ? 2.5 : 0,
+                                  letterSpacing: pin
+                                      ? 6
+                                      : prompt.obscure
+                                      ? 2.5
+                                      : 0,
                                 ),
                                 cursorColor: accent.primary,
                                 backgroundCursorColor:
@@ -214,11 +228,22 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 autocorrect: false,
                                 enableSuggestions: false,
                                 enableInteractiveSelection: false,
-                                keyboardType: TextInputType.visiblePassword,
+                                keyboardType: pin
+                                    ? TextInputType.number
+                                    : TextInputType.visiblePassword,
                                 textInputAction: TextInputAction.done,
-                                inputFormatters: [
-                                  LengthLimitingTextInputFormatter(1024),
-                                ],
+                                inputFormatters: _responseFormatters(
+                                  pin: pin,
+                                  pinLength: state.pinLength,
+                                ),
+                                // The last PIN digit submits, as on mobile.
+                                onChanged: pin
+                                    ? (text) {
+                                        if (text.length == state.pinLength) {
+                                          onSubmit();
+                                        }
+                                      }
+                                    : null,
                                 onSubmitted: (_) => onSubmit(),
                               ),
                             ),
@@ -253,6 +278,17 @@ class _LockAuthenticationPanel extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (onSwitchCredential case final onSwitch?) ...[
+                        const SizedBox(height: 6),
+                        Center(
+                          child: _PinLink(
+                            label: usingPin
+                                ? l10n.lockUsePassword
+                                : l10n.lockUsePin,
+                            onPressed: onSwitch,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -265,6 +301,16 @@ class _LockAuthenticationPanel extends StatelessWidget {
   }
 }
 
+List<TextInputFormatter> _responseFormatters({
+  required bool pin,
+  required int pinLength,
+}) => pin
+    ? [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(pinLength > 0 ? pinLength : 12),
+      ]
+    : [LengthLimitingTextInputFormatter(1024)];
+
 class _MobileLockAuthenticationPanel extends StatelessWidget {
   const _MobileLockAuthenticationPanel({
     required this.state,
@@ -273,6 +319,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
     required this.onSubmit,
     required this.onBegin,
     required this.onCancel,
+    required this.onUsePin,
   });
 
   final AuthenticationState state;
@@ -281,6 +328,9 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
   final VoidCallback onSubmit;
   final VoidCallback onBegin;
   final VoidCallback onCancel;
+
+  /// Offered when a PIN is set; this panel only ever asks for the password.
+  final VoidCallback? onUsePin;
 
   @override
   Widget build(BuildContext context) {
@@ -495,6 +545,15 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                 : l10n.lockTryAgain,
                             enabled: canBegin,
                             onPressed: onBegin,
+                          ),
+                        ],
+                        if (onUsePin case final onUsePin?) ...[
+                          const SizedBox(height: 8),
+                          Center(
+                            child: _PinLink(
+                              label: l10n.lockUsePin,
+                              onPressed: onUsePin,
+                            ),
                           ),
                         ],
                       ],

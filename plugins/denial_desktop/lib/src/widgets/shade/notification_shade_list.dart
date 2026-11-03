@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
@@ -8,32 +10,51 @@ import 'shade_backdrop_scene.dart';
 /// [entrance] invalidates the cached silhouettes while descendant rows run
 /// their ColorOS alpha/scale/spacing reveal. Neither animation rebuilds or
 /// resizes notification cards or scroll extent.
+///
+/// Rows that overlap while the stack compresses stack by direction: opening
+/// from closed, each row lies over the ones below it; closing from open, the
+/// last row lies on top, so the stack gathers upward under it. The order only
+/// changes at rest, fully open or closed, where no rows overlap.
 class NotificationShadeList extends SliverList {
   const NotificationShadeList({
     required super.delegate,
     required this.progress,
     required this.entrance,
+    this.opaqueRows = false,
+    this.onRowsMoved,
     super.key,
   });
 
   final Animation<double> progress;
   final Animation<double> entrance;
 
+  /// The rows paint opaque material. Once [entrance] has revealed them they
+  /// hide one another by paint order alone, without per-row clips.
+  final bool opaqueRows;
+
+  /// Called whenever rows may have moved without this list repainting them:
+  /// after a layout, and for a descendant transform such as a dismissal.
+  /// Retained glass slices in the rows follow through it.
+  final VoidCallback? onRowsMoved;
+
   /// Descendant paint transforms (for example a sideways dismissal) also move
   /// the silhouette, even when a retained row does not repaint this sliver.
   static void invalidateOcclusion(BuildContext context) {
-    context
-        .findAncestorRenderObjectOfType<_RenderNotificationShadeList>()
-        ?.markNeedsPaint();
+    final list = context
+        .findAncestorRenderObjectOfType<_RenderNotificationShadeList>();
+    list?.markNeedsPaint();
+    list?.onRowsMoved?.call();
   }
 
   @override
   RenderSliverList createRenderObject(BuildContext context) =>
       _RenderNotificationShadeList(
-        progress,
-        entrance,
-        childManager: context as SliverMultiBoxAdaptorElement,
-      );
+          progress,
+          entrance,
+          childManager: context as SliverMultiBoxAdaptorElement,
+        )
+        ..opaqueRows = opaqueRows
+        ..onRowsMoved = onRowsMoved;
 
   @override
   void updateRenderObject(
@@ -42,7 +63,9 @@ class NotificationShadeList extends SliverList {
   ) {
     (renderObject as _RenderNotificationShadeList)
       ..progress = progress
-      ..entrance = entrance;
+      ..entrance = entrance
+      ..opaqueRows = opaqueRows
+      ..onRowsMoved = onRowsMoved;
   }
 }
 
@@ -55,11 +78,21 @@ class _RenderNotificationShadeList extends RenderSliverList {
 
   Animation<double> _progress;
   Animation<double> _entrance;
+  VoidCallback? onRowsMoved;
+  bool _opaqueRows = false;
+  set opaqueRows(bool value) {
+    if (value == _opaqueRows) return;
+    _opaqueRows = value;
+    markNeedsPaint();
+  }
+
   final _surfaces = <_RenderNotificationShadeSurface>{};
   final _clips = <RenderBox, LayerHandle<ClipPathLayer>>{};
   List<_NotificationPaintRow>? _cachedRows;
   RenderShadeBackdropScene? _scene;
   double _exitExtent = 0;
+  double _restingOpen = 0;
+  bool _lastOnTop = false;
 
   @override
   void markNeedsPaint() {
@@ -87,6 +120,7 @@ class _RenderNotificationShadeList extends RenderSliverList {
       _clips.remove(child)!.layer = null;
     }
     _cachedRows = null;
+    onRowsMoved?.call();
   }
 
   @override
@@ -124,9 +158,21 @@ class _RenderNotificationShadeList extends RenderSliverList {
   double get _open => _progress.value.clamp(0.0, 1.0);
 
   // Complete the row exit before the shade itself reaches zero. Stopping at
-  // exactly one row height leaves a visible strip pinned to the viewport edge
+  // exactly one row height leaves a visible strip pinned to the screen edge
   // until the enclosing shade is removed.
   static const double _exitTravel = 1.2;
+
+  /// How far a closed row sits above its list: past the top of the screen,
+  /// so rows leave over the header rather than stopping below it. It is the
+  /// list's live distance from the screen top, so the shade's own motion
+  /// cannot leave a row on screen.
+  double get _exitDistance {
+    final toScreen = Matrix4.tryInvert(getTransformTo(null));
+    final screenTop = toScreen == null
+        ? 0.0
+        : MatrixUtils.transformPoint(toScreen, Offset.zero).dy;
+    return math.max(0.0, -screenTop) + _exitExtent * _exitTravel;
+  }
 
   @override
   void attach(PipelineOwner owner) {
@@ -136,6 +182,7 @@ class _RenderNotificationShadeList extends RenderSliverList {
       ancestor = ancestor.parent;
     }
     _scene = ancestor as RenderShadeBackdropScene?;
+    _restingOpen = _open;
     _progress.addListener(_motionChanged);
     _entrance.addListener(_motionChanged);
   }
@@ -149,14 +196,23 @@ class _RenderNotificationShadeList extends RenderSliverList {
   }
 
   void _motionChanged() {
+    final open = _open;
+    if (_restingOpen >= 1 && open < 1) {
+      _lastOnTop = true;
+    } else if (_restingOpen <= 0 && open > 0) {
+      _lastOnTop = false;
+    }
+    _restingOpen = open;
     markNeedsPaint();
     markNeedsSemanticsUpdate();
   }
 
   @override
-  double childMainAxisPosition(RenderBox child) =>
-      super.childMainAxisPosition(child) * _open -
-      _exitExtent * _exitTravel * (1 - _open);
+  double childMainAxisPosition(RenderBox child) {
+    final open = _open;
+    final base = super.childMainAxisPosition(child) * open;
+    return open >= 1 ? base : base - _exitDistance * (1 - open);
+  }
 
   @override
   double childCrossAxisPosition(RenderBox child) => 0;
@@ -182,36 +238,44 @@ class _RenderNotificationShadeList extends RenderSliverList {
       rows.add(row);
       byChild[child] = row;
     }
-    for (final surface in _surfaces) {
+    // Opaque rows need no silhouettes once fully revealed: each one covers
+    // whatever it overlaps, and only scene occluders still cut them.
+    final rowsOcclude = !_opaqueRows || _entrance.value < 1;
+    for (final surface
+        in rowsOcclude
+            ? _surfaces
+            : const <_RenderNotificationShadeSurface>{}) {
       final row = byChild[surface._row];
       if (row == null || !surface.hasSize || surface.size.isEmpty) continue;
       row.silhouettes.add(
         surface.shape.transform(surface.getTransformTo(this).storage),
       );
     }
-    // Non-zero winding represents the union of the rounded silhouettes.
-    // Build one prefix path; subtract once per covered row, not once per pair.
-    final covering = Path();
-    Rect? coveringBounds;
-    void addCover(Path path) {
-      covering.addPath(path, Offset.zero);
-      final bounds = path.getBounds();
-      coveringBounds = coveringBounds?.expandToInclude(bounds) ?? bounds;
-    }
-
-    for (final path in _scene?.occludersFor(this) ?? const <Path>[]) {
-      addCover(path);
-    }
-    for (final row in rows) {
-      if (coveringBounds != null && row.bounds.overlaps(coveringBounds!)) {
+    // From the top of the stack down, each row subtracts only the silhouettes
+    // above it that reach it, usually just its neighbor while the stack
+    // compresses, so the boolean work stays linear in the row count. Non-zero
+    // winding represents their union. A row that nothing reaches paints
+    // without a clip.
+    final covers = <(Path, Rect)>[
+      for (final path in _scene?.occludersFor(this) ?? const <Path>[])
+        (path, path.getBounds()),
+    ];
+    for (final row in _lastOnTop ? rows.reversed : rows) {
+      final bounds = row.bounds;
+      Path? covering;
+      for (final (path, coverBounds) in covers) {
+        if (!coverBounds.overlaps(bounds)) continue;
+        (covering ??= Path()).addPath(path, Offset.zero);
+      }
+      if (covering != null) {
         row.visible = Path.combine(
           PathOperation.difference,
-          Path()..addRect(row.bounds),
+          Path()..addRect(bounds),
           covering,
         );
       }
       for (final silhouette in row.silhouettes) {
-        addCover(silhouette);
+        covers.add((silhouette, silhouette.getBounds()));
       }
     }
     _cachedRows = rows;
@@ -221,7 +285,8 @@ class _RenderNotificationShadeList extends RenderSliverList {
   @override
   void paint(PaintingContext context, Offset offset) {
     if (_open <= 0) return;
-    for (final row in _paintRows().reversed) {
+    final rows = _paintRows();
+    for (final row in _lastOnTop ? rows : rows.reversed) {
       final visible = row.visible;
       if (visible == null) {
         context.paintChild(row.child, offset + row.offset);
@@ -252,7 +317,8 @@ class _RenderNotificationShadeList extends RenderSliverList {
     if (_open <= 0) return false;
     final point = Offset(crossAxisPosition, mainAxisPosition);
     final boxResult = BoxHitTestResult.wrap(result);
-    for (final row in _paintRows()) {
+    final rows = _paintRows();
+    for (final row in _lastOnTop ? rows.reversed : rows) {
       if (row.visible != null && !row.visible!.contains(point)) continue;
       if (hitTestBoxChild(
         boxResult,

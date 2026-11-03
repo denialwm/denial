@@ -208,6 +208,51 @@ fn dart_system_bar_request_updates_the_complete_native_work_area() {
 }
 
 #[test]
+fn dart_edge_swipe_regions_follow_window_regions_intact() {
+    // The Dart encoder writes this struct vector after the window regions;
+    // both must keep their 8-byte alignment for every field to decode.
+    let mut bridge = bridge();
+    bridge
+        .handle(include_bytes!(
+            "../../../../../protocol/golden/dart_input_edges.denw"
+        ))
+        .unwrap();
+    let layout = bridge.take_input_layout_update().unwrap();
+    assert_eq!(
+        layout
+            .windows
+            .iter()
+            .map(|window| (window.object_id, window.z, window.flags))
+            .collect::<Vec<_>>(),
+        [
+            (0x1_0000_0002, 2, 5),
+            (0x1_0000_0001, 1, 1),
+            (0x1_0000_0000, 0, 5),
+        ]
+    );
+    assert_eq!(layout.windows[0].rect.x, -6.0);
+    let strip = |x| InputRect {
+        x,
+        y: 48.0,
+        width: 24.0,
+        height: 1288.5,
+    };
+    assert_eq!(
+        layout.edge_swipe_regions,
+        [
+            EdgeSwipeRegion {
+                rect: strip(0.0),
+                edge: InputEdge::Left,
+            },
+            EdgeSwipeRegion {
+                rect: strip(586.25),
+                edge: InputEdge::Right,
+            },
+        ]
+    );
+}
+
+#[test]
 fn legacy_system_bar_request_retains_native_work_area_metrics() {
     let mut bridge = bridge();
     let request = system_bar_request(fb::SystemBarSide::Bottom, &[9], -1.0, -1.0);
@@ -489,6 +534,73 @@ fn taskbar_minimize_targets_native_window_state_without_geometry() {
 }
 
 #[test]
+fn navigate_back_targets_one_window() {
+    let mut wire = bridge();
+    assert!(
+        wire.handle(&window_request(
+            fb::WindowRequestKind::NavigateBack,
+            0,
+            42,
+            None
+        ))
+        .unwrap()
+        .is_none()
+    );
+    let commands = wire.drain_window_commands().collect::<Vec<_>>();
+    assert_eq!(
+        commands,
+        vec![WindowCommand::NavigateBack { window_id: 42 }]
+    );
+    assert_eq!(commands[0].window_id(), Some(42));
+    assert!(matches!(
+        bridge().handle(&request(fb::WindowRequestKind::NavigateBack, 0)),
+        Err(WireError::Identity)
+    ));
+}
+
+#[test]
+fn input_layout_decodes_edge_swipe_regions() {
+    let rect = |x| fb::WireRect::new(x, 48.0, 24.0, 700.0);
+    let edges = [
+        fb::EdgeSwipeRegion::new(&rect(0.0), fb::InputEdge::Left),
+        fb::EdgeSwipeRegion::new(&rect(376.0), fb::InputEdge::Right),
+    ];
+    let mut wire = bridge();
+    wire.handle(&input_layout_with_edges(&[], &[], &[], &edges, 0))
+        .unwrap();
+    let layout = wire.take_input_layout_update().unwrap();
+    assert_eq!(
+        layout.edge_swipe_regions,
+        vec![
+            EdgeSwipeRegion {
+                rect: InputRect {
+                    x: 0.0,
+                    y: 48.0,
+                    width: 24.0,
+                    height: 700.0,
+                },
+                edge: InputEdge::Left,
+            },
+            EdgeSwipeRegion {
+                rect: InputRect {
+                    x: 376.0,
+                    y: 48.0,
+                    width: 24.0,
+                    height: 700.0,
+                },
+                edge: InputEdge::Right,
+            },
+        ]
+    );
+
+    let unknown = [fb::EdgeSwipeRegion::new(&rect(0.0), fb::InputEdge(9))];
+    assert!(matches!(
+        bridge().handle(&input_layout_with_edges(&[], &[], &[], &unknown, 0)),
+        Err(WireError::Payload)
+    ));
+}
+
+#[test]
 fn taskbar_minimize_rejects_missing_identity_and_unknown_flags() {
     assert!(matches!(
         bridge().handle(&request(fb::WindowRequestKind::MinimizeWindow, 0)),
@@ -684,10 +796,22 @@ fn input_layout_with_visible(
     visible_surface_ids: &[u64],
     flags: u32,
 ) -> Vec<u8> {
+    input_layout_with_edges(shell_regions, windows, visible_surface_ids, &[], flags)
+}
+
+fn input_layout_with_edges(
+    shell_regions: &[fb::WireRect],
+    windows: &[fb::InputWindowRegion],
+    visible_surface_ids: &[u64],
+    edge_swipe_regions: &[fb::EdgeSwipeRegion],
+    flags: u32,
+) -> Vec<u8> {
     let mut builder = FlatBufferBuilder::new();
     let shell_regions = builder.create_vector(shell_regions);
     let windows = builder.create_vector(windows);
     let visible_surface_ids = builder.create_vector(visible_surface_ids);
+    let edge_swipe_regions =
+        (!edge_swipe_regions.is_empty()).then(|| builder.create_vector(edge_swipe_regions));
     let layout = fb::InputLayout::create(
         &mut builder,
         &fb::InputLayoutArgs {
@@ -697,6 +821,7 @@ fn input_layout_with_visible(
             windows: Some(windows),
             visible_surface_ids: Some(visible_surface_ids),
             software_keyboard_regions: None,
+            edge_swipe_regions,
         },
     );
     let envelope = fb::Envelope::create(
@@ -745,6 +870,61 @@ fn panel_dismissal_decodes_as_an_intent_not_a_key() {
     );
 }
 
+fn panel_motion(height: u32, duration_ms: u32) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let command = fb::KeyboardCommand::create(
+        &mut builder,
+        &fb::KeyboardCommandArgs {
+            kind: fb::KeyboardCommandKind::PanelMotion,
+            panel_height: height,
+            panel_duration_ms: duration_ms,
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 1,
+            payload_type: fb::Payload::KeyboardCommand,
+            payload: Some(command.as_union_value()),
+            ..Default::default()
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn panel_motion_decodes_height_and_duration_within_bounds() {
+    let mut bridge = bridge();
+    bridge.handle(&panel_motion(368, 420)).unwrap();
+    bridge.handle(&panel_motion(0, 0)).unwrap();
+    assert_eq!(
+        bridge
+            .pending_keyboard_commands
+            .drain(..)
+            .collect::<Vec<_>>(),
+        [
+            KeyboardCommand::PanelMotion {
+                height: 368,
+                duration_ms: 420
+            },
+            KeyboardCommand::PanelMotion {
+                height: 0,
+                duration_ms: 0
+            },
+        ]
+    );
+    for (height, duration_ms) in [
+        (MAX_KEYBOARD_PANEL_HEIGHT + 1, 0),
+        (0, MAX_KEYBOARD_PANEL_DURATION_MS + 1),
+    ] {
+        assert!(bridge.handle(&panel_motion(height, duration_ms)).is_err());
+    }
+    assert!(bridge.pending_keyboard_commands.is_empty());
+}
+
 fn keyboard_command(
     kind: fb::KeyboardCommandKind,
     text: Option<&str>,
@@ -761,7 +941,7 @@ fn keyboard_command(
             text,
             key,
             flags,
-            activation_serial: 0,
+            ..Default::default()
         },
     );
     let envelope = fb::Envelope::create(
@@ -1134,6 +1314,7 @@ fn scene_window(id: u64) -> WindowDescription {
         surface_id: id,
         window_id: id,
         texture_id: id,
+        client_texture: None,
         title: format!("window {id}"),
         app_id: "test".into(),
         width: 100,
@@ -1170,6 +1351,7 @@ fn scene_window(id: u64) -> WindowDescription {
         content_kind: WindowContentKind::SurfaceTree,
         opacity_class: WindowOpacityClass::FullyOpaque,
         pet: None,
+        keyboard_inset: false,
     }
 }
 
@@ -1441,4 +1623,277 @@ fn reset_width_shortcut_schema_decodes_and_encodes_without_changing_height_id() 
             .action(),
         fb::ShortcutActionKind::ResetWindowWidth
     );
+}
+
+#[test]
+fn optional_client_texture_preserves_real_tree_and_fractional_source_extent() {
+    let mut scene = scene_window(17);
+    let client = ClientTextureDescription {
+        texture_id: (1_u64 << 62) | 17,
+        width: 126,
+        height: 101,
+        source_width: 125.25,
+        source_height: 100.5,
+    };
+    scene.client_texture = Some(client);
+    let mut bridge = bridge();
+    let (bytes, _) = bridge
+        .update_windows(1, vec![scene], &BTreeSet::new())
+        .unwrap();
+    let snapshot = fb::root_as_envelope(bytes.unwrap())
+        .unwrap()
+        .payload_as_window_snapshot()
+        .unwrap();
+    let window = snapshot.windows().unwrap().get(0);
+    assert_eq!(window.surface_id(), 17);
+    assert_eq!(window.texture_id(), 17);
+    let merged = window.client_texture().unwrap();
+    assert_eq!(merged.texture_id(), client.texture_id);
+    assert_eq!((merged.width(), merged.height()), (126, 101));
+    assert_eq!(
+        (merged.source_width(), merged.source_height()),
+        (125.25, 100.5)
+    );
+    let (bytes, _) = bridge
+        .update_windows(2, vec![scene_window(17)], &BTreeSet::new())
+        .unwrap();
+    let snapshot = fb::root_as_envelope(bytes.unwrap())
+        .unwrap()
+        .payload_as_window_snapshot()
+        .unwrap();
+    assert!(
+        snapshot
+            .windows()
+            .unwrap()
+            .get(0)
+            .client_texture()
+            .is_none()
+    );
+}
+
+#[test]
+fn client_texture_rejects_invalid_native_image_contracts() {
+    let valid = ClientTextureDescription {
+        texture_id: 1_u64 << 62,
+        width: 100,
+        height: 80,
+        source_width: 100.0,
+        source_height: 80.0,
+    };
+    for invalid in [
+        ClientTextureDescription {
+            texture_id: 0,
+            ..valid
+        },
+        ClientTextureDescription {
+            texture_id: u64::MAX,
+            ..valid
+        },
+        ClientTextureDescription { width: 0, ..valid },
+        ClientTextureDescription {
+            width: 8193,
+            ..valid
+        },
+        ClientTextureDescription {
+            width: 8192,
+            height: 8192,
+            ..valid
+        },
+        ClientTextureDescription {
+            source_width: f64::NAN,
+            ..valid
+        },
+        ClientTextureDescription {
+            source_height: f64::INFINITY,
+            ..valid
+        },
+        ClientTextureDescription {
+            source_width: 100.1,
+            ..valid
+        },
+        ClientTextureDescription {
+            source_height: 0.0,
+            ..valid
+        },
+    ] {
+        let mut scene = scene_window(1);
+        scene.client_texture = Some(invalid);
+        assert!(validate_windows(&[scene]).is_err());
+    }
+    for kind in [
+        WindowContentKind::LocalFlutter,
+        WindowContentKind::PopupSurface,
+        WindowContentKind::LayerShellTop,
+    ] {
+        let mut scene = scene_window(1);
+        scene.content_kind = kind;
+        scene.client_texture = Some(valid);
+        assert!(validate_windows(&[scene]).is_err());
+    }
+}
+
+fn keyboard_replace(replaced: &str, text: &str) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let replaced = builder.create_string(replaced);
+    let text = builder.create_string(text);
+    let command = fb::KeyboardCommand::create(
+        &mut builder,
+        &fb::KeyboardCommandArgs {
+            kind: fb::KeyboardCommandKind::Replace,
+            text: Some(text),
+            replaced: Some(replaced),
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 12,
+            payload_type: fb::Payload::KeyboardCommand,
+            payload: Some(command.as_union_value()),
+            ..Default::default()
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn keyboard_replace_needs_both_texts() {
+    let mut bridge = bridge();
+    bridge
+        .handle(&keyboard_replace("perche", "perché"))
+        .unwrap();
+    assert_eq!(
+        bridge.pending_keyboard_commands.pop_front().unwrap(),
+        KeyboardCommand::Replace {
+            replaced: "perche".into(),
+            text: "perché".into()
+        }
+    );
+    assert!(bridge.handle(&keyboard_replace("", "a")).is_err());
+    assert!(bridge.handle(&keyboard_replace("a", "")).is_err());
+    assert!(bridge.pending_keyboard_commands.is_empty());
+}
+
+fn prediction_request(serial: u64, word: &str, xs: &[f32], ys: &[f32], request_id: u64) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let word = builder.create_string(word);
+    let xs = builder.create_vector(xs);
+    let ys = builder.create_vector(ys);
+    let request = fb::TextPredictionRequest::create(
+        &mut builder,
+        &fb::TextPredictionRequestArgs {
+            serial,
+            word: Some(word),
+            touch_x: Some(xs),
+            touch_y: Some(ys),
+            manual_capital: true,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 13,
+            request_id,
+            payload_type: fb::Payload::TextPredictionRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn text_prediction_keeps_only_the_newest_request() {
+    let mut bridge = bridge();
+    bridge
+        .handle(&prediction_request(1, "ci", &[], &[], 0))
+        .unwrap();
+    bridge
+        .handle(&prediction_request(
+            2,
+            "città",
+            &[0.1, f32::NAN, 0.0, 0.0, 0.0],
+            &[0.2, 0.0, 0.0, 0.0, -0.3],
+            0,
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.take_text_prediction_request(),
+        Some(TextPredictionRequest {
+            serial: 2,
+            word: "città".into(),
+            touches: vec![
+                Some((0.1, 0.2)),
+                None,
+                Some((0.0, 0.0)),
+                Some((0.0, 0.0)),
+                Some((0.0, -0.3))
+            ],
+            manual_capital: true,
+        })
+    );
+    assert_eq!(bridge.take_text_prediction_request(), None);
+
+    assert!(matches!(
+        bridge.handle(&prediction_request(3, "ab", &[0.0], &[0.0], 0)),
+        Err(WireError::Count)
+    ));
+    assert!(matches!(
+        bridge.handle(&prediction_request(4, "ab", &[], &[], 9)),
+        Err(WireError::RequestId)
+    ));
+    assert!(
+        bridge
+            .handle(&prediction_request(
+                5,
+                &"a".repeat(MAX_PREDICTION_WORD_CHARS + 1),
+                &[],
+                &[],
+                0
+            ))
+            .is_err()
+    );
+    assert_eq!(bridge.take_text_prediction_request(), None);
+}
+
+#[test]
+fn text_prediction_encodes_suggestions() {
+    let mut bridge = bridge();
+    let prediction = TextPrediction {
+        serial: 7,
+        word: "perche".into(),
+        correction: Some("perché".into()),
+        suggestions: vec!["perché".into(), "perche".into(), "perciò".into()],
+        languages: vec!["en".into(), "it".into()],
+    };
+    let bytes = bridge.encode_text_prediction(&prediction).unwrap().to_vec();
+    let envelope = fb::root_as_envelope(&bytes).unwrap();
+    assert_eq!(envelope.request_id(), 0);
+    let decoded = envelope.payload_as_text_prediction().unwrap();
+    assert_eq!(decoded.serial(), 7);
+    assert_eq!(decoded.word(), Some("perche"));
+    assert_eq!(decoded.correction(), Some("perché"));
+    assert_eq!(
+        decoded.suggestions().unwrap().iter().collect::<Vec<_>>(),
+        ["perché", "perche", "perciò"]
+    );
+    assert_eq!(
+        decoded.languages().unwrap().iter().collect::<Vec<_>>(),
+        ["en", "it"]
+    );
+
+    let none = TextPrediction {
+        correction: None,
+        ..prediction
+    };
+    let bytes = bridge.encode_text_prediction(&none).unwrap().to_vec();
+    let decoded = fb::root_as_envelope(&bytes)
+        .unwrap()
+        .payload_as_text_prediction()
+        .unwrap();
+    assert_eq!(decoded.correction(), None);
 }

@@ -83,12 +83,12 @@ sha256sums=(
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
   'f8acf498ad592dcbf1ee31955264b068c27846f99cded6055a6b64aaf7f4fe07'
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
-  'b50dc233ee7e74c6c1fefbcfe03ed79b030ee5bd4369e19ff21199daa8159e0f'
-  'e9e98058ed0831f659d811d4901a9f9dd508c7aeaf33decab3fffd5464ace2d1'
+  'ccc136decb96a6d0ef58e0c53827cf39ca6a7d7b810fa0be4196e5db7ade36e3'
+  '81d87c497aa4b4c47d2104d3f2be34eac482655a3addfba686a7d9f3e5fe341c'
   '4a60d3ff767caf9d84c1a35b0d76d04e9e135cbabc384d1daac3f358398760de'
   '7b7e463f4156ded01e5dde1cefd288c0798cb06299e79aba29732fbdbd743524'
   '920bd9b698a108d0f07ec6d00a2fc36d4d91853eab81ecfc213807533c4ca916'
-  'ca8772cd0b91578386410150e0fd8153ad9f8913a2ed20299444e9bd9f89334a'
+  'c555e40d258c9875ba70266084bd373983534abf769be872398f25a60462052f'
 )
 
 package() {
@@ -236,6 +236,9 @@ package() {
     "$repository_root/packages/denial_flutter_sdk/assets/fonts/JetBrainsMono.sha256" \
     "$pkgdir/usr/share/doc/denial/JETBRAINS_MONO.sha256"
   install -Dm644 \
+    "$repository_root/packages/denial_flutter_sdk/assets/fonts/roboto_flex/RobotoFlex.sha256" \
+    "$pkgdir/usr/share/doc/denial/ROBOTO_FLEX.sha256"
+  install -Dm644 \
     "$repository_root/third_party/bibata/Bibata_Cursor-v2.0.7-source.tar.gz" \
     "$pkgdir/usr/share/doc/denial/sources/Bibata_Cursor-v2.0.7-source.tar.gz"
   install -Dm644 "$repository_root/LICENSES/CC-BY-SA-4.0.txt" \
@@ -244,6 +247,8 @@ package() {
     "$pkgdir/usr/share/licenses/denial/GPL-3.0-only.txt"
   install -Dm644 "$repository_root/packages/denial_flutter_sdk/assets/fonts/OFL.txt" \
     "$pkgdir/usr/share/licenses/denial/OFL-1.1.txt"
+  install -Dm644 "$repository_root/packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt" \
+    "$pkgdir/usr/share/licenses/denial/OFL-1.1-RobotoFlex.txt"
   install -Dm644 "$repository_root/LICENSE" \
     "$pkgdir/usr/share/licenses/denial/LICENSE"
   install_runtime_version

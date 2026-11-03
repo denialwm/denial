@@ -21,8 +21,9 @@ final class ShellWorker {
     debugName: 'denial-nvidia-worker',
   );
 
-  Future<List<NvidiaGpuSample>> readNvidiaGpuSamples() {
-    return _nvidia.invoke<List<NvidiaGpuSample>>(
+  /// Null once NVML is unavailable or reports no devices; it stays so.
+  Future<List<NvidiaGpuSample>?> readNvidiaGpuSamples() {
+    return _nvidia.invoke<List<NvidiaGpuSample>?>(
       operation: _readNvidiaGpuSamples,
       decode: _decodeNvidiaGpuSamples,
     );
@@ -37,7 +38,8 @@ final class const NvidiaGpuSample({
 
 const int _readNvidiaGpuSamples = 1;
 
-List<NvidiaGpuSample> _decodeNvidiaGpuSamples(Object? response) {
+List<NvidiaGpuSample>? _decodeNvidiaGpuSamples(Object? response) {
+  if (response == null) return null;
   if (response is! List<Object?>) {
     throw const FormatException('Invalid NVIDIA worker response');
   }
@@ -72,10 +74,11 @@ final class _NativeNvmlReader {
   int Function(ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Uint32>)?
   _getTemperature;
 
-  List<Object?> read() {
+  List<Object?>? read() {
     if (_unavailable || (_library == null && !_initialize())) {
-      return const <Object?>[];
+      return null;
     }
+    if (_devices.isEmpty) return null;
     final utilization = pkg_ffi.calloc<_NvmlUtilization>();
     final temperature = pkg_ffi.calloc<ffi.Uint32>();
     try {

@@ -66,6 +66,28 @@ class NetworkConnectivityState {
       error: clearError ? null : error ?? this.error,
     );
   }
+
+  // NetworkManager signals often repeat an unchanged snapshot. Equality keeps
+  // those from rebuilding the status bar and the shade.
+  @override
+  bool operator ==(Object other) =>
+      other is NetworkConnectivityState &&
+      other.snapshot == snapshot &&
+      other.initializing == initializing &&
+      other.scanning == scanning &&
+      other.radioChanging == radioChanging &&
+      setEquals(other.busyNetworks, busyNetworks) &&
+      other.error == error;
+
+  @override
+  int get hashCode => Object.hash(
+    snapshot,
+    initializing,
+    scanning,
+    radioChanging,
+    Object.hashAllUnordered(busyNetworks),
+    error,
+  );
 }
 
 class NetworkConnectivityController extends Notifier<NetworkConnectivityState>

@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Cross-build the benchmark client and record all compiler/protocol inputs."""
+import argparse
+import hashlib
+import json
+import shutil
+from pathlib import Path
+import subprocess
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output', type=Path, required=True, help='new output directory')
+parser.add_argument('--sysroot', type=Path, default=Path('/mnt/development/denial-os/cross/sysroot'))
+parser.add_argument('--cc', default='aarch64-linux-gnu-gcc')
+parser.add_argument('--protocols', type=Path, default=Path('/usr/share/wayland-protocols'))
+args = parser.parse_args()
+root = args.output.resolve()
+root.mkdir(parents=True, exist_ok=False)
+source = Path(__file__).resolve().with_name('denial-render-workload.c')
+inputs = {str(source): hashlib.sha256(source.read_bytes()).hexdigest()}
+snapshot = root / source.name
+shutil.copy2(source, snapshot)
+shutil.copy2(__file__, root / 'build-recipe.py')
+generated = []
+for name, folder in [('xdg-shell', 'xdg-shell'), ('presentation-time', 'presentation-time')]:
+    protocol = args.protocols / 'stable' / folder / (name + '.xml')
+    inputs[str(protocol)] = hashlib.sha256(protocol.read_bytes()).hexdigest()
+    for mode, extension in [('client-header', '-client-protocol.h'), ('private-code', '-protocol.c')]:
+        target = root / (name + extension)
+        subprocess.run(['wayland-scanner', mode, str(protocol), str(target)], check=True)
+        if extension.endswith('.c'):
+            generated.append(str(target))
+command = [args.cc, '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-I' + str(root),
+           '-idirafter', '/usr/include', str(snapshot), *generated,
+           '-L' + str(args.sysroot / 'usr/lib'),
+           '-Wl,-rpath-link,' + str(args.sysroot / 'usr/lib'),
+           '-lwayland-client', '-lwayland-egl', '-lEGL', '-lGLESv2',
+           '-o', str(root / 'denial-render-workload')]
+subprocess.run(command, check=True)
+assert all(hashlib.sha256(Path(p).read_bytes()).hexdigest() == expected for p, expected in inputs.items()), 'Build inputs changed during compilation'
+manifest = {'command': command, 'source_and_protocol_sha256': inputs,
+            'source_snapshot': str(snapshot),
+            'builder_sha256': hashlib.sha256((root / 'build-recipe.py').read_bytes()).hexdigest(),
+            'compiler': subprocess.check_output([args.cc, '--version'], text=True),
+            'binary_sha256': hashlib.sha256((root / 'denial-render-workload').read_bytes()).hexdigest()}
+(root / 'build.json').write_text(json.dumps(manifest, indent=2) + '\n')
+print(root / 'denial-render-workload')

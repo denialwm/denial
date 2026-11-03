@@ -2,8 +2,16 @@
 
 use super::*;
 
+/// The session configuration a frontend starts with.
+pub(crate) struct FrontendConfig {
+    pub(crate) xwayland_enabled: bool,
+    pub(crate) work_area: crate::options::WorkAreaOptions,
+    pub(crate) scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
+    pub(crate) settings: SettingsManager,
+    pub(crate) shortcuts: ShortcutManager,
+}
+
 impl WaylandFrontend {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
         snapshot: &TopologySnapshot,
@@ -11,12 +19,15 @@ impl WaylandFrontend {
         seat_name: &str,
         display_device: DrmDeviceFd,
         render_device: DrmDeviceFd,
-        xwayland_enabled: bool,
-        work_area: crate::options::WorkAreaOptions,
-        scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
-        settings: SettingsManager,
-        shortcuts: ShortcutManager,
+        config: FrontendConfig,
     ) -> Result<Self, Box<dyn Error>> {
+        let FrontendConfig {
+            xwayland_enabled,
+            work_area,
+            scrolling_layout_axes,
+            settings,
+            shortcuts,
+        } = config;
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
         let loop_handle = event_loop.handle();
@@ -50,7 +61,11 @@ impl WaylandFrontend {
         #[cfg(feature = "flutter")]
         let idle_notifier = idle_notify::new(&display_handle, loop_handle.clone());
         let output_power = OutputPowerManager::new(&display_handle);
+        let shortcuts_inhibit =
+            shortcuts_inhibit::ShortcutsInhibit::new(&display_handle, &loop_handle)?;
+        let input_timestamps = input_timestamps::InputTimestamps::new(&display_handle);
         let gamma_control = gamma_control::GammaControlManager::new(&display_handle);
+        let color_management = color_management::ColorManagement::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
         let text_input = TextInputManager::new(&display_handle);
         let input_method = InputMethodManager::new(&display_handle);
@@ -105,7 +120,7 @@ impl WaylandFrontend {
             i32::try_from(keyboard.repeat_rate_hz)?,
         )?;
         seat.add_pointer();
-        seat.add_touch();
+        seat.add_touch_with_default_grab(|| Box::new(denial_core::touch_grab::DefaultTouchGrab));
         let popups = PopupManager::default();
         let mut space = Space::default();
 
@@ -280,7 +295,9 @@ impl WaylandFrontend {
             );
         }
         let libinput = init_libinput(event_loop, session.clone(), seat_name)?;
-        Ok(Self {
+        #[cfg(feature = "flutter")]
+        let input_rescan = super::input_hotplug::init(event_loop, &session)?;
+        let mut frontend = Self {
             output_metadata_device: display_device,
             start_time: Instant::now(),
             socket_name,
@@ -307,11 +324,11 @@ impl WaylandFrontend {
             dmabuf_render_node: None,
             pending_dmabuf_imports: Vec::new(),
             dmabuf_import_queue_saturated: false,
-            surface_buffers: HashMap::new(),
+            buffered_surfaces: HashSet::new(),
             #[cfg(feature = "flutter")]
             surface_shm_frames: HashMap::new(),
             #[cfg(feature = "flutter")]
-            shm_snapshot_pool: Arc::new(ShmSnapshotPool::new()),
+            shm_snapshot_pool: Arc::new(ShmSnapshotPool::new_for_device(render_device.clone())),
             #[cfg(feature = "flutter")]
             shm_snapshot_bytes: 0,
             #[cfg(feature = "flutter")]
@@ -343,6 +360,8 @@ impl WaylandFrontend {
             output_window_membership: OutputWindowMembership::default(),
             #[cfg(feature = "flutter")]
             pending_frame_callback_windows: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            minimized_windows: Default::default(),
             #[cfg(feature = "flutter")]
             pending_layer_frame_callback_roots: HashSet::new(),
             #[cfg(feature = "flutter")]
@@ -432,6 +451,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             client_touch_routes: HashMap::new(),
             #[cfg(feature = "flutter")]
+            edge_swipe_candidates: HashMap::new(),
+            #[cfg(feature = "flutter")]
             client_touch_frame_pending: false,
             #[cfg(feature = "flutter")]
             touch_gestures: touch_gestures::TouchGestureState::default(),
@@ -471,6 +492,8 @@ impl WaylandFrontend {
             session,
             layer_shell_state,
             libinput,
+            #[cfg(feature = "flutter")]
+            input_rescan,
             settings,
             shortcuts,
             keyboard_layout_names,
@@ -485,6 +508,8 @@ impl WaylandFrontend {
             mobile_shell: denial_core::environment::var("DENIAL_SHELL_PROFILE").as_deref()
                 == Ok("mobile"),
             #[cfg(feature = "flutter")]
+            last_press_output: None,
+            #[cfg(feature = "flutter")]
             idle_inhibitors,
             #[cfg(feature = "flutter")]
             idle_inhibition_dirty: true,
@@ -493,9 +518,14 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             idle_notifier,
             output_power,
+            shortcuts_inhibit,
+            input_timestamps,
             gamma_control,
+            color_management,
             screencopy,
             text_input,
+            #[cfg(feature = "flutter")]
+            keyboard_insets: Default::default(),
             input_method,
             outputs,
             scrolling_layout_axes,
@@ -505,6 +535,8 @@ impl WaylandFrontend {
             damage_tracker,
             next_window_offset: 48,
             desktop_bounds,
+            #[cfg(feature = "flutter")]
+            input_deck_output: None,
             touch_bounds,
             touch_transform,
             tablet_output_mappings: HashMap::new(),
@@ -513,7 +545,9 @@ impl WaylandFrontend {
             atlas_origin,
             atlas_scale,
             atlas_size,
-        })
+        };
+        frontend.refresh_color_outputs();
+        Ok(frontend)
     }
 }
 

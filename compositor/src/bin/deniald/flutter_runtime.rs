@@ -27,7 +27,7 @@ use denial_flutter_engine::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineError, EngineEvent,
     EngineHost, EngineLibrary, EngineLocale, EngineProject, OpenGlHandler, PlatformMessage,
     PresentFrame, PresentView, RenderOutput, RenderOutputFfiScratch, RenderOutputTransform,
-    RendererBackend, ScheduledTask, sys,
+    ScheduledTask, sys,
 };
 use sha2::{Digest, Sha256};
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -47,6 +47,7 @@ use smithay::reexports::calloop::channel::Sender;
 use smithay::utils::{Logical, Size};
 use tracing::{debug, error, info, warn};
 
+use super::ambient_display;
 use super::egl_context;
 use super::frame_scheduler::{OutputFrameRequest, PendingFrame};
 use super::idle_policy;
@@ -55,6 +56,7 @@ use super::wire::{self, WireBridge};
 
 #[path = "flutter_runtime/fingerprint_scene.rs"]
 mod fingerprint_scene;
+pub(crate) use fingerprint_scene::FingerprintLayout;
 #[path = "flutter_runtime/lock_frame.rs"]
 mod lock_frame;
 #[path = "flutter_runtime/mouse_cursor.rs"]
@@ -74,7 +76,7 @@ mod cursor_bridge;
 mod damage;
 #[path = "flutter_runtime/engine_session.rs"]
 mod engine_session;
-pub(crate) use engine_session::PreparedFlutterRenderer;
+pub(crate) use engine_session::{FlutterLaunch, PreparedFlutterRenderer};
 #[path = "flutter_runtime/event_pipeline.rs"]
 mod event_pipeline;
 #[path = "flutter_runtime/input.rs"]
@@ -103,8 +105,8 @@ pub use input::InputQueue;
 use input::{InputRecord, KeyboardRecord, flutter_physical_scroll_delta, glfw_keycode};
 pub use output_pipeline::ReadyOutputFrame;
 use output_pipeline::{
-    OutputBufferBroker, OutputPoolDescriptor, PendingVsyncBatons, RenderTargetBlocked,
-    VsyncRegistration,
+    FrameCompletion, OutputBufferBroker, OutputPoolDescriptor, PendingVsyncBatons,
+    RenderTargetBlocked, VsyncRegistration,
 };
 use render_audit::{RenderAuditStage, RenderDamageAudit};
 pub use renderer::SampledBufferHoldBatch;
@@ -135,6 +137,10 @@ const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
 const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
 const MAX_CACHED_SHM_BINDINGS: usize = 32;
+// SHM revisions own distinct GPU uploads. Unlike rotating dma-bufs, old
+// revisions are not reusable client storage. Keep a small recent ring per
+// surface while retaining the existing compositor-wide cache bound.
+const MAX_CACHED_SHM_REVISIONS_PER_TEXTURE: usize = 3;
 const MAX_CACHED_EXTERNAL_TEXTURE_LEASES: usize = 256;
 const MAX_RECYCLED_SAMPLED_BUFFER_BATCHES: usize = 8;
 const MAX_RECYCLED_SHM_BUFFERS: usize = 8;
@@ -146,12 +152,17 @@ const MAX_RETAINED_WINDOW_CLOSE_LEASES: usize = 4096;
 const MAX_PLATFORM_TASKS_PER_DISPATCH: usize = 256;
 const INITIAL_PLATFORM_TASK_BATCH_CAPACITY: usize = 64;
 const MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES: usize = 1024;
-const PLATFORM_TASK_MAX_DISPATCH_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_PENDING_AUDIO_REQUESTS: usize = 128;
 const MAX_PENDING_BRIGHTNESS_REQUESTS: usize = 128;
 const MAX_PENDING_SOFTWARE_DIMMING_REQUESTS: usize = 128;
 const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
 const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a merged native window image stays registered after its window
+/// stops publishing it. Flutter's previous scene names it until Dart has
+/// built a frame from the new window list, and every raster of that scene
+/// before then would draw the window without content. Chromium does this
+/// whenever a tooltip subsurface unmaps.
+const NATIVE_TEXTURE_RETIREMENT_GRACE: Duration = Duration::from_millis(500);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
 const OUTPUT_ROTATION_ANIMATION_DURATION: Duration = Duration::from_millis(300);
@@ -165,7 +176,12 @@ pub(super) struct OutputRenderTargetPool<'a> {
     pub configuration_generation: u64,
     pub size: PixelSize,
     pub initial_scanout: usize,
+    /// Gamut correction for the copy from an off-screen target to scanout.
+    pub color: Option<crate::output_color::OutputColor>,
     pub dmabufs: Vec<(&'a Dmabuf, Option<&'a Dmabuf>)>,
+    /// None preserves direct same-device rendering. Source slots and final
+    /// scanout slots share an index, but have distinct storage and completion.
+    pub transfers: Vec<Option<Arc<crate::gpu_transfer::TransferTarget>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -189,10 +205,9 @@ impl FlutterRuntimeFactory {
         bundle: &Path,
         engine_bundle: &Path,
         runtime: DartRuntimeMode,
-        renderer_backend: RendererBackend,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut project = project_from_bundle(bundle, runtime, renderer_backend)?;
-        let official = project_from_bundle(engine_bundle, DartRuntimeMode::Aot, renderer_backend)?;
+        let mut project = project_from_bundle(bundle, runtime)?;
+        let official = project_from_bundle(engine_bundle, DartRuntimeMode::Aot)?;
         project.engine_library = official.engine_library;
         let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
         Ok(Self {
@@ -201,12 +216,8 @@ impl FlutterRuntimeFactory {
             library,
         })
     }
-    pub fn new(
-        bundle: &Path,
-        runtime: DartRuntimeMode,
-        renderer_backend: RendererBackend,
-    ) -> Result<Self, Box<dyn Error>> {
-        let project = project_from_bundle(bundle, runtime, renderer_backend)?;
+    pub fn new(bundle: &Path, runtime: DartRuntimeMode) -> Result<Self, Box<dyn Error>> {
+        let project = project_from_bundle(bundle, runtime)?;
         let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
         Ok(Self {
             bundle: bundle.to_owned(),
@@ -278,12 +289,13 @@ impl Ord for QueuedPlatformTask {
     }
 }
 
-fn platform_task_dispatch_timeout(tasks: &BinaryHeap<QueuedPlatformTask>, now: u64) -> Duration {
+fn platform_task_dispatch_timeout(
+    tasks: &BinaryHeap<QueuedPlatformTask>,
+    now: u64,
+) -> Option<Duration> {
     tasks
         .peek()
         .map(|queued| Duration::from_nanos(queued.task.target_time_nanos.saturating_sub(now)))
-        .unwrap_or(PLATFORM_TASK_MAX_DISPATCH_TIMEOUT)
-        .min(PLATFORM_TASK_MAX_DISPATCH_TIMEOUT)
 }
 
 fn take_next_due_platform_task(
@@ -333,6 +345,13 @@ struct WindowCloseTextureLeases {
 impl WindowCloseTextureLeases {
     fn is_empty(&self) -> bool {
         self.closing_windows.is_empty()
+    }
+
+    fn next_expiry(&self) -> Option<Instant> {
+        self.closing_windows
+            .values()
+            .map(|lease| lease.expires_at)
+            .min()
     }
 
     fn publish(
@@ -443,7 +462,7 @@ fn window_texture_map(windows: &[wire::WindowDescription]) -> HashMap<u64, Vec<i
         .iter()
         .filter(|window| !window.content_kind.is_layer_shell())
     {
-        let texture_ids = if window.surfaces.is_empty() {
+        let mut texture_ids: Vec<i64> = if window.surfaces.is_empty() {
             i64::try_from(window.texture_id)
                 .ok()
                 .filter(|texture_id| *texture_id > 0)
@@ -457,6 +476,9 @@ fn window_texture_map(windows: &[wire::WindowDescription]) -> HashMap<u64, Vec<i
                 .filter(|texture_id| *texture_id > 0)
                 .collect()
         };
+        if let Some(client) = window.client_texture {
+            texture_ids.push(client.texture_id as i64);
+        }
         textures.insert(window.window_id, texture_ids);
     }
     textures
@@ -519,8 +541,11 @@ pub struct FlutterRuntime {
     pending_brightness_requests: VecDeque<super::system_controls::BrightnessRequest>,
     pending_software_dimming_requests: VecDeque<super::gamma_control::SoftwareDimmingRequest>,
     pending_ui_development_commands: VecDeque<super::ui_development::UiDevelopmentCommand>,
+    pub(super) input_deck_commands: VecDeque<super::input_deck::Command>,
+    pub(super) input_deck_snapshot: Option<super::input_deck::Snapshot>,
     pending_idle_policy: Option<idle_policy::IdlePolicyConfiguration>,
-    pending_dpms_off: bool,
+    pending_display_power: Option<idle_policy::DisplayPowerRequest>,
+    pending_ambient_display_ready: bool,
     pending_vm_service_uri: Option<String>,
     generation: u64,
     scheduled_tasks: BinaryHeap<QueuedPlatformTask>,
@@ -546,6 +571,9 @@ pub struct FlutterRuntime {
     pending_screenshot_frame: Option<(OutputId, u64)>,
     scene_texture_id_scratch: Vec<i64>,
     window_close_texture_leases: WindowCloseTextureLeases,
+    /// Merged native window images no longer published, by unregistration
+    /// deadline. See `NATIVE_TEXTURE_RETIREMENT_GRACE`.
+    retiring_native_textures: HashMap<i64, Instant>,
     pending_frame_texture_ids: Vec<i64>,
     pointer_event_scratch: Vec<sys::FlutterPointerEvent>,
     key_event_scratch: Vec<u8>,
@@ -555,10 +583,11 @@ pub struct FlutterRuntime {
     outputs_visible: Option<bool>,
     lock_frame_gate: lock_frame::LockFrameGate,
     fingerprint_scene: fingerprint_scene::FingerprintScene,
-    published_text_input_state: Option<(bool, bool, bool, u32, u32, u64)>,
+    published_text_input_state: Option<crate::wayland_frontend::SoftwareKeyboardState>,
     frame_ready_observed: bool,
     first_frame_received: bool,
     last_pointer_timestamp_micros: usize,
+    touch_timing: input::TouchTimingAudit,
 }
 
 /// Keeps one published physical-output target unavailable to Flutter while an
@@ -616,7 +645,6 @@ impl Drop for FlutterRuntime {
 fn project_from_bundle(
     bundle: &Path,
     runtime: DartRuntimeMode,
-    renderer_backend: RendererBackend,
 ) -> Result<EngineProject, Box<dyn Error>> {
     let engine_library = first_file(&[
         bundle.join("lib/libflutter_engine.so"),
@@ -651,12 +679,12 @@ fn project_from_bundle(
         icu_data,
         runtime,
         aot_library,
-        renderer_backend,
         // Flutter derives 48 bytes per physical viewport pixel, which gives a
         // 5120x1440 virtual desktop a 337.5 MiB cache. Keep the official
         // adaptive behavior below the cap while preventing large multi-output
         // scenes from retaining more than a conservative desktop-sized budget.
         resource_cache_max_bytes_threshold: FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD,
+        float_color: false,
     })
 }
 

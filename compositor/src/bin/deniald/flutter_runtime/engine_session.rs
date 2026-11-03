@@ -24,13 +24,13 @@ struct PreparedOutputPool {
     // Keep the native allocations alive and compare their identity, not just
     // dimensions/format: a newly allocated pool requires newly imported FBOs.
     dmabufs: Vec<(Dmabuf, Option<Dmabuf>)>,
+    transfer_ids: Vec<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct PreparedRendererConfiguration {
     pools: Vec<PreparedOutputPool>,
     desktop_size: PixelSize,
-    renderer_backend: RendererBackend,
     offscreen_blit: bool,
 }
 
@@ -38,7 +38,6 @@ impl PreparedRendererConfiguration {
     fn new(
         pools: &[OutputRenderTargetPool<'_>],
         desktop_size: PixelSize,
-        renderer_backend: RendererBackend,
         offscreen_blit: bool,
     ) -> Self {
         Self {
@@ -50,6 +49,15 @@ impl PreparedRendererConfiguration {
                     configuration_generation: pool.configuration_generation,
                     size: pool.size,
                     initial_scanout: pool.initial_scanout,
+                    transfer_ids: pool
+                        .transfers
+                        .iter()
+                        .map(|target| {
+                            target
+                                .as_ref()
+                                .map_or(0, |target| Arc::as_ptr(target) as usize)
+                        })
+                        .collect(),
                     dmabufs: pool
                         .dmabufs
                         .iter()
@@ -58,7 +66,6 @@ impl PreparedRendererConfiguration {
                 })
                 .collect(),
             desktop_size,
-            renderer_backend,
             offscreen_blit,
         }
     }
@@ -76,17 +83,12 @@ impl PreparedFlutterRenderer {
         shared_context: &EGLContext,
         output_pools: impl IntoIterator<Item = OutputRenderTargetPool<'a>>,
         desktop_size: PixelSize,
-        renderer_backend: RendererBackend,
         offscreen_blit: bool,
         events: Sender<RuntimeEvent>,
     ) -> Result<Self, Box<dyn Error>> {
         let output_pools = output_pools.into_iter().collect::<Vec<_>>();
-        let configuration = PreparedRendererConfiguration::new(
-            &output_pools,
-            desktop_size,
-            renderer_backend,
-            offscreen_blit,
-        );
+        let configuration =
+            PreparedRendererConfiguration::new(&output_pools, desktop_size, offscreen_blit);
         let render_context = egl_context::create_shared_context("Flutter raster", shared_context)?;
         let resource_context =
             egl_context::create_shared_context("Flutter resource", shared_context)?;
@@ -95,7 +97,6 @@ impl PreparedFlutterRenderer {
             resource_context,
             output_pools,
             desktop_size,
-            renderer_backend,
             offscreen_blit,
             events,
             0,
@@ -117,6 +118,7 @@ impl PreparedFlutterRenderer {
         Arc::get_mut(&mut self.handler)
             .ok_or("prepared Flutter renderer is already shared")?
             .assign_generation(generation);
+        *lock(&self.handler.completion_owner) = Arc::downgrade(&self.handler);
         info!(
             generation,
             "starting Flutter with retained prepared output targets"
@@ -125,26 +127,43 @@ impl PreparedFlutterRenderer {
     }
 }
 
+/// The launcher's half of an engine start: which bundle runs, and the session
+/// services the engine stays wired to for its whole life.
+pub(crate) struct FlutterLaunch<'a> {
+    pub(crate) factory: &'a FlutterRuntimeFactory,
+    pub(crate) generation: u64,
+    pub(crate) offscreen_blit: bool,
+    pub(crate) events: Sender<RuntimeEvent>,
+    pub(crate) authentication: Arc<crate::authentication::AuthenticationController>,
+    pub(crate) clipboard: crate::clipboard::ClipboardManager,
+    pub(crate) work_area: crate::options::WorkAreaOptions,
+    pub(crate) wayland_display: Option<OsString>,
+    pub(crate) x11_display: Option<OsString>,
+    pub(crate) output_control_socket: Option<OsString>,
+}
+
 impl FlutterRuntime {
-    #[allow(clippy::too_many_arguments)]
-    pub fn start<'a>(
+    pub(crate) fn start<'a>(
+        launch: FlutterLaunch<'_>,
         shared_context: &EGLContext,
         output_pools: impl IntoIterator<Item = OutputRenderTargetPool<'a>>,
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
         refresh_millihz: u32,
-        offscreen_blit: bool,
-        factory: &FlutterRuntimeFactory,
-        events: Sender<RuntimeEvent>,
-        authentication: Arc<crate::authentication::AuthenticationController>,
-        clipboard: crate::clipboard::ClipboardManager,
-        work_area: crate::options::WorkAreaOptions,
-        generation: u64,
-        wayland_display: Option<OsString>,
-        x11_display: Option<OsString>,
-        output_control_socket: Option<OsString>,
         prepared: Option<PreparedFlutterRenderer>,
     ) -> Result<Self, Box<dyn Error>> {
+        let FlutterLaunch {
+            factory,
+            generation,
+            offscreen_blit,
+            events,
+            authentication,
+            clipboard,
+            work_area,
+            wayland_display,
+            x11_display,
+            output_control_socket,
+        } = launch;
         let wire = WireBridge::new(snapshot, atlas, work_area)?;
         let render_outputs = atlas
             .render_outputs(snapshot)
@@ -176,26 +195,27 @@ impl FlutterRuntime {
             })
             .collect::<Vec<_>>();
         let output_pools = output_pools.into_iter().collect::<Vec<_>>();
-        let expected = PreparedRendererConfiguration::new(
-            &output_pools,
-            atlas.pixel_size,
-            factory.project.renderer_backend,
-            offscreen_blit,
-        );
+        let expected =
+            PreparedRendererConfiguration::new(&output_pools, atlas.pixel_size, offscreen_blit);
         let prepared = match prepared {
             Some(prepared) => prepared,
             None => PreparedFlutterRenderer::new(
                 shared_context,
                 output_pools,
                 atlas.pixel_size,
-                factory.project.renderer_backend,
                 offscreen_blit,
                 events,
             )?,
         };
         let handler = prepared.into_handler(&expected, generation)?;
+        // The output pools are already built: an HDR output among them makes
+        // the scene extended, and Impeller must keep its range.
+        let project = EngineProject {
+            float_color: crate::output_color::scene_encoding().extended,
+            ..factory.project.clone()
+        };
         let host = EngineHost::start_with_library_and_priority_setter(
-            &factory.project,
+            &project,
             handler.clone(),
             Arc::clone(&factory.library),
             Some(crate::cpu_scheduling::set_flutter_thread_priority),
@@ -285,8 +305,11 @@ impl FlutterRuntime {
             pending_brightness_requests: VecDeque::with_capacity(16),
             pending_software_dimming_requests: VecDeque::with_capacity(16),
             pending_ui_development_commands: VecDeque::with_capacity(8),
+            input_deck_commands: VecDeque::new(),
+            input_deck_snapshot: None,
             pending_idle_policy: None,
-            pending_dpms_off: false,
+            pending_display_power: None,
+            pending_ambient_display_ready: false,
             pending_vm_service_uri: None,
             generation,
             scheduled_tasks: BinaryHeap::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
@@ -312,6 +335,7 @@ impl FlutterRuntime {
             pending_screenshot_frame: None,
             scene_texture_id_scratch: Vec::new(),
             window_close_texture_leases: WindowCloseTextureLeases::default(),
+            retiring_native_textures: HashMap::new(),
             pending_frame_texture_ids: Vec::new(),
             pointer_event_scratch: Vec::with_capacity(64),
             key_event_scratch: Vec::with_capacity(160),
@@ -325,6 +349,7 @@ impl FlutterRuntime {
             frame_ready_observed: false,
             first_frame_received: false,
             last_pointer_timestamp_micros: 0,
+            touch_timing: input::TouchTimingAudit::default(),
         })
     }
 
@@ -338,7 +363,6 @@ impl FlutterRuntime {
         }
         let engine_now = usize::try_from(self.host().engine().current_time_nanos() / 1_000)
             .unwrap_or(usize::MAX);
-        let mut timestamp = engine_now.max(self.last_pointer_timestamp_micros.saturating_add(1));
         // The engine consumes this slice synchronously. Reuse its backing
         // allocation because libinput commonly wakes us once per pointer
         // sample, which otherwise causes one allocator round-trip per event.
@@ -357,6 +381,20 @@ impl FlutterRuntime {
             };
             match event {
                 InputRecord::Pointer(event) => {
+                    // Prefer the device's sample time, which Flutter's touch
+                    // resampling and velocity tracking interpolate against.
+                    // Never stamp the future, and keep the stamps strictly
+                    // increasing across devices as before.
+                    let sampled_at = event
+                        .sampled_at_micros
+                        .and_then(|micros| usize::try_from(micros).ok());
+                    let timestamp = sampled_at
+                        .map_or(engine_now, |micros| micros.min(engine_now))
+                        .max(self.last_pointer_timestamp_micros.saturating_add(1));
+                    if let Some(sampled_at) = sampled_at {
+                        self.touch_timing
+                            .record(event.device, event.phase, sampled_at, engine_now);
+                    }
                     pointer_events.push(sys::FlutterPointerEvent {
                         struct_size: mem::size_of::<sys::FlutterPointerEvent>(),
                         phase: event.phase,
@@ -383,7 +421,6 @@ impl FlutterRuntime {
                         ..sys::FlutterPointerEvent::default()
                     });
                     self.last_pointer_timestamp_micros = timestamp;
-                    timestamp = timestamp.saturating_add(1);
                 }
                 InputRecord::Keyboard(event) => {
                     self.flush_pointer_events(&mut pointer_events)?;
@@ -531,6 +568,9 @@ impl FlutterRuntime {
         if !self.window_close_texture_leases.is_empty() {
             self.expire_window_close_texture_leases()?;
         }
+        if !self.retiring_native_textures.is_empty() {
+            self.expire_retiring_native_textures(Instant::now())?;
+        }
         if self.authentication.has_pending_events() {
             self.publish_authentication_events()?;
         }
@@ -564,12 +604,27 @@ impl FlutterRuntime {
         Ok(())
     }
 
-    pub fn next_dispatch_timeout(&self) -> Duration {
-        if self.scheduled_tasks.is_empty() {
-            return PLATFORM_TASK_MAX_DISPATCH_TIMEOUT;
-        }
-        let now = self.host().engine().current_time_nanos();
-        platform_task_dispatch_timeout(&self.scheduled_tasks, now)
+    /// How long the loop may sleep before the runtime has timed work: the
+    /// next platform task, or a close-frame lease or texture retirement that
+    /// runs out. New tasks wake the loop through `PlatformTasksReady`.
+    pub fn next_dispatch_timeout(&self, now: Instant) -> Duration {
+        let task = if self.scheduled_tasks.is_empty() {
+            None
+        } else {
+            let engine_now = self.host().engine().current_time_nanos();
+            platform_task_dispatch_timeout(&self.scheduled_tasks, engine_now)
+        };
+        let expiry = self
+            .window_close_texture_leases
+            .next_expiry()
+            .into_iter()
+            .chain(self.retiring_native_textures.values().copied())
+            .min()
+            .map(|deadline| deadline.saturating_duration_since(now));
+        task.into_iter()
+            .chain(expiry)
+            .min()
+            .unwrap_or(Duration::MAX)
     }
 
     pub fn take_ready_frame(
@@ -606,6 +661,7 @@ impl FlutterRuntime {
             .engine()
             .send_platform_message(FLUTTER_LIFECYCLE_CHANNEL, state)?;
         self.outputs_visible = Some(visible);
+        crate::cpu_scheduling::outputs_visible(visible);
         info!(
             visible,
             lifecycle = std::str::from_utf8(state).unwrap_or("unknown"),

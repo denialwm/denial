@@ -1,6 +1,8 @@
 /// Public Denial settings APIs.
 library;
 
+export 'src/settings/input_deck_settings.dart' show InputDeckSettings;
+
 export 'src/settings/color_format.dart'
     show formatOpaqueColorHex, opaqueColorRgb, parseOpaqueColorHex;
 export 'src/settings/fingerprint/fingerprint_service.dart'
@@ -9,6 +11,23 @@ export 'src/settings/fingerprint/fingerprint_service.dart'
         fingerprintDeviceProvider,
         fingerprintNames,
         fingerprintSessionProvider;
+export 'src/settings/lock_pin/lock_pin_service.dart'
+    show
+        LockPinOutcome,
+        LockPinService,
+        isValidLockPin,
+        lockPinLengthProvider,
+        lockPinMaxLength,
+        lockPinMinLength,
+        lockPinServiceProvider;
+export 'src/settings/permissions/app_permissions.dart'
+    show
+        AppPermission,
+        AppPermissionAnswer,
+        AppPermissionAnswers,
+        AppPermissionsService,
+        appPermissionsProvider,
+        appPermissionsServiceProvider;
 export 'src/settings/monitor_arrangement.dart'
     show
         MonitorArrangementGeometry,

@@ -1,35 +1,49 @@
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
+import 'package:denial_desktop/src/state/reference_shell_state.dart';
 
+import 'package:flutter/gestures.dart' show DeviceGestureSettings;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/platform.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 
 import 'osk/shell_osk_panel.dart';
+import '../state/input_deck.dart';
 
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/effects.dart';
 
-/// Keeps the mobile software keyboard above applications and shell surfaces,
+/// Keeps the software keyboard above applications and shell surfaces,
 /// including the compositor-owned lock screen.
-class MobileSystemKeyboardLayer extends ConsumerWidget {
-  const MobileSystemKeyboardLayer({super.key});
+class SystemKeyboardLayer extends ConsumerWidget {
+  const SystemKeyboardLayer({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final enabled = ref.watch(
       referenceShellProvider.select((state) => !state.launchTransitionActive),
     );
+    final deckActive = ref.watch(
+      inputDeckProvider.select((deck) => deck.activeOutput != null),
+    );
+    final showKeyboard =
+        enabled &&
+        (!deckActive ||
+            ref.watch(referenceShellProvider.select((state) => state.locked)));
     return Offstage(
-      offstage: !enabled,
+      offstage: !showKeyboard,
       child: TickerMode(
-        enabled: enabled,
-        child: IgnorePointer(ignoring: !enabled, child: const EdgePanelLayer()),
+        enabled: showKeyboard,
+        child: IgnorePointer(
+          ignoring: !showKeyboard,
+          child: const EdgePanelLayer(),
+        ),
       ),
     );
   }
@@ -41,9 +55,17 @@ class MobileSystemKeyboardLayer extends ConsumerWidget {
 /// every full-screen surface that should follow the user's viewport pan wraps
 /// itself in this boundary instead of duplicating the translation.
 class MobileKeyboardViewport extends ConsumerStatefulWidget {
-  const MobileKeyboardViewport({required this.child, super.key});
+  const MobileKeyboardViewport({
+    required this.child,
+    this.appScene = false,
+    super.key,
+  });
 
   final Widget child;
+
+  /// The application scene stays in place while its primary window lays
+  /// itself out around the keyboard (denial-insets-v1 keyboard inset).
+  final bool appScene;
 
   @override
   ConsumerState<MobileKeyboardViewport> createState() =>
@@ -61,6 +83,13 @@ class _MobileKeyboardViewportState
     _translation.value = Offset(0, -(keyboardOffset - scroll));
   }
 
+  ({double progress, double scroll}) _position(ReferenceShellState state) => (
+    progress: widget.appScene && state.primaryWindowHandlesKeyboard
+        ? 0.0
+        : state.edgePanelDragProgress,
+    scroll: state.edgePanelViewportScroll,
+  );
+
   @override
   void dispose() {
     _translation.dispose();
@@ -70,12 +99,7 @@ class _MobileKeyboardViewportState
   @override
   Widget build(BuildContext context) {
     ref.listen(
-      referenceShellProvider.select(
-        (state) => (
-          progress: state.edgePanelDragProgress,
-          scroll: state.edgePanelViewportScroll,
-        ),
-      ),
+      referenceShellProvider.select(_position),
       (_, next) => _updateTranslation(next),
     );
     return LayoutBuilder(
@@ -83,14 +107,11 @@ class _MobileKeyboardViewportState
         _panelHeight = ReferenceShellMetrics.edgePanelHeight(
           constraints.biggest,
         );
-        final state = ref.read(referenceShellProvider);
-        _updateTranslation((
-          progress: state.edgePanelDragProgress,
-          scroll: state.edgePanelViewportScroll,
-        ));
-        return RetainedTranslation(
+        _updateTranslation(_position(ref.read(referenceShellProvider)));
+        return CompositedTranslation(
           translation: _translation,
-          child: RepaintBoundary(child: widget.child),
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          child: widget.child,
         );
       },
     );
@@ -112,6 +133,9 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
   bool _shown = false;
   bool _scrollReady = false;
 
+  /// The keyboard height last reported to applications laid out around it.
+  int? _reportedHeight;
+
   @override
   void initState() {
     super.initState();
@@ -126,10 +150,39 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _panelHeight = ReferenceShellMetrics.edgePanelHeight(
+      MediaQuery.sizeOf(context),
+    );
+    _updateTranslation();
+    _reportMotion(ref.read(referenceShellProvider).edgePanelVisible);
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     _translation.dispose();
     super.dispose();
+  }
+
+  /// Tells applications laid out around the keyboard where it settles and
+  /// how long the spring there takes, once per motion. A drag is reported
+  /// when it is released.
+  void _reportMotion(bool visible) {
+    final height = visible ? _panelHeight.round() : 0;
+    if (height == _reportedHeight) return;
+    _reportedHeight = height;
+    ref
+        .read(denialBridgeProvider)
+        .reportKeyboardPanelMotion(
+          height,
+          springSettleDuration(
+            _controller.value,
+            visible ? 1.0 : 0.0,
+            extent: _panelHeight,
+          ),
+        );
   }
 
   void _updateTranslation() {
@@ -157,6 +210,7 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
       _controller.stop();
       _controller.value = drag;
     } else {
+      _reportMotion(visible);
       springTo(
         _controller,
         visible ? 1.0 : 0.0,
@@ -168,10 +222,6 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
 
   @override
   Widget build(BuildContext context) {
-    _panelHeight = ReferenceShellMetrics.edgePanelHeight(
-      MediaQuery.sizeOf(context),
-    );
-    _updateTranslation();
     ref.listen<(bool, double, bool)>(
       referenceShellProvider.select(
         (state) => (
@@ -224,19 +274,21 @@ class _EdgePanelGestureTarget extends ConsumerWidget {
       bottom: ReferenceShellMetrics.gestureBottomInset,
       width: ReferenceShellMetrics.edgePanelGestureWidth,
       height: ReferenceShellMetrics.edgePanelGestureHeight,
-      child: IgnorePointer(
-        ignoring: edgePanelVisible,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
-          onVerticalDragUpdate: (details) {
-            controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
-          },
-          onVerticalDragEnd: (details) {
-            controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
-          },
-          onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
-          child: const SizedBox.expand(),
+      child: TextFieldTapRegion(
+        child: IgnorePointer(
+          ignoring: edgePanelVisible,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
+            onVerticalDragUpdate: (details) {
+              controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
+            },
+            onVerticalDragEnd: (details) {
+              controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
+            },
+            onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
+            child: const SizedBox.expand(),
+          ),
         ),
       ),
     );
@@ -283,28 +335,39 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
 class _EdgePanelSheet extends ConsumerWidget {
   const _EdgePanelSheet();
 
+  /// How far a finger travels before it drags the sheet instead of typing:
+  /// about half a key, twice the default slop, so a key touch that wanders
+  /// still types.
+  static const _dragSlop = 36.0;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(referenceShellProvider.notifier);
     final size = MediaQuery.sizeOf(context);
     final panelHeight = ReferenceShellMetrics.edgePanelHeight(size);
+    final media = MediaQuery.of(context);
 
     return Align(
       alignment: Alignment.bottomCenter,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
-        onVerticalDragUpdate: (details) {
-          controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
-        },
-        onVerticalDragEnd: (details) {
-          controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
-        },
-        onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
-        child: SizedBox(
-          width: double.infinity,
-          height: panelHeight,
-          child: const _EdgePanelContent(),
+      child: MediaQuery(
+        data: media.copyWith(
+          gestureSettings: const DeviceGestureSettings(touchSlop: _dragSlop),
+        ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragStart: (_) => controller.startEdgePanelDrag(),
+          onVerticalDragUpdate: (details) {
+            controller.updateEdgePanelDrag(Offset(0.0, details.delta.dy));
+          },
+          onVerticalDragEnd: (details) {
+            controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
+          },
+          onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
+          child: SizedBox(
+            width: double.infinity,
+            height: panelHeight,
+            child: const _EdgePanelContent(),
+          ),
         ),
       ),
     );
@@ -318,32 +381,54 @@ class _EdgePanelContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bridge = ref.read(denialBridgeProvider);
     final haptics = ref.read(hapticsServiceProvider);
-    final theme = ShellTheme.of(context);
-    return ShellBackdropBlur(
-      separateChild: true,
-      blur: theme.effectivePanelOpacity < 1.0,
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(theme.panelRadius),
+    final vibrate = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.sound.keyboardVibration,
       ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.panelColor(context.shellColors.panelBackground),
-          border: Border(
-            top: BorderSide(color: context.shellColors.hairline, width: 1),
+    );
+    final theme = ShellTheme.of(context);
+    // The keys sit beside the clipped glass, not in it: key popups rise
+    // above the panel's top edge.
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        ShellBackdropBlur(
+          separateChild: true,
+          blur: theme.effectivePanelOpacity < 1.0,
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(theme.panelRadius),
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.panelColor(context.shellColors.panelBackground),
+              border: Border(
+                top: BorderSide(color: context.shellColors.hairline, width: 1),
+              ),
+            ),
           ),
         ),
-        child: RepaintBoundary(
+        RepaintBoundary(
           // Keep OSK presses inside the focused EditableText tap group. A
           // keyboard key must not look like an outside tap and retire the
           // editor before its command is delivered.
           child: TextFieldTapRegion(
             child: ShellOskPanel(
-              onKeyTap: haptics.pulse,
+              onKeyDown: vibrate ? haptics.pulse : null,
               onKey: (intent) => _sendOskIntent(bridge, intent),
+              textInputStates: bridge.textInputStates,
+              predictions: bridge.textPredictions,
+              onPredict: (word) => bridge.requestTextPrediction(
+                serial: word.serial,
+                word: word.word,
+                touchX: word.touchX,
+                touchY: word.touchY,
+                manualCapital: word.manualCapital,
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -360,17 +445,11 @@ class _EdgePanelContent extends ConsumerWidget {
           bridge.sendKeyboardText(' ');
         }
       case ShellOskKeyAction.backspace:
-        final key = intent.key ?? 'BackSpace';
-        switch (intent.phase) {
-          case ShellOskKeyPhase.tap:
-            bridge.sendKeyboardKey(key, ctrl: intent.ctrl);
-          case ShellOskKeyPhase.pressed:
-            bridge.pressKeyboardKey(key);
-          case ShellOskKeyPhase.released:
-            bridge.releaseKeyboardKey(key);
-        }
+        bridge.sendKeyboardKey(intent.key ?? 'BackSpace', ctrl: intent.ctrl);
       case ShellOskKeyAction.enter:
         bridge.sendKeyboardKey(intent.key ?? 'Return', ctrl: intent.ctrl);
+      case ShellOskKeyAction.replace:
+        bridge.sendKeyboardReplace(intent.replaced ?? '', intent.text ?? '');
     }
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:denial_flutter_sdk/materials.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
@@ -77,6 +79,7 @@ class SettingsAppearancePage extends StatefulWidget {
     required this.onImportCursorZip,
     required this.onRemoveCursorTheme,
     required this.onReset,
+    this.mobile = false,
     super.key,
   });
 
@@ -113,6 +116,9 @@ class SettingsAppearancePage extends StatefulWidget {
   final Future<ShellCursorThemeData?> Function()? onImportCursorZip;
   final Future<void> Function(ShellCursorThemeData) onRemoveCursorTheme;
   final VoidCallback onReset;
+
+  /// Settings runs on a phone, under the mobile shell.
+  final bool mobile;
 
   @override
   State<SettingsAppearancePage> createState() => _SettingsAppearancePageState();
@@ -421,6 +427,7 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
           SettingsCardPadding(
             child: _GlassControls(
               configuration: widget.settings.glass,
+              mobile: widget.mobile,
               onChanged: widget.onGlassChanged,
             ),
           )
@@ -882,15 +889,29 @@ String _transparencyDescription(
 }
 
 class _GlassControls extends StatelessWidget {
-  const _GlassControls({required this.configuration, required this.onChanged});
+  const _GlassControls({
+    required this.configuration,
+    required this.mobile,
+    required this.onChanged,
+  });
 
   final ShellGlassConfiguration configuration;
+
+  /// Phone apps never draw glass groups below the appearance's floor, so the
+  /// App panels slider starts there instead of showing values that do
+  /// nothing. A saved value below it is shown, not rewritten, as the floor.
+  final bool mobile;
   final ValueChanged<ShellGlassConfiguration> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     String percent(double value) => l10n.settingsPercent((value * 100).round());
+    final appPanelMinimum = mobile ? configuration.mobileAppPanelFloor : 0.0;
+    final appPanelOpacity = math.max(
+      configuration.appPanelOpacity,
+      appPanelMinimum,
+    );
 
     return Column(
       children: [
@@ -942,11 +963,11 @@ class _GlassControls extends StatelessWidget {
         SettingsSlider(
           key: const ValueKey('settings-glass-app-panel-opacity'),
           label: l10n.settingsGlassAppPanelOpacity,
-          value: configuration.appPanelOpacity,
-          minimum: 0,
+          value: appPanelOpacity,
+          minimum: appPanelMinimum,
           maximum: 1,
-          divisions: 100,
-          valueLabel: percent(configuration.appPanelOpacity),
+          divisions: ((1 - appPanelMinimum) * 100).round(),
+          valueLabel: percent(appPanelOpacity),
           onChanged: (value) =>
               onChanged(configuration.copyWith(appPanelOpacity: value)),
         ),

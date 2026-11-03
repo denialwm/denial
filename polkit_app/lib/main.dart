@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:denial_flutter_sdk/environment.dart';
 import 'package:denial_flutter_sdk/glass_configuration.dart';
@@ -12,12 +13,15 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'access.dart';
 import 'agent.dart';
 import 'prompt.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final environment = StartupEnvironment.capture();
+  // denial-portal starts the same bundle for its Access requests.
+  final access = Platform.environment.containsKey('DENIAL_ACCESS_SOCKET');
   runApp(
     ProviderScope(
       overrides: [
@@ -28,23 +32,22 @@ void main() {
           return bridge;
         }),
       ],
-      child: const AuthenticationApp(),
+      child: access ? const AccessApp() : const AuthenticationApp(),
     ),
   );
 }
 
 /// The authentication prompt in the user's live Denial appearance.
 ///
-/// Authentication policy and the conversation remain Rust's. Appearance is
-/// presentation only: an unavailable control socket leaves the defaults.
-class AuthenticationApp extends ConsumerStatefulWidget {
+/// Authentication policy and the conversation remain Rust's.
+class AuthenticationApp extends StatefulWidget {
   const AuthenticationApp({super.key});
 
   @override
-  ConsumerState<AuthenticationApp> createState() => _AuthenticationAppState();
+  State<AuthenticationApp> createState() => _AuthenticationAppState();
 }
 
-class _AuthenticationAppState extends ConsumerState<AuthenticationApp> {
+class _AuthenticationAppState extends State<AuthenticationApp> {
   final session = AgentSession();
 
   @override
@@ -60,7 +63,62 @@ class _AuthenticationAppState extends ConsumerState<AuthenticationApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => DialogApp(
+    title: 'Authentication',
+    builder: (appearanceReady, durationScale) => AuthenticationDialog(
+      session: session,
+      appearanceReady: appearanceReady,
+      durationScale: durationScale,
+    ),
+  );
+}
+
+/// An Access request from denial-portal: whether an app may have something.
+class AccessApp extends StatefulWidget {
+  const AccessApp({super.key});
+
+  @override
+  State<AccessApp> createState() => _AccessAppState();
+}
+
+class _AccessAppState extends State<AccessApp> {
+  final session = AccessSession();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(session.connect());
+  }
+
+  @override
+  void dispose() {
+    session.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => DialogApp(
+    title: 'Permission',
+    builder: (appearanceReady, _) =>
+        AccessDialog(session: session, appearanceReady: appearanceReady),
+  );
+}
+
+/// A dialog in the user's live Denial appearance.
+///
+/// Appearance is presentation only: an unavailable control socket leaves the
+/// defaults.
+class DialogApp extends ConsumerWidget {
+  const DialogApp({required this.title, required this.builder, super.key});
+
+  final String title;
+
+  /// The dialog, told whether its final colors are known and how fast the
+  /// user's animations run.
+  final Widget Function(bool appearanceReady, double durationScale) builder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final appearance = ref.watch(
       shellSettingsProvider.select((settings) => settings.appearance),
     );
@@ -101,7 +159,7 @@ class _AuthenticationAppState extends ConsumerState<AuthenticationApp> {
       data: theme,
       duration: Duration(milliseconds: (240 * durationScale).round()),
       child: MaterialApp(
-        title: 'Authentication',
+        title: title,
         debugShowCheckedModeBanner: false,
         color: Colors.transparent,
         locale: locale,
@@ -114,14 +172,12 @@ class _AuthenticationAppState extends ConsumerState<AuthenticationApp> {
         // transparent, so neither glass nor tint appears outside the card.
         builder: (context, child) =>
             ColoredBox(color: Colors.transparent, child: child),
-        home: AuthenticationDialog(
-          session: session,
+        home: builder(
           // Reveal in the final accent rather than recoloring a visible card.
-          appearanceReady:
-              !syncing &&
+          !syncing &&
               (appearance.accentSource == ShellAccentSource.custom ||
                   accent.isResolved),
-          durationScale: durationScale,
+          durationScale,
         ),
       ),
     );

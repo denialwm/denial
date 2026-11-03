@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'package:denial_sdk/composition.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/widgets.dart';
 
 import 'panels.dart';
@@ -54,8 +55,10 @@ final class ShellSurfaceEnvironment {
     required this.locked,
     required this.settings,
     required this.defaultOutputSelected,
+    this.inputOnlyOutputNames = const <String>[],
   });
   final DisplayOutput output;
+  final List<String> inputOnlyOutputNames;
   final Rect workArea;
   final bool isMainOutput;
   final int workspaceId;
@@ -72,8 +75,15 @@ final class ShellSurfaceEnvironment {
 
   /// Convenience for plugins choosing to honor an output-name preference.
   /// An empty preference uses [defaultOutputSelected].
-  bool outputSelected(Iterable<String> names) =>
-      names.isEmpty ? defaultOutputSelected : names.contains(output.name);
+  bool outputSelected(Iterable<String> names) {
+    if (output.inputOnly) return false;
+    final desktopNames = names.where(
+      (name) => !inputOnlyOutputNames.contains(name),
+    );
+    return desktopNames.isEmpty
+        ? defaultOutputSelected
+        : desktopNames.contains(output.name);
+  }
 
   // Compare the output's values, not its wire snapshot identity. A newly decoded
   // but unchanged output must not restart plugin timers or produce false events.
@@ -85,6 +95,7 @@ final class ShellSurfaceEnvironment {
     output.scale,
     output.refreshRate,
     output.activeWorkspace,
+    output.inputOnly,
   );
 
   @override
@@ -92,6 +103,7 @@ final class ShellSurfaceEnvironment {
       identical(this, other) ||
       other is ShellSurfaceEnvironment &&
           _outputValues == other._outputValues &&
+          listEquals(inputOnlyOutputNames, other.inputOnlyOutputNames) &&
           workArea == other.workArea &&
           isMainOutput == other.isMainOutput &&
           workspaceId == other.workspaceId &&
@@ -106,6 +118,7 @@ final class ShellSurfaceEnvironment {
   @override
   int get hashCode => Object.hash(
     _outputValues,
+    Object.hashAll(inputOnlyOutputNames),
     workArea,
     isMainOutput,
     workspaceId,

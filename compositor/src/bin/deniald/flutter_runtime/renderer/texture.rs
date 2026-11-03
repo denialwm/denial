@@ -5,6 +5,13 @@ use super::*;
 #[path = "handler.rs"]
 mod handler;
 
+#[path = "mapped_shm.rs"]
+mod mapped_shm;
+#[path = "native_window_pool.rs"]
+mod native_window_pool;
+use mapped_shm::{MappedShmPool, MappedShmStorage, PendingMappedShm};
+use native_window_pool::NativeWindowStorage;
+
 pub(in crate::flutter_runtime) use handler::FlutterGlHandler;
 
 #[derive(Debug, Default)]
@@ -44,6 +51,9 @@ pub(in crate::flutter_runtime) struct ExternalTextureBinding {
     // The dma-buf file descriptors must remain live for the EGLImage lifetime.
     pub(in crate::flutter_runtime) dmabuf_image: Option<(Dmabuf, usize)>,
     pub(in crate::flutter_runtime) texture: u32,
+    // Cached EGL imports also pin compositor-owned mapped backing storage.
+    pub(in crate::flutter_runtime) _owned_shm: Option<ShmTextureFrame>,
+    _owned_native: Option<Arc<NativeWindowStorage>>,
     pub(in crate::flutter_runtime) _resource_permit: ExternalTextureResourcePermit,
 }
 
@@ -100,23 +110,53 @@ pub(in crate::flutter_runtime) enum ExternalTextureLeaseResource {
         _binding: Arc<CachedTextureBinding>,
         _resource_permit: ExternalTextureResourcePermit,
     },
+    /// An app look's copy of the source, which stays leased beside it.
+    Graded {
+        _source: Box<ExternalTextureLeaseResource>,
+        _graded: Arc<CachedTextureBinding>,
+    },
+}
+
+impl ExternalTextureLeaseResource {
+    fn binding(&self) -> Arc<CachedTextureBinding> {
+        match self {
+            Self::Dmabuf { _binding, .. } | Self::Shm { _binding, .. } => Arc::clone(_binding),
+            Self::Graded { _graded, .. } => Arc::clone(_graded),
+        }
+    }
+
+    fn take_buffer_guard(&mut self) -> Option<ExternalBufferGuard> {
+        match self {
+            Self::Dmabuf { _buffer_guard, .. } => _buffer_guard.take(),
+            Self::Shm { .. } => None,
+            Self::Graded { _source, .. } => _source.take_buffer_guard(),
+        }
+    }
 }
 
 struct PreparedExternalTexture {
     texture_id: i64,
     source_generation: u64,
     feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+    color: Option<Arc<crate::color_space::SurfaceColor>>,
     width: usize,
     height: usize,
     name: u32,
     resource: ExternalTextureLeaseResource,
     sampled_buffer: Option<ExternalBufferGuard>,
+    native_samples: Vec<handler::native_client::NativeInputSample>,
 }
 
 type ExternalTextureLeasePool = Mutex<Vec<Box<ExternalTextureLease>>>;
 
+/// The producer buffer of one engine image. The handler takes it back when
+/// the texture is unregistered instead of waiting for the engine to retire
+/// the image, which Impeller GLES does only when a later frame is rendered.
+pub(in crate::flutter_runtime) type LeasedBuffer = Mutex<Option<SampledBufferHold>>;
+
 pub(in crate::flutter_runtime) struct ExternalTextureLease {
     pub(in crate::flutter_runtime) resource: Option<ExternalTextureLeaseResource>,
+    buffer: Option<Arc<LeasedBuffer>>,
     pub(in crate::flutter_runtime) pool: Weak<ExternalTextureLeasePool>,
 }
 
@@ -125,6 +165,7 @@ impl ExternalTextureLease {
         // Release buffer guards and resource permits before making this token
         // reusable. Cached GL bindings remain alive through their cache Arc.
         drop(lease.resource.take());
+        drop(lease.buffer.take());
         let Some(pool) = lease.pool.upgrade() else {
             return;
         };
@@ -215,6 +256,30 @@ impl<K: Eq, V: Clone> RecencyCache<K, V> {
                 .expect("over-capacity recency cache is non-empty")
                 .value,
         )
+    }
+
+    /// Retain the most recently used matching entries without changing the
+    /// global capacity or evicting another owner's current source.
+    pub(in crate::flutter_runtime) fn trim_matching_to(
+        &mut self,
+        capacity: usize,
+        matches: impl Fn(&K) -> bool,
+    ) -> Vec<V> {
+        assert!(capacity > 0, "matching cache capacity must be positive");
+        let mut excess = self
+            .entries
+            .iter()
+            .filter(|entry| matches(&entry.key))
+            .count()
+            .saturating_sub(capacity);
+        self.remove_where(|key| {
+            if excess != 0 && matches(key) {
+                excess -= 1;
+                true
+            } else {
+                false
+            }
+        })
     }
 
     pub(in crate::flutter_runtime) fn remove_where(
@@ -312,6 +377,7 @@ struct ShmSnapshotPoolState {
 
 pub(crate) struct ShmSnapshotPool {
     state: Mutex<ShmSnapshotPoolState>,
+    mapped: Option<Arc<MappedShmPool>>,
 }
 
 impl ShmSnapshotPool {
@@ -321,6 +387,35 @@ impl ShmSnapshotPool {
                 buffers: Vec::with_capacity(MAX_RECYCLED_SHM_BUFFERS),
                 retained_bytes: 0,
             }),
+            mapped: None,
+        }
+    }
+
+    pub(crate) fn new_for_device(device: smithay::backend::drm::DrmDeviceFd) -> Self {
+        let mut pool = Self::new();
+        match MappedShmPool::new(device) {
+            Ok(mapped) => pool.mapped = Some(Arc::new(mapped)),
+            Err(error) => warn!(%error, "mapped SHM GBM initialization unavailable"),
+        }
+        pool
+    }
+
+    pub(crate) fn enable_mapped(
+        &self,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+    ) {
+        if let Some(pool) = &self.mapped {
+            pool.enable(renderer);
+        }
+    }
+
+    pub(crate) fn acquire_mapped(&self, width: u32, height: u32) -> Option<PendingMappedShm> {
+        self.mapped.as_ref()?.acquire(width, height)
+    }
+
+    pub(crate) fn disable_mapped(&self, error: &std::io::Error) {
+        if let Some(pool) = &self.mapped {
+            pool.disable(error);
         }
     }
 
@@ -364,6 +459,8 @@ impl ShmSnapshotPool {
 struct ShmPixelStorage {
     pixels: Option<Vec<u8>>,
     pool: Weak<ShmSnapshotPool>,
+    mapped: Option<Arc<MappedShmStorage>>,
+    fully_transparent: bool,
 }
 
 impl Drop for ShmPixelStorage {
@@ -384,6 +481,7 @@ pub(crate) struct ShmTextureFrame {
     revision: u64,
     rgba: Arc<ShmPixelStorage>,
     feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+    color: Option<Arc<crate::color_space::SurfaceColor>>,
 }
 
 impl ShmTextureFrame {
@@ -426,13 +524,38 @@ impl ShmTextureFrame {
             height,
             revision,
             feedback: None,
+            color: None,
             // Keep the snapshot's Vec allocation intact. Converting Vec<u8>
             // into Arc<[u8]> may copy the complete client frame.
             rgba: Arc::new(ShmPixelStorage {
                 pixels: Some(rgba),
                 pool,
+                mapped: None,
+                fully_transparent: false,
             }),
         })
+    }
+
+    pub(crate) fn new_mapped(
+        width: u32,
+        height: u32,
+        revision: u64,
+        mapped: Arc<MappedShmStorage>,
+        fully_transparent: bool,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            revision,
+            feedback: None,
+            color: None,
+            rgba: Arc::new(ShmPixelStorage {
+                pixels: None,
+                pool: Weak::new(),
+                mapped: Some(mapped),
+                fully_transparent,
+            }),
+        }
     }
 
     pub(in crate::flutter_runtime) fn pixels(&self) -> &[u8] {
@@ -459,6 +582,9 @@ impl ShmTextureFrame {
     }
 
     pub(crate) fn is_fully_transparent(&self) -> bool {
+        if self.rgba.mapped.is_some() {
+            return self.rgba.fully_transparent;
+        }
         self.pixels()
             .as_chunks::<4>()
             .0
@@ -469,7 +595,43 @@ impl ShmTextureFrame {
 
 #[derive(Clone)]
 pub(in crate::flutter_runtime) enum ExternalBufferGuard {
-    Wayland { _guard: RendererBufferGuard },
+    Wayland {
+        // Drops first: wl_buffer.release precedes the release point.
+        _guard: RendererBufferGuard,
+        release: Option<Arc<crate::client_release::ClientRelease>>,
+    },
+    OwnedShm {
+        frame: ShmTextureFrame,
+    },
+    OwnedNative {
+        storage: Arc<NativeWindowStorage>,
+    },
+}
+
+impl ExternalBufferGuard {
+    /// Hand `fence`, a submission that sampled this guard's buffer, to the
+    /// client release, and stop holding the release.
+    fn sampled_by(&mut self, fence: &Arc<OwnedFd>) {
+        if let Self::Wayland { release, .. } = self
+            && let Some(release) = release.take()
+        {
+            release.sampled_by(fence);
+        }
+    }
+
+    fn owned_native(&self) -> Option<&Arc<NativeWindowStorage>> {
+        match self {
+            Self::OwnedNative { storage } => Some(storage),
+            _ => None,
+        }
+    }
+
+    pub(in crate::flutter_runtime) fn owned_shm(&self) -> Option<&ShmTextureFrame> {
+        match self {
+            Self::OwnedShm { frame } => Some(frame),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -479,6 +641,7 @@ pub(in crate::flutter_runtime) enum ExternalTextureSource {
         buffer_guard: Option<ExternalBufferGuard>,
         revision: u64,
         feedback: Option<crate::surface_feedback::SurfaceFeedback>,
+        color: Option<Arc<crate::color_space::SurfaceColor>>,
     },
     Shm(ShmTextureFrame),
 }
@@ -488,6 +651,15 @@ impl ExternalTextureSource {
         match self {
             Self::Dmabuf { feedback, .. } => feedback.clone(),
             Self::Shm(frame) => frame.feedback.clone(),
+        }
+    }
+
+    pub(in crate::flutter_runtime) fn color(
+        &self,
+    ) -> Option<Arc<crate::color_space::SurfaceColor>> {
+        match self {
+            Self::Dmabuf { color, .. } => color.clone(),
+            Self::Shm(frame) => frame.color.clone(),
         }
     }
 
@@ -503,6 +675,9 @@ impl ExternalTextureSource {
             (Some(a), Some(b)) if a.same(&b) => {}
             (None, None) => {}
             _ => return false,
+        }
+        if self.color() != other.color() {
+            return false;
         }
 
         match (self, other) {
@@ -540,6 +715,12 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     lookahead_presentation: denial_flutter_engine::ExternalTexturePresentation,
     pub(in crate::flutter_runtime) current_sampled: bool,
     pub(in crate::flutter_runtime) expects_sample: bool,
+    /// When the two generations before the newest arrived.
+    earlier_commits: [Option<Instant>; 2],
+    /// The interval of the output that last advanced the slot.
+    output_interval: Duration,
+    /// The client outruns the output: keep only its newest generation.
+    pub(in crate::flutter_runtime) latest_only: bool,
 }
 
 impl ExternalTextureSlot {
@@ -548,6 +729,7 @@ impl ExternalTextureSlot {
         source: ExternalTextureSource,
         expects_sample: bool,
         presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
+        now: Instant,
     ) -> bool {
         self.expects_sample = expects_sample;
         let changed = presentation.is_some_and(|next| next != self.desired_presentation);
@@ -589,9 +771,17 @@ impl ExternalTextureSlot {
         }
         // Preserve one generation on either side of a tick boundary. The
         // immediate successor is stable; only excess lookahead is latest-only.
-        if self.queued.is_none() {
+        // A client that commits three generations within one output interval
+        // outruns the output. One at the output's rate never does, however
+        // its commits straddle ticks or the output misses one. It gets one
+        // successor, the newest, so it holds one buffer less and renders ahead.
+        self.latest_only = self.earlier_commits[0]
+            .is_some_and(|first| now.saturating_duration_since(first) < self.output_interval);
+        self.earlier_commits = [self.earlier_commits[1], Some(now)];
+        if self.queued.is_none() || self.latest_only {
             self.queued = Some(source);
             self.queued_presentation = self.desired_presentation;
+            self.lookahead = None;
         } else {
             self.lookahead = Some(source);
             self.lookahead_presentation = self.desired_presentation;
@@ -599,7 +789,8 @@ impl ExternalTextureSlot {
         true
     }
 
-    pub(in crate::flutter_runtime) fn advance(&mut self) -> bool {
+    pub(in crate::flutter_runtime) fn advance(&mut self, output_interval: Duration) -> bool {
+        self.output_interval = output_interval;
         if self.queued.is_none()
             || (self.current.is_some() && !self.current_sampled && self.expects_sample)
         {
@@ -618,7 +809,7 @@ impl ExternalTextureSlot {
     }
 }
 
-struct SampledBufferHold {
+pub(in crate::flutter_runtime) struct SampledBufferHold {
     texture_id: i64,
     generation: u64,
     _buffer_guard: ExternalBufferGuard,
@@ -644,6 +835,14 @@ impl SampledBufferHoldBatch {
             .flatten()
             .map(|hold| (hold.texture_id, hold.generation))
     }
+
+    /// Let `fence`, the submission that sampled this batch, release its
+    /// client buffers without waiting for the event loop to see it.
+    pub(in crate::flutter_runtime) fn sampled_by(&mut self, fence: &Arc<OwnedFd>) {
+        for hold in self.holds.iter_mut().flatten() {
+            hold._buffer_guard.sampled_by(fence);
+        }
+    }
 }
 
 impl std::fmt::Debug for SampledBufferHoldBatch {
@@ -661,7 +860,8 @@ impl Drop for SampledBufferHoldBatch {
             return;
         };
         // RendererBufferGuard destruction may emit wl_buffer.release and, for
-        // wp_linux_drm_syncobj_v1 clients, signal the matching release point.
+        // wp_linux_drm_syncobj_v1 clients a submission did not sample, signal
+        // the matching release point.
         // Batches are deliberately dropped by the compositor event loop only
         // after the Flutter render fence signals, never by the raster thread.
         holds.clear();
@@ -808,10 +1008,33 @@ impl ExternalTextureFrame {
         self
     }
 
+    /// What the committed surface says about its pixels.
+    pub(crate) fn set_color(&mut self, value: Option<Arc<crate::color_space::SurfaceColor>>) {
+        match &mut self.source {
+            ExternalTextureSource::Dmabuf { color, .. } => *color = value,
+            ExternalTextureSource::Shm(frame) => frame.color = value,
+        }
+    }
+
+    pub(crate) fn with_color(
+        mut self,
+        value: Option<Arc<crate::color_space::SurfaceColor>>,
+    ) -> Self {
+        self.set_color(value);
+        self
+    }
+
+    pub(in crate::flutter_runtime) fn color(
+        &self,
+    ) -> Option<Arc<crate::color_space::SurfaceColor>> {
+        self.source.color()
+    }
+
     pub(crate) fn from_dmabuf(
         texture_id: i64,
         dmabuf: Dmabuf,
         buffer_guard: RendererBufferGuard,
+        release: Option<Arc<crate::client_release::ClientRelease>>,
         revision: u64,
         expects_sample: bool,
     ) -> Self {
@@ -822,9 +1045,11 @@ impl ExternalTextureFrame {
                 dmabuf,
                 buffer_guard: Some(ExternalBufferGuard::Wayland {
                     _guard: buffer_guard,
+                    release,
                 }),
                 revision,
                 feedback: None,
+                color: None,
             },
             expects_sample,
         }
@@ -839,16 +1064,28 @@ impl ExternalTextureFrame {
                 buffer_guard: None,
                 revision,
                 feedback: None,
+                color: None,
             },
             expects_sample: false,
         }
     }
 
     pub(crate) fn from_shm(texture_id: i64, frame: ShmTextureFrame, expects_sample: bool) -> Self {
+        let source = if let Some(storage) = &frame.rgba.mapped {
+            ExternalTextureSource::Dmabuf {
+                dmabuf: storage.dmabuf().clone(),
+                revision: frame.revision,
+                feedback: frame.feedback.clone(),
+                color: frame.color.clone(),
+                buffer_guard: Some(ExternalBufferGuard::OwnedShm { frame }),
+            }
+        } else {
+            ExternalTextureSource::Shm(frame)
+        };
         Self {
             texture_id,
             presentation: None,
-            source: ExternalTextureSource::Shm(frame),
+            source,
             expects_sample,
         }
     }
@@ -892,5 +1129,165 @@ pub(in crate::flutter_runtime) fn contain_ffi_unwind(callback: impl FnOnce()) ->
             mem::forget(payload);
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod cache_retirement_tests {
+    use super::*;
+
+    #[test]
+    fn slot_keeps_a_jittered_successor_but_only_the_newest_of_a_fast_client() {
+        let interval = Duration::from_millis(7);
+        let start = Instant::now();
+        let at = |micros| start + Duration::from_micros(micros);
+        let source = |revision| {
+            ExternalTextureSource::Shm(
+                ShmTextureFrame::new_owned(1, 1, revision, vec![0, 0, 0, 255]).unwrap(),
+            )
+        };
+        let generations = |slot: &ExternalTextureSlot| {
+            [&slot.current, &slot.queued, &slot.lookahead]
+                .map(|source| source.as_ref().map(ExternalTextureSource::generation))
+        };
+        let tick = |slot: &mut ExternalTextureSlot| {
+            slot.current_sampled = true;
+            slot.advance(interval)
+        };
+        let mut slot = ExternalTextureSlot::default();
+        slot.queue(source(1), true, None, at(0));
+        assert!(tick(&mut slot));
+
+        // Commits at the output's rate keep the successor through a straddled
+        // tick and through missed ones.
+        slot.queue(source(2), true, None, at(6_900));
+        slot.queue(source(3), true, None, at(7_100));
+        assert_eq!(generations(&slot), [Some(1), Some(2), Some(3)]);
+        slot.queue(source(4), true, None, at(14_000));
+        assert!(!slot.latest_only);
+        assert_eq!(generations(&slot), [Some(1), Some(2), Some(4)]);
+        assert!(tick(&mut slot));
+        assert!(tick(&mut slot));
+        assert_eq!(generations(&slot), [Some(4), None, None]);
+
+        // Three commits within one interval: only the newest stays queued,
+        // and later fast commits replace it.
+        for (revision, micros) in [(5, 20_000), (6, 22_000), (7, 24_000), (8, 26_000)] {
+            slot.queue(source(revision), true, None, at(micros));
+        }
+        assert!(slot.latest_only);
+        assert_eq!(generations(&slot), [Some(4), Some(8), None]);
+
+        // Back at the output's rate, the successor is kept again.
+        assert!(tick(&mut slot));
+        slot.queue(source(9), true, None, at(33_000));
+        slot.queue(source(10), true, None, at(40_000));
+        assert!(!slot.latest_only);
+        assert_eq!(generations(&slot), [Some(8), Some(9), Some(10)]);
+    }
+
+    #[test]
+    fn owned_snapshot_survives_cache_eviction_retirement_and_reader_fence() {
+        let frame = ShmTextureFrame::new_owned(1, 1, 9, vec![1, 2, 3, 4]).unwrap();
+        let storage = Arc::downgrade(&frame.rgba);
+        let guard = ExternalBufferGuard::OwnedShm {
+            frame: frame.clone(),
+        };
+        let reader_fence = guard.clone();
+        assert_eq!(guard.owned_shm().unwrap().revision, 9);
+        let budget = Arc::new(ExternalTextureResourceBudget::default());
+        let retirements = Arc::new(RetiredExternalBindingQueue::new());
+        let binding = Arc::new(CachedTextureBinding {
+            binding: Some(ExternalTextureBinding {
+                dmabuf_image: None,
+                texture: 43,
+                _owned_shm: Some(frame),
+                _owned_native: None,
+                _resource_permit: budget.try_acquire().unwrap(),
+            }),
+            retirements: Arc::clone(&retirements),
+        });
+        let image_lease = Arc::clone(&binding);
+        let mut cache = RecencyCache::new(1);
+        cache.insert((7, 9), binding);
+        drop(cache.drain());
+        drop(guard);
+        assert!(storage.upgrade().is_some());
+        drop(image_lease);
+        assert_eq!(lock(&retirements.bindings).len(), 1);
+        assert!(storage.upgrade().is_some());
+        // Real retirement deletes the GL texture/EGLImage before dropping
+        // this ownership record. A sampled-reader fence remains independent.
+        lock(&retirements.bindings).clear();
+        assert!(storage.upgrade().is_some());
+        drop(reader_fence);
+        assert!(storage.upgrade().is_none());
+        assert_eq!(budget.live.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn obsolete_shm_revision_retires_only_after_its_last_image_lease() {
+        let retirements = Arc::new(RetiredExternalBindingQueue::new());
+        let budget = Arc::new(ExternalTextureResourceBudget::default());
+        let binding = Arc::new(CachedTextureBinding {
+            binding: Some(ExternalTextureBinding {
+                dmabuf_image: None,
+                _owned_shm: None,
+                _owned_native: None,
+                texture: 41,
+                _resource_permit: budget.try_acquire().unwrap(),
+            }),
+            retirements: Arc::clone(&retirements),
+        });
+        let image_lease = Arc::clone(&binding);
+        let mut cache = RecencyCache::new(MAX_CACHED_SHM_BINDINGS);
+        cache.insert((1, 1), binding);
+        // Reusing this stand-in also ensures removal does not destroy another
+        // surface's cache entry while pruning the busy surface's revisions.
+        let other = Arc::new(CachedTextureBinding {
+            binding: Some(ExternalTextureBinding {
+                dmabuf_image: None,
+                _owned_shm: None,
+                _owned_native: None,
+                texture: 42,
+                _resource_permit: budget.try_acquire().unwrap(),
+            }),
+            retirements: Arc::clone(&retirements),
+        });
+        cache.insert((2, 1), Arc::clone(&other));
+        for revision in 2..=4 {
+            cache.insert((1, revision), Arc::clone(&other));
+        }
+        drop(
+            cache.trim_matching_to(MAX_CACHED_SHM_REVISIONS_PER_TEXTURE, |(owner, _)| {
+                *owner == 1
+            }),
+        );
+        assert!(cache.get_by(|key| *key == (1, 1)).is_none());
+        assert!(cache.get_by(|key| *key == (2, 1)).is_some());
+        assert!(!retirements.pending.load(Ordering::Relaxed));
+        assert_eq!(budget.live.load(Ordering::Relaxed), 2);
+        drop(image_lease);
+        assert!(retirements.pending.load(Ordering::Relaxed));
+        let mut pending = lock(&retirements.bindings);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].texture, 41);
+        pending.clear(); // Stand-in GL reclamation releases its permit.
+        assert_eq!(budget.live.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn matching_limit_preserves_recency_and_global_capacity() {
+        let mut cache = RecencyCache::new(5);
+        for revision in 1..=4 {
+            cache.insert((1, revision), revision);
+        }
+        cache.insert((2, 1), 9);
+        assert_eq!(cache.get_by(|key| *key == (1, 1)), Some(1));
+        assert_eq!(cache.trim_matching_to(3, |(owner, _)| *owner == 1), vec![2]);
+        assert_eq!(cache.get_by(|key| *key == (2, 1)), Some(9));
+        cache.insert((3, 1), 10);
+        assert_eq!(cache.insert((4, 1), 11), Some(3));
+        assert_eq!(cache.entries.len(), 5);
     }
 }

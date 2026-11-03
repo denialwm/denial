@@ -1,3 +1,4 @@
+import 'package:denial_desktop/src/state/notification_groups.dart';
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 
 import 'package:flutter/material.dart' show Icons;
@@ -9,9 +10,13 @@ import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/motion.dart';
+import 'package:denial_flutter_sdk/rendering.dart'
+    show WindowBackdropCache, WindowBackdropMotion;
 import 'package:denial_flutter_sdk/shell_theme.dart';
+import 'package:denial_flutter_sdk/tokens.dart' show ShellText;
 
 import '../notification_banner.dart';
+import '../notification_rows.dart';
 import '../mobile_ui_metrics.dart';
 import 'notification_shade_list.dart';
 import 'shade_backdrop_scene.dart';
@@ -44,6 +49,9 @@ class _MobileNotificationHistoryState
     with SingleTickerProviderStateMixin {
   late final AnimationController _entrance;
   final ScrollController _scroll = ScrollController();
+  final _rowMotion = _RowMotion();
+  Animation<double>? _motionProgress;
+  Listenable? _motion;
   bool _armed = true;
   bool _reducedMotion = false;
   bool _acknowledgeScheduled = false;
@@ -116,19 +124,38 @@ class _MobileNotificationHistoryState
     });
   }
 
+  /// Everything that moves a card on screen without repainting it, for the
+  /// cached glass slices: the shade, the entrance, scrolling, and row layout
+  /// or dismissal. The same merge while the shade progress is unchanged.
+  Listenable _motionFor(Animation<double> progress) {
+    if (!identical(progress, _motionProgress)) {
+      _motionProgress = progress;
+      _motion = Listenable.merge([progress, _entrance, _scroll, _rowMotion]);
+    }
+    return _motion!;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(desktopNotificationsProvider);
+    final cachedGlass =
+        context.shellTheme.effectivePanelOpacity < 1 &&
+        WindowBackdropCache.maybeOf(context) != null;
     final controller = ref.read(desktopNotificationsProvider.notifier);
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.lockLayerVisible),
     );
     final preview = locked ? state.lockPreview : NotificationPreviewMode.full;
-    final records = preview == NotificationPreviewMode.hidden
-        ? const <DesktopNotificationRecord>[]
-        : state.history;
-    final indices = <int, int>{
-      for (var i = 0; i < records.length; i++) records[i].notification.id: i,
+    final groups = preview == NotificationPreviewMode.hidden
+        ? const <DesktopNotificationGroup>[]
+        : state.groups;
+    // Locked, groups stay folded and history only shows.
+    final rows = notificationHistoryRows(
+      groups,
+      locked ? const <String>{} : ref.watch(expandedNotificationGroupsProvider),
+    );
+    final indices = <Object, int>{
+      for (var i = 0; i < rows.length; i++) rows[i].key: i,
     };
     _scheduleAcknowledgement();
     // Clamping physics only installs a scroll drag recognizer when content
@@ -139,89 +166,142 @@ class _MobileNotificationHistoryState
           _scroll.hasClients &&
           _scroll.position.hasContentDimensions &&
           _scroll.position.maxScrollExtent <= _scroll.position.minScrollExtent,
-      child: CustomScrollView(
-        key: const PageStorageKey('mobile-notification-history'),
-        controller: _scroll,
-        physics: const _HistoryScrollPhysics(),
-        primary: false,
-        clipBehavior: Clip.none,
-        slivers: [
-          NotificationShadeList(
-            progress: widget.progress,
-            entrance: _entrance,
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                if (index == records.length) {
-                  final padding = MediaQuery.viewPaddingOf(context);
-                  final metrics = MobileUiMetrics.of(context);
+      child: WindowBackdropMotion(
+        motion: _motionFor(widget.progress),
+        child: CustomScrollView(
+          key: const PageStorageKey('mobile-notification-history'),
+          controller: _scroll,
+          physics: const _HistoryScrollPhysics(),
+          primary: false,
+          clipBehavior: Clip.none,
+          slivers: [
+            NotificationShadeList(
+              progress: widget.progress,
+              entrance: _entrance,
+              opaqueRows: cachedGlass,
+              onRowsMoved: _rowMotion.moved,
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (index == rows.length) {
+                    final padding = MediaQuery.viewPaddingOf(context);
+                    final metrics = MobileUiMetrics.of(context);
+                    return _ColorOsNotificationReveal(
+                      reveal: _revealOf(index),
+                      index: index,
+                      cachedGlass: cachedGlass,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          padding.left +
+                              metrics.visual(
+                                MobileNotificationCard.horizontalMargin,
+                              ),
+                          0,
+                          padding.right +
+                              metrics.visual(
+                                MobileNotificationCard.horizontalMargin,
+                              ),
+                          metrics.visual(MobileNotificationMetrics.rowSpacing),
+                        ),
+                        child: Builder(
+                          builder: (context) => NotificationReveal.revealed(
+                            context,
+                            const Align(
+                              alignment: Alignment.centerRight,
+                              child: ClearNotificationHistoryButton(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  final row = rows[index];
+                  final key = ValueKey<Object>(row.key);
                   return _ColorOsNotificationReveal(
-                    entrance: _entrance,
+                    reveal: _revealOf(index),
                     index: index,
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        padding.left +
-                            metrics.visual(
-                              MobileNotificationCard.horizontalMargin,
-                            ),
-                        0,
-                        padding.right +
-                            metrics.visual(
-                              MobileNotificationCard.horizontalMargin,
-                            ),
-                        metrics.visual(MobileNotificationMetrics.rowSpacing),
+                    cachedGlass: cachedGlass,
+                    child: switch (row) {
+                      NotificationGroupHeaderRow(:final group) =>
+                        _HistoryGroupHeader(
+                          key: key,
+                          group: group,
+                          onCollapse: () => ref
+                              .read(expandedNotificationGroupsProvider.notifier)
+                              .collapse(group.key),
+                        ),
+                      NotificationGroupRow(:final group) =>
+                        _HistoryNotification(
+                          key: key,
+                          record: group.newest,
+                          group: group,
+                          preview: preview,
+                          interactive: !locked,
+                          onDismiss: () =>
+                              controller.dismissGroupFromHistory(group.key),
+                          onExpand: () => ref
+                              .read(expandedNotificationGroupsProvider.notifier)
+                              .expand(group.key),
+                        ),
+                      NotificationRow(:final record) => _HistoryNotification(
+                        key: key,
+                        record: record,
+                        preview: preview,
+                        interactive: !locked,
+                        onDismiss: () => controller.dismissFromHistory(
+                          record.notification.id,
+                        ),
+                        onOpen: () {
+                          if (openNotification(ref, record.notification.id)) {
+                            ref
+                                .read(referenceShellProvider.notifier)
+                                .closeQuickSettings();
+                          }
+                        },
+                        onAction: (key) => controller.invokeAction(
+                          record.notification.id,
+                          key,
+                        ),
                       ),
-                      child: const Align(
-                        alignment: Alignment.centerRight,
-                        child: ClearNotificationHistoryButton(),
-                      ),
-                    ),
-                  );
-                }
-                final record = records[index];
-                return _ColorOsNotificationReveal(
-                  entrance: _entrance,
-                  index: index,
-                  child: _HistoryNotification(
-                    key: ValueKey(record.notification.id),
-                    record: record,
-                    preview: preview,
-                    interactive: !locked,
-                    onDismiss: () =>
-                        controller.dismissFromHistory(record.notification.id),
-                    onOpen: () {
-                      if (controller.invokeDefaultAction(
-                        record.notification.id,
-                      )) {
-                        ref
-                            .read(referenceShellProvider.notifier)
-                            .closeQuickSettings();
-                      }
                     },
-                    onAction: (key) =>
-                        controller.invokeAction(record.notification.id, key),
-                  ),
-                );
-              },
-              childCount:
-                  records.length + (records.isNotEmpty && !locked ? 1 : 0),
-              findChildIndexCallback: (key) =>
-                  key is ValueKey<int> && indices.containsKey(key.value)
-                  ? indices[key.value]
-                  : null,
+                  );
+                },
+                childCount: rows.length + (rows.isNotEmpty && !locked ? 1 : 0),
+                findChildIndexCallback: (key) =>
+                    key is ValueKey && indices.containsKey(key.value)
+                    ? indices[key.value]
+                    : null,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+  /// Rows past the last stagger share one reveal.
+  Animation<double> _revealOf(int index) {
+    final stagger = index.clamp(0, Motion.notificationHistoryMaxStagger);
+    return _reveals[stagger] ??= _entrance.drive(
+      Animatable.fromCallback(
+        (entrance) => _ColorOsNotificationReveal.revealAt(entrance, stagger),
+      ),
+    );
+  }
+
+  final _reveals = <int, Animation<double>>{};
 
   @override
   void dispose() {
     widget.progress.removeListener(_observeProgress);
     _entrance.dispose();
     _scroll.dispose();
+    _rowMotion.dispose();
     super.dispose();
   }
+}
+
+class _RowMotion extends ChangeNotifier {
+  void moved() => notifyListeners();
 }
 
 /// Separate notification rows reveal with alpha, scale, and negative vertical
@@ -229,50 +309,61 @@ class _MobileNotificationHistoryState
 /// of treating the notification center as a horizontally sliding drawer.
 class _ColorOsNotificationReveal extends StatelessWidget {
   const _ColorOsNotificationReveal({
-    required this.entrance,
+    required this.reveal,
     required this.index,
+    required this.cachedGlass,
     required this.child,
   });
 
-  final Animation<double> entrance;
+  /// The row's eased reveal: [revealAt] its stagger.
+  final Animation<double> reveal;
   final int index;
+
+  /// Over cached glass the row fades through [NotificationReveal], without
+  /// an opacity layer, and its text scales as an image.
+  final bool cachedGlass;
   final Widget child;
+
+  /// The row's eased reveal at [entrance], after its stagger.
+  static double revealAt(double entrance, int index) {
+    final staggerIndex = index.clamp(0, Motion.notificationHistoryMaxStagger);
+    final duration = Motion.notificationHistorySlide.inMilliseconds;
+    final stagger = Motion.notificationHistoryStagger.inMilliseconds;
+    final total = duration + stagger * Motion.notificationHistoryMaxStagger;
+    final phase = ((entrance * total - staggerIndex * stagger) / duration)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    return Curves.easeOutCubic.transform(phase);
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: entrance,
-      child: child,
+      animation: reveal,
+      child: cachedGlass
+          ? NotificationReveal(reveal: reveal, child: child)
+          : child,
       builder: (context, child) {
         final staggerIndex = index.clamp(
           0,
           Motion.notificationHistoryMaxStagger,
         );
-        final duration = Motion.notificationHistorySlide.inMilliseconds;
-        final stagger = Motion.notificationHistoryStagger.inMilliseconds;
-        final total = duration + stagger * Motion.notificationHistoryMaxStagger;
-        final phase =
-            ((entrance.value * total - staggerIndex * stagger) / duration)
-                .clamp(0.0, 1.0)
-                .toDouble();
-        final value = Curves.easeOutCubic.transform(phase);
+        final value = reveal.value;
         final initialScale = (0.85 - staggerIndex * 0.1)
             .clamp(0.0, 1.0)
             .toDouble();
         final baseSpacing = -30.0 * staggerIndex;
         final initialSpacing =
             baseSpacing - (1 - initialScale) * baseSpacing.abs();
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, initialSpacing * (1 - value)),
-            child: Transform.scale(
-              scale: initialScale + (1 - initialScale) * value,
-              alignment: Alignment.topCenter,
-              child: child,
-            ),
+        final moved = Transform.translate(
+          offset: Offset(0, initialSpacing * (1 - value)),
+          child: Transform.scale(
+            scale: initialScale + (1 - initialScale) * value,
+            alignment: Alignment.topCenter,
+            child: child,
           ),
         );
+        return cachedGlass ? moved : Opacity(opacity: value, child: moved);
       },
     );
   }
@@ -284,8 +375,10 @@ class _HistoryNotification extends StatelessWidget {
     required this.preview,
     required this.interactive,
     required this.onDismiss,
-    required this.onOpen,
-    required this.onAction,
+    this.onOpen,
+    this.onAction,
+    this.group,
+    this.onExpand,
     super.key,
   });
 
@@ -293,14 +386,20 @@ class _HistoryNotification extends StatelessWidget {
   final NotificationPreviewMode preview;
   final bool interactive;
   final bool Function() onDismiss;
-  final VoidCallback onOpen;
-  final ValueChanged<String> onAction;
+  final VoidCallback? onOpen;
+  final ValueChanged<String>? onAction;
+
+  /// A stacked group this row stands for, collapsed; a tap runs [onExpand].
+  final DesktopNotificationGroup? group;
+  final VoidCallback? onExpand;
 
   @override
   Widget build(BuildContext context) {
     final notification = record.notification;
     final padding = MediaQuery.viewPaddingOf(context);
     final metrics = MobileUiMetrics.of(context);
+    final clearable =
+        interactive && (group?.clearable ?? notification.clearable);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         padding.left + metrics.visual(MobileNotificationCard.horizontalMargin),
@@ -310,7 +409,7 @@ class _HistoryNotification extends StatelessWidget {
       ),
       child: Dismissible(
         key: ValueKey(notification.id),
-        direction: interactive
+        direction: clearable
             ? DismissDirection.horizontal
             : DismissDirection.none,
         onUpdate: (_) => NotificationShadeList.invalidateOcclusion(context),
@@ -321,7 +420,7 @@ class _HistoryNotification extends StatelessWidget {
           return false;
         },
         child: Semantics(
-          onDismiss: interactive
+          onDismiss: clearable
               ? () {
                   onDismiss();
                 }
@@ -330,9 +429,12 @@ class _HistoryNotification extends StatelessWidget {
             notification: notification,
             interactive: interactive,
             groupedBackdrop: true,
+            cachedBackdrop: true,
             previewMode: preview,
-            onDefaultAction: record.active ? onOpen : null,
-            onAction: record.active ? onAction : null,
+            group: group,
+            onExpandGroup: onExpand,
+            onDefaultAction: onOpen,
+            onAction: onAction,
             surfaceBuilder: (context, card) {
               final radius = BorderRadius.circular(
                 metrics.visual(ShellTheme.of(context).panelRadius),
@@ -342,6 +444,66 @@ class _HistoryNotification extends StatelessWidget {
                 child: ShadeBackdropRegion(borderRadius: radius, child: card),
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Above an opened group's members: its app and count, and a button that
+/// folds it back into one card.
+class _HistoryGroupHeader extends StatelessWidget {
+  const _HistoryGroupHeader({
+    required this.group,
+    required this.onCollapse,
+    super.key,
+  });
+
+  final DesktopNotificationGroup group;
+  final VoidCallback onCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = MediaQuery.viewPaddingOf(context);
+    final metrics = MobileUiMetrics.of(context);
+    final l10n = context.l10n;
+    final appName = notificationAppName(group.newest.notification, l10n);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        padding.left +
+            metrics.visual(
+              MobileNotificationCard.horizontalMargin +
+                  MobileNotificationMetrics.horizontalContentInset,
+            ),
+        0,
+        padding.right + metrics.visual(MobileNotificationCard.horizontalMargin),
+        0,
+      ),
+      child: Builder(
+        builder: (context) => NotificationReveal.revealed(
+          context,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.notificationGroupHeader(appName, group.members.length),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ShellText.base.copyWith(
+                    color: context.shellColors.textSecondary,
+                    fontSize: MobileNotificationMetrics.groupHeaderFontSize,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              _HistoryButton(
+                label: l10n.notificationGroupCollapse(appName),
+                icon: Icons.expand_less_rounded,
+                onPressed: onCollapse,
+              ),
+            ],
           ),
         ),
       ),
@@ -401,13 +563,15 @@ class ClearNotificationHistoryButton extends ConsumerWidget {
   const ClearNotificationHistoryButton({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasHistory = ref.watch(
-      desktopNotificationsProvider.select((s) => s.history.isNotEmpty),
+    final canClear = ref.watch(
+      desktopNotificationsProvider.select(
+        (s) => s.history.any((record) => record.notification.clearable),
+      ),
     );
     final locked = ref.watch(
       referenceShellProvider.select((s) => s.lockLayerVisible),
     );
-    if (!hasHistory || locked) return const SizedBox.shrink();
+    if (!canClear || locked) return const SizedBox.shrink();
     return _HistoryButton(
       label: context.l10n.notificationsClearAll,
       icon: Icons.clear_all_rounded,

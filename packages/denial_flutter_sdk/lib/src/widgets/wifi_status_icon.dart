@@ -21,16 +21,18 @@ class WifiStatusIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final foreground = color ?? context.shellColors.textPrimary;
+    // Quarters of the strength, like the cellular bars.
+    final bars = (strength.clamp(0, 100) / 25).ceil();
     return Icon(
       !active
           ? Icons.wifi_off_rounded
-          : strength == 0
-          ? Icons.signal_wifi_0_bar
-          : strength < 34
-          ? Icons.network_wifi_1_bar
-          : strength < 67
-          ? Icons.network_wifi_2_bar
-          : Icons.wifi_rounded,
+          : switch (bars) {
+              0 => Icons.signal_wifi_0_bar_rounded,
+              1 => Icons.network_wifi_1_bar_rounded,
+              2 => Icons.network_wifi_2_bar_rounded,
+              3 => Icons.network_wifi_3_bar_rounded,
+              _ => Icons.wifi_rounded,
+            },
       color: active ? foreground : foreground.withValues(alpha: 0.35),
       size: size,
     );

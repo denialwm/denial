@@ -11,6 +11,9 @@ Downloaded toolchains and native build output live outside the checkout by
 default. A first bootstrap needs network access; later development builds
 reuse the pinned cache.
 
+The native [scene/presentation transfer boundary](GPU_TRANSFER.md) supports
+GLES Flutter rendering on a GPU different from the selected KMS output owner.
+
 The turnkey helper and paths below document the current x86-64 reference build.
 An ARM64 build uses the same locked Denial, Flutter, and Skia sources with an
 architecture-matched Flutter engine and shell bundle; do not reuse the x86-64

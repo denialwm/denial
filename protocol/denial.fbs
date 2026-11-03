@@ -55,7 +55,11 @@ enum WindowRequestKind : ubyte {
   ConfigureSystemBar = 6,
   SwitchWorkspace = 7,
   MoveWindowToWorkspace = 8,
-  MinimizeWindow = 9
+  MinimizeWindow = 9,
+  // The system Back action for one client window.
+  NavigateBack = 10,
+  // Moves one window between the phone and a desk output (monitor_id).
+  MoveWindowToOutput = 11
 }
 
 enum WindowResponseKind : ubyte {
@@ -98,13 +102,21 @@ enum ShellActionKind : ubyte {
   FocusLeft = 14,
   FocusRight = 15,
   FocusUp = 16,
-  FocusDown = 17
+  FocusDown = 17,
+  // A full-screen screenshot was just captured; the shell may show it.
+  ScreenshotCaptured = 18
 }
 
 enum KeyboardCommandKind : ubyte {
   Text = 0,
   Key = 1,
-  DismissPanel = 2
+  DismissPanel = 2,
+  // The keyboard panel starts moving to panel_height logical pixels over
+  // panel_duration_ms. Sent once per motion, never per frame.
+  PanelMotion = 3,
+  // Replaces `replaced`, the text just before the cursor, with `text`: an
+  // autocorrection or a picked suggestion.
+  Replace = 4
 }
 
 enum SettingsRequestKind : ubyte {
@@ -300,6 +312,22 @@ struct InputWindowRegion {
   flags:uint;
 }
 
+// The screen edge from which a shell edge swipe travels inward.
+enum InputEdge : ubyte {
+  Left = 0,
+  Right = 1,
+  Top = 2
+}
+
+// A touch that starts inside rect over a client window is delivered to that
+// client until it travels inward from edge. The compositor then cancels the
+// client's touch and hands the contact to Flutter, starting from where it
+// went down. Touches that leave by another direction stay with the client.
+struct EdgeSwipeRegion {
+  rect:WireRect;
+  edge:InputEdge;
+}
+
 table InputLayout {
   epoch:ulong;
   flags:uint;
@@ -312,6 +340,7 @@ table InputLayout {
   // Compositor-owned software-keyboard surfaces. Touching these regions must
   // preserve the active client editor instead of behaving like an outside tap.
   software_keyboard_regions:[WireRect];
+  edge_swipe_regions:[EdgeSwipeRegion];
 }
 
 table SurfaceLayer {
@@ -348,6 +377,17 @@ table SurfaceLayer {
   // client-drawn decorations such as its drop shadow. Absent when the surface
   // declares none or the geometry is the complete surface.
   window_geometry:WireRect;
+}
+
+// Optional native composition of the main client surface tree. Source extents
+// exclude the padding from ceil allocation at fractional output scales.
+// Original surface metadata remains authoritative for input and popup trees.
+table ClientTexture {
+  texture_id:ulong;
+  width:uint;
+  height:uint;
+  source_width:double;
+  source_height:double;
 }
 
 table Window {
@@ -438,6 +478,12 @@ table Window {
   pet:bool;
   pet_holds:uint;
   pet_dragged:bool;
+  // Appended for compatibility; absence keeps the original surface-tree path.
+  client_texture:ClientTexture;
+  // Appended for compatibility. The client lays this window out around the
+  // on-screen keyboard (denial-insets-v1 get_keyboard_inset), so the mobile
+  // shell must not lift it while the keyboard is shown.
+  keyboard_inset:bool;
 }
 
 table WindowSnapshot {
@@ -600,6 +646,38 @@ table KeyboardCommand {
   flags:uint;
   // Echo the panel activation being dismissed; ignored for Text/Key.
   activation_serial:ulong;
+  // PanelMotion only: where the keyboard panel settles, zero when hidden,
+  // and how long the shell's motion there lasts.
+  panel_height:uint;
+  panel_duration_ms:uint;
+  // Replace only: the text that `text` replaces.
+  replaced:string;
+}
+
+// The word the software keyboard is typing, for suggestions. touch_x and
+// touch_y are empty or hold one entry per character: where its key was hit,
+// in key pitches right of and below the key's center, NaN without a touch.
+table TextPredictionRequest {
+  // Echoed by the answer. Only the newest request is answered.
+  serial:ulong;
+  word:string;
+  touch_x:[float];
+  touch_y:[float];
+  // The user typed the first capital, not the keyboard's sentence start: a
+  // name, which only a name may replace.
+  manual_capital:bool;
+}
+
+// Suggestions for the newest TextPredictionRequest.
+table TextPrediction {
+  serial:ulong;
+  word:string;
+  // What a space commits instead of the word; absent to keep it.
+  correction:string;
+  // Other words, best first, never the word or the correction.
+  suggestions:[string];
+  // Installed word lists, as language codes ("en", "it").
+  languages:[string];
 }
 
 table KeyboardLayout {
@@ -691,6 +769,8 @@ table TouchpadConfiguration {
 
 table MouseConfiguration {
   speed:double;
+  // Off selects libinput's flat profile: speed becomes a constant factor.
+  acceleration_enabled:bool = true;
 }
 
 table SettingsRequest {
@@ -738,6 +818,11 @@ table DesktopNotificationImageData {
   data:[ubyte];
 }
 
+table DesktopNotificationMessage {
+  sender:string;
+  text:string;
+}
+
 // Normalized org.freedesktop.Notifications data. Unknown D-Bus hints stay on
 // the native side rather than crossing the bridge as arbitrary variants.
 table DesktopNotification {
@@ -765,6 +850,20 @@ table DesktopNotification {
   progress:int;
   has_progress:bool;
   expire_timeout_ms:int = -1;
+  // Whether this post alerts: banner and screen wake. Replays and updates
+  // that change no content arrive quiet.
+  alert:bool = true;
+  // Display grouping: the sender's own group within its app, or just its app.
+  group_key:string;
+  // The group's summary, which stands for the group rather than beside it.
+  group_summary:bool;
+  // Milliseconds since the epoch: the sender's time, else when deniald got it.
+  time_ms:long;
+  // The latest messages of a conversation, oldest first.
+  messages:[DesktopNotificationMessage];
+  // False for notifications the user can't dismiss; they leave only when the
+  // app closes them.
+  clearable:bool = true;
 }
 
 table DesktopNotificationEvent {
@@ -873,7 +972,9 @@ union Payload {
   CursorState,
   PluginActionCatalog,
   PluginActionInvocation,
-  PetRequest
+  PetRequest,
+  TextPredictionRequest,
+  TextPrediction
 }
 
 table Envelope {

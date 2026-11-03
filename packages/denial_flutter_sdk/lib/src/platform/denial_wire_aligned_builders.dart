@@ -2,8 +2,9 @@ part of 'denial_wire.dart';
 
 // flat_buffers 25.9.23's Dart writeListOfStructs() does not pre-align the
 // vector. Without this padding, the trailing fields of one region are read as
-// fields of a neighbour, so z/flags migrate between windows. Both wire structs
-// are 8-byte aligned and have sizes that are multiples of that alignment.
+// fields of a neighbour, so z/flags migrate between windows. All three wire
+// structs are 8-byte aligned and have sizes that are multiples of that
+// alignment.
 class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   _AlignedInputLayoutObjectBuilder({
     required this.epoch,
@@ -12,6 +13,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
     required this.windows,
     required this.visibleSurfaceIds,
     required this.softwareKeyboardRegions,
+    required this.edgeSwipeRegions,
   });
 
   final int epoch;
@@ -20,6 +22,9 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<generated.InputWindowRegionObjectBuilder> windows;
   final List<int> visibleSurfaceIds;
   final List<generated.WireRectObjectBuilder> softwareKeyboardRegions;
+
+  /// Omitted when empty, so layouts without edge swipes keep their encoding.
+  final List<generated.EdgeSwipeRegionObjectBuilder> edgeSwipeRegions;
 
   @override
   int finish(fb.Builder builder) {
@@ -33,13 +38,17 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       builder,
       softwareKeyboardRegions,
     );
-    builder.startTable(6);
+    final edgeSwipeRegionsOffset = edgeSwipeRegions.isEmpty
+        ? null
+        : _writeAlignedStructVector(builder, edgeSwipeRegions);
+    builder.startTable(edgeSwipeRegionsOffset == null ? 6 : 7);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
     builder.addOffset(2, shellRegionsOffset);
     builder.addOffset(3, windowsOffset);
     builder.addOffset(4, visibleSurfaceIdsOffset);
     builder.addOffset(5, softwareKeyboardRegionsOffset);
+    builder.addOffset(6, edgeSwipeRegionsOffset);
     return builder.endTable();
   }
 
@@ -560,6 +569,7 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.CursorState ||
       type == generated.PayloadTypeId.CursorPosition ||
       type == generated.PayloadTypeId.TextInputState ||
+      type == generated.PayloadTypeId.TextPrediction ||
       type == generated.PayloadTypeId.DesktopNotificationEvent ||
       type == generated.PayloadTypeId.SettingsResponse ||
       type == generated.PayloadTypeId.XEmbedTrayEvent;
@@ -641,7 +651,10 @@ bool _validXkbOption(String value) {
 }
 
 bool _finiteWindow(DenialWindow window) {
-  return window.surfaceX.isFinite &&
+  return (window.clientTexture == null ||
+          (window.clientTexture!.isValid &&
+              window.contentKind == DenialWindowContentKind.surfaceTree)) &&
+      window.surfaceX.isFinite &&
       window.surfaceY.isFinite &&
       window.surfaceWidth.isFinite &&
       window.surfaceHeight.isFinite &&

@@ -250,8 +250,7 @@ bin/deniald \
     --device /dev/dri/card0 \
     --output-config outputs.conf \
     --wayland \
-    --flutter-bundle bundle \
-    --flutter-renderer impeller
+    --flutter-bundle bundle
 
 If rendering uses a separate DRM render node, add:
 

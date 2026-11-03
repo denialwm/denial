@@ -37,6 +37,32 @@ final class BridgeInputClient {
     _context.sendWire(_context.codec.encodeKeyboardText(text));
   }
 
+  void sendKeyboardReplace(String replaced, String text) {
+    if (replaced.isEmpty || text.isEmpty) {
+      return;
+    }
+
+    _context.sendWire(_context.codec.encodeKeyboardReplace(replaced, text));
+  }
+
+  void requestTextPrediction({
+    required int serial,
+    required String word,
+    required List<double> touchX,
+    required List<double> touchY,
+    bool manualCapital = false,
+  }) {
+    _context.sendWire(
+      _context.codec.encodeTextPredictionRequest(
+        serial: serial,
+        word: word,
+        touchX: touchX,
+        touchY: touchY,
+        manualCapital: manualCapital,
+      ),
+    );
+  }
+
   void sendKeyboardKey(String key, {bool ctrl = false}) {
     if (key.isEmpty) {
       return;
@@ -48,6 +74,12 @@ final class BridgeInputClient {
   void dismissKeyboardPanel(int activationSerial) {
     _context.sendWire(
       _context.codec.encodeKeyboardPanelDismissal(activationSerial),
+    );
+  }
+
+  void reportKeyboardPanelMotion(int height, Duration duration) {
+    _context.sendWire(
+      _context.codec.encodeKeyboardPanelMotion(height, duration),
     );
   }
 

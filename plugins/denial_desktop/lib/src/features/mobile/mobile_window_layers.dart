@@ -1,84 +1,61 @@
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_presentation.dart';
 
-import 'package:denial_flutter_sdk/shell.dart';
+import 'package:denial_flutter_sdk/rendering.dart' show FrostedBackdrop;
 
-import '../../widgets/launch_transition_layer.dart';
-import '../../widgets/overview/overview_layer.dart';
+import '../../widgets/overview/app_deck_layer.dart';
+import '../../widgets/shade/shade_progress.dart';
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'mobile_primary_window_stage.dart';
+import '../../state/phone_desk.dart';
 
-/// Each animated layer observes only the state it presents.
-class MobilePrimaryWindowLayer extends ConsumerStatefulWidget {
-  const MobilePrimaryWindowLayer({
-    super.key,
-    required this.overviewPresentationActive,
-  });
-
-  final ValueListenable<bool> overviewPresentationActive;
+/// The app in front at rest. While the deck presents, it draws the apps.
+class MobilePrimaryWindowLayer extends ConsumerWidget {
+  const MobilePrimaryWindowLayer({super.key});
 
   @override
-  ConsumerState<MobilePrimaryWindowLayer> createState() =>
-      _MobilePrimaryWindowLayerState();
-}
-
-class _MobilePrimaryWindowLayerState
-    extends ConsumerState<MobilePrimaryWindowLayer> {
-  final _dragX = ValueNotifier(0.0);
-
-  @override
-  void dispose() {
-    _dragX.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    ref.listen(
-      referenceShellProvider.select((state) => state.gestureDrag.dx),
-      (_, next) => _dragX.value = next,
-    );
-    _dragX.value = ref.read(referenceShellProvider).gestureDrag.dx;
+  Widget build(BuildContext context, WidgetRef ref) {
     final visual = ref.watch(
       referenceShellProvider.select(
         (state) => (
           window: state.primaryWindow,
-          target: state.appSwitchTargetWindow,
-          switching: state.gestureDrag.dx.abs() >= 0.5,
-          heroOwnsForeground:
-              state.foregroundWindow != null &&
-              (state.overviewVisible ||
-                  state.gestureDrag.dy < 0.0 ||
-                  state.homeTransitionActive),
+          homeActive: state.homeTransitionActive,
         ),
       ),
     );
     final window = visual.window;
+    if (window == null) return const SizedBox.shrink();
+    final deck = ref.read(referenceShellProvider.notifier).deck;
     final topInset = ref.watch(mobilePresentationTopInsetProvider);
-    if (window == null) {
-      return const SizedBox.shrink();
-    }
+    // The shade's frosted glass hides the app completely once established.
+    // Leaving the app in the scene would composite it, and everything above
+    // it, for every frame the shade moves or the app draws behind it.
+    final shadeOccludes = shadeFrostOccludes(context);
     return ValueListenableBuilder<bool>(
-      valueListenable: widget.overviewPresentationActive,
-      builder: (context, overviewActive, _) {
-        // Gesture state resets on release; the hero still owns presentation
-        // until its return animation has reached the normal app bounds.
-        final heroOwnsForeground = visual.heroOwnsForeground || overviewActive;
-        if (window.isLocalFlutter && heroOwnsForeground) {
+      valueListenable: deck.presenting,
+      builder: (context, presenting, _) {
+        final hidden = presenting || visual.homeActive;
+        // An in-bundle app's widget tree can live in one place at a time.
+        if (window.isLocalFlutter && hidden) {
           return const SizedBox.shrink();
         }
-        return Positioned.fill(
+        return ValueListenableBuilder<bool>(
+          valueListenable: ref.watch(shadeCoversProvider),
+          builder: (context, shadeCovers, stage) => Positioned.fill(
+            child: Offstage(
+              offstage: shadeOccludes && shadeCovers,
+              child: stage,
+            ),
+          ),
           child: Padding(
             padding: EdgeInsets.only(top: topInset),
             child: MobilePrimaryWindowStage(
               currentWindow: window,
-              switchTargetWindow: visual.switching ? visual.target : null,
-              switchDragX: _dragX,
-              opacity: heroOwnsForeground ? 0.0 : 1.0,
+              opacity: hidden ? 0.0 : 1.0,
             ),
           ),
         );
@@ -87,82 +64,40 @@ class _MobilePrimaryWindowLayerState
   }
 }
 
-class MobileLaunchLayer extends ConsumerWidget {
-  const MobileLaunchLayer({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final launch = ref.watch(
-      referenceShellProvider.select(
-        (state) =>
-            (request: state.launchRequest, window: state.launchingWindow),
-      ),
-    );
-    return LaunchTransitionLayer(
-      request: launch.request,
-      window: launch.window,
-      onCompleted: ref
-          .read(referenceShellProvider.notifier)
-          .completeLaunchTransition,
-    );
-  }
-}
-
-class MobileOverviewLayer extends ConsumerStatefulWidget {
-  const MobileOverviewLayer({
+class MobileAppDeckLayer extends ConsumerWidget {
+  const MobileAppDeckLayer({
     super.key,
+    this.backdrop,
     required this.onPresentationChanged,
     this.onProgressChanged,
   });
 
+  /// The scene behind recents, frosted once for its translucent cards.
+  final ValueListenable<FrostedBackdrop?>? backdrop;
   final ValueChanged<bool> onPresentationChanged;
   final ValueChanged<double>? onProgressChanged;
 
   @override
-  ConsumerState<MobileOverviewLayer> createState() =>
-      _MobileOverviewLayerState();
-}
-
-class _MobileOverviewLayerState extends ConsumerState<MobileOverviewLayer> {
-  final _dragY = ValueNotifier(0.0);
-
-  @override
-  void dispose() {
-    _dragY.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    ref.listen(
-      referenceShellProvider.select((state) => state.gestureDrag.dy),
-      (_, next) => _dragY.value = next,
-    );
-
-    final overview = ref.watch(
-      referenceShellProvider.select(
-        (state) => (
-          window: state.foregroundWindow,
-          objectId: state.foregroundObjectId,
-          visible: state.overviewVisible,
-          homeActive: state.homeTransitionActive,
-        ),
-      ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recents = ref.watch(
+      referenceShellProvider.select((state) => state.overviewVisible),
     );
     final controller = ref.read(referenceShellProvider.notifier);
-    return OverviewLayer(
-      windows: ref.watch(userAppWindowsProvider),
-      foregroundWindow: overview.window,
-      foregroundObjectId: overview.objectId,
-      visible: overview.visible,
-      swipeDy: _dragY,
-      homeTransitionActive: overview.homeActive,
-      onPresentationChanged: widget.onPresentationChanged,
-      onProgressChanged: widget.onProgressChanged,
-      onDismissOverview: controller.closeOverview,
-      onDismissWindow: controller.closeWindow,
-      onFocusWindow: controller.focusWindow,
-      onHomeSettled: controller.completeHomeTransition,
+    final deskBeside = ref.watch(phoneDeskProvider) != null;
+    return AppDeckLayer(
+      deck: controller.deck,
+      // The phone's apps; beside a desk the desk's stay off the deck.
+      windows: ref.watch(
+        referenceShellProvider.select((state) => state.openAppWindows),
+      ),
+      recents: recents,
+      backdrop: backdrop,
+      onPresentationChanged: onPresentationChanged,
+      onProgressChanged: onProgressChanged,
+      onCloseRecents: controller.closeOverview,
+      onDismissWindow: controller.dismissFromRecents,
+      onOpenWindow: controller.openFromRecents,
+      onMoveWindowToDesk: deskBeside ? controller.moveToDesk : null,
     );
   }
 }

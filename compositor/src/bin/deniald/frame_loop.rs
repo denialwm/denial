@@ -129,8 +129,8 @@ pub(super) fn run_frame_loop(
         }
         let framebuffer = if let Some((_, transition_atlas)) = planned_layout.as_ref() {
             let source_rects = source_rects_for_atlas(transition_atlas, scanouts)?;
-            let atlas_modifiers =
-                shared_atlas_modifiers(scanouts, renderer.egl_context().dmabuf_render_formats())?;
+            let atlas_format =
+                shared_atlas_format(scanouts, renderer.egl_context().dmabuf_render_formats())?;
             let previous_rects = scanouts
                 .iter()
                 .map(|scanout| scanout.source_rect)
@@ -142,7 +142,7 @@ pub(super) fn run_frame_loop(
             let mut staged = match AtlasSwapchain::allocate(
                 scanout_allocator,
                 transition_atlas.pixel_size,
-                &atlas_modifiers,
+                &atlas_format,
             ) {
                 Ok(staged) => staged,
                 Err(error) => {
@@ -316,7 +316,7 @@ pub(super) fn run_frame_loop(
                 event_loop,
                 events: &mut events,
                 #[cfg(feature = "flutter")]
-                flutter: &mut flutter,
+                flutter: flutter.as_mut(),
                 #[cfg(feature = "flutter")]
                 flutter_launcher: flutter_launcher.as_deref_mut(),
             })?;
@@ -364,7 +364,7 @@ pub(super) fn run_frame_loop(
                     event_loop,
                     events: &mut events,
                     #[cfg(feature = "flutter")]
-                    flutter: &mut flutter,
+                    flutter: flutter.as_mut(),
                     #[cfg(feature = "flutter")]
                     flutter_launcher: flutter_launcher.as_deref_mut(),
                 })?;

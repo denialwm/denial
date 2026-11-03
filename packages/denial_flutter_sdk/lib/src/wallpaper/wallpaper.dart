@@ -142,13 +142,21 @@ class WallpaperAssignment {
   WallpaperAssignment({
     required this.all,
     this.spanAlignment = const WallpaperSpanAlignment(),
+    this.zoom = 1.0,
     this.allDarkness = 0.0,
     Map<String, WallpaperResource> outputOverrides =
         const <String, WallpaperResource>{},
     Map<String, WallpaperSpanAlignment> outputAlignmentOverrides =
         const <String, WallpaperSpanAlignment>{},
     Map<String, double> outputDarknessOverrides = const <String, double>{},
-  }) : assert(allDarkness >= 0.0 && allDarkness <= 1.0),
+    Map<String, double> outputZoomOverrides = const <String, double>{},
+  }) : assert(zoom >= 1.0 && zoom <= maxZoom),
+       assert(
+         outputZoomOverrides.values.every(
+           (value) => value >= 1.0 && value <= maxZoom,
+         ),
+       ),
+       assert(allDarkness >= 0.0 && allDarkness <= 1.0),
        assert(
          outputDarknessOverrides.values.every(
            (value) => value.isFinite && value >= 0.0 && value <= 1.0,
@@ -163,6 +171,9 @@ class WallpaperAssignment {
            ),
        outputDarknessOverrides = Map<String, double>.unmodifiable(
          outputDarknessOverrides,
+       ),
+       outputZoomOverrides = Map<String, double>.unmodifiable(
+         outputZoomOverrides,
        );
 
   factory WallpaperAssignment.initial() {
@@ -171,10 +182,26 @@ class WallpaperAssignment {
 
   final WallpaperResource all;
   final WallpaperSpanAlignment spanAlignment;
+
+  /// How far the wallpaper is enlarged past `BoxFit.cover`, about the point
+  /// its alignment names, on every output: 1 shows it as covered.
+  final double zoom;
+
+  /// The largest [zoom].
+  static const double maxZoom = 4.0;
+
   final double allDarkness;
   final Map<String, WallpaperResource> outputOverrides;
   final Map<String, WallpaperSpanAlignment> outputAlignmentOverrides;
   final Map<String, double> outputDarknessOverrides;
+
+  /// The [zoom] of outputs placed on their own, such as a monitor beside a
+  /// phone.
+  final Map<String, double> outputZoomOverrides;
+
+  double zoomForOutput(String outputName) {
+    return outputZoomOverrides[outputName] ?? zoom;
+  }
 
   WallpaperResource forOutput(String outputName) {
     return outputOverrides[outputName] ?? all;
@@ -212,8 +239,10 @@ class WallpaperAssignment {
       return WallpaperAssignment(
         all: resource,
         spanAlignment: spanAlignment,
+        zoom: zoom,
         allDarkness: allDarkness,
         outputAlignmentOverrides: outputAlignmentOverrides,
+        outputZoomOverrides: outputZoomOverrides,
         outputDarknessOverrides: outputDarknessOverrides,
       );
     }
@@ -226,9 +255,11 @@ class WallpaperAssignment {
     return WallpaperAssignment(
       all: all,
       spanAlignment: spanAlignment,
+      zoom: zoom,
       allDarkness: allDarkness,
       outputOverrides: updated,
       outputAlignmentOverrides: outputAlignmentOverrides,
+      outputZoomOverrides: outputZoomOverrides,
       outputDarknessOverrides: outputDarknessOverrides,
     );
   }
@@ -246,15 +277,18 @@ class WallpaperAssignment {
       return WallpaperAssignment(
         all: all,
         spanAlignment: spanAlignment,
+        zoom: zoom,
         allDarkness: allDarkness,
         outputOverrides: outputOverrides,
         outputAlignmentOverrides: updated,
+        outputZoomOverrides: outputZoomOverrides,
         outputDarknessOverrides: outputDarknessOverrides,
       );
     }
     return WallpaperAssignment(
       all: all,
       spanAlignment: alignment,
+      zoom: zoom,
       allDarkness: allDarkness,
       outputOverrides: outputOverrides,
       outputDarknessOverrides: outputDarknessOverrides,
@@ -270,9 +304,11 @@ class WallpaperAssignment {
       return WallpaperAssignment(
         all: all,
         spanAlignment: spanAlignment,
+        zoom: zoom,
         allDarkness: safeDarkness,
         outputOverrides: outputOverrides,
         outputAlignmentOverrides: outputAlignmentOverrides,
+        outputZoomOverrides: outputZoomOverrides,
       );
     }
 
@@ -285,9 +321,11 @@ class WallpaperAssignment {
     return WallpaperAssignment(
       all: all,
       spanAlignment: spanAlignment,
+      zoom: zoom,
       allDarkness: allDarkness,
       outputOverrides: outputOverrides,
       outputAlignmentOverrides: outputAlignmentOverrides,
+      outputZoomOverrides: outputZoomOverrides,
       outputDarknessOverrides: updated,
     );
   }
@@ -297,10 +335,12 @@ class WallpaperAssignment {
     return other is WallpaperAssignment &&
         other.all == all &&
         other.spanAlignment == spanAlignment &&
+        other.zoom == zoom &&
         other.allDarkness == allDarkness &&
         mapEquals(other.outputOverrides, outputOverrides) &&
         mapEquals(other.outputAlignmentOverrides, outputAlignmentOverrides) &&
-        mapEquals(other.outputDarknessOverrides, outputDarknessOverrides);
+        mapEquals(other.outputDarknessOverrides, outputDarknessOverrides) &&
+        mapEquals(other.outputZoomOverrides, outputZoomOverrides);
   }
 
   @override
@@ -313,9 +353,13 @@ class WallpaperAssignment {
     final orderedAlignmentEntries = outputAlignmentOverrides.entries.toList(
       growable: false,
     )..sort((a, b) => a.key.compareTo(b.key));
+    final orderedZoomEntries = outputZoomOverrides.entries.toList(
+      growable: false,
+    )..sort((a, b) => a.key.compareTo(b.key));
     return Object.hash(
       all,
       spanAlignment,
+      zoom,
       allDarkness,
       Object.hashAll(
         orderedEntries.map((entry) => Object.hash(entry.key, entry.value)),
@@ -329,6 +373,9 @@ class WallpaperAssignment {
         orderedDarknessEntries.map(
           (entry) => Object.hash(entry.key, entry.value),
         ),
+      ),
+      Object.hashAll(
+        orderedZoomEntries.map((entry) => Object.hash(entry.key, entry.value)),
       ),
     );
   }

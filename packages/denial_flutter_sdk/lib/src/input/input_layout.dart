@@ -9,6 +9,7 @@ class InputLayoutSnapshot {
     required this.windows,
     this.visibleSurfaceIds = const <int>[],
     this.softwareKeyboardRegions = const <Rect>[],
+    this.edgeSwipeRegions = const <InputEdgeSwipeRegion>[],
     this.keyboardCapture = false,
     this.exclusiveShellMode = false,
     this.observeClientPointerPresses = false,
@@ -20,6 +21,10 @@ class InputLayoutSnapshot {
   final List<InputWindowRegion> windows;
   final List<int> visibleSurfaceIds;
   final List<Rect> softwareKeyboardRegions;
+
+  /// Shell edge swipes that may start over client windows. See
+  /// [InputEdgeSwipeRegion].
+  final List<InputEdgeSwipeRegion> edgeSwipeRegions;
   final bool keyboardCapture;
   final bool exclusiveShellMode;
   final bool observeClientPointerPresses;
@@ -36,6 +41,7 @@ class InputLayoutSnapshot {
         shellRegions.length != other.shellRegions.length ||
         softwareKeyboardRegions.length !=
             other.softwareKeyboardRegions.length ||
+        edgeSwipeRegions.length != other.edgeSwipeRegions.length ||
         windows.length != other.windows.length ||
         visibleSurfaceIds.length != other.visibleSurfaceIds.length) {
       return false;
@@ -53,6 +59,13 @@ class InputLayoutSnapshot {
         return false;
       }
     }
+    for (var index = 0; index < edgeSwipeRegions.length; index += 1) {
+      if (!edgeSwipeRegions[index].hasSameRoutingAs(
+        other.edgeSwipeRegions[index],
+      )) {
+        return false;
+      }
+    }
     for (var index = 0; index < windows.length; index += 1) {
       if (!windows[index].hasSameRoutingAs(other.windows[index])) {
         return false;
@@ -65,6 +78,28 @@ class InputLayoutSnapshot {
     }
     return true;
   }
+}
+
+/// The screen edge from which a shell edge swipe travels inward.
+enum InputEdge { left, right, top }
+
+/// A touch that starts in [rect] over a client window goes to that client
+/// until it travels inward from [edge]. The compositor then cancels the
+/// client's touch and delivers the contact to Flutter from where it went
+/// down, so the shell's recognizers see the whole swipe. Touches that leave
+/// along the edge or outward stay with the client.
+///
+/// Where Flutter already owns the input (a shell region, or no client at
+/// all), the region has no effect: Flutter receives those touches anyway.
+@immutable
+class InputEdgeSwipeRegion {
+  const InputEdgeSwipeRegion({required this.rect, required this.edge});
+
+  final Rect rect;
+  final InputEdge edge;
+
+  bool hasSameRoutingAs(InputEdgeSwipeRegion other) =>
+      edge == other.edge && _sameWireRect(rect, other.rect);
 }
 
 class InputWindowRegion {

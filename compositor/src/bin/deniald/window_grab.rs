@@ -26,6 +26,8 @@ use super::window_layout::LayoutResizeEdges;
 #[cfg(feature = "flutter")]
 use super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
 
+type PointerFocus = <RuntimeState as smithay::input::SeatHandler>::PointerFocus;
+
 const MAX_WINDOW_DIMENSION: i32 = 16_384;
 
 /// Applies the client-provided XDG size hints without ever constructing the
@@ -96,7 +98,7 @@ macro_rules! forward_pointer_events {
             &mut self,
             data: &mut RuntimeState,
             handle: &mut PointerInnerHandle<'_, RuntimeState>,
-            focus: Option<(WlSurface, Point<f64, Logical>)>,
+            focus: Option<(PointerFocus, Point<f64, Logical>)>,
             event: &RelativeMotionEvent,
         ) {
             handle.relative_motion(data, focus, event);
@@ -259,6 +261,7 @@ pub(super) struct MoveSurfaceGrab {
     start_data: GrabStartData<RuntimeState>,
     window: Window,
     initial_location: Point<i32, Logical>,
+    last_pointer_location: Point<f64, Logical>,
     forward_buttons: bool,
 }
 
@@ -268,10 +271,12 @@ impl MoveSurfaceGrab {
         window: Window,
         initial_location: Point<i32, Logical>,
     ) -> Self {
+        let last_pointer_location = start_data.location;
         Self {
             start_data,
             window,
             initial_location,
+            last_pointer_location,
             forward_buttons: true,
         }
     }
@@ -285,10 +290,12 @@ impl MoveSurfaceGrab {
         window: Window,
         initial_location: Point<i32, Logical>,
     ) -> Self {
+        let last_pointer_location = start_data.location;
         Self {
             start_data,
             window,
             initial_location,
+            last_pointer_location,
             forward_buttons: false,
         }
     }
@@ -299,7 +306,7 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -307,6 +314,7 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
+        self.last_pointer_location = event.location;
         let Some(location) = translated_move_location(
             self.initial_location,
             self.start_data.location,
@@ -315,13 +323,11 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
             return;
         };
         let geometry = {
-            let frontend = data.wayland.as_ref().expect("missing Wayland frontend");
+            let frontend = data.frontend();
             let current = frontend.window_geometry_target(&self.window);
             Rectangle::new(location, current.size)
         };
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_window_geometry_target(&self.window, geometry);
         #[cfg(feature = "flutter")]
         {
@@ -363,18 +369,23 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
     fn unset(&mut self, data: &mut RuntimeState) {
         #[cfg(feature = "flutter")]
         if !self.forward_buttons {
-            data.wayland
-                .as_mut()
-                .expect("missing Wayland frontend")
+            data.frontend_mut()
                 .set_compositor_pointer_grab_active(false);
         }
         #[cfg(feature = "flutter")]
         if window_accepts_grab_updates(data, &self.window) {
-            let geometry = data
-                .wayland
-                .as_ref()
-                .expect("missing Wayland frontend")
-                .window_geometry_target(&self.window);
+            let current = data.frontend().window_geometry_target(&self.window);
+            let initial = Rectangle::new(self.initial_location, current.size);
+            let geometry = if super::wayland_frontend::finish_desk_window_drag(
+                data,
+                &self.window,
+                initial,
+                self.last_pointer_location,
+            ) {
+                initial
+            } else {
+                current
+            };
             super::wayland_frontend::queue_window_placement(
                 data,
                 &self.window,
@@ -420,7 +431,7 @@ impl PointerGrab<RuntimeState> for PetMoveGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -527,11 +538,11 @@ impl TileMoveGrab {
             round_to_i32_saturating(position.x, self.initial_geometry.loc.x),
             round_to_i32_saturating(position.y, self.initial_geometry.loc.y),
         ));
-        let target = data
-            .wayland
-            .as_ref()
-            .expect("missing Wayland frontend")
-            .layout_drop_target_at(&self.window, drop_location, self.preview_target.as_ref());
+        let target = data.frontend().layout_drop_target_at(
+            &self.window,
+            drop_location,
+            self.preview_target.as_ref(),
+        );
         self.update_preview(data, target);
         super::wayland_frontend::queue_transient_window_placement(
             data,
@@ -544,9 +555,7 @@ impl TileMoveGrab {
     }
 
     pub(super) fn finish(&mut self, data: &mut RuntimeState) {
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_compositor_pointer_grab_active(false);
         if !window_is_mapped(data, &self.window) {
             self.clear_preview(data);
@@ -562,8 +571,24 @@ impl TileMoveGrab {
             WindowPlacementPhase::Update,
             WindowPlacementChange::Move,
         );
+        if super::wayland_frontend::finish_desk_window_drag(
+            data,
+            &self.window,
+            self.initial_geometry,
+            self.last_pointer_location,
+        ) {
+            self.clear_preview(data);
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &self.window,
+                self.initial_geometry,
+                WindowPlacementPhase::End,
+                WindowPlacementChange::Move,
+            );
+            return;
+        }
         let final_geometry = {
-            let frontend = data.wayland.as_mut().expect("missing Wayland frontend");
+            let frontend = data.frontend_mut();
             if frontend.window_is_layout_managed(&self.window) {
                 let location = Point::from((
                     round_to_i32_saturating(
@@ -597,12 +622,7 @@ impl TileMoveGrab {
         let planned = target
             .as_ref()
             .filter(|target| target.window() != &self.window)
-            .map(|target| {
-                data.wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .layout_drop_preview(&self.window, target)
-            })
+            .map(|target| data.frontend().layout_drop_preview(&self.window, target))
             .unwrap_or_default();
         self.preview.publish(data, planned, None);
         self.preview_target = target;
@@ -647,9 +667,7 @@ impl LayoutPreviewSet {
         for (window, geometry) in planned {
             let continuing = previous.iter().any(|candidate| candidate == &window);
             if dragged != Some(&window) {
-                data.wayland
-                    .as_mut()
-                    .expect("missing Wayland frontend")
+                data.frontend_mut()
                     .update_window_layout_preview(&window, geometry.size);
             }
             super::wayland_frontend::queue_transient_window_placement(
@@ -678,15 +696,8 @@ impl LayoutPreviewSet {
 
 #[cfg(feature = "flutter")]
 fn end_layout_preview(data: &mut RuntimeState, window: &Window) {
-    let geometry = data
-        .wayland
-        .as_ref()
-        .expect("missing Wayland frontend")
-        .window_geometry_target(window);
-    data.wayland
-        .as_mut()
-        .expect("missing Wayland frontend")
-        .finish_window_layout_preview(window);
+    let geometry = data.frontend().window_geometry_target(window);
+    data.frontend_mut().finish_window_layout_preview(window);
     super::wayland_frontend::queue_transient_window_placement(
         data,
         window,
@@ -702,7 +713,7 @@ impl PointerGrab<RuntimeState> for TileMoveGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -773,7 +784,7 @@ impl PointerGrab<RuntimeState> for TileResizeGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -794,11 +805,9 @@ impl PointerGrab<RuntimeState> for TileResizeGrab {
         }
         let delta = event.location - self.last_pointer_location;
         self.last_pointer_location = event.location;
-        let changed = data
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .resize_layout_window(&self.window, self.edges, delta.x, delta.y);
+        let changed =
+            data.frontend_mut()
+                .resize_layout_window(&self.window, self.edges, delta.x, delta.y);
         for (window, geometry) in changed {
             if !self
                 .affected_windows
@@ -838,19 +847,13 @@ impl PointerGrab<RuntimeState> for TileResizeGrab {
     }
 
     fn unset(&mut self, data: &mut RuntimeState) {
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_compositor_pointer_grab_active(false);
         for window in self.affected_windows.clone() {
             if !window_is_mapped(data, &window) {
                 continue;
             }
-            let geometry = data
-                .wayland
-                .as_ref()
-                .expect("missing Wayland frontend")
-                .window_geometry_target(&window);
+            let geometry = data.frontend().window_geometry_target(&window);
             super::wayland_frontend::queue_transient_window_placement(
                 data,
                 &window,
@@ -1023,7 +1026,7 @@ impl PointerGrab<RuntimeState> for LocalFlutterWindowGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -1036,9 +1039,7 @@ impl PointerGrab<RuntimeState> for LocalFlutterWindowGrab {
             return;
         }
         self.update_geometry(event.location);
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_local_flutter_window_global_geometry(self.window_id, self.last_geometry);
         super::wayland_frontend::queue_local_flutter_window_placement(
             data,
@@ -1143,9 +1144,7 @@ impl ResizeSurfaceGrab {
         self.finished = true;
         #[cfg(feature = "flutter")]
         if !self.forward_buttons {
-            data.wayland
-                .as_mut()
-                .expect("missing Wayland frontend")
+            data.frontend_mut()
                 .set_compositor_pointer_grab_active(false);
         }
         let constrained = data
@@ -1160,9 +1159,7 @@ impl ResizeSurfaceGrab {
             return;
         }
         let target = Rectangle::new(self.last_location, self.last_size);
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_window_geometry_target(&self.window, target);
         #[cfg(feature = "flutter")]
         super::wayland_frontend::queue_window_placement(
@@ -1181,7 +1178,7 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
         &mut self,
         data: &mut RuntimeState,
         handle: &mut PointerInnerHandle<'_, RuntimeState>,
-        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
@@ -1237,14 +1234,10 @@ impl PointerGrab<RuntimeState> for ResizeSurfaceGrab {
             },
         ));
 
-        data.wayland
-            .as_ref()
-            .expect("missing Wayland frontend")
+        data.frontend()
             .prepare_window_interactive_resize(&self.window, self.last_size, false);
         let target = Rectangle::new(self.last_location, self.last_size);
-        data.wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
+        data.frontend_mut()
             .set_window_geometry_target(&self.window, target);
         #[cfg(feature = "flutter")]
         super::wayland_frontend::queue_window_placement(

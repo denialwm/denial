@@ -1,8 +1,8 @@
 //! Legacy freedesktop XEmbed system-tray host for Xwayland applications.
 //!
 //! The X11 host stays off-screen. Its child icons are sampled into bounded
-//! premultiplied RGBA snapshots for Flutter, and shell clicks are translated
-//! back into ordinary X button events.
+//! premultiplied RGBA snapshots for Flutter when XDamage reports that they
+//! drew, and shell clicks are translated back into ordinary X button events.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -21,6 +21,7 @@ use tracing::{info, warn};
 use x11rb::connection::Connection;
 use x11rb::protocol::Event;
 use x11rb::protocol::composite::{ConnectionExt as _, Redirect};
+use x11rb::protocol::damage::{ConnectionExt as _, Damage, ReportLevel};
 use x11rb::protocol::xproto::{
     Atom, AtomEnum, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, ButtonIndex, ButtonPressEvent,
     ChangeWindowAttributesAux, ClientMessageEvent, Colormap, ColormapAlloc, ConfigureWindowAux,
@@ -40,6 +41,8 @@ const EVENT_CAPACITY: usize = 128;
 const MAX_ICONS: usize = 64;
 const MAX_REJECTED_ICONS: usize = 64;
 const ICON_SIZE: u16 = 32;
+/// The shortest gap between two snapshots of a drawing icon, and the retry
+/// delay while the shell's event channel is full.
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
 const REJECTION_TTL: Duration = Duration::from_secs(5);
 const MAX_ICON_BYTES: usize = 512 * 1024;
@@ -227,6 +230,7 @@ impl Atoms {
 struct HostedIcon {
     container: Window,
     colormap: Colormap,
+    damage: Damage,
     title: String,
     mapped: bool,
     published: bool,
@@ -254,6 +258,7 @@ impl XEmbedEventSender {
         if sent {
             self.pending.store(true, Ordering::Release);
         }
+        crate::loop_wake::wake();
         sent
     }
 }
@@ -281,6 +286,8 @@ struct Worker {
     rejected: BTreeMap<Window, Instant>,
     pending_removals: BTreeSet<Window>,
     pending_replays: BTreeSet<Window>,
+    /// Mapped icons that drew or were renamed since their last snapshot.
+    dirty: BTreeSet<Window>,
     next_snapshot: Instant,
 }
 
@@ -301,6 +308,11 @@ impl Worker {
             .map_err(x11_error("could not query the X Composite extension"))?
             .reply()
             .map_err(x11_error("X Composite is unavailable"))?;
+        connection
+            .damage_query_version(1, 1)
+            .map_err(x11_error("could not query the X Damage extension"))?
+            .reply()
+            .map_err(x11_error("X Damage is unavailable"))?;
         let atoms = Atoms::load(&connection)?;
         let screen = &connection.setup().roots[screen_index];
         let host = connection
@@ -428,6 +440,7 @@ impl Worker {
             rejected: BTreeMap::new(),
             pending_removals: BTreeSet::new(),
             pending_replays: BTreeSet::new(),
+            dirty: BTreeSet::new(),
             next_snapshot: Instant::now(),
         })
     }
@@ -449,11 +462,13 @@ impl Worker {
                 );
             }
             self.flush_pending_replays();
-            self.drain_x11_events()?;
-            if Instant::now() >= self.next_snapshot {
-                self.refresh_snapshots();
+            if !self.dirty.is_empty() && Instant::now() >= self.next_snapshot {
+                self.refresh_dirty_snapshots();
                 self.next_snapshot = Instant::now() + SNAPSHOT_INTERVAL;
             }
+            // Requests above may read events into the connection's buffer,
+            // where poll() cannot see them, so drain last before waiting.
+            self.drain_x11_events()?;
             if !self.wait_for_activity()? {
                 break;
             }
@@ -461,12 +476,21 @@ impl Worker {
         Ok(())
     }
 
+    /// Sleeps until X, the shell or a due snapshot needs the worker. Without
+    /// drawing icons or a full event channel it waits without a timeout.
     fn wait_for_activity(&mut self) -> Result<bool, XEmbedTrayError> {
-        let timeout = self.next_snapshot.saturating_duration_since(Instant::now());
-        let timeout_ms = if timeout.is_zero() {
-            0
+        let now = Instant::now();
+        let deadline = if !self.dirty.is_empty() {
+            Some(self.next_snapshot.max(now))
+        } else if !self.pending_removals.is_empty() || !self.pending_replays.is_empty() {
+            Some(now + SNAPSHOT_INTERVAL)
         } else {
-            timeout.as_millis().saturating_add(1).min(i32::MAX as u128) as i32
+            None
+        };
+        let timeout_ms = match deadline.map(|deadline| deadline - now) {
+            None => -1,
+            Some(timeout) if timeout.is_zero() => 0,
+            Some(timeout) => timeout.as_millis().saturating_add(1).min(i32::MAX as u128) as i32,
         };
         let mut descriptors = [
             libc::pollfd {
@@ -541,6 +565,16 @@ impl Worker {
                         self.dock(data[2]);
                     }
                 }
+                Event::DamageNotify(event) => match self.icons.get(&event.drawable) {
+                    Some(icon) if icon.damage == event.damage && icon.mapped => {
+                        self.dirty.insert(event.drawable);
+                    }
+                    // A hidden icon is snapshotted when it maps; re-arm now.
+                    Some(icon) if icon.damage == event.damage => {
+                        let _ = self.connection.damage_subtract(icon.damage, NONE, NONE);
+                    }
+                    _ => {}
+                },
                 Event::DestroyNotify(event) => self.remove(event.window, true),
                 Event::ReparentNotify(event)
                     if self
@@ -587,6 +621,7 @@ impl Worker {
         let mut colormap_resource = None;
         let mut in_save_set = false;
         let mut redirected = false;
+        let mut damage_resource = None;
         let mut reparented = false;
         let result = (|| -> Result<(), XEmbedTrayError> {
             let attributes = self
@@ -675,6 +710,16 @@ impl Worker {
                 .check()
                 .map_err(x11_error("could not activate XEmbed icon redirection"))?;
             redirected = true;
+            let damage = self
+                .connection
+                .generate_id()
+                .map_err(x11_error("could not allocate an XEmbed icon damage"))?;
+            self.connection
+                .damage_create(damage, window, ReportLevel::NON_EMPTY)
+                .map_err(x11_error("could not track XEmbed icon damage"))?
+                .check()
+                .map_err(x11_error("X server rejected the XEmbed icon damage"))?;
+            damage_resource = Some(damage);
             self.connection
                 .reparent_window(window, container, 0, 0)
                 .map_err(x11_error("could not embed XEmbed icon"))?
@@ -749,6 +794,9 @@ impl Worker {
             Ok(())
         })();
         if let Err(error) = result {
+            if let Some(damage) = damage_resource {
+                let _ = self.connection.damage_destroy(damage);
+            }
             if redirected {
                 let _ = self
                     .connection
@@ -782,11 +830,15 @@ impl Worker {
         let Some(colormap) = colormap_resource else {
             return;
         };
+        let Some(damage) = damage_resource else {
+            return;
+        };
         self.icons.insert(
             window,
             HostedIcon {
                 container,
                 colormap,
+                damage,
                 title,
                 mapped: xembed_info.mapped,
                 published: false,
@@ -815,8 +867,11 @@ impl Worker {
     fn remove(&mut self, window: Window, destroyed: bool) {
         self.rejected.remove(&window);
         self.pending_replays.remove(&window);
+        self.dirty.remove(&window);
         if let Some(icon) = self.icons.remove(&window) {
+            // The server frees a damage object with its drawable.
             if !destroyed {
+                let _ = self.connection.damage_destroy(icon.damage);
                 let _ = self
                     .connection
                     .composite_unredirect_window(window, Redirect::AUTOMATIC);
@@ -890,6 +945,7 @@ impl Worker {
     fn withdraw_icons(&mut self) {
         let windows = std::mem::take(&mut self.icons);
         for (window, icon) in windows {
+            let _ = self.connection.damage_destroy(icon.damage);
             let _ = self
                 .connection
                 .composite_unredirect_window(window, Redirect::AUTOMATIC);
@@ -911,30 +967,35 @@ impl Worker {
         let _ = self.connection.flush();
     }
 
-    fn refresh_snapshots(&mut self) {
-        let windows = self
-            .icons
-            .iter()
-            .filter_map(|(window, icon)| icon.mapped.then_some(*window))
-            .collect::<Vec<_>>();
-        for window in windows {
-            self.publish_snapshot(window, XEmbedTrayEventKind::Updated);
+    /// Snapshots the icons that drew. An icon whose update the full channel
+    /// refused stays dirty for the next round.
+    fn refresh_dirty_snapshots(&mut self) {
+        for window in std::mem::take(&mut self.dirty) {
+            let Some(icon) = self.icons.get(&window) else {
+                continue;
+            };
+            // Re-arm before reading, so drawing during the read reports again.
+            let _ = self.connection.damage_subtract(icon.damage, NONE, NONE);
+            if icon.mapped && !self.publish_snapshot(window, XEmbedTrayEventKind::Updated) {
+                self.dirty.insert(window);
+            }
         }
     }
 
-    fn publish_snapshot(&mut self, window: Window, requested_kind: XEmbedTrayEventKind) {
+    /// Returns false when the full event channel refused the snapshot.
+    fn publish_snapshot(&mut self, window: Window, requested_kind: XEmbedTrayEventKind) -> bool {
         let Some(snapshot) = self.capture_snapshot(window) else {
-            return;
+            return true;
         };
         let Some(hosted) = self.icons.get_mut(&window) else {
-            return;
+            return true;
         };
         if !hosted.mapped {
-            return;
+            return true;
         }
         let changed = hosted.last_snapshot.as_ref() != Some(&snapshot);
         if requested_kind == XEmbedTrayEventKind::Updated && !changed {
-            return;
+            return true;
         }
         let kind = if hosted.published {
             requested_kind
@@ -952,6 +1013,7 @@ impl Worker {
         } else if kind == XEmbedTrayEventKind::Added {
             self.pending_replays.insert(window);
         }
+        published || kind == XEmbedTrayEventKind::Added
     }
 
     fn capture_snapshot(&self, window: Window) -> Option<XEmbedTrayIcon> {
@@ -1018,6 +1080,9 @@ impl Worker {
         {
             hosted.title = title;
             hosted.last_snapshot = None;
+            if hosted.mapped {
+                self.dirty.insert(window);
+            }
         }
     }
 
@@ -1055,6 +1120,7 @@ impl Worker {
             self.publish_snapshot(window, XEmbedTrayEventKind::Added);
         } else {
             self.pending_replays.remove(&window);
+            self.dirty.remove(&window);
             let published = if let Some(hosted) = self.icons.get_mut(&window) {
                 hosted.mapped = false;
                 hosted.published
@@ -1196,7 +1262,6 @@ fn x11_error<E: fmt::Display>(context: &'static str) -> impl FnOnce(E) -> XEmbed
     move |error| XEmbedTrayError(format!("{context}: {error}"))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn rgba_from_ximage(
     connection: &RustConnection,
     screen_index: usize,

@@ -30,6 +30,311 @@ impl Drop for RenderAuditCallbackTimer<'_> {
     }
 }
 
+impl FlutterGlHandler {
+    pub(super) fn prepare_source_with_gl(
+        &self,
+        texture_id: i64,
+        source: ExternalTextureSource,
+    ) -> Option<PreparedExternalTexture> {
+        self.destroy_retired_external_bindings();
+        let source_generation = source.generation();
+        let feedback = source.feedback();
+        let color = source.color();
+        let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
+            warn!(
+                texture_id,
+                limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
+                "rejected Flutter external texture lease after resource limit"
+            );
+            return None;
+        };
+        let (width, height, name, lease, sampled_buffer) = match source {
+            ExternalTextureSource::Dmabuf {
+                dmabuf,
+                buffer_guard,
+                revision: _,
+                feedback: _,
+                color: _,
+            } => {
+                let dmabuf_width = dmabuf.width();
+                let dmabuf_height = dmabuf.height();
+                let width = usize::try_from(dmabuf_width).unwrap_or_default();
+                let height = usize::try_from(dmabuf_height).unwrap_or_default();
+                if width == 0 || height == 0 {
+                    return None;
+                }
+                let owned_shm = buffer_guard
+                    .as_ref()
+                    .and_then(ExternalBufferGuard::owned_shm)
+                    .cloned();
+                let owned_native = buffer_guard
+                    .as_ref()
+                    .and_then(ExternalBufferGuard::owned_native)
+                    .cloned();
+                let cached = if owned_native.is_some() {
+                    None
+                } else if owned_shm.is_some() {
+                    self.cached_shm_binding(texture_id, source_generation)
+                } else {
+                    self.cached_dmabuf_binding(texture_id, &dmabuf)
+                };
+                let binding = if let Some(binding) = cached {
+                    binding
+                } else {
+                    let Some(binding_permit) = self.external_texture_resource_budget.try_acquire()
+                    else {
+                        warn!(
+                            texture_id,
+                            limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
+                            "rejected dma-buf EGLImage after external texture resource limit"
+                        );
+                        return None;
+                    };
+                    let context = lock(&self.render_context);
+                    let image = match context.context.display().create_image_from_dmabuf(&dmabuf) {
+                        Ok(image) => image,
+                        Err(error) => {
+                            warn!(%error, texture_id, "could not import Wayland dma-buf for Flutter");
+                            return None;
+                        }
+                    };
+                    drop(context);
+                    let mut name = 0;
+                    if let Some(error) = self.take_gl_error() {
+                        warn!(
+                            error = format_args!("{error:#x}"),
+                            texture_id, "discarded stale GLES error before dma-buf import"
+                        );
+                    }
+                    // SAFETY: the Flutter render context is current on this callback thread.
+                    unsafe {
+                        (self.gl.gen_textures)(1, &mut name);
+                        (self.gl.bind_texture)(gl::TEXTURE_2D, name);
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_MIN_FILTER,
+                            gl::LINEAR as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_MAG_FILTER,
+                            gl::LINEAR as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_WRAP_S,
+                            gl::CLAMP_TO_EDGE as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_WRAP_T,
+                            gl::CLAMP_TO_EDGE as i32,
+                        );
+                        (self.gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
+                    }
+                    let gl_error = self.take_gl_error();
+                    if name == 0 || gl_error.is_some() {
+                        // SAFETY: the texture, when allocated, belongs to the
+                        // current render context and has not escaped this call.
+                        unsafe {
+                            if name != 0 {
+                                (self.gl.delete_textures)(1, &name);
+                            }
+                        }
+                        // SAFETY: the image was created on this EGL display and
+                        // has not been installed in a cache entry.
+                        unsafe {
+                            egl_ffi::egl::DestroyImageKHR(self.display.handle, image);
+                        }
+                        if let Some(error) = gl_error {
+                            warn!(
+                                error = format_args!("{error:#x}"),
+                                texture_id, "rejected Wayland dma-buf after GLES import failure"
+                            );
+                        }
+                        return None;
+                    }
+                    let binding = Arc::new(CachedTextureBinding {
+                        binding: Some(ExternalTextureBinding {
+                            dmabuf_image: Some((dmabuf.clone(), image as usize)),
+                            _owned_shm: owned_shm.clone(),
+                            _owned_native: owned_native.clone(),
+                            texture: name,
+                            _resource_permit: binding_permit,
+                        }),
+                        retirements: Arc::clone(&self.retired_external_bindings),
+                    });
+                    if owned_native.is_some() {
+                        // Native output bindings are cached only by the merged
+                        // image cache. Old revisions must retire promptly.
+                    } else if owned_shm.is_some() {
+                        self.cache_shm_binding(texture_id, source_generation, Arc::clone(&binding));
+                    } else {
+                        self.cache_dmabuf_binding(texture_id, dmabuf, Arc::clone(&binding));
+                    }
+                    // An insertion can evict an inactive LRU entry. Its Drop
+                    // only queued GL objects, and this callback owns a current
+                    // render context, so reclaim them immediately.
+                    self.destroy_retired_external_bindings();
+                    binding
+                };
+                let name = binding.texture();
+                if name == 0 {
+                    return None;
+                }
+                let sampled_buffer = buffer_guard.clone();
+                (
+                    width,
+                    height,
+                    name,
+                    ExternalTextureLeaseResource::Dmabuf {
+                        _binding: binding,
+                        _buffer_guard: buffer_guard,
+                        _resource_permit: lease_permit,
+                    },
+                    sampled_buffer,
+                )
+            }
+            ExternalTextureSource::Shm(frame) => {
+                let width = usize::try_from(frame.width).unwrap_or_default();
+                let height = usize::try_from(frame.height).unwrap_or_default();
+                if width == 0 || height == 0 {
+                    return None;
+                }
+                let Ok(width_i32) = i32::try_from(frame.width) else {
+                    return None;
+                };
+                let Ok(height_i32) = i32::try_from(frame.height) else {
+                    return None;
+                };
+                let binding = if let Some(binding) =
+                    self.cached_shm_binding(texture_id, frame.revision)
+                {
+                    binding
+                } else {
+                    let Some(binding_permit) = self.external_texture_resource_budget.try_acquire()
+                    else {
+                        warn!(
+                            texture_id,
+                            limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
+                            "rejected SHM upload after external texture resource limit"
+                        );
+                        return None;
+                    };
+                    let mut name = 0;
+                    if let Some(error) = self.take_gl_error() {
+                        warn!(
+                            error = format_args!("{error:#x}"),
+                            texture_id, "discarded stale GLES error before SHM upload"
+                        );
+                    }
+                    // SHM snapshots are tightly packed RGBA8, so the default
+                    // four-byte unpack alignment is valid for every row.
+                    // SAFETY: Flutter invokes this callback with the render
+                    // context current; `frame.pixels()` contains the complete
+                    // validated width-by-height RGBA payload.
+                    unsafe {
+                        (self.gl.gen_textures)(1, &mut name);
+                        (self.gl.bind_texture)(gl::TEXTURE_2D, name);
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_MIN_FILTER,
+                            gl::LINEAR as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_MAG_FILTER,
+                            gl::LINEAR as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_WRAP_S,
+                            gl::CLAMP_TO_EDGE as i32,
+                        );
+                        (self.gl.tex_parameter_i)(
+                            gl::TEXTURE_2D,
+                            gl::TEXTURE_WRAP_T,
+                            gl::CLAMP_TO_EDGE as i32,
+                        );
+                        (self.gl.tex_image_2d)(
+                            gl::TEXTURE_2D,
+                            0,
+                            gl::RGBA as i32,
+                            width_i32,
+                            height_i32,
+                            0,
+                            gl::RGBA,
+                            gl::UNSIGNED_BYTE,
+                            frame.pixels().as_ptr().cast(),
+                        );
+                    }
+                    let gl_error = self.take_gl_error();
+                    if name == 0 || gl_error.is_some() {
+                        // SAFETY: the texture, when allocated, belongs to the
+                        // current render context and has not escaped this call.
+                        unsafe {
+                            if name != 0 {
+                                (self.gl.delete_textures)(1, &name);
+                            }
+                        }
+                        if let Some(error) = gl_error {
+                            warn!(
+                                error = format_args!("{error:#x}"),
+                                texture_id,
+                                "rejected Wayland SHM texture after GLES upload failure"
+                            );
+                        }
+                        return None;
+                    }
+                    let revision = frame.revision;
+                    let binding = Arc::new(CachedTextureBinding {
+                        binding: Some(ExternalTextureBinding {
+                            dmabuf_image: None,
+                            _owned_shm: None,
+                            _owned_native: None,
+                            texture: name,
+                            _resource_permit: binding_permit,
+                        }),
+                        retirements: Arc::clone(&self.retired_external_bindings),
+                    });
+                    self.cache_shm_binding(texture_id, revision, Arc::clone(&binding));
+                    self.destroy_retired_external_bindings();
+                    binding
+                };
+                let name = binding.texture();
+                if name == 0 {
+                    return None;
+                }
+                (
+                    width,
+                    height,
+                    name,
+                    ExternalTextureLeaseResource::Shm {
+                        _binding: binding,
+                        _resource_permit: lease_permit,
+                    },
+                    None,
+                )
+            }
+        };
+        if width == 0 || height == 0 {
+            return None;
+        }
+        Some(PreparedExternalTexture {
+            texture_id,
+            source_generation,
+            feedback,
+            color,
+            width,
+            height,
+            name,
+            resource: lease,
+            sampled_buffer,
+            native_samples: Vec::new(),
+        })
+    }
+}
+
 impl OpenGlHandler for FlutterGlHandler {
     fn make_current(&self) -> bool {
         if self.shutdown_started.load(Ordering::Acquire) {
@@ -99,7 +404,24 @@ impl OpenGlHandler for FlutterGlHandler {
         // If present() already sealed the transaction this is idempotent; if
         // the transaction had no present callback it supplies the missing
         // REQUESTED/RASTERIZING -> IDLE transition.
-        let ready = lock(&self.broker).finish_transaction();
+        //
+        // A view's root present runs in the same raster task as its
+        // present_view, so a handoff or Rendering target left at this point
+        // was abandoned. Keeping either would block every later frame.
+        let stale_handoff = lock(&self.pending_output_presentation).take();
+        let (ready, abandoned) = {
+            let mut broker = lock(&self.broker);
+            let ready = broker.finish_transaction();
+            (ready, broker.retire_abandoned_renders())
+        };
+        if stale_handoff.is_some() || abandoned != 0 {
+            error!(
+                view_id = ?stale_handoff.map(|handoff| handoff.view_id),
+                abandoned,
+                "Flutter raster task ended without presenting its output"
+            );
+            self.notify_frame_ready();
+        }
         lock(&self.raster_sampled_feedback).clear();
         let previous = self.finish_producer_frame();
         if !ready.is_empty() {
@@ -217,9 +539,13 @@ impl OpenGlHandler for FlutterGlHandler {
         if let Some(gpu_timing) = &self.gpu_timing {
             lock(gpu_timing).begin(framebuffer);
         }
+        let format = lock(&self.targets)
+            .iter()
+            .find(|target| target.render_framebuffer == framebuffer)
+            .map_or(gl::RGBA8, |target| target.gl_format);
         Some(CompositorBackingStore {
             framebuffer,
-            format: gl::RGBA8,
+            format,
             // The pool owns the target. This identity makes a malformed or
             // cross-view present observable without allocating a callback
             // baton for every raster pass.
@@ -393,6 +719,7 @@ impl OpenGlHandler for FlutterGlHandler {
                             self.render_audit.as_ref(),
                             RenderAuditStage::PresentFlush,
                         );
+                        // SAFETY: present owns the current raster GLES context.
                         unsafe { (self.gl.flush)() };
                     }
                     let exported_fence = {
@@ -487,14 +814,78 @@ impl OpenGlHandler for FlutterGlHandler {
             *lock(&self.sampled_buffer_release_fence) = release_fence;
             let rendered_at = self.render_audit.as_ref().map(|_| Instant::now());
             let sampled_feedback = std::mem::take(&mut *lock(&self.raster_sampled_feedback));
+            if let Some(transfer) = self.transfers.get(&framebuffer) {
+                let Some(source_fence) = fence else {
+                    return false;
+                };
+                if !lock(&self.broker).begin_transfer(framebuffer) {
+                    return false;
+                }
+                // Client surfaces were sampled only by Flutter, not by later
+                // stages. Their release follows the source writer, while KMS
+                // receives only the final destination writer's completion.
+                let sampled = self.seal_sampled_buffers();
+                let source_release = lock(&self.sampled_buffer_release_fence).take();
+                self.publish_sampled_buffer_release(source_release, sampled);
+                let owner = lock(&self.completion_owner).clone();
+                let frame_damage = frame.frame_damage.to_vec();
+                let buffer_damage = frame.buffer_damage.to_vec();
+                let submitted = transfer.submit(source_fence, Box::new(move |completion| {
+                    let Some(handler) = owner.upgrade() else { return; };
+                    if handler.shutdown_started.load(Ordering::Acquire) { return; }
+                    match completion {
+                        Ok(final_fence) => {
+                            let mut broker = lock(&handler.broker);
+                            let completion = FrameCompletion {
+                                fence: Some(final_fence),
+                                rendered_at,
+                                feedback: sampled_feedback,
+                            };
+                            if !broker.mark_ready_with_feedback(view_id, framebuffer,
+                                &frame_damage, &buffer_damage, completion) {
+                                drop(broker);
+                                let _ = handler.events.send(RuntimeEvent::FatalRender {
+                                    generation: handler.generation,
+                                    reason: "cross-GPU completion did not match its pinned source slot".into(),
+                                });
+                                return;
+                            }
+                            let ready = broker.finish_transfer(framebuffer);
+                            drop(broker);
+                            if let Some(audit) = &handler.render_audit {
+                                lock(audit).record_output_ready(Instant::now());
+                            }
+                            handler.publish_ready_frames(ready);
+                        }
+                        Err(reason) => {
+                            // Completion uncertainty is terminal: keep the slot
+                            // Transferring and preserve its leases for diagnosis.
+                            error!(framebuffer, %reason, "cross-GPU presentation transfer failed");
+                            let _ = handler.events.send(RuntimeEvent::FatalRender {
+                                generation: handler.generation, reason,
+                            });
+                        }
+                    }
+                }));
+                if let Err(error) = submitted {
+                    let _ = self.events.send(RuntimeEvent::FatalRender {
+                        generation: self.generation,
+                        reason: format!("could not submit cross-GPU transfer: {error}"),
+                    });
+                    return false;
+                }
+                return true;
+            }
             if !lock(&self.broker).mark_ready_with_feedback(
                 view_id,
                 framebuffer,
                 frame.frame_damage,
                 frame.buffer_damage,
-                fence,
-                rendered_at,
-                sampled_feedback,
+                FrameCompletion {
+                    fence,
+                    rendered_at,
+                    feedback: sampled_feedback,
+                },
             ) {
                 error!(
                     view_id,
@@ -504,7 +895,10 @@ impl OpenGlHandler for FlutterGlHandler {
             }
             true
         })();
-        if presented && let Some(audit) = &self.render_audit {
+        if presented
+            && !self.transfers.contains_key(&framebuffer)
+            && let Some(audit) = &self.render_audit
+        {
             lock(audit).record_output_ready(Instant::now());
         }
         presented
@@ -572,314 +966,42 @@ impl OpenGlHandler for FlutterGlHandler {
             RenderAuditStage::ExternalTexture,
         );
         let prepared = lock(&self.prepared_external_texture).take();
-        if let Some(prepared) = prepared {
-            if prepared.texture_id != texture_id {
-                // The engine extension promises that this callback immediately
-                // follows the preflight for the same texture. Refuse the frame
-                // without touching GL if a mismatched engine violates it.
-                error!(
-                    texture_id,
-                    prepared_texture_id = prepared.texture_id,
-                    "external texture preflight did not match Flutter callback"
-                );
-                return false;
+        let prepared = prepared.or_else(|| {
+            if self.uses_native_window_texture(texture_id) {
+                self.prepare_native_with_gl(texture_id)
+            } else {
+                self.prepare_source_with_gl(texture_id, self.current_external_texture(texture_id)?)
             }
-            let lease = self.lease_external_texture(prepared.resource);
-            *texture = sys::FlutterOpenGLTexture {
-                target: gl::TEXTURE_2D,
-                name: prepared.name,
-                format: gl::RGBA8,
-                user_data: Box::into_raw(lease).cast(),
-                destruction_callback: Some(retire_external_texture),
-                width: prepared.width,
-                height: prepared.height,
-            };
-            if let Some(buffer_guard) = prepared.sampled_buffer {
-                self.record_sampled_buffer(texture_id, prepared.source_generation, buffer_guard);
-            }
-            self.record_sampled_feedback(prepared.feedback);
-            self.mark_external_texture_sampled(texture_id, prepared.source_generation);
-            return true;
-        }
-        // Flutter invokes this callback with the render context current. Drain
-        // leases released by earlier engine frames before allocating the next
-        // direct EGLImage binding.
-        self.destroy_retired_external_bindings();
-        let Some(source) = self.current_external_texture(texture_id) else {
+        });
+        let Some(prepared) = prepared else {
             return false;
         };
-        let source_generation = source.generation();
-        let feedback = source.feedback();
-        let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
-            warn!(
+        if prepared.texture_id != texture_id {
+            error!(
                 texture_id,
-                limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
-                "rejected Flutter external texture lease after resource limit"
+                prepared_texture_id = prepared.texture_id,
+                "external texture preflight did not match Flutter callback"
             );
             return false;
-        };
-        let (width, height, name, lease, sampled_buffer) = match source {
-            ExternalTextureSource::Dmabuf {
-                dmabuf,
-                buffer_guard,
-                revision: _,
-                feedback: _,
-            } => {
-                let dmabuf_width = dmabuf.width();
-                let dmabuf_height = dmabuf.height();
-                let width = usize::try_from(dmabuf_width).unwrap_or_default();
-                let height = usize::try_from(dmabuf_height).unwrap_or_default();
-                if width == 0 || height == 0 {
-                    return false;
-                }
-                let cached = self.cached_dmabuf_binding(texture_id, &dmabuf);
-                let binding = if let Some(binding) = cached {
-                    binding
-                } else {
-                    let Some(binding_permit) = self.external_texture_resource_budget.try_acquire()
-                    else {
-                        warn!(
-                            texture_id,
-                            limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
-                            "rejected dma-buf EGLImage after external texture resource limit"
-                        );
-                        return false;
-                    };
-                    let context = lock(&self.render_context);
-                    let image = match context.context.display().create_image_from_dmabuf(&dmabuf) {
-                        Ok(image) => image,
-                        Err(error) => {
-                            warn!(%error, texture_id, "could not import Wayland dma-buf for Flutter");
-                            return false;
-                        }
-                    };
-                    drop(context);
-                    let mut name = 0;
-                    if let Some(error) = self.take_gl_error() {
-                        warn!(
-                            error = format_args!("{error:#x}"),
-                            texture_id, "discarded stale GLES error before dma-buf import"
-                        );
-                    }
-                    // SAFETY: the Flutter render context is current on this callback thread.
-                    unsafe {
-                        (self.gl.gen_textures)(1, &mut name);
-                        (self.gl.bind_texture)(gl::TEXTURE_2D, name);
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_MIN_FILTER,
-                            gl::LINEAR as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_MAG_FILTER,
-                            gl::LINEAR as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_WRAP_S,
-                            gl::CLAMP_TO_EDGE as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_WRAP_T,
-                            gl::CLAMP_TO_EDGE as i32,
-                        );
-                        (self.gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
-                    }
-                    let gl_error = self.take_gl_error();
-                    if name == 0 || gl_error.is_some() {
-                        // SAFETY: the texture, when allocated, belongs to the
-                        // current render context and has not escaped this call.
-                        unsafe {
-                            if name != 0 {
-                                (self.gl.delete_textures)(1, &name);
-                            }
-                        }
-                        // SAFETY: the image was created on this EGL display and
-                        // has not been installed in a cache entry.
-                        unsafe {
-                            egl_ffi::egl::DestroyImageKHR(self.display.handle, image);
-                        }
-                        if let Some(error) = gl_error {
-                            warn!(
-                                error = format_args!("{error:#x}"),
-                                texture_id, "rejected Wayland dma-buf after GLES import failure"
-                            );
-                        }
-                        return false;
-                    }
-                    let binding = Arc::new(CachedTextureBinding {
-                        binding: Some(ExternalTextureBinding {
-                            dmabuf_image: Some((dmabuf.clone(), image as usize)),
-                            texture: name,
-                            _resource_permit: binding_permit,
-                        }),
-                        retirements: Arc::clone(&self.retired_external_bindings),
-                    });
-                    self.cache_dmabuf_binding(texture_id, dmabuf, Arc::clone(&binding));
-                    // An insertion can evict an inactive LRU entry. Its Drop
-                    // only queued GL objects, and this callback owns a current
-                    // render context, so reclaim them immediately.
-                    self.destroy_retired_external_bindings();
-                    binding
-                };
-                let name = binding.texture();
-                if name == 0 {
-                    return false;
-                }
-                let sampled_buffer = buffer_guard.clone();
-                (
-                    width,
-                    height,
-                    name,
-                    ExternalTextureLeaseResource::Dmabuf {
-                        _binding: binding,
-                        _buffer_guard: buffer_guard,
-                        _resource_permit: lease_permit,
-                    },
-                    sampled_buffer,
-                )
-            }
-            ExternalTextureSource::Shm(frame) => {
-                let width = usize::try_from(frame.width).unwrap_or_default();
-                let height = usize::try_from(frame.height).unwrap_or_default();
-                if width == 0 || height == 0 {
-                    return false;
-                }
-                let Ok(width_i32) = i32::try_from(frame.width) else {
-                    return false;
-                };
-                let Ok(height_i32) = i32::try_from(frame.height) else {
-                    return false;
-                };
-                let binding = if let Some(binding) =
-                    self.cached_shm_binding(texture_id, frame.revision)
-                {
-                    binding
-                } else {
-                    let Some(binding_permit) = self.external_texture_resource_budget.try_acquire()
-                    else {
-                        warn!(
-                            texture_id,
-                            limit = MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES,
-                            "rejected SHM upload after external texture resource limit"
-                        );
-                        return false;
-                    };
-                    let mut name = 0;
-                    if let Some(error) = self.take_gl_error() {
-                        warn!(
-                            error = format_args!("{error:#x}"),
-                            texture_id, "discarded stale GLES error before SHM upload"
-                        );
-                    }
-                    // SHM snapshots are tightly packed RGBA8, so the default
-                    // four-byte unpack alignment is valid for every row.
-                    // SAFETY: Flutter invokes this callback with the render
-                    // context current; `frame.pixels()` contains the complete
-                    // validated width-by-height RGBA payload.
-                    unsafe {
-                        (self.gl.gen_textures)(1, &mut name);
-                        (self.gl.bind_texture)(gl::TEXTURE_2D, name);
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_MIN_FILTER,
-                            gl::LINEAR as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_MAG_FILTER,
-                            gl::LINEAR as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_WRAP_S,
-                            gl::CLAMP_TO_EDGE as i32,
-                        );
-                        (self.gl.tex_parameter_i)(
-                            gl::TEXTURE_2D,
-                            gl::TEXTURE_WRAP_T,
-                            gl::CLAMP_TO_EDGE as i32,
-                        );
-                        (self.gl.tex_image_2d)(
-                            gl::TEXTURE_2D,
-                            0,
-                            gl::RGBA as i32,
-                            width_i32,
-                            height_i32,
-                            0,
-                            gl::RGBA,
-                            gl::UNSIGNED_BYTE,
-                            frame.pixels().as_ptr().cast(),
-                        );
-                    }
-                    let gl_error = self.take_gl_error();
-                    if name == 0 || gl_error.is_some() {
-                        // SAFETY: the texture, when allocated, belongs to the
-                        // current render context and has not escaped this call.
-                        unsafe {
-                            if name != 0 {
-                                (self.gl.delete_textures)(1, &name);
-                            }
-                        }
-                        if let Some(error) = gl_error {
-                            warn!(
-                                error = format_args!("{error:#x}"),
-                                texture_id,
-                                "rejected Wayland SHM texture after GLES upload failure"
-                            );
-                        }
-                        return false;
-                    }
-                    let revision = frame.revision;
-                    let binding = Arc::new(CachedTextureBinding {
-                        binding: Some(ExternalTextureBinding {
-                            dmabuf_image: None,
-                            texture: name,
-                            _resource_permit: binding_permit,
-                        }),
-                        retirements: Arc::clone(&self.retired_external_bindings),
-                    });
-                    self.cache_shm_binding(texture_id, revision, Arc::clone(&binding));
-                    self.destroy_retired_external_bindings();
-                    binding
-                };
-                let name = binding.texture();
-                if name == 0 {
-                    return false;
-                }
-                (
-                    width,
-                    height,
-                    name,
-                    ExternalTextureLeaseResource::Shm {
-                        _binding: binding,
-                        _resource_permit: lease_permit,
-                    },
-                    None,
-                )
-            }
-        };
-        if width == 0 || height == 0 {
-            drop(lease);
-            return false;
         }
-        let lease = self.lease_external_texture(lease);
+        let prepared = self.grade_external_texture(prepared);
+        let lease =
+            self.lease_external_texture(texture_id, prepared.source_generation, prepared.resource);
         *texture = sys::FlutterOpenGLTexture {
             target: gl::TEXTURE_2D,
-            name,
+            name: prepared.name,
             format: gl::RGBA8,
             user_data: Box::into_raw(lease).cast(),
             destruction_callback: Some(retire_external_texture),
-            width,
-            height,
+            width: prepared.width,
+            height: prepared.height,
         };
-        if let Some(buffer_guard) = sampled_buffer {
-            self.record_sampled_buffer(texture_id, source_generation, buffer_guard);
+        if let Some(buffer) = prepared.sampled_buffer {
+            self.record_sampled_buffer(texture_id, prepared.source_generation, buffer);
         }
-        self.record_sampled_feedback(feedback);
-        self.mark_external_texture_sampled(texture_id, source_generation);
+        self.record_sampled_feedback(prepared.feedback);
+        self.mark_external_texture_sampled(texture_id, prepared.source_generation);
+        self.finish_native_samples(prepared.native_samples);
         true
     }
 

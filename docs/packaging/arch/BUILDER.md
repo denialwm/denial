@@ -17,8 +17,14 @@ The machine actually has:
 - CachyOS, an Arch-compatible x86-64 host;
 - an AMD Ryzen AI 9 HX 370 with 12 cores and 24 threads;
 - 30 GiB physical RAM and 30 GiB zram;
-- a 512 GB NVMe drive with approximately 439 GiB currently free;
+- a 512 GB NVMe drive: a 192 GiB Btrfs system partition, the rest for the
+  lab's install targets; branch validation needs 80 GiB free on it;
 - Btrfs storage below `/srv`;
+- the Nix store in its own Btrfs subvolume, `@nix` on `/nix`, so the snapper
+  snapshots of `/` taken around pacman runs never hold store paths that
+  garbage collection removed. Each branch's newest validated Nix build stays
+  a GC root under `/srv/denial-builder/cache/nix-roots/`, so collecting
+  garbage keeps what the next run would otherwise rebuild;
 - synchronized time and an NVMe health log with no media errors.
 
 The host operating system is not the future release build authority. Stage 2
@@ -38,7 +44,8 @@ The installed boundary is:
 - no supplementary groups and no noninteractive sudo access;
 - root-owned runner parents and a fresh, user-writable `current` instance;
 - a root-owned Nix daemon configured with only Denial's public Cachix URL and
-  signing key; the runner remains an untrusted Nix user;
+  signing key, and the shared engine compiler cache as a sandbox path; the
+  runner remains an untrusted Nix user;
 - GitHub Actions runner `2.336.0`, downloaded from the official release and
   verified against SHA-256
   `04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d`;
@@ -146,7 +153,13 @@ A separately checksum-verified Alpine minirootfs archive may survive below
 storage and installs its declared APK build dependencies afresh.
 
 The installer also adds a root-owned Nix configuration fragment containing
-only Denial's public Cachix URL and signing key. The unprivileged runner can
+only Denial's public Cachix URL and signing key,
+`/var/cache/denial-nix-ccache` as a sandbox path, and `log-lines = 200`, so a
+failed build shows enough of its log without streaming every build log. Nix builds share that
+directory (group `nixbld`, 40 GB): the engine derivation compiles through
+ccache when it is present, so a Flutter or Skia commit recompiles only what it
+changed instead of the whole engine. The unprivileged runner cannot reach it;
+only the Nix build users can. The unprivileged runner can
 ask the Nix daemon to realize immutable store paths, but it cannot change the
 daemon configuration or install a post-build hook. CI uploads only the
 explicit Denial outputs recorded by the Nix build. The Cachix CLI itself is

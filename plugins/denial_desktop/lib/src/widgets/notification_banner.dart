@@ -20,12 +20,19 @@ import 'package:denial_flutter_sdk/tokens.dart';
 
 import 'mobile_ui_metrics.dart';
 import 'notification_media.dart';
+import 'notification_open.dart';
+
+export 'notification_open.dart' show openLockNotification, openNotification;
 
 import 'package:denial_flutter_sdk/effects.dart';
+import 'package:denial_flutter_sdk/rendering.dart'
+    show FadeSnapshot, WindowBackdropCache, WindowBackdropSlice;
 
 import 'shade/shade_backdrop_scene.dart';
+import '../state/phone_desk.dart';
 
 part 'notification_card.dart';
+part 'notification_reveal.dart';
 part 'notification_card_controls.dart';
 part 'notification_transition.dart';
 part 'mobile_notification_banner.dart';
@@ -38,6 +45,7 @@ class NotificationBannerLayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!showsTransientOverlay(context, ref)) return const SizedBox.shrink();
     final notificationState = ref.watch(desktopNotificationsProvider);
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.lockLayerVisible),
@@ -52,10 +60,7 @@ class NotificationBannerLayer extends ConsumerWidget {
     final controller = ref.read(desktopNotificationsProvider.notifier);
     if (mobile) {
       final shadeVisible = ref.watch(
-        referenceShellProvider.select(
-          (state) =>
-              state.quickSettingsVisible || state.quickSettingsDragProgress > 0,
-        ),
+        referenceShellProvider.select((state) => state.quickSettingsEngaged),
       );
       return MobileNotificationBannerView(
         notification: shadeVisible || notifications.isEmpty
@@ -65,7 +70,7 @@ class NotificationBannerLayer extends ConsumerWidget {
         interactive: !locked,
         onHide: controller.hideBanner,
         onDismiss: controller.dismiss,
-        onDefaultAction: controller.invokeDefaultAction,
+        onDefaultAction: (id) => openNotification(ref, id),
         onAction: controller.invokeAction,
       );
     }
@@ -75,7 +80,8 @@ class NotificationBannerLayer extends ConsumerWidget {
       ),
     );
     final mainOutput = ref.watch(
-      displayLayoutProvider.select((layout) => layout?.mainOutput),
+      sceneDisplayLayoutProvider(ShellPart.of(context))
+          .select((layout) => layout?.mainOutput),
     );
 
     return LayoutBuilder(
@@ -109,8 +115,9 @@ class NotificationBannerLayer extends ConsumerWidget {
                             entryOffset: _notificationEntryOffset(
                               placement.anchor,
                             ),
+                            onHide: controller.hideBanner,
                             onDismiss: controller.dismiss,
-                            onDefaultAction: controller.invokeDefaultAction,
+                            onDefaultAction: (id) => openNotification(ref, id),
                             onAction: controller.invokeAction,
                           ),
                         ),
@@ -134,6 +141,7 @@ class NotificationBannerView extends StatefulWidget {
     this.previewMode = NotificationPreviewMode.full,
     this.interactive = true,
     this.entryOffset = const Offset(0, -1),
+    this.onHide,
     this.onDismiss,
     this.onDefaultAction,
     this.onAction,
@@ -143,6 +151,9 @@ class NotificationBannerView extends StatefulWidget {
   final NotificationPreviewMode previewMode;
   final bool interactive;
   final Offset entryOffset;
+
+  /// Ends a banner whose time is up; the notification stays in history.
+  final ValueChanged<int>? onHide;
   final bool Function(int notificationId)? onDismiss;
   final bool Function(int notificationId)? onDefaultAction;
   final bool Function(int notificationId, String actionKey)? onAction;
@@ -156,6 +167,7 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
       DesktopNotificationsState.maxVisibleBanners * 2;
 
   final Map<int, Timer> _removalTimers = <int, Timer>{};
+  final Map<int, Timer> _hideTimers = <int, Timer>{};
   late final List<_PresentedNotification> _displayed;
   int _nextExitSequence = 1;
 
@@ -166,6 +178,9 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
         .take(DesktopNotificationsState.maxVisibleBanners)
         .map(_PresentedNotification.visible)
         .toList(growable: true);
+    for (final entry in _displayed) {
+      _armHide(entry.notification);
+    }
   }
 
   @override
@@ -216,6 +231,7 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
       }
       entry.visible = false;
       entry.exitSequence = _nextExitSequence++;
+      _hideTimers.remove(id)?.cancel();
       _removalTimers[id]?.cancel();
       _removalTimers[id] = Timer(duration, () => _removeAfterExit(id));
     }
@@ -226,9 +242,16 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
       );
       if (index < 0) {
         _displayed.add(_PresentedNotification.visible(notification));
+        _armHide(notification);
         continue;
       }
       final entry = _displayed[index];
+      // A banner shown again, or an update that alerts, gets its full time.
+      if (!entry.visible ||
+          (notification.alert &&
+              !identical(entry.notification, notification))) {
+        _armHide(notification);
+      }
       entry
         ..notification = notification
         ..visible = true
@@ -264,6 +287,17 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
     }
   }
 
+  void _armHide(DesktopNotification notification) {
+    final id = notification.id;
+    _hideTimers.remove(id)?.cancel();
+    final duration = notification.bannerDuration;
+    if (duration == null) return;
+    _hideTimers[id] = Timer(duration, () {
+      _hideTimers.remove(id);
+      if (mounted) widget.onHide?.call(id);
+    });
+  }
+
   void _removeAfterExit(int notificationId) {
     _removalTimers.remove(notificationId);
     if (!mounted ||
@@ -281,7 +315,7 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
 
   @override
   void dispose() {
-    for (final timer in _removalTimers.values) {
+    for (final timer in [..._removalTimers.values, ..._hideTimers.values]) {
       timer.cancel();
     }
     super.dispose();

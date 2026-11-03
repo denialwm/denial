@@ -81,7 +81,6 @@ struct OutputGamma {
     crtc: crtc::Handle,
     property: property::Handle,
     size: u32,
-    original_blob: u64,
     original_ramp: Option<Vec<u16>>,
     installed_blob: Option<u64>,
     external_ramp: Option<Vec<u16>>,
@@ -306,7 +305,8 @@ pub(super) fn synchronize_gamma_control(
 ) -> Vec<SoftwareDimmingState> {
     #[cfg(feature = "flutter")]
     let pending_controls = events
-        .pending_software_dimming
+        .control
+        .software_dimming
         .drain(..)
         .map(PendingSoftwareDimming::into_parts)
         .collect::<Vec<_>>();
@@ -437,7 +437,6 @@ fn probe_output(drm: &DrmDevice, scanout: &Scanout) -> Result<OutputGamma, Box<d
         crtc: scanout.output.crtc,
         property,
         size,
-        original_blob,
         original_ramp,
         installed_blob: None,
         external_ramp: None,
@@ -461,16 +460,24 @@ fn decode_drm_lut(bytes: &[u8], size: u32) -> Option<Vec<u16>> {
 
 fn apply_output(drm: &DrmDevice, state: &mut OutputGamma, level: f64) -> Result<(), String> {
     state.dirty = false;
-    if state.external_ramp.is_none() && level >= 1.0 {
-        install_blob(drm, state, state.original_blob, None)?;
-        return Ok(());
-    }
+    let Some(mut bytes) = output_lut(state, level)? else {
+        return install_blob(drm, state, 0, None);
+    };
+    let blob = drm_ffi::mode::create_property_blob(drm.as_fd(), &mut bytes)
+        .map_err(|error| format!("creating GAMMA_LUT blob failed: {error}"))?;
+    let blob = u64::from(blob.blob_id);
+    install_blob(drm, state, blob, Some(blob))
+}
 
+/// The LUT bytes for `level`, or `None` for no LUT. The inherited LUT is rebuilt from its
+/// copy: its blob lives only while the CRTC references it, so its ID dies with the first
+/// LUT we install.
+fn output_lut(state: &OutputGamma, level: f64) -> Result<Option<Vec<u8>>, String> {
     let size = usize::try_from(state.size).map_err(|error| error.to_string())?;
     let expected = size
         .checked_mul(3)
         .ok_or_else(|| "gamma ramp length overflow".to_owned())?;
-    let mut bytes = match state.external_ramp.as_deref() {
+    Ok(Some(match state.external_ramp.as_deref() {
         Some(ramp) if ramp.len() == expected => compose_drm_lut(ramp, size, level),
         Some(ramp) => {
             return Err(format!(
@@ -480,13 +487,10 @@ fn apply_output(drm: &DrmDevice, state: &mut OutputGamma, level: f64) -> Result<
         }
         None => match state.original_ramp.as_deref() {
             Some(ramp) => compose_drm_lut(ramp, size, level),
+            None if level >= 1.0 => return Ok(None),
             None => compose_drm_lut(&linear_ramp(state.size), size, level),
         },
-    };
-    let blob = drm_ffi::mode::create_property_blob(drm.as_fd(), &mut bytes)
-        .map_err(|error| format!("creating GAMMA_LUT blob failed: {error}"))?;
-    let blob = u64::from(blob.blob_id);
-    install_blob(drm, state, blob, Some(blob))
+    }))
 }
 
 fn compose_drm_lut(base: &[u16], size: usize, level: f64) -> Vec<u8> {
@@ -542,9 +546,10 @@ fn install_blob(
 }
 
 fn restore_output(drm: &DrmDevice, state: &mut OutputGamma) -> Result<(), String> {
-    let result = install_blob(drm, state, state.original_blob, None);
-    if result.is_err()
-        && let Some(blob) = state.installed_blob.take()
+    state.external_ramp = None;
+    let result = apply_output(drm, state, 1.0);
+    // The CRTC holds its own reference to whatever LUT it shows; ours would only leak.
+    if let Some(blob) = state.installed_blob.take()
         && let Err(error) = drm.destroy_property_blob(blob)
     {
         warn!(blob, %error, "could not release the compositor gamma LUT blob");
@@ -568,7 +573,6 @@ mod tests {
                 crtc: first_crtc,
                 property: from_u32(4).expect("nonzero property handle"),
                 size: 256,
-                original_blob: 0,
                 original_ramp: None,
                 installed_blob: None,
                 external_ramp: None,
@@ -606,7 +610,6 @@ mod tests {
                 crtc: from_u32(1).expect("nonzero CRTC handle"),
                 property: from_u32(2).expect("nonzero property handle"),
                 size: 2,
-                original_blob: 0,
                 original_ramp: None,
                 installed_blob: None,
                 external_ramp: None,
@@ -707,6 +710,32 @@ mod tests {
             bytes.extend_from_slice(&0u16.to_ne_bytes());
         }
         assert_eq!(decode_drm_lut(&bytes, 2), Some(vec![1, 4, 2, 5, 3, 6]));
+    }
+
+    #[test]
+    fn full_level_rebuilds_the_inherited_lut_instead_of_reusing_its_blob() {
+        let mut state = OutputGamma {
+            crtc: from_u32(1).expect("nonzero CRTC handle"),
+            property: from_u32(2).expect("nonzero property handle"),
+            size: 2,
+            original_ramp: None,
+            installed_blob: None,
+            external_ramp: None,
+            dirty: false,
+        };
+        assert_eq!(
+            output_lut(&state, 1.0),
+            Ok(None),
+            "no inherited LUT clears GAMMA_LUT"
+        );
+        assert!(output_lut(&state, 0.5).expect("dimmed LUT").is_some());
+
+        let original = vec![100, 200, 300, 400, 500, 600];
+        state.original_ramp = Some(original.clone());
+        let bytes = output_lut(&state, 1.0)
+            .expect("restored LUT")
+            .expect("inherited LUT is rebuilt");
+        assert_eq!(decode_drm_lut(&bytes, 2), Some(original));
     }
 
     #[test]

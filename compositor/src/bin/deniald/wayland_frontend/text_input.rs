@@ -1144,6 +1144,46 @@ impl WaylandFrontend {
         self.input_method.set_blocked(blocked)
     }
 
+    /// Commits shell-keyboard text to the focused editor the way an input
+    /// method does, replacing `replaced` just before the cursor first. `None`
+    /// when no editor speaks text-input; `Some(false)` when the editor's text
+    /// shows the cursor is no longer after `replaced`.
+    #[cfg(feature = "flutter")]
+    pub(crate) fn commit_shell_keyboard_text(
+        &mut self,
+        replaced: Option<&str>,
+        text: &str,
+    ) -> Option<bool> {
+        let editor = self.text_input.input_method_snapshot()?;
+        if let Some(replaced) = replaced
+            && let Some((surrounding, cursor, anchor)) = &editor.surrounding_text
+            && !replacement_fits(surrounding, *cursor, *anchor, replaced)
+        {
+            return Some(false);
+        }
+        let transaction = InputMethodTransaction {
+            commit_string: Some(text.to_owned()),
+            preedit_string: None,
+            delete_surrounding: replaced.map(|replaced| (replaced.len() as u32, 0)),
+        };
+        Some(match editor.endpoint {
+            EditorEndpoint::Wayland {
+                resource, serial, ..
+            } => self
+                .text_input
+                .apply_input_method(&resource, serial, &transaction, true),
+            EditorEndpoint::Flutter {
+                generation,
+                client_id,
+                ..
+            } => {
+                self.input_method
+                    .queue_flutter_transaction(generation, client_id, transaction);
+                true
+            }
+        })
+    }
+
     #[cfg(feature = "flutter")]
     pub(crate) fn software_keyboard_state(&self) -> SoftwareKeyboardState {
         self.text_input.software_keyboard_state()
@@ -1167,9 +1207,50 @@ impl WaylandFrontend {
     }
 }
 
+/// The editor's last report may predate the newest keys, which reach it
+/// before the replacement does: unless the text before the cursor already
+/// ends with `replaced`, the word before the cursor only has to start it. An
+/// empty word or a selection means the cursor moved.
+#[cfg(feature = "flutter")]
+fn replacement_fits(surrounding: &str, cursor: u32, anchor: u32, replaced: &str) -> bool {
+    if cursor != anchor {
+        return false;
+    }
+    let Some(before) = surrounding.get(..cursor as usize) else {
+        return false;
+    };
+    let in_word = |character: char| character.is_alphanumeric() || character == '\'';
+    // Only whole words: "lo" typed after an older "hel" is not replaceable.
+    if let Some(rest) = before.strip_suffix(replaced) {
+        return !rest.chars().next_back().is_some_and(in_word);
+    }
+    let word_start = before
+        .char_indices()
+        .rev()
+        .find(|&(_, character)| !in_word(character))
+        .map_or(0, |(index, character)| index + character.len_utf8());
+    let word = &before[word_start..];
+    !word.is_empty() && replaced.starts_with(word)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn replacement_needs_the_word_before_the_cursor() {
+        assert!(replacement_fits("so teh", 6, 6, "teh"));
+        assert!(replacement_fits("so te", 5, 5, "teh"));
+        assert!(replacement_fits("è perche", 9, 9, "perche"));
+        assert!(replacement_fits("so the ", 7, 7, "the "));
+        assert!(replacement_fits("so th", 5, 5, "the "));
+        assert!(!replacement_fits("so ", 3, 3, "teh"));
+        assert!(!replacement_fits("hello", 5, 5, "teh"));
+        assert!(!replacement_fits("so teh", 6, 3, "teh"));
+        assert!(!replacement_fits("è", 1, 1, "e"));
+        assert!(!replacement_fits("hello", 5, 5, "lo"));
+    }
 
     type Sessions = SessionState<u32, u32, u32>;
 

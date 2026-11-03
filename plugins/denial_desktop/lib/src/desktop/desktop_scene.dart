@@ -38,6 +38,7 @@ import 'desktop_window_switcher_bounds.dart';
 import 'desktop_windows_only_scene.dart';
 import 'desktop_workspace.dart';
 import 'desktop_workspace_overview_deck.dart';
+import '../color_tuning/color_tuning_panel.dart';
 import 'retained_animated_positioned.dart';
 import 'system_tray_module.dart';
 
@@ -356,6 +357,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
   int _nextCloseId = 1;
   _DesktopHomeLayoutCache? _homeLayoutCache;
   _DesktopSceneTopologyCache? _topologyCache;
+  DesktopShellServices? _surfaceServices;
   // A workspace overview behaves like a camera over every workspace. Windows
   // of other workspaces enter from beside the screen and leave the same way,
   // so they need a frame outside the scene's ordinary presented set.
@@ -798,6 +800,10 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         for (final output in surfaceLayout.outputs)
           ShellSurfaceEnvironment(
             output: output,
+            inputOnlyOutputNames: [
+              for (final entry in surfaceLayout.outputs)
+                if (entry.inputOnly) entry.name,
+            ],
             workArea: surfaceLayout.workAreaOf(output),
             isMainOutput:
                 output.monitorId == surfaceLayout.mainOutput?.monitorId,
@@ -816,13 +822,19 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
           ),
       ],
     );
-    final surfaceServices = DesktopShellServices(
+    final nextSurfaceServices = DesktopShellServices(
       ref: ref,
       onOpenPowerSettings: onOpenPowerSettings,
       onToggleLauncher: widget.onToggleLauncher,
       onOpenDashboard: onOpenDashboard,
       onToggleDashboard: widget.onToggleDashboard,
     );
+    // Overview toggles and other scene changes rebuild every surface. Keeping
+    // an equal adapter's identity stops ShellServicesScope from notifying and
+    // lets a surface hand back its unchanged widget, so Flutter skips it.
+    final surfaceServices = _surfaceServices == nextSurfaceServices
+        ? _surfaceServices!
+        : _surfaceServices = nextSurfaceServices;
     Widget surfacePlane(ShellSurfaceLayer layer) => ShellSurfacePlane(
       key: ValueKey(layer),
       entries: surfaceEntries,
@@ -1092,6 +1104,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
             ),
           ),
         ),
+        Positioned.fill(child: ColorTuningLayer(displayRect: mainDisplayRect)),
       ],
     );
   }

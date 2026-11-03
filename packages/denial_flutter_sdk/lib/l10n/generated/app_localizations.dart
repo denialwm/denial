@@ -152,6 +152,90 @@ abstract class AppLocalizations {
   /// **'Resize widget'**
   String get homeResizeWidget;
 
+  /// Name of a new home screen folder whose apps share no category.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder'**
+  String get homeFolderDefaultName;
+
+  /// Suggested name of a new home screen folder of games.
+  ///
+  /// In en, this message translates to:
+  /// **'Games'**
+  String get homeFolderGames;
+
+  /// Suggested name of a new home screen folder of network apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Internet'**
+  String get homeFolderInternet;
+
+  /// Suggested name of a new home screen folder of office apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Office'**
+  String get homeFolderOffice;
+
+  /// Suggested name of a new home screen folder of graphics apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Graphics'**
+  String get homeFolderGraphics;
+
+  /// Suggested name of a new home screen folder of audio and video apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Media'**
+  String get homeFolderMedia;
+
+  /// Suggested name of a new home screen folder of developer tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Development'**
+  String get homeFolderDevelopment;
+
+  /// Suggested name of a new home screen folder of education apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Education'**
+  String get homeFolderEducation;
+
+  /// Suggested name of a new home screen folder of science apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Science'**
+  String get homeFolderScience;
+
+  /// Suggested name of a new home screen folder of system tools.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get homeFolderSystem;
+
+  /// Suggested name of a new home screen folder of utilities.
+  ///
+  /// In en, this message translates to:
+  /// **'Utilities'**
+  String get homeFolderUtilities;
+
+  /// Suggested name of a new home screen folder of settings apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get homeFolderSettings;
+
+  /// Accessible hint for the editable name of an open home screen folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename folder'**
+  String get homeFolderRename;
+
+  /// Accessible label of a home screen folder: its name and how many apps it holds.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {count, plural, =1{1 app} other{{count} apps}}'**
+  String homeFolderApps(String name, int count);
+
   /// English UI text for actionCancel.
   ///
   /// In en, this message translates to:
@@ -1400,6 +1484,12 @@ abstract class AppLocalizations {
   /// **'CPU'**
   String get lockCpuLabel;
 
+  /// Over the date on the phone's always-on picture while a desk keeps the session unlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop mode enabled'**
+  String get lockDesktopModeEnabled;
+
   /// English UI text for lockDesktopPromptDescription.
   ///
   /// In en, this message translates to:
@@ -1706,6 +1796,30 @@ abstract class AppLocalizations {
   /// **'Notification'**
   String get notificationGeneric;
 
+  /// Button that folds an expanded notification group back into one card.
+  ///
+  /// In en, this message translates to:
+  /// **'Collapse notifications from {applicationName}'**
+  String notificationGroupCollapse(String applicationName);
+
+  /// Tapping a stacked notification group shows its notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Show {count} notifications from {applicationName}'**
+  String notificationGroupExpand(int count, String applicationName);
+
+  /// Header of a stacked notification group: app and how many notifications it holds.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} · {count}'**
+  String notificationGroupHeader(String applicationName, int count);
+
+  /// One message of a conversation in a notification.
+  ///
+  /// In en, this message translates to:
+  /// **'{sender}: {text}'**
+  String notificationMessage(String sender, String text);
+
   /// English UI text for notificationNew.
   ///
   /// In en, this message translates to:
@@ -1758,29 +1872,11 @@ abstract class AppLocalizations {
   /// **'Close notification center'**
   String get notificationsCloseCenter;
 
-  /// English UI text for notificationsClosed.
-  ///
-  /// In en, this message translates to:
-  /// **'Closed'**
-  String get notificationsClosed;
-
-  /// English UI text for notificationsClosedByApplication.
-  ///
-  /// In en, this message translates to:
-  /// **'Closed by application'**
-  String get notificationsClosedByApplication;
-
   /// English UI text for notificationsDisableDoNotDisturb.
   ///
   /// In en, this message translates to:
   /// **'Disable do not disturb'**
   String get notificationsDisableDoNotDisturb;
-
-  /// English UI text for notificationsDismissed.
-  ///
-  /// In en, this message translates to:
-  /// **'Dismissed'**
-  String get notificationsDismissed;
 
   /// English UI text for notificationsDoNotDisturbSemantics.
   ///
@@ -1799,12 +1895,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enable do not disturb'**
   String get notificationsEnableDoNotDisturb;
-
-  /// English UI text for notificationsExpired.
-  ///
-  /// In en, this message translates to:
-  /// **'Expired'**
-  String get notificationsExpired;
 
   /// English UI text for notificationsLoadingPolicy.
   ///
@@ -1895,6 +1985,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Backspace'**
   String get oskBackspace;
+
+  /// English UI text for oskCapsLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Caps lock'**
+  String get oskCapsLock;
 
   /// English UI text for oskControlKey.
   ///
@@ -2214,11 +2310,23 @@ abstract class AppLocalizations {
   /// **'{watts} W'**
   String powerWattsDecimal(String watts);
 
-  /// English UI text for quickSettingsAutomatic.
+  /// Quick Settings toggle that is on while the screen follows the orientation sensor.
   ///
   /// In en, this message translates to:
-  /// **'Automatic'**
-  String get quickSettingsAutomatic;
+  /// **'Auto-rotate'**
+  String get quickSettingsAutoRotate;
+
+  /// Quick Settings tile that starts a screen recording, and stops it when tapped again.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen recording'**
+  String get quickSettingsScreenRecording;
+
+  /// Subtitle of the Screen recording tile while it records.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording'**
+  String get quickSettingsRecording;
 
   /// English UI text for quickSettingsBalanced.
   ///
@@ -2244,12 +2352,6 @@ abstract class AppLocalizations {
   /// **'Controls'**
   String get quickSettingsControls;
 
-  /// English UI text for quickSettingsDate.
-  ///
-  /// In en, this message translates to:
-  /// **'{weekday} {day}'**
-  String quickSettingsDate(String weekday, int day);
-
   /// English UI text for quickSettingsHighPerformance.
   ///
   /// In en, this message translates to:
@@ -2261,12 +2363,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Keyboard'**
   String get quickSettingsKeyboard;
-
-  /// English UI text for quickSettingsLocked.
-  ///
-  /// In en, this message translates to:
-  /// **'Locked'**
-  String get quickSettingsLocked;
 
   /// English UI text for quickSettingsNormal.
   ///
@@ -2304,12 +2400,6 @@ abstract class AppLocalizations {
   /// **'Performance'**
   String get quickSettingsPerformance;
 
-  /// English UI text for quickSettingsRotation.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotation'**
-  String get quickSettingsRotation;
-
   /// English UI text for quickSettingsSettingsUnavailable.
   ///
   /// In en, this message translates to:
@@ -2337,7 +2427,7 @@ abstract class AppLocalizations {
   /// Collaboration credit on the Settings About page.
   ///
   /// In en, this message translates to:
-  /// **'Built in continuous collaboration with OpenAI Codex.'**
+  /// **'Built in continuous collaboration with AI models, mostly Sol 6.1 and Opus 5.5.'**
   String get settingsAboutCollaboration;
 
   /// Uppercase label above the creator's name on the Settings About page.
@@ -4168,6 +4258,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mouse pointer speed'**
   String get settingsMousePointerSpeed;
+
+  /// Label for the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse acceleration'**
+  String get settingsMouseAcceleration;
+
+  /// Description of the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.'**
+  String get settingsMouseAccelerationDescription;
 
   /// Eyebrow label for the configured shortcuts page.
   ///
@@ -6971,17 +7073,17 @@ abstract class AppLocalizations {
   /// **'Fingerprint'**
   String get fingerprintSection;
 
-  /// Fingerprint settings: fingerprintPasswordPrompt
+  /// Fingerprint settings: fingerprintPinPrompt
   ///
   /// In en, this message translates to:
-  /// **'Enter your sudo password to manage fingerprints.'**
-  String get fingerprintPasswordPrompt;
+  /// **'Enter your lock PIN to manage fingerprints.'**
+  String get fingerprintPinPrompt;
 
-  /// Fingerprint settings: fingerprintSudoPassword
+  /// Fingerprint settings: fingerprintPin
   ///
   /// In en, this message translates to:
-  /// **'Sudo password'**
-  String get fingerprintSudoPassword;
+  /// **'PIN'**
+  String get fingerprintPin;
 
   /// Fingerprint settings: fingerprintContinue
   ///
@@ -7025,16 +7127,16 @@ abstract class AppLocalizations {
   /// **'Add fingerprint'**
   String get fingerprintAdd;
 
-  /// Fingerprint settings: fingerprintAuthenticationFailed
+  /// Fingerprint settings: fingerprintPinNotSet
   ///
   /// In en, this message translates to:
-  /// **'Password verification failed. Try again.'**
-  String get fingerprintAuthenticationFailed;
+  /// **'Set a lock PIN first.'**
+  String get fingerprintPinNotSet;
 
   /// Fingerprint settings: fingerprintExpired
   ///
   /// In en, this message translates to:
-  /// **'Enter your password again to continue.'**
+  /// **'Enter your PIN again to continue.'**
   String get fingerprintExpired;
 
   /// Fingerprint settings: fingerprintPreparing
@@ -7184,12 +7286,6 @@ abstract class AppLocalizations {
   /// Mobile connectivity and SIM authentication UI.
   ///
   /// In en, this message translates to:
-  /// **'SIM PIN'**
-  String get simPinLabel;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
   /// **'Unlock SIM'**
   String get simPinUnlock;
 
@@ -7198,12 +7294,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Later'**
   String get simPinLater;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'SIM could not be unlocked. Check your PIN and remaining attempts.'**
-  String get simPinFailed;
 
   /// Mobile connectivity and SIM authentication UI.
   ///
@@ -7786,6 +7876,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Temporarily locked'**
   String get polkitLocked;
+
+  /// Permission prompt: grants what an app asked for.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow'**
+  String get accessAllow;
+
+  /// Permission prompt: grants it while the app keeps running.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow once'**
+  String get accessAllowOnce;
+
+  /// Permission prompt: grants it and remembers the answer.
+  ///
+  /// In en, this message translates to:
+  /// **'Always allow'**
+  String get accessAlwaysAllow;
+
+  /// Permission prompt: refuses what an app asked for.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get accessDecline;
+
+  /// Permission prompt: refuses it and remembers the answer.
+  ///
+  /// In en, this message translates to:
+  /// **'Never allow'**
+  String get accessNeverAllow;
+
+  /// Permission prompt: refuses it while the app keeps running.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline once'**
+  String get accessDeclineOnce;
+
+  /// Permission prompt: names an app that did not say which one it is.
+  ///
+  /// In en, this message translates to:
+  /// **'An app'**
+  String get accessUnknownApp;
 
   /// Plugin Manager: AppTitle.
   ///
@@ -8721,6 +8853,534 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Desktop'**
   String get pluginsDesktopFeature;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard & touchpad display'**
+  String get inputDeckTitle;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard & touchpad'**
+  String get inputDeckHeading;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use touch display as keyboard and touchpad'**
+  String get inputDeckEnable;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect a touch display to configure this mode.'**
+  String get inputDeckUnavailable;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use {output} for input whenever another display is available. Disconnect the external display to return to tablet mode.'**
+  String inputDeckEnableDescription(String output);
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready when a second display is connected and powered on.'**
+  String get inputDeckWaiting;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touch display'**
+  String get inputDeckTouchDisplay;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Display to use for keyboard and touchpad input.'**
+  String get inputDeckTouchDisplayDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard size'**
+  String get inputDeckKeyboardSize;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad width'**
+  String get inputDeckTouchpadWidth;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad height'**
+  String get inputDeckTouchpadHeight;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Pointer speed'**
+  String get inputDeckPointerSpeed;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Natural scrolling'**
+  String get inputDeckNaturalScroll;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Content follows the movement of your fingers.'**
+  String get inputDeckNaturalScrollDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'CPU chart'**
+  String get inputDeckCpuChart;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Show processor usage above the keyboard.'**
+  String get inputDeckCpuDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'GPU charts'**
+  String get inputDeckGpuCharts;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Show usage for GPUs that report it.'**
+  String get inputDeckGpuDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use as display'**
+  String get inputDeckUseAsDisplay;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad'**
+  String get inputDeckTouchpad;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.'**
+  String get inputDeckTouchpadHint;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Left click'**
+  String get inputDeckLeftClick;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Right click'**
+  String get inputDeckRightClick;
+
+  /// Title above the lock screen PIN entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter PIN'**
+  String get lockEnterPin;
+
+  /// Title above the lock screen PIN entry after a notification was tapped; it opens once unlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter PIN to open {applicationName}'**
+  String lockEnterPinToOpen(String applicationName);
+
+  /// Screen reader label for the lock screen PIN dots.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN, {entered} of {length} digits entered'**
+  String lockPinProgress(int entered, int length);
+
+  /// Screen reader label for the hidden PIN field.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN, obscured'**
+  String get lockPinObscured;
+
+  /// Shown after a rejected lock screen PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong PIN'**
+  String get lockWrongPin;
+
+  /// Switches the lock screen from the PIN to the account password.
+  ///
+  /// In en, this message translates to:
+  /// **'Use password'**
+  String get lockUsePassword;
+
+  /// Switches the lock screen from the account password back to the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Use PIN'**
+  String get lockUsePin;
+
+  /// Lock screen PIN keypad key that removes the last digit.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get lockPinDelete;
+
+  /// Lock screen settings section for the optional unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN'**
+  String get settingsLockPinTitle;
+
+  /// Lock screen settings row title.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock with a PIN'**
+  String get settingsLockPinLabel;
+
+  /// Lock screen settings row description.
+  ///
+  /// In en, this message translates to:
+  /// **'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.'**
+  String get settingsLockPinDescription;
+
+  /// Status of the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'On, {length} digits'**
+  String settingsLockPinOn(int length);
+
+  /// Status when no unlock PIN is set.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get settingsLockPinOff;
+
+  /// Button that starts creating an unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up PIN'**
+  String get settingsLockPinSetUp;
+
+  /// Button that replaces the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Change PIN'**
+  String get settingsLockPinChange;
+
+  /// Button that removes the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove PIN'**
+  String get settingsLockPinRemove;
+
+  /// Button that saves a new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Save PIN'**
+  String get settingsLockPinSave;
+
+  /// Field for the account password before changing the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Account password'**
+  String get settingsLockPinPassword;
+
+  /// Field for the new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'New PIN'**
+  String get settingsLockPinNew;
+
+  /// Field that repeats the new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm PIN'**
+  String get settingsLockPinConfirm;
+
+  /// Helper text under the new PIN field.
+  ///
+  /// In en, this message translates to:
+  /// **'4 to 12 digits'**
+  String get settingsLockPinLengthHint;
+
+  /// Error when the confirmation differs from the new PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'The PINs don’t match'**
+  String get settingsLockPinMismatch;
+
+  /// Error when the account password is rejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password'**
+  String get settingsLockPinWrongPassword;
+
+  /// Error when deniald could not save or remove the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t change the PIN. Try again.'**
+  String get settingsLockPinUnavailable;
+
+  /// A time on a 12-hour clock: 5:45 PM.
+  ///
+  /// In en, this message translates to:
+  /// **'{hour}:{minute} {period}'**
+  String timeTwelveHour(String hour, String minute, String period);
+
+  /// Before noon on a 12-hour clock.
+  ///
+  /// In en, this message translates to:
+  /// **'AM'**
+  String get timeMorning;
+
+  /// From noon on a 12-hour clock.
+  ///
+  /// In en, this message translates to:
+  /// **'PM'**
+  String get timeAfternoon;
+
+  /// Label for the Permissions destination in Settings navigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get settingsNavigationPermissions;
+
+  /// Heading of the Permissions page in Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get settingsPermissionsSection;
+
+  /// Description of the Permissions page in Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what apps may do. An app appears here once it has asked.'**
+  String get settingsPermissionsTitle;
+
+  /// Permissions page: the permission to receive Denial's shortcut keys.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard shortcuts'**
+  String get settingsPermissionsKeyboardShortcutsTitle;
+
+  /// Permissions page: explains the keyboard shortcuts permission.
+  ///
+  /// In en, this message translates to:
+  /// **'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.'**
+  String get settingsPermissionsKeyboardShortcutsDescription;
+
+  /// Permissions page: no app has asked for this permission.
+  ///
+  /// In en, this message translates to:
+  /// **'No app has asked yet.'**
+  String get settingsPermissionsNone;
+
+  /// Permissions page: xdg-permission-store could not be reached.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions can’t be read: the portal permission store is not available.'**
+  String get settingsPermissionsUnavailable;
+
+  /// Permissions page: storing an answer failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t save the change.'**
+  String get settingsPermissionsSaveFailed;
+
+  /// Permissions page: ask the next time the app wants the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask'**
+  String get settingsPermissionAsk;
+
+  /// Permissions page: always allow the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Always allow'**
+  String get settingsPermissionAllow;
+
+  /// Permissions page: never allow the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Never allow'**
+  String get settingsPermissionDeny;
+
+  /// Shell action and panel title: the color tuning editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Tune colors'**
+  String get colorTuningAction;
+
+  /// Color tuning target: the whole desktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get colorTuningDesktop;
+
+  /// Color tuning target chip when no app window has been focused yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a window'**
+  String get colorTuningNoApp;
+
+  /// Color tuning: the base LUT the grade sits on.
+  ///
+  /// In en, this message translates to:
+  /// **'Look'**
+  String get colorTuningBase;
+
+  /// Color tuning: no base LUT.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get colorTuningNoBase;
+
+  /// Color tuning: hold to show the target without the grade.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get colorTuningBefore;
+
+  /// Color tuning: return every control to neutral.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get colorTuningReset;
+
+  /// Color tuning: close the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get colorTuningClose;
+
+  /// Color tuning wheel: lift.
+  ///
+  /// In en, this message translates to:
+  /// **'Shadows'**
+  String get colorTuningShadows;
+
+  /// Color tuning wheel: gamma.
+  ///
+  /// In en, this message translates to:
+  /// **'Midtones'**
+  String get colorTuningMidtones;
+
+  /// Color tuning wheel: gain.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlights'**
+  String get colorTuningHighlights;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Exposure'**
+  String get colorTuningExposure;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Contrast'**
+  String get colorTuningContrast;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get colorTuningSaturation;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Vibrance'**
+  String get colorTuningVibrance;
+
+  /// Color tuning slider: white balance between cool and warm.
+  ///
+  /// In en, this message translates to:
+  /// **'Warmth'**
+  String get colorTuningWarmth;
+
+  /// Color tuning slider: white balance between green and magenta.
+  ///
+  /// In en, this message translates to:
+  /// **'Tint'**
+  String get colorTuningTint;
+
+  /// Color tuning: the compositor refused a change.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t change the colors.'**
+  String get colorTuningFailed;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm'**
+  String get colorPresetWarm;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Cool'**
+  String get colorPresetCool;
+
+  /// Color tuning: a built-in look, named after its author. Not translated.
+  ///
+  /// In en, this message translates to:
+  /// **'Logix'**
+  String get colorPresetLogix;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Matte'**
+  String get colorPresetMatte;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Film'**
+  String get colorPresetFilm;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Night'**
+  String get colorPresetNight;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Mono'**
+  String get colorPresetMono;
+
+  /// Color tuning: shows the built-in looks.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get colorTuningPresets;
+
+  /// Button on a phone recents card: moves the app to the external monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to monitor'**
+  String get moveToMonitor;
 }
 
 class _AppLocalizationsDelegate

@@ -126,6 +126,10 @@ in
           "denial"
           "gtk"
         ];
+        "org.freedesktop.impl.portal.Access" = [
+          "denial"
+          "gtk"
+        ];
         "org.freedesktop.impl.portal.ScreenCast" = "wlr";
         "org.freedesktop.impl.portal.Screenshot" = "wlr";
       };

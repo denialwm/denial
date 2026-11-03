@@ -6,6 +6,6 @@ After=denial-session.target
 [Service]
 Type=dbus
 BusName=org.freedesktop.impl.portal.desktop.denial
-ExecStart=@PORTAL_BINARY@
+ExecStart=@PORTAL_BINARY@ --dialog-bundle @DIALOG_BUNDLE@
 Restart=on-failure
 RestartSec=250ms

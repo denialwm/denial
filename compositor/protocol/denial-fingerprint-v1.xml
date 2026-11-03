@@ -22,7 +22,7 @@
     DEALINGS IN THE SOFTWARE.
   </copyright>
 
-  <interface name="denial_fingerprint_manager_v1" version="1">
+  <interface name="denial_fingerprint_manager_v1" version="2">
     <description summary="privileged optical fingerprint presentation">
       This experimental extension coordinates optical fingerprint presentation
       with compositor-owned output power and local panel illumination. It is
@@ -55,7 +55,7 @@
     </request>
   </interface>
 
-  <interface name="denial_fingerprint_session_v1" version="1">
+  <interface name="denial_fingerprint_session_v1" version="2">
     <description summary="bounded fingerprint contact and illumination session">
       Session states are configured, preparing, ready and stopping. One contact
       is active at a time. The client coalesces repeated hardware DOWN reports
@@ -168,5 +168,20 @@
       <arg name="serial" type="uint"/>
       <arg name="reason" type="uint" enum="stop_reason"/>
     </event>
+    <request name="set_illumination_fd" since="2">
+      <description summary="delegate an exclusive panel illumination capability">
+        For a trusted profile that selects descriptor-based panel control,
+        provide its exclusive kernel illumination descriptor before the first
+        present. The compositor verifies the device identity, native panel
+        geometry, inactive state and independent timeout. Only one descriptor
+        may be supplied per session. This does not wake the output or enable
+        illumination. The compositor controls its lifetime through teardown.
+
+        Profiles using a DRM illumination property reject this request. Version
+        1 clients and DRM profiles retain their existing behavior. A descriptor
+        never grants authentication authority or permits biometric sample data.
+      </description>
+      <arg name="fd" type="fd"/>
+    </request>
   </interface>
 </protocol>

@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Build the text predictor's word list from an AOSP LatinIME wordlist.
+
+    tools/build-dictionary SOURCE TARGET [--floor N]
+        [--supplement LIST [--exclude OTHER_SOURCE] [--endings LETTERS]
+                           [--foreign LETTERS]]
+    tools/build-dictionary en_US_wordlist.combined.gz data/en.words.gz
+    tools/build-dictionary it_wordlist.combined.gz data/it.words.gz \
+        --supplement it_50k.txt --exclude en_US_wordlist.combined.gz \
+        --endings aeiouàèéìòù --foreign jkwxy
+
+The source is LatinIME's `dictionaries/<locale>_wordlist.combined.gz`
+(Apache-2.0). The output keeps the words the predictor can key (letters,
+accented Latin vowels, ç, ñ and apostrophes) above a frequency floor, and
+the whitelist shortcuts that fix a non-word, a contraction or
+capitalization. Shortcuts from one real word to another (LatinIME's "nave"
+-> "have") are left out: the keyboard never corrects a valid word into a
+different one.
+
+A supplement is a "word count" frequency list (FrequencyWords' OpenSubtitles
+lists, CC BY-SA 4.0). It only adds words the LatinIME list lacks (its Italian
+list has no "uomo" or "vi"), at frequencies mapped onto LatinIME's scale by
+a fit over the words both share, a little below that. Subtitles are noisy, so
+a supplementary word has no apostrophe, two letters only if very common
+("vi"), is not another spelling of a listed word ("perchè", "piu'") nor a
+word of the --exclude list (English in Italian subtitles), ends in one of
+--endings and holds none of --foreign when given (Italian words end in a
+vowel; names and romanized Korean mostly do not). One that contains a word
+LatinIME marks offensive, or shares its first five letters with one, is
+marked offensive too.
+
+An unaccented spelling is dropped when an accented one is far more frequent
+("perche" against "perché"): the list carries such misspellings as words,
+which would stop the keyboard from adding the accent.
+
+Output lines, most frequent first:
+
+    word<TAB>frequency[<TAB>o]     o: never offered unless typed in full
+    >typed<TAB>replacement         whitelist correction
+"""
+
+import gzip
+import math
+import os
+import re
+import sys
+import unicodedata
+
+FREQUENCY_FLOOR = 1
+ACCENTED = "àáâäãåèéêëìíîïòóôöõùúûüçñ"
+LETTERS = "A-Za-z'" + ACCENTED + ACCENTED.upper()
+TYPEABLE = re.compile(f"^[{LETTERS}]+$")
+TYPEABLE_TEXT = re.compile(f"^[{LETTERS} ]+$")
+# How much more frequent (on LatinIME's 0-255 scale) an accented spelling
+# must be for its unaccented twin to go.
+ACCENT_MARGIN = 40
+# How far below its fitted frequency a supplementary word lands.
+SUPPLEMENT_PENALTY = 10
+# The fitted frequency a two-letter supplementary word needs.
+SHORT_SUPPLEMENT_FLOOR = 120
+
+
+def fold(word):
+    plain = unicodedata.normalize("NFD", word)
+    return "".join(c for c in plain if unicodedata.category(c) != "Mn").lower()
+
+
+def fields(line):
+    out = {}
+    for part in line.strip().split(","):
+        key, _, value = part.partition("=")
+        out[key] = value
+    return out
+
+
+def latinime_words(path):
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        for line in stream:
+            if line.startswith(" word="):
+                yield fields(line)
+
+
+def supplement(words, path, exclude=None, endings=None, foreign=None):
+    """Adds the words of a frequency list that `words` lacks."""
+    exact = {word: frequency for frequency, word, _ in words}
+    known = {fold(word) for word in exact}
+    offensive = {fold(word) for _, word, flag in words if flag}
+    stems = {word[:5] for word in offensive if len(word) >= 5}
+    inner = [word for word in offensive if len(word) >= 4]
+    if exclude:
+        known |= {fold(entry["word"]) for entry in latinime_words(exclude)}
+    rows = []
+    with open(path, encoding="utf-8") as stream:
+        for line in stream:
+            word, _, count = line.strip().rpartition(" ")
+            if word and count.isdigit():
+                rows.append((word, int(count)))
+    shared = [(math.log(count), exact[word]) for word, count in rows if word in exact]
+    mean_x = sum(x for x, _ in shared) / len(shared)
+    mean_y = sum(y for _, y in shared) / len(shared)
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in shared) / sum(
+        (x - mean_x) ** 2 for x, _ in shared
+    )
+    added = []
+    for word, count in rows:
+        folded = fold(word)
+        if len(word) < 2 or "'" in word or not TYPEABLE.match(word) or folded in known:
+            continue
+        if endings and word[-1].lower() not in endings:
+            continue
+        if foreign and any(letter in foreign for letter in folded):
+            continue
+        frequency = round(mean_y + slope * (math.log(count) - mean_x)) - SUPPLEMENT_PENALTY
+        if frequency < 1 or (len(word) == 2 and frequency < SHORT_SUPPLEMENT_FLOOR):
+            continue
+        flag = folded[:5] in stems or any(bad in folded for bad in inner)
+        added.append((min(frequency, 254), word, flag))
+        known.add(folded)
+    return added
+
+
+def main(
+    source,
+    target,
+    supplement_path=None,
+    exclude=None,
+    endings=None,
+    foreign=None,
+    floor=FREQUENCY_FLOOR,
+):
+    words = []
+    shortcuts = []
+    current = None
+    with gzip.open(source, "rt", encoding="utf-8") as stream:
+        for line in stream:
+            if line.startswith(" word="):
+                current = fields(line)
+                word = current["word"]
+                frequency = int(current["f"])
+                if (
+                    TYPEABLE.match(word)
+                    and frequency >= floor
+                    and current.get("not_a_word") != "true"
+                    and current.get("flags") != "nonword"
+                ):
+                    offensive = current.get("possibly_offensive") == "true"
+                    words.append((frequency, word, offensive))
+            elif line.startswith("  shortcut=") and current is not None:
+                shortcut = fields(line)
+                typed = current["word"]
+                replacement = shortcut["shortcut"]
+                if shortcut.get("f") != "whitelist":
+                    continue
+                if not TYPEABLE.match(typed) or not TYPEABLE_TEXT.match(replacement):
+                    continue
+                if current.get("possibly_offensive") == "true":
+                    continue
+                real_word = current.get("not_a_word") != "true" and current.get(
+                    "flags"
+                ) != "nonword"
+                cosmetic = (
+                    "'" in replacement
+                    or " " in replacement
+                    or replacement.lower() == typed.lower()
+                )
+                if real_word and not cosmetic:
+                    continue
+                shortcuts.append((typed, replacement))
+
+    added = (
+        supplement(words, supplement_path, exclude, endings, foreign) if supplement_path else []
+    )
+    words += added
+
+    accented = {}
+    for frequency, word, _ in words:
+        if fold(word) != word.lower():
+            key = fold(word)
+            accented[key] = max(accented.get(key, 0), frequency)
+    dropped = [
+        word
+        for frequency, word, _ in words
+        if fold(word) == word.lower() and accented.get(fold(word), 0) >= frequency + ACCENT_MARGIN
+    ]
+    words = [entry for entry in words if entry[1] not in set(dropped)]
+
+    words.sort(key=lambda entry: (-entry[0], entry[1]))
+    lines = [
+        "# Software keyboard words, generated by tools/build-dictionary from",
+        f"# AOSP LatinIME dictionaries/{os.path.basename(source)} (Apache-2.0).",
+    ]
+    if supplement_path:
+        lines.append(
+            f"# Supplemented from FrequencyWords {os.path.basename(supplement_path)}"
+            " (OpenSubtitles 2018, CC BY-SA 4.0)."
+        )
+    for frequency, word, offensive in words:
+        lines.append(f"{word}\t{frequency}" + ("\to" if offensive else ""))
+    for typed, replacement in sorted(set(shortcuts)):
+        lines.append(f">{typed}\t{replacement}")
+    data = ("\n".join(lines) + "\n").encode("utf-8")
+    with open(target, "wb") as out:
+        # mtime=0 keeps the asset byte-identical across rebuilds.
+        with gzip.GzipFile(fileobj=out, mode="wb", compresslevel=9, mtime=0) as stream:
+            stream.write(data)
+    print(
+        f"{len(words)} words ({len(added)} supplementary), {len(set(shortcuts))} shortcuts, "
+        f"{len(dropped)} unaccented twins dropped",
+        file=sys.stderr,
+    )
+
+
+if __name__ == "__main__":
+    arguments = sys.argv[1:]
+    options = {}
+    for flag in ("--supplement", "--exclude", "--endings", "--foreign", "--floor"):
+        if flag in arguments:
+            index = arguments.index(flag)
+            options[flag] = arguments[index + 1]
+            del arguments[index : index + 2]
+    if len(arguments) != 2:
+        sys.exit(__doc__)
+    main(
+        *arguments,
+        supplement_path=options.get("--supplement"),
+        exclude=options.get("--exclude"),
+        endings=options.get("--endings"),
+        foreign=options.get("--foreign"),
+        floor=int(options.get("--floor", FREQUENCY_FLOOR)),
+    )

@@ -75,6 +75,14 @@ class ShellGlassConfiguration {
 
   /// Glass sidebar and toolbar opacity inside compatible applications only.
   final double appPanelOpacity;
+
+  /// The lowest opacity native phone apps draw a glass group at in this
+  /// appearance (MOBILE_APP_MATERIALS.md group floor). On a phone, app-panel
+  /// opacities below it look the same as the floor.
+  double get mobileAppPanelFloor => switch (appearance) {
+    ShellGlassAppearance.dark => 0.30,
+    ShellGlassAppearance.light => 0.50,
+  };
   final double blurSigma;
   final double quality;
   final double thickness;

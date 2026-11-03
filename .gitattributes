@@ -1,4 +1,5 @@
 *.denw binary
 packages/denial_flutter_sdk/assets/fonts/OFL.txt -whitespace
+packages/denial_flutter_sdk/assets/fonts/roboto_flex/OFL.txt -text -whitespace
 protocol/generated/** -whitespace
 prebuilt/flutter-engine/**/LICENSE.third_party -whitespace

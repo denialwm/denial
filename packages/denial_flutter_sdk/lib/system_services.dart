@@ -16,8 +16,7 @@ export 'src/models/logind.dart'
         LogindCapability,
         LogindInhibitor,
         LogindSnapshot;
-export 'src/models/notification_policy.dart'
-    show NotificationPolicy, NotificationPreviewMode;
+export 'src/models/notification_policy.dart' show NotificationPreviewMode;
 export 'src/models/power_profile.dart' show PowerProfile;
 export 'src/models/upower.dart'
     show
@@ -85,8 +84,6 @@ export 'src/services/network_backend.dart'
         WifiNetwork,
         WifiSecurity;
 export 'src/services/network_service.dart' show networkServiceProvider;
-export 'src/services/notification_policy_repository.dart'
-    show NotificationPolicyRepository, NotificationPolicyStore;
 export 'src/services/power_profile_service.dart'
     show PowerProfileService, powerProfileServiceProvider;
 export 'src/services/power_status_service.dart'

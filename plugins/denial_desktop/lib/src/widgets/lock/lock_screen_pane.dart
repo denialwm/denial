@@ -28,34 +28,70 @@ class _DesktopLockEntrance extends StatelessWidget {
   }
 }
 
+enum _LockCredential { pin, password, sim }
+
+/// A part of the lock face the always-on picture leaves out: it fades out as
+/// the panel goes to the always-on picture and back in as it lights up.
+class _AmbientHidden extends StatelessWidget {
+  const _AmbientHidden({required this.opacity, required this.child});
+
+  final Animation<double> opacity;
+
+  /// May be positioned: it sits in a full-size stack of its own.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeSnapshot(
+      opacity: opacity,
+      child: Stack(fit: StackFit.expand, children: [child]),
+    );
+  }
+}
+
 class _LockScreenPane extends ConsumerStatefulWidget {
   const _LockScreenPane({
     super.key,
     required this.unlockProgress,
     required this.authenticationEnabled,
     required this.desktop,
+    this.ambient = kAlwaysDismissedAnimation,
+    this.ambientOnly = false,
   });
 
   final Animation<double> unlockProgress;
   final bool authenticationEnabled;
   final bool desktop;
 
+  /// Only the always-on picture, over an unlocked phone.
+  final bool ambientOnly;
+
+  /// 1 while the panel shows the always-on picture: the time, the date, the
+  /// wallpaper's subject and the fingerprint mark. Everything else fades
+  /// with it.
+  final Animation<double> ambient;
+
   @override
   ConsumerState<_LockScreenPane> createState() => _LockScreenPaneState();
 }
 
 class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const double _unlockThreshold = 0.46;
+  static const double _flingVelocity = 700.0;
   static const Duration _snapDuration = Duration(milliseconds: 210);
+  static const Duration _revealDuration = Duration(milliseconds: 340);
 
+  /// Mobile: the clock, notifications and swipe pill move as one face. The
+  /// finger drags it, and it slides off the top while a credential is asked
+  /// for. Updates move its layers only.
+  final ValueNotifier<Offset> _face = ValueNotifier<Offset>(Offset.zero);
   late final Ticker _motion;
-  VoidCallback? _onMotionComplete;
   double _motionStart = 0.0;
   double _motionTarget = 0.0;
   Duration _motionDuration = Duration.zero;
   Curve _motionCurve = Curves.linear;
-  double _slideOffset = 0.0;
+  double _height = 0.0;
   bool _dragging = false;
   final TextEditingController _responseController = TextEditingController();
   final FocusNode _responseFocus = FocusNode(
@@ -64,10 +100,59 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   bool _authenticationVisible = false;
   int? _focusedPromptSequence;
 
+  /// The user asked for the account password although a PIN is set.
+  bool _usePassword = false;
+
+  /// A credential switch waits for the cancelled attempt to end.
+  bool _beginWhenIdle = false;
+
+  /// Mobile: the PIN keypad or the password panel comes up as the face
+  /// slides away.
+  late final AnimationController _credentialReveal = AnimationController(
+    vsync: this,
+    duration: _revealDuration,
+  )..addStatusListener(_credentialRevealStatusChanged);
+  late final Animation<double> _pinStageReveal = CurvedAnimation(
+    parent: _credentialReveal,
+    curve: const Interval(0.18, 1.0, curve: Motion.standard),
+    reverseCurve: const Interval(0.0, 0.72, curve: Curves.easeInCubic),
+  );
+  bool _credentialShown = false;
+
+  /// Which credential the reveal last showed, so a keypad keeps fading out
+  /// after it is dismissed and the password panel never borrows it.
+  _LockCredential _revealed = _LockCredential.password;
+
+  /// What deniald last heard: the reader answers only on the fingerprint
+  /// face. Null until this pane has said it, and again after a new lock.
+  bool? _fingerprintOffered;
+
+  /// The opacity of everything the always-on picture leaves out.
+  late Animation<double> _ambientHidden = ReverseAnimation(widget.ambient);
+
   @override
   void initState() {
     super.initState();
     _motion = createTicker(_syncMotion);
+    widget.ambient.addStatusListener(_ambientStatusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LockScreenPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ambient != widget.ambient) {
+      oldWidget.ambient.removeStatusListener(_ambientStatusChanged);
+      widget.ambient.addStatusListener(_ambientStatusChanged);
+      _ambientHidden = ReverseAnimation(widget.ambient);
+    }
+  }
+
+  /// The always-on picture shows the face at home: an open PIN pad or
+  /// password panel closes as it starts.
+  void _ambientStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.forward && _authenticationVisible) {
+      _cancelAuthentication();
+    }
   }
 
   @override
@@ -75,13 +160,137 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     _responseController.clear();
     _responseController.dispose();
     _responseFocus.dispose();
+    widget.ambient.removeStatusListener(_ambientStatusChanged);
     _motion.dispose();
+    _face.dispose();
+    _credentialReveal.dispose();
     super.dispose();
+  }
+
+  bool _pinMode(AuthenticationState authentication) =>
+      authentication.pinConfigured &&
+      !_usePassword &&
+      (authentication.prompt?.isPin ?? true);
+
+  void _credentialRevealStatusChanged(AnimationStatus status) {
+    if (mounted && status == AnimationStatus.dismissed) {
+      setState(() {});
+    }
+  }
+
+  /// Visibility is derived in build; the controller starts after the frame so
+  /// status callbacks never run inside build. The face follows: off the top
+  /// while a credential is shown, home otherwise, from wherever it is.
+  void _syncCredentialReveal(bool shown) {
+    if (shown == _credentialShown) {
+      return;
+    }
+    _credentialShown = shown;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || shown != _credentialShown) {
+        return;
+      }
+      final target = shown && !widget.desktop ? -_height : 0.0;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _credentialReveal.value = shown ? 1.0 : 0.0;
+        _motion.stop();
+        _face.value = Offset(0.0, target);
+        return;
+      }
+      if (shown) {
+        _credentialReveal.forward();
+      } else {
+        _credentialReveal.reverse();
+      }
+      if (!_dragging) {
+        _animateFaceTo(
+          target,
+          curve: shown ? Curves.easeOutCubic : Motion.standard,
+        );
+      }
+    });
+  }
+
+  /// Sent after the frame, so build stays free of platform messages.
+  void _syncFingerprintOffer(bool offered) {
+    if (offered == _fingerprintOffered) {
+      return;
+    }
+    _fingerprintOffered = offered;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && offered == _fingerprintOffered) {
+        ref.read(authenticationProvider.notifier).offerFingerprint(offered);
+      }
+    });
+  }
+
+  void _beginIfIdle(AuthenticationState authentication) {
+    if (!_beginWhenIdle ||
+        authentication.busy ||
+        authentication.rateLimited ||
+        !authentication.locked ||
+        !authentication.available) {
+      return;
+    }
+    _beginWhenIdle = false;
+    ref.read(authenticationProvider.notifier).begin(password: _usePassword);
+  }
+
+  void _switchCredential({required bool password}) {
+    _responseController.clear();
+    setState(() {
+      _usePassword = password;
+      _beginWhenIdle = true;
+      _authenticationVisible = true;
+    });
+    final authentication = ref.read(authenticationProvider);
+    if (authentication.busy) {
+      ref.read(authenticationProvider.notifier).cancel();
+    } else {
+      _beginIfIdle(authentication);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final authentication = ref.watch(authenticationProvider);
+    if (widget.authenticationEnabled) {
+      ref.listen<AuthenticationState>(authenticationProvider, (previous, next) {
+        // deniald opens every new lock on the fingerprint face; the rebuild
+        // this change causes tells it again what the pane shows.
+        if (next.locked && !(previous?.locked ?? false)) {
+          _fingerprintOffered = null;
+        }
+        _beginIfIdle(next);
+      });
+    }
+    // A pending SIM PIN comes first and needs no swipe.
+    final simPending =
+        widget.authenticationEnabled && ref.watch(simPinPendingProvider);
+    if (widget.authenticationEnabled) {
+      ref.listen<bool>(simPinPendingProvider, (_, pending) {
+        if (pending) _cancelAuthentication();
+      });
+    }
+    final pinMode = widget.authenticationEnabled && _pinMode(authentication);
+    // Mobile follows the user: a cancelled attempt that deniald has not
+    // closed yet must not hold the keypad up or block the next swipe.
+    final credentialShown =
+        simPending ||
+        (!widget.desktop &&
+            widget.authenticationEnabled &&
+            _authenticationVisible);
+    if (credentialShown) {
+      _revealed = simPending
+          ? _LockCredential.sim
+          : pinMode
+          ? _LockCredential.pin
+          : _LockCredential.password;
+    }
+    _syncCredentialReveal(credentialShown);
+    if (widget.authenticationEnabled) {
+      _syncFingerprintOffer(!credentialShown);
+    }
     final lockSettings = ref.watch(
       shellSettingsProvider.select((settings) => settings.lockScreen),
     );
@@ -114,67 +323,193 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
-        final dragDistance = _dragDistance(size.height);
-        final progress = (-_slideOffset / dragDistance)
-            .clamp(0.0, 1.0)
-            .toDouble();
-        final allowsSwipe = widget.authenticationEnabled && !widget.desktop;
+        _height = size.height;
+        // Mobile opens only by swiping up; a stray touch leaves the clock,
+        // and a double tap turns the screen off, as on home.
+        // The face can be caught again while it is still sliding home.
+        final allowsSwipe =
+            widget.authenticationEnabled && !widget.desktop && !credentialShown;
+        final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+        final revealed = credentialShown || _credentialReveal.value > 0.0
+            ? _revealed
+            : null;
 
         final content = GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.authenticationEnabled ? _showAuthentication : null,
+          onTap: widget.authenticationEnabled && widget.desktop
+              ? _showAuthentication
+              : null,
+          onDoubleTap: allowsSwipe ? _blankDisplays : null,
           onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
           onPanUpdate: allowsSwipe
               ? (details) => _updateGesture(details.delta, size.height)
               : null,
           onPanCancel: allowsSwipe ? _cancelGesture : null,
-          onPanEnd: allowsSwipe ? (_) => _finishGesture(size.height) : null,
+          onPanEnd: allowsSwipe
+              ? (details) => _finishGesture(
+                  size.height,
+                  details.velocity.pixelsPerSecond.dy,
+                )
+              : null,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Transform.translate(
-                offset: Offset(0.0, _slideOffset),
+              CompositedTranslation(
+                translation: _face,
+                devicePixelRatio: devicePixelRatio,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (lockSettings.showSystemStatus)
-                      _LockStatusIcons(
-                        power: power,
-                        cpu: cpu,
-                        gpus: gpus,
-                        desktop: widget.desktop,
-                      ),
                     _LockClockBlock(
                       clock: clock,
                       desktop: widget.desktop,
                       scale: lockSettings.clockScale,
                       showSystemStatus: lockSettings.showSystemStatus,
+                      parts: widget.desktop
+                          ? const {
+                              HomeClockPart.time,
+                              HomeClockPart.date,
+                              HomeClockPart.status,
+                            }
+                          : const {HomeClockPart.time},
                     ),
-                    if (!widget.desktop) _LockSwipePill(progress: progress),
+                  ],
+                ),
+              ),
+              // The subject stays put while the clock slides behind it.
+              if (!widget.desktop &&
+                  (widget.authenticationEnabled || widget.ambientOnly)) ...[
+                const _LockDepthForeground(),
+                CustomPaint(
+                  painter: _AmbientFalloffPainter(
+                    ambient: widget.ambient,
+                    clockScale: lockSettings.clockScale,
+                  ),
+                ),
+              ],
+              // The status icons stay put like a status bar while the face
+              // slides.
+              if (lockSettings.showSystemStatus)
+                _AmbientHidden(
+                  opacity: _ambientHidden,
+                  child: _LockStatusIcons(
+                    power: power,
+                    cpu: cpu,
+                    gpus: gpus,
+                    desktop: widget.desktop,
+                  ),
+                ),
+              // The sensor mark and the swipe pill stay put and fade as the
+              // face moves away.
+              if (!widget.desktop && widget.authenticationEnabled) ...[
+                _AmbientHidden(
+                  opacity: _ambientHidden,
+                  child: _LockSwipePill(
+                    face: _face,
+                    fadeDistance: _dragDistance(size.height) * _unlockThreshold,
+                  ),
+                ),
+                _LockFingerprintRing(
+                  present: authentication.fingerprintReader,
+                  ready: authentication.fingerprintAvailable,
+                  scanning: authentication.fingerprintScanning,
+                  sensor: authentication.fingerprintSensor,
+                  face: _face,
+                  fadeDistance: _dragDistance(size.height) * _unlockThreshold,
+                ),
+              ],
+              CompositedTranslation(
+                translation: _face,
+                devicePixelRatio: devicePixelRatio,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (!widget.desktop) ...[
+                      _LockClockBlock(
+                        clock: clock,
+                        desktop: false,
+                        scale: lockSettings.clockScale,
+                        showSystemStatus: lockSettings.showSystemStatus,
+                        // The phone is dark but the desk keeps the session.
+                        caption: widget.ambientOnly
+                            ? context.l10n.lockDesktopModeEnabled
+                            : null,
+                        parts: const {HomeClockPart.date},
+                      ),
+                      _AmbientHidden(
+                        opacity: _ambientHidden,
+                        child: _LockClockBlock(
+                          clock: clock,
+                          desktop: false,
+                          scale: lockSettings.clockScale,
+                          showSystemStatus: lockSettings.showSystemStatus,
+                          parts: const {HomeClockPart.status},
+                        ),
+                      ),
+                    ],
+                    if (!widget.desktop && widget.authenticationEnabled)
+                      _AmbientHidden(
+                        opacity: _ambientHidden,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _LockNotifications(
+                              scale: lockSettings.clockScale,
+                              onOpen: _openAfterUnlock,
+                            ),
+                            const _LockGlyph(),
+                          ],
+                        ),
+                      ),
                     if (widget.desktop &&
                         widget.authenticationEnabled &&
+                        !simPending &&
                         !_authenticationVisible &&
                         !authentication.busy &&
                         authentication.resultMessage == null)
                       _DesktopUnlockPrompt(onBegin: _showAuthentication),
-                    if (widget.authenticationEnabled &&
-                        (_authenticationVisible ||
-                            authentication.busy ||
-                            authentication.resultMessage != null))
-                      _LockAuthenticationPanel(
-                        desktop: widget.desktop,
-                        state: authentication,
-                        controller: _responseController,
-                        focusNode: _responseFocus,
-                        onSubmit: _submitResponse,
-                        onBegin: ref
-                            .read(authenticationProvider.notifier)
-                            .begin,
-                        onCancel: _cancelAuthentication,
-                      ),
                   ],
                 ),
               ),
+              if (widget.authenticationEnabled &&
+                  !simPending &&
+                  (widget.desktop
+                      ? _authenticationVisible ||
+                            authentication.busy ||
+                            authentication.resultMessage != null
+                      : credentialShown && !pinMode))
+                _LockAuthenticationPanel(
+                  desktop: widget.desktop,
+                  state: authentication,
+                  controller: _responseController,
+                  focusNode: _responseFocus,
+                  onSubmit: _submitResponse,
+                  onBegin: () => ref
+                      .read(authenticationProvider.notifier)
+                      .begin(password: _usePassword),
+                  onCancel: _cancelAuthentication,
+                  onSwitchCredential: authentication.pinConfigured
+                      ? () => _switchCredential(password: pinMode)
+                      : null,
+                  usingPin: pinMode,
+                ),
+              if (revealed == _LockCredential.sim)
+                _MobileSimPinStage(
+                  key: const ValueKey<String>('mobile-sim-pin-stage'),
+                  reveal: _pinStageReveal,
+                  interactive: credentialShown,
+                  onLater: ref.read(simPinDeferralProvider.notifier).defer,
+                ),
+              if (revealed == _LockCredential.pin)
+                _MobileLockPinStage(
+                  key: const ValueKey<String>('mobile-lock-pin-stage'),
+                  reveal: _pinStageReveal,
+                  interactive: credentialShown,
+                  onBegin: () =>
+                      ref.read(authenticationProvider.notifier).begin(),
+                  onCancel: _cancelAuthentication,
+                  onUsePassword: () => _switchCredential(password: true),
+                ),
               if (widget.authenticationEnabled)
                 _LockFingerprintFeedback(
                   visible: authentication.fingerprintRejected,
@@ -210,13 +545,14 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     return math.max(240.0, math.min(380.0, height * 0.34));
   }
 
+  void _blankDisplays() => ref.read(denialBridgeProvider).requestDpmsOff();
+
   void _beginGesture() {
     if (widget.unlockProgress.value > 0.0) {
       return;
     }
 
     _motion.stop();
-    _onMotionComplete = null;
     _dragging = true;
   }
 
@@ -225,45 +561,59 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       return;
     }
 
-    setState(() {
-      _slideOffset = (_slideOffset + delta.dy)
-          .clamp(-height - 48.0, 0.0)
-          .toDouble();
-    });
+    _face.value = Offset(
+      0.0,
+      (_face.value.dy + delta.dy).clamp(-height, 0.0).toDouble(),
+    );
   }
 
-  void _finishGesture(double height) {
+  void _finishGesture(double height, double velocity) {
     if (!_dragging || widget.unlockProgress.value > 0.0) {
       return;
     }
 
     _dragging = false;
-    final progress = (-_slideOffset / _dragDistance(height))
+    final progress = (-_face.value.dy / _dragDistance(height))
         .clamp(0.0, 1.0)
         .toDouble();
-    if (progress >= _unlockThreshold) {
+    if (velocity <= -_flingVelocity ||
+        (progress >= _unlockThreshold && velocity < _flingVelocity)) {
+      // The face carries on off the top as the credential comes up.
       _showAuthentication();
-      _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
       return;
     }
 
-    _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
+    _animateFaceTo(0.0, curve: Motion.standard);
   }
 
   void _showAuthentication() {
-    if (!widget.authenticationEnabled || widget.unlockProgress.value > 0.0) {
+    if (!widget.authenticationEnabled ||
+        widget.unlockProgress.value > 0.0 ||
+        ref.read(simPinPendingProvider)) {
       return;
     }
-    if (!_authenticationVisible) {
+    final opening = !_authenticationVisible;
+    if (opening) {
       setState(() => _authenticationVisible = true);
     }
     final authentication = ref.read(authenticationProvider);
-    if (authentication.locked &&
+    if (authentication.busy) {
+      // On mobile a cancelled attempt may still be closing; open a new one
+      // after it.
+      if (opening && !widget.desktop) _beginWhenIdle = true;
+    } else if (authentication.locked &&
         authentication.available &&
-        !authentication.busy &&
         !authentication.rateLimited) {
-      ref.read(authenticationProvider.notifier).begin();
+      ref.read(authenticationProvider.notifier).begin(password: _usePassword);
     }
+  }
+
+  /// A tapped notification opens once the session unlocks; the face leaves
+  /// for the PIN as on a swipe.
+  void _openAfterUnlock(String groupKey) {
+    if (widget.unlockProgress.value > 0.0 || _authenticationVisible) return;
+    ref.read(lockNotificationOpenProvider.notifier).request(groupKey);
+    _showAuthentication();
   }
 
   void _submitResponse() {
@@ -278,15 +628,22 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _cancelAuthentication() {
+    ref.read(lockNotificationOpenProvider.notifier).clear();
     _responseController.clear();
     _responseFocus.unfocus();
+    _beginWhenIdle = false;
     final authentication = ref.read(authenticationProvider);
     if (authentication.busy) {
       ref.read(authenticationProvider.notifier).cancel();
     }
-    if (mounted) {
-      setState(() => _authenticationVisible = false);
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      _authenticationVisible = false;
+      // The next open prefers the PIN again.
+      _usePassword = false;
+    });
   }
 
   void _cancelGesture() {
@@ -295,21 +652,30 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
 
     _dragging = false;
-    _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
+    _animateFaceTo(0.0, curve: Motion.standard);
   }
 
-  void _animateSlideTo(
-    double target, {
-    required Duration duration,
-    required Curve curve,
-    VoidCallback? onComplete,
-  }) {
+  /// Takes as long as the distance needs: a face released near the top
+  /// leaves as quickly as one pushed from home.
+  void _animateFaceTo(double target, {required Curve curve}) {
     _motion.stop();
-    _motionStart = _slideOffset;
+    final distance = (target - _face.value.dy).abs();
+    if (distance < 0.5) {
+      _face.value = Offset(0.0, target);
+      return;
+    }
+    final fraction = _height > 0.0 ? (distance / _height).clamp(0.0, 1.0) : 1.0;
+    _motionStart = _face.value.dy;
     _motionTarget = target;
-    _motionDuration = duration;
+    _motionDuration = Duration(
+      microseconds: math
+          .max(
+            _snapDuration.inMicroseconds * 0.6,
+            _revealDuration.inMicroseconds * fraction,
+          )
+          .round(),
+    );
     _motionCurve = curve;
-    _onMotionComplete = onComplete;
     _motion.start();
   }
 
@@ -319,16 +685,12 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
         ? 1.0
         : (elapsed.inMicroseconds / durationMicros).clamp(0.0, 1.0).toDouble();
     final eased = _motionCurve.transform(progress);
-
-    setState(() {
-      _slideOffset = _motionStart + (_motionTarget - _motionStart) * eased;
-    });
-
+    _face.value = Offset(
+      0.0,
+      _motionStart + (_motionTarget - _motionStart) * eased,
+    );
     if (progress >= 1.0) {
       _motion.stop();
-      final onComplete = _onMotionComplete;
-      _onMotionComplete = null;
-      onComplete?.call();
     }
   }
 }

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/denial/pc-build}"
+# The Dart SDK the manager was built with, whose compiler the build kit attests.
+if [[ -d "$BUILD_ROOT/plugin-manager/dart-bin" ]]; then
+    PATH="$BUILD_ROOT/plugin-manager/dart-bin:$PATH"
+fi
 exec "$BUILD_ROOT/plugin-manager/denial-plugins" "$@"

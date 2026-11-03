@@ -46,7 +46,7 @@ impl WaylandFrontend {
         &self,
         position: Point<f64, Logical>,
         kinds: &[WlrLayer],
-    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+    ) -> Option<(ClientSurface, Point<f64, Logical>)> {
         let sample =
             Point::<i32, Logical>::from((position.x.floor() as i32, position.y.floor() as i32));
         let output = self
@@ -69,7 +69,7 @@ impl WaylandFrontend {
                 };
                 let global_origin =
                     saturating_point_add(saturating_point_add(output_origin, geometry.loc), offset);
-                return Some((surface, global_origin.to_f64()));
+                return Some((surface.into(), global_origin.to_f64()));
             }
         }
         None
@@ -126,7 +126,7 @@ impl WaylandFrontend {
     pub(super) fn surface_under(
         &self,
         position: Point<f64, Logical>,
-    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+    ) -> Option<(ClientSurface, Point<f64, Logical>)> {
         self.layer_surface_under(position, &[WlrLayer::Overlay, WlrLayer::Top])
             .or_else(|| {
                 self.space
@@ -135,7 +135,10 @@ impl WaylandFrontend {
                         window
                             .surface_under(position - location.to_f64(), WindowSurfaceType::ALL)
                             .map(|(surface, offset)| {
-                                (surface, saturating_point_add(offset, location).to_f64())
+                                (
+                                    surface.into(),
+                                    saturating_point_add(offset, location).to_f64(),
+                                )
                             })
                     })
             })
@@ -147,7 +150,21 @@ impl WaylandFrontend {
     pub(super) fn clamp_pointer(&self, position: Point<f64, Logical>) -> Point<f64, Logical> {
         if let Some(position) = constrain_pointer_to_outputs(
             position,
-            self.outputs.iter().map(|output| output.logical_geometry),
+            self.outputs
+                .iter()
+                .filter(|output| {
+                    #[cfg(feature = "flutter")]
+                    {
+                        return self.input_deck_output != Some(output.id)
+                            && (self.input_deck_output.is_none() || output.powered);
+                    }
+                    #[cfg(not(feature = "flutter"))]
+                    {
+                        let _ = output;
+                        true
+                    }
+                })
+                .map(|output| output.logical_geometry),
         ) {
             return position;
         }
@@ -276,7 +293,7 @@ impl WaylandFrontend {
             if self.presentation.presented_sampled(
                 &entry.output,
                 sampled,
-                presented.presented_at,
+                presented.edge,
                 Instant::now().saturating_duration_since(presented.observed_at),
                 presented.sequence,
             ) {
@@ -299,6 +316,19 @@ impl WaylandFrontend {
                 .presented(presented_output.id, presented_output.logical_sequence);
         }
         Ok(())
+    }
+
+    /// Whether an output tick would deliver anything to clients: a frame
+    /// callback, a grant to an armed frame timeline, or a screencopy.
+    #[cfg(feature = "flutter")]
+    pub fn wants_frame_ticks(&self) -> bool {
+        !self.pending_frame_callback_windows.is_empty()
+            || !self.pending_layer_frame_callback_roots.is_empty()
+            || !self.pending_cursor_frame_callback_roots.is_empty()
+            || !self.pending_drag_frame_callback_roots.is_empty()
+            || !self.pending_input_method_frame_callbacks.is_empty()
+            || self.frame_timeline.has_active_subscription()
+            || self.has_pending_screencopies()
     }
 
     #[cfg(feature = "flutter")]

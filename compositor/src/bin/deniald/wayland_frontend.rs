@@ -12,6 +12,8 @@ use super::output_topology::ScrollingLayoutAxis;
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmDeviceFd, DrmNode};
+#[cfg(feature = "flutter")]
+use smithay::backend::input::InputTime;
 use smithay::backend::egl::EGLDevice;
 use smithay::backend::renderer::Bind;
 use smithay::backend::renderer::damage::OutputDamageTracker;
@@ -104,7 +106,8 @@ use smithay::wayland::shell::wlr_layer::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::socket::ListeningSocketSource;
-use smithay::wayland::tablet_manager::{TabletManagerState, TabletSeatHandler};
+use smithay::input::tablet::TabletSeatHandler;
+use smithay::wayland::tablet_manager::TabletManagerState;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::alpha_modifier::{AlphaModifierState, AlphaModifierSurfaceCachedState};
 use smithay::wayland::xdg_activation::XdgActivationState;
@@ -141,6 +144,8 @@ use super::wire::{
 
 #[path = "wayland_frontend/clipboard.rs"]
 mod clipboard_io;
+#[path = "wayland_frontend/color_management.rs"]
+mod color_management;
 #[path = "wayland_frontend/cursor_state.rs"]
 mod cursor_state;
 #[path = "wayland_frontend/focus.rs"]
@@ -160,6 +165,16 @@ mod idle_inhibit;
 mod idle_notify;
 #[path = "wayland_frontend/input.rs"]
 mod input;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/input_deck.rs"]
+mod input_deck;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/input_hotplug.rs"]
+mod input_hotplug;
+#[path = "wayland_frontend/input_timestamps.rs"]
+mod input_timestamps;
+#[cfg(feature = "flutter")]
+pub(super) use input_deck::{snapshot as input_deck_snapshot, synchronize_input_deck};
 #[path = "wayland_frontend/input_method.rs"]
 pub(super) mod input_method;
 #[cfg(feature = "flutter")]
@@ -175,11 +190,17 @@ pub(super) use input::{dispatch_shell_keyboard, reconcile_flutter_pointer_route}
 mod input_source;
 #[path = "wayland_frontend/layer_shell.rs"]
 mod layer_shell;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/minimized.rs"]
+mod minimized;
 #[path = "wayland_frontend/output_power.rs"]
 mod output_power;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/pet.rs"]
 mod pet;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/phone_desk.rs"]
+mod phone_desk;
 #[path = "wayland_frontend/presentation.rs"]
 mod presentation;
 #[path = "wayland_frontend/scene_input.rs"]
@@ -188,12 +209,17 @@ mod scene_input;
 mod screencopy;
 #[path = "wayland_frontend/startup.rs"]
 mod startup;
+pub(crate) use startup::FrontendConfig;
 #[path = "wayland_frontend/surface_pipeline.rs"]
 mod surface_pipeline;
 #[cfg(feature = "flutter")]
 pub(crate) use screencopy::{
     OutputCompositeSource, compose_output_targets_to_atlas, copy_atlas_region_to_memory,
 };
+#[cfg(feature = "flutter")]
+use surface_pipeline::SurfaceTreeRoot;
+#[cfg(feature = "flutter")]
+pub(crate) use surface_pipeline::canvas_rect_to_buffer;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/surface_snapshot.rs"]
 mod surface_snapshot;
@@ -208,6 +234,8 @@ mod touch_gestures;
 mod window_layout_adapter;
 #[cfg(feature = "flutter")]
 pub(crate) use window_layout_adapter::LayoutDropTarget;
+#[path = "wayland_frontend/shortcuts_inhibit.rs"]
+mod shortcuts_inhibit;
 #[path = "wayland_frontend/window_management.rs"]
 mod window_management;
 #[cfg(feature = "flutter")]
@@ -233,7 +261,7 @@ mod xwayland;
 pub(super) use clipboard_io::DeferredClipboardCapture;
 #[cfg(feature = "flutter")]
 pub(super) use clipboard_io::{apply_clipboard_actions, cancel_clipboard_captures};
-use focus::KeyboardFocusTarget;
+use focus::{ClientSurface, KeyboardFocusTarget};
 use handlers::{MAX_WAYLAND_CLIENTS, WaylandClientBudget};
 #[cfg(feature = "flutter")]
 use idle_inhibit::IdleInhibitors;
@@ -251,6 +279,7 @@ use managed_window::toplevel_has_state;
 use output_power::OutputPowerManager;
 #[cfg(feature = "flutter")]
 use surface_snapshot::{rgba_payload_len, shm_cache_budget_for_atlas, snapshot_shm_buffer};
+pub(crate) use text_input::SoftwareKeyboardState;
 use text_input::{SeatFocusKind, TextInputManager};
 pub(super) use topology::saturating_point_add;
 use topology::{
@@ -260,7 +289,7 @@ use topology::{
 use window_management::SHELL_FRAME_BORDER;
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
-    apply_window_commands, finalize_topology_window_reconciliation,
+    apply_window_commands, finalize_topology_window_reconciliation, finish_desk_window_drag,
     queue_local_flutter_window_placement, queue_transient_window_placement, queue_window_placement,
 };
 #[cfg(feature = "flutter")]
@@ -430,7 +459,10 @@ pub(super) struct WaylandFrontend {
     dmabuf_render_node: Option<DrmNode>,
     pending_dmabuf_imports: Vec<(Dmabuf, ImportNotifier)>,
     dmabuf_import_queue_saturated: bool,
-    surface_buffers: HashMap<ObjectId, wl_buffer::WlBuffer>,
+    /// Surfaces with an attached buffer. Destroying a released buffer
+    /// keeps its contents (wl_surface.attach), so only a null attach or
+    /// the surface's destruction removes an entry.
+    buffered_surfaces: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
     surface_shm_frames: HashMap<ObjectId, ShmTextureFrame>,
     #[cfg(feature = "flutter")]
@@ -466,6 +498,8 @@ pub(super) struct WaylandFrontend {
     output_window_membership: OutputWindowMembership<ObjectId, Window>,
     #[cfg(feature = "flutter")]
     pending_frame_callback_windows: HashSet<ObjectId>,
+    #[cfg(feature = "flutter")]
+    minimized_windows: minimized::MinimizedWindows,
     #[cfg(feature = "flutter")]
     pending_layer_frame_callback_roots: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
@@ -567,6 +601,10 @@ pub(super) struct WaylandFrontend {
     flutter_touch_slots: HashSet<i32>,
     #[cfg(feature = "flutter")]
     client_touch_routes: HashMap<i32, ClientInputRoute>,
+    /// Client contacts that started in a shell edge-swipe region and may
+    /// still be claimed by Flutter.
+    #[cfg(feature = "flutter")]
+    edge_swipe_candidates: HashMap<i32, input::edge_swipe::EdgeSwipeCandidate>,
     #[cfg(feature = "flutter")]
     client_touch_frame_pending: bool,
     #[cfg(feature = "flutter")]
@@ -603,6 +641,8 @@ pub(super) struct WaylandFrontend {
     session: LibSeatSession,
     layer_shell_state: WlrLayerShellState,
     libinput: smithay::reexports::input::Libinput,
+    #[cfg(feature = "flutter")]
+    input_rescan: input_hotplug::InputRescan,
     pub(super) settings: SettingsManager,
     pub(super) shortcuts: ShortcutManager,
     pub(super) keyboard_layout_names: Vec<String>,
@@ -615,6 +655,9 @@ pub(super) struct WaylandFrontend {
     pets: pet::Pets,
     #[cfg(feature = "flutter")]
     mobile_shell: bool,
+    /// The output under the last touch down or button press.
+    #[cfg(feature = "flutter")]
+    last_press_output: Option<OutputId>,
     #[cfg(feature = "flutter")]
     idle_inhibitors: IdleInhibitors,
     #[cfg(feature = "flutter")]
@@ -624,9 +667,14 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     idle_notifier: smithay::wayland::idle_notify::IdleNotifierState<RuntimeState>,
     output_power: OutputPowerManager,
+    shortcuts_inhibit: shortcuts_inhibit::ShortcutsInhibit,
+    input_timestamps: input_timestamps::InputTimestamps,
     gamma_control: gamma_control::GammaControlManager,
+    color_management: color_management::ColorManagement,
     screencopy: screencopy::ScreencopyManager,
     text_input: TextInputManager,
+    #[cfg(feature = "flutter")]
+    keyboard_insets: insets::KeyboardInsets,
     input_method: InputMethodManager,
     outputs: Vec<WaylandOutput>,
     scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
@@ -636,6 +684,8 @@ pub(super) struct WaylandFrontend {
     damage_tracker: OutputDamageTracker,
     next_window_offset: i32,
     desktop_bounds: smithay::utils::Rectangle<i32, Logical>,
+    #[cfg(feature = "flutter")]
+    input_deck_output: Option<OutputId>,
     touch_bounds: smithay::utils::Rectangle<i32, Logical>,
     touch_transform: OutputTransform,
     tablet_output_mappings: HashMap<String, String>,
@@ -651,7 +701,7 @@ pub(super) struct WaylandFrontend {
 struct FlutterPointerPress {
     button: u32,
     serial: Serial,
-    time: u32,
+    time: InputTime,
     location: Point<f64, Logical>,
 }
 
@@ -1079,6 +1129,7 @@ fn input_routing_changed(
         current.flags != next.flags
             || current.shell_regions != next.shell_regions
             || current.software_keyboard_regions != next.software_keyboard_regions
+            || current.edge_swipe_regions != next.edge_swipe_regions
             || current.windows != next.windows
     })
 }
@@ -1158,6 +1209,9 @@ fn init_listener(
             unsafe {
                 let display = display.get_mut();
                 display.dispatch_clients(state)?;
+                if let Some(frontend) = state.wayland.as_mut() {
+                    frontend.finish_color_information();
+                }
                 display.flush_clients()?;
             }
             Ok(PostAction::Continue)
@@ -1218,7 +1272,3 @@ pub(super) fn fingerprint_test_client(uid: Option<u32>) -> Arc<dyn ClientData> {
     data.peer_uid = uid;
     Arc::new(data)
 }
-
-#[cfg(feature = "flutter")]
-#[path = "wayland_frontend/wake_gesture.rs"]
-mod wake_gesture;

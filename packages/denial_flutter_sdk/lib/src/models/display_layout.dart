@@ -17,6 +17,7 @@ class DisplayOutput {
     required this.scale,
     required this.refreshRate,
     this.activeWorkspace = 1,
+    this.inputOnly = false,
   });
 
   final int monitorId;
@@ -26,6 +27,9 @@ class DisplayOutput {
   final double scale;
   final double refreshRate;
   final int activeWorkspace;
+
+  /// Reserved for shell input controls while still participating in scanout.
+  final bool inputOnly;
 }
 
 @immutable
@@ -120,15 +124,17 @@ class DisplayLayout {
   }
 
   bool hostsSystemBar(DisplayOutput output) =>
+      !output.inputOnly &&
       effectiveSystemBarMonitorIds.contains(output.monitorId);
 
   /// Default output selection for visual shell surfaces is independent of
   /// native work-area reservations. Mobile startup has no system-bar host;
   /// desktop presentation still needs surfaces on the primary output.
   bool hostsDefaultShellSurface(DisplayOutput output) =>
-      effectiveSystemBarMonitorIds.isEmpty
-      ? output.monitorId == mainOutput?.monitorId
-      : hostsSystemBar(output);
+      !output.inputOnly &&
+      (effectiveSystemBarMonitorIds.isEmpty
+          ? output.monitorId == mainOutput?.monitorId
+          : hostsSystemBar(output));
 
   List<DisplayOutput> get systemBarOutputs =>
       List<DisplayOutput>.unmodifiable(outputs.where(hostsSystemBar));
@@ -248,6 +254,33 @@ class DisplayLayout {
     return workAreaWithin(output.logicalRect);
   }
 
+  DisplayLayout withInputOnlyOutput(String? name) => DisplayLayout(
+    epoch: epoch,
+    globalOrigin: globalOrigin,
+    logicalSize: logicalSize,
+    pixelSize: pixelSize,
+    engineScale: engineScale,
+    tickerMonitorId: tickerMonitorId,
+    systemBarMonitorId: systemBarMonitorId,
+    systemBarMonitorIds: systemBarMonitorIds,
+    systemBarSide: systemBarSide,
+    systemBarThickness: systemBarThickness,
+    maximizePadding: maximizePadding,
+    outputs: [
+      for (final output in outputs)
+        DisplayOutput(
+          monitorId: output.monitorId,
+          name: output.name,
+          logicalRect: output.logicalRect,
+          pixelSize: output.pixelSize,
+          scale: output.scale,
+          refreshRate: output.refreshRate,
+          activeWorkspace: output.activeWorkspace,
+          inputOnly: output.name == name,
+        ),
+    ],
+  );
+
   DisplayLayout copyWithSystemBar({
     required SystemBarSide side,
     required List<int> monitorIds,
@@ -300,16 +333,19 @@ class DisplayLayout {
   /// keeps malformed or older layouts deterministic without coupling primary
   /// display selection to the system-bar host.
   DisplayOutput? get mainOutput {
-    for (final output in outputs) {
+    for (final output in outputs.where((output) => !output.inputOnly)) {
       if (output.monitorId == tickerMonitorId) {
         return output;
       }
     }
-    if (outputs.isEmpty) {
+    final desktops = outputs
+        .where((output) => !output.inputOnly)
+        .toList(growable: false);
+    if (desktops.isEmpty) {
       return null;
     }
-    var result = outputs.first;
-    for (final output in outputs.skip(1)) {
+    var result = desktops.first;
+    for (final output in desktops.skip(1)) {
       final isFurtherLeft = output.logicalRect.left < result.logicalRect.left;
       final isFurtherUp =
           output.logicalRect.left == result.logicalRect.left &&

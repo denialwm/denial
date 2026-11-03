@@ -6,6 +6,9 @@ use smithay::wayland::shm::{BufferAccessError, BufferData, with_buffer_contents}
 
 use super::super::flutter_runtime::{ShmSnapshotPool, ShmTextureFrame};
 
+#[path = "shm_pixel_copy.rs"]
+mod shm_pixel_copy;
+
 const SHM_BYTES_PER_PIXEL: usize = 4;
 const MAX_SHM_TEXTURE_DIMENSION: usize = 16_384;
 const MAX_SHM_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
@@ -115,27 +118,64 @@ pub(super) fn snapshot_shm_buffer(
                 pool_len,
                 available_cache_bytes,
             )?;
+            if let Some(mut pending) = snapshot_pool
+                .acquire_mapped(u32::try_from(layout.width)?, u32::try_from(layout.height)?)
+            {
+                let copied = pending.write(|destination, stride| {
+                    let mut transparent = true;
+                    for row in 0..layout.height {
+                        // SAFETY: the validated SHM range is guarded by
+                        // with_buffer_contents; pending.write checks destination
+                        // stride/extent and owns an unpublished exclusive BO.
+                        transparent &= unsafe {
+                            shm_pixel_copy::copy_shm_8888(
+                                source.add(layout.offset + row * layout.stride),
+                                destination.add(row * stride),
+                                layout.width,
+                                force_opaque,
+                            )
+                        };
+                    }
+                    transparent
+                });
+                match copied {
+                    Ok(transparent) => {
+                        return Ok(ShmTextureFrame::new_mapped(
+                            u32::try_from(layout.width)?,
+                            u32::try_from(layout.height)?,
+                            revision,
+                            pending.publish(),
+                            transparent,
+                        ));
+                    }
+                    Err(error) => snapshot_pool.disable_mapped(&error),
+                }
+            }
             let mut rgba = snapshot_pool.acquire(layout.payload_len);
             rgba.try_reserve_exact(layout.payload_len)
                 .map_err(|error| format!("could not reserve SHM snapshot memory: {error}"))?;
-            rgba.resize(layout.payload_len, 0);
             for row in 0..layout.height {
                 let source_offset = layout.offset + row * layout.stride;
                 let destination_offset = row * layout.row_bytes;
                 // SAFETY: `with_buffer_contents` guarantees that `source` is
                 // live for this closure. The checked range above covers the
-                // complete source row and `rgba` owns the destination range.
+                // complete source row and `rgba` owns sufficient capacity for
+                // its destination range, which may still be uninitialized.
                 // Copying raw bytes avoids creating a Rust reference to SHM
                 // that is writable from another process.
                 unsafe {
-                    std::ptr::copy_nonoverlapping(
+                    shm_pixel_copy::copy_shm_8888(
                         source.add(source_offset),
                         rgba.as_mut_ptr().add(destination_offset),
-                        layout.row_bytes,
+                        layout.width,
+                        force_opaque,
                     );
                 }
             }
-            normalize_shm_8888(&mut rgba, force_opaque);
+            // SAFETY: capacity was reserved above and every byte in every
+            // packed row was initialized by copy_shm_8888. Set length only
+            // after all SHM accesses succeed; no zero-fill or second pass.
+            unsafe { rgba.set_len(layout.payload_len) };
             ShmTextureFrame::new_pooled(
                 u32::try_from(layout.width)?,
                 u32::try_from(layout.height)?,
@@ -150,19 +190,5 @@ pub(super) fn snapshot_shm_buffer(
         Ok(snapshot) => snapshot.map(Some),
         Err(BufferAccessError::NotManaged) => Ok(None),
         Err(error) => Err(error.into()),
-    }
-}
-
-fn normalize_shm_8888(pixels: &mut [u8], force_opaque: bool) {
-    for pixel in pixels.as_chunks_mut::<4>().0 {
-        let value = u32::from_ne_bytes([pixel[0], pixel[1], pixel[2], pixel[3]]);
-        pixel[0] = ((value >> 16) & 0xff) as u8;
-        pixel[1] = ((value >> 8) & 0xff) as u8;
-        pixel[2] = (value & 0xff) as u8;
-        pixel[3] = if force_opaque {
-            0xff
-        } else {
-            ((value >> 24) & 0xff) as u8
-        };
     }
 }

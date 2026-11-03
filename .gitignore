@@ -60,3 +60,4 @@ MOTO_WIFI_DEPLOY.md
 # The dialog runs on native_app; Flutter generates this tree on pub get.
 /polkit_app/linux/
 /polkit_app/.flutter-plugins*
+__pycache__/

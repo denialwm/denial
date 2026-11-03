@@ -14,6 +14,7 @@ class WindowSurface extends StatelessWidget {
     this.radius = 0.0,
     this.borderColor,
     this.addRepaintBoundary = true,
+    this.applyBackdrop = true,
     this.contentPadding = EdgeInsets.zero,
   });
 
@@ -23,6 +24,10 @@ class WindowSurface extends StatelessWidget {
   /// When non-null, a 1px hairline is drawn over the texture in this colour.
   final Color? borderColor;
   final bool addRepaintBoundary;
+
+  /// Blur the shell behind a translucent window, as the primary app stage
+  /// does. Disable it only where an opaque surface sits behind the window.
+  final bool applyBackdrop;
   final EdgeInsets contentPadding;
 
   @override
@@ -36,10 +41,10 @@ class WindowSurface extends StatelessWidget {
       window: window,
       borderRadius: borderRadius,
       contentPadding: contentPadding,
-      // A launch/recents hero presents the app's surface. Sampling the shell
-      // behind it adds an invisible glass pass that invalidates on every move.
-      // The primary app stage owns the normal window backdrop separately.
-      applyBackdrop: false,
+      // Translucent windows keep the glass the primary app stage gives them,
+      // so launch, recents and focus zoom do not reveal an unblurred backdrop.
+      // Opaque windows skip the pass in the content rect.
+      applyBackdrop: applyBackdrop,
     );
 
     final border = window.serverSideDecorated ? borderColor : null;

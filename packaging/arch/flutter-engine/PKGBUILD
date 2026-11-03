@@ -14,9 +14,9 @@ provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('3aa757dc59976cbd529abaad033c8cd5db7ee03eea6bac8e13d68fb25f4212d2')
+sha256sums=('ccc2423dafaa6baa2f3eac77e4b0091603967ac528c5daed66381b930a610e63')
 
-_engine_sha256='f9a00dbb40638c79d9c5a9ddd0000214a459cb7e026731b5aebd403275976f68'
+_engine_sha256='c5e0bccc8f60bcfd677252eea093db6ece57b1c160eedfb46fbb1467ea96fe44'
 _icu_sha256='325a86063d26334c2eabe1743cea073b612540fbf3d8fc2ef0b5708e3763a8c7'
 
 package() {

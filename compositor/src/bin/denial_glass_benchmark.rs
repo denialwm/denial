@@ -23,7 +23,7 @@ use denial_core::topology::{OutputId, PixelSize, RenderViewId};
 use denial_flutter_engine::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineEvent, EngineHost,
     EngineLibrary, EngineProject, OpenGlHandler, PresentFrame, PresentView, RenderOutput,
-    RenderOutputTransform, RendererBackend, ScheduledTask, sys,
+    RenderOutputTransform, ScheduledTask, sys,
 };
 use sha2::{Digest, Sha256};
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
@@ -302,8 +302,15 @@ impl ScanoutCopy {
             .lock()
             .unwrap()
             .ok_or("worker scanout copy shader was not prepared")?;
-        desktop_gl::copy_to_scanout(self.gl, texture, framebuffer, size, shader)
-            .map_err(|error| format!("worker scanout shader copy failed: {error:#x}").into())
+        desktop_gl::copy_to_scanout(
+            self.gl,
+            texture,
+            framebuffer,
+            size,
+            shader,
+            desktop_gl::CopyColor::default(),
+        )
+        .map_err(|error| format!("worker scanout shader copy failed: {error:#x}").into())
     }
 }
 
@@ -1129,8 +1136,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         icu_data: bundle.join("data/icudtl.dat"),
         runtime: DartRuntimeMode::AotProfile,
         aot_library: Some(bundle.join("lib/libapp.so")),
-        renderer_backend: RendererBackend::ImpellerGles,
         resource_cache_max_bytes_threshold: 0,
+        float_color: false,
     };
     let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
     let host = EngineHost::start_with_library_and_priority_setter(

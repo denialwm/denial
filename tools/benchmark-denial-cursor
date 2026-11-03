@@ -73,7 +73,6 @@ def metadata(pid):
     for value in pathlib.Path(f'/proc/{pid}/environ').read_bytes().split(b'\0'):
         key, _, data = value.partition(b'=')
         if key in (b'DENIAL_RENDER_AUDIT', b'DENIA_RENDER_AUDIT',
-                   b'DENIAL_FLUTTER_RENDERER', b'DENIA_FLUTTER_RENDERER',
                    b'DENIAL_NO_RT', b'DENIAL_CURSOR_BENCHMARK_SOCKET'):
             environment[key.decode()] = data.decode()
     return {'kernel': os.uname().release, 'machine': os.uname().machine,

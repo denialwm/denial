@@ -19,6 +19,10 @@ final class BridgeSessionClient {
   static const String _idlePolicyChannel = 'denial/idle_policy';
   static const String _displayPowerChannel = 'denial/display_power';
   static const String _systemCommandChannel = 'denial/system_command';
+  static const String ambientDisplayChannel = 'denial/ambient_display';
+  static const int _ambientEnter = 1;
+  static const int _ambientLeave = 2;
+  static const int _ambientReady = 1;
   static final Uint8List _hapticPrewarmPayload = Uint8List.fromList(const <int>[
     0,
   ]);
@@ -41,6 +45,8 @@ final class BridgeSessionClient {
   static const int _maxSystemCommandArgumentBytes = 4096;
   final StreamController<DenialUiDevelopmentState> _uiDevelopmentStates =
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
+  final StreamController<bool> _ambientDisplay =
+      StreamController<bool>.broadcast(sync: true);
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
 
@@ -54,6 +60,7 @@ final class BridgeSessionClient {
     required bool suspendEnabled,
     required Duration suspendTimeout,
     required SuspendMode suspendMode,
+    Duration? lockAfterScreenOff,
   }) {
     final lockMilliseconds = lockTimeout.inMilliseconds;
     final dpmsMilliseconds = dpmsTimeout.inMilliseconds;
@@ -65,15 +72,21 @@ final class BridgeSessionClient {
         dpmsMilliseconds > suspendMilliseconds) {
       return;
     }
+    final screenOffMilliseconds = lockAfterScreenOff?.inMilliseconds ?? 0;
+    if (screenOffMilliseconds < 0 || screenOffMilliseconds > 0xffffffff) {
+      return;
+    }
     final flags =
         (lockEnabled ? 1 : 0) |
         (dpmsEnabled ? 2 : 0) |
-        (suspendEnabled ? 4 : 0);
+        (suspendEnabled ? 4 : 0) |
+        (lockAfterScreenOff != null ? 8 : 0);
     final data = ByteData(32)
-      ..setUint8(0, 3)
+      ..setUint8(0, 4)
       ..setUint8(1, flags)
       ..setUint8(2, suspendMode.wireValue)
       ..setUint8(3, powerButtonAction.wireValue)
+      ..setUint32(4, screenOffMilliseconds, Endian.little)
       ..setUint64(8, lockMilliseconds, Endian.little)
       ..setUint64(16, dpmsMilliseconds, Endian.little)
       ..setUint64(24, suspendMilliseconds, Endian.little);
@@ -82,12 +95,49 @@ final class BridgeSessionClient {
         ?.catchError((Object _) => null);
   }
 
-  /// Requests compositor-owned DPMS-off for every currently powered output.
-  /// The next physical input wakes outputs through the native idle policy.
-  void requestDpmsOff() {
-    final data = ByteData(1)..setUint8(0, 1);
+  /// Turns the screen off as the power button does: beside a monitor, the
+  /// phone's panel alone. The next physical input wakes it.
+  void requestDpmsOff() => _sendDisplayPower(1);
+
+  /// Lights the dark outputs as an input would; the idle timeout starts
+  /// again.
+  void requestDisplayOn() => _sendDisplayPower(2);
+
+  void _sendDisplayPower(int command) {
+    final data = ByteData(1)..setUint8(0, command);
     _context.platform
         .send(_displayPowerChannel, data)
+        ?.catchError((Object _) => null);
+  }
+
+  /// True when the panel is about to keep only the always-on picture lit,
+  /// false when it lights up again.
+  Stream<bool> get ambientDisplay => _ambientDisplay.stream;
+
+  /// The last of [ambientDisplay], for a lock screen that starts after it.
+  bool get ambientDisplayActive => _ambientDisplayActive;
+  bool _ambientDisplayActive = false;
+
+  Future<ByteData?> handleAmbientDisplay(ByteData? data) async {
+    if (data == null || data.lengthInBytes != 1 || _ambientDisplay.isClosed) {
+      return null;
+    }
+    switch (data.getUint8(0)) {
+      case _ambientEnter:
+        _ambientDisplayActive = true;
+        _ambientDisplay.add(true);
+      case _ambientLeave:
+        _ambientDisplayActive = false;
+        _ambientDisplay.add(false);
+    }
+    return null;
+  }
+
+  /// The always-on picture is on screen: deniald may turn the output off.
+  void ambientDisplayReady() {
+    final data = ByteData(1)..setUint8(0, _ambientReady);
+    _context.platform
+        .send(ambientDisplayChannel, data)
         ?.catchError((Object _) => null);
   }
 
@@ -379,5 +429,6 @@ final class BridgeSessionClient {
 
   void dispose() {
     unawaited(_uiDevelopmentStates.close());
+    unawaited(_ambientDisplay.close());
   }
 }

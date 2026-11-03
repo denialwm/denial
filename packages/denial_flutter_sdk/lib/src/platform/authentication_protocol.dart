@@ -16,10 +16,17 @@ enum AuthenticationPacketKind {
   begin(3),
   respond(4),
   cancel(5),
+
+  /// Argument 1: the lock screen offers the fingerprint; 0: it asks for a
+  /// typed credential and the reader must not answer.
+  fingerprint(6),
   state(0x81),
   prompt(0x82),
   result(0x83),
-  fingerprintFeedback(0x84);
+  fingerprintFeedback(0x84),
+
+  /// Argument: the configured PIN length, 0 when only the password is set.
+  credential(0x85);
 
   const AuthenticationPacketKind(this.value);
   final int value;
@@ -38,14 +45,18 @@ enum AuthenticationPromptStyle {
   echoOff(1),
   echoOn(2),
   info(3),
-  error(4);
+  error(4),
+
+  /// Denial's numeric lock PIN prompt; PAM never sends it.
+  pin(5);
 
   const AuthenticationPromptStyle(this.value);
   final int value;
 
   bool get requiresResponse =>
       this == AuthenticationPromptStyle.echoOff ||
-      this == AuthenticationPromptStyle.echoOn;
+      this == AuthenticationPromptStyle.echoOn ||
+      this == AuthenticationPromptStyle.pin;
 
   static AuthenticationPromptStyle? fromValue(int value) {
     for (final style in values) {
@@ -86,6 +97,9 @@ class AuthenticationPacket {
 }
 
 abstract final class AuthenticationProtocol {
+  /// Begin argument that asks for the account password even when a PIN is set.
+  static const int beginPassword = 1;
+
   static const int _stateLocked = 1 << 0;
   static const int _stateAvailable = 1 << 1;
   static const int _stateBusy = 1 << 2;
@@ -154,6 +168,7 @@ abstract final class AuthenticationProtocol {
         kind == AuthenticationPacketKind.prompt ||
         kind == AuthenticationPacketKind.result ||
         kind == AuthenticationPacketKind.fingerprintFeedback ||
+        kind == AuthenticationPacketKind.credential ||
         attemptId < 0 ||
         argument < 0) {
       return null;

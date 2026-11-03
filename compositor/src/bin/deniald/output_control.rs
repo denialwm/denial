@@ -17,7 +17,7 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt}
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -33,7 +33,7 @@ use super::ui_development::{
 use super::{
     gamma_control::SoftwareDimmingRequest,
     native_shortcut::ShortcutBinding,
-    settings::{KeyboardSettings, MouseSettings, TouchpadSettings},
+    settings::{ColorChange, ColorSettings, KeyboardSettings, MouseSettings, TouchpadSettings},
     system_controls::{AudioRequest, BrightnessRequest},
 };
 
@@ -45,7 +45,6 @@ const EVENT_QUEUE_CAPACITY: usize = 8;
 const MAX_CLIENT_WORKERS: usize = 32;
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(3);
-const SUBSCRIBER_HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const SETTINGS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -174,82 +173,76 @@ struct SettingsDocumentSnapshot {
     document: String,
 }
 
+/// The shared settings document, and a wake pipe per streaming subscriber.
 #[derive(Clone)]
 struct SettingsDocumentPublisher {
-    state: Arc<(Mutex<SettingsDocumentSnapshot>, Condvar)>,
+    state: Arc<Mutex<SettingsDocumentState>>,
 }
 
-enum SettingsDocumentWait {
-    Changed(SettingsDocumentSnapshot),
-    TimedOut,
-    Stopped,
+struct SettingsDocumentState {
+    snapshot: SettingsDocumentSnapshot,
+    subscribers: Vec<UnixStream>,
 }
 
 impl SettingsDocumentPublisher {
     fn new(revision: u64, document: String) -> Self {
         Self {
-            state: Arc::new((
-                Mutex::new(SettingsDocumentSnapshot { revision, document }),
-                Condvar::new(),
-            )),
+            state: Arc::new(Mutex::new(SettingsDocumentState {
+                snapshot: SettingsDocumentSnapshot { revision, document },
+                subscribers: Vec::new(),
+            })),
         }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, SettingsDocumentState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn snapshot(&self) -> SettingsDocumentSnapshot {
-        self.state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        self.lock().snapshot.clone()
     }
 
     fn revision(&self) -> u64 {
-        self.state
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .revision
+        self.lock().snapshot.revision
+    }
+
+    /// A pipe that turns readable after each publication and at shutdown.
+    /// It closes the subscription when dropped.
+    fn subscribe(&self) -> io::Result<UnixStream> {
+        let (sender, receiver) = UnixStream::pair()?;
+        sender.set_nonblocking(true)?;
+        receiver.set_nonblocking(true)?;
+        let mut state = self.lock();
+        // A spare wake costs the others one snapshot check, and it drops the
+        // pipes of subscribers that left since the last publication.
+        wake_subscribers(&mut state.subscribers);
+        state.subscribers.push(sender);
+        Ok(receiver)
     }
 
     fn publish(&self, revision: u64, document: String) -> bool {
-        let (state, changed) = &*self.state;
-        let mut snapshot = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if revision <= snapshot.revision {
+        let mut state = self.lock();
+        if revision <= state.snapshot.revision {
             return false;
         }
-        *snapshot = SettingsDocumentSnapshot { revision, document };
-        changed.notify_all();
+        state.snapshot = SettingsDocumentSnapshot { revision, document };
+        wake_subscribers(&mut state.subscribers);
         true
     }
 
-    fn wait_for_change(&self, revision: u64, stopping: &AtomicBool) -> SettingsDocumentWait {
-        let (state, changed) = &*self.state;
-        let snapshot = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if snapshot.revision > revision {
-            return SettingsDocumentWait::Changed(snapshot.clone());
-        }
-        if stopping.load(Ordering::Acquire) {
-            return SettingsDocumentWait::Stopped;
-        }
-        let (snapshot, _) = changed
-            .wait_timeout(snapshot, SUBSCRIBER_HEALTH_POLL_INTERVAL)
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if stopping.load(Ordering::Acquire) {
-            SettingsDocumentWait::Stopped
-        } else if snapshot.revision > revision {
-            SettingsDocumentWait::Changed(snapshot.clone())
-        } else {
-            SettingsDocumentWait::TimedOut
-        }
-    }
-
     fn wake_all(&self) {
-        self.state.1.notify_all();
+        wake_subscribers(&mut self.lock().subscribers);
     }
+}
+
+/// A full pipe already holds a wake; a closed one lost its subscriber.
+fn wake_subscribers(subscribers: &mut Vec<UnixStream>) {
+    subscribers.retain(|mut subscriber| match subscriber.write(&[1]) {
+        Ok(_) => true,
+        Err(error) => error.kind() == io::ErrorKind::WouldBlock,
+    });
 }
 
 struct ActiveControlClient {
@@ -717,6 +710,10 @@ impl PendingSystemControlWait {
     pub(super) fn expired(&self, now: Instant) -> bool {
         self.expires_at <= now
     }
+
+    pub(super) const fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
 }
 
 #[derive(Debug)]
@@ -728,6 +725,18 @@ pub(super) enum ControlEvent {
     SystemControl(PendingSystemControl),
     SoftwareDimming(PendingSoftwareDimming),
     UiDevelopment(PendingUiDevelopment),
+    /// Something every output shows changed outside the scene.
+    RepaintOutputs,
+    /// Output pools must be rebuilt for the same displays.
+    RebuildOutputs,
+    /// An app's look changed: its windows are sampled again.
+    RepaintApp(String),
+    /// A display color change to keep for the next start.
+    SaveColor(ColorChange),
+    /// Show the color tuning editor.
+    OpenColorTuning,
+    /// Show it again once the shell restarted for the desktop look.
+    ReopenColorTuning,
 }
 
 #[derive(Debug, Deserialize)]
@@ -743,6 +752,281 @@ struct RequestEnvelope {
 #[serde(deny_unknown_fields)]
 struct UiWorkspaceParams {
     path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ColorCorrectionParams {
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HdrParams {
+    output: String,
+    enabled: bool,
+    /// SDR white in cd/m²; the default when absent.
+    #[serde(default)]
+    white: Option<f64>,
+    #[serde(default)]
+    primaries: super::output_color::SignalPrimaries,
+}
+
+fn hdr_state() -> Value {
+    let outputs = super::output_color::hdr_displays()
+        .into_iter()
+        .map(|display| {
+            json!({
+                "output": display.name,
+                "max_luminance": display.display.max_luminance,
+                "max_frame_average": display.display.max_frame_average,
+                "min_luminance": display.display.min_luminance,
+                "active": display.active.is_some(),
+                "white": display.active.map(|mode| mode.white),
+                "primaries": display.active.map(|mode| mode.primaries.name()),
+                "requested_white": super::output_color::hdr_request(&display.name)
+                    .map(|mode| mode.white),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"outputs": outputs})
+}
+
+fn change_hdr(
+    params: HdrParams,
+    events: &SyncSender<ControlEvent>,
+) -> Result<Value, (&'static str, String)> {
+    if !super::output_color::hdr_displays()
+        .iter()
+        .any(|display| display.name == params.output)
+    {
+        return Err((
+            "invalid_params",
+            format!("{} is not a connected HDR display", params.output),
+        ));
+    }
+    let white = match (params.enabled, params.white) {
+        (false, _) => None,
+        (true, None) => Some(super::output_color::DEFAULT_SDR_WHITE),
+        (true, Some(white)) if super::output_color::SDR_WHITE_RANGE.contains(&white) => Some(white),
+        (true, Some(white)) => {
+            let range = super::output_color::SDR_WHITE_RANGE;
+            return Err((
+                "invalid_params",
+                format!(
+                    "SDR white {white} is outside {}..={} cd/m²",
+                    range.start(),
+                    range.end()
+                ),
+            ));
+        }
+    };
+    let mode = white.map(|white| super::output_color::HdrMode {
+        white,
+        primaries: params.primaries,
+    });
+    if super::output_color::hdr_request(&params.output) != mode {
+        super::output_color::set_hdr_request(&params.output, mode);
+        // The signal, the scene format and Flutter's targets all change.
+        let _ = events.try_send(ControlEvent::RebuildOutputs);
+        save_color(events, ColorChange::Hdr(params.output, mode));
+    }
+    Ok(hdr_state())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ColorLutParams {
+    path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppLutParams {
+    app_id: String,
+    #[serde(default)]
+    path: Option<PathBuf>,
+}
+
+fn app_luts_state() -> Value {
+    let apps = super::output_color::app_luts()
+        .into_iter()
+        .map(|(app_id, lut)| json!({"app_id": app_id, "size": lut.size, "title": lut.title}))
+        .collect::<Vec<_>>();
+    json!({"apps": apps})
+}
+
+/// The largest `.cube` file read: a 65³ LUT in plain decimals.
+const MAX_CUBE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn desktop_lut_state() -> Value {
+    let lut = super::output_color::desktop_lut();
+    json!({"lut": lut.map(|lut| json!({"size": lut.size, "title": lut.title}))})
+}
+
+/// Gaining or losing a look rebuilds the output pools, so every output
+/// renders off-screen exactly while one is loaded; swapping looks repaints.
+fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender<ControlEvent>) {
+    let had_look = super::output_color::desktop_lut().is_some();
+    let has_look = lut.is_some();
+    super::output_color::set_desktop_lut(lut);
+    let event = if had_look == has_look {
+        ControlEvent::RepaintOutputs
+    } else {
+        ControlEvent::RebuildOutputs
+    };
+    // A full queue already holds work that draws a new frame.
+    let _ = events.try_send(event);
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GradeTarget {
+    /// The desktop when absent.
+    #[serde(default)]
+    app_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GradeParams {
+    #[serde(default)]
+    app_id: Option<String>,
+    grade: super::color_grade::Grade,
+    /// False while a control is still moving: the change shows, the save
+    /// waits for the release.
+    #[serde(default = "saves_by_default")]
+    save: bool,
+}
+
+fn saves_by_default() -> bool {
+    true
+}
+
+fn grade_state(app_id: Option<&str>) -> Value {
+    let look = match app_id {
+        Some(app_id) => super::color_grade::app_look(app_id),
+        None => super::color_grade::desktop_look(),
+    };
+    json!({
+        "app_id": app_id,
+        "grade": look.grade,
+        "base": look.base.as_ref().and_then(|base| base.title.clone()),
+    })
+}
+
+fn change_grade(
+    params: GradeParams,
+    events: &SyncSender<ControlEvent>,
+) -> Result<Value, (&'static str, String)> {
+    params
+        .grade
+        .validate()
+        .map_err(|error| ("invalid_params", error))?;
+    let saved = Some(params.grade).filter(|grade| !grade.is_neutral());
+    match params.app_id.as_deref() {
+        Some("") => return Err(("invalid_params", "app_id is empty".to_owned())),
+        Some(app_id) => {
+            change_app_look(app_id, |look| look.grade = params.grade);
+            // A full queue already holds work that draws a new frame.
+            let _ = events.try_send(ControlEvent::RepaintApp(app_id.to_owned()));
+            if params.save {
+                save_color(events, ColorChange::AppGrade(app_id.to_owned(), saved));
+            }
+        }
+        None => {
+            change_desktop_look(|look| look.grade = params.grade, events);
+            if params.save {
+                save_color(events, ColorChange::DesktopGrade(saved));
+            }
+        }
+    }
+    Ok(grade_state(params.app_id.as_deref()))
+}
+
+fn change_desktop_look(
+    change: impl FnOnce(&mut super::color_grade::Look),
+    events: &SyncSender<ControlEvent>,
+) {
+    super::color_grade::change_desktop_look(change, |lut| change_desktop_lut(lut, events));
+}
+
+fn change_app_look(app_id: &str, change: impl FnOnce(&mut super::color_grade::Look)) {
+    super::color_grade::change_app_look(app_id, change, |lut| {
+        super::output_color::set_app_lut(app_id, lut);
+    });
+}
+
+fn save_color(events: &SyncSender<ControlEvent>, change: ColorChange) {
+    if let Err(error) = events.try_send(ControlEvent::SaveColor(change)) {
+        warn!(%error, "display color change applies but was not saved");
+    }
+}
+
+/// The LUT path to save: the one the file was read from.
+fn saved_lut_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Applies the saved display color before the first outputs are built. A LUT
+/// that no longer reads is skipped and stays saved.
+pub(super) fn restore_color(color: &ColorSettings) {
+    super::output_color::set_correction(color.correction);
+    let base = |path: Option<&PathBuf>, app_id: Option<&str>| {
+        let path = path?;
+        match load_cube(path) {
+            Ok(lut) => Some(Arc::new(lut)),
+            Err((_, error)) => {
+                warn!(%error, app_id, "saved LUT is unavailable");
+                None
+            }
+        }
+    };
+    super::color_grade::change_desktop_look(
+        |look| {
+            look.base = base(color.desktop_lut.as_ref(), None);
+            look.grade = color.desktop_grade.unwrap_or_default();
+        },
+        super::output_color::set_desktop_lut,
+    );
+    let apps = color
+        .app_luts
+        .keys()
+        .chain(color.app_grades.keys())
+        .collect::<std::collections::BTreeSet<_>>();
+    for app_id in apps {
+        change_app_look(app_id, |look| {
+            look.base = base(color.app_luts.get(app_id), Some(app_id));
+            look.grade = color.app_grades.get(app_id).copied().unwrap_or_default();
+        });
+    }
+    for (output, mode) in &color.hdr {
+        super::output_color::set_hdr_request(output, Some(*mode));
+    }
+}
+
+fn load_cube(path: &Path) -> Result<super::output_color::Lut, (&'static str, String)> {
+    let file =
+        fs::File::open(path).map_err(|error| ("io", format!("{}: {error}", path.display())))?;
+    let mut text = String::new();
+    file.take(MAX_CUBE_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| ("io", format!("{}: {error}", path.display())))?;
+    if text.len() as u64 > MAX_CUBE_BYTES {
+        return Err((
+            "invalid_lut",
+            format!("{} is larger than 16 MiB", path.display()),
+        ));
+    }
+    let mut lut = super::output_color::parse_cube(&text)
+        .map_err(|error| ("invalid_lut", format!("{}: {error}", path.display())))?;
+    // Without a TITLE line, a look goes by its file name.
+    if lut.title.is_none() {
+        lut.title = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned());
+    }
+    Ok(lut)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1163,6 +1447,116 @@ fn handle_connection(
     let response = match request.method.as_str() {
         "outputs.get" => success_response(request.id, publisher.snapshot()),
         "wallpaper.status" => success_response(request.id, publisher.wallpaper_status()),
+        "color.correction.get" => success_response(
+            request.id,
+            json!({"enabled": super::output_color::correction_enabled()}),
+        ),
+        "color.lut.get" => success_response(request.id, desktop_lut_state()),
+        "color.hdr.get" => success_response(request.id, hdr_state()),
+        "color.hdr.set" => match serde_json::from_value::<HdrParams>(request.params) {
+            Ok(params) => match change_hdr(params, events) {
+                Ok(state) => success_response(request.id, state),
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.app.lut.get" => success_response(request.id, app_luts_state()),
+        "color.grade.get" => match serde_json::from_value::<GradeTarget>(request.params) {
+            Ok(target) => success_response(request.id, grade_state(target.app_id.as_deref())),
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.grade.set" => match serde_json::from_value::<GradeParams>(request.params) {
+            Ok(params) => match change_grade(params, events) {
+                Ok(state) => success_response(request.id, state),
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.tune.prepare" => {
+            super::color_grade::keep_desktop_look();
+            let ready = super::output_color::desktop_lut().is_some();
+            if !ready {
+                change_desktop_look(|_| {}, events);
+                let _ = events.try_send(ControlEvent::ReopenColorTuning);
+            }
+            success_response(request.id, json!({"ready": ready}))
+        }
+        "color.tune.open" => match events.try_send(ControlEvent::OpenColorTuning) {
+            Ok(()) => success_response(request.id, json!({})),
+            Err(error) => error_response(Some(request.id), "busy", error.to_string()),
+        },
+        "color.app.lut.load" | "color.app.lut.clear" => {
+            match serde_json::from_value::<AppLutParams>(request.params) {
+                Ok(AppLutParams { app_id, .. }) if app_id.is_empty() => {
+                    error_response(Some(request.id), "invalid_params", "app_id is empty")
+                }
+                Ok(AppLutParams { app_id, path }) => {
+                    let params_path = path.clone();
+                    let lut = match (request.method.as_str(), path) {
+                        ("color.app.lut.load", Some(path)) => match load_cube(&path) {
+                            Ok(lut) => Ok(Some(lut)),
+                            Err(error) => Err(error),
+                        },
+                        ("color.app.lut.load", None) => {
+                            Err(("invalid_params", "path is required".to_owned()))
+                        }
+                        _ => Ok(None),
+                    };
+                    match lut {
+                        Ok(lut) => {
+                            let saved = params_path
+                                .filter(|_| lut.is_some())
+                                .map(|path| saved_lut_path(&path));
+                            change_app_look(&app_id, |look| look.base = lut.map(Arc::new));
+                            save_color(events, ColorChange::AppLut(app_id.clone(), saved));
+                            // A full queue already holds work that draws a new frame.
+                            let _ = events.try_send(ControlEvent::RepaintApp(app_id));
+                            success_response(request.id, app_luts_state())
+                        }
+                        Err((code, message)) => error_response(Some(request.id), code, message),
+                    }
+                }
+                Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+            }
+        }
+        "color.lut.load" => match serde_json::from_value::<ColorLutParams>(request.params) {
+            Ok(params) => match load_cube(&params.path) {
+                Ok(lut) => {
+                    change_desktop_look(|look| look.base = Some(Arc::new(lut)), events);
+                    save_color(
+                        events,
+                        ColorChange::DesktopLut(Some(saved_lut_path(&params.path))),
+                    );
+                    success_response(request.id, desktop_lut_state())
+                }
+                Err((code, message)) => error_response(Some(request.id), code, message),
+            },
+            Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+        },
+        "color.lut.clear" => {
+            change_desktop_look(|look| look.base = None, events);
+            save_color(events, ColorChange::DesktopLut(None));
+            success_response(request.id, desktop_lut_state())
+        }
+        "color.correction.set" => {
+            match serde_json::from_value::<ColorCorrectionParams>(request.params) {
+                Ok(params) => {
+                    super::output_color::set_correction(params.enabled);
+                    // A full queue already holds work that draws a new frame.
+                    let _ = events.try_send(ControlEvent::RepaintOutputs);
+                    save_color(events, ColorChange::Correction(params.enabled));
+                    success_response(request.id, json!({"enabled": params.enabled}))
+                }
+                Err(error) => error_response(Some(request.id), "invalid_params", error.to_string()),
+            }
+        }
+        "denial.version" => success_response(
+            request.id,
+            json!({
+                "version": denial_core::version(),
+                "build": denial_core::BUILD_IDENTITY,
+            }),
+        ),
         "outputs.apply" => {
             let configuration =
                 match serde_json::from_value::<ApplyOutputConfiguration>(request.params) {
@@ -2072,54 +2466,62 @@ fn stream_settings_documents(
     publisher: &OutputControlPublisher,
     stopping: &AtomicBool,
 ) -> io::Result<()> {
+    // Subscribe before the first snapshot so no publication falls between.
+    let mut wake = publisher.settings_documents.subscribe()?;
     let initial = publisher.settings_documents.snapshot();
     write_response(stream, &success_response(request_id, &initial))?;
     let mut revision = initial.revision;
     loop {
-        if peer_disconnected(stream)? {
-            return Ok(());
+        let snapshot = publisher.settings_documents.snapshot();
+        if snapshot.revision > revision {
+            write_response(stream, &success_response(request_id, &snapshot))?;
+            revision = snapshot.revision;
         }
-        match publisher
-            .settings_documents
-            .wait_for_change(revision, stopping)
-        {
-            SettingsDocumentWait::Changed(snapshot) => {
-                write_response(stream, &success_response(request_id, &snapshot))?;
-                revision = snapshot.revision;
-            }
-            SettingsDocumentWait::TimedOut => {}
-            SettingsDocumentWait::Stopped => return Ok(()),
+        if stopping.load(Ordering::Acquire) || !wait_for_publication(stream, &mut wake)? {
+            return Ok(());
         }
     }
 }
 
-fn peer_disconnected(stream: &UnixStream) -> io::Result<bool> {
-    let mut byte = [0_u8; 1];
+/// Sleeps until the next publication or shutdown wake. False once the client
+/// has hung up; anything it sends while subscribed is ignored.
+fn wait_for_publication(stream: &UnixStream, wake: &mut UnixStream) -> io::Result<bool> {
+    let mut poll_fds = [
+        libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLRDHUP,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: wake.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+    ];
     loop {
-        // SAFETY: `byte` is valid writable storage for one byte and `stream`
-        // owns a live Unix socket for the duration of this nonblocking peek.
-        let read = unsafe {
-            libc::recv(
-                stream.as_raw_fd(),
-                byte.as_mut_ptr().cast(),
-                byte.len(),
-                libc::MSG_DONTWAIT | libc::MSG_PEEK,
-            )
-        };
-        if read > 0 {
-            return Ok(false);
-        }
-        if read == 0 {
-            return Ok(true);
+        // SAFETY: `poll_fds` points to two initialized pollfd values whose
+        // client stream and wake pipe outlive this call.
+        let ready =
+            unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, -1) };
+        if ready >= 0 {
+            break;
         }
         let error = io::Error::last_os_error();
-        match error.kind() {
-            io::ErrorKind::WouldBlock => return Ok(false),
-            io::ErrorKind::Interrupted => {}
-            io::ErrorKind::BrokenPipe
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset => return Ok(true),
-            _ => return Err(error),
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    if poll_fds[0].revents != 0 {
+        return Ok(false);
+    }
+    let mut drained = [0_u8; 64];
+    loop {
+        match wake.read(&mut drained) {
+            Ok(0) => return Ok(false),
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
         }
     }
 }

@@ -13,6 +13,7 @@ import 'package:denial_flutter_sdk/state.dart';
 
 import 'desktop_workspace.dart';
 import 'desktop_live_window_placements.dart';
+import '../state/phone_desk.dart';
 
 export 'desktop_live_window_placements.dart';
 
@@ -64,6 +65,7 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   bool eventIsReady(DenialWindowEvent event) {
     final target = ref
         .read(referenceShellProvider)
+        .desk
         .windowByWindowId(event.windowId);
     if (target == null) {
       return false;
@@ -78,6 +80,7 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   int? objectIdFor(DenialWindowEvent event) {
     final target = ref
         .read(referenceShellProvider)
+        .desk
         .windowByWindowId(event.windowId);
     return target?.isUserApp == true ? target!.objectId : null;
   }
@@ -196,7 +199,7 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   ref.listen(referenceShellProvider, (previous, next) => events.drain());
   ref.listen(desktopWorkspaceProvider, (previous, next) => events.drain());
   ref.listen<DisplayLayout?>(
-    displayLayoutProvider,
+    deskDisplayLayoutProvider,
     (previous, next) => ref
         .read(desktopWorkspaceProvider.notifier)
         .syncWorkAreas(next?.workAreasByMonitor() ?? const <int, Rect>{}),
@@ -220,7 +223,7 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
 
 bool _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
   final shell = ref.read(referenceShellProvider);
-  final target = shell.windowByWindowId(event.windowId);
+  final target = shell.desk.windowByWindowId(event.windowId);
   if (target == null || !target.isUserApp) {
     return false;
   }
@@ -261,7 +264,7 @@ bool _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
 
 Rect _outputBounds(Ref ref, int objectId, {required bool workArea}) {
   final workspace = ref.read(desktopWorkspaceProvider);
-  final displayLayout = ref.read(displayLayoutProvider);
+  final displayLayout = ref.read(deskDisplayLayoutProvider);
   final viewSize = workspace.viewSize.isEmpty
       ? displayLayout?.logicalSize ?? Size.zero
       : workspace.viewSize;

@@ -10,6 +10,7 @@ import 'package:denial_flutter_sdk/models.dart';
 
 import '../state/desktop_window_switcher.dart';
 import '../state/desktop_visibility.dart';
+import '../state/input_deck.dart';
 import '../state/reference_shell_metrics.dart';
 
 import 'package:denial_flutter_sdk/state.dart';
@@ -18,6 +19,8 @@ import 'package:denial_flutter_sdk/settings.dart';
 import 'desktop_workspace.dart';
 import 'desktop_held_layers.dart';
 import 'desktop_input_surface_index.dart';
+import '../state/phone_desk.dart';
+import '../state/phone_desk_input.dart';
 
 class DesktopInputLayoutPublisher extends ConsumerStatefulWidget {
   const DesktopInputLayoutPublisher({
@@ -50,8 +53,8 @@ class _DesktopInputLayoutPublisherState
     ref.watch(
       referenceShellProvider.select(
         (state) => (
-          state.windows,
-          state.layerSurfaces,
+          state.desk.windows,
+          state.desk.layerSurfaces,
           state.windowSnapshotSequence,
           state.edgePanelVisible,
           state.edgePanelDragProgress,
@@ -64,6 +67,7 @@ class _DesktopInputLayoutPublisherState
     );
     ref.watch(desktopWindowSwitcherProvider);
     ref.watch(desktopVisibleProvider);
+    ref.watch(inputDeckProvider.select((deck) => deck.activeOutput != null));
     ref.watch(
       shellSettingsProvider.select(
         (settings) => (
@@ -73,7 +77,8 @@ class _DesktopInputLayoutPublisherState
         ),
       ),
     );
-    ref.watch(displayLayoutProvider);
+    ref.watch(deskDisplayLayoutProvider);
+    ref.watch(phoneDeskProvider);
     ref.watch(shellInteractionRegistryProvider);
     _schedulePublish(
       MediaQuery.sizeOf(context),
@@ -94,9 +99,9 @@ class _DesktopInputLayoutPublisherState
       }
 
       final shell = ref.read(referenceShellProvider);
-      final windows = shell.windows;
+      final windows = shell.desk.windows;
       final settings = ref.read(shellSettingsProvider).layout;
-      final displayLayout = ref.read(displayLayoutProvider);
+      final displayLayout = ref.read(deskDisplayLayoutProvider);
       ref
           .read(desktopWorkspaceProvider.notifier)
           .syncWorkspaceConfiguration(
@@ -122,25 +127,30 @@ class _DesktopInputLayoutPublisherState
             snapshotSequence: shell.windowSnapshotSequence,
             windowLayout: settings.windowLayout,
           );
+      final deckActive =
+          !shell.locked && ref.read(inputDeckProvider).activeOutput != null;
       final source = _DesktopInputLayoutSource(
         desktopVisible: ref.read(desktopVisibleProvider),
         viewSize: viewSize,
         devicePixelRatio: devicePixelRatio,
-        windows: shell.windows,
-        windowsById: shell.openAppWindowsByObjectId,
-        popupSurfaces: shell.positionedPopupSurfaces,
-        layerSurfaces: shell.layerSurfaces,
+        windows: shell.desk.windows,
+        windowsById: shell.desk.openAppWindowsByObjectId,
+        popupSurfaces: shell.desk.positionedPopupSurfaces,
+        layerSurfaces: shell.desk.layerSurfaces,
         windowSnapshotSequence: shell.windowSnapshotSequence,
         desktop: ref.read(desktopWorkspaceProvider),
         switcher: ref.read(desktopWindowSwitcherProvider),
         interactions: ref.read(shellInteractionRegistryProvider),
         displayLayout: displayLayout,
+        phoneRect: ref.read(phoneDeskProvider)?.phoneRect,
         windowLayout: settings.windowLayout,
         softwareKeyboard: (
           enabled:
-              widget.softwareKeyboardEnabled && !shell.launchTransitionActive,
-          visible: shell.edgePanelVisible,
-          progress: shell.edgePanelDragProgress,
+              widget.softwareKeyboardEnabled &&
+              !shell.launchTransitionActive &&
+              !deckActive,
+          visible: !deckActive && shell.edgePanelVisible,
+          progress: deckActive ? 0 : shell.edgePanelDragProgress,
         ),
       );
       if (_lastSource?.hasSameInputsAs(source) ?? false) {
@@ -210,7 +220,11 @@ class _DesktopInputLayoutPublisherState
       );
     }
 
-    var shellRegions = <Rect>[canvas];
+    // Beside the phone, the mobile shell routes the phone's panel.
+    final phoneRect = source.phoneRect;
+    var shellRegions = phoneRect == null
+        ? <Rect>[canvas]
+        : _subtractFromAll(<Rect>[canvas], phoneRect);
     void subtractSurfaceTree(DenialWindow surface) {
       final geometry = surface.geometry!;
       shellRegions = _subtractFromAll(shellRegions, geometry);
@@ -280,8 +294,13 @@ class _DesktopInputLayoutPublisherState
     }
     for (final region in interactions.childRegions) {
       final clipped = region.intersect(canvas);
-      if (!clipped.isEmpty) {
+      if (clipped.isEmpty) {
+        continue;
+      }
+      if (phoneRect == null) {
         shellRegions.add(clipped);
+      } else {
+        shellRegions.addAll(_subtractFromAll(<Rect>[clipped], phoneRect));
       }
     }
     if (!interactions.capturesFullScene) {
@@ -512,7 +531,10 @@ class _DesktopInputLayoutPublisherState
       return true;
     }
 
-    if (!ref.read(denialBridgeProvider).publishInputLayout(snapshot)) {
+    final published = phoneRect == null
+        ? ref.read(denialBridgeProvider).publishInputLayout(snapshot)
+        : ref.read(phoneDeskInputComposerProvider).publishDesk(snapshot);
+    if (!published) {
       return false;
     }
     _epoch = snapshot.epoch;
@@ -638,6 +660,7 @@ class _DesktopInputLayoutSource {
     required this.switcher,
     required this.interactions,
     required this.displayLayout,
+    required this.phoneRect,
     required this.windowLayout,
     required this.softwareKeyboard,
   });
@@ -654,6 +677,7 @@ class _DesktopInputLayoutSource {
   final DesktopWindowSwitcherState? switcher;
   final ShellInteractionSnapshot interactions;
   final DisplayLayout? displayLayout;
+  final Rect? phoneRect;
   final DesktopWindowLayout windowLayout;
   final ({bool enabled, bool visible, double progress}) softwareKeyboard;
 
@@ -668,6 +692,7 @@ class _DesktopInputLayoutSource {
         identical(switcher, other.switcher) &&
         identical(interactions, other.interactions) &&
         identical(displayLayout, other.displayLayout) &&
+        phoneRect == other.phoneRect &&
         windowLayout == other.windowLayout &&
         softwareKeyboard == other.softwareKeyboard;
   }

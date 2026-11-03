@@ -8,6 +8,16 @@ import 'window_plane.dart';
 /// Selects the primitive's explicit imported-image contract. Multiple main
 /// surfaces remain one composed window input; popups remain scene siblings.
 WindowPlaneTexture? singleWindowPlaneTexture(DenialWindow window) {
+  final client = window.clientTexture;
+  if (client != null &&
+      client.isValid &&
+      window.contentKind == DenialWindowContentKind.surfaceTree) {
+    return WindowPlaneTexture(
+      id: client.textureId,
+      bufferSize: Size(client.width.toDouble(), client.height.toDouble()),
+      source: Rect.fromLTWH(0, 0, client.sourceWidth, client.sourceHeight),
+    );
+  }
   if (window.surfaceLayers.isEmpty) {
     return WindowPlaneTexture(
       id: window.textureId > 0 ? window.textureId : 0,

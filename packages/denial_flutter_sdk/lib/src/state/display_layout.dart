@@ -19,6 +19,33 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
   @override
   DisplayLayout? build() {
     _bridge = ref.watch(denialBridgeProvider);
+    _inputOnlyOutput = null;
+    _preDeckBarIds = null;
+    cancelOnDispose(
+      _bridge.inputDeckStates.listen((snapshot) {
+        if (_inputOnlyOutput == snapshot.activeOutput) return;
+        final current = state;
+        if (current == null) {
+          _inputOnlyOutput = snapshot.activeOutput;
+          return;
+        }
+        final previousIds = _preDeckBarIds;
+        if (_inputOnlyOutput == null && snapshot.activeOutput != null) {
+          _preDeckBarIds = current.effectiveSystemBarMonitorIds;
+        }
+        _inputOnlyOutput = snapshot.activeOutput;
+        final base = _inputOnlyOutput == null && previousIds != null
+            ? current.copyWithSystemBar(
+                side: current.systemBarSide,
+                monitorIds: previousIds,
+              )
+            : current;
+        final configured = _applyConfiguredValues(base);
+        state = configured;
+        _publishConfiguredSystemBar(current, configured);
+        if (_inputOnlyOutput == null) _preDeckBarIds = null;
+      }),
+    );
     _retryAttempt = 0;
     _retryTimer = null;
     _requestInFlight = null;
@@ -62,6 +89,8 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     Duration(seconds: 4),
   ];
 
+  String? _inputOnlyOutput;
+  List<int>? _preDeckBarIds;
   late DenialBridge _bridge;
   late int _buildGeneration;
   int _retryAttempt = 0;
@@ -224,13 +253,16 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
   }
 
   DisplayLayout _applyConfiguredValues(DisplayLayout layout) {
+    layout = layout.withInputOnlyOutput(_inputOnlyOutput);
     final side = _configuredSide ?? layout.systemBarSide;
     final monitorIds = side == SystemBarSide.hidden
         ? const <int>[]
         : resolveSystemBarMonitorIds(
-            outputs: layout.outputs.map(
-              (output) => (monitorId: output.monitorId, name: output.name),
-            ),
+            outputs: layout.outputs
+                .where((output) => !output.inputOnly)
+                .map(
+                  (output) => (monitorId: output.monitorId, name: output.name),
+                ),
             outputNames: _configuredOutputNames,
             currentMonitorIds: layout.effectiveSystemBarMonitorIds,
             mainMonitorId: layout.mainOutput?.monitorId,

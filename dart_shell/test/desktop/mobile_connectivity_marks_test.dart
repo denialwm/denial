@@ -126,6 +126,14 @@ void main() {
           unlockRequired: 2,
         ),
         MobileNetworkSnapshot(simPresence: MobileSimPresence.present),
+      ]) {
+        await emit(snapshot);
+        unavailable(disconnected: snapshot.managerAvailable);
+      }
+
+      // A registered SIM shows its signal without mobile data; only the
+      // label and the missing technology say data is down.
+      for (final snapshot in const [
         MobileNetworkSnapshot(
           simPresence: MobileSimPresence.present,
           registered: true,
@@ -133,16 +141,37 @@ void main() {
           managerAvailable: true,
           enabled: false,
           hardwareEnabled: true,
+          strength: 50,
+          technology: '4G',
         ),
         MobileNetworkSnapshot(
           simPresence: MobileSimPresence.present,
           registered: true,
           connected: true,
           managerAvailable: false,
+          strength: 50,
         ),
       ]) {
         await emit(snapshot);
-        unavailable(disconnected: snapshot.managerAvailable);
+        expect(
+          tester.widget<SignalGlyph>(find.byType(SignalGlyph)).active,
+          isTrue,
+        );
+        expect(find.byIcon(Icons.priority_high_rounded), findsNothing);
+        expect(find.text('4G'), findsNothing);
+        expect(
+          find.bySemanticsLabel(
+            snapshot.managerAvailable
+                ? l10n.mobileDisconnected
+                : l10n.mobileUnavailable,
+          ),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel(l10n.mobileConnected), findsNothing);
+        expect(
+          tester.getSize(find.byType(MobileConnectivityMarks)).width,
+          closeTo(52 * scale, 0.001),
+        );
       }
 
       const working = MobileNetworkSnapshot(
@@ -183,6 +212,24 @@ void main() {
       unavailable();
       await emit(working);
       connected();
+
+      // The technology shows beside the bars while data runs over it.
+      expect(find.text('4G'), findsNothing);
+      await emit(
+        const MobileNetworkSnapshot(
+          modemPath: '/modem/0',
+          simPresence: MobileSimPresence.present,
+          registered: true,
+          connected: true,
+          managerAvailable: true,
+          enabled: true,
+          hardwareEnabled: true,
+          strength: 75,
+          technology: '4G',
+        ),
+      );
+      expect(find.text('4G'), findsOneWidget);
+      expect(find.bySemanticsLabel(l10n.mobileConnected), findsOneWidget);
     });
   }
 }

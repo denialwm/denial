@@ -4,7 +4,7 @@
     Copyright 2026 Denial contributors
     SPDX-License-Identifier: MIT
   </copyright>
-  <interface name="denial_insets_manager_v1" version="1">
+  <interface name="denial_insets_manager_v1" version="2">
     <description summary="declare client-owned system insets">
       Denial's mobile shell reserves space for system bars in ordinary app
       windows. A client which already supplies those insets to its application
@@ -13,10 +13,16 @@
       Desktop layout is unaffected. This protocol does not communicate inset
       dimensions; declaring a surface requires the client to know and apply
       the appropriate system insets itself.
+
+      Since version 2 a client may also lay a surface out around the
+      on-screen keyboard instead of having the shell move it; see
+      get_keyboard_inset. The two declarations are independent.
     </description>
     <enum name="error">
       <entry name="mapped_surface" value="1"
              summary="the surface already has a committed buffer"/>
+      <entry name="keyboard_inset_exists" value="2" since="2"
+             summary="the surface already has a keyboard inset object"/>
     </enum>
     <request name="set_self_managed">
       <description summary="the application already handles system insets">
@@ -37,5 +43,65 @@
         Existing surface declarations remain in effect.
       </description>
     </request>
+    <request name="get_keyboard_inset" since="2">
+      <description summary="lay the surface out around the on-screen keyboard">
+        Create a keyboard inset object for an application toplevel. While it
+        exists the shell no longer moves the surface to keep it clear of the
+        on-screen keyboard; it reports the keyboard's height through the
+        object instead, and the client keeps its content above it.
+
+        The request may be sent at any time, with or without a committed
+        buffer, and takes effect immediately rather than on wl_surface.commit.
+        It does not require set_self_managed. A surface has at most one
+        keyboard inset object; another request for it raises
+        keyboard_inset_exists. Destroying this manager does not destroy
+        objects created from it.
+      </description>
+      <arg name="id" type="new_id" interface="denial_keyboard_inset_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+  </interface>
+
+  <interface name="denial_keyboard_inset_v1" version="2">
+    <description summary="on-screen keyboard height for one surface">
+      Reports how much of the surface's bottom edge the on-screen keyboard
+      covers. The surface keeps its configured size: the keyboard does not
+      cause a configure, and the client moves its own content, for example
+      putting a text field directly above the keys and shrinking the area
+      above it.
+
+      Only the mobile shell reports a non-zero height. There, application
+      windows reach the bottom of the output, so the keyboard covers the
+      same height of each of them. Elsewhere the height stays zero.
+
+      The shell reports each keyboard motion once, when it starts, together
+      with its duration. There is no per-frame traffic: while the user drags
+      the keyboard by hand, the surface is told only where the keyboard
+      settles once released.
+
+      Destroying the object returns the surface to the shell's default:
+      it is moved while the keyboard is shown. The object becomes inert when
+      its surface is destroyed. Other compositors need not expose this
+      interface; clients must remain usable without it.
+    </description>
+    <request name="destroy" type="destructor">
+      <description summary="stop laying the surface out around the keyboard"/>
+    </request>
+    <event name="inset">
+      <description summary="the covered height changed">
+        The on-screen keyboard covers the bottom height logical pixels of the
+        surface, or will once a motion lasting duration milliseconds ends.
+        Zero height means the keyboard is hidden. Sent once right after the
+        object is created, with the current height and zero duration, then
+        whenever the height changes.
+
+        duration is the shell's own motion time; a client animating its
+        layout over it moves in step with the keyboard, and zero means the
+        change is immediate. This event is immediate state: it is not part of
+        a configure sequence and is not applied by wl_surface.commit.
+      </description>
+      <arg name="height" type="uint" summary="covered height, logical pixels"/>
+      <arg name="duration" type="uint" summary="motion duration, milliseconds"/>
+    </event>
   </interface>
 </protocol>

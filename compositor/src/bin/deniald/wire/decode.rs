@@ -57,6 +57,16 @@ impl WireBridge {
                 self.pending_keyboard_commands.push_back(command);
                 Ok(None)
             }
+            fb::Payload::TextPredictionRequest => {
+                if envelope.request_id() != 0 {
+                    return Err(WireError::RequestId);
+                }
+                let request = envelope
+                    .payload_as_text_prediction_request()
+                    .ok_or(WireError::Payload)?;
+                self.pending_text_prediction = Some(decode_text_prediction_request(request)?);
+                Ok(None)
+            }
             fb::Payload::DesktopNotificationCommand => {
                 let command = envelope
                     .payload_as_desktop_notification_command()
@@ -345,9 +355,32 @@ impl WireBridge {
                 self.pending_window_commands.push_back(command);
                 Ok(None)
             }
+            fb::WindowRequestKind::MoveWindowToOutput => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let window_id = request.window_id();
+                let monitor_id = request.monitor_id();
+                if window_id == 0 || monitor_id < 0 {
+                    return Err(WireError::Identity);
+                }
+                if request.flags() != 0 {
+                    return Err(WireError::Flags);
+                }
+                self.pending_window_commands
+                    .push_back(WindowCommand::MoveToOutput {
+                        window_id,
+                        monitor_id,
+                    });
+                Ok(None)
+            }
             kind @ (fb::WindowRequestKind::CloseWindow
             | fb::WindowRequestKind::FocusWindow
             | fb::WindowRequestKind::MinimizeWindow
+            | fb::WindowRequestKind::NavigateBack
             | fb::WindowRequestKind::ConfigureWindow) => {
                 if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
                     return Err(WireError::Count);
@@ -364,6 +397,12 @@ impl WireBridge {
                             return Err(WireError::Flags);
                         }
                         WindowCommand::Minimize { window_id }
+                    }
+                    fb::WindowRequestKind::NavigateBack => {
+                        if request.flags() != 0 {
+                            return Err(WireError::Flags);
+                        }
+                        WindowCommand::NavigateBack { window_id }
                     }
                     fb::WindowRequestKind::ConfigureWindow => {
                         const EXACT: u32 = 1 << 0;
@@ -497,6 +536,20 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
                 activation_serial: command.activation_serial(),
             })
         }
+        fb::KeyboardCommandKind::PanelMotion => {
+            if command.flags() != 0
+                || command.text().is_some()
+                || command.key().is_some()
+                || command.panel_height() > MAX_KEYBOARD_PANEL_HEIGHT
+                || command.panel_duration_ms() > MAX_KEYBOARD_PANEL_DURATION_MS
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(KeyboardCommand::PanelMotion {
+                height: command.panel_height(),
+                duration_ms: command.panel_duration_ms(),
+            })
+        }
         fb::KeyboardCommandKind::Text => {
             if command.flags() != 0 {
                 return Err(WireError::Flags);
@@ -506,6 +559,20 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
             Ok(KeyboardCommand::Text(
                 text.expect("validated keyboard text").to_owned(),
             ))
+        }
+        fb::KeyboardCommandKind::Replace => {
+            if command.flags() != 0 || command.key().is_some() {
+                return Err(WireError::Payload);
+            }
+            validate_required_string(command.text())?;
+            validate_required_string(command.replaced())?;
+            Ok(KeyboardCommand::Replace {
+                replaced: command
+                    .replaced()
+                    .expect("validated replaced text")
+                    .to_owned(),
+                text: command.text().expect("validated replacement").to_owned(),
+            })
         }
         fb::KeyboardCommandKind::Key => {
             let key = command.key();
@@ -528,6 +595,38 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
         }
         _ => Err(WireError::Enumeration),
     }
+}
+
+fn decode_text_prediction_request(
+    request: fb::TextPredictionRequest<'_>,
+) -> Result<TextPredictionRequest, WireError> {
+    let word = request.word().unwrap_or_default();
+    let characters = word.chars().count();
+    if characters > MAX_PREDICTION_WORD_CHARS {
+        return Err(WireError::String);
+    }
+    let xs = request
+        .touch_x()
+        .map(|values| values.iter().collect::<Vec<f32>>())
+        .unwrap_or_default();
+    let ys = request
+        .touch_y()
+        .map(|values| values.iter().collect::<Vec<f32>>())
+        .unwrap_or_default();
+    if xs.len() != ys.len() || !(xs.is_empty() || xs.len() == characters) {
+        return Err(WireError::Count);
+    }
+    let touches = xs
+        .into_iter()
+        .zip(ys)
+        .map(|(x, y)| (x.is_finite() && y.is_finite()).then_some((x, y)))
+        .collect();
+    Ok(TextPredictionRequest {
+        serial: request.serial(),
+        word: word.to_owned(),
+        touches,
+        manual_capital: request.manual_capital(),
+    })
 }
 
 fn decode_settings_request(
@@ -762,6 +861,7 @@ fn decode_settings_request(
                 expected_revision: request.expected_revision(),
                 mouse: MouseSettings {
                     speed: mouse.speed(),
+                    acceleration_enabled: mouse.acceleration_enabled(),
                 },
             })
         }
@@ -1070,10 +1170,12 @@ fn decode_input_layout(
 ) -> Result<(), WireError> {
     let shell_regions = layout.shell_regions();
     let software_keyboard_regions = layout.software_keyboard_regions();
+    let edge_swipe_regions = layout.edge_swipe_regions();
     let windows = layout.windows();
     let visible_surface_ids = layout.visible_surface_ids();
     if shell_regions.is_some_and(|regions| regions.len() > MAX_REGIONS)
         || software_keyboard_regions.is_some_and(|regions| regions.len() > MAX_REGIONS)
+        || edge_swipe_regions.is_some_and(|regions| regions.len() > MAX_REGIONS)
         || windows.is_some_and(|regions| regions.len() > MAX_REGIONS)
         || visible_surface_ids.is_some_and(|ids| ids.len() > MAX_SURFACES)
     {
@@ -1084,6 +1186,7 @@ fn decode_input_layout(
     decoded.flags = layout.flags();
     decoded.shell_regions.clear();
     decoded.software_keyboard_regions.clear();
+    decoded.edge_swipe_regions.clear();
     decoded.windows.clear();
     decoded.visible_surface_ids.clear();
     identities.clear();
@@ -1103,6 +1206,22 @@ fn decode_input_layout(
             decoded
                 .software_keyboard_regions
                 .push(decode_input_rect(regions.get(index))?);
+        }
+    }
+
+    if let Some(regions) = edge_swipe_regions {
+        decoded.edge_swipe_regions.reserve(regions.len());
+        for region in regions.iter() {
+            let edge = match region.edge() {
+                fb::InputEdge::Left => InputEdge::Left,
+                fb::InputEdge::Right => InputEdge::Right,
+                fb::InputEdge::Top => InputEdge::Top,
+                _ => return Err(WireError::Payload),
+            };
+            decoded.edge_swipe_regions.push(EdgeSwipeRegion {
+                rect: decode_input_rect(region.rect())?,
+                edge,
+            });
         }
     }
 

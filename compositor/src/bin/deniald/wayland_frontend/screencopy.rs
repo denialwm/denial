@@ -10,9 +10,15 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
+#[cfg(feature = "flutter")]
+use std::io::{Read, Write};
+#[cfg(feature = "flutter")]
+use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(feature = "flutter")]
+use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "flutter")]
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::mpsc::{self, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "flutter")]
 use std::thread::{self, JoinHandle};
@@ -411,6 +417,19 @@ struct CaptureTransfer {
     job: CaptureJob,
     started: Instant,
     copy: Option<FenceOwned<CaptureCopy>>,
+    /// The exported fence the transfer waits on: the source until the copy
+    /// is submitted, then the copy.
+    fence: Option<OwnedFd>,
+}
+
+#[cfg(feature = "flutter")]
+impl CaptureTransfer {
+    fn pending(&self) -> &SyncPoint {
+        match &self.copy {
+            Some(copy) => &copy.ready,
+            None => &self.job.source_ready,
+        }
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -423,6 +442,8 @@ struct CaptureCopy {
 #[derive(Debug)]
 struct CaptureWorker {
     jobs: Option<SyncSender<CaptureJob>>,
+    /// Wakes the worker while it waits on fences of earlier transfers.
+    wake: UnixStream,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -431,6 +452,9 @@ impl CaptureWorker {
     fn start(context: EGLContext, completions: Sender<CaptureCompletion>) -> io::Result<Self> {
         let (jobs, receiver) = mpsc::sync_channel::<CaptureJob>(MAX_IN_FLIGHT_SCREENCOPIES);
         let (ready, initialized) = mpsc::sync_channel::<Result<(), String>>(1);
+        let (wake, worker_wake) = UnixStream::pair()?;
+        wake.set_nonblocking(true)?;
+        worker_wake.set_nonblocking(true)?;
         let worker = thread::Builder::new()
             .name("denial-screencopy".into())
             .spawn(move || {
@@ -452,27 +476,29 @@ impl CaptureWorker {
                 let mut transfers: Vec<CaptureTransfer> = Vec::new();
                 let mut disconnected = false;
                 loop {
-                    // Sleep when idle; with active GPU work, poll completion
-                    // without waiting for any individual transfer. A slow
-                    // client must not serialize the other capture streams.
-                    let next = if transfers.is_empty() && !disconnected {
-                        receiver
-                            .recv()
-                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
-                    } else if !disconnected {
-                        receiver.recv_timeout(Duration::from_millis(1))
+                    // Sleep on the channel when idle. With GPU work in flight,
+                    // wait for any fence or a new job, never for one transfer:
+                    // a slow client must not serialize the other streams.
+                    let mut next = if transfers.is_empty() && !disconnected {
+                        receiver.recv().map_err(|_| TryRecvError::Disconnected)
                     } else {
-                        thread::sleep(Duration::from_millis(1));
-                        Err(mpsc::RecvTimeoutError::Timeout)
+                        receiver.try_recv()
                     };
-                    match next {
-                        Ok(job) => transfers.push(CaptureTransfer {
-                            job,
-                            started: Instant::now(),
-                            copy: None,
-                        }),
-                        Err(mpsc::RecvTimeoutError::Disconnected) => disconnected = true,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    loop {
+                        match next {
+                            Ok(job) => transfers.push(CaptureTransfer {
+                                job,
+                                started: Instant::now(),
+                                copy: None,
+                                fence: None,
+                            }),
+                            Err(TryRecvError::Disconnected) => {
+                                disconnected = true;
+                                break;
+                            }
+                            Err(TryRecvError::Empty) => break,
+                        }
+                        next = receiver.try_recv();
                     }
                     let mut index = 0;
                     while index < transfers.len() {
@@ -518,6 +544,7 @@ impl CaptureWorker {
                             match submit_capture_transfer(&mut renderer, &mut transfer.job) {
                                 Ok(copy) => {
                                     transfer.copy = Some(copy);
+                                    transfer.fence = None;
                                     index += 1;
                                     continue;
                                 }
@@ -537,11 +564,15 @@ impl CaptureWorker {
                         break;
                     }
                     let _ = renderer.cleanup_texture_cache();
+                    if !transfers.is_empty() {
+                        wait_for_transfers(&mut transfers, (!disconnected).then_some(&worker_wake));
+                    }
                 }
             })?;
         match initialized.recv() {
             Ok(Ok(())) => Ok(Self {
                 jobs: Some(jobs),
+                wake,
                 worker: Some(worker),
             }),
             Ok(Err(error)) => {
@@ -561,7 +592,10 @@ impl CaptureWorker {
         self.jobs
             .as_ref()
             .expect("live screencopy worker lost its job sender")
-            .try_send(job)
+            .try_send(job)?;
+        // A full socket already holds a wake.
+        let _ = (&self.wake).write(&[1]);
+        Ok(())
     }
 
     fn shutdown(&mut self) {
@@ -576,6 +610,48 @@ impl CaptureWorker {
 impl Drop for CaptureWorker {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// Sleeps until a transfer's fence signals or a job arrives on `wake`. A
+/// fence the driver cannot export is checked again after a millisecond.
+/// Cancellation sets no fence; a cancelled transfer ends with its GPU work.
+#[cfg(feature = "flutter")]
+fn wait_for_transfers(transfers: &mut [CaptureTransfer], wake: Option<&UnixStream>) {
+    let mut descriptors = Vec::with_capacity(transfers.len() + 1);
+    let mut timeout = -1;
+    for transfer in transfers.iter_mut() {
+        if transfer.fence.is_none() {
+            transfer.fence = transfer.pending().export();
+        }
+        match &transfer.fence {
+            Some(fence) => descriptors.push(libc::pollfd {
+                fd: fence.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            }),
+            None => timeout = 1,
+        }
+    }
+    if let Some(wake) = wake {
+        descriptors.push(libc::pollfd {
+            fd: wake.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        });
+    }
+    // SAFETY: the descriptors stay open and the array valid during the call.
+    // An interrupted or failed wait only returns to the caller's checks.
+    unsafe {
+        libc::poll(
+            descriptors.as_mut_ptr(),
+            descriptors.len() as libc::nfds_t,
+            timeout,
+        );
+    }
+    if let Some(wake) = wake {
+        let mut drained = [0_u8; 64];
+        while matches!((&*wake).read(&mut drained), Ok(read) if read > 0) {}
     }
 }
 
@@ -1698,6 +1774,11 @@ impl WaylandFrontend {
         }
         self.screencopy.image_copy_sessions = retained;
         self.screencopy.image_copy_capture.cleanup();
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(crate) fn has_pending_screencopies(&self) -> bool {
+        !self.screencopy.pending.is_empty()
     }
 
     pub(crate) fn has_pending_screencopy_for_output(&self, output: OutputId) -> bool {

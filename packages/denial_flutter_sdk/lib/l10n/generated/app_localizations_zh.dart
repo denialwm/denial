@@ -39,6 +39,50 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeResizeWidget => '调整小组件大小';
 
   @override
+  String get homeFolderDefaultName => '文件夹';
+
+  @override
+  String get homeFolderGames => '游戏';
+
+  @override
+  String get homeFolderInternet => '网络';
+
+  @override
+  String get homeFolderOffice => '办公';
+
+  @override
+  String get homeFolderGraphics => '图形';
+
+  @override
+  String get homeFolderMedia => '影音';
+
+  @override
+  String get homeFolderDevelopment => '开发';
+
+  @override
+  String get homeFolderEducation => '教育';
+
+  @override
+  String get homeFolderScience => '科学';
+
+  @override
+  String get homeFolderSystem => '系统';
+
+  @override
+  String get homeFolderUtilities => '工具';
+
+  @override
+  String get homeFolderSettings => '设置';
+
+  @override
+  String get homeFolderRename => '重命名文件夹';
+
+  @override
+  String homeFolderApps(String name, int count) {
+    return '$name，$count 个应用';
+  }
+
+  @override
   String get actionCancel => '取消';
 
   @override
@@ -744,6 +788,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lockCpuLabel => 'CPU';
 
   @override
+  String get lockDesktopModeEnabled => '桌面模式已开启';
+
+  @override
   String get lockDesktopPromptDescription => '输入密码以解锁此桌面会话。';
 
   @override
@@ -905,6 +952,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get notificationGeneric => '通知';
 
   @override
+  String notificationGroupCollapse(String applicationName) {
+    return '收起$applicationName的通知';
+  }
+
+  @override
+  String notificationGroupExpand(int count, String applicationName) {
+    return '显示$applicationName的 $count 条通知';
+  }
+
+  @override
+  String notificationGroupHeader(String applicationName, int count) {
+    return '$applicationName · $count';
+  }
+
+  @override
+  String notificationMessage(String sender, String text) {
+    return '$sender：$text';
+  }
+
+  @override
   String get notificationNew => '新通知';
 
   @override
@@ -941,16 +1008,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get notificationsCloseCenter => '关闭通知中心';
 
   @override
-  String get notificationsClosed => '已关闭';
-
-  @override
-  String get notificationsClosedByApplication => '已由应用关闭';
-
-  @override
   String get notificationsDisableDoNotDisturb => '关闭免打扰';
-
-  @override
-  String get notificationsDismissed => '已忽略';
 
   @override
   String get notificationsDoNotDisturbSemantics => '免打扰已开启。普通横幅将保持静默，重要通知仍可显示。';
@@ -960,9 +1018,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get notificationsEnableDoNotDisturb => '开启免打扰';
-
-  @override
-  String get notificationsExpired => '已过期';
 
   @override
   String get notificationsLoadingPolicy => '正在加载免打扰策略';
@@ -1014,6 +1069,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get oskBackspace => '退格';
+
+  @override
+  String get oskCapsLock => '大写锁定';
 
   @override
   String get oskControlKey => 'CTRL';
@@ -1195,7 +1253,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get quickSettingsAutomatic => '自动';
+  String get quickSettingsAutoRotate => '自动旋转';
+
+  @override
+  String get quickSettingsScreenRecording => '屏幕录制';
+
+  @override
+  String get quickSettingsRecording => '正在录制';
 
   @override
   String get quickSettingsBalanced => '均衡';
@@ -1210,18 +1274,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quickSettingsControls => '控件';
 
   @override
-  String quickSettingsDate(String weekday, int day) {
-    return '$weekday $day日';
-  }
-
-  @override
   String get quickSettingsHighPerformance => '高性能';
 
   @override
   String get quickSettingsKeyboard => '键盘';
-
-  @override
-  String get quickSettingsLocked => '已锁定';
 
   @override
   String get quickSettingsNormal => '正常';
@@ -1246,9 +1302,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quickSettingsPerformance => '性能';
 
   @override
-  String get quickSettingsRotation => '旋转';
-
-  @override
   String get quickSettingsSettingsUnavailable => '设置不可用。';
 
   @override
@@ -1262,7 +1315,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAboutBelief => '起源不必决定用途。';
 
   @override
-  String get settingsAboutCollaboration => '与 OpenAI Codex 持续协作构建。';
+  String get settingsAboutCollaboration =>
+      '与 AI 模型（主要是 Sol 6.1 和 Opus 5.5）持续协作构建。';
 
   @override
   String get settingsAboutCreditLabel => '构思、指导与测试';
@@ -2219,6 +2273,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsMousePointerSpeed => '鼠标指针速度';
+
+  @override
+  String get settingsMouseAcceleration => '鼠标加速';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      '移动越快，指针走得越远。关闭后指针与手的移动保持同步。';
 
   @override
   String get settingsShortcutsSection => '快捷键';
@@ -3741,10 +3802,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get fingerprintSection => '指纹';
 
   @override
-  String get fingerprintPasswordPrompt => '请输入 sudo 密码以管理指纹。';
+  String get fingerprintPinPrompt => '请输入锁屏 PIN 码以管理指纹。';
 
   @override
-  String get fingerprintSudoPassword => 'sudo 密码';
+  String get fingerprintPin => 'PIN 码';
 
   @override
   String get fingerprintContinue => '继续';
@@ -3768,10 +3829,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get fingerprintAdd => '添加指纹';
 
   @override
-  String get fingerprintAuthenticationFailed => '密码验证失败，请重试。';
+  String get fingerprintPinNotSet => '请先设置锁屏 PIN 码。';
 
   @override
-  String get fingerprintExpired => '请重新输入密码以继续。';
+  String get fingerprintExpired => '请重新输入 PIN 码以继续。';
 
   @override
   String get fingerprintPreparing => '正在准备指纹读取器…';
@@ -3848,16 +3909,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get simPinTitle => '解锁 SIM 卡';
 
   @override
-  String get simPinLabel => 'SIM PIN';
-
-  @override
   String get simPinUnlock => '解锁 SIM 卡';
 
   @override
   String get simPinLater => '稍后';
-
-  @override
-  String get simPinFailed => '无法解锁 SIM 卡。请检查 PIN 和剩余尝试次数。';
 
   @override
   String get simPukRequired => 'SIM 卡需要 PUK。请联系运营商。';
@@ -4157,6 +4212,27 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get polkitLocked => '已暂时锁定';
+
+  @override
+  String get accessAllow => '允许';
+
+  @override
+  String get accessAllowOnce => '仅允许这一次';
+
+  @override
+  String get accessAlwaysAllow => '始终允许';
+
+  @override
+  String get accessDecline => '拒绝';
+
+  @override
+  String get accessNeverAllow => '始终拒绝';
+
+  @override
+  String get accessDeclineOnce => '仅拒绝这一次';
+
+  @override
+  String get accessUnknownApp => '某个应用';
 
   @override
   String get pluginsAppTitle => 'Denial 插件';
@@ -4657,4 +4733,280 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get pluginsDesktopFeature => '桌面';
+
+  @override
+  String get inputDeckTitle => '键盘与触控板显示屏';
+
+  @override
+  String get inputDeckHeading => '键盘与触控板';
+
+  @override
+  String get inputDeckEnable => '将触摸显示屏用作键盘与触控板';
+
+  @override
+  String get inputDeckUnavailable => '连接触摸显示屏以设置此模式。';
+
+  @override
+  String inputDeckEnableDescription(String output) {
+    return '当有其他显示屏可用时，使用 $output 进行输入。断开外接显示屏即可返回平板模式。';
+  }
+
+  @override
+  String get inputDeckWaiting => '连接并开启第二个显示屏后即可使用。';
+
+  @override
+  String get inputDeckTouchDisplay => '触摸显示屏';
+
+  @override
+  String get inputDeckTouchDisplayDescription => '用于键盘与触控板输入的显示屏。';
+
+  @override
+  String get inputDeckKeyboardSize => '键盘大小';
+
+  @override
+  String get inputDeckTouchpadWidth => '触控板宽度';
+
+  @override
+  String get inputDeckTouchpadHeight => '触控板高度';
+
+  @override
+  String get inputDeckPointerSpeed => '指针速度';
+
+  @override
+  String get inputDeckNaturalScroll => '自然滚动';
+
+  @override
+  String get inputDeckNaturalScrollDescription => '内容随手指移动方向滚动。';
+
+  @override
+  String get inputDeckCpuChart => 'CPU 图表';
+
+  @override
+  String get inputDeckCpuDescription => '在键盘上方显示处理器使用率。';
+
+  @override
+  String get inputDeckGpuCharts => 'GPU 图表';
+
+  @override
+  String get inputDeckGpuDescription => '显示支持使用率报告的 GPU 的使用情况。';
+
+  @override
+  String get inputDeckUseAsDisplay => '用作显示屏';
+
+  @override
+  String get inputDeckTouchpad => '触控板';
+
+  @override
+  String get inputDeckTouchpadHint => '触控板。单指移动指针，轻点单击，双指滚动或轻点以右键单击，双击并按住以拖动。';
+
+  @override
+  String get inputDeckLeftClick => '左键单击';
+
+  @override
+  String get inputDeckRightClick => '右键单击';
+
+  @override
+  String get lockEnterPin => '输入 PIN 码';
+
+  @override
+  String lockEnterPinToOpen(String applicationName) {
+    return '输入 PIN 码以打开$applicationName';
+  }
+
+  @override
+  String lockPinProgress(int entered, int length) {
+    return 'PIN 码，已输入 $entered/$length 位';
+  }
+
+  @override
+  String get lockPinObscured => 'PIN 码，已隐藏';
+
+  @override
+  String get lockWrongPin => 'PIN 码错误';
+
+  @override
+  String get lockUsePassword => '使用密码';
+
+  @override
+  String get lockUsePin => '使用 PIN 码';
+
+  @override
+  String get lockPinDelete => '删除';
+
+  @override
+  String get settingsLockPinTitle => 'PIN 码';
+
+  @override
+  String get settingsLockPinLabel => '使用 PIN 码解锁';
+
+  @override
+  String get settingsLockPinDescription =>
+      '在锁屏上输入简短的数字 PIN 码代替密码。密码仍可解锁，其他操作仍需输入密码。';
+
+  @override
+  String settingsLockPinOn(int length) {
+    return '已开启，$length 位';
+  }
+
+  @override
+  String get settingsLockPinOff => '关闭';
+
+  @override
+  String get settingsLockPinSetUp => '设置 PIN 码';
+
+  @override
+  String get settingsLockPinChange => '更改 PIN 码';
+
+  @override
+  String get settingsLockPinRemove => '移除 PIN 码';
+
+  @override
+  String get settingsLockPinSave => '保存 PIN 码';
+
+  @override
+  String get settingsLockPinPassword => '账户密码';
+
+  @override
+  String get settingsLockPinNew => '新 PIN 码';
+
+  @override
+  String get settingsLockPinConfirm => '确认 PIN 码';
+
+  @override
+  String get settingsLockPinLengthHint => '4 到 12 位数字';
+
+  @override
+  String get settingsLockPinMismatch => '两次输入的 PIN 码不一致';
+
+  @override
+  String get settingsLockPinWrongPassword => '密码错误';
+
+  @override
+  String get settingsLockPinUnavailable => '无法更改 PIN 码，请重试。';
+
+  @override
+  String timeTwelveHour(String hour, String minute, String period) {
+    return '$period$hour:$minute';
+  }
+
+  @override
+  String get timeMorning => '上午';
+
+  @override
+  String get timeAfternoon => '下午';
+
+  @override
+  String get settingsNavigationPermissions => '权限';
+
+  @override
+  String get settingsPermissionsSection => '权限';
+
+  @override
+  String get settingsPermissionsTitle => '选择应用可以做什么。应用提出请求后会出现在这里。';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsTitle => '键盘快捷键';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsDescription =>
+      '获得焦点时，被允许的应用会接收 Denial 自身快捷键所用的按键，例如 Super。';
+
+  @override
+  String get settingsPermissionsNone => '还没有应用提出请求。';
+
+  @override
+  String get settingsPermissionsUnavailable => '无法读取权限：门户权限存储不可用。';
+
+  @override
+  String get settingsPermissionsSaveFailed => '无法保存更改。';
+
+  @override
+  String get settingsPermissionAsk => '询问';
+
+  @override
+  String get settingsPermissionAllow => '始终允许';
+
+  @override
+  String get settingsPermissionDeny => '始终拒绝';
+
+  @override
+  String get colorTuningAction => '调整色彩';
+
+  @override
+  String get colorTuningDesktop => '桌面';
+
+  @override
+  String get colorTuningNoApp => '点按一个窗口';
+
+  @override
+  String get colorTuningBase => '风格';
+
+  @override
+  String get colorTuningNoBase => '无';
+
+  @override
+  String get colorTuningBefore => '调色前';
+
+  @override
+  String get colorTuningReset => '重置';
+
+  @override
+  String get colorTuningClose => '关闭';
+
+  @override
+  String get colorTuningShadows => '阴影';
+
+  @override
+  String get colorTuningMidtones => '中间调';
+
+  @override
+  String get colorTuningHighlights => '高光';
+
+  @override
+  String get colorTuningExposure => '曝光';
+
+  @override
+  String get colorTuningContrast => '对比度';
+
+  @override
+  String get colorTuningSaturation => '饱和度';
+
+  @override
+  String get colorTuningVibrance => '自然饱和度';
+
+  @override
+  String get colorTuningWarmth => '色温';
+
+  @override
+  String get colorTuningTint => '色调';
+
+  @override
+  String get colorTuningFailed => '无法更改色彩。';
+
+  @override
+  String get colorPresetWarm => '暖调';
+
+  @override
+  String get colorPresetCool => '冷调';
+
+  @override
+  String get colorPresetLogix => 'Logix';
+
+  @override
+  String get colorPresetMatte => '哑光';
+
+  @override
+  String get colorPresetFilm => '胶片';
+
+  @override
+  String get colorPresetNight => '夜色';
+
+  @override
+  String get colorPresetMono => '黑白';
+
+  @override
+  String get colorTuningPresets => '预设';
+
+  @override
+  String get moveToMonitor => '移到显示器';
 }

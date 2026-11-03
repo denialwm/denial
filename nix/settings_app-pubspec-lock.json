@@ -1,5 +1,5 @@
 {
-  "source_sha256": "3c47dd70c983d5220a841a7cc4b3bbaf213b4d25abdedf0e6155d5c6e08e1c86",
+  "source_sha256": "43b82a30f1356fee3e9cf8bfc864f9cbb6ba828ba818417cd47a6cb0337147d4",
   "packages": {
     "_fe_analyzer_shared": {
       "dependency": "transitive",
@@ -185,6 +185,16 @@
       },
       "source": "path",
       "version": "0.1.0"
+    },
+    "equatable": {
+      "dependency": "transitive",
+      "description": {
+        "name": "equatable",
+        "sha256": "3bce007a596ff8b3119c45d68aaef631272537c03d30e5d4534dd24bf4c5eaa2",
+        "url": "https://pub.dev"
+      },
+      "source": "hosted",
+      "version": "2.1.0"
     },
     "fake_async": {
       "dependency": "transitive",
@@ -453,6 +463,16 @@
       },
       "source": "hosted",
       "version": "2.0.0"
+    },
+    "motor": {
+      "dependency": "transitive",
+      "description": {
+        "name": "motor",
+        "sha256": "cbd49f21b00e568c2b1a55f134ed803614a107782f4fea7769693bca32940c58",
+        "url": "https://pub.dev"
+      },
+      "source": "hosted",
+      "version": "1.1.0"
     },
     "node_preamble": {
       "dependency": "transitive",

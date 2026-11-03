@@ -20,6 +20,7 @@ import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 
 import 'settings_controls.dart';
+import 'settings_input_deck.dart';
 
 const settingsMonitorLayoutEditorKey = ValueKey<String>(
   'settings-monitor-layout-editor',
@@ -134,6 +135,7 @@ class SettingsDisplaysPage extends ConsumerWidget {
           ],
         ),
         const _DisplayBrightnessCard(),
+        const SettingsInputDeck(),
       ],
     );
   }

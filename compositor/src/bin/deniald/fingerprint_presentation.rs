@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fs;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,7 +14,7 @@ use smithay::backend::allocator::{Buffer as AllocatorBuffer, Fourcc};
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{ExportMem, ImportDma};
-use smithay::reexports::drm::control::{Device as ControlDevice, connector, property};
+use smithay::reexports::drm::control::Device as ControlDevice;
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
@@ -26,8 +27,11 @@ use super::flutter_runtime::{FlutterRuntime, ShmTextureFrame};
 use super::kms_state::Scanout;
 use super::{OutputId, RuntimeState};
 
+#[path = "fingerprint_presentation/illumination.rs"]
+mod illumination;
 #[path = "fingerprint_presentation/state.rs"]
 mod state;
+use illumination::{Backend as IlluminationBackend, Control as IlluminationControl};
 use state::{Phase, Session, StopReason};
 
 pub mod protocol {
@@ -76,8 +80,13 @@ pub(super) struct Profile {
     height: u32,
     max_duration_ms: u32,
     settle_ms: u32,
+    #[serde(default)]
+    illumination_backend: IlluminationBackend,
+    #[serde(default)]
     illumination_property: String,
+    #[serde(default)]
     illumination_on: u64,
+    #[serde(default)]
     illumination_off: u64,
 }
 
@@ -103,8 +112,14 @@ impl Profile {
             || !(100..=30_000).contains(&self.max_duration_ms)
             || self.settle_ms > 1000
             || self.settle_ms >= self.max_duration_ms
-            || self.illumination_property.is_empty()
-            || self.illumination_on == self.illumination_off
+            || (self.illumination_backend == IlluminationBackend::DrmProperty
+                && (self.illumination_property.is_empty()
+                    || self.illumination_on == self.illumination_off))
+            || (self.illumination_backend == IlluminationBackend::AstonAa551Fd
+                && (self.panel_name != "oneplus,aston-boe-aa551"
+                    || !self.illumination_property.is_empty()
+                    || self.illumination_on != 0
+                    || self.illumination_off != 0))
         {
             return Err("invalid fingerprint profile geometry or illumination policy");
         }
@@ -139,7 +154,7 @@ pub(super) fn init(display: &DisplayHandle) {
     match Profile::load(path) {
         Ok(profile) => {
             display.create_global::<RuntimeState, DenialFingerprintManagerV1, _>(
-                1,
+                2,
                 GlobalData {
                     display: display.clone(),
                     profile: Arc::new(profile),
@@ -224,7 +239,6 @@ impl Dispatch<DenialFingerprintManagerV1, Arc<Profile>> for RuntimeState {
                 let session = init.init(id, ());
                 state
                     .fingerprint
-                    .session
                     .new_client()
                     .expect("checked idle presentation");
                 state.fingerprint.profile = Some(profile.clone());
@@ -262,6 +276,32 @@ impl Dispatch<DenialFingerprintSessionV1, ()> for RuntimeState {
         let controller = &mut state.fingerprint;
         match request {
             session::Request::Destroy => controller.session.stop(StopReason::Revoked),
+            session::Request::SetIlluminationFd { fd } => {
+                let profile = controller.profile.as_ref().expect("session has a profile");
+                if profile.illumination_backend != IlluminationBackend::AstonAa551Fd
+                    || controller.illumination_fd.is_some()
+                    || controller.session.contact.is_some()
+                    || controller.prepared
+                {
+                    resource.post_error(
+                        session::Error::InvalidState,
+                        "illumination descriptor is not expected",
+                    );
+                    return;
+                }
+                match illumination::validate_aston(
+                    &fd,
+                    &profile.panel_name,
+                    profile.panel_width,
+                    profile.panel_height,
+                    profile.max_duration_ms,
+                ) {
+                    Ok(()) => controller.illumination_fd = Some(Arc::new(fd)),
+                    Err(error) => {
+                        resource.post_error(session::Error::InvalidState, error.to_string())
+                    }
+                }
+            }
             session::Request::Withdraw { serial } => {
                 if let Err(error) = controller.session.withdraw(serial) {
                     resource.post_error(session::Error::InvalidSerial, error);
@@ -336,15 +376,12 @@ impl Dispatch<DenialFingerprintSessionV1, ()> for RuntimeState {
 
 struct IlluminationRestore {
     drm: DrmDeviceFd,
-    connector: connector::Handle,
-    property: property::Handle,
-    value: u64,
+    control: IlluminationControl,
 }
 
 impl IlluminationRestore {
     fn restore(&self) -> std::io::Result<()> {
-        self.drm
-            .set_property(self.connector, self.property, self.value)
+        self.control.restore(&self.drm)
     }
 }
 
@@ -364,7 +401,8 @@ pub(super) struct Controller {
     session: Session,
     image: Option<(WlBuffer, Dmabuf)>,
     output: Option<OutputId>,
-    hbm: Option<(connector::Handle, property::Handle, u64)>,
+    hbm: Option<IlluminationControl>,
+    illumination_fd: Option<Arc<OwnedFd>>,
     prepared: bool,
     illumination_restore: Option<IlluminationRestore>,
     texture_registered: bool,
@@ -380,6 +418,16 @@ pub(super) struct Controller {
 }
 
 impl Controller {
+    fn new_client(&mut self) -> Result<(), &'static str> {
+        self.session.new_client()?;
+        // Preparation belongs to a contact and its delegated capability. A
+        // later client must supply its own descriptor before first present.
+        self.prepared = false;
+        self.hbm = None;
+        self.illumination_fd = None;
+        Ok(())
+    }
+
     pub(super) fn active(&self) -> bool {
         self.session.contact.is_some() || self.ambient_until.is_some()
     }
@@ -451,22 +499,47 @@ impl Controller {
         if scanout.output.mode.size() != (profile.panel_width as u16, profile.panel_height as u16) {
             return Err("fingerprint panel dimensions changed".into());
         }
-        let panel_path = format!("/sys/class/drm/card{}-{}/panelName", 0, profile.output);
-        if fs::read_to_string(panel_path)?.trim() != profile.panel_name {
-            return Err("fingerprint panel identity differs from profile".into());
-        }
-        let mut hbm = None;
-        for (property, value) in drm.get_properties(scanout.output.connector)? {
-            let info = drm.get_property(property)?;
-            if info.name().to_bytes() == profile.illumination_property.as_bytes() {
-                if value != profile.illumination_off {
-                    return Err("panel illumination is already owned by another operation".into());
+        self.hbm = Some(match profile.illumination_backend {
+            IlluminationBackend::DrmProperty => {
+                let panel_path = format!("/sys/class/drm/card{}-{}/panelName", 0, profile.output);
+                if fs::read_to_string(panel_path)?.trim() != profile.panel_name {
+                    return Err("fingerprint panel identity differs from profile".into());
                 }
-                hbm = Some((scanout.output.connector, property, value));
-                break;
+                let mut hbm = None;
+                for (property, value) in drm.get_properties(scanout.output.connector)? {
+                    let info = drm.get_property(property)?;
+                    if info.name().to_bytes() == profile.illumination_property.as_bytes() {
+                        if value != profile.illumination_off {
+                            return Err(
+                                "panel illumination is already owned by another operation".into()
+                            );
+                        }
+                        hbm = Some(IlluminationControl::Drm {
+                            connector: scanout.output.connector,
+                            property,
+                            original: value,
+                            on: profile.illumination_on,
+                        });
+                        break;
+                    }
+                }
+                hbm.ok_or("panel lacks local fingerprint illumination")?
             }
-        }
-        self.hbm = Some(hbm.ok_or("panel lacks local fingerprint illumination")?);
+            IlluminationBackend::AstonAa551Fd => {
+                let fd = self
+                    .illumination_fd
+                    .as_ref()
+                    .ok_or("missing panel illumination descriptor")?;
+                illumination::validate_aston(
+                    fd,
+                    &profile.panel_name,
+                    profile.panel_width,
+                    profile.panel_height,
+                    profile.max_duration_ms,
+                )?;
+                IlluminationControl::Aston { fd: fd.clone() }
+            }
+        });
         self.output = Some(scanout.output.id);
         let contact = self.session.contact.as_mut().ok_or("missing contact")?;
         contact.restore_off = !scanout.powered || self.ambient_until.is_some();
@@ -512,6 +585,10 @@ impl Controller {
                         self.ambient_until = None;
                     }
                 }
+            }
+            if self.resource.is_none() && self.session.contact.is_none() {
+                self.hbm = None;
+                self.illumination_fd = None;
             }
             let changed = self.sync_scene(runtime, renderer)?;
             return Ok((changed, power));
@@ -559,16 +636,17 @@ impl Controller {
             .as_ref()
             .is_some_and(|c| c.phase == Phase::Presented)
         {
-            let (connector, property, _) =
-                self.hbm.ok_or("presented fingerprint lacks HBM control")?;
+            let control = self
+                .hbm
+                .as_ref()
+                .ok_or("presented fingerprint lacks HBM control")?
+                .clone();
             let profile = self.profile.as_ref().unwrap();
             self.illumination_restore = Some(IlluminationRestore {
                 drm: drm.device_fd().clone(),
-                connector,
-                property,
-                value: self.hbm.unwrap().2,
+                control: control.clone(),
             });
-            match drm.set_property(connector, property, profile.illumination_on) {
+            match control.enable(&drm.device_fd()) {
                 Ok(()) => {
                     if !self.session.illumination_enabled(
                         Instant::now(),
@@ -604,11 +682,13 @@ impl Controller {
             .is_some_and(|c| c.phase == Phase::Stopping)
         {
             if self.session.contact.as_ref().unwrap().illumination_enabled {
-                let (connector, property, original) =
-                    self.hbm.ok_or("active illumination lacks restore state")?;
+                let control = self
+                    .hbm
+                    .as_ref()
+                    .ok_or("active illumination lacks restore state")?;
                 // Propagate restore failure: presenting ordinary UI with an
                 // unconfirmed illumination state is never an acceptable fallback.
-                drm.set_property(connector, property, original)?;
+                control.restore(&drm.device_fd())?;
                 // The guard also covers an early return or renderer failure.
                 self.illumination_restore.take();
                 self.session.contact.as_mut().unwrap().illumination_enabled = false;
@@ -652,6 +732,10 @@ impl Controller {
                 }
                 info!(serial, "fingerprint presentation stopped");
             }
+        }
+        if self.resource.is_none() && self.session.contact.is_none() {
+            self.hbm = None;
+            self.illumination_fd = None;
         }
         let changed = self.sync_scene(runtime, renderer)?;
         // Ready/stopped are generated outside Wayland request dispatch. Flush
@@ -723,18 +807,20 @@ impl Controller {
         let profile = self.profile.as_ref().ok_or("fingerprint profile missing")?;
         runtime.set_fingerprint_scene(
             output,
-            self.layout_epoch,
-            black,
-            visible,
-            self.reveal_home,
-            self.fade_target,
-            [
-                profile.x as f64,
-                profile.y as f64,
-                profile.width as f64,
-                profile.height as f64,
-            ],
-            [profile.panel_width as f64, profile.panel_height as f64],
+            crate::flutter_runtime::FingerprintLayout {
+                epoch: self.layout_epoch,
+                black,
+                image: visible,
+                reveal: self.reveal_home,
+                fade: self.fade_target,
+                rectangle: [
+                    profile.x as f64,
+                    profile.y as f64,
+                    profile.width as f64,
+                    profile.height as f64,
+                ],
+                panel: [profile.panel_width as f64, profile.panel_height as f64],
+            },
         )?;
         self.layout_key = Some(key);
         Ok(true)
@@ -808,6 +894,27 @@ mod protocol_tests {
         assert_eq!(pixels, [5, 6, 7, 255, 1, 2, 3, 255]);
         assert!(normalize_presentation_pixels(&mut pixels, 2, 2, false, false).is_err());
         assert!(normalize_presentation_pixels(&mut pixels, usize::MAX, 1, false, false).is_err());
+    }
+
+    #[test]
+    fn replacement_client_resets_previous_contact_preparation() {
+        let mut controller = Controller::default();
+        controller.new_client().unwrap();
+        controller
+            .session
+            .begin(1, Instant::now(), Duration::from_secs(3), false)
+            .unwrap();
+        controller.prepared = true;
+        assert!(controller.new_client().is_err());
+        assert!(controller.prepared);
+        controller.session.stop(StopReason::Released);
+        assert!(controller.session.finish(true, true).is_some());
+        controller.new_client().unwrap();
+        assert!(!controller.prepared);
+        controller
+            .session
+            .begin(1, Instant::now(), Duration::from_secs(3), false)
+            .unwrap();
     }
 
     #[test]

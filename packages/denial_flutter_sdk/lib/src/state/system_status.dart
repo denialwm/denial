@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/startup_environment.dart';
@@ -90,6 +91,28 @@ final gpuUsageProvider = Provider<List<GpuLoad>>(
   isAutoDispose: true,
 );
 
+/// False while every output is powered off: deniald then reports Flutter's
+/// `hidden` lifecycle. Nobody can see a sample taken in that state.
+final _outputsVisibleProvider = NotifierProvider<_OutputsVisible, bool>(
+  _OutputsVisible.new,
+);
+
+class _OutputsVisible extends Notifier<bool> {
+  @override
+  bool build() {
+    final listener = AppLifecycleListener(
+      onStateChange: (lifecycle) => state = _visible(lifecycle),
+    );
+    ref.onDispose(listener.dispose);
+    return _visible(WidgetsBinding.instance.lifecycleState);
+  }
+
+  static bool _visible(AppLifecycleState? lifecycle) =>
+      lifecycle == null ||
+      lifecycle == AppLifecycleState.resumed ||
+      lifecycle == AppLifecycleState.inactive;
+}
+
 mixin _PeriodicRefresh<StateT> on Notifier<StateT> {
   int _refreshGeneration = 0;
   bool _refreshing = false;
@@ -101,8 +124,14 @@ mixin _PeriodicRefresh<StateT> on Notifier<StateT> {
     final generation = ++_refreshGeneration;
     _refreshing = false;
 
+    var listened = true;
+    var visible = ref.read(_outputsVisibleProvider);
+
     Future<void> run() async {
-      if (!isRefreshActive(generation) || _refreshing) {
+      if (!isRefreshActive(generation) ||
+          _refreshing ||
+          !listened ||
+          !visible) {
         return;
       }
       _refreshing = true;
@@ -115,10 +144,35 @@ mixin _PeriodicRefresh<StateT> on Notifier<StateT> {
       }
     }
 
-    scheduleMicrotask(() => unawaited(run()));
-    final timer = Timer.periodic(interval, (_) => unawaited(run()));
+    Timer? timer;
+    // Sample only while someone can see the result: a provider whose every
+    // listener is hidden (TickerMode off) is paused, and powered-off outputs
+    // hide everything. Catch up at once when either ends.
+    void update() {
+      if (!isRefreshActive(generation) || !listened || !visible) {
+        timer?.cancel();
+        timer = null;
+      } else if (timer == null) {
+        timer = Timer.periodic(interval, (_) => unawaited(run()));
+        unawaited(run());
+      }
+    }
+
+    scheduleMicrotask(update);
+    ref.listen<bool>(_outputsVisibleProvider, (_, next) {
+      visible = next;
+      update();
+    });
+    ref.onCancel(() {
+      listened = false;
+      update();
+    });
+    ref.onResume(() {
+      listened = true;
+      update();
+    });
     ref.onDispose(() {
-      timer.cancel();
+      timer?.cancel();
       if (generation == _refreshGeneration) {
         _refreshGeneration++;
         _refreshing = false;

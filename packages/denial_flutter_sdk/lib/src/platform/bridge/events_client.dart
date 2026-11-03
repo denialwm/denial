@@ -49,6 +49,8 @@ final class BridgeEventsClient {
   final Map<int, SystemTrayItem> _xembedTrayItems = <int, SystemTrayItem>{};
   final StreamController<DenialTextInputState> _textInputStates =
       StreamController<DenialTextInputState>.broadcast(sync: true);
+  final StreamController<DenialTextPrediction> _textPredictions =
+      StreamController<DenialTextPrediction>.broadcast(sync: true);
 
   Future<ByteData?> handleMessage(ByteData? data) async {
     if (wire.isDenialPlacementPacket(data)) {
@@ -120,6 +122,8 @@ final class BridgeEventsClient {
           wire.ShellActionKind.FocusRight => DenialShellAction.focusRight,
           wire.ShellActionKind.FocusUp => DenialShellAction.focusUp,
           wire.ShellActionKind.FocusDown => DenialShellAction.focusDown,
+          wire.ShellActionKind.ScreenshotCaptured =>
+            DenialShellAction.screenshotCaptured,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -173,6 +177,22 @@ final class BridgeEventsClient {
               contentHint: payload.contentHint,
               contentPurpose: payload.contentPurpose,
               activationSerial: payload.activationSerial,
+            ),
+          );
+        }
+      } else if (payload is wire.TextPrediction) {
+        if (!_textPredictions.isClosed) {
+          _textPredictions.add(
+            DenialTextPrediction(
+              serial: payload.serial,
+              word: payload.word ?? '',
+              correction: payload.correction,
+              suggestions: List<String>.unmodifiable(
+                payload.suggestions ?? const <String>[],
+              ),
+              languages: List<String>.unmodifiable(
+                payload.languages ?? const <String>[],
+              ),
             ),
           );
         }
@@ -317,6 +337,8 @@ final class BridgeEventsClient {
       Map<int, SystemTrayItem>.unmodifiable(_xembedTrayItems);
 
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
+
+  Stream<DenialTextPrediction> get textPredictions => _textPredictions.stream;
   void dispose() {
     unawaited(_shellActions.close());
     unawaited(_pluginActions.close());
@@ -327,5 +349,6 @@ final class BridgeEventsClient {
     unawaited(_notificationEvents.close());
     unawaited(_xembedTrayEvents.close());
     unawaited(_textInputStates.close());
+    unawaited(_textPredictions.close());
   }
 }

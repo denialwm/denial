@@ -84,6 +84,7 @@ enum FrameTerminal {
     MissedDeadline,
     DiscardedByConfigure,
     AbortedByEpoch,
+    AbortedByDisarm,
 }
 
 impl FrameTerminal {
@@ -94,6 +95,7 @@ impl FrameTerminal {
             Self::MissedDeadline => "missed_deadline",
             Self::DiscardedByConfigure => "discarded_by_configure",
             Self::AbortedByEpoch => "aborted_by_epoch",
+            Self::AbortedByDisarm => "aborted_by_disarm",
         }
     }
 }
@@ -113,66 +115,198 @@ struct OutputCadence {
     nominal_interval: Duration,
 }
 
+/// One output's current epoch. Epoch values come from one counter, so a value
+/// names exactly one output generation; sequences are global as well.
+#[derive(Debug)]
+struct OutputEpoch {
+    epoch: u64,
+    guard: Arc<AtomicU64>,
+}
+
 #[derive(Debug)]
 pub(super) struct FrameTimelineManager {
     _global: GlobalId,
-    epoch: u64,
+    last_epoch: u64,
     next_sequence: u64,
     subscriptions: HashMap<ObjectId, OutputSubscription>,
     grants: HashMap<FrameToken, GrantRecord>,
     cadence: HashMap<OutputId, OutputCadence>,
-    epoch_guard: Arc<AtomicU64>,
+    epochs: HashMap<OutputId, OutputEpoch>,
 }
 
 impl FrameTimelineManager {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         Self {
             _global: display.create_global::<RuntimeState, DenialFrameTimelineManagerV1, _>(1, ()),
-            epoch: 1,
+            last_epoch: 0,
             next_sequence: 0,
             subscriptions: HashMap::new(),
             grants: HashMap::new(),
             cadence: HashMap::new(),
-            epoch_guard: Arc::new(AtomicU64::new(1)),
+            epochs: HashMap::new(),
         }
     }
 
-    fn begin_new_epoch(&mut self) {
-        for token in self.grants.keys().copied().collect::<Vec<_>>() {
+    pub(super) fn has_active_subscription(&self) -> bool {
+        self.subscriptions
+            .values()
+            .any(|subscription| subscription.active)
+    }
+
+    fn allocate_epoch(&mut self) -> u64 {
+        self.last_epoch = self.last_epoch.wrapping_add(1).max(1);
+        self.last_epoch
+    }
+
+    fn epoch(&mut self, output: OutputId) -> u64 {
+        if let Some(current) = self.epochs.get(&output) {
+            return current.epoch;
+        }
+        let epoch = self.allocate_epoch();
+        self.epochs.insert(
+            output,
+            OutputEpoch {
+                epoch,
+                guard: Arc::new(AtomicU64::new(epoch)),
+            },
+        );
+        epoch
+    }
+
+    fn current_epoch(&self, output: OutputId) -> Option<u64> {
+        self.epochs.get(&output).map(|current| current.epoch)
+    }
+
+    /// Abort one output's grants and announce a new epoch to its armed
+    /// subscriptions. Other outputs keep their epochs and grants.
+    fn begin_new_epoch(&mut self, output: OutputId) {
+        let aborted = self
+            .grants
+            .iter()
+            .filter_map(|(token, record)| (record.output == output).then_some(*token))
+            .collect::<Vec<_>>();
+        for token in aborted {
             self.finish(token, FrameTerminal::AbortedByEpoch);
         }
-        self.epoch = self.epoch.wrapping_add(1).max(1);
-        self.epoch_guard.store(self.epoch, Ordering::Release);
-        self.cadence.clear();
-        let (epoch_hi, epoch_lo) = split_u64(self.epoch);
-        for subscription in self.subscriptions.values_mut() {
+        let epoch = self.allocate_epoch();
+        match self.epochs.get_mut(&output) {
+            Some(current) => {
+                current.epoch = epoch;
+                current.guard.store(epoch, Ordering::Release);
+            }
+            None => {
+                self.epochs.insert(
+                    output,
+                    OutputEpoch {
+                        epoch,
+                        guard: Arc::new(AtomicU64::new(epoch)),
+                    },
+                );
+            }
+        }
+        self.cadence.remove(&output);
+        let (epoch_hi, epoch_lo) = split_u64(epoch);
+        for subscription in self
+            .subscriptions
+            .values_mut()
+            .filter(|subscription| subscription.output == Some(output))
+        {
             subscription.grants.clear();
             if subscription.active {
                 subscription.resource.epoch(epoch_hi, epoch_lo);
-                subscription.announced_epoch = Some(self.epoch);
+                subscription.announced_epoch = Some(epoch);
             } else {
                 subscription.announced_epoch = None;
             }
         }
         debug!(
-            frame_epoch = self.epoch,
+            ?output,
+            frame_epoch = epoch,
             frame_state = "epoch",
             "frame timeline epoch advanced"
         );
     }
 
-    fn allocate_token(&mut self) -> FrameToken {
+    /// A timeline reset: every output starts a new epoch.
+    fn reset(&mut self) {
+        for output in self.epochs.keys().copied().collect::<Vec<_>>() {
+            self.begin_new_epoch(output);
+        }
+    }
+
+    fn register(&mut self, output: Option<OutputId>, resource: DenialOutputFrameTimelineV1) {
+        self.subscriptions.insert(
+            resource.id(),
+            OutputSubscription {
+                resource,
+                output,
+                active: false,
+                announced_epoch: None,
+                grants: HashSet::new(),
+            },
+        );
+    }
+
+    fn set_active(&mut self, id: &ObjectId, active: bool) {
+        let Some(output) = self
+            .subscriptions
+            .get(id)
+            .map(|subscription| subscription.output)
+        else {
+            return;
+        };
+        let epoch = output.filter(|_| active).map(|output| self.epoch(output));
+        let Some(subscription) = self.subscriptions.get_mut(id) else {
+            return;
+        };
+        subscription.active = active;
+        subscription.announced_epoch = epoch;
+        if let Some(epoch) = epoch {
+            let (epoch_hi, epoch_lo) = split_u64(epoch);
+            subscription.resource.epoch(epoch_hi, epoch_lo);
+        }
+        let released = std::mem::take(&mut subscription.grants);
+        self.abort_unheld(released);
+    }
+
+    fn unregister(&mut self, id: &ObjectId) {
+        if let Some(subscription) = self.subscriptions.remove(id) {
+            self.abort_unheld(subscription.grants);
+        }
+    }
+
+    /// Disarming or destroying one subscription aborts the grants it held
+    /// that are not latched yet and that no other armed subscription holds.
+    /// No epoch ends, so the output's other subscriptions keep their grants.
+    fn abort_unheld(&mut self, released: HashSet<FrameToken>) {
+        for token in released {
+            let held = self
+                .subscriptions
+                .values()
+                .any(|subscription| subscription.active && subscription.grants.contains(&token));
+            let latched = self.grants.get(&token).is_some_and(|record| {
+                self.cadence
+                    .get(&record.output)
+                    .is_some_and(|cadence| cadence.sequence >= record.latch_output_sequence)
+            });
+            if !held && !latched {
+                self.finish(token, FrameTerminal::AbortedByDisarm);
+            }
+        }
+    }
+
+    fn allocate_token(&mut self, output: OutputId) -> FrameToken {
         let Some(sequence) = self.next_sequence.checked_add(1) else {
-            self.begin_new_epoch();
+            self.reset();
             self.next_sequence = 1;
             return FrameToken {
-                epoch: self.epoch,
+                epoch: self.epoch(output),
                 sequence: 1,
             };
         };
         self.next_sequence = sequence;
         FrameToken {
-            epoch: self.epoch,
+            epoch: self.epoch(output),
             sequence,
         }
     }
@@ -272,7 +406,7 @@ impl FrameTimelineManager {
             .get(&tick.output)
             .is_some_and(|cadence| cadence_changed(*cadence, tick));
         if cadence_changed {
-            self.begin_new_epoch();
+            self.begin_new_epoch(tick.output);
         }
         self.cadence.insert(
             tick.output,
@@ -284,10 +418,10 @@ impl FrameTimelineManager {
         self.expire_at_latch(tick.output, tick.sequence);
 
         let Some(latch_output_sequence) = tick.sequence.checked_add(1) else {
-            self.begin_new_epoch();
+            self.begin_new_epoch(tick.output);
             return 0;
         };
-        let token = self.allocate_token();
+        let token = self.allocate_token(tick.output);
         self.grants.insert(
             token,
             GrantRecord {
@@ -388,6 +522,7 @@ struct PendingSurfaceTarget {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct FrameTargetReservation {
     token: FrameToken,
+    output: OutputId,
     pub(super) deadline: Instant,
 }
 
@@ -432,7 +567,11 @@ fn lock_surface_state(
 
 impl WaylandFrontend {
     pub(super) fn invalidate_frame_timeline(&mut self) {
-        self.frame_timeline.begin_new_epoch();
+        self.frame_timeline.reset();
+    }
+
+    pub(super) fn invalidate_output_frame_timeline(&mut self, output: OutputId) {
+        self.frame_timeline.begin_new_epoch(output);
     }
 
     fn frame_timeline_output_id(&self, resource: &WlOutput) -> Option<OutputId> {
@@ -441,55 +580,6 @@ impl WaylandFrontend {
             .iter()
             .find(|entry| entry.output == output)
             .map(|entry| entry.id)
-    }
-
-    fn register_output_timeline(
-        &mut self,
-        output: Option<OutputId>,
-        resource: DenialOutputFrameTimelineV1,
-    ) {
-        self.frame_timeline.subscriptions.insert(
-            resource.id(),
-            OutputSubscription {
-                resource,
-                output,
-                active: false,
-                announced_epoch: None,
-                grants: HashSet::new(),
-            },
-        );
-    }
-
-    fn set_output_timeline_active(&mut self, resource: &DenialOutputFrameTimelineV1, active: bool) {
-        let disarmed = {
-            let Some(subscription) = self.frame_timeline.subscriptions.get_mut(&resource.id())
-            else {
-                return;
-            };
-            let disarmed = subscription.active && !active;
-            subscription.active = active;
-            subscription.grants.clear();
-            subscription.announced_epoch = active.then_some(self.frame_timeline.epoch);
-            if active {
-                let (epoch_hi, epoch_lo) = split_u64(self.frame_timeline.epoch);
-                subscription.resource.epoch(epoch_hi, epoch_lo);
-            }
-            disarmed
-        };
-        if disarmed {
-            self.frame_timeline.begin_new_epoch();
-        }
-    }
-
-    fn unregister_output_timeline(&mut self, resource: &DenialOutputFrameTimelineV1) {
-        if self
-            .frame_timeline
-            .subscriptions
-            .remove(&resource.id())
-            .is_some_and(|subscription| subscription.active)
-        {
-            self.frame_timeline.begin_new_epoch();
-        }
     }
 
     fn register_surface_timeline(
@@ -539,17 +629,18 @@ impl WaylandFrontend {
         timeline: &DenialOutputFrameTimelineV1,
         token: FrameToken,
     ) {
+        let subscription = self.frame_timeline.subscriptions.get(&timeline.id());
+        let output = subscription.and_then(|subscription| subscription.output);
         let mut rejection = if token.epoch == 0
             || token.sequence == 0
-            || token.epoch != self.frame_timeline.epoch
+            || output.and_then(|output| self.frame_timeline.current_epoch(output))
+                != Some(token.epoch)
             || token.sequence > self.frame_timeline.next_sequence
         {
             Some(TargetRejection::InvalidIdentity)
         } else {
             None
         };
-        let subscription = self.frame_timeline.subscriptions.get(&timeline.id());
-        let output = subscription.and_then(|subscription| subscription.output);
         if rejection.is_none() && subscription.is_none_or(|subscription| !subscription.active) {
             rejection = Some(TargetRejection::InactiveTimeline);
         }
@@ -577,15 +668,13 @@ impl WaylandFrontend {
                 );
                 return;
             }
-            if state.last_consumed.is_some_and(|previous| {
-                token.epoch < previous.epoch
-                    || (token.epoch == previous.epoch && token.sequence <= previous.sequence)
-            }) || state.pending.as_ref().is_some_and(|pending| {
-                pending.rejection.is_none()
-                    && (token.epoch < pending.token.epoch
-                        || (token.epoch == pending.token.epoch
-                            && token.sequence <= pending.token.sequence))
-            }) {
+            if state
+                .last_consumed
+                .is_some_and(|previous| !newer(token, previous))
+                || state.pending.as_ref().is_some_and(|pending| {
+                    pending.rejection.is_none() && !newer(token, pending.token)
+                })
+            {
                 rejection = Some(TargetRejection::Regression);
             }
             state.pending = Some(PendingSurfaceTarget {
@@ -597,13 +686,15 @@ impl WaylandFrontend {
         });
     }
 
-    /// Consume the double-buffered target and decide whether this commit may
-    /// enter the ordinary surface transaction.
+    /// Consume the double-buffered target and decide whether this commit is
+    /// latched for its grant. A commit that cannot be still applies, untargeted,
+    /// once its buffer is ready: cancelling it would leave its state cached
+    /// until the surface's next commit.
     pub(super) fn accept_frame_timeline_commit(
         &mut self,
         surface: &WlSurface,
         has_new_buffer: bool,
-    ) -> Result<Option<FrameTargetReservation>, ()> {
+    ) -> Option<FrameTargetReservation> {
         let surface_id = surface.id();
         let state = with_states(surface, |states| {
             states
@@ -626,18 +717,17 @@ impl WaylandFrontend {
         });
         let (constrained, pending) = state;
         if !constrained {
-            return Ok(None);
+            return None;
         }
         let Some(pending) = pending else {
             if has_new_buffer {
                 warn!(
                     ?surface_id,
                     frame_state = "untargeted",
-                    "discarding untargeted exact-timeline buffer commit"
+                    "applying an untargeted exact-timeline buffer commit"
                 );
-                return Err(());
             }
-            return Ok(None);
+            return None;
         };
         if let Some(rejection) = pending.rejection {
             debug!(
@@ -645,9 +735,9 @@ impl WaylandFrontend {
                 frame_epoch = pending.token.epoch,
                 frame_sequence = pending.token.sequence,
                 frame_state = rejection.name(),
-                "discarding semantically invalid targeted commit without disconnecting the client"
+                "applying a commit with a semantically invalid target untargeted"
             );
-            return if has_new_buffer { Err(()) } else { Ok(None) };
+            return None;
         }
         if !has_new_buffer {
             self.frame_timeline.discarded_by_configure(pending.token);
@@ -658,7 +748,7 @@ impl WaylandFrontend {
                 frame_state = "discarded_by_configure",
                 "surface target was consumed by a commit without a new buffer"
             );
-            return Ok(None);
+            return None;
         }
         let subscription_eligible = self
             .frame_timeline
@@ -686,13 +776,14 @@ impl WaylandFrontend {
             "consumed exact surface target"
         );
         if eligible {
-            Ok(grant.map(|grant| FrameTargetReservation {
+            grant.map(|grant| FrameTargetReservation {
                 token: pending.token,
+                output: grant.output,
                 deadline: grant.latch_deadline,
-            }))
+            })
         } else {
             self.frame_timeline.missed(pending.token);
-            Err(())
+            None
         }
     }
 
@@ -726,11 +817,14 @@ impl WaylandFrontend {
         &self,
         target: FrameTargetReservation,
     ) -> FrameDeadlineBlocker {
-        FrameDeadlineBlocker::new(
-            target.deadline,
-            Arc::clone(&self.frame_timeline.epoch_guard),
-            target.token.epoch,
-        )
+        // Epochs start at one, so a detached zero guard reads as ended.
+        let guard = self
+            .frame_timeline
+            .epochs
+            .get(&target.output)
+            .map(|current| Arc::clone(&current.guard))
+            .unwrap_or_default();
+        FrameDeadlineBlocker::new(target.deadline, guard, target.token.epoch)
     }
 
     pub(super) fn publish_frame_grant(&mut self, tick: FrameTick) -> usize {
@@ -745,12 +839,20 @@ impl WaylandFrontend {
 }
 
 const DEADLINE_PENDING: u8 = 0;
-const DEADLINE_RELEASED: u8 = 1;
-const DEADLINE_CANCELLED: u8 = 2;
+const DEADLINE_READY: u8 = 1;
+const DEADLINE_MISSED: u8 = 2;
 
-/// A transaction blocker paired with the producer acquire fence. It makes the
-/// named compositor latch a hard upper bound instead of allowing a pending
-/// fence to turn frame N into frame N+1.
+/// A transaction blocker paired with the producer acquire fence. It holds the
+/// commit until the race between that fence and the named compositor latch is
+/// settled, so the grant records the commit as ready or missed before it
+/// applies.
+///
+/// It never cancels the transaction. Smithay would keep a cancelled commit's
+/// state cached until the surface's next applied commit and merge it there;
+/// if that commit detaches the surface, or never comes, the buffer's syncobj
+/// release point is never signalled and the producer stalls. A commit that
+/// misses its latch, or whose epoch ends first, applies once its acquire fence
+/// allows and is shown at the next opportunity.
 #[derive(Clone, Debug)]
 pub(super) struct FrameDeadlineBlocker {
     state: Arc<AtomicU8>,
@@ -773,12 +875,11 @@ impl FrameDeadlineBlocker {
     /// latch, `Some(false)` means the fence itself arrived late, and `None`
     /// means the deadline timer already made the transition.
     pub(super) fn release_if_on_time(&self, now: Instant) -> Option<bool> {
-        let terminal =
-            if now < self.deadline && self.epoch_guard.load(Ordering::Acquire) == self.epoch {
-                DEADLINE_RELEASED
-            } else {
-                DEADLINE_CANCELLED
-            };
+        let terminal = if now < self.deadline && self.epoch_is_current() {
+            DEADLINE_READY
+        } else {
+            DEADLINE_MISSED
+        };
         self.state
             .compare_exchange(
                 DEADLINE_PENDING,
@@ -787,30 +888,33 @@ impl FrameDeadlineBlocker {
                 Ordering::Acquire,
             )
             .ok()
-            .map(|_| terminal == DEADLINE_RELEASED)
+            .map(|_| terminal == DEADLINE_READY)
     }
 
-    pub(super) fn cancel_if_pending(&self) -> bool {
+    pub(super) fn miss_if_pending(&self) -> bool {
         self.state
             .compare_exchange(
                 DEADLINE_PENDING,
-                DEADLINE_CANCELLED,
+                DEADLINE_MISSED,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
             .is_ok()
     }
+
+    fn epoch_is_current(&self) -> bool {
+        self.epoch_guard.load(Ordering::Acquire) == self.epoch
+    }
 }
 
 impl Blocker for FrameDeadlineBlocker {
     fn state(&self) -> BlockerState {
-        if self.epoch_guard.load(Ordering::Acquire) != self.epoch {
-            return BlockerState::Cancelled;
-        }
-        match self.state.load(Ordering::Acquire) {
-            DEADLINE_PENDING => BlockerState::Pending,
-            DEADLINE_RELEASED => BlockerState::Released,
-            _ => BlockerState::Cancelled,
+        // A grant from an ended epoch is already aborted, so its commit no
+        // longer waits for the latch race.
+        if self.state.load(Ordering::Acquire) == DEADLINE_PENDING && self.epoch_is_current() {
+            BlockerState::Pending
+        } else {
+            BlockerState::Released
         }
     }
 }
@@ -846,7 +950,7 @@ impl Dispatch<DenialFrameTimelineManagerV1, ()> for RuntimeState {
                     .and_then(|frontend| frontend.frame_timeline_output_id(&output));
                 let resource = data_init.init(id, OutputTimelineUserData { _output: output_id });
                 if let Some(frontend) = state.wayland.as_mut() {
-                    frontend.register_output_timeline(output_id, resource);
+                    frontend.frame_timeline.register(output_id, resource);
                 }
             }
             denial_frame_timeline_manager_v1::Request::GetSurfaceTimeline { id, surface } => {
@@ -886,12 +990,12 @@ impl Dispatch<DenialOutputFrameTimelineV1, OutputTimelineUserData> for RuntimeSt
         match request {
             denial_output_frame_timeline_v1::Request::SetActive { active: 0 } => {
                 if let Some(frontend) = state.wayland.as_mut() {
-                    frontend.set_output_timeline_active(resource, false);
+                    frontend.frame_timeline.set_active(&resource.id(), false);
                 }
             }
             denial_output_frame_timeline_v1::Request::SetActive { active: 1 } => {
                 if let Some(frontend) = state.wayland.as_mut() {
-                    frontend.set_output_timeline_active(resource, true);
+                    frontend.frame_timeline.set_active(&resource.id(), true);
                 }
             }
             denial_output_frame_timeline_v1::Request::SetActive { active } => resource.post_error(
@@ -909,7 +1013,7 @@ impl Dispatch<DenialOutputFrameTimelineV1, OutputTimelineUserData> for RuntimeSt
         _data: &OutputTimelineUserData,
     ) {
         if let Some(frontend) = state.wayland.as_mut() {
-            frontend.unregister_output_timeline(resource);
+            frontend.frame_timeline.unregister(&resource.id());
         }
     }
 }
@@ -976,6 +1080,12 @@ const fn split_u64(value: u64) -> (u32, u32) {
     ((value >> 32) as u32, value as u32)
 }
 
+/// Sequences are allocated once across all outputs, so they alone order two
+/// identities, whichever outputs and epochs issued them.
+fn newer(token: FrameToken, previous: FrameToken) -> bool {
+    token.sequence > previous.sequence
+}
+
 fn cadence_changed(previous: OutputCadence, tick: FrameTick) -> bool {
     tick.sequence <= previous.sequence || tick.nominal_interval != previous.nominal_interval
 }
@@ -987,6 +1097,216 @@ fn duration_nanos(value: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smithay::reexports::wayland_server::Display;
+    use smithay::reexports::wayland_server::backend::ClientData;
+    use std::io::{ErrorKind, Read};
+    use std::os::unix::net::UnixStream;
+
+    const GRANT: u32 = 0;
+    const EPOCH: u32 = 1;
+    const PERIOD: Duration = Duration::from_micros(8_333);
+
+    struct TestClient;
+    impl ClientData for TestClient {}
+
+    /// One client connection with real timeline objects; no compositor
+    /// session, output or surface.
+    struct Fixture {
+        display: Display<RuntimeState>,
+        manager: FrameTimelineManager,
+        client: Client,
+        socket: UnixStream,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let display = Display::<RuntimeState>::new().unwrap();
+            let mut handle = display.handle();
+            let manager = FrameTimelineManager::new(&handle);
+            let (socket, server) = UnixStream::pair().unwrap();
+            socket.set_nonblocking(true).unwrap();
+            let client = handle.insert_client(server, Arc::new(TestClient)).unwrap();
+            Self {
+                display,
+                manager,
+                client,
+                socket,
+            }
+        }
+
+        fn subscribe(&mut self, output: u64) -> ObjectId {
+            let output = Some(OutputId(output));
+            let resource = self
+                .client
+                .create_resource::<DenialOutputFrameTimelineV1, _, RuntimeState>(
+                    &self.display.handle(),
+                    1,
+                    OutputTimelineUserData { _output: output },
+                )
+                .unwrap();
+            let id = resource.id();
+            self.manager.register(output, resource);
+            self.manager.set_active(&id, true);
+            id
+        }
+
+        fn tick(&mut self, output: u64, sequence: u64, period: Duration) -> FrameToken {
+            let now = Instant::now();
+            let output = OutputId(output);
+            self.manager.publish(
+                FrameTick {
+                    output,
+                    sequence,
+                    nominal_interval: period,
+                    interval: period,
+                    render_deadline: now,
+                    presentation_target: now + period,
+                },
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+            );
+            self.manager
+                .grants
+                .iter()
+                .filter(|(_, record)| record.output == output)
+                .map(|(token, _)| *token)
+                .max_by_key(|token| token.sequence)
+                .unwrap()
+        }
+
+        fn guard(&self, output: u64) -> Arc<AtomicU64> {
+            Arc::clone(&self.manager.epochs[&OutputId(output)].guard)
+        }
+
+        fn holds(&self, subscription: &ObjectId, token: FrameToken) -> bool {
+            self.manager.subscriptions[subscription]
+                .grants
+                .contains(&token)
+        }
+
+        /// (object, opcode) of every event sent since the last call.
+        fn events(&mut self) -> Vec<(u32, u32)> {
+            self.display.flush_clients().unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 4096];
+            loop {
+                match self.socket.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => bytes.extend_from_slice(&buffer[..count]),
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                    Err(error) => panic!("reading protocol events: {error}"),
+                }
+            }
+            let words = bytes
+                .chunks_exact(4)
+                .map(|word| u32::from_ne_bytes(word.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let mut events = Vec::new();
+            let mut offset = 0;
+            while offset < words.len() {
+                let length = (words[offset + 1] >> 16) as usize / 4;
+                events.push((words[offset], words[offset + 1] & 0xffff));
+                offset += length;
+            }
+            events
+        }
+    }
+
+    #[test]
+    fn disarm_keeps_grants_other_subscriptions_hold() {
+        let mut fixture = Fixture::new();
+        let first = fixture.subscribe(1);
+        let second = fixture.subscribe(1);
+        let other_output = fixture.subscribe(2);
+        let shared = fixture.tick(1, 10, PERIOD);
+        let other = fixture.tick(2, 20, PERIOD);
+        fixture.events();
+
+        fixture.manager.set_active(&first, false);
+        assert!(fixture.manager.grants.contains_key(&shared));
+        assert!(fixture.holds(&second, shared));
+        assert!(fixture.holds(&other_output, other));
+        assert!(fixture.events().is_empty(), "no epoch ended");
+
+        fixture.manager.set_active(&second, false);
+        assert!(!fixture.manager.grants.contains_key(&shared));
+        assert!(fixture.manager.grants.contains_key(&other));
+
+        // Re-arming announces the unchanged epoch and replays nothing.
+        fixture.manager.set_active(&first, true);
+        assert_eq!(fixture.events(), [(first.protocol_id(), EPOCH)]);
+        assert_eq!(
+            fixture.manager.subscriptions[&first].announced_epoch,
+            Some(shared.epoch)
+        );
+        assert!(fixture.manager.subscriptions[&first].grants.is_empty());
+    }
+
+    #[test]
+    fn retiming_one_output_keeps_other_outputs_grants() {
+        let mut fixture = Fixture::new();
+        let retimed = fixture.subscribe(1);
+        let steady = fixture.subscribe(2);
+        let aborted = fixture.tick(1, 10, PERIOD);
+        let kept = fixture.tick(2, 20, PERIOD);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let aborted_blocker = FrameDeadlineBlocker::new(deadline, fixture.guard(1), aborted.epoch);
+        let kept_blocker = FrameDeadlineBlocker::new(deadline, fixture.guard(2), kept.epoch);
+        fixture.events();
+
+        let next = fixture.tick(1, 11, Duration::from_micros(16_666));
+        assert_ne!(next.epoch, aborted.epoch);
+        assert!(!fixture.manager.grants.contains_key(&aborted));
+        assert!(fixture.holds(&steady, kept));
+        assert_eq!(aborted_blocker.state(), BlockerState::Released);
+        assert_eq!(kept_blocker.state(), BlockerState::Pending);
+        assert_eq!(
+            fixture.events(),
+            [
+                (retimed.protocol_id(), EPOCH),
+                (retimed.protocol_id(), GRANT)
+            ]
+        );
+
+        // The older epoch on output 2 still orders after output 1's grant.
+        let later = fixture.tick(2, 21, PERIOD);
+        assert!(later.epoch < next.epoch);
+        assert!(newer(later, next));
+    }
+
+    #[test]
+    fn disarm_keeps_a_latched_grant_until_presentation() {
+        let mut fixture = Fixture::new();
+        let subscription = fixture.subscribe(1);
+        let latched = fixture.tick(1, 10, PERIOD);
+        fixture.manager.ready(latched);
+        let pending = fixture.tick(1, 11, PERIOD);
+
+        fixture.manager.set_active(&subscription, false);
+        assert!(fixture.manager.grants.contains_key(&latched));
+        assert!(!fixture.manager.grants.contains_key(&pending));
+
+        fixture.manager.presented(OutputId(1), 11);
+        assert!(fixture.manager.grants.is_empty());
+    }
+
+    #[test]
+    fn output_reset_spares_other_outputs() {
+        let mut fixture = Fixture::new();
+        fixture.subscribe(1);
+        let steady = fixture.subscribe(2);
+        let aborted = fixture.tick(1, 10, PERIOD);
+        let kept = fixture.tick(2, 20, PERIOD);
+        fixture.events();
+
+        fixture.manager.begin_new_epoch(OutputId(1));
+        assert!(!fixture.manager.grants.contains_key(&aborted));
+        assert!(fixture.holds(&steady, kept));
+
+        fixture.manager.reset();
+        assert!(fixture.manager.grants.is_empty());
+        assert!(fixture.events().contains(&(steady.protocol_id(), EPOCH)));
+    }
 
     #[test]
     fn acquire_before_deadline_settles_target_once() {
@@ -997,18 +1317,18 @@ mod tests {
         assert_eq!(blocker.state(), BlockerState::Pending);
         assert_eq!(blocker.release_if_on_time(now), Some(true));
         assert_eq!(blocker.state(), BlockerState::Released);
-        assert!(!blocker.cancel_if_pending());
+        assert!(!blocker.miss_if_pending());
         assert_eq!(blocker.release_if_on_time(now), None);
     }
 
     #[test]
-    fn acquire_at_or_after_deadline_cancels_target() {
+    fn acquire_at_or_after_deadline_misses_target() {
         let now = Instant::now();
         for acquired_at in [now, now + Duration::from_nanos(1)] {
             let blocker = FrameDeadlineBlocker::new(now, Arc::new(AtomicU64::new(7)), 7);
             assert_eq!(blocker.release_if_on_time(acquired_at), Some(false));
-            assert_eq!(blocker.state(), BlockerState::Cancelled);
-            assert!(!blocker.cancel_if_pending());
+            assert_eq!(blocker.state(), BlockerState::Released);
+            assert!(!blocker.miss_if_pending());
         }
     }
 
@@ -1018,22 +1338,22 @@ mod tests {
         let blocker =
             FrameDeadlineBlocker::new(now + Duration::from_secs(1), Arc::new(AtomicU64::new(7)), 7);
 
-        assert!(blocker.cancel_if_pending());
-        assert_eq!(blocker.state(), BlockerState::Cancelled);
+        assert!(blocker.miss_if_pending());
+        assert_eq!(blocker.state(), BlockerState::Released);
         assert_eq!(blocker.release_if_on_time(now), None);
     }
 
     #[test]
-    fn invalidated_epoch_cannot_release_target() {
+    fn invalidated_epoch_releases_without_readiness() {
         let now = Instant::now();
         let guard = Arc::new(AtomicU64::new(7));
         let blocker =
             FrameDeadlineBlocker::new(now + Duration::from_secs(1), Arc::clone(&guard), 7);
         guard.store(8, Ordering::Release);
 
-        assert_eq!(blocker.state(), BlockerState::Cancelled);
+        assert_eq!(blocker.state(), BlockerState::Released);
         assert_eq!(blocker.release_if_on_time(now), Some(false));
-        assert!(!blocker.cancel_if_pending());
+        assert!(!blocker.miss_if_pending());
     }
 
     #[test]

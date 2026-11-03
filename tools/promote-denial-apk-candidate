@@ -78,11 +78,11 @@ for expected in \
 done
 (
   cd "$CANDIDATE_PACKAGES"
-  sha256sum --check --strict SHA256SUMS
+  sha256sum --check --strict --quiet SHA256SUMS
 ) || fail 'candidate package checksums failed'
 (
   cd "$CANDIDATE_STAGE"
-  sha256sum --check --strict ALPINE-SHA256SUMS
+  sha256sum --check --strict --quiet ALPINE-SHA256SUMS
 ) || fail 'candidate Alpine payload checksums failed'
 
 mapfile -t native_metadata < <(
@@ -215,7 +215,7 @@ done
     find . -type f ! -name ALPINE-SHA256SUMS -print0 | sort -z
   )
   sha256sum -- "${stage_files[@]}" >ALPINE-SHA256SUMS
-  sha256sum --check --strict ALPINE-SHA256SUMS
+  sha256sum --check --strict --quiet ALPINE-SHA256SUMS
 )
 
 environment_evidence="$work_root/environment.txt"

@@ -11,9 +11,17 @@ import '../models/shell_power_status.dart';
 /// observed for changes. Unsupported locales fall back through Flutter's
 /// standard locale resolution, which currently selects English.
 class DenialLocalizationScope extends StatefulWidget {
-  const DenialLocalizationScope({required this.child, this.locale, super.key});
+  const DenialLocalizationScope({
+    required this.child,
+    this.locale,
+    this.twentyFourHourClock = true,
+    super.key,
+  });
 
   final Widget child;
+
+  /// Whether [localizedTime] writes 17:45 or 5:45 PM.
+  final bool twentyFourHourClock;
 
   /// An explicit locale for tests or a persisted user preference. When
   /// omitted, the scope follows the platform's ordered locale list.
@@ -84,11 +92,25 @@ class _DenialLocalizationScopeState extends State<DenialLocalizationScope>
       child: Builder(
         builder: (context) => Directionality(
           textDirection: WidgetsLocalizations.of(context).textDirection,
-          child: widget.child,
+          child: _ClockFormat(
+            twentyFourHour: widget.twentyFourHourClock,
+            child: widget.child,
+          ),
         ),
       ),
     );
   }
+}
+
+/// The clock's format under a [DenialLocalizationScope].
+class _ClockFormat extends InheritedWidget {
+  const _ClockFormat({required this.twentyFourHour, required super.child});
+
+  final bool twentyFourHour;
+
+  @override
+  bool updateShouldNotify(_ClockFormat oldWidget) =>
+      oldWidget.twentyFourHour != twentyFourHour;
 }
 
 extension DenialLocalizationsBuildContext on BuildContext {
@@ -116,9 +138,24 @@ String localizedLongDate(BuildContext context, DateTime value) {
 }
 
 String localizedTime(BuildContext context, DateTime value) {
-  return context.l10n.timeHoursMinutes(
-    value.hour.toString().padLeft(2, '0'),
-    value.minute.toString().padLeft(2, '0'),
+  final minute = value.minute.toString().padLeft(2, '0');
+  final twentyFourHour =
+      context
+          .dependOnInheritedWidgetOfExactType<_ClockFormat>()
+          ?.twentyFourHour ??
+      true;
+  if (twentyFourHour) {
+    return context.l10n.timeHoursMinutes(
+      value.hour.toString().padLeft(2, '0'),
+      minute,
+    );
+  }
+  final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+  final l10n = context.l10n;
+  return l10n.timeTwelveHour(
+    hour.toString(),
+    minute,
+    value.hour < 12 ? l10n.timeMorning : l10n.timeAfternoon,
   );
 }
 

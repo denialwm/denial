@@ -16,6 +16,8 @@ void main() {
     };
     File('${output.path}/dart_input_$label.denw').writeAsBytesSync(bytes);
   }
+  File('${output.path}/dart_input_edges.denw')
+      .writeAsBytesSync(_inputLayout(3, edgeSwipe: true));
   File('${output.path}/dart_system_bar.denw')
       .writeAsBytesSync(_systemBarConfiguration());
 }
@@ -35,7 +37,7 @@ List<int> _systemBarConfiguration() {
   ).toBytes('DENW');
 }
 
-List<int> _inputLayout(int count) {
+List<int> _inputLayout(int count, {bool edgeSwipe = false}) {
   final indexes = <int>[for (var index = 0; index < count; index += 1) index]
     ..sort((left, right) {
       final zOrder = (right % 5).compareTo(left % 5);
@@ -73,6 +75,28 @@ List<int> _inputLayout(int count) {
       ],
       visibleSurfaceIds: const <int>[],
       softwareKeyboardRegions: const <wire.WireRectObjectBuilder>[],
+      edgeSwipeRegions: <wire.EdgeSwipeRegionObjectBuilder>[
+        if (edgeSwipe) ...[
+          wire.EdgeSwipeRegionObjectBuilder(
+            rect: wire.WireRectObjectBuilder(
+              x: 0,
+              y: 48,
+              width: 24,
+              height: 1288.5,
+            ),
+            edge: wire.InputEdge.Left,
+          ),
+          wire.EdgeSwipeRegionObjectBuilder(
+            rect: wire.WireRectObjectBuilder(
+              x: 586.25,
+              y: 48,
+              width: 24,
+              height: 1288.5,
+            ),
+            edge: wire.InputEdge.Right,
+          ),
+        ],
+      ],
     ),
   ).toBytes('DENW');
 }
@@ -85,6 +109,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
     required this.windows,
     required this.visibleSurfaceIds,
     required this.softwareKeyboardRegions,
+    required this.edgeSwipeRegions,
   });
 
   final int epoch;
@@ -93,6 +118,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<wire.InputWindowRegionObjectBuilder> windows;
   final List<int> visibleSurfaceIds;
   final List<wire.WireRectObjectBuilder> softwareKeyboardRegions;
+  final List<wire.EdgeSwipeRegionObjectBuilder> edgeSwipeRegions;
 
   @override
   int finish(fb.Builder builder) {
@@ -106,13 +132,17 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       builder,
       softwareKeyboardRegions,
     );
-    builder.startTable(6);
+    final edgeSwipeRegionsOffset = edgeSwipeRegions.isEmpty
+        ? null
+        : _writeAlignedStructVector(builder, edgeSwipeRegions);
+    builder.startTable(edgeSwipeRegionsOffset == null ? 6 : 7);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
     builder.addOffset(2, shellRegionsOffset);
     builder.addOffset(3, windowsOffset);
     builder.addOffset(4, visibleSurfaceIdsOffset);
     builder.addOffset(5, softwareKeyboardRegionsOffset);
+    builder.addOffset(6, edgeSwipeRegionsOffset);
     return builder.endTable();
   }
 

@@ -696,20 +696,10 @@ impl<'a> ManagedWindow<'a> {
 
     /// Acknowledges Denial's common minimized visibility state. X11 remains
     /// mapped while minimized so its live Flutter texture cannot go stale.
-    pub(super) fn prepare_minimized(&self, minimized: bool) {
+    /// A window `covered` by the lock screen stays suspended when restored.
+    pub(super) fn prepare_minimized(&self, minimized: bool, covered: bool) {
         match self.protocol {
-            ManagedWindowProtocol::Xdg(toplevel) => {
-                let changed = toplevel.with_pending_state(|pending| {
-                    if minimized {
-                        pending.states.set(xdg_toplevel::State::Suspended)
-                    } else {
-                        pending.states.unset(xdg_toplevel::State::Suspended)
-                    }
-                });
-                if changed {
-                    toplevel.send_pending_configure();
-                }
-            }
+            ManagedWindowProtocol::Xdg(_) => self.prepare_suspended(minimized || covered),
             #[cfg(feature = "xwayland")]
             ManagedWindowProtocol::X11(surface) if !minimized => {
                 if let Err(error) = surface.set_hidden(false) {
@@ -718,6 +708,25 @@ impl<'a> ManagedWindow<'a> {
             }
             #[cfg(feature = "xwayland")]
             ManagedWindowProtocol::X11(_) => {}
+        }
+    }
+
+    /// Sets xdg `suspended`: the window cannot be seen. X11 has no such state.
+    pub(super) fn prepare_suspended(&self, suspended: bool) {
+        let toplevel = match self.protocol {
+            ManagedWindowProtocol::Xdg(toplevel) => toplevel,
+            #[cfg(feature = "xwayland")]
+            ManagedWindowProtocol::X11(_) => return,
+        };
+        let changed = toplevel.with_pending_state(|pending| {
+            if suspended {
+                pending.states.set(xdg_toplevel::State::Suspended)
+            } else {
+                pending.states.unset(xdg_toplevel::State::Suspended)
+            }
+        });
+        if changed {
+            toplevel.send_pending_configure();
         }
     }
 }

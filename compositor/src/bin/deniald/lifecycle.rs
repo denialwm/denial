@@ -64,8 +64,8 @@ impl TeardownGate {
 impl Default for LifecycleState {
     fn default() -> Self {
         Self {
-            // deniald refuses to acquire DRM unless libseat is active, so
-            // every runtime state starts from an active seat.
+            // deniald waits for libseat activation before it acquires DRM,
+            // so every runtime state starts from an active seat.
             seat_active: true,
             pause_pending: false,
             shutdown: None,

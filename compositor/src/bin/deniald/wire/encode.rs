@@ -309,30 +309,77 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_text_prediction(
+        &mut self,
+        prediction: &TextPrediction,
+    ) -> Result<&[u8], WireError> {
+        let strings = std::iter::once(&prediction.word)
+            .chain(&prediction.correction)
+            .chain(&prediction.suggestions)
+            .chain(&prediction.languages);
+        if prediction.suggestions.len() > MAX_PREDICTION_SUGGESTIONS
+            || prediction.languages.len() > 8
+            || strings
+                .into_iter()
+                .any(|value| value.len() > MAX_STRING_BYTES)
+        {
+            return Err(WireError::Payload);
+        }
+        let sequence = self.take_sequence();
+        let builder = &mut self.outbound_builder;
+        builder.reset();
+        let word = builder.create_string(&prediction.word);
+        let correction = prediction
+            .correction
+            .as_deref()
+            .map(|value| builder.create_string(value));
+        let suggestions: Vec<_> = prediction
+            .suggestions
+            .iter()
+            .map(|value| builder.create_string(value))
+            .collect();
+        let suggestions = builder.create_vector(&suggestions);
+        let languages: Vec<_> = prediction
+            .languages
+            .iter()
+            .map(|value| builder.create_string(value))
+            .collect();
+        let languages = builder.create_vector(&languages);
+        let payload = fb::TextPrediction::create(
+            builder,
+            &fb::TextPredictionArgs {
+                serial: prediction.serial,
+                word: Some(word),
+                correction,
+                suggestions: Some(suggestions),
+                languages: Some(languages),
+            },
+        );
+        let envelope = fb::Envelope::create(
+            builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence,
+                request_id: 0,
+                payload_type: fb::Payload::TextPrediction,
+                payload: Some(payload.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(builder, envelope);
+        validate_finished_message(builder)?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     pub fn encode_text_input_state(
         &mut self,
-        active: bool,
-        input_panel_visible: bool,
-        legacy: bool,
-        content_hint: u32,
-        content_purpose: u32,
-        activation_serial: u64,
+        state: SoftwareKeyboardState,
     ) -> Result<&[u8], WireError> {
-        if input_panel_visible && !active {
+        if state.input_panel_visible && !state.active {
             return Err(WireError::Payload);
         }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
-        encode_text_input_state(
-            &mut self.outbound_builder,
-            sequence,
-            active,
-            input_panel_visible,
-            legacy,
-            content_hint,
-            content_purpose,
-            activation_serial,
-        )?;
+        encode_text_input_state(&mut self.outbound_builder, sequence, state)?;
         Ok(self.outbound_builder.finished_data())
     }
 
@@ -401,14 +448,8 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             request_id,
-            fb::SettingsResponseKind::Document,
             revision,
-            document,
-            None,
-            &[],
-            0,
-            None,
-            None,
+            SettingsPayload::Document(document),
             error,
         )?;
         Ok(self.outbound_builder.finished_data())
@@ -418,12 +459,15 @@ impl WireBridge {
         &mut self,
         request_id: u64,
         revision: u64,
-        has_touchpad: bool,
-        touchpad: &TouchpadSettings,
-        has_mouse: bool,
-        mouse: &MouseSettings,
+        devices: InputDeviceSettings<'_>,
         error: Option<&str>,
     ) -> Result<&[u8], WireError> {
+        let InputDeviceSettings {
+            has_touchpad,
+            touchpad,
+            has_mouse,
+            mouse,
+        } = devices;
         if revision == 0 || error.is_some_and(|error| error.len() > MAX_STRING_BYTES) {
             return Err(WireError::Identity);
         }
@@ -440,7 +484,10 @@ impl WireBridge {
         );
         let mouse = fb::MouseConfiguration::create(
             &mut self.outbound_builder,
-            &fb::MouseConfigurationArgs { speed: mouse.speed },
+            &fb::MouseConfigurationArgs {
+                speed: mouse.speed,
+                acceleration_enabled: mouse.acceleration_enabled,
+            },
         );
         let input_devices = fb::InputDeviceCapabilities::create(
             &mut self.outbound_builder,
@@ -478,7 +525,6 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn encode_keyboard_settings_response(
         &mut self,
         request_id: u64,
@@ -502,14 +548,12 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             request_id,
-            fb::SettingsResponseKind::Keyboard,
             revision,
-            None,
-            Some(keyboard),
-            display_names,
-            active_layout,
-            None,
-            None,
+            SettingsPayload::Keyboard {
+                keyboard,
+                display_names,
+                active_layout,
+            },
             error,
         )?;
         Ok(self.outbound_builder.finished_data())
@@ -570,14 +614,12 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             request_id,
-            fb::SettingsResponseKind::Shortcuts,
             revision,
-            None,
-            None,
-            &[],
-            0,
-            Some((shortcuts, supported_inputs, plugin_actions)),
-            None,
+            SettingsPayload::Shortcuts {
+                bindings: shortcuts,
+                inputs: supported_inputs,
+                plugin_actions,
+            },
             error,
         )?;
         Ok(self.outbound_builder.finished_data())
@@ -598,14 +640,8 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             request_id,
-            fb::SettingsResponseKind::ShortcutValidation,
             revision,
-            None,
-            None,
-            &[],
-            0,
-            None,
-            Some(validation),
+            SettingsPayload::ShortcutValidation(validation),
             None,
         )?;
         Ok(self.outbound_builder.finished_data())
@@ -654,6 +690,18 @@ fn create_window_snapshot<'a>(
         let title = builder.create_string(&description.title);
         let app_id = builder.create_string(&description.app_id);
         let held = description.pet.and_then(|pet| pet.held);
+        let client_texture = description.client_texture.map(|texture| {
+            fb::ClientTexture::create(
+                builder,
+                &fb::ClientTextureArgs {
+                    texture_id: texture.texture_id,
+                    width: texture.width,
+                    height: texture.height,
+                    source_width: texture.source_width,
+                    source_height: texture.source_height,
+                },
+            )
+        });
         windows.push(fb::Window::create(
             builder,
             &fb::WindowArgs {
@@ -662,6 +710,7 @@ fn create_window_snapshot<'a>(
                 surface_id: description.surface_id,
                 window_id: description.window_id,
                 texture_id: description.texture_id,
+                client_texture,
                 title: Some(title),
                 app_id: Some(app_id),
                 width: description.width,
@@ -706,6 +755,7 @@ fn create_window_snapshot<'a>(
                 pet: description.pet.is_some(),
                 pet_holds: description.pet.map_or(0, |pet| pet.holds),
                 pet_dragged: description.pet.is_some_and(|pet| pet.dragged),
+                keyboard_inset: description.keyboard_inset,
                 ..Default::default()
             },
         ));
@@ -1076,13 +1126,16 @@ fn encode_cursor_position(
 fn encode_text_input_state(
     builder: &mut FlatBufferBuilder<'_>,
     sequence: u64,
-    active: bool,
-    input_panel_visible: bool,
-    legacy: bool,
-    content_hint: u32,
-    content_purpose: u32,
-    activation_serial: u64,
+    state: SoftwareKeyboardState,
 ) -> Result<(), WireError> {
+    let SoftwareKeyboardState {
+        active,
+        input_panel_visible,
+        legacy,
+        content_hint,
+        content_purpose,
+        activation_serial,
+    } = state;
     let state = fb::TextInputState::create(
         builder,
         &fb::TextInputStateArgs {
@@ -1108,28 +1161,71 @@ fn encode_text_input_state(
     validate_finished_message(builder)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The one section a settings response carries; it also names the kind.
+enum SettingsPayload<'a> {
+    Document(Option<&'a str>),
+    Keyboard {
+        keyboard: &'a KeyboardSettings,
+        display_names: &'a [String],
+        active_layout: usize,
+    },
+    Shortcuts {
+        bindings: &'a [ShortcutBinding],
+        inputs: &'a [ShortcutInputDefinition],
+        plugin_actions: &'a crate::plugin_actions::ActionCatalog,
+    },
+    ShortcutValidation(&'a ShortcutValidation),
+}
+
 fn encode_settings_response(
     builder: &mut FlatBufferBuilder<'_>,
     sequence: u64,
     request_id: u64,
-    kind: fb::SettingsResponseKind,
     revision: u64,
-    document: Option<&str>,
-    keyboard: Option<&KeyboardSettings>,
-    display_names: &[String],
-    active_layout: usize,
-    shortcut_configuration: Option<(
-        &[ShortcutBinding],
-        &[ShortcutInputDefinition],
-        &crate::plugin_actions::ActionCatalog,
-    )>,
-    shortcut_validation: Option<&ShortcutValidation>,
+    payload: SettingsPayload<'_>,
     error: Option<&str>,
 ) -> Result<(), WireError> {
+    let (kind, document, keyboard, shortcut_configuration, shortcut_validation) = match payload {
+        SettingsPayload::Document(document) => (
+            fb::SettingsResponseKind::Document,
+            document,
+            None,
+            None,
+            None,
+        ),
+        SettingsPayload::Keyboard {
+            keyboard,
+            display_names,
+            active_layout,
+        } => (
+            fb::SettingsResponseKind::Keyboard,
+            None,
+            Some((keyboard, display_names, active_layout)),
+            None,
+            None,
+        ),
+        SettingsPayload::Shortcuts {
+            bindings,
+            inputs,
+            plugin_actions,
+        } => (
+            fb::SettingsResponseKind::Shortcuts,
+            None,
+            None,
+            Some((bindings, inputs, plugin_actions)),
+            None,
+        ),
+        SettingsPayload::ShortcutValidation(validation) => (
+            fb::SettingsResponseKind::ShortcutValidation,
+            None,
+            None,
+            None,
+            Some(validation),
+        ),
+    };
     let document = document.map(|document| builder.create_string(document));
     let error = error.map(|error| builder.create_string(error));
-    let keyboard = keyboard.map(|keyboard| {
+    let keyboard = keyboard.map(|(keyboard, display_names, active_layout)| {
         let mut layouts = Vec::with_capacity(keyboard.layouts.len());
         for (layout, display_name) in keyboard.layouts.iter().zip(display_names) {
             let name = builder.create_string(&layout.layout);
@@ -1560,6 +1656,23 @@ fn encode_notification<'a>(
     let image_path = builder.create_string(&notification.image_path);
     let sound_name = builder.create_string(&notification.sound_name);
     let sound_file = builder.create_string(&notification.sound_file);
+    let group_key = builder.create_string(&notification.group_key);
+    let message_offsets = notification
+        .messages
+        .iter()
+        .map(|message| {
+            let sender = builder.create_string(&message.sender);
+            let text = builder.create_string(&message.text);
+            fb::DesktopNotificationMessage::create(
+                builder,
+                &fb::DesktopNotificationMessageArgs {
+                    sender: Some(sender),
+                    text: Some(text),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let messages = builder.create_vector(&message_offsets);
     let urgency = match notification.urgency {
         NotificationUrgency::Low => fb::DesktopNotificationUrgency::Low,
         NotificationUrgency::Normal => fb::DesktopNotificationUrgency::Normal,
@@ -1592,6 +1705,12 @@ fn encode_notification<'a>(
             progress: notification.progress,
             has_progress: notification.has_progress,
             expire_timeout_ms: notification.expire_timeout_ms,
+            alert: notification.alert,
+            group_key: Some(group_key),
+            group_summary: notification.group_summary,
+            time_ms: notification.time_ms,
+            messages: Some(messages),
+            clearable: notification.clearable,
         },
     )
 }

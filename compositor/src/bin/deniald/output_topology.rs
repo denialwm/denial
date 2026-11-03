@@ -46,7 +46,7 @@ pub(super) struct RuntimeOutputConfiguration {
     pub(super) scales_120: BTreeMap<String, u32>,
     pub(super) transforms: BTreeMap<String, OutputTransform>,
     pub(super) scrolling_layout_axes: BTreeMap<String, ScrollingLayoutAxis>,
-    /// Transient device rotation from iio-sensor-proxy. `transforms` remains
+    /// Transient device rotation from steinerd. `transforms` remains
     /// the persistent panel-mount baseline.
     pub(super) sensor_rotation: OutputTransform,
     pub(super) vrr_outputs: BTreeSet<String>,
@@ -134,7 +134,7 @@ impl RuntimeOutputConfiguration {
     }
 }
 
-fn orientation_sensor_output(name: &str) -> bool {
+pub(super) fn orientation_sensor_output(name: &str) -> bool {
     output_policy::is_internal_panel(name)
 }
 
@@ -278,6 +278,16 @@ pub(super) fn configured_outputs(
                 "connected KMS output"
             );
             let transform = configuration.effective_transform(&name);
+            let (width, height) = mode.size();
+            let default_scale_120 =
+                default_scale_120(&connector.info, (width.into(), height.into()));
+            if default_scale_120 != SCALE_BASE && !configuration.scales_120.contains_key(&name) {
+                info!(
+                    output = name,
+                    scale = f64::from(default_scale_120) / f64::from(SCALE_BASE),
+                    "scaling handheld panel by its pixel density"
+                );
+            }
             Ok(ConnectedOutput {
                 id: OutputId(u64::from(u32::from(connector.info.handle()))),
                 name,
@@ -286,6 +296,7 @@ pub(super) fn configured_outputs(
                 mode,
                 transform,
                 vrr_enabled,
+                default_scale_120,
             })
         })
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
@@ -320,10 +331,6 @@ pub(super) fn output_control_state(
         let scanout = scanouts.iter().find(|scanout| scanout.output.id == id);
         let spec = snapshot.outputs.iter().find(|output| output.id == id);
         let enabled = scanout.is_some();
-        let scale_120 = spec
-            .map(|output| output.scale_120)
-            .or_else(|| configuration.scales_120.get(&name).copied())
-            .unwrap_or(SCALE_BASE);
         let transform = spec
             .map(|output| output.transform)
             .unwrap_or_else(|| configuration.effective_transform(&name));
@@ -335,6 +342,14 @@ pub(super) fn output_control_state(
                 .and_then(|mode| output_control_mode(&connector.info, mode))
                 .or_else(|| modes.first().copied())
         });
+        let scale_120 = spec
+            .map(|output| output.scale_120)
+            .or_else(|| configuration.scales_120.get(&name).copied())
+            .unwrap_or_else(|| {
+                fallback_mode.map_or(SCALE_BASE, |mode| {
+                    default_scale_120(&connector.info, (mode.width, mode.height))
+                })
+            });
         let (logical_width, logical_height) = fallback_mode.map_or((0, 0), |mode| {
             logical_size_for_control(mode, scale_120, transform)
         });
@@ -462,6 +477,39 @@ fn output_control_mode(
                 && candidate.mode_type().contains(ModeTypeFlags::PREFERRED)
         }),
     })
+}
+
+/// Logical pixels per inch on handheld panels: the density the mobile shell and
+/// desktop clients were tuned at (scale 2 on the 450 ppi Ace 3 and Edge 70), so
+/// layouts keep one physical size on every panel.
+const HANDHELD_LOGICAL_PPI: f64 = 225.0;
+/// Density scales are rounded to quarter steps, which keeps sizes within a few
+/// percent and lands common panels on integer scales clients need not resample.
+const DENSITY_SCALE_STEP_120: f64 = 30.0;
+
+/// The scale of an output whose configuration names none. A built-in DSI panel
+/// that reports its size is scaled to `HANDHELD_LOGICAL_PPI`; other outputs,
+/// and panels reporting no plausible size, keep the unscaled default.
+fn default_scale_120(info: &connector::Info, (width, height): (u32, u32)) -> u32 {
+    let Some((width_mm, height_mm)) = info.size() else {
+        return SCALE_BASE;
+    };
+    if info.interface() != connector::Interface::DSI || width_mm == 0 || height_mm == 0 {
+        return SCALE_BASE;
+    }
+    density_scale_120(
+        f64::from(width).hypot(f64::from(height)),
+        f64::from(width_mm).hypot(f64::from(height_mm)),
+    )
+}
+
+fn density_scale_120(diagonal_pixels: f64, diagonal_mm: f64) -> u32 {
+    let pixels_per_inch = diagonal_pixels / diagonal_mm * 25.4;
+    if !(HANDHELD_LOGICAL_PPI..=2000.0).contains(&pixels_per_inch) {
+        return SCALE_BASE;
+    }
+    let scale_120 = pixels_per_inch / HANDHELD_LOGICAL_PPI * f64::from(SCALE_BASE);
+    ((scale_120 / DENSITY_SCALE_STEP_120).round() * DENSITY_SCALE_STEP_120) as u32
 }
 
 #[cfg(feature = "flutter")]
@@ -887,7 +935,7 @@ fn output_specs(
             .scales_120
             .get(&output.name)
             .copied()
-            .unwrap_or(SCALE_BASE);
+            .unwrap_or(output.default_scale_120);
         pending.push((
             OutputSpec {
                 id: output.id,
@@ -994,6 +1042,20 @@ mod tests {
             refresh_millihz: 60_000,
             transform: OutputTransform::Normal,
         }
+    }
+
+    #[test]
+    fn handheld_panels_scale_to_the_tuned_density_in_quarter_steps() {
+        let scale = |pixels: (f64, f64), mm: (f64, f64)| {
+            density_scale_120(pixels.0.hypot(pixels.1), mm.0.hypot(mm.1))
+        };
+        // OnePlus Ace 3, Motorola Edge 70, OnePlus Pad 4.
+        assert_eq!(scale((1264.0, 2780.0), (71.0, 157.0)), 240);
+        assert_eq!(scale((1220.0, 2712.0), (69.0, 154.0)), 240);
+        assert_eq!(scale((3392.0, 2400.0), (274.0, 193.0)), 180);
+        // Below 225 ppi, or an implausible size, stays unscaled.
+        assert_eq!(scale((1920.0, 1080.0), (344.0, 194.0)), SCALE_BASE);
+        assert_eq!(scale((1264.0, 2780.0), (1.0, 1.0)), SCALE_BASE);
     }
 
     #[test]

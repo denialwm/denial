@@ -3,6 +3,8 @@
 /// Obtain the existing bridge through denialBridgeProvider in state.dart.
 library;
 
+export 'src/platform/bridge/input_deck_client.dart' show InputDeckSnapshot;
+
 export 'src/platform/authentication_protocol.dart'
     show AuthenticationPromptStyle;
 export 'src/platform/denial_bridge.dart'
@@ -17,4 +19,5 @@ export 'src/platform/denial_bridge_models.dart'
         DenialShellAction,
         DenialShellActionEvent,
         DenialSoftwareDimmingState,
-        DenialTextInputState;
+        DenialTextInputState,
+        DenialTextPrediction;

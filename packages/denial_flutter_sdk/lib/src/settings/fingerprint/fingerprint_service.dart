@@ -6,8 +6,6 @@ import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/utf8_size.dart';
-
 /// Discovery never queries enrolled fingerprints or claims the reader.
 final fingerprintDeviceProvider = StreamProvider.autoDispose<bool>((
   ref,
@@ -65,34 +63,34 @@ final fingerprintSessionProvider =
     });
 
 /// A private sudo process owns the authorization and all enrollment commands.
-/// Passwords travel only through stdin, never argv, environment, or logs.
+/// The lock PIN opens it; sudo's rule for that one command asks no password.
+/// The PIN travels only through stdin, never argv, environment, or logs.
 class FingerprintSettingsSession extends ChangeNotifier {
   bool authorized = false;
   bool authenticating = false;
   bool enrolling = false;
+  int retryMilliseconds = 0;
   List<String> fingers = const [];
   String? status;
   int completed = 0;
   int total = 1;
   Process? _process;
-  String? _password;
+  String? _pin;
   Timer? _authenticationTimeout;
   bool _disposed = false;
   int _generation = 0;
 
-  Future<void> authenticate(String password) async {
+  Future<void> authenticate(String pin) async {
     if (_disposed || authenticating || authorized) return;
-    if (password.isEmpty ||
-        !fitsUtf8ByteLimit(password, 4000) ||
-        password.contains(RegExp(r'[\n\r\x00]'))) {
-      status = 'authentication-failed';
+    if (!RegExp(r'^[0-9]{4,12}$').hasMatch(pin)) {
+      status = 'wrong-pin';
       notifyListeners();
       return;
     }
     final generation = ++_generation;
     authenticating = true;
     status = null;
-    _password = password;
+    _pin = pin;
     notifyListeners();
     try {
       final process = await Process.start(
@@ -100,10 +98,7 @@ class FingerprintSettingsSession extends ChangeNotifier {
             ? Platform.environment['DENIAL_PRIVILEGE_TOOL']!.trim()
             : 'sudo',
         [
-          '-S',
-          '-k',
-          '-p',
-          'DENIAL_SETTINGS_PASSWORD:',
+          '-n',
           '--',
           Platform.environment['DENIAL_COMPOSITOR_BINARY']?.trim().isNotEmpty ==
                   true
@@ -121,28 +116,9 @@ class FingerprintSettingsSession extends ChangeNotifier {
       _process = process;
       _authenticationTimeout = Timer(
         const Duration(seconds: 25),
-        () => _fail('authentication-failed', generation),
+        () => _fail('unavailable', generation),
       );
-      var prompts = 0;
-      var stderr = '';
-      process.stderr.transform(utf8.decoder).listen((chunk) {
-        if (_disposed || generation != _generation) return;
-        stderr = '$stderr$chunk';
-        while (stderr.contains('DENIAL_SETTINGS_PASSWORD:')) {
-          stderr = stderr.substring(
-            stderr.indexOf('DENIAL_SETTINGS_PASSWORD:') +
-                'DENIAL_SETTINGS_PASSWORD:'.length,
-          );
-          if (++prompts > 1 || _password == null) {
-            _fail('authentication-failed', generation);
-            return;
-          }
-          _sendPassword();
-        }
-        if (stderr.length > 4096) {
-          stderr = stderr.substring(stderr.length - 4096);
-        }
-      });
+      process.stderr.drain<void>();
       process.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
@@ -157,10 +133,7 @@ class FingerprintSettingsSession extends ChangeNotifier {
       unawaited(
         process.exitCode.then((_) {
           if (!_disposed && generation == _generation) {
-            _fail(
-              authorized ? 'expired' : (status ?? 'authentication-failed'),
-              generation,
-            );
+            _fail(authorized ? 'expired' : 'unavailable', generation);
           }
         }),
       );
@@ -169,19 +142,16 @@ class FingerprintSettingsSession extends ChangeNotifier {
     }
   }
 
-  void _sendPassword() {
-    final password = _password;
-    if (password != null) _process?.stdin.writeln(password);
-  }
-
   @visibleForTesting
   void handleEvent(Map<String, Object?> event) {
     switch (event['event']) {
-      case 'password':
-        _sendPassword();
+      case 'pin':
+        final pin = _pin;
+        _pin = null;
+        if (pin != null) _process?.stdin.writeln(pin);
       case 'ready':
         if (!authenticating && !authorized) return;
-        _password = null;
+        _pin = null;
         _authenticationTimeout?.cancel();
         authenticating = false;
         authorized = true;
@@ -191,8 +161,15 @@ class FingerprintSettingsSession extends ChangeNotifier {
             fingerprintNames.contains,
           ),
         );
-      case 'authentication-failed':
-        _fail('authentication-failed', _generation);
+      case 'wrong-pin' || 'pin-not-configured':
+        _fail(event['event']! as String, _generation);
+        return;
+      case 'rate-limited':
+        retryMilliseconds = (event['retry_ms'] as int? ?? 0).clamp(
+          0,
+          2147483647,
+        );
+        _fail('rate-limited', _generation);
         return;
       case 'unavailable':
         _fail('unavailable', _generation);
@@ -217,6 +194,10 @@ class FingerprintSettingsSession extends ChangeNotifier {
       case 'error':
         if (!authorized) return;
         status = event['code'] as String? ?? 'unavailable';
+        retryMilliseconds = (event['retry_ms'] as int? ?? 0).clamp(
+          0,
+          2147483647,
+        );
         enrolling = false;
       default:
         return;
@@ -250,7 +231,7 @@ class FingerprintSettingsSession extends ChangeNotifier {
   void _fail(String message, int generation) {
     if (_disposed || generation != _generation) return;
     _generation++;
-    _password = null;
+    _pin = null;
     _authenticationTimeout?.cancel();
     final process = _process;
     _process = null;
@@ -287,7 +268,7 @@ class FingerprintSettingsSession extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _generation++;
-    _password = null;
+    _pin = null;
     _authenticationTimeout?.cancel();
     final process = _process;
     if (process != null) {

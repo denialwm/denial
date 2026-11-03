@@ -6,8 +6,9 @@ import 'package:flutter/widgets.dart';
 
 import 'package:denial_flutter_sdk/rendering.dart';
 
-// Launcher3 Quickstep's overview_max_scale and overview_page_spacing.
-const double overviewMaxScale = 0.7;
+// Launcher3 Quickstep's overview_page_spacing. Its overview_max_scale is 0.7;
+// Denial's recents previews are 10% smaller, leaving room for their labels.
+const double overviewMaxScale = 0.63;
 const double overviewPageSpacing = 16.0;
 const double _singlePreviewWidthFraction = 0.66;
 const double _singlePreviewMaxWidth = 840.0;

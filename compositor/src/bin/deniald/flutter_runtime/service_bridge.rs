@@ -36,6 +36,24 @@ impl FlutterRuntime {
         self.wire.drain_keyboard_commands()
     }
 
+    pub fn take_text_prediction_request(&mut self) -> Option<wire::TextPredictionRequest> {
+        self.wire.take_text_prediction_request()
+    }
+
+    pub fn send_text_prediction(
+        &mut self,
+        prediction: &wire::TextPrediction,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let update = self.wire.encode_text_prediction(prediction)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        Ok(())
+    }
+
     pub fn take_text_input_state(&mut self) -> Option<(u64, TextInputSnapshot)> {
         self.text_input
             .take_state_change()
@@ -164,8 +182,19 @@ impl FlutterRuntime {
         self.pending_idle_policy.take()
     }
 
-    pub fn take_dpms_off_requested(&mut self) -> bool {
-        std::mem::take(&mut self.pending_dpms_off)
+    pub fn take_display_power_request(&mut self) -> Option<idle_policy::DisplayPowerRequest> {
+        self.pending_display_power.take()
+    }
+
+    pub fn take_ambient_display_ready(&mut self) -> bool {
+        std::mem::take(&mut self.pending_ambient_display_ready)
+    }
+
+    pub fn send_ambient_display(&mut self, command: u8) -> Result<(), Box<dyn Error>> {
+        self.host()
+            .engine()
+            .send_platform_message(ambient_display::CHANNEL, &[command])?;
+        Ok(())
     }
 
     pub fn take_mouse_cursor_request(&mut self) -> Option<&'static str> {
@@ -273,10 +302,7 @@ impl FlutterRuntime {
         if self.screenshot_texture_id != Some(texture_id) {
             return Err("screenshot texture identity does not match the active texture".into());
         }
-        self.host()
-            .engine()
-            .unregister_external_texture(texture_id)?;
-        self.handler.remove_external_texture_source(texture_id);
+        self.unregister_external_texture(texture_id)?;
         self.pending_frame_texture_ids
             .retain(|pending| *pending != texture_id);
         self.registered_external_textures.remove(&texture_id);
@@ -315,21 +341,8 @@ impl FlutterRuntime {
 
     pub fn publish_text_input_state(
         &mut self,
-        active: bool,
-        input_panel_visible: bool,
-        legacy: bool,
-        content_hint: u32,
-        content_purpose: u32,
-        activation_serial: u64,
+        state: crate::wayland_frontend::SoftwareKeyboardState,
     ) -> Result<(), Box<dyn Error>> {
-        let state = (
-            active,
-            input_panel_visible,
-            legacy,
-            content_hint,
-            content_purpose,
-            activation_serial,
-        );
         if self.published_text_input_state == Some(state) {
             return Ok(());
         }
@@ -338,14 +351,7 @@ impl FlutterRuntime {
             .as_ref()
             .expect("Flutter runtime is shutting down")
             .engine();
-        let update = self.wire.encode_text_input_state(
-            active,
-            input_panel_visible,
-            legacy,
-            content_hint,
-            content_purpose,
-            activation_serial,
-        )?;
+        let update = self.wire.encode_text_input_state(state)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         self.published_text_input_state = Some(state);
         Ok(())
@@ -402,10 +408,7 @@ impl FlutterRuntime {
         &mut self,
         request_id: u64,
         revision: u64,
-        has_touchpad: bool,
-        touchpad: &crate::settings::TouchpadSettings,
-        has_mouse: bool,
-        mouse: &crate::settings::MouseSettings,
+        devices: wire::InputDeviceSettings<'_>,
         error: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         let engine = self
@@ -413,15 +416,9 @@ impl FlutterRuntime {
             .as_ref()
             .expect("Flutter runtime is shutting down")
             .engine();
-        let response = self.wire.encode_input_device_capabilities_response(
-            request_id,
-            revision,
-            has_touchpad,
-            touchpad,
-            has_mouse,
-            mouse,
-            error,
-        )?;
+        let response = self
+            .wire
+            .encode_input_device_capabilities_response(request_id, revision, devices, error)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
         Ok(())
     }
@@ -658,6 +655,19 @@ impl FlutterRuntime {
             .engine()
             .send_platform_message(crate::clipboard::STATE_CHANNEL, &packet)?;
         self.published_clipboard_revision = revision;
+        Ok(())
+    }
+}
+
+impl FlutterRuntime {
+    pub(crate) fn publish_input_deck(
+        &self,
+        snapshot: &crate::input_deck::Snapshot,
+    ) -> Result<(), Box<dyn Error>> {
+        self.host().engine().send_platform_message(
+            crate::input_deck::STATE_CHANNEL,
+            &serde_json::to_vec(snapshot)?,
+        )?;
         Ok(())
     }
 }

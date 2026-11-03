@@ -1255,14 +1255,19 @@ prepare_app_build() {
   install -m 0755 -- \
     "$output/libflutter_engine.so" \
     "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so"
-  if ((LOCAL_ENGINE)); then
+  # Built from the local trees, the engine keeps its own checksum even when
+  # they match the lock: the development plugin kit attests it.
+  if ((LOCAL_SOURCES)); then
     printf '%s  libflutter_engine.so\n' \
       "$(file_sha256 "$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so")" \
       >"$local_sha256"
+  else
+    rm -f -- "$local_sha256"
+  fi
+  if ((LOCAL_ENGINE)); then
     printf 'Staged the local %s release engine (Flutter %.12s, Skia %.12s) for the application bundle.\n' \
       "$DENIAL_FLUTTER_PLATFORM" "$LOCAL_FLUTTER_STATE" "$LOCAL_SKIA_STATE"
   else
-    rm -f -- "$local_sha256"
     printf 'Staged native %s release engine for the application bundle.\n' \
       "$DENIAL_FLUTTER_PLATFORM"
   fi

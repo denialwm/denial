@@ -9,9 +9,13 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/environment.dart';
+import 'package:denial_flutter_sdk/input.dart';
 
 import '../desktop/desktop_input_layout_publisher.dart';
+import '../diagnostics/desktop_benchmark_binding.dart';
 import '../desktop/desktop_pet_holds.dart';
+import '../features/mobile/mobile_system_overlay_layer.dart';
+import '../state/phone_desk.dart';
 
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/settings.dart';
@@ -20,17 +24,21 @@ import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import '../widgets/input_layout_publisher.dart';
+import '../widgets/mobile_screenshot_flash.dart';
+import '../widgets/mobile_volume_hud.dart';
 import '../widgets/low_battery_notification_binding.dart';
 
 import 'package:denial_flutter_sdk/rendering.dart';
 
 import '../widgets/edge_panel_layer.dart';
+import '../widgets/input_deck/input_deck_layer.dart';
 import '../widgets/screenshot_selection_layer.dart';
 
 import 'package:denial_flutter_sdk/shell.dart';
 
 import 'shell_runtime_bindings.dart';
 import 'shell_secure_stage.dart';
+import '../widgets/lock/lock_screen_layer.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -66,11 +74,17 @@ class DenialShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(referenceShellProfileProvider);
     final displayLayout = ref.watch(displayLayoutProvider);
-    final effectiveProfile = (displayLayout?.outputs.length ?? 0) > 1
+    // A phone with a monitor keeps the mobile shell on its panel and runs the
+    // desktop shell on the monitor. Several outputs without a built-in panel
+    // run the desktop shell on all of them.
+    final split = ref.watch(phoneDeskProvider);
+    final forceDesktop =
+        split == null && (displayLayout?.outputs.length ?? 0) > 1;
+    final effectiveProfile = forceDesktop
         ? ReferenceShellProfile.desktop
         : profile;
     final selectedPresentation = ref.watch(referenceShellPresentationProvider);
-    final effectivePresentation = (displayLayout?.outputs.length ?? 0) > 1
+    final effectivePresentation = forceDesktop
         ? ReferenceShellProfile.desktop
         : selectedPresentation;
     final presentation = ref.watch(
@@ -79,6 +93,7 @@ class DenialShell extends ConsumerWidget {
           appearance: settings.appearance,
           animationDurationScale: settings.animations.durationScale,
           locale: settings.localization.localeOverride,
+          twentyFourHourClock: settings.localization.twentyFourHourClock,
         ),
       ),
     );
@@ -121,13 +136,18 @@ class DenialShell extends ConsumerWidget {
         (session) => session?.hidesCursor ?? false,
       ),
     );
-    final scene = _ProfileScene(
-      profile: effectivePresentation,
-      policyProfile: effectiveProfile,
-      scene: effectivePresentation == ReferenceShellProfile.mobile
-          ? mobile
-          : desktop,
-    );
+    final scene = effectivePresentation == ReferenceShellProfile.mobile
+        ? _PhoneDeskScene(
+            split: split,
+            policyProfile: effectiveProfile,
+            mobile: mobile,
+            desktop: desktop,
+          )
+        : _ProfileScene(
+            profile: effectivePresentation,
+            policyProfile: effectiveProfile,
+            scene: desktop,
+          );
     final fingerprint = ref.watch(fingerprintSceneProvider);
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.locked),
@@ -137,7 +157,9 @@ class DenialShell extends ConsumerWidget {
       locked: locked,
       onLaidOut: ref.read(fingerprintSceneProvider.notifier).laidOut,
       child: ShellCursorHost(
-        theme: effectivePresentation == ReferenceShellProfile.desktop
+        theme:
+            effectivePresentation == ReferenceShellProfile.desktop ||
+                split != null
             ? cursorTheme
             : ShellCursorThemes.bibataModernIce,
         platformCursorShapes: bridge.cursorShapes,
@@ -157,7 +179,10 @@ class DenialShell extends ConsumerWidget {
 
     return ShellRuntimeBindings(
       mobilePresentation: effectivePresentation == ReferenceShellProfile.mobile,
-      workArea: effectivePresentation == ReferenceShellProfile.desktop
+      deskBeside: split != null,
+      workArea:
+          effectivePresentation == ReferenceShellProfile.desktop ||
+              split != null
           ? desktopWorkArea
           : null,
       pairingSurfaceBuilder: pairingSurfaceBuilder,
@@ -169,14 +194,101 @@ class DenialShell extends ConsumerWidget {
         ),
         child: DenialLocalizationScope(
           locale: presentation.locale,
+          twentyFourHourClock: presentation.twentyFourHourClock,
           child: LowBatteryNotificationBinding(
             child: _ShellEnvironment(
               profile: effectivePresentation,
-              child: content,
+              child: DesktopBenchmarkBinding(child: content),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The mobile presentation: the mobile shell on the phone's panel and, while
+/// a monitor is plugged in, the desktop shell on the monitor beneath it. The
+/// phone's part keeps its place in the tree, so plugging a monitor in or out
+/// leaves the phone's state alone.
+class _PhoneDeskScene extends ConsumerWidget {
+  const _PhoneDeskScene({
+    required this.split,
+    required this.policyProfile,
+    required this.mobile,
+    required this.desktop,
+  });
+
+  final PhoneDeskLayout? split;
+  final ReferenceShellProfile policyProfile;
+  final DenialShellScene mobile;
+  final DenialShellScene desktop;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final split = this.split;
+    final active = ref.read(activeShellPartProvider.notifier);
+    final monitorCornerRadiusScale = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.appearance.monitorCornerRadiusScale,
+      ),
+    );
+    Widget part(ShellPart part, Widget child) => Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => active.note(part),
+      child: ShellPartScope(part: part, child: child),
+    );
+    final phoneRect = split?.phoneRect;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (split != null)
+          KeyedSubtree(
+            key: const ValueKey(ShellPart.desk),
+            child: part(
+              ShellPart.desk,
+              // The desk keeps its own corners; the phone's are tuned for the
+              // mobile shell.
+              ShellTheme(
+                data: ShellTheme.of(context)
+                    .copyWith(cornerRadiusScale: monitorCornerRadiusScale),
+                child: _ProfileScene(
+                  profile: ReferenceShellProfile.desktop,
+                  policyProfile: policyProfile,
+                  scene: desktop,
+                  besidePhone: true,
+                ),
+              ),
+            ),
+          ),
+        Positioned.fromRect(
+          key: const ValueKey(ShellPart.phone),
+          rect: phoneRect ?? Offset.zero & MediaQuery.sizeOf(context),
+          // Beside a desk, what the phone draws past its edges (recents
+          // cards, apps sliding in and out) must not land on the desk.
+          child: ClipRect(
+            clipBehavior: split == null ? Clip.none : Clip.hardEdge,
+            child: part(
+              split == null ? ShellPart.whole : ShellPart.phone,
+              // Nor does its input: a full-scene capture on the phone, such
+              // as its dark always-on picture, leaves the desk its pointer.
+              ShellInputClip(
+                bounds: phoneRect,
+                child: MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: phoneRect?.size ?? MediaQuery.sizeOf(context),
+                  ),
+                  child: _ProfileScene(
+                    profile: ReferenceShellProfile.mobile,
+                    policyProfile: policyProfile,
+                    scene: mobile,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -186,11 +298,16 @@ class _ProfileScene extends StatelessWidget {
     required this.profile,
     required this.policyProfile,
     required this.scene,
+    this.besidePhone = false,
   });
 
   final ReferenceShellProfile profile;
   final ReferenceShellProfile policyProfile;
   final DenialShellScene scene;
+
+  /// The desktop shell runs on a monitor beside the phone, which owns the
+  /// software keyboard.
+  final bool besidePhone;
 
   @override
   Widget build(BuildContext context) {
@@ -210,13 +327,22 @@ class _ProfileScene extends StatelessWidget {
                 chrome: scene.chrome,
               ),
             ),
-            if (policyProfile == ReferenceShellProfile.mobile)
-              const MobileSystemKeyboardLayer(),
+            const MobileSystemOverlayLayer(),
+            const SystemKeyboardLayer(),
+            // Over everything on the phone, like the lock screen it comes
+            // from.
+            const UnlockedAmbientDisplay(),
+            // Volume shows over the lock screen too, as on any phone.
+            const MobileVolumeHud(),
+            // Above everything, the lock screen included.
+            const MobileScreenshotFlash(),
           ],
         ),
       ),
       ReferenceShellProfile.desktop => DesktopInputLayoutPublisher(
-        softwareKeyboardEnabled: policyProfile == ReferenceShellProfile.mobile,
+        // The startup profile controls automatic pop-up, not access to the
+        // manual edge gesture. Desktop-first touch devices need it too.
+        softwareKeyboardEnabled: !besidePhone,
         child: DesktopPetHoldPublisher(
           child: Stack(
             fit: StackFit.expand,
@@ -239,12 +365,12 @@ class _ProfileScene extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const InputDeckLayer(),
                     const ScreenshotSelectionLayer(),
                   ],
                 ),
               ),
-              if (policyProfile == ReferenceShellProfile.mobile)
-                const MobileSystemKeyboardLayer(),
+              if (!besidePhone) const SystemKeyboardLayer(),
             ],
           ),
         ),

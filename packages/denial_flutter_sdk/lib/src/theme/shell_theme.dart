@@ -159,6 +159,17 @@ class ShellThemeData {
     singleWindowSurface: singleWindowSurface,
   );
 
+  /// The frost alone of the window material: the blur that
+  /// [backdropFilterConfigAt] applies before any glass shading. A backdrop
+  /// frosted once with it can be shared by translucent windows, each shading
+  /// its part with [windowGlassShading].
+  ImageFilterConfig get windowFrostConfig => _resolution.windowFrostConfig;
+
+  /// The full-strength window glass without its frost, for a backdrop
+  /// already frosted with [windowFrostConfig]. Null unless the mode is glass:
+  /// the blur material is its frost alone.
+  WindowGlassShading? get windowGlassShading => _resolution.windowGlassShading;
+
   Brightness get brightness => colors.brightness;
 
   /// Semantic text roles resolved once for this immutable theme value.
@@ -483,32 +494,12 @@ class _ShellThemeResolution {
           ? theme.backdropBlurOpacityThreshold.clamp(0.0, 1.0).toDouble()
           : null;
       if (theme.transparencyMode == ShellTransparencyMode.glass) {
-        final glass = theme.glass;
-        return ImageFilterConfig.glass(
-          sigmaX: glass.blurSigma * materialStrength,
-          sigmaY: glass.blurSigma * materialStrength,
-          topLeft: borderRadius.topLeft,
-          topRight: borderRadius.topRight,
-          bottomRight: borderRadius.bottomRight,
-          bottomLeft: borderRadius.bottomLeft,
-          downsampleScale: glass.quality,
-          thickness: glass.thickness,
-          refraction: glass.refraction * materialStrength,
-          dispersion: glass.dispersion,
-          saturation: 1 + (glass.saturation - 1) * materialStrength,
-          tint: accentPalette.primary,
-          tintStrength: glass.tintStrength * materialStrength,
-          brightness: glass.brightness * materialStrength,
-          lightAngle: glass.lightAngle * math.pi / 180,
-          lightIntensity: glass.lightIntensity * materialStrength,
-          edgeStrength: glass.edgeStrength * materialStrength,
-          bevelWidthScale: glass.bevelWidthScale,
-          refractionDepthScale: glass.refractionDepthScale,
-          rimWidth: glass.rimWidth,
-          rimFalloff: glass.rimFalloff,
-          oppositeLightStrength: glass.oppositeLightStrength,
-          backdropAlphaThreshold: threshold,
-          backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
+        return _glassConfig(
+          materialStrength,
+          sigma: theme.glass.blurSigma * materialStrength,
+          borderRadius: borderRadius,
+          threshold: threshold,
+          singleWindowSurface: singleWindowSurface,
         );
       }
       return ImageFilterConfig.blur(
@@ -520,6 +511,78 @@ class _ShellThemeResolution {
         backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
       );
     });
+  }
+
+  late final ImageFilterConfig windowFrostConfig =
+      theme.transparencyMode == ShellTransparencyMode.glass
+      ? ImageFilterConfig.blur(
+          sigmaX: theme.glass.blurSigma,
+          sigmaY: theme.glass.blurSigma,
+          tileMode: ui.TileMode.clamp,
+          downsampleScale: theme.glass.quality,
+        )
+      : ImageFilterConfig.blur(
+          sigmaX: theme.backdropBlurSigma,
+          sigmaY: theme.backdropBlurSigma,
+          tileMode: ui.TileMode.clamp,
+          downsampleScale: theme.backdropBlurDownsampleScale,
+        );
+
+  late final WindowGlassShading? windowGlassShading =
+      theme.transparencyMode == ShellTransparencyMode.glass
+      ? WindowGlassShading(
+          thickness: theme.glass.thickness,
+          refraction: theme.glass.refraction,
+          dispersion: theme.glass.dispersion,
+          saturation: theme.glass.saturation,
+          tint: accentPalette.primary,
+          tintStrength: theme.glass.tintStrength,
+          brightness: theme.glass.brightness,
+          lightAngle: theme.glass.lightAngle * math.pi / 180,
+          lightIntensity: theme.glass.lightIntensity,
+          edgeStrength: theme.glass.edgeStrength,
+          bevelWidthScale: theme.glass.bevelWidthScale,
+          refractionDepthScale: theme.glass.refractionDepthScale,
+          rimWidth: theme.glass.rimWidth,
+          rimFalloff: theme.glass.rimFalloff,
+          oppositeLightStrength: theme.glass.oppositeLightStrength,
+        )
+      : null;
+
+  ImageFilterConfig _glassConfig(
+    double materialStrength, {
+    required double sigma,
+    required BorderRadius borderRadius,
+    required double? threshold,
+    required bool singleWindowSurface,
+  }) {
+    final glass = theme.glass;
+    return ImageFilterConfig.glass(
+      sigmaX: sigma,
+      sigmaY: sigma,
+      topLeft: borderRadius.topLeft,
+      topRight: borderRadius.topRight,
+      bottomRight: borderRadius.bottomRight,
+      bottomLeft: borderRadius.bottomLeft,
+      downsampleScale: glass.quality,
+      thickness: glass.thickness,
+      refraction: glass.refraction * materialStrength,
+      dispersion: glass.dispersion,
+      saturation: 1 + (glass.saturation - 1) * materialStrength,
+      tint: accentPalette.primary,
+      tintStrength: glass.tintStrength * materialStrength,
+      brightness: glass.brightness * materialStrength,
+      lightAngle: glass.lightAngle * math.pi / 180,
+      lightIntensity: glass.lightIntensity * materialStrength,
+      edgeStrength: glass.edgeStrength * materialStrength,
+      bevelWidthScale: glass.bevelWidthScale,
+      refractionDepthScale: glass.refractionDepthScale,
+      rimWidth: glass.rimWidth,
+      rimFalloff: glass.rimFalloff,
+      oppositeLightStrength: glass.oppositeLightStrength,
+      backdropAlphaThreshold: threshold,
+      backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
+    );
   }
 
   late final ThemeData materialTheme = ThemeData(
@@ -700,4 +763,102 @@ double _contrastRatio(double first, double second) {
   final lighter = first > second ? first : second;
   final darker = first > second ? second : first;
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+/// The parameters of a full-strength glass material, apart from its frost, in
+/// the units of [ImageFilterConfig.glass]. [lightAngle] is in radians.
+@immutable
+class WindowGlassShading {
+  const WindowGlassShading({
+    required this.thickness,
+    required this.refraction,
+    required this.dispersion,
+    required this.saturation,
+    required this.tint,
+    required this.tintStrength,
+    required this.brightness,
+    required this.lightAngle,
+    required this.lightIntensity,
+    required this.edgeStrength,
+    required this.bevelWidthScale,
+    required this.refractionDepthScale,
+    required this.rimWidth,
+    required this.rimFalloff,
+    required this.oppositeLightStrength,
+  });
+
+  final double thickness;
+  final double refraction;
+  final double dispersion;
+  final double saturation;
+  final Color tint;
+  final double tintStrength;
+  final double brightness;
+  final double lightAngle;
+  final double lightIntensity;
+  final double edgeStrength;
+  final double bevelWidthScale;
+  final double refractionDepthScale;
+  final double rimWidth;
+  final double rimFalloff;
+  final double oppositeLightStrength;
+
+  /// The same material at another depth, for a control much smaller than a
+  /// window: at a window's depth its bevel would span the whole control and
+  /// refract the backdrop from well beyond it.
+  WindowGlassShading withThickness(double thickness) => WindowGlassShading(
+    thickness: thickness,
+    refraction: refraction,
+    dispersion: dispersion,
+    saturation: saturation,
+    tint: tint,
+    tintStrength: tintStrength,
+    brightness: brightness,
+    lightAngle: lightAngle,
+    lightIntensity: lightIntensity,
+    edgeStrength: edgeStrength,
+    bevelWidthScale: bevelWidthScale,
+    refractionDepthScale: refractionDepthScale,
+    rimWidth: rimWidth,
+    rimFalloff: rimFalloff,
+    oppositeLightStrength: oppositeLightStrength,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowGlassShading &&
+      other.thickness == thickness &&
+      other.refraction == refraction &&
+      other.dispersion == dispersion &&
+      other.saturation == saturation &&
+      other.tint == tint &&
+      other.tintStrength == tintStrength &&
+      other.brightness == brightness &&
+      other.lightAngle == lightAngle &&
+      other.lightIntensity == lightIntensity &&
+      other.edgeStrength == edgeStrength &&
+      other.bevelWidthScale == bevelWidthScale &&
+      other.refractionDepthScale == refractionDepthScale &&
+      other.rimWidth == rimWidth &&
+      other.rimFalloff == rimFalloff &&
+      other.oppositeLightStrength == oppositeLightStrength;
+
+  @override
+  int get hashCode => Object.hash(
+    thickness,
+    refraction,
+    dispersion,
+    saturation,
+    tint,
+    tintStrength,
+    brightness,
+    lightAngle,
+    lightIntensity,
+    edgeStrength,
+    bevelWidthScale,
+    refractionDepthScale,
+    rimWidth,
+    rimFalloff,
+    oppositeLightStrength,
+  );
 }

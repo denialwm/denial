@@ -86,6 +86,21 @@ impl WaylandFrontend {
         self.idle_notifier.set_is_inhibited(inhibited);
         inhibited
     }
+
+    /// Whether a visible window on the phone holds idling off.
+    pub(crate) fn phone_idle_inhibited(&mut self) -> bool {
+        self.idle_inhibitors.prune();
+        self.idle_inhibitors.surfaces.values().any(|entry| {
+            let Some(root) = self.owning_toplevel_surface(&entry.surface) else {
+                return false;
+            };
+            !self.surface_is_minimized(&root.id())
+                && self.root_on_phone(&root.id())
+                && self
+                    .surface_id(&root)
+                    .is_some_and(|window_id| self.window_expects_sample(window_id))
+        })
+    }
 }
 
 impl IdleInhibitHandler for RuntimeState {

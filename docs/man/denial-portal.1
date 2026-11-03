@@ -1,13 +1,17 @@
 .TH DENIAL-PORTAL 1 "August 2026" "Denial" "User Commands"
 .SH NAME
-denial-portal \- serve Denial's desktop Settings portal backend
+denial-portal \- serve Denial's desktop portal backend
 .SH SYNOPSIS
 .B denial-portal
+.RB [ \-\-dialog\-bundle
+.IR DIR ]
 .SH DESCRIPTION
 .B denial-portal
 is the D-Bus-activated backend for
-.BR org.freedesktop.impl.portal.Settings .
-It publishes Denial's committed
+.B org.freedesktop.impl.portal.Settings
+and
+.BR org.freedesktop.impl.portal.Access .
+For Settings, it publishes Denial's committed
 .B org.freedesktop.appearance/color-scheme
 preference and resolved
 .B org.freedesktop.appearance/accent-color
@@ -21,10 +25,18 @@ read or write Denial's settings file. Stale snapshots are ignored and
 .B SettingChanged
 is emitted only when the public portal value changes.
 .PP
+For Access, it shows each permission question in Denial's dialog and returns
+the user's answer to the caller, which keeps it.
+.PP
 This program is an internal session component. It is normally started by user
 D-Bus activation or
 .BR denial-portal.service ;
 interactive invocation is not required.
+.SH OPTIONS
+.TP
+.BI \-\-dialog\-bundle " DIR"
+The native dialog bundle that Access requests start. The default is
+.IR /usr/lib/denial/polkit .
 .SH FILES
 .TP
 .I $XDG_RUNTIME_DIR/denial/portal.sock

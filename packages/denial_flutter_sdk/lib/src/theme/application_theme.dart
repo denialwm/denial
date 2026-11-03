@@ -69,11 +69,8 @@ class DenialApplicationTheme {
       DenialMaterialPolicy.resolve(
         role: role,
         transparency: shell.transparencyMode,
-        windowOpacity: shell.transparencyMode == ShellTransparencyMode.glass
-            ? shell.glass.windowOpacity
-            : shell.effectivePanelOpacity == 1
-            ? 1
-            : DenialMaterialPolicy.minimumWindowOpacity,
+        // One key for the backing behind apps, in glass and blur alike.
+        windowOpacity: shell.glass.windowOpacity,
         appPanelOpacity: shell.transparencyMode == ShellTransparencyMode.glass
             ? shell.glass.appPanelOpacity
             : shell.effectivePanelOpacity,

@@ -118,12 +118,27 @@ class Motion {
     damping: 44.0,
   );
 
+  /// Critically damped: a window shrinking into its home icon arrives
+  /// without overshooting the icon.
+  static const SpringDescription iconReturn = SpringDescription(
+    mass: 1.0,
+    stiffness: 380.0,
+    damping: 39.0,
+  );
+
   /// Slightly springy settle that allows a touch of overshoot, for the
   /// rubber-band return of a half-dismissed card.
   static const SpringDescription bouncy = SpringDescription(
     mass: 1.0,
     stiffness: 460.0,
     damping: 34.0,
+  );
+
+  /// Rest threshold for a spring measured in logical pixels: closer than a
+  /// tenth of a pixel and slower than 10 px/s is indistinguishable from rest.
+  static const Tolerance pixelTolerance = Tolerance(
+    distance: 0.1,
+    velocity: 10.0,
   );
 }
 
@@ -161,11 +176,17 @@ double interval(double value, double begin, double end) {
 /// translating a pixel fling should divide the pixel velocity by the gesture's
 /// travel distance before passing it here. Use an unbounded controller when the
 /// chosen [spring] is allowed to overshoot.
+///
+/// [tolerance] ends the spring once it is that close to rest. The default
+/// suits unit progress; a controller in pixels should pass
+/// [Motion.pixelTolerance], so its invisible sub-pixel tail stops producing
+/// frames.
 TickerFuture springTo(
   AnimationController controller,
   double target, {
   double velocity = 0.0,
   SpringDescription spring = Motion.gentle,
+  Tolerance tolerance = Tolerance.defaultTolerance,
   String telemetryLabel = 'spring',
 }) {
   final future = controller.animateWith(
@@ -176,6 +197,7 @@ TickerFuture springTo(
       velocity,
       // Hidden layers must reach zero so their input barriers are released.
       snapToEnd: true,
+      tolerance: tolerance,
     ),
   );
   return MotionTelemetry.observe(
@@ -184,6 +206,37 @@ TickerFuture springTo(
     telemetryLabel,
     target: target,
   );
+}
+
+/// How long [springTo] with [spring] takes from [from] to [target] on a
+/// controller whose unit of travel spans [extent] logical pixels, until it is
+/// within [Motion.pixelTolerance] of rest. For telling another process how
+/// long a motion it follows lasts.
+Duration springSettleDuration(
+  double from,
+  double target, {
+  required double extent,
+  double velocity = 0.0,
+  SpringDescription spring = Motion.gentle,
+}) {
+  final pixels = extent > 0.0 ? extent : 1.0;
+  final simulation = SpringSimulation(
+    spring,
+    from * pixels,
+    target * pixels,
+    velocity * pixels,
+    tolerance: Motion.pixelTolerance,
+  );
+  const step = Duration(milliseconds: 1);
+  const limit = Duration(seconds: 2);
+  var elapsed = Duration.zero;
+  while (elapsed < limit &&
+      !simulation.isDone(
+        elapsed.inMicroseconds / Duration.microsecondsPerSecond,
+      )) {
+    elapsed += step;
+  }
+  return elapsed;
 }
 
 /// Opt-in animation and scheduler telemetry for the embedded shell.

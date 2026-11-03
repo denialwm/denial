@@ -35,7 +35,6 @@ def main():
     assert digest(Path(f"/proc/{pid}/exe")) == expected_old
     argv = Path(f"/proc/{pid}/cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
     assert argv[0] == "/usr/bin/deniald"
-    assert argv[argv.index("--flutter-renderer") + 1] == "impeller"
     bundle_index = argv.index("--flutter-bundle") + 1
     original_bundle = Path(argv[bundle_index]).resolve(strict=True)
     if original_bundle.parent != Path("/home/logix/denial/bundles"):

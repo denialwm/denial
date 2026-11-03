@@ -126,12 +126,34 @@ struct Options {
     command: Command,
 }
 
+#[derive(Debug, PartialEq)]
+enum HdrSwitch {
+    Off,
+    /// With an SDR white in cd/m² and signal primaries, or the compositor's
+    /// defaults.
+    On {
+        white: Option<f64>,
+        primaries: Option<&'static str>,
+    },
+}
+
 #[derive(Debug)]
 enum Command {
     Help,
     Version,
     Status,
     Outputs,
+    Color,
+    ColorCorrection(Option<bool>),
+    /// Switch an output, or `None` for the state.
+    Hdr(Option<(String, HdrSwitch)>),
+    ColorLut(Option<Option<PathBuf>>),
+    AppLuts,
+    ColorTune,
+    AppLut {
+        app_id: String,
+        path: Option<PathBuf>,
+    },
     UiStatus,
     UiSetup(Option<PathBuf>),
     UiWorkspace(PathBuf),
@@ -215,6 +237,57 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
         ["version"] => Ok(Command::Version),
         ["status"] => Ok(Command::Status),
         ["outputs"] | ["output", "status"] => Ok(Command::Outputs),
+        ["color"] | ["color", "status"] => Ok(Command::Color),
+        ["color", "lut"] | ["color", "lut", "status"] => Ok(Command::ColorLut(None)),
+        ["color", "lut", "load", _] => Ok(Command::ColorLut(Some(Some(lut_path(&arguments[3])?)))),
+        ["color", "lut", "clear"] => Ok(Command::ColorLut(Some(None))),
+        ["color", "apps"] => Ok(Command::AppLuts),
+        ["color", "tune"] => Ok(Command::ColorTune),
+        ["color", "app", app_id, "lut", "load", _] => Ok(Command::AppLut {
+            app_id: (*app_id).to_owned(),
+            path: Some(lut_path(&arguments[5])?),
+        }),
+        ["color", "app", app_id, "lut", "clear"] => Ok(Command::AppLut {
+            app_id: (*app_id).to_owned(),
+            path: None,
+        }),
+        ["color", "correction"] | ["color", "correction", "status"] => {
+            Ok(Command::ColorCorrection(None))
+        }
+        ["color", "correction", value] => Ok(Command::ColorCorrection(Some(parse_switch(value)?))),
+        ["color", "hdr"] | ["color", "hdr", "status"] => Ok(Command::Hdr(None)),
+        ["color", "hdr", output, "off"] => {
+            Ok(Command::Hdr(Some(((*output).to_owned(), HdrSwitch::Off))))
+        }
+        ["color", "hdr", output, "on", options @ ..] if options.len() <= 2 => {
+            let (mut white, mut primaries) = (None, None);
+            for option in options {
+                match *option {
+                    "bt2020" if primaries.is_none() => primaries = Some("bt2020"),
+                    "srgb" if primaries.is_none() => primaries = Some("srgb"),
+                    value if white.is_none() => {
+                        white = Some(
+                            value
+                                .parse::<f64>()
+                                .ok()
+                                .filter(|white| white.is_finite())
+                                .ok_or_else(|| {
+                                    CliError::usage(format!(
+                                        "expected SDR white in cd/m², bt2020 or srgb, got {value:?}"
+                                    ))
+                                })?,
+                        );
+                    }
+                    value => {
+                        return Err(CliError::usage(format!("unexpected {value:?}")));
+                    }
+                }
+            }
+            Ok(Command::Hdr(Some((
+                (*output).to_owned(),
+                HdrSwitch::On { white, primaries },
+            ))))
+        }
         ["ui"] | ["ui", "status"] => Ok(Command::UiStatus),
         ["ui", "setup"] => Ok(Command::UiSetup(None)),
         ["ui", "setup", _] => Ok(Command::UiSetup(Some(PathBuf::from(&arguments[2])))),
@@ -283,6 +356,104 @@ fn execute(client: &mut ControlClient, options: &Options) -> Result<(), CliError
                 print_json(&response.result)?;
             } else {
                 print_outputs(&decode_output_state(&response.result)?);
+            }
+        }
+        Command::Color => {
+            let correction = client.request("color.correction.get", Value::Null)?;
+            let lut = client.request("color.lut.get", Value::Null)?;
+            let apps = client.request("color.app.lut.get", Value::Null)?;
+            let hdr = client.request("color.hdr.get", Value::Null)?;
+            if options.json {
+                print_json(&json!({
+                    "correction": correction.result,
+                    "lut": lut.result["lut"],
+                    "apps": apps.result["apps"],
+                    "hdr": hdr.result["outputs"],
+                }))?;
+            } else {
+                print_color_correction(&correction.result);
+                print_desktop_lut(&lut.result);
+                print_app_luts(&apps.result);
+                print_hdr(&hdr.result);
+            }
+        }
+        Command::ColorTune => {
+            let response = client.request("color.tune.open", Value::Null)?;
+            if options.json {
+                print_json(&response.result)?;
+            }
+        }
+        Command::AppLuts => {
+            let response = client.request("color.app.lut.get", Value::Null)?;
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_app_luts(&response.result);
+            }
+        }
+        Command::AppLut { app_id, path } => {
+            let response = match path {
+                Some(path) => {
+                    let path = fs::canonicalize(path).map_err(CliError::io)?;
+                    client.request(
+                        "color.app.lut.load",
+                        json!({"app_id": app_id, "path": path}),
+                    )?
+                }
+                None => client.request("color.app.lut.clear", json!({"app_id": app_id}))?,
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_app_luts(&response.result);
+            }
+        }
+        Command::ColorLut(change) => {
+            let response = match change {
+                None => client.request("color.lut.get", Value::Null)?,
+                Some(None) => client.request("color.lut.clear", Value::Null)?,
+                Some(Some(path)) => {
+                    let path = fs::canonicalize(path).map_err(CliError::io)?;
+                    client.request("color.lut.load", json!({"path": path}))?
+                }
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_desktop_lut(&response.result);
+            }
+        }
+        Command::Hdr(change) => {
+            let response = match change {
+                None => client.request("color.hdr.get", Value::Null)?,
+                Some((output, HdrSwitch::Off)) => {
+                    client.request("color.hdr.set", json!({"output": output, "enabled": false}))?
+                }
+                Some((output, HdrSwitch::On { white, primaries })) => {
+                    let mut params = json!({"output": output, "enabled": true, "white": white});
+                    if let Some(primaries) = primaries {
+                        params["primaries"] = json!(primaries);
+                    }
+                    client.request("color.hdr.set", params)?
+                }
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_hdr(&response.result);
+            }
+        }
+        Command::ColorCorrection(enabled) => {
+            let response = match enabled {
+                Some(enabled) => {
+                    client.request("color.correction.set", json!({"enabled": enabled}))?
+                }
+                None => client.request("color.correction.get", Value::Null)?,
+            };
+            if options.json {
+                print_json(&response.result)?;
+            } else {
+                print_color_correction(&response.result);
             }
         }
         Command::UiStatus => {
@@ -1486,6 +1657,80 @@ impl fmt::Display for CliError {
 
 impl Error for CliError {}
 
+fn print_color_correction(result: &Value) {
+    let enabled = result["enabled"].as_bool().unwrap_or(false);
+    println!("color correction: {}", if enabled { "on" } else { "off" });
+}
+
+/// deniald reads and saves the LUT from its own working directory.
+fn lut_path(argument: &OsStr) -> Result<PathBuf, CliError> {
+    std::path::absolute(argument)
+        .map_err(|error| CliError::usage(format!("cannot resolve {argument:?}: {error}")))
+}
+
+fn print_hdr(result: &Value) {
+    let outputs = result["outputs"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if outputs.is_empty() {
+        println!("HDR: no HDR display");
+    }
+    for output in outputs {
+        let name = output["output"].as_str().unwrap_or("?");
+        let peak = output["max_luminance"].as_f64().unwrap_or_default();
+        match output["white"].as_f64() {
+            Some(white) => {
+                let primaries = match output["primaries"].as_str() {
+                    Some("srgb") => ", sRGB signal",
+                    _ => "",
+                };
+                println!(
+                    "HDR: {name} on, SDR white {white:.0} cd/m², peak {peak:.0} cd/m²{primaries}"
+                )
+            }
+            None => match output["requested_white"].as_f64() {
+                Some(_) => println!("HDR: {name} requested, showing SDR (see the journal)"),
+                None => println!("HDR: {name} off, peak {peak:.0} cd/m²"),
+            },
+        }
+    }
+}
+
+fn print_desktop_lut(result: &Value) {
+    let lut = &result["lut"];
+    match lut["size"].as_u64() {
+        None => println!("desktop LUT: none"),
+        Some(size) => match lut["title"].as_str() {
+            Some(title) => println!("desktop LUT: {title} ({size}³)"),
+            None => println!("desktop LUT: {size}³"),
+        },
+    }
+}
+
+fn print_app_luts(result: &Value) {
+    let apps = result["apps"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if apps.is_empty() {
+        println!("app LUTs: none");
+    }
+    for app in apps {
+        let size = app["size"].as_u64().unwrap_or_default();
+        match app["title"].as_str() {
+            Some(title) => println!(
+                "app LUT: {} {title} ({size}³)",
+                app["app_id"].as_str().unwrap_or("?")
+            ),
+            None => println!(
+                "app LUT: {} ({size}³)",
+                app["app_id"].as_str().unwrap_or("?")
+            ),
+        }
+    }
+}
+
 fn print_help() {
     println!(
         "\
@@ -1494,6 +1739,19 @@ Usage: denialctl [--json] [--no-wait] [--socket PATH] COMMAND
 Commands:
   status                         Show compositor, Flutter UI and output status
   outputs                        List the current output state
+  color                          Show the display color state
+  color correction [on|off]      Show or switch each display's gamut correction
+  color hdr                      List HDR displays and whether they show HDR
+  color hdr OUTPUT on [WHITE] [srgb|bt2020]
+                                 Show HDR, SDR content at WHITE cd/m² (default 203);
+                                 srgb for displays that show BT.2020 PQ as sRGB
+  color hdr OUTPUT off           Return the display to SDR
+  color lut load FILE            Grade the desktop with a .cube 3D LUT
+  color lut clear                Remove the desktop LUT
+  color apps                     List the apps graded with their own LUT
+  color app APP_ID lut load FILE Grade one app's windows with a .cube LUT
+  color app APP_ID lut clear     Remove an app's LUT
+  color tune                     Open the color tuning editor
   ui status                      Show detailed Flutter runtime state
   ui setup [PATH]                Create, prepare and start an editable Denial UI
   ui workspace PATH              Select a Flutter source workspace
