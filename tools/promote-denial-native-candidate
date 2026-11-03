@@ -80,7 +80,6 @@ for expected in \
   'release_signing_eligible=true' \
   'signature_status=unsigned' \
   'package_release=0' \
-  'package_formats=arch,deb,rpm,apk' \
   'native_payload_schema=1' \
   "build_identity=main.g$SOURCE_SHA" \
   "source_commit=$SOURCE_SHA" \
@@ -90,6 +89,24 @@ for expected in \
   grep -Fxq "$expected" "$CANDIDATE_PROVENANCE" \
     || fail "candidate provenance is missing: $expected"
 done
+
+architecture="$(sed -n 's/^package_architecture=//p' "$CANDIDATE_PROVENANCE")"
+case "$architecture" in
+  x86_64)
+    engine_platform=linux-x64
+    deb_architecture=amd64
+    expected_formats=arch,deb,rpm,apk
+    ;;
+  aarch64)
+    engine_platform=linux-arm64
+    deb_architecture=arm64
+    expected_formats=arch,deb,rpm
+    ;;
+  *) fail "candidate names no supported package architecture: ${architecture:-unset}" ;;
+esac
+readonly architecture engine_platform deb_architecture expected_formats
+grep -Fxq "package_formats=$expected_formats" "$CANDIDATE_PROVENANCE" \
+  || fail "candidate provenance is missing: package_formats=$expected_formats"
 
 (
   cd "$CANDIDATE_PACKAGES"
@@ -126,7 +143,7 @@ readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
   || fail 'native candidate has an unexpected Flutter Engine ABI'
 [[ "$FLUTTER_ENGINE_SHA256" == "$(
   awk 'NR == 1 { print $1 }' \
-    "$ROOT/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256"
+    "$ROOT/prebuilt/flutter-engine/${engine_platform}-release/libflutter_engine.so.sha256"
 )" ]] || fail 'native candidate has an unexpected Flutter Engine payload'
 candidate_build_identity="$BUILD_IDENTITY"
 readonly candidate_build_identity
@@ -335,12 +352,12 @@ common_environment=(
 "${common_environment[@]}" "$ROOT/tools/package-denial-rpm"
 
 expected_packages=(
-  "$OUTPUT_ROOT/denial-flutter-engine_${release_version}-1_amd64.deb"
-  "$OUTPUT_ROOT/denial_${release_version}-1_amd64.deb"
-  "$OUTPUT_ROOT/denial-plugin-manager_${release_version}-1_amd64.deb"
-  "$OUTPUT_ROOT/denial-flutter-engine-${release_version}-1.x86_64.rpm"
-  "$OUTPUT_ROOT/denial-${release_version}-1.x86_64.rpm"
-  "$OUTPUT_ROOT/denial-plugin-manager-${release_version}-1.x86_64.rpm"
+  "$OUTPUT_ROOT/denial-flutter-engine_${release_version}-1_${deb_architecture}.deb"
+  "$OUTPUT_ROOT/denial_${release_version}-1_${deb_architecture}.deb"
+  "$OUTPUT_ROOT/denial-plugin-manager_${release_version}-1_${deb_architecture}.deb"
+  "$OUTPUT_ROOT/denial-flutter-engine-${release_version}-1.${architecture}.rpm"
+  "$OUTPUT_ROOT/denial-${release_version}-1.${architecture}.rpm"
+  "$OUTPUT_ROOT/denial-plugin-manager-${release_version}-1.${architecture}.rpm"
 )
 for package in "${expected_packages[@]}"; do
   [[ -f "$package" ]] || fail "promoted package is missing: $package"
@@ -405,6 +422,7 @@ cmp -- "$candidate_plugin_inventory" "$release_plugin_inventory" \
   printf 'candidate_workflow_run=%s\n' \
     "$(sed -n 's/^workflow_run=//p' "$CANDIDATE_PROVENANCE")"
   printf 'candidate_artifact_class=production-release-candidate\n'
+  printf 'package_architecture=%s\n' "$architecture"
   printf 'package_formats=deb,rpm\n'
   printf 'cross_format_payloads_verified=true\n'
   printf 'compiled_payloads_changed=false\n'

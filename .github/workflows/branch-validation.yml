@@ -55,7 +55,7 @@ jobs:
           --no-link --print-build-logs
 
   build:
-    name: Build and test ${{ github.ref_name }} x86-64 candidate
+    name: Build and test ${{ github.ref_name }} candidates
     needs: authorize
     if: >-
       github.ref == 'refs/heads/dev'
@@ -346,6 +346,97 @@ jobs:
             time tools/denial-pc alpine-package
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
 
+      - name: Assemble candidate and build evidence
+        shell: bash
+        run: tools/assemble-denial-candidate x86_64
+
+      - name: Upload branch validation candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-${{ github.ref_name }}-validated-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate.tar
+          if-no-files-found: error
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
+          compression-level: 0
+
+      # The aarch64 packages are cross-built here from the same checkout, with
+      # the same tools, against the Arch Linux ARM root the builder holds.
+      # Nothing is tested on aarch64: this host cannot run it.
+      - name: Switch to the aarch64 cross build
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'DENIAL_TARGET_ARCH=%s\n' 'aarch64'
+            printf 'DENIAL_ARM64_SYSROOT=%s\n' \
+              '/srv/denial-builder/sysroot/aarch64'
+            printf 'EVIDENCE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
+            printf 'CANDIDATE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate"
+            printf 'CANDIDATE_ARCHIVE=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate.tar"
+            printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-packages"
+            printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-makepkg"
+            printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-package-input"
+          } >>"$GITHUB_ENV"
+          install -d -m 0755 \
+            "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
+
+      - name: Add the aarch64 Rust target
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bootstrap \
+            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
+
+      - name: Build or reuse the locked aarch64 Flutter engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-flutter-engine build \
+            --github-env "$GITHUB_ENV" \
+            2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
+
+      - name: Build aarch64 Flutter bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bundle \
+            2>&1 | tee "$EVIDENCE_ROOT/bundle.txt"
+
+      - name: Build aarch64 candidate packages
+        shell: bash
+        env:
+          DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
+          DENIAL_PACKAGE_SKIP_STAGE: "1"
+          DENIAL_REBUILD_ENGINE_PACKAGE: "1"
+        run: |
+          set -euo pipefail
+          TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
+          {
+            time tools/stage-denial-runtime
+            time tools/denial-pc arch-package
+            time tools/denial-pc native-packages
+          } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+      - name: Assemble aarch64 candidate and build evidence
+        shell: bash
+        run: tools/assemble-denial-candidate aarch64
+
+      - name: Upload aarch64 branch validation candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-${{ github.ref_name }}-validated-candidate-aarch64-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-aarch64-candidate.tar
+          if-no-files-found: error
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
+          compression-level: 0
+
+
       - name: Collect failed build diagnostics
         if: ${{ failure() }}
         shell: bash
@@ -353,14 +444,19 @@ jobs:
           set -euo pipefail
           failure_root="$RUNNER_TEMP/denial-$GITHUB_REF_NAME-failure"
           install -d -m 0755 "$failure_root"
-          if [[ -n "${EVIDENCE_ROOT:-}" && -d "$EVIDENCE_ROOT" ]]; then
-            cp -a -- "$EVIDENCE_ROOT" "$failure_root/evidence"
+          x86_64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH:-}-evidence"
+          aarch64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH:-}-aarch64-evidence"
+          if [[ -d "$x86_64_evidence" ]]; then
+            cp -a -- "$x86_64_evidence" "$failure_root/evidence"
+          fi
+          if [[ -d "$aarch64_evidence" ]]; then
+            cp -a -- "$aarch64_evidence" "$failure_root/aarch64-evidence"
           fi
           # The job log keeps only the tail of a failed Nix build; keep the
           # full builder logs here.
-          if [[ -f "${EVIDENCE_ROOT:-}/nix-build.txt" ]]; then
+          if [[ -f "$x86_64_evidence/nix-build.txt" ]]; then
             install -d -m 0755 "$failure_root/nix-logs"
-            { grep -E "builder for|Cannot build" "$EVIDENCE_ROOT/nix-build.txt" || true; } \
+            { grep -E "builder for|Cannot build" "$x86_64_evidence/nix-build.txt" || true; } \
               | grep -oE "/nix/store/[a-z0-9]{32}-[^' ]+\.drv" \
               | sort --unique \
               | while read -r drv; do
@@ -378,191 +474,8 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-      - name: Assemble candidate and build evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          package_root="$DENIAL_PC_PACKAGE_ROOT"
-          install -d -m 0755 \
-            "$CANDIDATE_ROOT/packages" \
-            "$CANDIDATE_ROOT/evidence/package-metadata"
-          cp -a -- "$EVIDENCE_ROOT/." "$CANDIDATE_ROOT/evidence/"
-
-          mapfile -d '' arch_packages < <(
-            find "$package_root" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.pkg.tar.zst' \
-              -print0 \
-              | sort -z
-          )
-          mapfile -d '' deb_packages < <(
-            find "$package_root" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.deb' \
-              -print0 \
-              | sort -z
-          )
-          mapfile -d '' rpm_packages < <(
-            find "$package_root" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.rpm' \
-              -print0 \
-              | sort -z
-          )
-          mapfile -d '' apk_packages < <(
-            find "$package_root" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.apk' \
-              -print0 \
-              | sort -z
-          )
-          if ((${#arch_packages[@]} != 3)); then
-            printf 'Expected three Arch packages, found %d\n' \
-              "${#arch_packages[@]}" >&2
-            exit 1
-          fi
-          if ((${#deb_packages[@]} != 3)); then
-            printf 'Expected three Debian packages, found %d\n' \
-              "${#deb_packages[@]}" >&2
-            exit 1
-          fi
-          if ((${#rpm_packages[@]} != 3)); then
-            printf 'Expected three RPM packages, found %d\n' \
-              "${#rpm_packages[@]}" >&2
-            exit 1
-          fi
-          if ((${#apk_packages[@]} != 3)); then
-            printf 'Expected three Alpine packages, found %d\n' \
-              "${#apk_packages[@]}" >&2
-            exit 1
-          fi
-          packages=(
-            "${arch_packages[@]}"
-            "${deb_packages[@]}"
-            "${rpm_packages[@]}"
-            "${apk_packages[@]}"
-          )
-          cp --reflink=auto -- "${packages[@]}" "$CANDIDATE_ROOT/packages/"
-          cp -a -- \
-            "$DENIAL_PC_PACKAGE_INPUT_ROOT/native" \
-            "$CANDIDATE_ROOT/native-payload"
-          cp -a -- \
-            "$DENIAL_PC_PACKAGE_INPUT_ROOT/alpine" \
-            "$CANDIDATE_ROOT/alpine-payload"
-          (
-            cd "$CANDIDATE_ROOT/native-payload"
-            mapfile -d '' native_files < <(
-              find . -type f ! -name NATIVE-SHA256SUMS -print0 | sort -z
-            )
-            sha256sum -- "${native_files[@]}" >NATIVE-SHA256SUMS
-            sha256sum --check --strict --quiet NATIVE-SHA256SUMS
-          )
-          (
-            cd "$CANDIDATE_ROOT/alpine-payload"
-            sha256sum --check --strict --quiet ALPINE-SHA256SUMS
-          )
-
-          for package in "${arch_packages[@]}"; do
-            package_name="$(basename -- "$package")"
-            bsdtar -xOf "$package" .PKGINFO \
-              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
-            bsdtar -xOf "$package" .BUILDINFO \
-              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.BUILDINFO"
-          done
-          for package in "${deb_packages[@]}"; do
-            package_name="$(basename -- "$package")"
-            dpkg-deb --field "$package" \
-              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.control"
-          done
-          rpm_query_db="$RUNNER_TEMP/denial-rpm-query-db"
-          install -d -m 0755 "$rpm_query_db"
-          for package in "${rpm_packages[@]}"; do
-            package_name="$(basename -- "$package")"
-            rpm --dbpath "$rpm_query_db" -qp --qf \
-              $'name=%{NAME}\nversion=%{VERSION}-%{RELEASE}\narchitecture=%{ARCH}\n' \
-              "$package" \
-              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.rpm"
-          done
-          for package in "${apk_packages[@]}"; do
-            package_name="$(basename -- "$package")"
-            bsdtar -xOf "$package" .PKGINFO \
-              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
-          done
-
-          {
-            printf 'artifact_class=%s\n' "$CANDIDATE_CLASS"
-            printf 'publication_authorized=false\n'
-            printf 'release_signing_eligible=%s\n' \
-              "$RELEASE_SIGNING_ELIGIBLE"
-            printf 'signature_status=unsigned\n'
-            printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
-            printf 'package_formats=arch,deb,rpm,apk\n'
-            printf 'native_payload_schema=1\n'
-            printf 'alpine_payload_schema=1\n'
-            printf 'compile_mode=%s\n' "$CANDIDATE_COMPILE_MODE"
-            printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
-            printf 'source_commit=%s\n' "$GITHUB_SHA"
-            printf 'source_ref=%s\n' "$GITHUB_REF"
-            printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
-            printf 'workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
-            printf 'workflow_event=%s\n' "$GITHUB_EVENT_NAME"
-            printf 'runner_name=%s\n' "$RUNNER_NAME"
-            printf 'runner_os=%s\n' "$RUNNER_OS"
-            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
-            printf 'logical_cpus=%s\n' "$(nproc)"
-            printf 'rust_build_jobs=%s\n' "${DENIAL_BUILD_JOBS:-$(nproc)}"
-            printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            uname -a
-          } >"$CANDIDATE_ROOT/evidence/provenance.txt"
-          if [[ "$VALIDATION_BRANCH" == dev ]]; then
-            printf '%s\n' \
-              'This is an installable development test candidate built from dev.' \
-              'Its package release is 0 and it is ineligible for release signing or publication.' \
-              >"$CANDIDATE_ROOT/NOTICE.txt"
-          else
-            printf '%s\n' \
-              'This is an unsigned production candidate built from main.' \
-              'Its package release is 0; publication remains forbidden until a signed tag promotes these exact payloads.' \
-              'Promotion may change package metadata and install the tag-derived runtime version, but must not rebuild or alter compiled files.' \
-              >"$CANDIDATE_ROOT/NOTICE.txt"
-          fi
-          pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
-          (
-            cd compositor
-            rustc -vV
-          ) >"$CANDIDATE_ROOT/evidence/rustc.txt"
-          "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" \
-            --version \
-            >"$CANDIDATE_ROOT/evidence/flutter.txt"
-
-          (
-            cd "$CANDIDATE_ROOT/packages"
-            sha256sum -- *.pkg.tar.zst *.deb *.rpm *.apk >SHA256SUMS
-            sha256sum --check --strict --quiet SHA256SUMS
-          )
-          namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
-            2>&1 | tee "$CANDIDATE_ROOT/evidence/namcap.txt"
-          tar \
-            --create \
-            --file="$CANDIDATE_ARCHIVE" \
-            --directory="$CANDIDATE_ROOT" \
-            .
-
-      - name: Upload branch validation candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: denial-${{ github.ref_name }}-validated-candidate-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate.tar
-          if-no-files-found: error
-          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
-          compression-level: 0
-
   verify:
-    name: Independently verify candidate artifact
+    name: Independently verify candidate artifacts
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -609,429 +522,42 @@ jobs:
             --directory="$candidate_root" \
             --no-same-owner
 
-      - name: Verify provenance and package contents
+      - name: Download aarch64 candidate artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-${{ github.ref_name }}-validated-candidate-aarch64-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-aarch64-candidate-transfer
+
+      - name: Extract aarch64 candidate artifact
         shell: bash
-        env:
-          CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
         run: |
           set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/heads/dev)
-              expected_class='development-test-candidate'
-              expected_signing_eligibility='false'
-              expected_compile_mode='release'
-              ;;
-            refs/heads/main)
-              expected_class='production-release-candidate'
-              expected_signing_eligibility='true'
-              expected_compile_mode='release'
-              ;;
-            *)
-              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
-              exit 1
-              ;;
-          esac
-          expected_package_release='0'
-          provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
-          test -f "$CANDIDATE_ROOT/NOTICE.txt"
-          grep -Fxq "artifact_class=$expected_class" "$provenance"
-          grep -Fxq 'publication_authorized=false' "$provenance"
-          grep -Fxq \
-            "release_signing_eligible=$expected_signing_eligibility" \
-            "$provenance"
-          grep -Fxq 'signature_status=unsigned' "$provenance"
-          grep -Fxq \
-            "package_release=$expected_package_release" \
-            "$provenance"
-          grep -Fxq 'package_formats=arch,deb,rpm,apk' "$provenance"
-          grep -Fxq 'native_payload_schema=1' "$provenance"
-          grep -Fxq 'alpine_payload_schema=1' "$provenance"
-          grep -Fxq "compile_mode=$expected_compile_mode" "$provenance"
-          grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
-          grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
+          candidate_root="$RUNNER_TEMP/denial-${GITHUB_REF_NAME}-aarch64-candidate"
+          candidate_archive="$RUNNER_TEMP/denial-${GITHUB_REF_NAME}-aarch64-candidate-transfer/denial-${GITHUB_REF_NAME}-aarch64-candidate.tar"
+          install -d -m 0755 "$candidate_root"
+          tar \
+            --extract \
+            --file="$candidate_archive" \
+            --directory="$candidate_root" \
+            --no-same-owner
 
-          mapfile -d '' packages < <(
-            find "$CANDIDATE_ROOT/packages" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.pkg.tar.zst' \
-              -print0 \
-              | sort -z
-          )
-          if ((${#packages[@]} != 3)); then
-            printf 'Expected three candidate Arch packages, found %d\n' \
-              "${#packages[@]}" >&2
-            exit 1
-          fi
-          mapfile -d '' deb_packages < <(
-            find "$CANDIDATE_ROOT/packages" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.deb' \
-              -print0 \
-              | sort -z
-          )
-          mapfile -d '' rpm_packages < <(
-            find "$CANDIDATE_ROOT/packages" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.rpm' \
-              -print0 \
-              | sort -z
-          )
-          mapfile -d '' apk_packages < <(
-            find "$CANDIDATE_ROOT/packages" \
-              -maxdepth 1 \
-              -type f \
-              -name '*.apk' \
-              -print0 \
-              | sort -z
-          )
-          if ((${#deb_packages[@]} != 3)); then
-            printf 'Expected three candidate Debian packages, found %d\n' \
-              "${#deb_packages[@]}" >&2
-            exit 1
-          fi
-          if ((${#rpm_packages[@]} != 3)); then
-            printf 'Expected three candidate RPM packages, found %d\n' \
-              "${#rpm_packages[@]}" >&2
-            exit 1
-          fi
-          if ((${#apk_packages[@]} != 3)); then
-            printf 'Expected three candidate Alpine packages, found %d\n' \
-              "${#apk_packages[@]}" >&2
-            exit 1
-          fi
-          (
-            cd "$CANDIDATE_ROOT/packages"
-            sha256sum --check --strict --quiet SHA256SUMS
-          )
+      - name: Verify provenance and package contents
+        shell: bash
+        run: >-
+          tools/verify-denial-candidate x86_64
+          "$RUNNER_TEMP/denial-${GITHUB_REF_NAME}-candidate"
 
-          denial_packages=0
-          engine_packages=0
-          plugin_manager_packages=0
-          denial_arch_package=''
-          engine_arch_package=''
-          plugin_manager_arch_package=''
-          denial_version=''
-          engine_version=''
-          expected_source_lock_sha="$(
-            sha256sum prebuilt/flutter-engine/SOURCE_LOCK.json \
-              | awk '{ print $1 }'
-          )"
-          for package in "${packages[@]}"; do
-            package_filename="$(basename -- "$package")"
-            package_info="$(bsdtar -xOf "$package" .PKGINFO)"
-            package_name="$(
-              sed -n 's/^pkgname = //p' <<<"$package_info"
-            )"
-            package_version="$(
-              sed -n 's/^pkgver = //p' <<<"$package_info"
-            )"
-            package_arch="$(
-              sed -n 's/^arch = //p' <<<"$package_info"
-            )"
-            test "$package_arch" = x86_64
-            [[ "$package_version" != *dirty* ]]
-            [[ "$package_version" == *-"$expected_package_release" ]]
-
-            mtree="$(bsdtar -xOf "$package" .MTREE | gzip -dc)"
-            grep -Eq '^/set .*uid=0 .*gid=0' <<<"$mtree"
-            if grep -Eq '(^| )(uid|gid)=[1-9][0-9]*' <<<"$mtree"; then
-              printf 'Package contains a non-root owner: %s\n' \
-                "$package" >&2
-              exit 1
-            fi
-
-            case "$package_name" in
-              denial)
-                denial_packages=$((denial_packages + 1))
-                denial_version="$package_version"
-                denial_arch_package="$package"
-                test "$package_filename" = \
-                  "denial-${package_version}-x86_64.pkg.tar.zst"
-                grep -Fxq \
-                  'depend = denial-flutter-engine-abi=3.47.5.denial1' \
-                  <<<"$package_info"
-                bsdtar -tf "$package" \
-                  | grep -Fxq usr/bin/deniald
-                bsdtar -tf "$package" \
-                  | grep -Fxq usr/bin/denialctl
-                bsdtar -tf "$package" \
-                  | grep -Fxq usr/lib/denial/flutter/lib/libapp.so
-                if bsdtar -tf "$package" \
-                  | grep -Fxq usr/share/denial/version; then
-                  printf \
-                    'Candidate package predicts a public runtime version: %s\n' \
-                    "$package" >&2
-                  exit 1
-                fi
-                ;;
-              denial-flutter-engine)
-                engine_packages=$((engine_packages + 1))
-                engine_version="$package_version"
-                engine_arch_package="$package"
-                test "$package_filename" = \
-                  "denial-flutter-engine-${package_version}-x86_64.pkg.tar.zst"
-                grep -Fxq \
-                  'provides = denial-flutter-engine-abi=3.47.5.denial1' \
-                  <<<"$package_info"
-                bsdtar -tf "$package" \
-                  | grep -Fxq \
-                    usr/lib/denial/flutter/lib/libflutter_engine.so
-                bsdtar -tf "$package" \
-                  | grep -Fxq usr/lib/denial/flutter/data/icudtl.dat
-                test "$(
-                  bsdtar -xOf \
-                    "$package" \
-                    usr/share/denial/flutter-engine/SOURCE_LOCK.json \
-                    | sha256sum \
-                    | awk '{ print $1 }'
-                )" = "$expected_source_lock_sha"
-                ;;
-              denial-plugin-manager)
-                plugin_manager_packages=$((plugin_manager_packages + 1))
-                plugin_manager_arch_package="$package"
-                test "$package_filename" = \
-                  "denial-plugin-manager-${package_version}-x86_64.pkg.tar.zst"
-                grep -Fxq 'depend = dart' <<<"$package_info"
-                grep -Fxq "depend = denial=${denial_version}" \
-                  <<<"$package_info"
-                bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugin-manager
-                bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugins
-                bsdtar -tf "$package" \
-                  | grep -Fxq usr/lib/denial/plugin-build-kit/kit.json
-                if bsdtar -tf "$package" \
-                    | grep -q '^usr/lib/denial/plugin-build-kit/flutter/bin/cache/dart-sdk/'; then
-                  printf 'Plugin Manager package embeds Dart: %s\n' "$package" >&2
-                  exit 1
-                fi
-                ;;
-              *)
-                printf 'Unexpected package name: %s\n' "$package_name" >&2
-                exit 1
-                ;;
-            esac
-          done
-          test "$denial_packages" -eq 1
-          test "$engine_packages" -eq 1
-          test "$plugin_manager_packages" -eq 1
-          test "$engine_version" = "1:${denial_version}"
-          test -n "$denial_arch_package"
-          test -n "$engine_arch_package"
-          test -n "$plugin_manager_arch_package"
-
-          native_payload="$CANDIDATE_ROOT/native-payload"
-          test -d "$native_payload/denial"
-          test -d "$native_payload/denial-flutter-engine"
-          test -d "$native_payload/denial-plugin-manager"
-          test -f "$native_payload/metadata.json"
-          (
-            cd "$native_payload"
-            sha256sum --check --strict --quiet NATIVE-SHA256SUMS
-          )
-          mapfile -t native_metadata < <(
-            tools/read-denial-native-metadata \
-              "$native_payload/metadata.json"
-          )
-          test "${#native_metadata[@]}" -eq 7
-          PACKAGE_VERSION="${native_metadata[0]}"
-          PACKAGE_RELEASE="${native_metadata[1]}"
-          BUILD_IDENTITY="${native_metadata[2]}"
-          SOURCE_DATE_EPOCH="${native_metadata[3]}"
-          GLIBC_BASELINE="${native_metadata[4]}"
-          FLUTTER_ENGINE_ABI="${native_metadata[5]}"
-          FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
-          test "$PACKAGE_RELEASE" = "$expected_package_release"
-          test "$BUILD_IDENTITY" = "$GITHUB_REF_NAME.g$GITHUB_SHA"
-          test "$SOURCE_DATE_EPOCH" = "$(
-            git -c safe.directory="$GITHUB_WORKSPACE" \
-              show -s --format=%ct "$GITHUB_SHA"
-          )"
-          grep -Fxq "build_identity=$BUILD_IDENTITY" "$provenance"
-          test "$FLUTTER_ENGINE_ABI" = 3.47.5.denial1
-          test "$FLUTTER_ENGINE_SHA256" = "$(
-            awk 'NR == 1 { print $1 }' \
-              prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
-          )"
-          test ! -e "$native_payload/denial/usr/share/denial/version"
-          for package_root in denial denial-flutter-engine denial-plugin-manager; do
-            (
-              cd "$native_payload/$package_root"
-              sha256sum --check --strict --quiet \
-                "$native_payload/${package_root}.sha256"
-            )
-          done
-          tools/verify-denial-package-payload \
-            arch "$denial_arch_package" "$native_payload/denial"
-          tools/verify-denial-package-payload \
-            arch "$engine_arch_package" \
-            "$native_payload/denial-flutter-engine"
-          tools/verify-denial-package-payload \
-            arch "$plugin_manager_arch_package" \
-            "$native_payload/denial-plugin-manager"
-
-          deb_names=()
-          for package in "${deb_packages[@]}"; do
-            package_name="$(dpkg-deb --field "$package" Package)"
-            package_version="$(dpkg-deb --field "$package" Version)"
-            package_arch="$(dpkg-deb --field "$package" Architecture)"
-            test "$package_arch" = amd64
-            test "$package_version" = "$PACKAGE_VERSION-$PACKAGE_RELEASE"
-            case "$package_name" in
-              denial)
-                expected_file="denial_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
-                expected_root="$native_payload/denial"
-                ;;
-              denial-flutter-engine)
-                expected_file="denial-flutter-engine_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
-                expected_root="$native_payload/denial-flutter-engine"
-                ;;
-              denial-plugin-manager)
-                expected_file="denial-plugin-manager_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
-                expected_root="$native_payload/denial-plugin-manager"
-                ;;
-              *)
-                printf 'Unexpected Debian package: %s\n' "$package_name" >&2
-                exit 1
-                ;;
-            esac
-            test "$(basename -- "$package")" = "$expected_file"
-            tools/verify-denial-package-payload deb "$package" "$expected_root"
-            tools/verify-denial-native-package-metadata \
-              deb "$package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-              "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
-            deb_names+=("$package_name")
-          done
-          test "${deb_names[*]}" = \
-            'denial-flutter-engine denial-plugin-manager denial'
-
-          rpm_names=()
-          rpm_query_db="$RUNNER_TEMP/denial-rpm-verification-db"
-          install -d -m 0755 "$rpm_query_db"
-          for package in "${rpm_packages[@]}"; do
-            package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
-            package_version="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
-            package_arch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "$package")"
-            test "$package_arch" = x86_64
-            test "$package_version" = "$PACKAGE_VERSION-$PACKAGE_RELEASE"
-            case "$package_name" in
-              denial)
-                expected_file="denial-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm"
-                expected_root="$native_payload/denial"
-                ;;
-              denial-flutter-engine)
-                expected_file="denial-flutter-engine-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm"
-                expected_root="$native_payload/denial-flutter-engine"
-                ;;
-              denial-plugin-manager)
-                expected_file="denial-plugin-manager-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm"
-                expected_root="$native_payload/denial-plugin-manager"
-                ;;
-              *)
-                printf 'Unexpected RPM package: %s\n' "$package_name" >&2
-                exit 1
-                ;;
-            esac
-            test "$(basename -- "$package")" = "$expected_file"
-            tools/verify-denial-package-payload rpm "$package" "$expected_root"
-            tools/verify-denial-native-package-metadata \
-              rpm "$package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-              "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
-            rpm_names+=("$package_name")
-          done
-          test "${rpm_names[*]}" = \
-            'denial denial-flutter-engine denial-plugin-manager'
-
-          alpine_payload="$CANDIDATE_ROOT/alpine-payload"
-          test -d "$alpine_payload/denial"
-          test -d "$alpine_payload/denial-flutter-engine"
-          test -d "$alpine_payload/denial-plugin-manager"
-          test -f "$alpine_payload/metadata.json"
-          test -f "$alpine_payload/adapter.txt"
-          (
-            cd "$alpine_payload"
-            sha256sum --check --strict --quiet ALPINE-SHA256SUMS
-          )
-          cmp -- \
-            "$native_payload/metadata.json" \
-            "$alpine_payload/metadata.json"
-          apk_version="$(
-            sed -n 's/^apk_package_version=//p' \
-              "$alpine_payload/adapter.txt"
-          )"
-          candidate_revision="${PACKAGE_VERSION#*.r}"
-          candidate_revision="${candidate_revision%%.g*}"
-          test "$apk_version" = \
-            "${PACKAGE_VERSION%%.r*}_git${candidate_revision}"
-          [[ "$apk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+_git[0-9]+$ ]]
-          apk_names=()
-          for package in "${apk_packages[@]}"; do
-            if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
-              printf 'Candidate APK is unexpectedly signed: %s\n' \
-                "$package" >&2
-              exit 1
-            fi
-            package_info="$(bsdtar -xOf "$package" .PKGINFO)"
-            package_name="$(
-              sed -n 's/^pkgname = //p' <<<"$package_info"
-            )"
-            package_version="$(
-              sed -n 's/^pkgver = //p' <<<"$package_info"
-            )"
-            package_arch="$(
-              sed -n 's/^arch = //p' <<<"$package_info"
-            )"
-            test "$package_arch" = x86_64
-            test "$package_version" = "$apk_version-r$PACKAGE_RELEASE"
-            case "$package_name" in
-              denial)
-                test "$(basename -- "$package")" = \
-                  "denial-${apk_version}-r${PACKAGE_RELEASE}.apk"
-                grep -Fxq \
-                  "depend = denial-flutter-engine=${apk_version}-r${PACKAGE_RELEASE}" \
-                  <<<"$package_info"
-                bsdtar -tf "$package" | grep -Fxq usr/bin/deniald
-                bsdtar -tf "$package" \
-                  | grep -Fxq \
-                    usr/lib/denial/alpine/libdenial-resolver-bridge.so.0
-                if bsdtar -tf "$package" \
-                  | grep -Fxq usr/share/denial/version; then
-                  printf 'Candidate APK predicts a public runtime version\n' >&2
-                  exit 1
-                fi
-                ;;
-              denial-flutter-engine)
-                test "$(basename -- "$package")" = \
-                  "denial-flutter-engine-${apk_version}-r${PACKAGE_RELEASE}.apk"
-                grep -Fxq \
-                  'provides = denial-flutter-engine-abi-3.47.5.denial1' \
-                  <<<"$package_info"
-                ;;
-              denial-plugin-manager)
-                test "$(basename -- "$package")" = \
-                  "denial-plugin-manager-${apk_version}-r${PACKAGE_RELEASE}.apk"
-                grep -Fxq \
-                  "depend = denial=${apk_version}-r${PACKAGE_RELEASE}" \
-                  <<<"$package_info"
-                bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugin-manager
-                ;;
-              *)
-                printf 'Unexpected Alpine package: %s\n' "$package_name" >&2
-                exit 1
-                ;;
-            esac
-            tools/verify-denial-package-payload \
-              apk "$package" "$alpine_payload/$package_name"
-            apk_names+=("$package_name")
-          done
-          test "$(printf '%s\n' "${apk_names[@]}" | sort | paste -sd' ' -)" = \
-            'denial denial-flutter-engine denial-plugin-manager'
+      - name: Verify aarch64 provenance and package contents
+        shell: bash
+        run: >-
+          tools/verify-denial-candidate aarch64
+          "$RUNNER_TEMP/denial-${GITHUB_REF_NAME}-aarch64-candidate"
 
       - name: Rehearse signed APT and DNF repository generation
         shell: bash
         env:
           CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
+          AARCH64_CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-aarch64-candidate
         run: |
           set -euo pipefail
           mapfile -t native_metadata < <(
@@ -1041,9 +567,10 @@ jobs:
           test "${#native_metadata[@]}" -eq 7
           test "${native_metadata[1]}" = 0
           tools/test-denial-repository-generators \
-            "$CANDIDATE_ROOT/packages" \
             "${native_metadata[0]}" \
-            "${native_metadata[1]}"
+            "${native_metadata[1]}" \
+            "$CANDIDATE_ROOT/packages" \
+            "$AARCH64_CANDIDATE_ROOT/packages"
 
       - name: Test guided repository setup state handling
         shell: bash

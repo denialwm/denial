@@ -35,6 +35,38 @@ def replace_assignment(text, key, value):
     return text
 
 
+# Package architecture, prebuilt platform, manifest name, ELF machine. The
+# aarch64 engine joins once its release checksum is committed.
+ARCHITECTURES = (
+    ("x86_64", "linux-x64", "manifest.json", 62),
+    ("aarch64", "linux-arm64", "manifest.aarch64.json", 183),
+)
+
+
+def release_engine(root, lock, content_hash, platform, machine):
+    engine_dir = root / f"prebuilt/flutter-engine/{platform}-release"
+    args = engine_dir / "args.gn"
+    engine = engine_dir / "libflutter_engine.so"
+    engine_hash = digest(engine)
+    if engine_hash != (engine_dir / "libflutter_engine.so.sha256").read_text().split()[0]:
+        raise ValueError(f"{platform} release engine differs from its committed checksum")
+    if gn_value(args, "engine_version") != lock["flutter"]["revision"]:
+        raise ValueError(f"{platform} release GN graph differs from the Flutter lock")
+    if gn_value(args, "skia_version") != lock["skia"]["revision"]:
+        raise ValueError(f"{platform} release GN graph differs from the Skia lock")
+    if gn_value(args, "content_hash") != content_hash:
+        raise ValueError(f"{platform} release GN content identity differs from committed source")
+    if "is_debug = false\n" not in args.read_text():
+        raise ValueError(f"{platform} release graph is not optimized")
+    header = engine.read_bytes()[:20]
+    if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != machine:
+        raise ValueError(f"{platform} release engine has the wrong ELF machine")
+    build_ids = re.findall(r"Build ID: ([0-9a-f]{40})", command("readelf", "-n", str(engine)))
+    if len(build_ids) != 1:
+        raise ValueError(f"{platform} release engine has no unique canonical build ID")
+    return args, engine_hash, build_ids[0]
+
+
 def refresh(root, flutter, skia, check=False):
     lock_path = root / "prebuilt/flutter-engine/SOURCE_LOCK.json"
     lock = json.loads(lock_path.read_text())
@@ -43,81 +75,88 @@ def refresh(root, flutter, skia, check=False):
             raise ValueError(f"{name} HEAD differs from the source lock")
         if command("git", "-C", str(source), "status", "--porcelain"):
             raise ValueError(f"{name} has uncommitted inputs")
-    engine_dir = root / "prebuilt/flutter-engine/linux-x64-release"
-    args = engine_dir / "args.gn"
-    engine = engine_dir / "libflutter_engine.so"
-    engine_hash = digest(engine)
-    if engine_hash != (engine_dir / "libflutter_engine.so.sha256").read_text().split()[0]:
-        raise ValueError("release engine differs from its committed checksum")
-    if gn_value(args, "engine_version") != lock["flutter"]["revision"]:
-        raise ValueError("release GN graph differs from the Flutter lock")
-    if gn_value(args, "skia_version") != lock["skia"]["revision"]:
-        raise ValueError("release GN graph differs from the Skia lock")
     content_hash = command(str(flutter / "bin/internal/content_aware_hash.sh"))
-    if gn_value(args, "content_hash") != content_hash:
-        raise ValueError("release GN content identity differs from committed source")
-    if "is_debug = false\n" not in args.read_text():
-        raise ValueError("release graph is not optimized")
-    header = engine.read_bytes()[:20]
-    if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != 62:
-        raise ValueError("release engine is not x86-64 ELF")
-    build_ids = re.findall(r"Build ID: ([0-9a-f]{40})", command("readelf", "-n", str(engine)))
-    if len(build_ids) != 1:
-        raise ValueError("release engine has no unique canonical build ID")
+    engines = {}
+    for architecture, platform, manifest_name, machine in ARCHITECTURES:
+        checksum = root / f"prebuilt/flutter-engine/{platform}-release/libflutter_engine.so.sha256"
+        if architecture != "x86_64" and not checksum.exists():
+            continue
+        engines[architecture] = (manifest_name, *release_engine(root, lock, content_hash, platform, machine))
     outputs = {}
-    for family in ("flutter-engine", "ui-development"):
-        directory = root / "packaging/arch" / family
-        path = directory / "manifest.json"
-        manifest = json.loads(path.read_text())
+    directory = root / "packaging/arch/flutter-engine"
+    recipe = (directory / "PKGBUILD").read_text()
+    template = json.loads((directory / "manifest.json").read_text())
+    for architecture, (manifest_name, args, engine_hash, build_id) in engines.items():
+        path = directory / manifest_name
+        manifest = json.loads(path.read_text()) if path.exists() else json.loads(json.dumps(template))
+        manifest["package"]["architecture"] = architecture
         manifest["source_lock"]["sha256"] = digest(lock_path)
         for name in ("flutter", "skia"):
             manifest["sources"][f"{name}_fork_revision"] = lock[name]["revision"]
             manifest["sources"][f"{name}_repository"] = lock[name]["repository"]
-        recipe = (directory / "PKGBUILD").read_text()
-        if family == "flutter-engine":
-            manifest["sources"]["engine_content_hash"] = content_hash
-            manifest["abi"]["denial_embedder_header_sha256"] = digest(
-                flutter / "engine/src/flutter/shell/platform/embedder/embedder.h")
-            manifest["abi"]["generated_rust_bindings_sha256"] = digest(
-                root / "compositor/flutter-engine/src/sys.rs")
-            manifest["artifacts"].update({
-                "gn_args_sha256": digest(args),
-                "libflutter_engine_sha256": engine_hash,
-                "libflutter_engine_build_id": build_ids[0],
-            })
-            recipe = replace_assignment(recipe, "_engine_sha256", engine_hash)
-        else:
-            retained = {}
-            for mode in ("debug", "profile"):
-                legacy = root / f"prebuilt/flutter-engine/linux-x64-{mode}"
-                revision = gn_value(legacy / "args.gn", "engine_version")
-                retained[mode] = {
-                    "flutter_fork_revision": revision,
-                    "skia_fork_revision": gn_value(legacy / "args.gn", "skia_version"),
-                    "engine_content_hash": gn_value(legacy / "args.gn", "content_hash"),
-                    "matches_current_source_lock": revision == lock["flutter"]["revision"],
-                }
-                manifest["artifacts"][f"{mode}_engine_args_sha256"] = digest(legacy / "args.gn")
-                # Preserve declared legacy artifacts; do not relabel or rebuild them.
-                expected = (legacy / "libflutter_engine.so.sha256").read_text().split()[0]
-                if (legacy / "libflutter_engine.so").exists() and digest(legacy / "libflutter_engine.so") != expected:
-                    raise ValueError(f"retained {mode} engine differs from its checksum")
-                manifest["artifacts"][f"{mode}_engine_sha256"] = expected
-            matched = all(value["matches_current_source_lock"] for value in retained.values())
-            manifest["artifact_provenance"] = retained
-            manifest["assurances"]["development_engines_match_source_lock"] = matched
-            manifest["publication"] = {
-                "enabled": False,
-                "reason": "Legacy UI-development publication remains paused pending an explicitly authorized matched development-engine refresh and package validation.",
-            }
-            recipe = replace_assignment(recipe, "_flutter_revision", lock["flutter"]["revision"])
+        manifest["sources"]["engine_content_hash"] = content_hash
+        manifest["abi"]["denial_embedder_header_sha256"] = digest(
+            flutter / "engine/src/flutter/shell/platform/embedder/embedder.h")
+        manifest["abi"]["generated_rust_bindings_sha256"] = digest(
+            root / "compositor/flutter-engine/src/sys.rs")
+        manifest["artifacts"].update({
+            "gn_args_sha256": digest(args),
+            "libflutter_engine_sha256": engine_hash,
+            "libflutter_engine_build_id": build_id,
+        })
+        if not path.exists():
+            # A new architecture starts unverified on its own hardware.
+            manifest["assurances"] = {
+                (f"{architecture}_hardware_verified" if key == "x86_64_hardware_verified" else key):
+                    (False if key == "x86_64_hardware_verified" else value)
+                for key, value in manifest["assurances"].items()}
         data = json.dumps(manifest, indent=2) + "\n"
         outputs[path] = data
-        recipe, count = re.subn(r"^sha256sums=\('[0-9a-f]{64}'\)$",
-            f"sha256sums=('{hashlib.sha256(data.encode()).hexdigest()}')", recipe, flags=re.M)
+        recipe = replace_assignment(recipe, f"_engine_sha256_{architecture}", engine_hash)
+        recipe, count = re.subn(rf"^sha256sums_{architecture}=\('[0-9a-f]{{64}}'\)$",
+            f"sha256sums_{architecture}=('{hashlib.sha256(data.encode()).hexdigest()}')", recipe, flags=re.M)
         if count != 1:
-            raise ValueError(f"missing or duplicate manifest checksum in {directory}")
-        outputs[directory / "PKGBUILD"] = recipe
+            raise ValueError(f"missing or duplicate {architecture} manifest checksum in {directory}")
+    outputs[directory / "PKGBUILD"] = recipe
+    directory = root / "packaging/arch/ui-development"
+    path = directory / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["source_lock"]["sha256"] = digest(lock_path)
+    for name in ("flutter", "skia"):
+        manifest["sources"][f"{name}_fork_revision"] = lock[name]["revision"]
+        manifest["sources"][f"{name}_repository"] = lock[name]["repository"]
+    recipe = (directory / "PKGBUILD").read_text()
+    retained = {}
+    for mode in ("debug", "profile"):
+        legacy = root / f"prebuilt/flutter-engine/linux-x64-{mode}"
+        revision = gn_value(legacy / "args.gn", "engine_version")
+        retained[mode] = {
+            "flutter_fork_revision": revision,
+            "skia_fork_revision": gn_value(legacy / "args.gn", "skia_version"),
+            "engine_content_hash": gn_value(legacy / "args.gn", "content_hash"),
+            "matches_current_source_lock": revision == lock["flutter"]["revision"],
+        }
+        manifest["artifacts"][f"{mode}_engine_args_sha256"] = digest(legacy / "args.gn")
+        # Preserve declared legacy artifacts; do not relabel or rebuild them.
+        expected = (legacy / "libflutter_engine.so.sha256").read_text().split()[0]
+        if (legacy / "libflutter_engine.so").exists() and digest(legacy / "libflutter_engine.so") != expected:
+            raise ValueError(f"retained {mode} engine differs from its checksum")
+        manifest["artifacts"][f"{mode}_engine_sha256"] = expected
+    matched = all(value["matches_current_source_lock"] for value in retained.values())
+    manifest["artifact_provenance"] = retained
+    manifest["assurances"]["development_engines_match_source_lock"] = matched
+    manifest["publication"] = {
+        "enabled": False,
+        "reason": "Legacy UI-development publication remains paused pending an explicitly authorized matched development-engine refresh and package validation.",
+    }
+    recipe = replace_assignment(recipe, "_flutter_revision", lock["flutter"]["revision"])
+    data = json.dumps(manifest, indent=2) + "\n"
+    outputs[path] = data
+    recipe, count = re.subn(r"^sha256sums=\('[0-9a-f]{64}'\)$",
+        f"sha256sums=('{hashlib.sha256(data.encode()).hexdigest()}')", recipe, flags=re.M)
+    if count != 1:
+        raise ValueError(f"missing or duplicate manifest checksum in {directory}")
+    outputs[directory / "PKGBUILD"] = recipe
     for path, data in outputs.items():
         if check:
             if path.read_text() != data:

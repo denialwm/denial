@@ -10,7 +10,7 @@ Release:        %{denial_release}
 Summary:        Flutter-native Wayland compositor and desktop shell
 License:        GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
 URL:            https://github.com/denialwm/denial
-ExclusiveArch:  x86_64
+ExclusiveArch:  x86_64 aarch64
 
 Requires:       bash
 Requires:       coreutils

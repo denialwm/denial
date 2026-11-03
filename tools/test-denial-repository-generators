@@ -9,9 +9,11 @@ fail() {
   exit 1
 }
 
-if (($# != 3)); then
+if (($# < 3)); then
   printf '%s\n' \
-    'Usage: test-denial-repository-generators PACKAGE_ROOT VERSION RELEASE' \
+    'Usage: test-denial-repository-generators VERSION RELEASE PACKAGE_ROOT...' \
+    '' \
+    'Each PACKAGE_ROOT holds the Debian and RPM packages of one architecture.' \
     >&2
   exit 2
 fi
@@ -23,10 +25,14 @@ for command_name in \
     || fail "$command_name is required"
 done
 
-PACKAGE_ROOT="$(realpath -e -- "$1")"
-VERSION="$2"
-RELEASE="$3"
-readonly PACKAGE_ROOT VERSION RELEASE
+VERSION="$1"
+RELEASE="$2"
+readonly VERSION RELEASE
+shift 2
+package_roots=()
+for package_root in "$@"; do
+  package_roots+=("$(realpath -e -- "$package_root")")
+done
 
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/drt.XXXXXX")"
 cleanup() {
@@ -57,18 +63,18 @@ fingerprint="$(
 gpg --batch --armor --export "$fingerprint" >"$work_root/key.asc"
 
 "$ROOT/tools/generate-denial-apt-repository" \
-  "$PACKAGE_ROOT" \
   "$work_root/apt" \
   "$fingerprint" \
   "$VERSION" \
-  "$RELEASE"
+  "$RELEASE" \
+  "${package_roots[@]}"
 "$ROOT/tools/generate-denial-dnf-repository" \
-  "$PACKAGE_ROOT" \
   "$work_root/rpm" \
   "$fingerprint" \
   "$work_root/key.asc" \
   "$VERSION" \
-  "$RELEASE"
+  "$RELEASE" \
+  "${package_roots[@]}"
 
 for suite in trixie noble; do
   release_root="$work_root/apt/dists/$suite"
@@ -76,46 +82,54 @@ for suite in trixie noble; do
   gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
 done
 
-rpm_direct="$work_root/rpm-direct"
-install -d -m 0755 "$rpm_direct"
-cp -a -- "$work_root/rpm/fedora/44/x86_64/Packages/." "$rpm_direct/"
-"$ROOT/tools/verify-denial-rpm-repository" \
-  "$work_root/rpm/fedora/44/x86_64" \
-  "$rpm_direct" \
-  "$work_root/key.asc" \
-  "$fingerprint" \
-  "$VERSION" \
-  "$RELEASE"
+for rpm_repository in "$work_root"/rpm/fedora/44/*; do
+  architecture="$(basename -- "$rpm_repository")"
+  rpm_direct="$work_root/rpm-direct/$architecture"
+  install -d -m 0755 "$rpm_direct"
+  cp -a -- "$rpm_repository/Packages/." "$rpm_direct/"
+  "$ROOT/tools/verify-denial-rpm-repository" \
+    "$rpm_repository" \
+    "$rpm_direct" \
+    "$work_root/key.asc" \
+    "$fingerprint" \
+    "$VERSION" \
+    "$RELEASE"
+done
 
-apt_root="$work_root/apt-client"
-install -d -m 0755 \
-  "$apt_root/state/lists/partial" \
-  "$apt_root/cache/archives/partial" \
-  "$apt_root/etc"
-install -m 0644 "$work_root/key.asc" "$apt_root/key.asc"
-cat >"$apt_root/etc/sources.list" <<EOF
-deb [arch=amd64 signed-by=$apt_root/key.asc] file:$work_root/apt trixie main
-deb [arch=amd64 signed-by=$apt_root/key.asc] file:$work_root/apt noble main
-EOF
-apt_options=(
-  -o Debug::NoLocking=true
-  -o "Dir::Etc::sourcelist=$apt_root/etc/sources.list"
-  -o 'Dir::Etc::sourceparts=-'
-  -o "Dir::State=$apt_root/state"
-  -o 'Dir::State::status=/dev/null'
-  -o "Dir::Cache=$apt_root/cache"
-  -o 'Acquire::Languages=none'
-)
-apt-get "${apt_options[@]}" update
-apt_names="$(
-  apt-cache "${apt_options[@]}" show \
-    denial denial-flutter-engine denial-plugin-manager \
-    | awk '/^Package: / { print $2 }' \
-    | sort -u \
-    | paste -sd' ' -
-)"
-[[ "$apt_names" == 'denial denial-flutter-engine denial-plugin-manager' ]] \
-  || fail "APT resolved the wrong package set: $apt_names"
+for binary_root in "$work_root"/apt/dists/trixie/main/binary-*; do
+  architecture="${binary_root##*/binary-}"
+  apt_root="$work_root/apt-client-$architecture"
+  install -d -m 0755 \
+    "$apt_root/state/lists/partial" \
+    "$apt_root/cache/archives/partial" \
+    "$apt_root/etc"
+  install -m 0644 "$work_root/key.asc" "$apt_root/key.asc"
+  printf '%s\n' \
+    "deb [arch=$architecture signed-by=$apt_root/key.asc] file:$work_root/apt trixie main" \
+    "deb [arch=$architecture signed-by=$apt_root/key.asc] file:$work_root/apt noble main" \
+    >"$apt_root/etc/sources.list"
+  apt_options=(
+    -o Debug::NoLocking=true
+    -o "APT::Architecture=$architecture"
+    -o "APT::Architectures=$architecture"
+    -o "Dir::Etc::sourcelist=$apt_root/etc/sources.list"
+    -o 'Dir::Etc::sourceparts=-'
+    -o "Dir::State=$apt_root/state"
+    -o 'Dir::State::status=/dev/null'
+    -o "Dir::Cache=$apt_root/cache"
+    -o 'Acquire::Languages=none'
+  )
+  apt-get "${apt_options[@]}" update
+  apt_names="$(
+    apt-cache "${apt_options[@]}" show \
+      denial denial-flutter-engine denial-plugin-manager \
+      | awk '/^Package: / { print $2 }' \
+      | sort -u \
+      | paste -sd' ' -
+  )"
+  [[ "$apt_names" == 'denial denial-flutter-engine denial-plugin-manager' ]] \
+    || fail "$architecture APT client resolved the wrong package set: $apt_names"
+done
 
 printf '\n' >>"$work_root/apt/dists/trixie/Release"
 if gpg --batch --verify \

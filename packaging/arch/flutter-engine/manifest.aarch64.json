@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "stage": "public-beta",
+  "generation": "flutter-3.47.5-engine-af7e796e-denial-r1",
+  "package": {
+    "name": "denial-flutter-engine",
+    "version_source": "denial-release-tag",
+    "epoch": 1,
+    "architecture": "aarch64"
+  },
+  "compatibility": {
+    "flutter_engine_abi": "3.47.5.denial1"
+  },
+  "sources": {
+    "flutter_version": "3.47.5",
+    "flutter_revision": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1",
+    "engine_artifact_revision": "af7e796e161ae0bb1ff0758c71a7105418bd9ded",
+    "engine_content_hash": "0a2086f2e79d9d9457bfbc8fa2e5aa10d7797057",
+    "dart_version": "3.13.4",
+    "dart_revision": "b530c21f7de367b94fb04787bfed9d8e989d75e8",
+    "skia_revision": "8df24be66531469e576a806749a0202ae26b8d08",
+    "flutter_repository": "https://github.com/denialwm/flutter.git",
+    "flutter_fork_revision": "37ec4361f038c15c1ad1ca92ee8b9b5ec8f4f52c",
+    "skia_repository": "https://github.com/denialwm/skia.git",
+    "skia_fork_revision": "5b495e3e15a59ee76af882d83316d351654c1e88"
+  },
+  "source_lock": {
+    "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
+    "sha256": "26ef1c32af7b3d26cfb37d0cb3a69ef2f31c18658c1110a5081cf8fa9974f74b"
+  },
+  "abi": {
+    "official_embedder_header_sha256": "94122469b254a932394bb5bb5c625317426eefd6e23d4366e32372c70ac5be37",
+    "denial_embedder_header_sha256": "6501724f32d957bd8827162e77e6999c9cf65d990c54775dfefac9be03f67c33",
+    "generated_rust_bindings_sha256": "9a41a4c9032bac3a77afe0cac7e47eebff72cfa28a38c7ae5537fab75f625f81"
+  },
+  "artifacts": {
+    "gn_args_sha256": "c0a481e93e85a179de13fcc0c22b63896a484c2e3e9b0312d38aa3a432995b3f",
+    "libflutter_engine_sha256": "955ffd77eb16691303c46715c7e2a7a54a381490f30f3f6a4e9ddd1b86a72868",
+    "libflutter_engine_build_id": "401cc4e4b65b1eece0ef5389d0530e6d01583518",
+    "icudtl_sha256": "325a86063d26334c2eabe1743cea073b612540fbf3d8fc2ef0b5708e3763a8c7"
+  },
+  "assurances": {
+    "source_tree_equality_verified": false,
+    "source_build_verified": true,
+    "unit_tests_verified": false,
+    "aarch64_hardware_verified": false,
+    "offline_source_closure": false,
+    "reproducible_package": false,
+    "signed_generation_tags": false
+  }
+}

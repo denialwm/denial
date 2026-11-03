@@ -69,7 +69,7 @@ too. Apparently one kernel wasn't enough.
 Linux builds support **x86-64 and ARM64**.
 Configuration and developer interfaces may change before 1.0.
 
-First-party Linux binary packages are currently x86-64. For the distributions below,
+First-party Linux binary packages are x86-64 and ARM64. For the distributions below,
 review the [repository setup script](install.sh), then add the signed repository:
 
 ```sh
@@ -85,10 +85,10 @@ finishes, install Denial with the command for your distribution:
 | Debian 13 / Ubuntu 24.04 LTS | `sudo apt update && sudo apt install denial` |
 | Fedora 44 | `sudo dnf install denial` |
 
-Alpine Linux 3.24 has [signed APK downloads](docs/INSTALL.md#alpine-linux-324).
+Alpine Linux 3.24 has [signed x86-64 APK downloads](docs/INSTALL.md#alpine-linux-324).
 NixOS has a [first-party source flake and module](packaging/nixos/README.md).
-ARM64 builds are supported [from source](docs/BUILDING.md); Void Linux has also
-been tested, with no first-party binary yet. openSUSE Tumbleweed has a
+Void Linux has also been tested [from source](docs/BUILDING.md), with no
+first-party binary yet. openSUSE Tumbleweed has a
 [native local RPM adapter](packaging/opensuse/README.md); publication is not
 connected yet.
 

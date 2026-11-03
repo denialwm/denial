@@ -58,7 +58,7 @@ Not for development:
   validated before pushing, not built implicitly for an engine-only request.
 
 Before pushing, commit in the forks, advance the lock to their HEADs, and run
-`tools/denial-flutter-engine refresh-metadata` once
+`tools/denial-flutter-engine refresh-metadata` once for each architecture
 ([Pinned Flutter generation](#pinned-flutter-generation)).
 
 ### Host release engine only
@@ -297,8 +297,10 @@ For CI and releases there are two deliberately separate commands:
 # Build or reuse the locked engine; an unchanged lock is an exact cache hit.
 tools/denial-flutter-engine build
 
-# Run exactly once after deliberately advancing SOURCE_LOCK.json.
+# Run exactly once per architecture after deliberately advancing
+# SOURCE_LOCK.json. The aarch64 engine is cross-built.
 tools/denial-flutter-engine refresh-metadata
+DENIAL_TARGET_ARCH=aarch64 tools/denial-flutter-engine refresh-metadata
 
 # Refresh package declarations from verified lock-matched release inputs.
 tools/refresh-denial-engine-manifests
@@ -314,7 +316,8 @@ Do not invoke the routine `build` command and manually fix successive mode
 checksum failures during a lock advance.
 
 The manifest helper derives source, GN, header, engine and build-ID hashes,
-then updates both package manifests and their PKGBUILD manifest checksums.
+then updates the package manifests (`manifest.json` for x86_64,
+`manifest.aarch64.json` for aarch64) and their PKGBUILD manifest checksums.
 It requires clean canonical forks at the lock and a checksum-verified native
 release engine. The paused legacy UI-development package records its retained
 debug/profile engines' actual source identities separately; a release-only

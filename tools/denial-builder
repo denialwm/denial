@@ -9,6 +9,9 @@ NIX_CACHE_CONFIG="${ROOT}/nix/cachix-cache.json"
 readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
 readonly SSH_TARGET="${DENIAL_BUILDER_SSH:-192.168.1.18}"
 readonly RUNNER_SERVICE='denial-actions-runner.service'
+# Read-only for the runner: ProtectSystem=strict leaves /srv readable.
+readonly REMOTE_ARM64_SYSROOT='/srv/denial-builder/sysroot/aarch64'
+readonly ARM64_SYSROOT="${DENIAL_ARM64_SYSROOT:-/mnt/development/denial-os/cross/alarm-sysroot}"
 
 fail() {
   printf 'denial-builder: %s\n' "$*" >&2
@@ -20,6 +23,7 @@ usage() {
 Usage:
   tools/denial-builder install
   tools/denial-builder doctor
+  tools/denial-builder sysroot
   tools/denial-builder arm
   tools/denial-builder qualify
   tools/denial-builder validate-dev
@@ -32,6 +36,8 @@ Usage:
 Commands:
   install  Install the pinned runner and locked builder account on the host.
   doctor   Audit the remote builder as its unprivileged account.
+  sysroot  Copy the Arch Linux ARM sysroot the aarch64 packages link
+           against to the host, root-owned and read-only for the runner.
   arm      Register and start one ephemeral repository-scoped runner.
   qualify  Arm a runner, dispatch the main-only qualification, and watch it.
   validate-dev
@@ -46,6 +52,8 @@ Commands:
 Environment:
   DENIAL_BUILDER_SSH         SSH target (default: 192.168.1.18)
   DENIAL_BUILDER_REPOSITORY  GitHub owner/repository (default: denialwm/denial)
+  DENIAL_ARM64_SYSROOT       Local sysroot to copy
+                             (default: /mnt/development/denial-os/cross/alarm-sysroot)
 
 The builder stores neither a GitHub PAT nor a package-signing key. The arm
 command obtains a one-hour registration token on this workstation and passes
@@ -155,6 +163,24 @@ doctor_host() {
 
   ssh "$SSH_TARGET" \
     sudo systemd-analyze security "$RUNNER_SERVICE" --no-pager
+}
+
+sync_sysroot() {
+  require_command rsync
+  require_command ssh
+  [[ -d "$ARM64_SYSROOT/usr/lib/pkgconfig" ]] \
+    || fail "not an Arch Linux ARM sysroot: $ARM64_SYSROOT"
+  [[ "$(LC_ALL=C readelf -h "$ARM64_SYSROOT/usr/lib/libc.so.6" | awk '$1 == "Machine:" { print $2 }')" == AArch64 ]] \
+    || fail "sysroot libc is not AArch64: $ARM64_SYSROOT"
+
+  ssh "$SSH_TARGET" \
+    sudo /usr/bin/install -d -m 0755 -o root -g root \
+      "$(dirname -- "$REMOTE_ARM64_SYSROOT")" "$REMOTE_ARM64_SYSROOT"
+  rsync -a --delete --chown=root:root --chmod=go-w \
+    --rsync-path='sudo /usr/bin/rsync' \
+    "$ARM64_SYSROOT/" "${SSH_TARGET}:${REMOTE_ARM64_SYSROOT}/"
+  printf 'Copied %s to %s:%s\n' \
+    "$ARM64_SYSROOT" "$SSH_TARGET" "$REMOTE_ARM64_SYSROOT"
 }
 
 github_runner_count() {
@@ -483,6 +509,10 @@ case "$command_name" in
   doctor)
     (($# == 1)) || fail 'doctor takes no arguments'
     doctor_host
+    ;;
+  sysroot)
+    (($# == 1)) || fail 'sysroot takes no arguments'
+    sync_sysroot
     ;;
   arm)
     (($# == 1)) || fail 'arm takes no arguments'

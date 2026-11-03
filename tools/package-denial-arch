@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
 
 CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
@@ -52,6 +54,13 @@ mapfile -t native_metadata < <(
 package_version="${native_metadata[0]}"
 PACKAGE_RELEASE="${native_metadata[1]}"
 export SOURCE_DATE_EPOCH="${native_metadata[3]}"
+# The packages take the architecture of the binaries they carry.
+CARCH="$(denial_elf_arch "$STAGE_ROOT/denial/usr/bin/deniald")"
+export CARCH
+case "$CARCH" in
+  x86_64) engine_platform=linux-x64 ;;
+  aarch64) engine_platform=linux-arm64 ;;
+esac
 
 # Every source lives in this checkout. makepkg keeps a file:// source it
 # already copied, so a stale copy would fail validation after an edit.
@@ -69,7 +78,7 @@ export PACKAGER="$PACKAGE_PACKAGER"
 engine_package="$(makepkg --dir "$ENGINE_PACKAGE_DIR" --packagelist)"
 expected_engine_sha256="$(
   cut -d' ' -f1 \
-    < "$ROOT/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256"
+    < "$ROOT/prebuilt/flutter-engine/$engine_platform-release/libflutter_engine.so.sha256"
 )"
 expected_engine_package_version="1:${package_version}-${PACKAGE_RELEASE}"
 

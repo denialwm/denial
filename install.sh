@@ -143,9 +143,11 @@ exact_file_state() {
   fi
 }
 
-if [ "$(uname -m)" != x86_64 ]; then
-  fail 'Denial packages are currently available for x86-64 only.'
-fi
+case "$(uname -m)" in
+  x86_64) apt_architecture='amd64' ;;
+  aarch64) apt_architecture='arm64' ;;
+  *) fail 'Denial packages are available for x86-64 and AArch64 only.' ;;
+esac
 if [ ! -r "$OS_RELEASE" ]; then
   fail "Cannot read $OS_RELEASE."
 fi
@@ -162,7 +164,7 @@ suite=''
 install_command=''
 compatibility_note=''
 case "$os_id:$os_version:$os_codename" in
-  arch:* | cachyos:* | endeavouros:* | manjaro:*)
+  arch:* | archarm:* | cachyos:* | endeavouros:* | manjaro:*)
     mode='pacman'
     install_command='sudo pacman -Syu denial'
     ;;
@@ -240,7 +242,7 @@ case "$mode" in
       printf 'URIs: %s\n' "$APT_SERVER"
       printf 'Suites: %s\n' "$suite"
       printf 'Components: main\n'
-      printf 'Architectures: amd64\n'
+      printf 'Architectures: %s\n' "$apt_architecture"
       printf 'Signed-By: %s\n' "$APT_KEYRING"
     } >"$expected_config"
     repository_state="$(exact_file_state "$APT_SOURCES" "$expected_config")"

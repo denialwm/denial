@@ -13,10 +13,17 @@ fi
 SIGNED_ROOT="$(realpath -e -- "$1")"
 readonly SIGNED_ROOT
 
-"$SCRIPT_DIR/verify-denial-rpm-repository" \
-  "$SIGNED_ROOT/rpm/fedora/44/x86_64" \
-  "$SIGNED_ROOT/downloads/x86_64" \
-  "$SIGNED_ROOT/denial-repo-key.asc" \
-  "$2" \
-  "$3" \
-  "$4"
+[[ -d "$SIGNED_ROOT/rpm/fedora/44/x86_64" ]] || {
+  printf 'verify-denial-published-rpm-repository: the x86_64 repository is missing\n' >&2
+  exit 1
+}
+for architecture in x86_64 aarch64; do
+  [[ -d "$SIGNED_ROOT/rpm/fedora/44/$architecture" ]] || continue
+  "$SCRIPT_DIR/verify-denial-rpm-repository" \
+    "$SIGNED_ROOT/rpm/fedora/44/$architecture" \
+    "$SIGNED_ROOT/downloads/$architecture" \
+    "$SIGNED_ROOT/denial-repo-key.asc" \
+    "$2" \
+    "$3" \
+    "$4"
+done

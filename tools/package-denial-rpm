@@ -4,6 +4,8 @@ export LC_ALL=C
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
 CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="$(readlink -m -- "${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}")"
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
@@ -63,6 +65,9 @@ FLUTTER_ENGINE_ABI="${native_metadata[5]}"
 FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
 readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
 readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
+# The packages take the architecture of the binaries they carry.
+RPM_ARCH="$(denial_elf_arch "$STAGE_ROOT/denial/usr/bin/deniald")"
+readonly RPM_ARCH
 
 [[ "$PACKAGE_VERSION" != *-* ]] \
   || { printf 'package-denial-rpm: RPM version cannot contain a hyphen\n' >&2; exit 1; }
@@ -90,6 +95,7 @@ if [[ -f "$STAGE_ROOT/denial/usr/share/denial/version" ]]; then
   )
 fi
 env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" rpmbuild -bb \
+  --target "$RPM_ARCH" \
   --define "_topdir $RPM_ROOT" \
   --define "_dbpath $RPM_ROOT/database" \
   --define '_buildhost denial-build' \
@@ -105,9 +111,9 @@ env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" rpmbuild -bb \
   "${runtime_version_definition[@]}" \
   "$RPM_ROOT/SPECS/denial.spec"
 
-denial_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm" -print -quit)"
-engine_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-flutter-engine-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm" -print -quit)"
-plugin_manager_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-plugin-manager-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm" -print -quit)"
+denial_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.${RPM_ARCH}.rpm" -print -quit)"
+engine_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-flutter-engine-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.${RPM_ARCH}.rpm" -print -quit)"
+plugin_manager_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-plugin-manager-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.${RPM_ARCH}.rpm" -print -quit)"
 [[ -n "$denial_package" && -n "$engine_package" && -n "$plugin_manager_package" ]] \
   || { printf 'package-denial-rpm: expected RPM outputs are missing\n' >&2; exit 1; }
 
@@ -129,13 +135,13 @@ rpm --dbpath "$RPM_ROOT/database" -qp \
   "$STAGE_ROOT/denial-plugin-manager"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   rpm "$engine_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$RPM_ARCH"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   rpm "$denial_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$RPM_ARCH"
 "$ROOT/tools/verify-denial-native-package-metadata" \
   rpm "$plugin_manager_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
-  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE" "$RPM_ARCH"
 
 printf '\n%s packages ready:\n%s\n%s\n%s\n' \
   "$RPM_LABEL" "$engine_output" "$denial_output" "$plugin_manager_output"

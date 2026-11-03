@@ -4,7 +4,7 @@ pkgname=denial
 pkgver="${DENIAL_PACKAGE_VERSION:-0}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 pkgdesc='Flutter-native Wayland compositor and desktop shell'
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url='https://github.com/denialwm/denial'
 license=(
   'GPL-3.0-or-later'

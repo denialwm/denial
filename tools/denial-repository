@@ -13,12 +13,13 @@ fail() {
 usage() {
   cat <<'EOF'
 Usage:
-  tools/denial-repository UNSIGNED_ROOT OUTPUT_ROOT FINGERPRINT
+  tools/denial-repository OUTPUT_ROOT FINGERPRINT UNSIGNED_ROOT...
 
-UNSIGNED_ROOT must contain packages/ and evidence/. The command signs one
-x86-64 public-beta package set, creates complete static Pacman, APT, and DNF
-repositories, and publishes signed direct downloads, including Alpine APKs,
-below OUTPUT_ROOT.
+Each UNSIGNED_ROOT holds one architecture's promoted package set in packages/
+and its evidence in evidence/: x86_64 is required, aarch64 is optional. The
+command signs every set, creates complete static Pacman, APT, and DNF
+repositories with one tree per architecture, and publishes signed direct
+downloads, including the x86_64 Alpine APKs, below OUTPUT_ROOT.
 
 Required environment:
   DENIAL_RELEASE_BUILD_RUN
@@ -32,7 +33,7 @@ subkey. The public primary fingerprint must be passed as FINGERPRINT.
 EOF
 }
 
-if (($# != 3)); then
+if (($# < 3)); then
   usage >&2
   exit 2
 fi
@@ -46,30 +47,19 @@ for required_command in \
 done
 
 readonly EXPECTED_UID='Doctor Logix (Denial Repository Signing)'
-UNSIGNED_ROOT="$(realpath -e -- "$1")"
-readonly UNSIGNED_ROOT
-readonly PACKAGE_INPUT="${UNSIGNED_ROOT}/packages"
-readonly EVIDENCE_INPUT="${UNSIGNED_ROOT}/evidence"
-OUTPUT_ROOT="$(realpath -m -- "$2")"
+OUTPUT_ROOT="$(realpath -m -- "$1")"
 readonly OUTPUT_ROOT
-readonly REPOSITORY_ROOT="${OUTPUT_ROOT}/x86_64"
-readonly DOWNLOAD_ROOT="${OUTPUT_ROOT}/downloads/x86_64"
 readonly APT_ROOT="${OUTPUT_ROOT}/apt"
 readonly RPM_ROOT="${OUTPUT_ROOT}/rpm"
-FINGERPRINT="$(tr '[:lower:]' '[:upper:]' <<<"$3")"
+FINGERPRINT="$(tr '[:lower:]' '[:upper:]' <<<"$2")"
 readonly FINGERPRINT
+shift 2
 readonly SOURCE_SHA="${DENIAL_RELEASE_SOURCE_SHA:-}"
 readonly RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 readonly WORKFLOW_RUN="${DENIAL_RELEASE_WORKFLOW_RUN:-}"
 readonly BUILD_RUN="${DENIAL_RELEASE_BUILD_RUN:-}"
 readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
 
-[[ -d "$PACKAGE_INPUT" ]] \
-  || fail "unsigned package directory is missing: $PACKAGE_INPUT"
-[[ -d "$EVIDENCE_INPUT" ]] \
-  || fail "unsigned evidence directory is missing: $EVIDENCE_INPUT"
-[[ -f "$PACKAGE_INPUT/SHA256SUMS" ]] \
-  || fail "unsigned package checksum manifest is missing: $PACKAGE_INPUT/SHA256SUMS"
 [[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
   || fail 'signing fingerprint must be a complete OpenPGP fingerprint'
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
@@ -89,22 +79,48 @@ readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
 readonly RPM_QUERY_DB="${GNUPGHOME}/rpm-query-db"
 install -d -m 0700 "$RPM_QUERY_DB"
 
-for expected in \
-  'public_beta=true' \
-  'artifact_class=tag-promoted-main-candidate' \
-  "release_tag=$RELEASE_TAG" \
-  "source_commit=$SOURCE_SHA" \
-  "main_candidate_run=$BUILD_RUN" \
-  "promotion_workflow_run=$WORKFLOW_RUN" \
-  'compiled_payloads_changed=false' \
-  'package_formats=arch,deb,rpm,apk'; do
-  grep -Fxq "$expected" "$EVIDENCE_INPUT/provenance.txt" \
-    || fail "unsigned promotion provenance is missing: $expected"
+# One unsigned root per architecture, named by its promotion provenance.
+architectures=()
+declare -A unsigned_roots=()
+for unsigned_root in "$@"; do
+  unsigned_root="$(realpath -e -- "$unsigned_root")"
+  [[ -d "$unsigned_root/packages" ]] \
+    || fail "unsigned package directory is missing: $unsigned_root/packages"
+  [[ -d "$unsigned_root/evidence" ]] \
+    || fail "unsigned evidence directory is missing: $unsigned_root/evidence"
+  [[ -f "$unsigned_root/packages/SHA256SUMS" ]] \
+    || fail "unsigned package checksum manifest is missing: $unsigned_root/packages/SHA256SUMS"
+  provenance="$unsigned_root/evidence/provenance.txt"
+  architecture="$(sed -n 's/^package_architecture=//p' "$provenance")"
+  case "$architecture" in
+    x86_64) package_formats=arch,deb,rpm,apk ;;
+    aarch64) package_formats=arch,deb,rpm ;;
+    *) fail "unsigned promotion has no supported architecture: $unsigned_root" ;;
+  esac
+  [[ -z "${unsigned_roots[$architecture]+set}" ]] \
+    || fail "two unsigned roots hold $architecture packages"
+  for expected in \
+    'public_beta=true' \
+    'artifact_class=tag-promoted-main-candidate' \
+    "release_tag=$RELEASE_TAG" \
+    "source_commit=$SOURCE_SHA" \
+    "main_candidate_run=$BUILD_RUN" \
+    "promotion_workflow_run=$WORKFLOW_RUN" \
+    'compiled_payloads_changed=false' \
+    "package_formats=$package_formats"; do
+    grep -Fxq "$expected" "$provenance" \
+      || fail "$architecture promotion provenance is missing: $expected"
+  done
+  (
+    cd "$unsigned_root/packages"
+    sha256sum --check --strict --quiet SHA256SUMS
+  ) || fail "$architecture unsigned package checksums failed"
+  unsigned_roots[$architecture]="$unsigned_root"
+  architectures+=("$architecture")
 done
-(
-  cd "$PACKAGE_INPUT"
-  sha256sum --check --strict --quiet SHA256SUMS
-) || fail 'unsigned package checksums failed'
+[[ -n "${unsigned_roots[x86_64]+set}" ]] \
+  || fail 'the release needs an x86_64 package set'
+mapfile -t architectures < <(printf '%s\n' "${architectures[@]}" | sort -r)
 
 if [[ -e "$OUTPUT_ROOT" ]] \
   && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
@@ -168,16 +184,192 @@ kill_agent() {
 }
 trap kill_agent EXIT
 
-mapfile -d '' package_inputs < <(
-  find "$PACKAGE_INPUT" \
-    -maxdepth 1 \
-    -type f \
-    -name '*.pkg.tar.zst' \
-    -print0 \
-    | sort -z
-)
-((${#package_inputs[@]} == 3)) \
-  || fail "expected exactly three packages, found ${#package_inputs[@]}"
+# Checks one architecture's unsigned set and records its packages: Arch in
+# pacman_inputs, Debian and RPM in deb_input_lists and rpm_input_lists, all keyed by
+# architecture.
+declare -A pacman_inputs=() deb_input_lists=() rpm_input_lists=()
+check_package_set() {
+  local architecture="$1"
+  local package_input="${unsigned_roots[$architecture]}/packages"
+  local deb_architecture
+  case "$architecture" in
+    x86_64) deb_architecture=amd64 ;;
+    aarch64) deb_architecture=arm64 ;;
+  esac
+
+  mapfile -d '' package_inputs < <(
+    find "$package_input" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.pkg.tar.zst' \
+      -print0 \
+      | sort -z
+  )
+  ((${#package_inputs[@]} == 3)) \
+    || fail "expected exactly three $architecture Arch packages, found ${#package_inputs[@]}"
+
+  engine_packages=0
+  denial_packages=0
+  plugin_manager_packages=0
+  for package in "${package_inputs[@]}"; do
+    package_filename="$(basename -- "$package")"
+    package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+    package_name="$(
+      sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
+    )"
+    package_version="$(
+      sed -n 's/^pkgver = //p' <<<"$package_info" | head -n 1
+    )"
+    package_arch="$(
+      sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
+    )"
+    [[ "$package_arch" == "$architecture" ]] \
+      || fail "$(basename -- "$package") targets $package_arch, expected $architecture"
+    bsdtar -xOf "$package" .BUILDINFO >/dev/null \
+      || fail "$(basename -- "$package") has no .BUILDINFO"
+
+    case "$package_name" in
+      denial-flutter-engine)
+        [[ "$package_filename" == \
+          "denial-flutter-engine-1:${release_version}-1-${architecture}.pkg.tar.zst" ]] \
+          || fail "unexpected engine package filename: $package_filename"
+        [[ "$package_version" == "1:${release_version}-1" ]] \
+          || fail "unexpected engine package version: $package_version"
+        grep -Fqx \
+          'provides = denial-flutter-engine-abi=3.47.5.denial1' \
+          <<<"$package_info" \
+          || fail 'engine package does not provide the expected Flutter ABI'
+        engine_packages=$((engine_packages + 1))
+        ;;
+      denial)
+        [[ "$package_filename" == \
+          "denial-${release_version}-1-${architecture}.pkg.tar.zst" ]] \
+          || fail "unexpected Denial package filename: $package_filename"
+        [[ "$package_version" == "${release_version}-1" ]] \
+          || fail \
+            "Denial package version is $package_version, expected ${release_version}-1"
+        grep -Fqx \
+          'depend = denial-flutter-engine-abi=3.47.5.denial1' \
+          <<<"$package_info" \
+          || fail 'Denial package does not require the exact Flutter Engine ABI'
+        grep -Fqx 'depend = rtkit' <<<"$package_info" \
+          || fail 'Denial package does not require rtkit'
+        [[ "$(
+          bsdtar -xOf "$package" usr/share/denial/version
+        )" == "$release_version" ]] \
+          || fail 'Denial package runtime version does not match its signed tag'
+        denial_packages=$((denial_packages + 1))
+        ;;
+      denial-plugin-manager)
+        [[ "$package_filename" == \
+          "denial-plugin-manager-${release_version}-1-${architecture}.pkg.tar.zst" ]] \
+          || fail "unexpected Plugin Manager package filename: $package_filename"
+        [[ "$package_version" == "${release_version}-1" ]] \
+          || fail "unexpected Plugin Manager package version: $package_version"
+        grep -Fqx "depend = denial=${release_version}-1" <<<"$package_info" \
+          || fail 'Plugin Manager package does not require matching Denial'
+        grep -Fqx 'depend = dart' <<<"$package_info" \
+          || fail 'Plugin Manager package does not require Dart'
+        plugin_manager_packages=$((plugin_manager_packages + 1))
+        ;;
+      *)
+        fail "unexpected package name: ${package_name:-unset}"
+        ;;
+    esac
+  done
+  ((engine_packages == 1 && denial_packages == 1 \
+    && plugin_manager_packages == 1)) \
+    || fail "the $architecture package set must contain denial, its engine, and Plugin Manager"
+
+  mapfile -d '' deb_inputs < <(
+    find "$package_input" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.deb' \
+      -print0 \
+      | sort -z
+  )
+  mapfile -d '' rpm_inputs < <(
+    find "$package_input" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.rpm' \
+      -print0 \
+      | sort -z
+  )
+  ((${#deb_inputs[@]} == 3)) \
+    || fail "expected exactly three Debian packages, found ${#deb_inputs[@]}"
+  ((${#rpm_inputs[@]} == 3)) \
+    || fail "expected exactly three RPM packages, found ${#rpm_inputs[@]}"
+
+  deb_names=()
+  for package in "${deb_inputs[@]}"; do
+    package_name="$(dpkg-deb --field "$package" Package)"
+    package_version="$(dpkg-deb --field "$package" Version)"
+    package_arch="$(dpkg-deb --field "$package" Architecture)"
+    [[ "$package_arch" == "$deb_architecture" ]] \
+      || fail "$(basename -- "$package") targets $package_arch, expected $deb_architecture"
+    [[ "$package_version" == "${release_version}-1" ]] \
+      || fail "$(basename -- "$package") has version $package_version"
+    case "$package_name" in
+      denial)
+        expected_filename="denial_${release_version}-1_${deb_architecture}.deb"
+        ;;
+      denial-flutter-engine)
+        expected_filename="denial-flutter-engine_${release_version}-1_${deb_architecture}.deb"
+        ;;
+      denial-plugin-manager)
+        expected_filename="denial-plugin-manager_${release_version}-1_${deb_architecture}.deb"
+        ;;
+      *) fail "unexpected Debian package: ${package_name:-unset}" ;;
+    esac
+    [[ "$(basename -- "$package")" == "$expected_filename" ]] \
+      || fail "unexpected Debian package filename: $(basename -- "$package")"
+    "$ROOT/tools/verify-denial-native-package-metadata" \
+      deb "$package" "$release_version" 1 '3.47.5.denial1' 2.39 \
+      "$architecture"
+    deb_names+=("$package_name")
+  done
+  [[ "${deb_names[*]}" == \
+    'denial-flutter-engine denial-plugin-manager denial' ]] \
+    || fail "$architecture Debian package set is incomplete"
+
+  rpm_names=()
+  for package in "${rpm_inputs[@]}"; do
+    package_name="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{NAME}' "$package")"
+    package_version="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
+    package_arch="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{ARCH}' "$package")"
+    [[ "$package_arch" == "$architecture" ]] \
+      || fail "$(basename -- "$package") targets $package_arch, expected $architecture"
+    [[ "$package_version" == "${release_version}-1" ]] \
+      || fail "$(basename -- "$package") has version $package_version"
+    case "$package_name" in
+      denial)
+        expected_filename="denial-${release_version}-1.${architecture}.rpm"
+        ;;
+      denial-flutter-engine)
+        expected_filename="denial-flutter-engine-${release_version}-1.${architecture}.rpm"
+        ;;
+      denial-plugin-manager)
+        expected_filename="denial-plugin-manager-${release_version}-1.${architecture}.rpm"
+        ;;
+      *) fail "unexpected RPM package: ${package_name:-unset}" ;;
+    esac
+    [[ "$(basename -- "$package")" == "$expected_filename" ]] \
+      || fail "unexpected RPM package filename: $(basename -- "$package")"
+    "$ROOT/tools/verify-denial-native-package-metadata" \
+      rpm "$package" "$release_version" 1 '3.47.5.denial1' 2.39 \
+      "$architecture"
+    rpm_names+=("$package_name")
+  done
+  [[ "${rpm_names[*]}" == \
+    'denial denial-flutter-engine denial-plugin-manager' ]] \
+    || fail "$architecture RPM package set is incomplete"
+
+  pacman_inputs[$architecture]="$(printf '%s\n' "${package_inputs[@]}")"
+  deb_input_lists[$architecture]="$(printf '%s\n' "${deb_inputs[@]}")"
+  rpm_input_lists[$architecture]="$(printf '%s\n' "${rpm_inputs[@]}")"
+}
 
 release_version="${RELEASE_TAG#v}"
 IFS=. read -r release_major release_minor release_patch <<<"$release_version"
@@ -185,172 +377,22 @@ IFS=. read -r release_major release_minor release_patch <<<"$release_version"
   && "$release_minor" =~ ^[0-9]+$ \
   && "$release_patch" =~ ^[0-9]+$ ]] \
   || fail "release tag has an invalid semantic version: $RELEASE_TAG"
-engine_packages=0
-denial_packages=0
-plugin_manager_packages=0
-for package in "${package_inputs[@]}"; do
-  package_filename="$(basename -- "$package")"
-  package_info="$(bsdtar -xOf "$package" .PKGINFO)"
-  package_name="$(
-    sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
-  )"
-  package_version="$(
-    sed -n 's/^pkgver = //p' <<<"$package_info" | head -n 1
-  )"
-  package_arch="$(
-    sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
-  )"
-  [[ "$package_arch" == x86_64 ]] \
-    || fail "$(basename -- "$package") targets $package_arch, expected x86_64"
-  bsdtar -xOf "$package" .BUILDINFO >/dev/null \
-    || fail "$(basename -- "$package") has no .BUILDINFO"
-
-  case "$package_name" in
-    denial-flutter-engine)
-      [[ "$package_filename" == \
-        "denial-flutter-engine-1:${release_version}-1-x86_64.pkg.tar.zst" ]] \
-        || fail "unexpected engine package filename: $package_filename"
-      [[ "$package_version" == "1:${release_version}-1" ]] \
-        || fail "unexpected engine package version: $package_version"
-      grep -Fqx \
-        'provides = denial-flutter-engine-abi=3.47.5.denial1' \
-        <<<"$package_info" \
-        || fail 'engine package does not provide the expected Flutter ABI'
-      engine_packages=$((engine_packages + 1))
-      ;;
-    denial)
-      [[ "$package_filename" == \
-        "denial-${release_version}-1-x86_64.pkg.tar.zst" ]] \
-        || fail "unexpected Denial package filename: $package_filename"
-      [[ "$package_version" == "${release_version}-1" ]] \
-        || fail \
-          "Denial package version is $package_version, expected ${release_version}-1"
-      grep -Fqx \
-        'depend = denial-flutter-engine-abi=3.47.5.denial1' \
-        <<<"$package_info" \
-        || fail 'Denial package does not require the exact Flutter Engine ABI'
-      grep -Fqx 'depend = rtkit' <<<"$package_info" \
-        || fail 'Denial package does not require rtkit'
-      [[ "$(
-        bsdtar -xOf "$package" usr/share/denial/version
-      )" == "$release_version" ]] \
-        || fail 'Denial package runtime version does not match its signed tag'
-      denial_packages=$((denial_packages + 1))
-      ;;
-    denial-plugin-manager)
-      [[ "$package_filename" == \
-        "denial-plugin-manager-${release_version}-1-x86_64.pkg.tar.zst" ]] \
-        || fail "unexpected Plugin Manager package filename: $package_filename"
-      [[ "$package_version" == "${release_version}-1" ]] \
-        || fail "unexpected Plugin Manager package version: $package_version"
-      grep -Fqx "depend = denial=${release_version}-1" <<<"$package_info" \
-        || fail 'Plugin Manager package does not require matching Denial'
-      grep -Fqx 'depend = dart' <<<"$package_info" \
-        || fail 'Plugin Manager package does not require Dart'
-      plugin_manager_packages=$((plugin_manager_packages + 1))
-      ;;
-    *)
-      fail "unexpected package name: ${package_name:-unset}"
-      ;;
-  esac
+for architecture in "${architectures[@]}"; do
+  check_package_set "$architecture"
 done
-((engine_packages == 1 && denial_packages == 1 \
-  && plugin_manager_packages == 1)) \
-  || fail 'the package set must contain denial, its engine, and Plugin Manager'
 
-mapfile -d '' deb_inputs < <(
-  find "$PACKAGE_INPUT" \
-    -maxdepth 1 \
-    -type f \
-    -name '*.deb' \
-    -print0 \
-    | sort -z
-)
-mapfile -d '' rpm_inputs < <(
-  find "$PACKAGE_INPUT" \
-    -maxdepth 1 \
-    -type f \
-    -name '*.rpm' \
-    -print0 \
-    | sort -z
-)
+# The Alpine packages exist for x86_64 only.
+package_input="${unsigned_roots[x86_64]}/packages"
 mapfile -d '' apk_inputs < <(
-  find "$PACKAGE_INPUT" \
+  find "$package_input" \
     -maxdepth 1 \
     -type f \
     -name '*.apk' \
     -print0 \
     | sort -z
 )
-((${#deb_inputs[@]} == 3)) \
-  || fail "expected exactly three Debian packages, found ${#deb_inputs[@]}"
-((${#rpm_inputs[@]} == 3)) \
-  || fail "expected exactly three RPM packages, found ${#rpm_inputs[@]}"
 ((${#apk_inputs[@]} == 3)) \
   || fail "expected exactly three Alpine packages, found ${#apk_inputs[@]}"
-
-deb_names=()
-for package in "${deb_inputs[@]}"; do
-  package_name="$(dpkg-deb --field "$package" Package)"
-  package_version="$(dpkg-deb --field "$package" Version)"
-  package_arch="$(dpkg-deb --field "$package" Architecture)"
-  [[ "$package_arch" == amd64 ]] \
-    || fail "$(basename -- "$package") targets $package_arch, expected amd64"
-  [[ "$package_version" == "${release_version}-1" ]] \
-    || fail "$(basename -- "$package") has version $package_version"
-  case "$package_name" in
-    denial)
-      expected_filename="denial_${release_version}-1_amd64.deb"
-      ;;
-    denial-flutter-engine)
-      expected_filename="denial-flutter-engine_${release_version}-1_amd64.deb"
-      ;;
-    denial-plugin-manager)
-      expected_filename="denial-plugin-manager_${release_version}-1_amd64.deb"
-      ;;
-    *) fail "unexpected Debian package: ${package_name:-unset}" ;;
-  esac
-  [[ "$(basename -- "$package")" == "$expected_filename" ]] \
-    || fail "unexpected Debian package filename: $(basename -- "$package")"
-  "$ROOT/tools/verify-denial-native-package-metadata" \
-    deb "$package" "$release_version" 1 '3.47.5.denial1' 2.39
-  deb_names+=("$package_name")
-done
-[[ "${deb_names[*]}" == \
-  'denial-flutter-engine denial-plugin-manager denial' ]] \
-  || fail 'Debian package set is incomplete'
-
-rpm_names=()
-for package in "${rpm_inputs[@]}"; do
-  package_name="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{NAME}' "$package")"
-  package_version="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
-  package_arch="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{ARCH}' "$package")"
-  [[ "$package_arch" == x86_64 ]] \
-    || fail "$(basename -- "$package") targets $package_arch, expected x86_64"
-  [[ "$package_version" == "${release_version}-1" ]] \
-    || fail "$(basename -- "$package") has version $package_version"
-  case "$package_name" in
-    denial)
-      expected_filename="denial-${release_version}-1.x86_64.rpm"
-      ;;
-    denial-flutter-engine)
-      expected_filename="denial-flutter-engine-${release_version}-1.x86_64.rpm"
-      ;;
-    denial-plugin-manager)
-      expected_filename="denial-plugin-manager-${release_version}-1.x86_64.rpm"
-      ;;
-    *) fail "unexpected RPM package: ${package_name:-unset}" ;;
-  esac
-  [[ "$(basename -- "$package")" == "$expected_filename" ]] \
-    || fail "unexpected RPM package filename: $(basename -- "$package")"
-  "$ROOT/tools/verify-denial-native-package-metadata" \
-    rpm "$package" "$release_version" 1 '3.47.5.denial1' 2.39
-  rpm_names+=("$package_name")
-done
-[[ "${rpm_names[*]}" == \
-  'denial denial-flutter-engine denial-plugin-manager' ]] \
-  || fail 'RPM package set is incomplete'
-
 apk_names=()
 for package in "${apk_inputs[@]}"; do
   if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
@@ -426,8 +468,27 @@ for install_command in \
     || fail "guided repository setup omits: $install_command"
 done
 
-install -d -m 0755 "$REPOSITORY_ROOT" "$DOWNLOAD_ROOT"
-cp -a -- "$EVIDENCE_INPUT" "${OUTPUT_ROOT}/evidence"
+materialize_alias() {
+  local alias="$1"
+  local target
+
+  [[ -L "$alias" ]] || fail "repository alias is not a symlink: $alias"
+  target="$(readlink -- "$alias")"
+  [[ "$target" != */* && -f "$(dirname -- "$alias")/$target" ]] \
+    || fail "repository alias has an unsafe target: $alias -> $target"
+  rm -- "$alias"
+  cp --reflink=auto -- "$(dirname -- "$alias")/$target" "$alias"
+}
+
+install -d -m 0755 "${OUTPUT_ROOT}/evidence"
+for architecture in "${architectures[@]}"; do
+  install -d -m 0755 \
+    "${OUTPUT_ROOT}/${architecture}" \
+    "${OUTPUT_ROOT}/downloads/${architecture}"
+  cp -a -- \
+    "${unsigned_roots[$architecture]}/evidence" \
+    "${OUTPUT_ROOT}/evidence/${architecture}"
+done
 install -m 0644 "$INSTALLER" "${OUTPUT_ROOT}/install.sh"
 
 gpg --batch --armor --export "$FINGERPRINT" \
@@ -446,49 +507,104 @@ exported_fingerprint="$(
 rpmkeys --dbpath "$RPM_QUERY_DB" --import \
   "${OUTPUT_ROOT}/denial-repo-key.asc"
 
-signed_packages=()
-for package in "${package_inputs[@]}"; do
-  destination="${REPOSITORY_ROOT}/$(basename -- "$package")"
-  cp --reflink=auto -- "$package" "$destination"
+sign_detached() {
   gpg \
     --batch \
     --yes \
     --local-user "$FINGERPRINT" \
     --detach-sign \
-    --output "${destination}.sig" \
-    "$destination"
-  gpg --batch --verify "${destination}.sig" "$destination"
-  signed_packages+=("$destination")
-done
+    --output "${1}.sig" \
+    "$1"
+  gpg --batch --verify "${1}.sig" "$1"
+}
 
-signed_native_packages=()
-for package in "${deb_inputs[@]}" "${apk_inputs[@]}"; do
-  destination="${DOWNLOAD_ROOT}/$(basename -- "$package")"
-  cp --reflink=auto -- "$package" "$destination"
-  gpg \
-    --batch \
-    --yes \
-    --local-user "$FINGERPRINT" \
-    --detach-sign \
-    --output "${destination}.sig" \
-    "$destination"
-  gpg --batch --verify "${destination}.sig" "$destination"
-  signed_native_packages+=("$destination")
+signed_package_count=0
+signed_native_count=0
+apt_inputs=()
+dnf_inputs=()
+for architecture in "${architectures[@]}"; do
+  download_root="${OUTPUT_ROOT}/downloads/${architecture}"
+  mapfile -t package_inputs <<<"${pacman_inputs[$architecture]}"
+  mapfile -t deb_inputs <<<"${deb_input_lists[$architecture]}"
+  native_inputs=("${deb_inputs[@]}")
+  if [[ "$architecture" == x86_64 ]]; then
+    native_inputs+=("${apk_inputs[@]}")
+  fi
+
+  signed_packages=()
+  for package in "${package_inputs[@]}"; do
+    destination="${OUTPUT_ROOT}/${architecture}/$(basename -- "$package")"
+    cp --reflink=auto -- "$package" "$destination"
+    sign_detached "$destination"
+    signed_packages+=("$destination")
+  done
+  signed_package_count=$((signed_package_count + ${#signed_packages[@]}))
+
+  for package in "${native_inputs[@]}"; do
+    destination="${download_root}/$(basename -- "$package")"
+    cp --reflink=auto -- "$package" "$destination"
+    sign_detached "$destination"
+    signed_native_count=$((signed_native_count + 1))
+  done
+  apt_inputs+=("${unsigned_roots[$architecture]}/packages")
+  dnf_inputs+=("${unsigned_roots[$architecture]}/packages")
+
+  repository_database="${OUTPUT_ROOT}/${architecture}/denial.db.tar.zst"
+  repo-add \
+    --sign \
+    --key "$FINGERPRINT" \
+    --include-sigs \
+    --prevent-downgrade \
+    "$repository_database" \
+    "${signed_packages[@]}"
+
+  for alias in \
+    "${OUTPUT_ROOT}/${architecture}/denial.db" \
+    "${OUTPUT_ROOT}/${architecture}/denial.db.sig" \
+    "${OUTPUT_ROOT}/${architecture}/denial.files" \
+    "${OUTPUT_ROOT}/${architecture}/denial.files.sig"; do
+    materialize_alias "$alias"
+  done
+
+  for signed_database in \
+    "${OUTPUT_ROOT}/${architecture}/denial.db.tar.zst" \
+    "${OUTPUT_ROOT}/${architecture}/denial.files.tar.zst"; do
+    [[ -f "$signed_database" && -f "${signed_database}.sig" ]] \
+      || fail "signed repository database is incomplete: $signed_database"
+    gpg --batch --verify "${signed_database}.sig" "$signed_database"
+  done
+
+  mapfile -t database_descriptions < <(
+    bsdtar -tf "$repository_database" \
+      | awk '/\/desc$/ { print }'
+  )
+  ((${#database_descriptions[@]} == ${#signed_packages[@]})) \
+    || fail "$architecture repository database package count does not match the signed set"
+
+  embedded_signatures=0
+  for description in "${database_descriptions[@]}"; do
+    if bsdtar -xOf "$repository_database" "$description" \
+      | grep -Fxq '%PGPSIG%'; then
+      embedded_signatures=$((embedded_signatures + 1))
+    fi
+  done
+  ((embedded_signatures == ${#signed_packages[@]})) \
+    || fail "$architecture repository database does not embed every package signature"
 done
 
 "$ROOT/tools/generate-denial-apt-repository" \
-  "$PACKAGE_INPUT" \
   "$APT_ROOT" \
   "$FINGERPRINT" \
   "$release_version" \
-  1
+  1 \
+  "${apt_inputs[@]}"
 "$ROOT/tools/generate-denial-dnf-repository" \
-  "$PACKAGE_INPUT" \
   "$RPM_ROOT" \
   "$FINGERPRINT" \
   "${OUTPUT_ROOT}/denial-repo-key.asc" \
   "$release_version" \
-  1
+  1 \
+  "${dnf_inputs[@]}"
 
 for setup_file in \
   "$APT_ROOT/denial-trixie.sources" \
@@ -497,86 +613,39 @@ for setup_file in \
   install -m 0644 "$setup_file" "${OUTPUT_ROOT}/$(basename -- "$setup_file")"
 done
 
-mapfile -d '' signed_rpm_packages < <(
-  find "$RPM_ROOT/fedora/44/x86_64/Packages" \
-    -maxdepth 1 \
-    -type f \
-    -name '*.rpm' \
-    -print0 \
-    | sort -z
-)
-((${#signed_rpm_packages[@]} == 3)) \
-  || fail 'signed DNF repository does not contain three RPM packages'
-for package in "${signed_rpm_packages[@]}"; do
-  destination="${DOWNLOAD_ROOT}/$(basename -- "$package")"
-  cp --reflink=auto -- "$package" "$destination"
-  cmp -- "$package" "$destination"
-  rpmkeys --dbpath "$RPM_QUERY_DB" --checksig --verbose "$destination" \
-    | grep -Eiq 'signature.*: OK'
-  gpg \
-    --batch \
-    --yes \
-    --local-user "$FINGERPRINT" \
-    --detach-sign \
-    --output "${destination}.sig" \
-    "$destination"
-  gpg --batch --verify "${destination}.sig" "$destination"
-  signed_native_packages+=("$destination")
+# The RPM downloads are the packages the DNF repositories signed.
+for architecture in "${architectures[@]}"; do
+  mapfile -d '' signed_rpm_packages < <(
+    find "$RPM_ROOT/fedora/44/${architecture}/Packages" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.rpm' \
+      -print0 \
+      | sort -z
+  )
+  ((${#signed_rpm_packages[@]} == 3)) \
+    || fail "signed $architecture DNF repository does not contain three RPM packages"
+  for package in "${signed_rpm_packages[@]}"; do
+    destination="${OUTPUT_ROOT}/downloads/${architecture}/$(basename -- "$package")"
+    cp --reflink=auto -- "$package" "$destination"
+    cmp -- "$package" "$destination"
+    rpmkeys --dbpath "$RPM_QUERY_DB" --checksig --verbose "$destination" \
+      | grep -Eiq 'signature.*: OK'
+    sign_detached "$destination"
+    signed_native_count=$((signed_native_count + 1))
+  done
 done
 
-repository_database="${REPOSITORY_ROOT}/denial.db.tar.zst"
-repo-add \
-  --sign \
-  --key "$FINGERPRINT" \
-  --include-sigs \
-  --prevent-downgrade \
-  "$repository_database" \
-  "${signed_packages[@]}"
-
-materialize_alias() {
-  local alias="$1"
-  local target
-
-  [[ -L "$alias" ]] || fail "repository alias is not a symlink: $alias"
-  target="$(readlink -- "$alias")"
-  [[ "$target" != */* && -f "$(dirname -- "$alias")/$target" ]] \
-    || fail "repository alias has an unsafe target: $alias -> $target"
-  rm -- "$alias"
-  cp --reflink=auto -- "$(dirname -- "$alias")/$target" "$alias"
-}
-
-for alias in \
-  "${REPOSITORY_ROOT}/denial.db" \
-  "${REPOSITORY_ROOT}/denial.db.sig" \
-  "${REPOSITORY_ROOT}/denial.files" \
-  "${REPOSITORY_ROOT}/denial.files.sig"; do
-  materialize_alias "$alias"
-done
-
-for signed_database in \
-  "${REPOSITORY_ROOT}/denial.db.tar.zst" \
-  "${REPOSITORY_ROOT}/denial.files.tar.zst"; do
-  [[ -f "$signed_database" && -f "${signed_database}.sig" ]] \
-    || fail "signed repository database is incomplete: $signed_database"
-  gpg --batch --verify "${signed_database}.sig" "$signed_database"
-done
-
-mapfile -t database_descriptions < <(
-  bsdtar -tf "$repository_database" \
-    | awk '/\/desc$/ { print }'
-)
-((${#database_descriptions[@]} == ${#signed_packages[@]})) \
-  || fail 'repository database package count does not match the signed set'
-
-embedded_signatures=0
-for description in "${database_descriptions[@]}"; do
-  if bsdtar -xOf "$repository_database" "$description" \
-    | grep -Fxq '%PGPSIG%'; then
-    embedded_signatures=$((embedded_signatures + 1))
-  fi
-done
-((embedded_signatures == ${#signed_packages[@]})) \
-  || fail 'repository database does not embed every package signature'
+if [[ -n "${unsigned_roots[aarch64]+set}" ]]; then
+  architecture_label='x86-64 and AArch64'
+  cross_build_note='
+  The AArch64 binaries are cross-compiled from the same commit on that runner.'
+  unclaimed='an SBOM'
+else
+  architecture_label='x86-64'
+  cross_build_note=''
+  unclaimed='an SBOM, or AArch64 binary packages'
+fi
 
 cat >"${OUTPUT_ROOT}/RELEASE-METADATA.txt" <<EOF
 DENIAL PUBLIC-BETA PACKAGE SET
@@ -586,20 +655,20 @@ Source commit:       $SOURCE_SHA
 Main candidate run:  $BUILD_RUN
 Promotion run:       $WORKFLOW_RUN
 Release tooling:     $TOOLING_SHA
-Architecture:        x86_64
+Architectures:       ${architectures[*]}
 Signing fingerprint: $FINGERPRINT
 Created UTC:         $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 Build disclosure:
   Production binaries were built and independently checked from main on
   Denial's owner-operated x86-64 runner. The signed tag assigned package and
-  runtime versions while preserving those exact compiled payloads.
+  runtime versions while preserving those exact compiled payloads.${cross_build_note}
   Arch packages and repository databases, APT Release metadata, RPM headers,
   DNF repository metadata, and every direct download are signed by the Denial
   release key. Direct downloads, including Alpine APKs, use adjacent detached
   OpenPGP signatures. The current release does not publish a native APKINDEX.
   This release does not claim an offline dependency closure, reproducible
-  packages, independent rebuilding, an SBOM, or AArch64 binary packages.
+  packages, independent rebuilding, or ${unclaimed}.
 EOF
 
 release_changes="$(
@@ -622,7 +691,7 @@ release_changes="$(
 cat >"${OUTPUT_ROOT}/RELEASE-NOTES.md" <<EOF
 ## Denial ${release_version}
 
-This is a signed x86-64 public-beta release of Denial.
+This is a signed ${architecture_label} public-beta release of Denial.
 
 - Source tag: \`${RELEASE_TAG}\`
 - Source commit: \`${SOURCE_SHA}\`
@@ -632,19 +701,20 @@ This is a signed x86-64 public-beta release of Denial.
 - Direct downloads: Arch, Alpine 3.24, Debian-family (Debian 13 / Ubuntu 24.04), and Fedora
 - Every direct package has an adjacent detached OpenPGP signature
 - APT repository: Debian 13 (trixie) and Ubuntu 24.04 (noble)
-- DNF repository: Fedora 44 x86-64
+- Pacman repository: ${architecture_label}
+- DNF repository: Fedora 44 ${architecture_label}
 
 ${release_changes}
 
 The production binaries were built and independently checked from \`main\` on
-Denial's owner-operated x86-64 runner. This signed tag promoted those exact
+Denial's owner-operated x86-64 runner.${cross_build_note} This signed tag promoted those exact
 compiled payloads, assigned their package and runtime versions, and signed and
 re-verified the Pacman, APT, and DNF repositories plus every direct download
 in GitHub-hosted jobs. The Alpine packages are direct downloads with detached
 OpenPGP signatures; a native RSA-signed APKINDEX is not published yet. This
 release does not yet
 claim an offline dependency closure, reproducible packages, independent
-rebuilding, an SBOM, or AArch64 binary packages.
+rebuilding, or ${unclaimed}.
 
 Installation instructions are in
 [\`docs/INSTALL.md\`](https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/INSTALL.md).
@@ -661,7 +731,7 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
 <body>
   <main>
     <h1>Denial package repositories</h1>
-    <p>Signed x86-64 packages for Denial ${release_version}.</p>
+    <p>Signed ${architecture_label} packages for Denial ${release_version}.</p>
     <p>Signing fingerprint: <code>${FINGERPRINT}</code></p>
     <p>Set up the signed repository:</p>
     <pre><code>sh -c 'if ! command -v curl &gt;/dev/null 2&gt;&amp;1; then echo "Error: curl is not available." &gt;&amp;2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'</code></pre>
@@ -734,4 +804,5 @@ printf '%s\n' \
   "Signed public-beta repository ready: $OUTPUT_ROOT" \
   "Release: $RELEASE_TAG" \
   "Signing fingerprint: $FINGERPRINT" \
-  "Packages: $((${#signed_packages[@]} + ${#signed_native_packages[@]}))"
+  "Architectures: ${architectures[*]}" \
+  "Packages: $((signed_package_count + signed_native_count))"

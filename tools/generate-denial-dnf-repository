@@ -9,9 +9,11 @@ fail() {
   exit 1
 }
 
-if (($# != 6)); then
+if (($# < 6)); then
   printf '%s\n' \
-    'Usage: generate-denial-dnf-repository PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT PUBLIC_KEY VERSION RELEASE' \
+    'Usage: generate-denial-dnf-repository OUTPUT_ROOT FINGERPRINT PUBLIC_KEY VERSION RELEASE PACKAGE_ROOT...' \
+    '' \
+    'Each PACKAGE_ROOT holds the three RPM packages of one architecture.' \
     >&2
   exit 2
 fi
@@ -23,13 +25,17 @@ for command_name in \
     || fail "$command_name is required"
 done
 
-PACKAGE_ROOT="$(realpath -e -- "$1")"
-OUTPUT_ROOT="$(realpath -m -- "$2")"
-FINGERPRINT="${3^^}"
-PUBLIC_KEY="$(realpath -e -- "$4")"
-VERSION="$5"
-RELEASE="$6"
-readonly PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT PUBLIC_KEY VERSION RELEASE
+OUTPUT_ROOT="$(realpath -m -- "$1")"
+FINGERPRINT="${2^^}"
+PUBLIC_KEY="$(realpath -e -- "$3")"
+VERSION="$4"
+RELEASE="$5"
+readonly OUTPUT_ROOT FINGERPRINT PUBLIC_KEY VERSION RELEASE
+shift 5
+package_roots=()
+for package_root in "$@"; do
+  package_roots+=("$(realpath -e -- "$package_root")")
+done
 
 [[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
   || fail 'GNUPGHOME must identify the release-signing keyring'
@@ -46,14 +52,6 @@ if [[ -e "$OUTPUT_ROOT" ]] \
   fail "output directory is not empty: $OUTPUT_ROOT"
 fi
 
-mapfile -d '' packages < <(
-  find "$PACKAGE_ROOT" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
-)
-((${#packages[@]} == 3)) \
-  || fail "expected three RPM packages, found ${#packages[@]}"
-
-repository_root="$OUTPUT_ROOT/fedora/44/x86_64"
-package_output="$repository_root/Packages"
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-dnf-repository.XXXXXX")"
 cleanup() {
   if [[ "$work_root" == "${TMPDIR:-/tmp}"/denial-dnf-repository.* ]]; then
@@ -61,65 +59,83 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-install -d -m 0755 "$package_output"
 
 rpm_query_db="$work_root/rpm-query"
 install -d -m 0700 "$rpm_query_db"
 rpmkeys --dbpath "$rpm_query_db" --import "$PUBLIC_KEY"
 
-package_names=()
-for package in "${packages[@]}"; do
-  package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
-  package_version="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
-  package_arch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "$package")"
-  [[ "$package_name" == denial || "$package_name" == denial-flutter-engine \
-    || "$package_name" == denial-plugin-manager ]] \
-    || fail "unexpected RPM package: ${package_name:-unset}"
-  [[ "$package_version" == "$VERSION-$RELEASE" ]] \
-    || fail "$(basename -- "$package") has version $package_version"
-  [[ "$package_arch" == x86_64 ]] \
-    || fail "$(basename -- "$package") targets $package_arch"
+architectures=()
+for package_root in "${package_roots[@]}"; do
+  mapfile -d '' packages < <(
+    find "$package_root" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
+  )
+  ((${#packages[@]} == 3)) \
+    || fail "expected three RPM packages in $package_root, found ${#packages[@]}"
+  architecture="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "${packages[0]}")"
+  [[ "$architecture" == x86_64 || "$architecture" == aarch64 ]] \
+    || fail "$(basename -- "${packages[0]}") targets $architecture"
+  [[ " ${architectures[*]} " != *" $architecture "* ]] \
+    || fail "two package roots hold $architecture packages"
+  architectures+=("$architecture")
 
-  expected_payload="$work_root/payload-$package_name"
-  install -d -m 0755 "$expected_payload"
-  rpm2cpio "$package" | bsdtar -xpf - -C "$expected_payload"
+  repository_root="$OUTPUT_ROOT/fedora/44/$architecture"
+  package_output="$repository_root/Packages"
+  install -d -m 0755 "$package_output"
+  package_names=()
+  for package in "${packages[@]}"; do
+    package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
+    package_version="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
+    package_arch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "$package")"
+    [[ "$package_name" == denial || "$package_name" == denial-flutter-engine \
+      || "$package_name" == denial-plugin-manager ]] \
+      || fail "unexpected RPM package: ${package_name:-unset}"
+    [[ "$package_version" == "$VERSION-$RELEASE" ]] \
+      || fail "$(basename -- "$package") has version $package_version"
+    [[ "$package_arch" == "$architecture" ]] \
+      || fail "$(basename -- "$package") targets $package_arch, expected $architecture"
 
-  destination="$package_output/$(basename -- "$package")"
-  cp --reflink=auto -- "$package" "$destination"
-  rpmsign \
-    --addsign \
-    --define "_gpg_name $FINGERPRINT" \
-    --define "_gpg_path $GNUPGHOME" \
-    "$destination"
-  rpmkeys --dbpath "$rpm_query_db" --checksig --verbose "$destination" \
-    | grep -Eiq 'signature.*: OK'
-  "$ROOT/tools/verify-denial-package-payload" \
-    rpm "$destination" "$expected_payload"
-  "$ROOT/tools/verify-denial-native-package-metadata" \
-    rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial1' 2.39
-  package_names+=("$package_name")
+    expected_payload="$work_root/payload-$architecture-$package_name"
+    install -d -m 0755 "$expected_payload"
+    rpm2cpio "$package" | bsdtar -xpf - -C "$expected_payload"
+
+    destination="$package_output/$(basename -- "$package")"
+    cp --reflink=auto -- "$package" "$destination"
+    rpmsign \
+      --addsign \
+      --define "_gpg_name $FINGERPRINT" \
+      --define "_gpg_path $GNUPGHOME" \
+      "$destination"
+    rpmkeys --dbpath "$rpm_query_db" --checksig --verbose "$destination" \
+      | grep -Eiq 'signature.*: OK'
+    "$ROOT/tools/verify-denial-package-payload" \
+      rpm "$destination" "$expected_payload"
+    "$ROOT/tools/verify-denial-native-package-metadata" \
+      rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial1' 2.39 \
+      "$architecture"
+    package_names+=("$package_name")
+  done
+  mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)
+  [[ "${package_names[*]}" == \
+    'denial denial-flutter-engine denial-plugin-manager' ]] \
+    || fail "$architecture RPM package set is incomplete"
+
+  createrepo_c \
+    --checksum sha256 \
+    --unique-md-filenames \
+    "$repository_root"
+  repomd="$repository_root/repodata/repomd.xml"
+  [[ -s "$repomd" ]] || fail 'createrepo_c produced no repomd.xml'
+  gpg \
+    --batch \
+    --yes \
+    --armor \
+    --local-user "$FINGERPRINT" \
+    --digest-algo SHA256 \
+    --detach-sign \
+    --output "$repomd.asc" \
+    "$repomd"
+  gpg --batch --verify "$repomd.asc" "$repomd"
 done
-mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)
-[[ "${package_names[*]}" == \
-  'denial denial-flutter-engine denial-plugin-manager' ]] \
-  || fail 'RPM package set is incomplete'
-
-createrepo_c \
-  --checksum sha256 \
-  --unique-md-filenames \
-  "$repository_root"
-repomd="$repository_root/repodata/repomd.xml"
-[[ -s "$repomd" ]] || fail 'createrepo_c produced no repomd.xml'
-gpg \
-  --batch \
-  --yes \
-  --armor \
-  --local-user "$FINGERPRINT" \
-  --digest-algo SHA256 \
-  --detach-sign \
-  --output "$repomd.asc" \
-  "$repomd"
-gpg --batch --verify "$repomd.asc" "$repomd"
 
 cat >"$OUTPUT_ROOT/denial-fedora.repo" <<'EOF'
 [denial]
@@ -136,4 +152,5 @@ find "$OUTPUT_ROOT" -type d -exec chmod 0755 {} +
 find "$OUTPUT_ROOT" -type f -exec chmod 0644 {} +
 cleanup
 trap - EXIT
-printf 'Generated signed Fedora 44 DNF repository: %s\n' "$OUTPUT_ROOT"
+printf 'Generated signed Fedora 44 DNF repositories for %s: %s\n' \
+  "${architectures[*]}" "$OUTPUT_ROOT"
