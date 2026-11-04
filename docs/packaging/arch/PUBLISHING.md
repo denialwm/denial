@@ -1141,7 +1141,7 @@ keeps the previous release's files, for clients that fetched its indexes
 just before, and deletes anything older. `.manifest` on the server lists the
 release it holds. The upload uses the `packages` account, which can only run
 rsync inside the repository folder; its key is the `DENIAL_PACKAGES_UPLOAD_KEY`
-secret of the `github-pages` environment, and the host key is pinned in
+secret of the `packages` environment, and the host key is pinned in
 `packaging/packages.denialwm.org/known_hosts`.
 
 Pages deployment archives cannot contain symbolic or hard links, while

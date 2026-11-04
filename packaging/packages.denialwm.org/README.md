@@ -65,7 +65,8 @@ The DNS record is an A record, not proxied through Cloudflare.
 ## Upload key
 
 The private half is the `DENIAL_PACKAGES_UPLOAD_KEY` secret of the
-`github-pages` environment, the environment of the release workflow's publish
+`packages` environment, which only `main` and `v*` tags may use: the release
+workflow's `publish-packages` job and the phone packages workflow's `publish`
 job. The public half is in `/home/packages/.ssh/authorized_keys`. A new key
 replaces both.
 
