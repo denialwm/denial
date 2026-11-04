@@ -4,8 +4,8 @@ run-name: Phone packages from Phonewave main
 # The phones' own packages: Phonewave's image/pack recipes, built from
 # Phonewave, denial-apps and gpui-touch main on the armed builder, signed with
 # the release key and published as the denial-phone Pacman repository at
-# packages.denialwm.org/phone/aarch64. Started by
-# tools/denial-builder phone-packages.
+# packages.denialwm.org/phone/aarch64. A version already published keeps its
+# published bytes. Started by tools/denial-builder phone-packages.
 
 on:
   workflow_dispatch:
@@ -156,6 +156,12 @@ jobs:
             --file="$RUNNER_TEMP/denial-phone-unsigned-transfer/phone-packages.tar" \
             --directory="$UNSIGNED_ROOT" \
             --no-same-owner
+
+      # A version keeps the bytes it was first published with, so a phone's
+      # cached copy keeps matching. Done before the signing key is loaded.
+      - name: Keep the published bytes of published versions
+        shell: bash
+        run: tools/denial-phone-keep-published "$UNSIGNED_ROOT"
 
       - name: Import release-signing subkey
         shell: bash
