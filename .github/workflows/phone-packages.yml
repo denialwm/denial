@@ -1,0 +1,293 @@
+name: Publish phone packages
+run-name: Phone packages from Phonewave main
+
+# The phones' own packages: Phonewave's image/pack recipes, built from
+# Phonewave, denial-apps and gpui-touch main on the armed builder, signed with
+# the release key and published as the denial-phone Pacman repository at
+# packages.denialwm.org/phone/aarch64. Started by
+# tools/denial-builder phone-packages.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denial-phone-packages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build phone packages
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - denial-builder
+    timeout-minutes: 240
+
+    steps:
+      - name: Require a fresh runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          entries=(*)
+          if ((${#entries[@]} != 0)); then
+            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+      # The recipes find denial-apps, and denial-apps finds gpui-touch, beside
+      # Phonewave. Package versions count commits, so history is complete.
+      - name: Check out Phonewave main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: denialwm/phonewave
+          ref: main
+          path: phonewave
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out denial-apps main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: denialwm/denial-apps
+          ref: main
+          path: denial-apps
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out gpui-touch main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: denialwm/gpui-touch
+          ref: main
+          path: gpui-touch
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build every recipe
+        shell: bash
+        env:
+          CARGO_HOME: /srv/denial-builder/cache/cargo
+          PHONEWAVE_CACHE: ${{ runner.temp }}/phonewave-cache
+          PHONEWAVE_SYSROOT: /srv/denial-builder/sysroot/aarch64
+        run: |
+          set -euo pipefail
+          # The recipes build with stable Rust, as on a workstation.
+          rustup toolchain install stable --profile minimal \
+            --target aarch64-unknown-linux-gnu
+          rustup default stable
+          phonewave/image/pack
+
+      - name: Collect the packages and their sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages="$RUNNER_TEMP/phone-packages"
+          install -d -m 0755 "$packages"
+          cp -- "$RUNNER_TEMP"/phonewave-cache/image/packages/*.pkg.tar.zst \
+            "$packages/"
+          (
+            cd "$packages"
+            sha256sum -- *.pkg.tar.zst >SHA256SUMS
+          )
+          for checkout in phonewave denial-apps gpui-touch; do
+            printf '%s=%s\n' "$checkout" "$(git -C "$checkout" rev-parse HEAD)"
+          done >"$packages/SOURCES"
+          cat "$packages/SOURCES"
+          tar --create --file="$RUNNER_TEMP/phone-packages.tar" \
+            --directory="$packages" .
+
+      - name: Upload unsigned phone packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-phone-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/phone-packages.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  sign:
+    name: Sign phone packages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-signing
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Define isolated signing paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'GNUPGHOME=%s\n' "$RUNNER_TEMP/denial-phone-gnupg"
+            printf 'UNSIGNED_ROOT=%s\n' "$RUNNER_TEMP/denial-phone-unsigned"
+            printf 'SIGNED_ROOT=%s\n' "$RUNNER_TEMP/denial-phone-signed"
+          } >>"$GITHUB_ENV"
+
+      - name: Install checkout and signing tools
+        shell: bash
+        run: pacman -Syu --needed --noconfirm git gnupg
+
+      - name: Check out the workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download unsigned phone packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-phone-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-phone-unsigned-transfer
+
+      - name: Extract unsigned phone packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$UNSIGNED_ROOT"
+          tar --extract \
+            --file="$RUNNER_TEMP/denial-phone-unsigned-transfer/phone-packages.tar" \
+            --directory="$UNSIGNED_ROOT" \
+            --no-same-owner
+
+      - name: Import release-signing subkey
+        shell: bash
+        env:
+          DENIAL_RELEASE_SIGNING_KEY: ${{ secrets.DENIAL_RELEASE_SIGNING_KEY }}
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]]
+          test -n "$DENIAL_RELEASE_SIGNING_KEY"
+          install -d -m 0700 "$GNUPGHOME"
+          printf '%s' "$DENIAL_RELEASE_SIGNING_KEY" \
+            | gpg --batch --import
+          actual_fingerprint="$(
+            gpg \
+              --batch \
+              --with-colons \
+              --fingerprint \
+              --list-secret-keys \
+              "$EXPECTED_FINGERPRINT" \
+              | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+          )"
+          test "$actual_fingerprint" = "$EXPECTED_FINGERPRINT"
+
+      - name: Sign packages and the repository database
+        shell: bash
+        env:
+          DENIAL_RELEASE_SIGNING_PASSPHRASE: ${{ secrets.DENIAL_RELEASE_SIGNING_PASSPHRASE }}
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          tools/denial-phone-repository \
+            "$SIGNED_ROOT" \
+            "$EXPECTED_FINGERPRINT" \
+            "$UNSIGNED_ROOT"
+          install -m 0644 "$UNSIGNED_ROOT/SOURCES" "$SIGNED_ROOT/SOURCES"
+          tar --create --file="$RUNNER_TEMP/denial-phone-signed.tar" \
+            --directory="$SIGNED_ROOT" .
+
+      - name: Upload signed phone repository
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-phone-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-phone-signed.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Erase signing keyring
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          gpgconf --kill all >/dev/null 2>&1 || true
+          if [[ "$GNUPGHOME" == "$RUNNER_TEMP/denial-phone-gnupg" ]]; then
+            rm -rf --one-file-system -- "$GNUPGHOME"
+          fi
+
+  publish:
+    name: Publish the denial-phone repository
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: packages
+
+    steps:
+      - name: Define publication paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'GNUPGHOME=%s\n' "$RUNNER_TEMP/denial-phone-verification-gnupg"
+            printf 'SIGNED_ROOT=%s\n' "$RUNNER_TEMP/denial-phone-signed"
+          } >>"$GITHUB_ENV"
+
+      - name: Install verification and upload tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes gnupg openssh-client rsync
+
+      - name: Check out the workflow commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download signed phone repository
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-phone-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-phone-signed-transfer
+
+      # Checked against the tracked public key, with no secret in this job.
+      - name: Independently verify every signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$GNUPGHOME" "$SIGNED_ROOT"
+          tar --extract \
+            --file="$RUNNER_TEMP/denial-phone-signed-transfer/denial-phone-signed.tar" \
+            --directory="$SIGNED_ROOT" \
+            --no-same-owner
+          gpg --batch --import packaging/arch/denial-repo-key.asc
+          cat "$SIGNED_ROOT/SOURCES"
+          count=0
+          for signature in "$SIGNED_ROOT"/aarch64/*.sig; do
+            gpg --batch --verify "$signature" "${signature%.sig}"
+            count=$((count + 1))
+          done
+          printf 'Verified %s signatures.\n' "$count"
+
+      - name: Publish to packages.denialwm.org
+        shell: bash
+        env:
+          DENIAL_PACKAGES_UPLOAD_KEY: ${{ secrets.DENIAL_PACKAGES_UPLOAD_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DENIAL_PACKAGES_UPLOAD_KEY"
+          key_file="$RUNNER_TEMP/denial-packages-upload-key"
+          (umask 077 && printf '%s\n' "$DENIAL_PACKAGES_UPLOAD_KEY" >"$key_file")
+          tools/publish-denial-packages phone "$SIGNED_ROOT" "$key_file"
+          rm -f -- "$key_file"
+
+      - name: Erase verification keyring and upload key
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GNUPGHOME" == \
+            "$RUNNER_TEMP/denial-phone-verification-gnupg" ]]; then
+            rm -rf --one-file-system -- "$GNUPGHOME"
+          fi
+          rm -f -- "$RUNNER_TEMP/denial-packages-upload-key"

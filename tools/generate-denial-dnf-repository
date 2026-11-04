@@ -140,7 +140,7 @@ done
 cat >"$OUTPUT_ROOT/denial-fedora.repo" <<'EOF'
 [denial]
 name=Denial public beta
-baseurl=https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch
+baseurl=https://packages.denialwm.org/rpm/fedora/$releasever/$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1

@@ -96,11 +96,11 @@ The initial public repository deliberately makes a smaller, testable promise:
   GitHub-hosted signing job;
 - packages, direct-download signatures, Pacman databases, and the complete
   checksum manifest are signed;
-- the signed repository is re-verified without a secret key before one Pages
-  artifact is deployed;
+- the signed repository is re-verified without a secret key before it is
+  uploaded to `packages.denialwm.org` and deployed as one Pages artifact;
 - the same package set, including `.deb` and `.rpm` downloads with adjacent
   detached OpenPGP signatures, and evidence are retained on a draft GitHub
-  Release, which is published only after Pages deployment succeeds;
+  Release, which is published only after both succeed;
 - package filenames are immutable and installation uses Pacman's normal
   signature enforcement.
 
@@ -1108,14 +1108,19 @@ Cloudflare route. Stage 2 adds the toolchain package.
 Each architecture has its own Pacman tree, DNF repository, and APT
 `binary-<arch>` index; the APT pool holds both. The `aarch64/` tree mirrors
 `x86_64/` and is cross-built on the same runner. `downloads/` holds the direct
-packages that are attached to the GitHub Release; the Pages site leaves it
-out, which keeps both architectures' repositories under the Pages size limit.
-The signed `SHA256SUMS` still lists the downloads.
+packages that are attached to the GitHub Release; neither repository host
+carries it. The signed `SHA256SUMS` still lists the downloads.
 
 Package filenames are immutable. GitHub Releases retain the complete package
-set and signed evidence for each tag. Pages presents one complete latest-only
-Pacman, APT, and DNF snapshot; manual rollback can use an earlier release until
-automated rollback retention is implemented.
+set and signed evidence for each tag.
+
+The repositories live at `packages.denialwm.org`: Pacman under
+`arch/$arch`, APT under `apt`, DNF under `rpm/fedora/$releasever/$basearch`,
+with the public key, `install.sh` and the setup files at the root. The server
+setup is in `packaging/packages.denialwm.org/`. GitHub Pages
+(`denialwm.github.io/denial`) still receives the same tree, so systems set up
+before the move keep updating; `install.sh` moves an exact Pages
+configuration to the new host.
 
 Publication order is:
 
@@ -1123,24 +1128,26 @@ Publication order is:
 2. copy all package files and detached signatures;
 3. construct and sign Pacman, APT, and DNF metadata from that exact staged set;
 4. verify that every metadata entry resolves to an existing signed package;
-5. upload the release assets to a draft GitHub Release;
-6. deploy the complete tree as one Pages artifact;
-7. publish the draft release only after Pages succeeds.
+5. upload the tree to `packages.denialwm.org` with
+   `tools/publish-denial-packages`;
+6. upload the release assets to a draft GitHub Release;
+7. deploy the complete tree as one Pages artifact;
+8. publish the draft release only after both hosts succeed.
 
-If atomic directory promotion is unavailable, upload immutable package files
-first and repository databases last. Clients must never observe a database
-that references a package which is not yet available.
+`tools/publish-denial-packages` uploads files with new names first and swaps
+the files that keep their name, the repository indexes, in last, all at once.
+Clients never see an index that names a package not yet there. The server
+keeps the previous release's files, for clients that fetched its indexes
+just before, and deletes anything older. `.manifest` on the server lists the
+release it holds. The upload uses the `packages` account, which can only run
+rsync inside the repository folder; its key is the `DENIAL_PACKAGES_UPLOAD_KEY`
+secret of the `github-pages` environment, and the host key is pinned in
+`packaging/packages.denialwm.org/known_hosts`.
 
-GitHub Pages is sufficient at Denial's initial scale. The source repository
-must be public before GitHub Free will serve it. Pages deployment
-archives cannot contain symbolic or hard links, while `repo-add` commonly
-creates aliases such as `denial.db` and `denial.files` as symlinks. Materialize
-these aliases and their signatures as ordinary files before creating the
-Pages artifact.
-
-The first implementation replaces the whole current tree on every release.
-Monitor the Pages site-size and bandwidth limits; migrate package storage if
-real adoption approaches them.
+Pages deployment archives cannot contain symbolic or hard links, while
+`repo-add` commonly creates aliases such as `denial.db` and `denial.files` as
+symlinks. The signed tree materializes these aliases and their signatures as
+ordinary files.
 
 ## Client configuration
 
@@ -1148,7 +1155,7 @@ Users first obtain the public key and verify its complete fingerprint through
 an independently published channel:
 
 ```sh
-curl -O https://denialwm.github.io/denial/denial-repo-key.asc
+curl -O https://packages.denialwm.org/denial-repo-key.asc
 gpg --show-keys --with-fingerprint denial-repo-key.asc
 sudo pacman-key --add denial-repo-key.asc
 sudo pacman-key --lsign-key AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
@@ -1159,7 +1166,7 @@ They then add:
 ```ini
 [denial]
 SigLevel = Required TrustedOnly
-Server = https://denialwm.github.io/denial/$arch
+Server = https://packages.denialwm.org/arch/$arch
 ```
 
 Installation and upgrades remain ordinary Pacman transactions:
@@ -1340,7 +1347,8 @@ gates apply to every later release:
 4. only after that candidate is green, choose the version and create and push
    a signed `vMAJOR.MINOR.PATCH` tag on the exact candidate commit;
 5. manually run `.github/workflows/release.yml` for that tag;
-6. verify the Pages repository and GitHub Release produced by the workflow;
+6. verify the `packages.denialwm.org` repositories and GitHub Release produced
+   by the workflow;
 7. install or upgrade through each native repository on representative Arch,
    Debian-family, and Fedora systems; and
 8. retain every package, detached signature, database, checksum, and build
@@ -1366,8 +1374,9 @@ The workflow itself:
   Fedora 44 DNF metadata, and embedded RPM signatures;
 - materializes every Pages alias as a regular file;
 - re-verifies the complete signed tree in a job with no secret key;
-- creates a draft GitHub prerelease, deploys the Pages artifact, and publishes
-  the prerelease only after the deployment succeeds.
+- uploads the tree to `packages.denialwm.org`, creates a draft GitHub
+  prerelease, deploys the Pages artifact, and publishes the prerelease only
+  after both succeed.
 
 The retained `main` artifact is the source for every attempt to publish that
 tag. Retrying hosted promotion, signing, or publication must not compile or

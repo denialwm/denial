@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+fail() {
+  printf 'publish-denial-packages: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/publish-denial-packages release SIGNED_ROOT KEY_FILE
+  tools/publish-denial-packages phone SIGNED_ROOT KEY_FILE
+
+release copies the signed release tree that tools/denial-repository wrote to
+packages.denialwm.org: the Pacman repositories under arch/, the APT and DNF
+repositories, the public key, the setup files and the setup script. The
+release-only files (downloads/, evidence/, RELEASE-*, SHA256SUMS*) stay on the
+GitHub Release.
+
+phone copies the denial-phone Pacman repository that
+tools/denial-phone-repository wrote to phone/. Each part leaves the other's
+files alone.
+
+Files with new names go first; files that keep their name, the repository
+indexes, are swapped in last, all at once. The server keeps the previous
+release's files, for clients holding its indexes, and loses anything older.
+.manifest in each part's folder lists the release it holds.
+
+KEY_FILE is the upload key. The host key is pinned in
+packaging/packages.denialwm.org/known_hosts.
+EOF
+}
+
+if (($# != 3)) || [[ "$1" != release && "$1" != phone ]]; then
+  usage >&2
+  exit 2
+fi
+
+for required_command in comm cp find grep install mktemp rm rsync sed sort ssh wc; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+readonly PART="$1"
+readonly SIGNED_ROOT="$2"
+readonly KEY_FILE="$3"
+readonly HOST='packages.denialwm.org'
+readonly KNOWN_HOSTS="$ROOT/packaging/packages.denialwm.org/known_hosts"
+if [[ "$PART" == phone ]]; then
+  readonly REMOTE="packages@$HOST:phone/"
+  indexes=(aarch64/denial-phone.db aarch64/denial-phone.db.sig)
+else
+  readonly REMOTE="packages@$HOST:"
+  indexes=(
+    x86_64/denial.db x86_64/denial.db.sig
+    aarch64/denial.db aarch64/denial.db.sig
+    apt/dists/trixie/InRelease apt/dists/noble/InRelease
+    rpm/fedora/44/x86_64/repodata/repomd.xml
+    rpm/fedora/44/aarch64/repodata/repomd.xml
+    denial-repo-key.asc install.sh index.html
+  )
+fi
+
+[[ -d "$SIGNED_ROOT" ]] || fail "not a directory: $SIGNED_ROOT"
+[[ -f "$KEY_FILE" ]] || fail "missing upload key: $KEY_FILE"
+for index in "${indexes[@]}"; do
+  [[ -f "$SIGNED_ROOT/$index" ]] || fail "signed tree lacks $index"
+done
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/publish-denial-packages.XXXXXX")"
+cleanup() {
+  rm -rf --one-file-system -- "$work"
+}
+trap cleanup EXIT
+
+# The server's layout.
+stage="$work/stage"
+install -d -m 0755 "$stage"
+if [[ "$PART" == phone ]]; then
+  cp -a --reflink=auto -- "$SIGNED_ROOT/aarch64" "$stage/"
+else
+  install -d -m 0755 "$stage/arch"
+  cp -a --reflink=auto -- "$SIGNED_ROOT/x86_64" "$SIGNED_ROOT/aarch64" "$stage/arch/"
+  cp -a --reflink=auto -- "$SIGNED_ROOT/apt" "$SIGNED_ROOT/rpm" "$stage/"
+  cp -a --reflink=auto -- \
+    "$SIGNED_ROOT/denial-repo-key.asc" \
+    "$SIGNED_ROOT/install.sh" \
+    "$SIGNED_ROOT/index.html" \
+    "$SIGNED_ROOT"/denial-*.sources \
+    "$SIGNED_ROOT/denial-fedora.repo" \
+    "$stage/"
+fi
+if find "$stage" ! -type f ! -type d | grep -q .; then
+  fail 'the signed tree holds something other than files and directories'
+fi
+# Manifest paths become rsync patterns: none may carry a wildcard.
+(cd "$stage" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) >"$work/current"
+if grep -q '[][*?\\]' "$work/current"; then
+  fail 'a file name holds an rsync wildcard character'
+fi
+cp -- "$work/current" "$stage/.manifest"
+
+ssh_command="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o BatchMode=yes"
+ssh_command+=" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
+# The release part never sends to, or deletes from, the phone part.
+upload() {
+  rsync --rsh="$ssh_command" --recursive --times --chmod=D0755,F0644 \
+    --delay-updates --exclude=/phone/ "$@" "$stage/" "$REMOTE"
+}
+
+# The release the server holds now. Without one, nothing is deleted.
+if rsync --rsh="$ssh_command" "$REMOTE.manifest" "$work/previous" 2>"$work/fetch.log"; then
+  previous_known=1
+elif grep -q 'No such file' "$work/fetch.log"; then
+  previous_known=0
+  : >"$work/previous"
+  printf 'publish-denial-packages: the server holds no .manifest; nothing will be deleted\n' >&2
+else
+  cat "$work/fetch.log" >&2
+  fail "could not read the server's .manifest"
+fi
+LC_ALL=C sort -o "$work/previous" "$work/previous"
+
+# 1. Files with new names: nothing refers to them until the indexes do.
+sed 's|^|/|' "$work/previous" >"$work/old-names"
+printf '/.manifest\n' >>"$work/old-names"
+upload --exclude-from="$work/old-names"
+
+# 2. Everything else, swapped in at the end of the transfer. The previous
+# release's files stay; older ones go.
+if ((previous_known)); then
+  LC_ALL=C comm -23 "$work/previous" "$work/current" | sed 's|^|P /|' >"$work/keep"
+  upload --delete-after --filter="merge $work/keep"
+else
+  upload
+fi
+
+printf 'Published %s files to %s.\n' "$(wc -l <"$work/current")" "$HOST"
