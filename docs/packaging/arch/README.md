@@ -102,7 +102,7 @@ launcher examples are documented in
 The public-beta workflow publishes a signed x86-64 repository at:
 
 ```text
-https://denialwm.github.io/denial/x86_64
+https://packages.denialwm.org/arch/x86_64
 ```
 
 The repository is active. Each release contains the two required runtime

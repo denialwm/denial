@@ -9,7 +9,7 @@ fail() {
   exit 1
 }
 
-for command_name in cmp env find grep install mktemp rm script; do
+for command_name in cmp env find grep install mktemp rm script sed; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "$command_name is required"
 done
@@ -99,7 +99,7 @@ for pacman_os in arch cachyos; do
   grep -Fxq 'SigLevel = Required TrustedOnly' "$pacman_root/pacman.conf"
   # Pacman expands this literal at runtime.
   # shellcheck disable=SC2016
-  grep -Fxq 'Server = https://denialwm.github.io/denial/$arch' \
+  grep -Fxq 'Server = https://packages.denialwm.org/arch/$arch' \
     "$pacman_root/pacman.conf"
   run_setup "$pacman_root"
   [[ "$(grep -c '^\[denial\]$' "$pacman_root/pacman.conf")" == 1 ]] \
@@ -107,6 +107,26 @@ for pacman_os in arch cachyos; do
   [[ ! -s "$pacman_root/package.log" ]] \
     || fail "$pacman_os setup invoked the package manager"
 done
+
+# A section written for GitHub Pages moves to the new host, nothing else.
+pages_root="$work_root/arch-pages"
+install -d -m 0755 "$pages_root"
+printf 'ID=arch\n' >"$pages_root/os-release"
+# shellcheck disable=SC2016
+printf '%s\n' '[core]' 'Include = /etc/pacman.d/mirrorlist' '' '[denial]' \
+  'SigLevel = Required TrustedOnly' \
+  'Server = https://denialwm.github.io/denial/$arch' '' '[extra]' \
+  'Include = /etc/pacman.d/mirrorlist' >"$pages_root/pacman.conf"
+# shellcheck disable=SC2016
+printf '%s\n' '[core]' 'Include = /etc/pacman.d/mirrorlist' '' '[denial]' \
+  'SigLevel = Required TrustedOnly' \
+  'Server = https://packages.denialwm.org/arch/$arch' '' '[extra]' \
+  'Include = /etc/pacman.d/mirrorlist' >"$pages_root/expected.conf"
+: >"$pages_root/admin.log"
+: >"$pages_root/package.log"
+run_setup "$pages_root"
+cmp -s -- "$pages_root/expected.conf" "$pages_root/pacman.conf" \
+  || fail 'Pacman setup did not move the GitHub Pages repository'
 
 for apt_case in \
   'debian-trixie debian 13 trixie trixie' \
@@ -134,10 +154,20 @@ for apt_case in \
   cmp -- \
     "$ROOT/packaging/arch/denial-repo-key.asc" \
     "$apt_root/apt/keyrings/denial.asc"
+  grep -Fxq 'URIs: https://packages.denialwm.org/apt' \
+    "$apt_root/apt/sources.list.d/denial.sources"
   run_setup "$apt_root"
   [[ ! -s "$apt_root/package.log" ]] \
     || fail "$os_id setup invoked the package manager"
 done
+
+# A source written for GitHub Pages moves to the new host.
+apt_sources="$work_root/ubuntu-noble/apt/sources.list.d/denial.sources"
+sed -i 's|^URIs: .*|URIs: https://denialwm.github.io/denial/apt|' \
+  "$apt_sources"
+run_setup "$work_root/ubuntu-noble"
+grep -Fxq 'URIs: https://packages.denialwm.org/apt' "$apt_sources" \
+  || fail 'APT setup did not move the GitHub Pages repository'
 
 fedora_root="$work_root/fedora"
 install -d -m 0755 "$fedora_root"
@@ -151,9 +181,21 @@ grep -Fxq 'repo_gpgcheck=1' "$fedora_root/yum.repos.d/denial.repo"
 grep -Fxq \
   "gpgkey=file://$fedora_root/rpm-gpg/RPM-GPG-KEY-denial" \
   "$fedora_root/yum.repos.d/denial.repo"
+# shellcheck disable=SC2016
+grep -Fxq 'baseurl=https://packages.denialwm.org/rpm/fedora/$releasever/$basearch' \
+  "$fedora_root/yum.repos.d/denial.repo"
 run_setup "$fedora_root"
 [[ ! -s "$fedora_root/package.log" ]] \
   || fail 'Fedora setup invoked DNF'
+
+# A repository written for GitHub Pages moves to the new host.
+sed -i 's|^baseurl=.*|baseurl=https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch|' \
+  "$fedora_root/yum.repos.d/denial.repo"
+run_setup "$fedora_root"
+# shellcheck disable=SC2016
+grep -Fxq 'baseurl=https://packages.denialwm.org/rpm/fedora/$releasever/$basearch' \
+  "$fedora_root/yum.repos.d/denial.repo" \
+  || fail 'DNF setup did not move the GitHub Pages repository'
 
 printf 'Types: deb\nURIs: https://example.invalid\n' \
   >"$work_root/debian-trixie/apt/sources.list.d/denial.sources"

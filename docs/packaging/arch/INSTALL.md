@@ -63,7 +63,7 @@ curl \
   --show-error \
   --location \
   --output "$key_tmp/denial-repo-key.asc" \
-  https://denialwm.github.io/denial/denial-repo-key.asc
+  https://packages.denialwm.org/denial-repo-key.asc
 
 downloaded_fingerprint="$(
   gpg \
@@ -102,7 +102,7 @@ Add this block after the official Arch repositories:
 ```ini
 [denial]
 SigLevel = Required TrustedOnly
-Server = https://denialwm.github.io/denial/$arch
+Server = https://packages.denialwm.org/arch/$arch
 ```
 
 Do not use `TrustAll`, `Optional`, or `Never`. The configuration above

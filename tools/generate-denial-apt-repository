@@ -173,7 +173,7 @@ done
 
 cat >"$OUTPUT_ROOT/denial-trixie.sources" <<EOF
 Types: deb
-URIs: https://denialwm.github.io/denial/apt
+URIs: https://packages.denialwm.org/apt
 Suites: trixie
 Components: main
 Architectures: $release_architectures
@@ -182,7 +182,7 @@ EOF
 
 cat >"$OUTPUT_ROOT/denial-noble.sources" <<EOF
 Types: deb
-URIs: https://denialwm.github.io/denial/apt
+URIs: https://packages.denialwm.org/apt
 Suites: noble
 Components: main
 Architectures: $release_architectures

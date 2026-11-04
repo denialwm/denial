@@ -3,7 +3,7 @@
 set -eu
 
 SIGNING_KEY='AE4108FA5E91E26BE0EE331E0F5B3AD16E023091'
-PUBLIC_KEY_URL='https://denialwm.github.io/denial/denial-repo-key.asc'
+PUBLIC_KEY_URL='https://packages.denialwm.org/denial-repo-key.asc'
 if [ -n "${DENIAL_SETUP_PUBLIC_KEY_URL:-}" ]; then
   PUBLIC_KEY_URL="$DENIAL_SETUP_PUBLIC_KEY_URL"
 fi
@@ -15,11 +15,18 @@ RPM_KEY="${DENIAL_SETUP_RPM_KEY:-/etc/pki/rpm-gpg/RPM-GPG-KEY-denial}"
 DNF_REPOSITORY="${DENIAL_SETUP_DNF_REPOSITORY:-/etc/yum.repos.d/denial.repo}"
 # Pacman expands this architecture variable when reading pacman.conf.
 # shellcheck disable=SC2016
-PACMAN_SERVER='https://denialwm.github.io/denial/$arch'
-APT_SERVER='https://denialwm.github.io/denial/apt'
+PACMAN_SERVER='https://packages.denialwm.org/arch/$arch'
+APT_SERVER='https://packages.denialwm.org/apt'
 # DNF expands these variables when reading the repository configuration.
 # shellcheck disable=SC2016
-DNF_SERVER='https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch'
+DNF_SERVER='https://packages.denialwm.org/rpm/fedora/$releasever/$basearch'
+# The repositories' first home. A configuration this script wrote for it is
+# moved to the addresses above.
+# shellcheck disable=SC2016
+PAGES_PACMAN_SERVER='https://denialwm.github.io/denial/$arch'
+PAGES_APT_SERVER='https://denialwm.github.io/denial/apt'
+# shellcheck disable=SC2016
+PAGES_DNF_SERVER='https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch'
 
 fail() {
   printf '\nError: %s\n' "$1" >&2
@@ -64,10 +71,11 @@ os_release_value() {
   ' "$OS_RELEASE"
 }
 
-# Report whether Pacman has no Denial section, the exact supported section, or
-# a conflicting section which must be reviewed instead of silently modified.
+# Report whether Pacman has no Denial section, the exact supported section,
+# the section this script wrote for GitHub Pages, or a conflicting section
+# which must be reviewed instead of silently modified.
 pacman_repository_state() {
-  awk -v expected_server="$PACMAN_SERVER" '
+  awk -v expected_server="$PACMAN_SERVER" -v pages_server="$PAGES_PACMAN_SERVER" '
     function trim(value) {
       sub(/^[[:space:]]+/, "", value)
       sub(/[[:space:]]+$/, "", value)
@@ -111,20 +119,46 @@ pacman_repository_state() {
         server_lines++
         if (value == expected_server) {
           valid_server_lines++
+        } else if (value == pages_server) {
+          pages_server_lines++
         }
       }
     }
 
     END {
+      supported = sections == 1 && malformed == 0 && signature_lines == 1 &&
+                  valid_signature_lines == 1 && server_lines == 1
       if (sections == 0) {
         print "absent"
-      } else if (sections == 1 && malformed == 0 && signature_lines == 1 &&
-                 valid_signature_lines == 1 && server_lines == 1 &&
-                 valid_server_lines == 1) {
+      } else if (supported && valid_server_lines == 1) {
         print "valid"
+      } else if (supported && pages_server_lines == 1) {
+        print "pages"
       } else {
         print "invalid"
       }
+    }
+  ' "$PACMAN_CONFIG"
+}
+
+# Print pacman.conf with the Denial section's Pages server replaced.
+pacman_moved_config() {
+  awk -v expected_server="$PACMAN_SERVER" -v pages_server="$PAGES_PACMAN_SERVER" '
+    {
+      line = $0
+      sub(/[[:space:]]*[#;].*$/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line ~ /^\[[^]]+\]$/) {
+        in_denial = line == "[denial]"
+      } else if (in_denial && line ~ /^Server[[:space:]]*=/) {
+        value = line
+        sub(/^Server[[:space:]]*=[[:space:]]*/, "", value)
+        if (value == pages_server) {
+          print "Server = " expected_server
+          next
+        }
+      }
+      print
     }
   ' "$PACMAN_CONFIG"
 }
@@ -141,6 +175,26 @@ exact_file_state() {
   else
     printf '%s\n' invalid
   fi
+}
+
+apt_config() {
+  printf 'Types: deb\n'
+  printf 'URIs: %s\n' "$1"
+  printf 'Suites: %s\n' "$suite"
+  printf 'Components: main\n'
+  printf 'Architectures: %s\n' "$apt_architecture"
+  printf 'Signed-By: %s\n' "$APT_KEYRING"
+}
+
+dnf_config() {
+  printf '[denial]\n'
+  printf 'name=Denial public beta\n'
+  printf 'baseurl=%s\n' "$1"
+  printf 'enabled=1\n'
+  printf 'gpgcheck=1\n'
+  printf 'repo_gpgcheck=1\n'
+  printf 'gpgkey=file://%s\n' "$RPM_KEY"
+  printf 'skip_if_unavailable=0\n'
 }
 
 case "$(uname -m)" in
@@ -226,6 +280,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 expected_config="$work_tmp/repository.conf"
+pages_config="$work_tmp/pages-repository.conf"
 case "$mode" in
   pacman)
     {
@@ -237,35 +292,25 @@ case "$mode" in
     configuration_name="[denial] entry in $PACMAN_CONFIG"
     ;;
   apt)
-    {
-      printf 'Types: deb\n'
-      printf 'URIs: %s\n' "$APT_SERVER"
-      printf 'Suites: %s\n' "$suite"
-      printf 'Components: main\n'
-      printf 'Architectures: %s\n' "$apt_architecture"
-      printf 'Signed-By: %s\n' "$APT_KEYRING"
-    } >"$expected_config"
+    apt_config "$APT_SERVER" >"$expected_config"
+    apt_config "$PAGES_APT_SERVER" >"$pages_config"
     repository_state="$(exact_file_state "$APT_SOURCES" "$expected_config")"
     configuration_name="$APT_SOURCES"
     ;;
   dnf)
-    {
-      printf '[denial]\n'
-      printf 'name=Denial public beta\n'
-      printf 'baseurl=%s\n' "$DNF_SERVER"
-      printf 'enabled=1\n'
-      printf 'gpgcheck=1\n'
-      printf 'repo_gpgcheck=1\n'
-      printf 'gpgkey=file://%s\n' "$RPM_KEY"
-      printf 'skip_if_unavailable=0\n'
-    } >"$expected_config"
+    dnf_config "$DNF_SERVER" >"$expected_config"
+    dnf_config "$PAGES_DNF_SERVER" >"$pages_config"
     repository_state="$(exact_file_state "$DNF_REPOSITORY" "$expected_config")"
     configuration_name="$DNF_REPOSITORY"
     ;;
 esac
+if [ "$repository_state" = invalid ] && [ "$mode" != pacman ] \
+    && [ "$(exact_file_state "$configuration_name" "$pages_config")" = valid ]; then
+  repository_state='pages'
+fi
 
 case "$repository_state" in
-  absent | valid) ;;
+  absent | valid | pages) ;;
   *)
     fail "The existing Denial repository configuration at $configuration_name is not the exact supported configuration. Review it manually before continuing."
     ;;
@@ -281,6 +326,9 @@ printf '  1. Download the Denial public key and require this full fingerprint:\n
 printf '     %s\n' "$SIGNING_KEY"
 if [ "$repository_state" = valid ]; then
   printf '  2. Keep the verified repository configuration at %s.\n' \
+    "$configuration_name"
+elif [ "$repository_state" = pages ]; then
+  printf '  2. Move the repository at %s to packages.denialwm.org.\n' \
     "$configuration_name"
 else
   printf '  2. Add the signed repository configuration at %s.\n' \
@@ -349,6 +397,10 @@ case "$mode" in
       || fail 'The verified signing key could not be locally trusted.'
     if [ "$repository_state" = valid ]; then
       printf '\n2/2  The signed Denial repository is already configured.\n'
+    elif [ "$repository_state" = pages ]; then
+      printf '\n2/2  Moving the Denial repository in %s...\n' "$PACMAN_CONFIG"
+      pacman_moved_config >"$work_tmp/pacman.conf"
+      sudo tee "$PACMAN_CONFIG" <"$work_tmp/pacman.conf" >/dev/null
     else
       printf '\n2/2  Adding the signed Denial repository to %s...\n' \
         "$PACMAN_CONFIG"
@@ -365,7 +417,7 @@ case "$mode" in
     if [ "$repository_state" = valid ]; then
       printf '\n2/2  The signed Denial repository is already configured.\n'
     else
-      printf '\n2/2  Adding the signed Denial repository to %s...\n' \
+      printf '\n2/2  Writing the signed Denial repository to %s...\n' \
         "$APT_SOURCES"
       sudo install -m 0644 "$expected_config" "$APT_SOURCES"
     fi
@@ -379,7 +431,7 @@ case "$mode" in
     if [ "$repository_state" = valid ]; then
       printf '\n2/2  The signed Denial repository is already configured.\n'
     else
-      printf '\n2/2  Adding the signed Denial repository to %s...\n' \
+      printf '\n2/2  Writing the signed Denial repository to %s...\n' \
         "$DNF_REPOSITORY"
       sudo install -m 0644 "$expected_config" "$DNF_REPOSITORY"
     fi

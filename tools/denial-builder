@@ -29,6 +29,7 @@ Usage:
   tools/denial-builder validate-dev
   tools/denial-builder validate
   tools/denial-builder release TAG
+  tools/denial-builder phone-packages
   tools/denial-builder status
   tools/denial-builder logs
   tools/denial-builder cancel
@@ -45,6 +46,9 @@ Commands:
   validate Arm a runner, build and independently verify a main production candidate.
   release TAG
            Promote, sign, verify, and publish an existing main candidate.
+  phone-packages
+           Arm a runner, build the phone packages from Phonewave main, sign
+           them, and publish the denial-phone repository.
   status   Show the local service and GitHub runner registration.
   logs     Show recent runner service logs.
   cancel   Stop the runner, wipe its instance, and delete its registration.
@@ -393,6 +397,13 @@ validate_dev_builder() {
     dev
 }
 
+phone_packages_builder() {
+  run_manual_workflow \
+    phone-packages.yml \
+    'Phone packages' \
+    main
+}
+
 release_builder() {
   local fingerprint
   local public_fingerprint
@@ -533,6 +544,10 @@ case "$command_name" in
   release)
     (($# == 2)) || fail 'release requires exactly one TAG'
     release_builder "$2"
+    ;;
+  phone-packages)
+    (($# == 1)) || fail 'phone-packages takes no arguments'
+    phone_packages_builder
     ;;
   status)
     (($# == 1)) || fail 'status takes no arguments'

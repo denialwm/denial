@@ -727,6 +727,13 @@ source_audit() {
     fail 'publication verification does not gate on every native client'
   fi
   if grep -Fq \
+      'tools/publish-denial-packages release ' \
+      "$ROOT/.github/workflows/release.yml"; then
+    pass 'signed-tag workflow publishes the repositories to packages.denialwm.org'
+  else
+    fail 'signed-tag workflow does not publish to packages.denialwm.org'
+  fi
+  if grep -Fq \
       "candidate_class='production-release-candidate'" \
       "$ROOT/.github/workflows/branch-validation.yml" \
     && grep -Fq \
@@ -1241,7 +1248,7 @@ source_audit() {
   )"
   check_equal \
     'guided installer uses the published release-key URL' \
-    'https://denialwm.github.io/denial/denial-repo-key.asc' \
+    'https://packages.denialwm.org/denial-repo-key.asc' \
     "$installer_key_url"
   if grep -Eq \
       '^[[:space:]]*sudo[[:space:]]+(pacman[[:space:]]+-S|apt(-get)?[[:space:]].*install|dnf[[:space:]].*install)' \

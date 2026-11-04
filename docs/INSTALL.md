@@ -94,7 +94,7 @@ version=X.Y.Z
 release="https://github.com/denialwm/denial/releases/download/v$version"
 
 doas apk add gnupg
-curl -fLO https://denialwm.github.io/denial/denial-repo-key.asc
+curl -fLO https://packages.denialwm.org/denial-repo-key.asc
 curl -fLO "$release/denial-flutter-engine-$version-r1.apk"
 curl -fLO "$release/denial-flutter-engine-$version-r1.apk.sig"
 curl -fLO "$release/denial-$version-r1.apk"
@@ -137,16 +137,16 @@ the Pacman repository.
 
 The guided setup installs these exact configurations:
 
-- Arch Linux and CachyOS: `https://denialwm.github.io/denial/$arch`, with
+- Arch Linux and CachyOS: `https://packages.denialwm.org/arch/$arch`, with
   package and Pacman database signatures required through Pacman's trusted
   keyring;
-- Debian 13: `https://denialwm.github.io/denial/apt`, suite `trixie`, component
+- Debian 13: `https://packages.denialwm.org/apt`, suite `trixie`, component
   `main`, with `/etc/apt/keyrings/denial.asc` as `Signed-By`;
 - Debian Forky/Sid: the Debian 13 `trixie` suite on a best-effort basis; this
   rolling target has not completed Denial's full runtime validation;
 - Ubuntu 24.04: the same APT root, suite `noble`, component `main`, and the same
   scoped keyring;
-- Fedora 44: `https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch`,
+- Fedora 44: `https://packages.denialwm.org/rpm/fedora/$releasever/$basearch`,
   with both `gpgcheck=1` for embedded RPM signatures and `repo_gpgcheck=1` for
   signed repository metadata;
 - Alpine 3.24: versioned GitHub Release APKs with adjacent OpenPGP signatures;

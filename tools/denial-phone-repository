@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'denial-phone-repository: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-phone-repository OUTPUT_ROOT FINGERPRINT PACKAGE_DIR
+
+PACKAGE_DIR holds the phone packages Phonewave's image/pack built, all
+aarch64 or any, with a SHA256SUMS of them. The command signs each one and
+writes the Pacman repository denial-phone below OUTPUT_ROOT/aarch64, with its
+aliases as ordinary files.
+
+Required environment:
+  DENIAL_RELEASE_SIGNING_PASSPHRASE
+
+GNUPGHOME must contain only the imported Denial release-signing secret
+subkey. The public primary fingerprint must be passed as FINGERPRINT.
+EOF
+}
+
+if (($# != 3)); then
+  usage >&2
+  exit 2
+fi
+
+for required_command in \
+  awk basename bsdtar cp find gpg gpg-connect-agent gpgconf grep install \
+  readlink realpath repo-add rm sha256sum sort tr; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+readonly EXPECTED_UID='Doctor Logix (Denial Repository Signing)'
+OUTPUT_ROOT="$(realpath -m -- "$1")"
+readonly OUTPUT_ROOT
+FINGERPRINT="$(tr '[:lower:]' '[:upper:]' <<<"$2")"
+readonly FINGERPRINT
+PACKAGE_DIR="$(realpath -e -- "$3")"
+readonly PACKAGE_DIR
+readonly REPOSITORY_ROOT="$OUTPUT_ROOT/aarch64"
+
+[[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'signing fingerprint must be a complete OpenPGP fingerprint'
+[[ -n "${DENIAL_RELEASE_SIGNING_PASSPHRASE:-}" ]] \
+  || fail 'DENIAL_RELEASE_SIGNING_PASSPHRASE is required'
+[[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
+  || fail 'GNUPGHOME must identify the imported release-signing keyring'
+if [[ -e "$OUTPUT_ROOT" ]] \
+  && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
+  fail "output directory is not empty: $OUTPUT_ROOT"
+fi
+
+[[ -f "$PACKAGE_DIR/SHA256SUMS" ]] \
+  || fail "package checksum manifest is missing: $PACKAGE_DIR/SHA256SUMS"
+(
+  cd "$PACKAGE_DIR"
+  sha256sum --check --strict --quiet SHA256SUMS
+) || fail 'package checksums failed'
+mapfile -t packages < <(
+  find "$PACKAGE_DIR" -maxdepth 1 -type f -name '*.pkg.tar.zst' | sort
+)
+((${#packages[@]} > 0)) || fail "no packages in $PACKAGE_DIR"
+for package in "${packages[@]}"; do
+  name="$(basename -- "$package")"
+  [[ "$name" == *-aarch64.pkg.tar.zst || "$name" == *-any.pkg.tar.zst ]] \
+    || fail "not a phone package: $name"
+  grep -Fq "  $name" "$PACKAGE_DIR/SHA256SUMS" \
+    || fail "SHA256SUMS does not list $name"
+done
+
+gpg --batch --list-secret-keys "$FINGERPRINT" \
+  | grep -Fq "$EXPECTED_UID" \
+  || fail "selected key does not carry the required UID: $EXPECTED_UID"
+
+preset_passphrase=''
+for candidate in \
+  /usr/lib/gnupg/gpg-preset-passphrase \
+  /usr/libexec/gpg-preset-passphrase; do
+  if [[ -x "$candidate" ]]; then
+    preset_passphrase="$candidate"
+    break
+  fi
+done
+[[ -n "$preset_passphrase" ]] \
+  || fail 'gpg-preset-passphrase is unavailable'
+if ! grep -Fqx 'allow-preset-passphrase' "$GNUPGHOME/gpg-agent.conf" \
+  2>/dev/null; then
+  printf '%s\n' 'allow-preset-passphrase' >>"$GNUPGHOME/gpg-agent.conf"
+fi
+gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+gpg-connect-agent /bye >/dev/null
+mapfile -t keygrips < <(
+  gpg --batch --with-colons --with-keygrip \
+    --list-secret-keys "$FINGERPRINT" \
+    | awk -F: '$1 == "grp" { print $10 }'
+)
+((${#keygrips[@]} > 0)) || fail 'no secret-key grip was found'
+release_passphrase="$DENIAL_RELEASE_SIGNING_PASSPHRASE"
+unset DENIAL_RELEASE_SIGNING_PASSPHRASE
+for keygrip in "${keygrips[@]}"; do
+  "$preset_passphrase" --preset --passphrase "$release_passphrase" "$keygrip"
+done
+release_passphrase=''
+unset release_passphrase
+kill_agent() {
+  gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+}
+trap kill_agent EXIT
+
+install -d -m 0755 "$REPOSITORY_ROOT"
+signed_packages=()
+for package in "${packages[@]}"; do
+  destination="$REPOSITORY_ROOT/$(basename -- "$package")"
+  cp --reflink=auto -- "$package" "$destination"
+  gpg --batch --yes --local-user "$FINGERPRINT" --detach-sign \
+    --output "$destination.sig" "$destination"
+  gpg --batch --verify "$destination.sig" "$destination"
+  signed_packages+=("$destination")
+done
+
+repository_database="$REPOSITORY_ROOT/denial-phone.db.tar.zst"
+repo-add --sign --key "$FINGERPRINT" --include-sigs \
+  "$repository_database" "${signed_packages[@]}"
+
+# Pages-style hosts and rsync both want plain files, not repo-add's symlinks.
+for alias in denial-phone.db denial-phone.db.sig \
+  denial-phone.files denial-phone.files.sig; do
+  alias="$REPOSITORY_ROOT/$alias"
+  [[ -L "$alias" ]] || fail "repository alias is not a symlink: $alias"
+  target="$(readlink -- "$alias")"
+  [[ "$target" != */* && -f "$REPOSITORY_ROOT/$target" ]] \
+    || fail "repository alias has an unsafe target: $alias -> $target"
+  rm -- "$alias"
+  cp --reflink=auto -- "$REPOSITORY_ROOT/$target" "$alias"
+done
+
+for signed_database in \
+  "$REPOSITORY_ROOT/denial-phone.db.tar.zst" \
+  "$REPOSITORY_ROOT/denial-phone.files.tar.zst"; do
+  gpg --batch --verify "$signed_database.sig" "$signed_database"
+done
+mapfile -t descriptions < <(
+  bsdtar -tf "$repository_database" | awk '/\/desc$/ { print }'
+)
+((${#descriptions[@]} == ${#signed_packages[@]})) \
+  || fail 'the database package count does not match the signed set'
+for description in "${descriptions[@]}"; do
+  bsdtar -xOf "$repository_database" "$description" \
+    | grep -Fxq '%PGPSIG%' \
+    || fail "the database lacks the signature of $description"
+done
+
+printf 'Signed %s phone packages into %s.\n' \
+  "${#signed_packages[@]}" "$REPOSITORY_ROOT"
