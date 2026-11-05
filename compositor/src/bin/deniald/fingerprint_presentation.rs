@@ -115,9 +115,8 @@ impl Profile {
             || (self.illumination_backend == IlluminationBackend::DrmProperty
                 && (self.illumination_property.is_empty()
                     || self.illumination_on == self.illumination_off))
-            || (self.illumination_backend == IlluminationBackend::AstonAa551Fd
-                && (self.panel_name != "oneplus,aston-boe-aa551"
-                    || !self.illumination_property.is_empty()
+            || (self.illumination_backend == IlluminationBackend::PanelFd
+                && (!self.illumination_property.is_empty()
                     || self.illumination_on != 0
                     || self.illumination_off != 0))
         {
@@ -278,7 +277,7 @@ impl Dispatch<DenialFingerprintSessionV1, ()> for RuntimeState {
             session::Request::Destroy => controller.session.stop(StopReason::Revoked),
             session::Request::SetIlluminationFd { fd } => {
                 let profile = controller.profile.as_ref().expect("session has a profile");
-                if profile.illumination_backend != IlluminationBackend::AstonAa551Fd
+                if profile.illumination_backend != IlluminationBackend::PanelFd
                     || controller.illumination_fd.is_some()
                     || controller.session.contact.is_some()
                     || controller.prepared
@@ -289,7 +288,7 @@ impl Dispatch<DenialFingerprintSessionV1, ()> for RuntimeState {
                     );
                     return;
                 }
-                match illumination::validate_aston(
+                match illumination::validate_panel(
                     &fd,
                     &profile.panel_name,
                     profile.panel_width,
@@ -525,19 +524,19 @@ impl Controller {
                 }
                 hbm.ok_or("panel lacks local fingerprint illumination")?
             }
-            IlluminationBackend::AstonAa551Fd => {
+            IlluminationBackend::PanelFd => {
                 let fd = self
                     .illumination_fd
                     .as_ref()
                     .ok_or("missing panel illumination descriptor")?;
-                illumination::validate_aston(
+                illumination::validate_panel(
                     fd,
                     &profile.panel_name,
                     profile.panel_width,
                     profile.panel_height,
                     profile.max_duration_ms,
                 )?;
-                IlluminationControl::Aston { fd: fd.clone() }
+                IlluminationControl::Panel { fd: fd.clone() }
             }
         });
         self.output = Some(scanout.output.id);

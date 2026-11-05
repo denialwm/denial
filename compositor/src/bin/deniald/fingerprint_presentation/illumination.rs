@@ -14,13 +14,14 @@ use smithay::reexports::drm::control::{Device as ControlDevice, connector, prope
 pub(super) enum Backend {
     #[default]
     DrmProperty,
-    AstonAa551Fd,
+    PanelFd,
 }
 
-// include/uapi/linux/aston_fp_illumination.h, ABI v1. Fixed-width fields and
-// pointers passed to ioctl keep the wire layout identical on 32/64-bit hosts.
+// include/uapi/linux/fp_illumination.h, ABI v1, which any panel driver with
+// a sensor under it registers. Fixed-width fields and pointers passed to
+// ioctl keep the wire layout identical on 32/64-bit hosts.
 #[repr(C)]
-struct AstonInfo {
+struct PanelInfo {
     version: u32,
     panel_width: u32,
     panel_height: u32,
@@ -29,7 +30,7 @@ struct AstonInfo {
     panel_on: u32,
     compatible: [u8; 40],
 }
-impl Default for AstonInfo {
+impl Default for PanelInfo {
     fn default() -> Self {
         Self {
             version: 0,
@@ -45,8 +46,8 @@ impl Default for AstonInfo {
 const GET_INFO: libc::c_ulong = 0x8040_6100;
 const SET: libc::c_ulong = 0x4004_6101;
 
-fn info(fd: &OwnedFd) -> io::Result<AstonInfo> {
-    let mut value = AstonInfo::default();
+fn info(fd: &OwnedFd) -> io::Result<PanelInfo> {
+    let mut value = PanelInfo::default();
     // SAFETY: the kernel writes exactly the fixed 64-byte UAPI structure.
     if unsafe { libc::ioctl(fd.as_raw_fd(), GET_INFO, &mut value) } < 0 {
         return Err(io::Error::last_os_error());
@@ -57,7 +58,7 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 fn validate_info(
-    value: &AstonInfo,
+    value: &PanelInfo,
     panel: &str,
     width: u32,
     height: u32,
@@ -72,7 +73,6 @@ fn validate_info(
         || value.panel_width != width
         || value.panel_height != height
         || name != panel.as_bytes()
-        || panel != "oneplus,aston-boe-aa551"
         || value.enabled != 0
         || value.panel_on > 1
         || value.max_duration_ms < duration
@@ -85,14 +85,14 @@ fn validate_info(
     Ok(())
 }
 
-pub(super) fn validate_aston(
+pub(super) fn validate_panel(
     fd: &OwnedFd,
     panel: &str,
     width: u32,
     height: u32,
     duration: u32,
 ) -> io::Result<()> {
-    let node = fs::symlink_metadata("/dev/aston_fp_illumination")?;
+    let node = fs::symlink_metadata("/dev/fp_illumination")?;
     let descriptor = fs::metadata(format!("/proc/self/fd/{}", fd.as_raw_fd()))?;
     if !node.file_type().is_char_device()
         || node.uid() != 0
@@ -113,12 +113,12 @@ pub(super) enum Control {
         original: u64,
         on: u64,
     },
-    Aston {
+    Panel {
         fd: Arc<OwnedFd>,
     },
 }
 impl Control {
-    fn set_aston(fd: &OwnedFd, enabled: bool) -> io::Result<()> {
+    fn set_panel(fd: &OwnedFd, enabled: bool) -> io::Result<()> {
         let value = u32::from(enabled);
         // SAFETY: this descriptor has the verified kernel driver identity and
         // SET reads one u32. It accepts no arbitrary DSI command or pathname.
@@ -135,7 +135,7 @@ impl Control {
                 on,
                 ..
             } => drm.set_property(*connector, *property, *on),
-            Self::Aston { fd } => Self::set_aston(fd, true),
+            Self::Panel { fd } => Self::set_panel(fd, true),
         }
     }
     pub(super) fn restore(&self, drm: &DrmDeviceFd) -> io::Result<()> {
@@ -146,7 +146,7 @@ impl Control {
                 original,
                 ..
             } => drm.set_property(*connector, *property, *original),
-            Self::Aston { fd } => Self::set_aston(fd, false),
+            Self::Panel { fd } => Self::set_panel(fd, false),
         }
     }
 }
@@ -154,8 +154,8 @@ impl Control {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn valid() -> AstonInfo {
-        let mut value = AstonInfo {
+    fn valid() -> PanelInfo {
+        let mut value = PanelInfo {
             version: 1,
             panel_width: 1264,
             panel_height: 2780,
@@ -166,12 +166,12 @@ mod tests {
         value.compatible[..name.len()].copy_from_slice(name);
         value
     }
-    fn check(value: &AstonInfo) -> io::Result<()> {
+    fn check(value: &PanelInfo) -> io::Result<()> {
         validate_info(value, "oneplus,aston-boe-aa551", 1264, 2780, 10_000)
     }
     #[test]
     fn fixed_kernel_abi_and_identity() {
-        assert_eq!(std::mem::size_of::<AstonInfo>(), 64);
+        assert_eq!(std::mem::size_of::<PanelInfo>(), 64);
         assert!(check(&valid()).is_ok());
         let mut v = valid();
         v.version = 2;
@@ -182,6 +182,20 @@ mod tests {
         let mut v = valid();
         v.compatible[0] = b'x';
         assert!(check(&v).is_err());
+    }
+    #[test]
+    fn any_panel_by_its_own_identity() {
+        let mut value = PanelInfo {
+            version: 1,
+            panel_width: 1220,
+            panel_height: 2712,
+            max_duration_ms: 30_000,
+            ..Default::default()
+        };
+        let name = b"csot,nt37706-v3";
+        value.compatible[..name.len()].copy_from_slice(name);
+        assert!(validate_info(&value, "csot,nt37706-v3", 1220, 2712, 10_000).is_ok());
+        assert!(validate_info(&value, "oneplus,aston-boe-aa551", 1220, 2712, 10_000).is_err());
     }
     #[test]
     fn reject_owned_or_unbounded_illumination() {
