@@ -20,9 +20,7 @@ jobs:
   nix-evaluation:
     name: Evaluate Nix package and module contracts
     needs: authorize
-    if: >-
-      github.ref == 'refs/heads/dev'
-      || github.ref == 'refs/heads/main'
+    if: needs.authorize.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -54,12 +52,13 @@ jobs:
           .#checks.x86_64-linux.engine-manifest
           --no-link --print-build-logs
 
+  # Dev builds each push whose build inputs changed. Main builds its
+  # production candidate only when dispatched, before a release; a promotion
+  # merge builds nothing, since authorize proves it is a validated dev tree.
   build:
     name: Build and test ${{ github.ref_name }} candidates
     needs: authorize
-    if: >-
-      github.ref == 'refs/heads/dev'
-      || github.ref == 'refs/heads/main'
+    if: needs.authorize.outputs.build == 'true'
     runs-on:
       - self-hosted
       - linux
@@ -88,13 +87,15 @@ jobs:
               candidate_class='development-test-candidate'
               release_signing_eligible='false'
               validation_branch='dev'
-              compile_mode='release'
+              compile_mode='fast-release'
+              rust_target_suffix=''
               ;;
             refs/heads/main)
               candidate_class='production-release-candidate'
               release_signing_eligible='true'
               validation_branch='main'
               compile_mode='release'
+              rust_target_suffix='-main'
               ;;
             *)
               printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
@@ -110,6 +111,13 @@ jobs:
             printf 'CANDIDATE_COMPILE_MODE=%s\n' "$compile_mode"
             printf 'DENIAL_BUILD_IDENTITY=%s.g%s\n' \
               "$validation_branch" "$GITHUB_SHA"
+            printf 'RUST_TARGET_SUFFIX=%s\n' "$rust_target_suffix"
+            if [[ "$compile_mode" == fast-release ]]; then
+              # Dev trades the release profile's whole-crate optimization
+              # for build time; main's candidates keep it.
+              printf 'CARGO_PROFILE_RELEASE_LTO=%s\n' 'false'
+              printf 'CARGO_PROFILE_RELEASE_CODEGEN_UNITS=%s\n' '16'
+            fi
           } >>"$GITHUB_ENV"
 
       - name: Define isolated build paths
@@ -124,7 +132,7 @@ jobs:
             printf 'DENIAL_PC_DEPENDENCY_ROOT=%s\n' \
               '/srv/denial-builder/cache/dependencies'
             printf 'DENIAL_PC_RUST_TARGET=%s\n' \
-              '/srv/denial-builder/cache/rust-target'
+              "/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}"
             printf 'DENIAL_FLUTTER_ENGINE_CACHE_ROOT=%s\n' \
               '/srv/denial-builder/cache/flutter-engine'
             printf 'DENIAL_ALPINE_CACHE_ROOT=%s\n' \
@@ -199,6 +207,7 @@ jobs:
             2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
 
       - name: Require Cachix write credential
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -211,6 +220,7 @@ jobs:
           fi
 
       - name: Build cacheable Nix package and checks
+        if: github.ref == 'refs/heads/main'
         id: nix_cache_build
         shell: bash
         run: |
@@ -255,6 +265,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       - name: Resolve pinned Cachix CLI
+        if: github.ref == 'refs/heads/main'
         id: cachix_cli
         shell: bash
         run: |
@@ -276,6 +287,7 @@ jobs:
       # a later step fails. Set up here, it keeps what the Nix build made,
       # the engine above all, out of the next run's work.
       - name: Publish Nix closures to Cachix
+        if: github.ref == 'refs/heads/main'
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: ${{ steps.nix_cache_build.outputs.cache_name }}
@@ -299,36 +311,65 @@ jobs:
             --github-env "$GITHUB_ENV" \
             2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
 
+      # The source checks and the aarch64 packages run from worktrees of the
+      # same commit while the x86_64 steps below build its packages. The
+      # aarch64 ones are cross-built with the same tools against the Arch
+      # Linux ARM root the builder holds. Nothing is tested on aarch64: this
+      # host cannot run it. Steps leave background processes running until
+      # the job ends; each writes its status when it ends, failed or not.
+      - name: Start the source checks and the aarch64 candidate build
+        shell: bash
+        run: |
+          set -euo pipefail
+          background="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-background"
+          install -d -m 0755 "$background"
+          printf 'BACKGROUND_ROOT=%s\n' "$background" >>"$GITHUB_ENV"
+          # start NAME TOOL [VARIABLE=VALUE...]
+          start() {
+            local name="$1"
+            local tool="$2"
+            local source_root="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-${name}-source"
+            shift 2
+            git worktree add --detach "$source_root" HEAD
+            # The script's expansions are its own arguments.
+            # shellcheck disable=SC2016
+            env "$@" setsid nohup bash -c '
+              "$1/tools/$2" >"$3/$4.log" 2>&1
+              printf "%s\n" "$?" >"$3/$4.status"
+            ' bash "$source_root" "$tool" "$background" "$name" </dev/null &
+          }
+          aarch64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
+          install -d -m 0755 "$aarch64_evidence"
+          # rustup changes the shared toolchain: before anything builds.
+          DENIAL_TARGET_ARCH=aarch64 \
+            DENIAL_ARM64_SYSROOT=/srv/denial-builder/sysroot/aarch64 \
+            tools/denial-pc bootstrap \
+            2>&1 | tee "$aarch64_evidence/bootstrap.txt"
+          start checks test-denial-candidate-source \
+            DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-tests" \
+            DENIAL_PC_BUILD_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-checks-build"
+          aarch64="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64"
+          start aarch64 build-denial-aarch64-candidate \
+            DENIAL_TARGET_ARCH=aarch64 \
+            DENIAL_ARM64_SYSROOT=/srv/denial-builder/sysroot/aarch64 \
+            DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-aarch64" \
+            DENIAL_PC_BUILD_ROOT="$aarch64-build" \
+            EVIDENCE_ROOT="$aarch64_evidence" \
+            CANDIDATE_ROOT="$aarch64-candidate" \
+            CANDIDATE_ARCHIVE="$aarch64-candidate.tar" \
+            DENIAL_PC_PACKAGE_ROOT="$aarch64-packages" \
+            DENIAL_PC_MAKEPKG_ROOT="$aarch64-makepkg" \
+            DENIAL_PC_PACKAGE_INPUT_ROOT="$aarch64-package-input" \
+            DENIAL_PACKAGE_PACKAGER='Doctor Logix <doctor.logix@gmail.com>' \
+            DENIAL_PACKAGE_SKIP_STAGE=1 \
+            DENIAL_REBUILD_ENGINE_PACKAGE=1
+
       - name: Build Flutter integration-test bundle
         shell: bash
         run: |
           set -euo pipefail
           tools/denial-pc bundle \
             2>&1 | tee "$EVIDENCE_ROOT/integration-test-bundle.txt"
-
-      - name: Validate plugin SDK without a development engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc sdk-test \
-            2>&1 | tee "$EVIDENCE_ROOT/sdk-tests.txt"
-          tools/denial-pc plugin-check \
-            2>&1 | tee "$EVIDENCE_ROOT/plugin-checks.txt"
-
-      - name: Run release-path compositor tests
-        shell: bash
-        env:
-          # The hardened runner denies the test's SCHED_RESET_ON_FORK syscall.
-          DENIAL_SKIP_CPU_CAPACITY_TEST: "1"
-        run: |
-          set -euo pipefail
-          tools/denial-pc compositor-test \
-            2>&1 | tee "$EVIDENCE_ROOT/denial-tests.txt"
-          (
-            cd "$DENIAL_PC_DEPENDENCY_ROOT/flutter/packages/flutter_tools"
-            ../../bin/flutter test \
-              test/general.shard/dap/flutter_adapter_test.dart
-          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tool-tests.txt"
 
       - name: Build candidate packages
         shell: bash
@@ -342,9 +383,15 @@ jobs:
           {
             time tools/stage-denial-runtime
             time tools/denial-pc arch-package
-            time tools/denial-pc native-packages
-            time tools/denial-pc alpine-package
+            if [[ "$VALIDATION_BRANCH" == main ]]; then
+              time tools/denial-pc native-packages
+              time tools/denial-pc alpine-package
+            fi
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+      - name: Wait for the source checks
+        shell: bash
+        run: tools/wait-denial-background checks
 
       - name: Assemble candidate and build evidence
         shell: bash
@@ -359,73 +406,9 @@ jobs:
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
           compression-level: 0
 
-      # The aarch64 packages are cross-built here from the same checkout, with
-      # the same tools, against the Arch Linux ARM root the builder holds.
-      # Nothing is tested on aarch64: this host cannot run it.
-      - name: Switch to the aarch64 cross build
+      - name: Wait for the aarch64 candidate build
         shell: bash
-        run: |
-          set -euo pipefail
-          {
-            printf 'DENIAL_TARGET_ARCH=%s\n' 'aarch64'
-            printf 'DENIAL_ARM64_SYSROOT=%s\n' \
-              '/srv/denial-builder/sysroot/aarch64'
-            printf 'EVIDENCE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
-            printf 'CANDIDATE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate"
-            printf 'CANDIDATE_ARCHIVE=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate.tar"
-            printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-packages"
-            printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-makepkg"
-            printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-package-input"
-          } >>"$GITHUB_ENV"
-          install -d -m 0755 \
-            "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
-
-      - name: Add the aarch64 Rust target
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc bootstrap \
-            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
-
-      - name: Build or reuse the locked aarch64 Flutter engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-flutter-engine build \
-            --github-env "$GITHUB_ENV" \
-            2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
-
-      - name: Build aarch64 Flutter bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc bundle \
-            2>&1 | tee "$EVIDENCE_ROOT/bundle.txt"
-
-      - name: Build aarch64 candidate packages
-        shell: bash
-        env:
-          DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
-          DENIAL_PACKAGE_SKIP_STAGE: "1"
-          DENIAL_REBUILD_ENGINE_PACKAGE: "1"
-        run: |
-          set -euo pipefail
-          TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
-          {
-            time tools/stage-denial-runtime
-            time tools/denial-pc arch-package
-            time tools/denial-pc native-packages
-          } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
-
-      - name: Assemble aarch64 candidate and build evidence
-        shell: bash
-        run: tools/assemble-denial-candidate aarch64
+        run: tools/wait-denial-background aarch64
 
       - name: Upload aarch64 branch validation candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -451,6 +434,9 @@ jobs:
           fi
           if [[ -d "$aarch64_evidence" ]]; then
             cp -a -- "$aarch64_evidence" "$failure_root/aarch64-evidence"
+          fi
+          if [[ -d "${BACKGROUND_ROOT:-}" ]]; then
+            cp -a -- "$BACKGROUND_ROOT" "$failure_root/background"
           fi
           # The job log keeps only the tail of a failed Nix build; keep the
           # full builder logs here.
@@ -554,6 +540,7 @@ jobs:
           "$RUNNER_TEMP/denial-${GITHUB_REF_NAME}-aarch64-candidate"
 
       - name: Rehearse signed APT and DNF repository generation
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
@@ -594,7 +581,7 @@ jobs:
     needs: verify
     if: >-
       github.ref == 'refs/heads/main'
-      && github.event_name == 'push'
+      && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -674,7 +661,7 @@ jobs:
     needs: rehearse-apk-promotion
     if: >-
       github.ref == 'refs/heads/main'
-      && github.event_name == 'push'
+      && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     container:
@@ -726,10 +713,11 @@ jobs:
     name: Authorize branch candidate build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      build: ${{ steps.build_inputs.outputs.build }}
 
     steps:
-      - name: Check out main with promotion history
-        if: github.ref == 'refs/heads/main'
+      - name: Check out the branch with its history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -814,3 +802,55 @@ jobs:
           printf '%s\n' \
             'Development source accepted for independent candidate validation.' \
             >>"$GITHUB_STEP_SUMMARY"
+
+      # A dev push whose changes since the last built and green dev commit
+      # touch only files no build, test or audit step reads reuses that
+      # validation. Main builds only when dispatched.
+      - name: Decide whether the build inputs changed
+        id: build_inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          build=true
+          case "$GITHUB_REF:$GITHUB_EVENT_NAME" in
+            refs/heads/main:push) build=false ;;
+            refs/heads/dev:push)
+              # Read by no build, test or audit step; docs/man and
+              # docs/packaging are, below.
+              not_build_inputs='^(docs/'
+              not_build_inputs+='|(AGENTS|CONTRIBUTING|ROADMAP|SECURITY|CROSS_BUILDING|README\.zh-CN)\.md$'
+              not_build_inputs+='|\.github/workflows/phone-packages\.yml$'
+              not_build_inputs+='|tools/(denial-phone-[a-z-]+|publish-denial-packages)$)'
+              base=''
+              while read -r run_id run_sha; do
+                [[ -n "$run_id" ]] || continue
+                git merge-base --is-ancestor "$run_sha" HEAD 2>/dev/null || continue
+                built="$(
+                  gh api "repos/${REPOSITORY_NAME}/actions/runs/${run_id}/jobs" \
+                    --jq '[.jobs[] | select((.name | startswith("Build and test")) and .conclusion == "success")] | length'
+                )"
+                if ((built > 0)); then
+                  base="$run_sha"
+                  break
+                fi
+              done < <(
+                gh api \
+                  "repos/${REPOSITORY_NAME}/actions/workflows/branch-validation.yml/runs?branch=dev&status=success&per_page=50" \
+                  --jq '.workflow_runs[] | "\(.id) \(.head_sha)"'
+              )
+              changed="$(git diff --name-only "${base:-HEAD}" HEAD)"
+              inputs="$(
+                grep -Ev "$not_build_inputs" <<<"$changed" || true
+                grep -E '^docs/(man|packaging)/' <<<"$changed" || true
+              )"
+              if [[ -n "$base" && -z "$inputs" ]]; then
+                build=false
+                printf 'No build input changed since the validated dev commit %s.\n' \
+                  "$base" >>"$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+          esac
+          printf 'build=%s\n' "$build" >>"$GITHUB_OUTPUT"

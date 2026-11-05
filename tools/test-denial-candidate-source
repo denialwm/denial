@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Runs branch validation's source checks from their own worktree, so they run
+# beside the candidate builds instead of before them: the Dart-only SDK tests,
+# the first-party plugin and Plugin Manager checks, the release-path Rust
+# compositor tests and the Flutter tool's non-pausing adapter tests. The
+# branch-validation workflow starts it in the background; its environment
+# names the evidence folder and a Rust target the builds do not use.
+set -euo pipefail
+
+fail() {
+  printf 'test-denial-candidate-source: %s\n' "$*" >&2
+  exit 1
+}
+
+(($# == 0)) || {
+  printf 'Usage: test-denial-candidate-source\n' >&2
+  exit 2
+}
+for variable in \
+  EVIDENCE_ROOT DENIAL_PC_BUILD_ROOT DENIAL_PC_RUST_TARGET \
+  DENIAL_PC_DEPENDENCY_ROOT; do
+  [[ -n "${!variable:-}" ]] || fail "$variable is not set"
+done
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+install -d -m 0755 "$EVIDENCE_ROOT"
+
+tools/denial-pc sdk-test 2>&1 | tee "$EVIDENCE_ROOT/sdk-tests.txt"
+tools/denial-pc plugin-check 2>&1 | tee "$EVIDENCE_ROOT/plugin-checks.txt"
+# The hardened runner denies the test's SCHED_RESET_ON_FORK syscall.
+DENIAL_SKIP_CPU_CAPACITY_TEST=1 tools/denial-pc compositor-test \
+  2>&1 | tee "$EVIDENCE_ROOT/denial-tests.txt"
+(
+  cd "$DENIAL_PC_DEPENDENCY_ROOT/flutter/packages/flutter_tools"
+  ../../bin/flutter test test/general.shard/dap/flutter_adapter_test.dart
+) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tool-tests.txt"

@@ -161,8 +161,9 @@ The public GitHub workflows are part of the reviewable build instructions:
 - no `pull_request` trigger targets a Denial-owned runner;
 - manual builder qualification runs only from `main`;
 - `dev` candidates are never releasable;
-- `main` independently builds and verifies the production candidate before a
-  public version is chosen;
+- `main` independently builds and verifies the production candidate, when
+  dispatched, before a public version is chosen; a promotion merge builds
+  nothing;
 - release jobs require a clean signed `vMAJOR.MINOR.PATCH` tag contained in
   public `main` and promote only the retained exact-commit production payload;
 - signed-tag jobs perform no compilation;

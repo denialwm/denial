@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Waits for a job branch validation started in the background, prints its
+# log and exits with its status. The job writes its status when it ends,
+# failed or not; a job still running after 30 minutes fails the wait.
+set -euo pipefail
+
+(($# == 1)) || {
+  printf 'Usage: wait-denial-background NAME\n' >&2
+  exit 2
+}
+[[ -n "${BACKGROUND_ROOT:-}" ]] || {
+  printf 'wait-denial-background: BACKGROUND_ROOT is not set\n' >&2
+  exit 1
+}
+status_file="$BACKGROUND_ROOT/$1.status"
+for _ in $(seq 1 1800); do
+  [[ ! -f "$status_file" ]] || break
+  sleep 1
+done
+cat -- "$BACKGROUND_ROOT/$1.log"
+[[ -f "$status_file" ]] || {
+  printf 'wait-denial-background: %s still running after 30 minutes\n' "$1" >&2
+  exit 1
+}
+exit "$(cat -- "$status_file")"

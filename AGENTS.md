@@ -11,12 +11,15 @@ system; it is a design contract, not authorization to implement or deploy it.
 
 - Development lands on `dev`. Arm the ephemeral builder before pushing so
   `.github/workflows/branch-validation.yml` builds, packages and verifies that
-  exact commit. Fix pipeline failures on `dev`, never on `main`, and promote
-  the green commit through a merge-commit pull request whose tree is exactly
-  the validated `dev` tree; never squash or alter it.
-- `main` builds its own production-mode, version-neutral candidate; never
-  promote a `dev` binary as a release. Choose and sign `vMAJOR.MINOR.PATCH`
-  only once that `main` candidate is green. The tag workflow promotes the
+  exact commit (Arch packages, fast Rust profile, about ten minutes; a push
+  that changes no build input reuses the last validation and needs no
+  runner). Fix pipeline failures on `dev`, never on `main`, and promote the
+  green commit through a merge-commit pull request whose tree is exactly the
+  validated `dev` tree; never squash or alter it. The merge builds nothing.
+- Before a release, `tools/denial-builder validate` builds main's own
+  production-mode, version-neutral candidate; never promote a `dev` binary as
+  a release. Choose and sign `vMAJOR.MINOR.PATCH` only once that `main`
+  candidate is green. The tag workflow promotes the
   retained `main` payloads without compiling again, and the tag is the only
   source of package and runtime versions: Cargo and Dart versions are source
   metadata, Flutter generation identifiers compatibility metadata.

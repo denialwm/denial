@@ -380,10 +380,11 @@ reproducibility. See:
 
 The dedicated x86-64 host and its manually armed one-job GitHub runner are
 documented in the [builder runbook](packaging/arch/BUILDER.md). Every trusted
-push to `dev` or `main` can build and independently verify an installable,
-unsigned candidate when the ephemeral runner is armed. `dev` produces a
-non-releasable development candidate; `main` independently produces the
-production candidate. Both use package release `0`. Only after `main` is
+push to `dev` that changes build inputs builds and independently verifies an
+installable, unsigned, non-releasable development candidate when the
+ephemeral runner is armed. `main` independently produces the production
+candidate when `tools/denial-builder validate` dispatches it before a
+release. Both use package release `0`. Only after `main` is
 green is a version chosen: the signed-tag workflow promotes those exact
 compiled payloads to tag-derived package metadata, signs them, and publishes
 them without compiling again. Stage 2 later adds offline input closure. See the
