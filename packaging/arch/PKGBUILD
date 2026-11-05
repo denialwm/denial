@@ -44,7 +44,7 @@ depends=(
 )
 optdepends=(
   'fprintd: fingerprint unlock and enrollment'
-  'sudo: authorize fingerprint management in Settings'
+  'sudo: fingerprint enrollment where a Gatekeeper keeps the lock PIN'
   'iwd: Wi-Fi controls without NetworkManager'
   'lact: AMD GPU performance controls'
   'networkmanager: Wi-Fi and network controls through NetworkManager'
@@ -66,6 +66,7 @@ source=(
   'denial-session'
   "denial-session.target::file://$startdir/../denial-session.target"
   "denial-suspend-mode::file://$startdir/../denial-suspend-mode"
+  "denial-fingerprint.rules::file://$startdir/../denial-fingerprint.rules"
   'denial.desktop'
   'dev.denial.Settings.desktop'
   'denial-portal.service'
@@ -80,6 +81,7 @@ sha256sums=(
   'ee7f248d8fed9cad0df9c931087600fa0ded75eb7082c351593ef97265a589ef'
   '8b1c2b2dfa189319666cf4aaefa0c1cceab8940e795240baf2201f4e04bb0a84'
   '57c146e3579dd87e12c332a180cca32c17602c823fcd39767a7c737f2688fc71'
+  'd48446ddc4b6e040c3b76b8a3b3cee63cb1faaa5e81c4d13b0960b310f04cde7'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
   'f8acf498ad592dcbf1ee31955264b068c27846f99cded6055a6b64aaf7f4fe07'
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
@@ -206,6 +208,8 @@ package() {
     "$pkgdir/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service"
   install -Dm644 "$srcdir/xdg-desktop-portal-wlr-Denial" \
     "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/Denial"
+  install -Dm644 "$srcdir/denial-fingerprint.rules" \
+    "$pkgdir/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules"
   install -Dm644 "$srcdir/outputs.conf" "$pkgdir/etc/denial/outputs.conf"
   install -Dm644 "$srcdir/session.conf" "$pkgdir/etc/denial/session.conf"
 

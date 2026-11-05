@@ -299,20 +299,25 @@ invalidate the scan; cleanup stops verification and releases the sensor.
 Fingerprint success also cancels a pending password conversation. Flutter has
 no command that can assert a fingerprint match or bypass the security gate.
 
-Settings shows a Fingerprint section only while fprintd reports a device. It
-initially shows only a sudo password prompt. After password verification it
-offers first-time enrollment or lists enrolled fingers with an Add fingerprint
-button. Enrollment reports scan progress and supports cancellation. Leaving
-the section closes the privileged session and releases any device claim;
-authorization also expires after five minutes.
+Settings shows a Fingerprint section only while fprintd reports a device.
+Changing fingers takes the lock PIN, since Denial's lock screen leaves the
+reader off without one: Settings checks it with `deniald --lock-pin check`,
+the PIN on the helper's input, never in its arguments or logs. Settings then
+claims fprintd's device as the session's user and calls `EnrollStart`,
+`DeleteEnrolledFinger` and `ListEnrolledFingers` itself. The package's polkit
+rule, `/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules`, grants
+`net.reactivated.fprint.device.enroll` to the active local session, so the
+user's own fingers need no account password; another user's still take an
+administrator. Enrollment reports scan progress and supports cancellation.
+Leaving the section releases the device; the PIN is asked again after five
+minutes.
 
-The Settings process launches `sudo -S -k -- deniald --fingerprint-settings`
-over private stdin/stdout pipes. The helper independently verifies the invoking
-user's password through the `sudo` PAM service, including on hosts configured
-with passwordless sudo, before reading any enrolled-finger metadata. It accepts
-only listing, enrollment of a named finger, and cancellation for that user.
-Passwords are never passed in command arguments or logged. Settings requires
-`sudo` in addition to the optional `fprintd` package.
+Where a Gatekeeper keeps the lock PIN (NX809J, below), the reader adds a
+finger only once the PIN is proven to it, which needs root. There Settings
+runs `sudo -n -- deniald --fingerprint-settings` over private stdin/stdout
+pipes instead. The helper checks the PIN itself before reading any
+enrolled-finger metadata, and accepts only listing, enrollment and deletion
+of a named finger, and cancellation, for the invoking user.
 
 The isolated fprintd mock tests run as part of `tools/denial-pc test`. They never
 access the system bus or real fingerprint hardware. For the focused Rust suite:

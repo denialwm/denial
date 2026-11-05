@@ -1,0 +1,10 @@
+// Denial Settings adds and removes the fingerprints of the user at the
+// computer without the account password: it asks for the lock PIN itself.
+// Another user's fingers (net.reactivated.fprint.device.setusername) still
+// take an administrator.
+polkit.addRule(function (action, subject) {
+    if (action.id == "net.reactivated.fprint.device.enroll" &&
+            subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+});

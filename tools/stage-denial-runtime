@@ -280,6 +280,8 @@ install -Dm644 "$ROOT/packaging/arch/org.freedesktop.impl.portal.desktop.denial.
   "$denial_root/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service"
 install -Dm644 "$ROOT/packaging/arch/xdg-desktop-portal-wlr-Denial" \
   "$denial_root/etc/xdg/xdg-desktop-portal-wlr/Denial"
+install -Dm644 "$ROOT/packaging/denial-fingerprint.rules" \
+  "$denial_root/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules"
 install -Dm644 "$ROOT/packaging/arch/outputs.conf" \
   "$denial_root/etc/denial/outputs.conf"
 install -Dm644 "$ROOT/packaging/arch/session.conf" \

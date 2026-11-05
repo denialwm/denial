@@ -176,6 +176,7 @@ let
     "docs/man"
     "docs/PLUGIN_DEVELOPMENT.md"
     "packaging/arch/denial-portal.service"
+    "packaging/denial-fingerprint.rules"
     "packaging/arch/denial-portals.conf"
     "packaging/arch/denial-session"
     "packaging/arch/denial.desktop"
@@ -275,6 +276,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       $out/share/xdg-desktop-portal/denial-portals.conf
     install -Dm644 ${packageSrc}/packaging/arch/denial.portal \
       $out/share/xdg-desktop-portal/portals/denial.portal
+    install -Dm644 ${packageSrc}/packaging/denial-fingerprint.rules \
+      $out/share/polkit-1/rules.d/50-denial-fingerprint.rules
     install -Dm644 \
       ${packageSrc}/packaging/arch/org.freedesktop.impl.portal.desktop.denial.service \
       $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service
