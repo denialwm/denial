@@ -341,7 +341,9 @@ jobs:
           aarch64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
           install -d -m 0755 "$aarch64_evidence"
           # rustup changes the shared toolchain: before anything builds.
-          DENIAL_TARGET_ARCH=aarch64 tools/denial-pc bootstrap \
+          DENIAL_TARGET_ARCH=aarch64 \
+            DENIAL_ARM64_SYSROOT=/srv/denial-builder/sysroot/aarch64 \
+            tools/denial-pc bootstrap \
             2>&1 | tee "$aarch64_evidence/bootstrap.txt"
           start checks test-denial-candidate-source \
             DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-tests" \
