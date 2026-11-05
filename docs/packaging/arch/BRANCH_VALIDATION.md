@@ -50,7 +50,8 @@ For either trusted branch, the owner-operated x86-64 runner:
 6. builds the release Flutter integration bundle;
 7. runs the Dart-only SDK tests, first-party plugin and Plugin Manager checks,
    release-path Rust compositor tests, and the Flutter tool's non-pausing
-   adapter tests;
+   adapter tests, from a worktree in the background beside the package
+   builds (`tools/test-denial-candidate-source`);
 8. builds and internally validates the two required runtime packages and the
    optional Plugin Manager package as Arch archives, and on `main` also as
    Debian, RPM, and Alpine archives, without the paused legacy

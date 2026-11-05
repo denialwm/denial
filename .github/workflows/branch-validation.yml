@@ -311,46 +311,56 @@ jobs:
             --github-env "$GITHUB_ENV" \
             2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
 
-      # The aarch64 packages are cross-built from a worktree of the same
-      # commit, with the same tools, against the Arch Linux ARM root the
-      # builder holds, while the x86_64 steps below run. Nothing is tested on
-      # aarch64: this host cannot run it.
-      - name: Start the aarch64 candidate build
+      # The source checks and the aarch64 packages run from worktrees of the
+      # same commit while the x86_64 steps below build its packages. The
+      # aarch64 ones are cross-built with the same tools against the Arch
+      # Linux ARM root the builder holds. Nothing is tested on aarch64: this
+      # host cannot run it. Steps leave background processes running until
+      # the job ends; each writes its status when it ends, failed or not.
+      - name: Start the source checks and the aarch64 candidate build
         shell: bash
         run: |
           set -euo pipefail
-          source_root="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-source"
-          status_file="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-status"
-          log_file="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64.log"
-          {
-            printf 'AARCH64_STATUS=%s\n' "$status_file"
-            printf 'AARCH64_LOG=%s\n' "$log_file"
-          } >>"$GITHUB_ENV"
-          git worktree add --detach "$source_root" HEAD
-          export DENIAL_TARGET_ARCH=aarch64
-          export DENIAL_ARM64_SYSROOT=/srv/denial-builder/sysroot/aarch64
-          export DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-aarch64"
-          export DENIAL_PC_BUILD_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-build"
-          export EVIDENCE_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
-          export CANDIDATE_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate"
-          export CANDIDATE_ARCHIVE="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-candidate.tar"
-          export DENIAL_PC_PACKAGE_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-packages"
-          export DENIAL_PC_MAKEPKG_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-makepkg"
-          export DENIAL_PC_PACKAGE_INPUT_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-package-input"
-          export DENIAL_PACKAGE_PACKAGER='Doctor Logix <doctor.logix@gmail.com>'
-          export DENIAL_PACKAGE_SKIP_STAGE=1
-          export DENIAL_REBUILD_ENGINE_PACKAGE=1
-          install -d -m 0755 "$EVIDENCE_ROOT"
+          background="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-background"
+          install -d -m 0755 "$background"
+          printf 'BACKGROUND_ROOT=%s\n' "$background" >>"$GITHUB_ENV"
+          # start NAME TOOL [VARIABLE=VALUE...]
+          start() {
+            local name="$1"
+            local tool="$2"
+            local source_root="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-${name}-source"
+            shift 2
+            git worktree add --detach "$source_root" HEAD
+            # The script's expansions are its own arguments.
+            # shellcheck disable=SC2016
+            env "$@" setsid nohup bash -c '
+              "$1/tools/$2" >"$3/$4.log" 2>&1
+              printf "%s\n" "$?" >"$3/$4.status"
+            ' bash "$source_root" "$tool" "$background" "$name" </dev/null &
+          }
+          aarch64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
+          install -d -m 0755 "$aarch64_evidence"
           # rustup changes the shared toolchain: before anything builds.
-          (cd "$source_root" && tools/denial-pc bootstrap) \
-            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
-          # Steps leave background processes running until the job ends.
-          # The script's expansions are its own arguments.
-          # shellcheck disable=SC2016
-          setsid nohup bash -c '
-            "$1/tools/build-denial-aarch64-candidate" >"$2" 2>&1
-            printf "%s\n" "$?" >"$3"
-          ' bash "$source_root" "$log_file" "$status_file" </dev/null &
+          DENIAL_TARGET_ARCH=aarch64 tools/denial-pc bootstrap \
+            2>&1 | tee "$aarch64_evidence/bootstrap.txt"
+          start checks test-denial-candidate-source \
+            DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-tests" \
+            DENIAL_PC_BUILD_ROOT="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-checks-build"
+          aarch64="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64"
+          start aarch64 build-denial-aarch64-candidate \
+            DENIAL_TARGET_ARCH=aarch64 \
+            DENIAL_ARM64_SYSROOT=/srv/denial-builder/sysroot/aarch64 \
+            DENIAL_PC_RUST_TARGET="/srv/denial-builder/cache/rust-target${RUST_TARGET_SUFFIX}-aarch64" \
+            DENIAL_PC_BUILD_ROOT="$aarch64-build" \
+            EVIDENCE_ROOT="$aarch64_evidence" \
+            CANDIDATE_ROOT="$aarch64-candidate" \
+            CANDIDATE_ARCHIVE="$aarch64-candidate.tar" \
+            DENIAL_PC_PACKAGE_ROOT="$aarch64-packages" \
+            DENIAL_PC_MAKEPKG_ROOT="$aarch64-makepkg" \
+            DENIAL_PC_PACKAGE_INPUT_ROOT="$aarch64-package-input" \
+            DENIAL_PACKAGE_PACKAGER='Doctor Logix <doctor.logix@gmail.com>' \
+            DENIAL_PACKAGE_SKIP_STAGE=1 \
+            DENIAL_REBUILD_ENGINE_PACKAGE=1
 
       - name: Build Flutter integration-test bundle
         shell: bash
@@ -358,30 +368,6 @@ jobs:
           set -euo pipefail
           tools/denial-pc bundle \
             2>&1 | tee "$EVIDENCE_ROOT/integration-test-bundle.txt"
-
-      - name: Validate plugin SDK without a development engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc sdk-test \
-            2>&1 | tee "$EVIDENCE_ROOT/sdk-tests.txt"
-          tools/denial-pc plugin-check \
-            2>&1 | tee "$EVIDENCE_ROOT/plugin-checks.txt"
-
-      - name: Run release-path compositor tests
-        shell: bash
-        env:
-          # The hardened runner denies the test's SCHED_RESET_ON_FORK syscall.
-          DENIAL_SKIP_CPU_CAPACITY_TEST: "1"
-        run: |
-          set -euo pipefail
-          tools/denial-pc compositor-test \
-            2>&1 | tee "$EVIDENCE_ROOT/denial-tests.txt"
-          (
-            cd "$DENIAL_PC_DEPENDENCY_ROOT/flutter/packages/flutter_tools"
-            ../../bin/flutter test \
-              test/general.shard/dap/flutter_adapter_test.dart
-          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tool-tests.txt"
 
       - name: Build candidate packages
         shell: bash
@@ -401,6 +387,10 @@ jobs:
             fi
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
 
+      - name: Wait for the source checks
+        shell: bash
+        run: tools/wait-denial-background checks
+
       - name: Assemble candidate and build evidence
         shell: bash
         run: tools/assemble-denial-candidate x86_64
@@ -416,17 +406,7 @@ jobs:
 
       - name: Wait for the aarch64 candidate build
         shell: bash
-        run: |
-          set -euo pipefail
-          # The build writes its status when it ends, failed or not.
-          for _ in $(seq 1 1800); do
-            [[ ! -f "$AARCH64_STATUS" ]] || break
-            sleep 1
-          done
-          cat -- "$AARCH64_LOG"
-          [[ -f "$AARCH64_STATUS" ]] \
-            || { printf '%s\n' 'aarch64 build still running after 30 minutes' >&2; exit 1; }
-          exit "$(cat -- "$AARCH64_STATUS")"
+        run: tools/wait-denial-background aarch64
 
       - name: Upload aarch64 branch validation candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -453,8 +433,8 @@ jobs:
           if [[ -d "$aarch64_evidence" ]]; then
             cp -a -- "$aarch64_evidence" "$failure_root/aarch64-evidence"
           fi
-          if [[ -f "${AARCH64_LOG:-}" ]]; then
-            cp -- "$AARCH64_LOG" "$failure_root/aarch64-build.log"
+          if [[ -d "${BACKGROUND_ROOT:-}" ]]; then
+            cp -a -- "$BACKGROUND_ROOT" "$failure_root/background"
           fi
           # The job log keeps only the tail of a failed Nix build; keep the
           # full builder logs here.
