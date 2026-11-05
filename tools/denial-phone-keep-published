@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'denial-phone-keep-published: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF_USAGE'
+Usage:
+  tools/denial-phone-keep-published PACKAGE_DIR
+
+PACKAGE_DIR holds the phone packages Phonewave's image/pack built, with a
+SHA256SUMS of them. A package whose file name, and so version, the
+denial-phone repository at packages.denialwm.org already publishes is
+replaced by the published file, once the published signature verifies
+against the tracked Denial key. A version then keeps its bytes for as long as
+it is published, and a phone's cached copy keeps matching its signature.
+SHA256SUMS is rewritten for the result.
+EOF_USAGE
+}
+
+if (($# != 1)); then
+  usage >&2
+  exit 2
+fi
+
+for required_command in basename curl gpg gpgconf install mktemp mv realpath \
+  sha256sum; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+readonly ROOT
+readonly REPOSITORY_URL='https://packages.denialwm.org/phone/aarch64'
+readonly PUBLIC_KEY="$ROOT/packaging/arch/denial-repo-key.asc"
+PACKAGE_DIR="$(realpath -e -- "$1")"
+readonly PACKAGE_DIR
+
+[[ -f "$PACKAGE_DIR/SHA256SUMS" ]] \
+  || fail "package checksum manifest is missing: $PACKAGE_DIR/SHA256SUMS"
+(
+  cd "$PACKAGE_DIR"
+  sha256sum --check --strict --quiet SHA256SUMS
+) || fail 'package checksums failed'
+
+work="$(mktemp -d)"
+cleanup() {
+  gpgconf --homedir "$work/gnupg" --kill all >/dev/null 2>&1 || true
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+install -d -m 0700 "$work/gnupg"
+gpg --homedir "$work/gnupg" --batch --quiet --import "$PUBLIC_KEY"
+
+kept=0
+new=0
+for package in "$PACKAGE_DIR"/*.pkg.tar.zst; do
+  name="$(basename -- "$package")"
+  status="$(
+    curl --silent --show-error --location --output "$work/$name.sig" \
+      --write-out '%{http_code}' "$REPOSITORY_URL/$name.sig"
+  )"
+  case "$status" in
+    404)
+      new=$((new + 1))
+      continue
+      ;;
+    200) ;;
+    *) fail "$REPOSITORY_URL/$name.sig: HTTP $status" ;;
+  esac
+  curl --silent --show-error --fail --location --output "$work/$name" \
+    "$REPOSITORY_URL/$name"
+  gpg --homedir "$work/gnupg" --batch --verify "$work/$name.sig" \
+    "$work/$name" 2>"$work/verify.log" \
+    || { cat "$work/verify.log" >&2; fail "the published $name does not verify"; }
+  mv -- "$work/$name" "$package"
+  kept=$((kept + 1))
+done
+
+(
+  cd "$PACKAGE_DIR"
+  sha256sum -- *.pkg.tar.zst >SHA256SUMS
+)
+printf 'Kept the published bytes of %s packages; %s are new versions.\n' \
+  "$kept" "$new"
