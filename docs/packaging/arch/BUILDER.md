@@ -120,6 +120,7 @@ rustup
 rpm-tools
 shellcheck
 nvme-cli
+glib2-devel
 ```
 
 The aarch64 packages link against an Arch Linux ARM root at
