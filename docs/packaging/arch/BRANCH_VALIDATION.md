@@ -5,17 +5,23 @@ Every trusted push to remote `dev` or `main` runs
 trigger the owner-operated builder.
 
 `dev` is the first complete integration gate. It builds, tests, packages, and
-independently verifies an installable development candidate. That candidate
+independently verifies an installable development candidate, the Arch
+packages for x86-64 and aarch64, within about ten minutes. That candidate
 uses package release `0` and is explicitly ineligible for signing or
-publication. Its build policy may intentionally diverge from production in
-the future, for example by enabling additional diagnostics.
+publication. Its Rust is built for speed (`compile_mode=fast-release`: no LTO,
+sixteen codegen units), it skips the Nix build and the Debian, RPM and Alpine
+archives, and a push whose changes since the last built, green `dev` commit
+touch only files no build, test or audit step reads (most of `docs/`, the
+phone package workflow and tools) reuses that validation without building.
 
-`main` has three gates. A GitHub-hosted authorization job first accepts only a
-two-parent merge whose tree is exactly its validated `dev` parent, whose
-first parent is the previous `main`, and whose `dev` commit has a successful
-push validation. The owner-operated runner then independently performs the
-production build from that exact `main` commit, with release-mode Flutter AOT
-and Rust artifacts. A separate hosted job verifies the resulting unsigned
+A push to `main` builds nothing. A GitHub-hosted authorization job accepts
+only a two-parent merge whose tree is exactly its validated `dev` parent,
+whose first parent is the previous `main`, and whose `dev` commit has a
+successful push validation. Before a release, `tools/denial-builder validate`
+dispatches the production build on `main`, which has three gates. The same
+authorization runs first. The owner-operated runner then independently
+performs the production build from that exact `main` commit, with
+release-mode Flutter AOT and Rust artifacts and every package format. A separate hosted job verifies the resulting unsigned
 production candidate. Finally, GitHub-hosted jobs rehearse the release-only
 Alpine path: Ubuntu 24.04 promotes the exact candidate under the no-build
 guard using disposable version metadata, then a root Arch container signs the
@@ -35,9 +41,9 @@ For either trusted branch, the owner-operated x86-64 runner:
 
 1. checks out the exact pushed commit in a fresh ephemeral workspace;
 2. audits committed inputs and qualifies the builder;
-3. builds the Nix package and checks, using the public Denial Cachix cache for
-   substitution, and uploads those exact output paths to it at the end of the
-   job, also when a later step fails;
+3. on `main`, builds the Nix package and checks, using the public Denial
+   Cachix cache for substitution, and uploads those exact output paths to it
+   at the end of the job, also when a later step fails;
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds or reuses the native release Flutter Engine from the exact locked
    Denial Flutter and Skia fork commits;
@@ -46,16 +52,20 @@ For either trusted branch, the owner-operated x86-64 runner:
    release-path Rust compositor tests, and the Flutter tool's non-pausing
    adapter tests;
 8. builds and internally validates the two required runtime packages and the
-   optional Plugin Manager package as Arch, Debian, RPM, and Alpine archives,
-   without the paused legacy UI-development package;
+   optional Plugin Manager package as Arch archives, and on `main` also as
+   Debian, RPM, and Alpine archives, without the paused legacy
+   UI-development package;
 9. records package metadata, host inputs, checksums, toolchain versions, and
    build logs;
 10. uploads the unsigned candidate artifact; and
-11. cross-builds the same three packages for aarch64 as Arch, Debian and RPM
-    archives, then records and uploads them as a second unsigned candidate.
+11. cross-builds the same three packages for aarch64 (Arch, and on `main`
+    also Debian and RPM archives), then records and uploads them as a second
+    unsigned candidate.
 
-The aarch64 build reruns steps 4, 5, 6 and 8 with `DENIAL_TARGET_ARCH=aarch64`,
-using the same tools against the Arch Linux ARM root in
+The aarch64 build reruns steps 4, 5, 6 and 8 with `DENIAL_TARGET_ARCH=aarch64`
+from a worktree of the same commit, in the background while the x86-64 steps
+run (`tools/build-denial-aarch64-candidate`), with its own build and Rust
+target folders, using the same tools against the Arch Linux ARM root in
 `/srv/denial-builder/sysroot/aarch64`. Its engine is the locked aarch64 engine
 in `prebuilt/flutter-engine/linux-arm64-release`. Nothing runs on aarch64:
 the tests stay x86-64 only, and there is no aarch64 Alpine or Nix output. Its
@@ -70,7 +80,7 @@ it does not claim those retained binaries came from the new release lock.
 
 A separate GitHub-hosted Arch job downloads both artifacts and independently
 checks, through `tools/verify-denial-candidate`, their source identity,
-checksums, all twelve x86-64 and nine aarch64 archives, package ownership
+checksums, every archive (on `main` twelve x86-64 and nine aarch64), package ownership
 metadata, engine ABI dependencies, version bounds, and required runtime and
 development payloads. The candidate also contains separately hashed neutral
 and Alpine-adapted staging trees, so the verifier compares every APK file and
@@ -109,7 +119,7 @@ refuses a `dev` artifact even when it was built from an identical source tree.
 ## Development and main flow
 
 The self-hosted runner is ephemeral. Arm one job immediately before each
-trusted branch push:
+`dev` push that changes build inputs:
 
 ```sh
 tools/denial-builder install
@@ -117,10 +127,12 @@ tools/denial-builder install
 tools/denial-builder arm
 git push origin dev
 
-# After dev is green, arm a new one-job runner immediately before merging.
-tools/denial-builder arm
-# Merge the exact validated dev tree into main without squashing or rebasing.
+# After dev is green, merge the exact validated dev tree into main without
+# squashing or rebasing. The merge needs no runner: it builds nothing.
 ```
+
+The builder host must run on mains power: on battery its power profile caps
+the CPU and a validation takes twice as long.
 
 `install` creates the credential-free persistent engine cache under
 `/srv/denial-builder/cache/flutter-engine` and configures the root-owned Nix
@@ -155,7 +167,8 @@ tools/denial-builder cancel
 ## Release boundary
 
 Do not choose a public version merely to obtain a production build. A green
-`main` production candidate is the versionless release decision point.
+`main` production candidate, built by `tools/denial-builder validate`, is the
+versionless release decision point.
 
 After choosing and pushing a clean signed tag on that exact commit, run:
 
@@ -164,7 +177,7 @@ tools/denial-builder release vMAJOR.MINOR.PATCH
 ```
 
 This controller does not arm the builder. `.github/workflows/release.yml`
-resolves the successful exact-commit `main` push run, promotes its retained
+resolves the successful exact-commit `main` dispatched run, promotes its retained
 payloads to tag-derived `pkgver`/`pkgrel` metadata, verifies payload identity,
 signs in the protected `release-signing` environment, independently verifies
 the signed repository and direct APK downloads, and publishes only after every

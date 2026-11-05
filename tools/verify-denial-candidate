@@ -39,7 +39,8 @@ case "$GITHUB_REF" in
   refs/heads/dev)
     expected_class='development-test-candidate'
     expected_signing_eligibility='false'
-    expected_compile_mode='release'
+    expected_compile_mode='fast-release'
+    expected_formats=arch
     ;;
   refs/heads/main)
     expected_class='production-release-candidate'
@@ -68,9 +69,9 @@ grep -Fxq 'native_payload_schema=1' "$provenance"
 grep -Fxq "compile_mode=$expected_compile_mode" "$provenance"
 grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
 grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
-if [[ "$architecture" == x86_64 ]]; then
+if [[ "$architecture" == x86_64 && "$expected_formats" == *apk* ]]; then
   grep -Fxq 'alpine_payload_schema=1' "$provenance"
-else
+elif [[ "$architecture" == aarch64 ]]; then
   grep -Fxq 'cross_compiled_from=x86_64' "$provenance"
   grep -Eq '^sysroot_sha256=[0-9a-f]{64}$' "$provenance"
   test ! -e "$CANDIDATE_ROOT/alpine-payload"
@@ -91,11 +92,15 @@ mapfile -d '' rpm_packages < <(find_packages '*.rpm')
 mapfile -d '' apk_packages < <(find_packages '*.apk')
 ((${#packages[@]} == 3)) \
   || fail "expected three candidate Arch packages, found ${#packages[@]}"
-((${#deb_packages[@]} == 3)) \
-  || fail "expected three candidate Debian packages, found ${#deb_packages[@]}"
-((${#rpm_packages[@]} == 3)) \
-  || fail "expected three candidate RPM packages, found ${#rpm_packages[@]}"
-if [[ "$architecture" == x86_64 ]]; then
+# A format the candidate does not carry has no packages at all.
+format_count() {
+  if [[ ",$expected_formats," == *",$1,"* ]]; then printf 3; else printf 0; fi
+}
+((${#deb_packages[@]} == $(format_count deb))) \
+  || fail "expected $(format_count deb) candidate Debian packages, found ${#deb_packages[@]}"
+((${#rpm_packages[@]} == $(format_count rpm))) \
+  || fail "expected $(format_count rpm) candidate RPM packages, found ${#rpm_packages[@]}"
+if [[ "$(format_count apk)" == 3 ]]; then
   ((${#apk_packages[@]} == 3)) \
     || fail "expected three candidate Alpine packages, found ${#apk_packages[@]}"
 else
@@ -263,6 +268,9 @@ tools/verify-denial-package-payload \
 tools/verify-denial-package-payload \
   arch "$plugin_manager_arch_package" \
   "$native_payload/denial-plugin-manager"
+
+# Dev candidates end with their Arch packages and native payload.
+[[ "$expected_formats" != arch ]] || exit 0
 
 deb_names=()
 for package in "${deb_packages[@]}"; do

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Builds and assembles the aarch64 branch-validation candidate from its own
+# worktree, so it runs beside the x86_64 build of the same commit instead of
+# after it. The branch-validation workflow starts it in the background once
+# the x86_64 engine is resolved; its environment names the branch and the
+# aarch64 paths, and the build writes nothing the x86_64 build reads.
+set -euo pipefail
+
+fail() {
+  printf 'build-denial-aarch64-candidate: %s\n' "$*" >&2
+  exit 1
+}
+
+(($# == 0)) || {
+  printf 'Usage: build-denial-aarch64-candidate\n' >&2
+  exit 2
+}
+for variable in \
+  DENIAL_TARGET_ARCH DENIAL_ARM64_SYSROOT EVIDENCE_ROOT CANDIDATE_ROOT \
+  DENIAL_PC_BUILD_ROOT DENIAL_PC_RUST_TARGET VALIDATION_BRANCH RUNNER_TEMP; do
+  [[ -n "${!variable:-}" ]] || fail "$variable is not set"
+done
+[[ "$DENIAL_TARGET_ARCH" == aarch64 ]] \
+  || fail 'DENIAL_TARGET_ARCH must be aarch64'
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+install -d -m 0755 "$EVIDENCE_ROOT"
+
+# The engine step names its paths in an environment file; this build keeps
+# its own, not the job's, which holds the x86_64 engine.
+engine_env="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-engine.env"
+: >"$engine_env"
+tools/denial-flutter-engine build --github-env "$engine_env" \
+  2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
+set -a
+# shellcheck source=/dev/null
+source "$engine_env"
+set +a
+
+tools/denial-pc bundle 2>&1 | tee "$EVIDENCE_ROOT/bundle.txt"
+
+TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
+{
+  time tools/stage-denial-runtime
+  time tools/denial-pc arch-package
+  if [[ "$VALIDATION_BRANCH" == main ]]; then
+    time tools/denial-pc native-packages
+  fi
+} 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+tools/assemble-denial-candidate aarch64

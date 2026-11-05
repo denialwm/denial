@@ -18,10 +18,13 @@ if (($# != 1)); then
 fi
 
 architecture="$1"
-case "$architecture" in
-  x86_64) package_formats=(arch deb rpm apk) ;;
-  aarch64) package_formats=(arch deb rpm) ;;
-  *) fail "unsupported candidate architecture: $architecture" ;;
+# Dev candidates carry the Arch packages only; main's carry every format a
+# release publishes.
+case "$architecture:${VALIDATION_BRANCH:-}" in
+  *:dev) package_formats=(arch) ;;
+  x86_64:main) package_formats=(arch deb rpm apk) ;;
+  aarch64:main) package_formats=(arch deb rpm) ;;
+  *) fail "unsupported candidate: $architecture on ${VALIDATION_BRANCH:-no branch}" ;;
 esac
 
 for variable in \
@@ -121,20 +124,20 @@ for package in "${arch_packages[@]}"; do
   bsdtar -xOf "$package" .PKGINFO >"$metadata/${package_name}.PKGINFO"
   bsdtar -xOf "$package" .BUILDINFO >"$metadata/${package_name}.BUILDINFO"
 done
-for package in "${deb_packages[@]}"; do
+for package in "${deb_packages[@]+"${deb_packages[@]}"}"; do
   package_name="$(basename -- "$package")"
   dpkg-deb --field "$package" >"$metadata/${package_name}.control"
 done
 rpm_query_db="$RUNNER_TEMP/denial-rpm-query-db"
 install -d -m 0755 "$rpm_query_db"
-for package in "${rpm_packages[@]}"; do
+for package in "${rpm_packages[@]+"${rpm_packages[@]}"}"; do
   package_name="$(basename -- "$package")"
   rpm --dbpath "$rpm_query_db" -qp --qf \
     $'name=%{NAME}\nversion=%{VERSION}-%{RELEASE}\narchitecture=%{ARCH}\n' \
     "$package" \
     >"$metadata/${package_name}.rpm"
 done
-for package in "${apk_packages[@]}"; do
+for package in "${apk_packages[@]+"${apk_packages[@]}"}"; do
   package_name="$(basename -- "$package")"
   bsdtar -xOf "$package" .PKGINFO >"$metadata/${package_name}.PKGINFO"
 done
