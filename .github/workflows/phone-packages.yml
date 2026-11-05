@@ -4,8 +4,9 @@ run-name: Phone packages from Phonewave main
 # The phones' own packages: Phonewave's image/pack recipes, built from
 # Phonewave, denial-apps and gpui-touch main on the armed builder, signed with
 # the release key and published as the denial-phone Pacman repository at
-# packages.denialwm.org/phone/aarch64. A version already published keeps its
-# published bytes. Started by tools/denial-builder phone-packages.
+# packages.denialwm.org/phone/aarch64. A version already published is
+# downloaded, not built, and keeps its published bytes. Started by
+# tools/denial-builder phone-packages.
 
 on:
   workflow_dispatch:
@@ -42,38 +43,34 @@ jobs:
 
       # The recipes find denial-apps, and denial-apps finds gpui-touch, beside
       # Phonewave. Package versions count commits, so history is complete.
-      - name: Check out Phonewave main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: denialwm/phonewave
-          ref: main
-          path: phonewave
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Check out denial-apps main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: denialwm/denial-apps
-          ref: main
-          path: denial-apps
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Check out gpui-touch main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: denialwm/gpui-touch
-          ref: main
-          path: gpui-touch
-          fetch-depth: 1
-          persist-credentials: false
+      # The clones stay on the builder with their ignored build output, and a
+      # checkout rewrites only the files a commit changed, so Cargo rebuilds
+      # only what changed.
+      - name: Update the source clones
+        shell: bash
+        run: |
+          set -euo pipefail
+          sources=/srv/denial-builder/cache/phone-sources
+          install -d -m 0700 "$sources"
+          for repository in phonewave denial-apps gpui-touch; do
+            clone="$sources/$repository"
+            depth=()
+            [[ "$repository" != gpui-touch ]] || depth=(--depth 1)
+            [[ -d "$clone/.git" ]] || git init --quiet "$clone"
+            git -C "$clone" fetch --quiet --prune "${depth[@]}" \
+              "https://github.com/denialwm/$repository" \
+              +refs/heads/main:refs/remotes/origin/main
+            git -C "$clone" checkout --quiet --force --detach origin/main
+            git -C "$clone" clean --quiet -ffd
+          done
+          printf 'PHONE_SOURCES=%s\n' "$sources" >>"$GITHUB_ENV"
 
       - name: Build every recipe
         shell: bash
         env:
           CARGO_HOME: /srv/denial-builder/cache/cargo
           PHONEWAVE_CACHE: ${{ runner.temp }}/phonewave-cache
+          PHONEWAVE_PUBLISHED: https://packages.denialwm.org/phone/aarch64
           PHONEWAVE_SYSROOT: /srv/denial-builder/sysroot/aarch64
         run: |
           set -euo pipefail
@@ -81,7 +78,7 @@ jobs:
           rustup toolchain install stable --profile minimal \
             --target aarch64-unknown-linux-gnu
           rustup default stable
-          phonewave/image/pack
+          "$PHONE_SOURCES/phonewave/image/pack"
 
       - name: Collect the packages and their sources
         shell: bash
@@ -96,7 +93,8 @@ jobs:
             sha256sum -- *.pkg.tar.zst >SHA256SUMS
           )
           for checkout in phonewave denial-apps gpui-touch; do
-            printf '%s=%s\n' "$checkout" "$(git -C "$checkout" rev-parse HEAD)"
+            printf '%s=%s\n' "$checkout" \
+              "$(git -C "$PHONE_SOURCES/$checkout" rev-parse HEAD)"
           done >"$packages/SOURCES"
           cat "$packages/SOURCES"
           tar --create --file="$RUNNER_TEMP/phone-packages.tar" \
