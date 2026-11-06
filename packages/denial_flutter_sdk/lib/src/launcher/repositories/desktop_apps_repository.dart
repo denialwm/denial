@@ -13,17 +13,28 @@ class DesktopAppsRepository {
 
   /// Watches the XDG application directories for desktop-entry changes.
   ///
-  /// Filesystem watching is best effort. Directories which do not exist or
-  /// cannot be watched are skipped, while the launcher's slower polling path
-  /// remains available as a fallback.
+  /// Filesystem watching is best effort. A directory which does not exist yet
+  /// is watched for through its nearest existing ancestor; one which cannot
+  /// be watched is skipped, while the launcher's slower polling path remains
+  /// available as a fallback.
   Future<DesktopAppsWatcher> watchApplications({
     required void Function() onChanged,
   }) async {
     final subscriptions = <StreamSubscription<FileSystemEvent>>[];
     final watcher = DesktopAppsWatcher._(subscriptions);
+    // Directories that may appear later, as ~/.local/share/applications does
+    // when Droidloom first exports its apps, by their nearest existing
+    // ancestor.
+    final missing = <String, List<String>>{};
     for (final directory in _paths.desktopApplicationDirs()) {
       try {
         if (!await directory.exists()) {
+          final ancestor = await _nearestExistingAncestor(directory.path);
+          if (ancestor == null) {
+            watcher._complete = false;
+          } else {
+            missing.putIfAbsent(ancestor, () => []).add(directory.path);
+          }
           continue;
         }
         subscriptions.add(
@@ -43,6 +54,34 @@ class DesktopAppsRepository {
       } on Object {
         // Some system and sandboxed application directories may be
         // inaccessible. Discovery still covers every readable directory.
+        watcher._complete = false;
+      }
+    }
+    for (final MapEntry(key: ancestor, value: directories) in missing.entries) {
+      try {
+        subscriptions.add(
+          Directory(ancestor)
+              .watch(events: FileSystemEvent.create | FileSystemEvent.move)
+              .listen(
+                (event) {
+                  final created = event is FileSystemMoveEvent
+                      ? event.destination ?? event.path
+                      : event.path;
+                  if (directories.any(
+                    (dir) => p.equals(created, dir) || p.isWithin(created, dir),
+                  )) {
+                    // Nothing watches inside the new directory; the
+                    // launcher's rescans cover it from now on.
+                    watcher._complete = false;
+                    onChanged();
+                  }
+                },
+                onError: (_) {
+                  watcher._complete = false;
+                },
+              ),
+        );
+      } on Object {
         watcher._complete = false;
       }
     }
@@ -499,6 +538,18 @@ class DesktopAppsRepository {
   }
 }
 
+Future<String?> _nearestExistingAncestor(String path) async {
+  var current = p.dirname(path);
+  while (!await Directory(current).exists()) {
+    final parent = p.dirname(current);
+    if (parent == current) {
+      return null;
+    }
+    current = parent;
+  }
+  return current;
+}
+
 class DesktopAppsWatcher {
   DesktopAppsWatcher._(this._subscriptions);
 
@@ -506,9 +557,9 @@ class DesktopAppsWatcher {
   bool _disposed = false;
   bool _complete = true;
 
-  /// Every existing application directory is watched and none has failed.
-  /// Changes below a subdirectory or in a directory created later still
-  /// need the launcher's periodic rescan.
+  /// Every existing application directory is watched, none has failed and
+  /// none of the missing ones has appeared. Changes below a subdirectory or
+  /// in a directory created later still need the launcher's periodic rescan.
   bool get complete => _complete && !_disposed;
 
   Future<void> dispose() async {
