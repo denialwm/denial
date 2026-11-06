@@ -5264,4 +5264,87 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get moveToMonitor => 'Move to monitor';
+
+  @override
+  String get setupWelcome => 'Welcome';
+
+  @override
+  String get setupLanguageBody => 'Choose your language.';
+
+  @override
+  String get setupWifiTitle => 'Wi-Fi';
+
+  @override
+  String get setupWifiBody => 'Connect now, or later from the shade.';
+
+  @override
+  String get setupTimeZoneTitle => 'Time zone';
+
+  @override
+  String get setupTimeZoneSearch => 'Search for a city';
+
+  @override
+  String get setupPersonTitle => 'About you';
+
+  @override
+  String get setupName => 'Your name';
+
+  @override
+  String get setupUsername => 'Username';
+
+  @override
+  String get setupUsernameRules =>
+      'Lowercase letters, digits, - and _, starting with a letter.';
+
+  @override
+  String get setupNameRules => 'Enter a name without a colon.';
+
+  @override
+  String get setupPasswordTitle => 'Password';
+
+  @override
+  String get setupPasswordBody =>
+      'It unlocks the device and allows changes to the system.';
+
+  @override
+  String get setupPassword => 'Password';
+
+  @override
+  String get setupPasswordAgain => 'Password again';
+
+  @override
+  String get setupPasswordMismatch => 'The passwords differ.';
+
+  @override
+  String get setupDeviceTitle => 'Device name';
+
+  @override
+  String get setupDeviceBody =>
+      'Other devices see this name on Wi-Fi, Bluetooth and USB.';
+
+  @override
+  String get setupBack => 'Back';
+
+  @override
+  String get setupNext => 'Next';
+
+  @override
+  String get setupSkip => 'Skip';
+
+  @override
+  String get setupFinish => 'Finish';
+
+  @override
+  String get setupStarting => 'Starting…';
+
+  @override
+  String get setupAccountExists => 'This device already has an account.';
+
+  @override
+  String get setupNotAllowed => 'Setup may not make an account here.';
+
+  @override
+  String setupFailed(String reason) {
+    return 'The account was not made: $reason';
+  }
 }

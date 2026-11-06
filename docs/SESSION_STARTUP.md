@@ -264,6 +264,37 @@ produced a fresh lock frame. This covers sleep requested by Denial, logind idle 
 switches, and external logind clients without flashing the lock screen before
 the display goes black.
 
+## First start
+
+A system that starts Denial before it has a person's account runs the session
+as a system account of its own and names its account helper:
+
+```ini
+Environment=DENIAL_FIRST_USER_HELPER=/usr/lib/phonewave-system/first-user
+```
+
+While the variable holds an absolute path, the shell covers its scene with
+setup instead of the lock screen and home: language, Wi-Fi, time zone, the
+person's name and username, a password and the device's name. The language
+applies to setup at once. Finishing runs, through pkexec,
+
+```sh
+HELPER USERNAME FULL_NAME DEVICE_NAME LANGUAGE TIME_ZONE
+```
+
+with the password as the first line of standard input. `LANGUAGE` is `en` or
+`zh`; an empty `TIME_ZONE` keeps the system's. The helper makes the account,
+password included, in one step, and starts the session again as that account,
+which then opens on its lock screen. Its exit status: 0 made; 4 made, but
+the device's name, time zone or language failed; 3 an account already exists;
+2 it refused what it was given; anything else the account was not made.
+pkexec's 126 and 127 mean polkit did not allow the helper. Setup shows the
+failure and stays, so the person can change what was refused and finish again.
+
+The system's polkit rules must let the setup account run the helper and add
+Wi-Fi connections without a password, and the helper must refuse once a
+person's account exists. Without the variable Denial never shows setup.
+
 ## Fingerprint unlock
 
 When fprintd is installed and the session user already has a fingerprint

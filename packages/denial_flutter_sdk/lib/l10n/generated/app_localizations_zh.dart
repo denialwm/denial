@@ -5009,4 +5009,84 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get moveToMonitor => '移到显示器';
+
+  @override
+  String get setupWelcome => '欢迎';
+
+  @override
+  String get setupLanguageBody => '选择语言。';
+
+  @override
+  String get setupWifiTitle => 'Wi-Fi';
+
+  @override
+  String get setupWifiBody => '现在连接，或稍后在快捷设置中连接。';
+
+  @override
+  String get setupTimeZoneTitle => '时区';
+
+  @override
+  String get setupTimeZoneSearch => '搜索城市';
+
+  @override
+  String get setupPersonTitle => '关于你';
+
+  @override
+  String get setupName => '你的名字';
+
+  @override
+  String get setupUsername => '用户名';
+
+  @override
+  String get setupUsernameRules => '以小写字母开头，只能使用小写字母、数字、- 和 _。';
+
+  @override
+  String get setupNameRules => '请输入名字，不能包含冒号。';
+
+  @override
+  String get setupPasswordTitle => '密码';
+
+  @override
+  String get setupPasswordBody => '用于解锁设备和更改系统设置。';
+
+  @override
+  String get setupPassword => '密码';
+
+  @override
+  String get setupPasswordAgain => '再次输入密码';
+
+  @override
+  String get setupPasswordMismatch => '两次输入的密码不一致。';
+
+  @override
+  String get setupDeviceTitle => '设备名称';
+
+  @override
+  String get setupDeviceBody => '其他设备通过 Wi-Fi、蓝牙和 USB 看到这个名称。';
+
+  @override
+  String get setupBack => '返回';
+
+  @override
+  String get setupNext => '下一步';
+
+  @override
+  String get setupSkip => '跳过';
+
+  @override
+  String get setupFinish => '完成';
+
+  @override
+  String get setupStarting => '正在启动…';
+
+  @override
+  String get setupAccountExists => '此设备已有账户。';
+
+  @override
+  String get setupNotAllowed => '设置程序无权在此创建账户。';
+
+  @override
+  String setupFailed(String reason) {
+    return '未能创建账户：$reason';
+  }
 }

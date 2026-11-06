@@ -9381,6 +9381,162 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Move to monitor'**
   String get moveToMonitor;
+
+  /// First-boot setup: title of the language step.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome'**
+  String get setupWelcome;
+
+  /// First-boot setup: asks for the language.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose your language.'**
+  String get setupLanguageBody;
+
+  /// First-boot setup: title of the Wi-Fi step.
+  ///
+  /// In en, this message translates to:
+  /// **'Wi-Fi'**
+  String get setupWifiTitle;
+
+  /// First-boot setup: the Wi-Fi step may be skipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect now, or later from the shade.'**
+  String get setupWifiBody;
+
+  /// First-boot setup: title of the time zone step.
+  ///
+  /// In en, this message translates to:
+  /// **'Time zone'**
+  String get setupTimeZoneTitle;
+
+  /// First-boot setup: search field label for time zones.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for a city'**
+  String get setupTimeZoneSearch;
+
+  /// First-boot setup: title of the account step.
+  ///
+  /// In en, this message translates to:
+  /// **'About you'**
+  String get setupPersonTitle;
+
+  /// First-boot setup: full name field.
+  ///
+  /// In en, this message translates to:
+  /// **'Your name'**
+  String get setupName;
+
+  /// First-boot setup: username field.
+  ///
+  /// In en, this message translates to:
+  /// **'Username'**
+  String get setupUsername;
+
+  /// First-boot setup: what a username may hold.
+  ///
+  /// In en, this message translates to:
+  /// **'Lowercase letters, digits, - and _, starting with a letter.'**
+  String get setupUsernameRules;
+
+  /// First-boot setup: the full name is empty or has a colon.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a name without a colon.'**
+  String get setupNameRules;
+
+  /// First-boot setup: title of the password step.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get setupPasswordTitle;
+
+  /// First-boot setup: what the password is for.
+  ///
+  /// In en, this message translates to:
+  /// **'It unlocks the device and allows changes to the system.'**
+  String get setupPasswordBody;
+
+  /// First-boot setup: password field.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get setupPassword;
+
+  /// First-boot setup: password confirmation field.
+  ///
+  /// In en, this message translates to:
+  /// **'Password again'**
+  String get setupPasswordAgain;
+
+  /// First-boot setup: the two passwords differ.
+  ///
+  /// In en, this message translates to:
+  /// **'The passwords differ.'**
+  String get setupPasswordMismatch;
+
+  /// First-boot setup: title of the device name step.
+  ///
+  /// In en, this message translates to:
+  /// **'Device name'**
+  String get setupDeviceTitle;
+
+  /// First-boot setup: where the device name shows.
+  ///
+  /// In en, this message translates to:
+  /// **'Other devices see this name on Wi-Fi, Bluetooth and USB.'**
+  String get setupDeviceBody;
+
+  /// First-boot setup: previous step.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get setupBack;
+
+  /// First-boot setup: next step.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get setupNext;
+
+  /// First-boot setup: skips the Wi-Fi step.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get setupSkip;
+
+  /// First-boot setup: makes the account.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish'**
+  String get setupFinish;
+
+  /// First-boot setup: the account is made and the session starts again as it.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting…'**
+  String get setupStarting;
+
+  /// First-boot setup: the helper refused because an account exists.
+  ///
+  /// In en, this message translates to:
+  /// **'This device already has an account.'**
+  String get setupAccountExists;
+
+  /// First-boot setup: polkit refused the account helper.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup may not make an account here.'**
+  String get setupNotAllowed;
+
+  /// First-boot setup: the account helper failed; reason is its message.
+  ///
+  /// In en, this message translates to:
+  /// **'The account was not made: {reason}'**
+  String setupFailed(String reason);
 }
 
 class _AppLocalizationsDelegate
