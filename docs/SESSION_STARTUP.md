@@ -284,8 +284,8 @@ HELPER USERNAME FULL_NAME DEVICE_NAME LANGUAGE TIME_ZONE
 
 with the password as the first line of standard input. `LANGUAGE` is `en` or
 `zh`; an empty `TIME_ZONE` keeps the system's. The helper makes the account,
-password included, in one step, and starts the session again as that account,
-which then opens on its lock screen. Its exit status: 0 made; 4 made, but
+password included, in one step, and starts the session again as that account.
+Its exit status: 0 made; 4 made, but
 the device's name, time zone or language failed; 3 an account already exists;
 2 it refused what it was given; anything else the account was not made.
 pkexec's 126 and 127 mean polkit did not allow the helper. Setup shows the
