@@ -328,14 +328,15 @@ DENIAL_FPRINT_TEST_BUS=1 dbus-run-session -- \
   cargo test --locked --features flutter --bin deniald authentication::
 ```
 
-## NX809J native PIN authorization
+## Native PIN authorization
 
-On NX809J, `deniald --lock-pin` uses the socket-activated
-`goodix-gatekeeper-worker` through `/run/nx809j-gatekeeper/worker.sock`.
-The socket is owned by the configured session account and mode 0600; the
-service runs one root worker per connection. Denial checks the server's root
-peer credentials. Install the worker and the device's `nx809j-gatekeeper.socket`
-and `nx809j-gatekeeper@.service` units before enabling the socket.
+Where a phone has a hardware PIN provider, its socket is
+`/run/gatekeeper/worker.sock`, and `deniald --lock-pin` uses it; without the
+socket the PIN stays in software. Phonewave's `goodix-gatekeeper.socket` is
+one: socket-activated, one root `goodix-gatekeeper-worker` per connection,
+the socket mode 0660 for the `gatekeeper` group, which the phone's user is
+in. Denial checks the server's root peer credentials. The enrollment broker
+of `deniald --fingerprint-settings` listens in `/run/fingerprint-enroll`.
 
 The user's existing lock-PIN state file stores a version-2 record containing
 PIN length, enabled state, native namespace 941003, returned secure user ID and

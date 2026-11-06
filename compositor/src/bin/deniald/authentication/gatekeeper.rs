@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 
 pub(super) const UID: u32 = 941003;
 const HANDLE_MAX: usize = 4096;
-const PROVIDER_SOCKET: &str = "/run/nx809j-gatekeeper/worker.sock";
-const ENROLL_DIRECTORY: &str = "/run/nx809j-fingerprint";
-const ENROLL_SOCKET: &str = "/run/nx809j-fingerprint/enroll.sock";
+const PROVIDER_SOCKET: &str = "/run/gatekeeper/worker.sock";
+const ENROLL_DIRECTORY: &str = "/run/fingerprint-enroll";
+const ENROLL_SOCKET: &str = "/run/fingerprint-enroll/enroll.sock";
 const LIMIT: Duration = Duration::from_secs(25);
 
+/// The phone has a hardware PIN provider: its socket is there.
 pub(super) fn enabled() -> bool {
-    fs::read("/sys/firmware/devicetree/base/compatible")
-        .is_ok_and(|b| b.starts_with(b"nubia,nx809j\0"))
+    fs::symlink_metadata(PROVIDER_SOCKET).is_ok_and(|meta| meta.file_type().is_socket())
 }
 
 pub(super) struct Credential {
