@@ -1,5 +1,6 @@
-//! Opt-in big-default allocation; names are bounded compatibility rules for
-//! unmodified libraries, never evidence that arbitrary normal work is background.
+//! Big-default allocation, on for the mobile shell and opt-in elsewhere;
+//! names are bounded compatibility rules for unmodified libraries, never
+//! evidence that arbitrary normal work is background.
 use denial_core::cpu_affinity::{self, CpuSet, Groups, Pid, sched_getaffinity, sched_setaffinity};
 use std::{
     fs, io,
@@ -14,7 +15,10 @@ static LIBRARY_LAUNCH: Mutex<()> = Mutex::new(());
 /// Called once on the sole startup thread, before native/engine workers exist.
 pub(super) fn initialize() -> Option<String> {
     let groups = GROUPS.get_or_init(|| {
+        // The mobile shell places its threads unless this is 0; others only
+        // when it is 1.
         match std::env::var("DENIAL_CPU_PLACEMENT").as_deref() {
+            Err(std::env::VarError::NotPresent) if denial_core::environment::mobile_shell_profile() => {},
             Err(std::env::VarError::NotPresent) | Ok("0") => return None,
             Ok("1") => {},
             _ => { tracing::warn!("DENIAL_CPU_PLACEMENT must be 0 or 1; CPU allocation disabled"); return None; }

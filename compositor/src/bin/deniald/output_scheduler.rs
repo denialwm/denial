@@ -447,17 +447,23 @@ impl OutputPipeline {
 
 /// DENIAL_RENDER_AHEAD=1 lets an output render its next frame while the
 /// previous one is still on the GPU, once frames take longer than a refresh
-/// allows. A device whose shell frames often do opts in; elsewhere a frame
-/// starts only after the previous one has left for KMS.
+/// allows. The mobile shell, whose phone GPUs often take longer, renders ahead
+/// unless it is 0; elsewhere a frame starts only after the previous one has
+/// left for KMS.
 pub(super) fn render_ahead() -> bool {
     static RENDER_AHEAD: OnceLock<bool> = OnceLock::new();
-    *RENDER_AHEAD
-        .get_or_init(|| render_ahead_enabled(std::env::var("DENIAL_RENDER_AHEAD").as_deref()))
+    *RENDER_AHEAD.get_or_init(|| {
+        render_ahead_enabled(
+            std::env::var("DENIAL_RENDER_AHEAD").as_deref(),
+            denial_core::environment::mobile_shell_profile(),
+        )
+    })
 }
 
-fn render_ahead_enabled(value: Result<&str, &std::env::VarError>) -> bool {
+fn render_ahead_enabled(value: Result<&str, &std::env::VarError>, mobile: bool) -> bool {
     match value {
-        Err(std::env::VarError::NotPresent) | Ok("0") => false,
+        Err(std::env::VarError::NotPresent) => mobile,
+        Ok("0") => false,
         Ok("1") => true,
         _ => {
             warn!("DENIAL_RENDER_AHEAD must be 0 or 1; rendering ahead disabled");
@@ -2161,10 +2167,11 @@ mod submit_lead_tests {
     #[test]
     fn render_ahead_is_an_explicit_opt_in() {
         use std::env::VarError;
-        assert!(!render_ahead_enabled(Err(&VarError::NotPresent)));
-        assert!(!render_ahead_enabled(Ok("0")));
-        assert!(render_ahead_enabled(Ok("1")));
-        assert!(!render_ahead_enabled(Ok("yes")));
+        assert!(!render_ahead_enabled(Err(&VarError::NotPresent), false));
+        assert!(render_ahead_enabled(Err(&VarError::NotPresent), true));
+        assert!(!render_ahead_enabled(Ok("0"), true));
+        assert!(render_ahead_enabled(Ok("1"), false));
+        assert!(!render_ahead_enabled(Ok("yes"), true));
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Optional per-thread CPU capacity request for latency-sensitive UI work.
 //!
-//! DENIAL_UI_CPU_MIN is a Linux utilization value in 0..=1024. Unset means
-//! preserve the host policy. This is a runnable-task hint, not a clock floor.
+//! DENIAL_UI_CPU_MIN is a Linux utilization value in 0..=1024. Unset, the
+//! mobile shell asks for MOBILE_UI_CPU_MIN and any other preserves the host
+//! policy. This is a runnable-task hint, not a clock floor.
 use std::{io, sync::OnceLock};
 
 #[cfg(test)]
@@ -24,6 +25,10 @@ pub(super) struct SchedAttr {
 }
 
 static MINIMUM: OnceLock<Option<u32>> = OnceLock::new();
+
+/// Half of the biggest core: phone frame threads otherwise start on a little
+/// core at a low clock and miss the refresh.
+const MOBILE_UI_CPU_MIN: u32 = 512;
 
 fn parse_minimum(value: &str) -> Option<u32> {
     value
@@ -51,7 +56,9 @@ pub(super) fn configured() -> Option<u32> {
     *MINIMUM.get_or_init(|| {
         let value = match std::env::var("DENIAL_UI_CPU_MIN") {
             Ok(value) => value,
-            Err(std::env::VarError::NotPresent) => return None,
+            Err(std::env::VarError::NotPresent) => {
+                return denial_core::environment::mobile_shell_profile().then_some(MOBILE_UI_CPU_MIN);
+            }
             Err(error) => {
                 tracing::warn!(%error, "invalid DENIAL_UI_CPU_MIN; preserving host CPU policy");
                 return None;

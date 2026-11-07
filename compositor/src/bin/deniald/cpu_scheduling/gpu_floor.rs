@@ -15,8 +15,9 @@
 //! minimum above the current maximum.
 //!
 //! Only a GPU devfreq device whose `min_freq` Denial may write is used. The
-//! device's own packaging grants that permission with a udev rule, so a GPU
-//! without devfreq, or one whose platform does not opt in, is unchanged.
+//! system grants that permission with a udev rule (the phone image does for
+//! every Adreno), so a GPU without devfreq, or one whose system does not opt
+//! in, is unchanged.
 //! DENIAL_GPU_HINTS=0 disables the floor.
 use std::fs::{self, File, OpenOptions};
 use std::io;

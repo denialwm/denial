@@ -60,11 +60,11 @@ a Wayland resource, file descriptor, EGL image, fence or KMS buffer.
 
 Dart builds one logical scene spanning every output. Each output has its own
 pool of GBM scanout buffers at that connector's physical mode size: three
-buffers, or four when the output renders ahead (`DENIAL_RENDER_AHEAD`). The
-pools prefer XRGB2101010 and keep XRGB8888 for planes or renderers without it;
-cross-device transfers stay 8-bit. Flutter renders each output's part of the
-scene into that output's own buffer, so outputs are clocked and
-backpressured independently. Output views are composed from retained slices
+buffers, or four when the output renders ahead (`DENIAL_RENDER_AHEAD`, on by
+default in the mobile shell). The pools prefer XRGB2101010 and keep XRGB8888
+for planes or renderers without it; cross-device transfers stay 8-bit.
+Flutter renders each output's part of the scene into that output's own
+buffer, so outputs are clocked and backpressured independently. Output views are composed from retained slices
 ([layered composition](LAYERED_COMPOSITION.md)).
 
 A build without the Flutter feature allocates one desktop-wide atlas instead,
