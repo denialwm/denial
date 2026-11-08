@@ -356,9 +356,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
           onTap: widget.authenticationEnabled && wide
               ? _showAuthentication
               : null,
-          // The keypad replaces the swipe, but double-tap still blanks the
-          // panel (mobile only, as before).
-          onDoubleTap: widget.authenticationEnabled && !wide
+          // The keypad replaces the swipe. Double-tap still blanks the
+          // panel, but not while the keypad is up: two quick digits would
+          // otherwise read as a double tap.
+          onDoubleTap: widget.authenticationEnabled && !wide && !pinCardVisible
               ? _blankDisplays
               : null,
           onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
@@ -484,7 +485,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                               scale: lockSettings.clockScale,
                               onOpen: _openAfterUnlock,
                               bottomInset: pinCardVisible
-                                  ? size.height * 0.5
+                                  ? size.height * 0.633
                                   : null,
                             ),
                             const _LockGlyph(),
@@ -556,7 +557,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   child: SafeArea(
                     minimum: const EdgeInsets.fromLTRB(24, 12, 24, 24),
                     child: Align(
-                      alignment: const Alignment(0, 0.12),
+                      alignment: const Alignment(0, 0.42),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 620),
                         child: _LockPinCard(

@@ -50,13 +50,11 @@ class NotificationBannerLayer extends ConsumerWidget {
     final locked = ref.watch(
       referenceShellProvider.select((state) => state.lockLayerVisible),
     );
-    final previewMode = locked
-        ? notificationState.lockPreview
-        : NotificationPreviewMode.full;
-    final notifications =
-        locked && previewMode == NotificationPreviewMode.hidden
-        ? const <DesktopNotification>[]
-        : notificationState.bannerNotifications;
+    // The lock screen has its own notification cards; a transient banner
+    // would sit on top of the credential card.
+    if (locked) return const SizedBox.shrink();
+    final previewMode = NotificationPreviewMode.full;
+    final notifications = notificationState.bannerNotifications;
     final controller = ref.read(desktopNotificationsProvider.notifier);
     if (mobile) {
       final shadeVisible = ref.watch(

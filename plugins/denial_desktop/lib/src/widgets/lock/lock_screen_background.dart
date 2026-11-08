@@ -322,11 +322,11 @@ class _LockClockBlock extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final top = desktop
         ? math.max(72.0, size.height * 0.22)
-        : math.max(48.0, size.height * 0.25 - 96.0);
+        : math.max(48.0, size.height * 0.12);
     final horizontalInset = desktop ? math.max(48.0, size.width * 0.065) : 0.0;
     final height = desktop
         ? math.min(280.0, size.height * 0.36)
-        : math.min(250.0, size.height * 0.34);
+        : math.min(210.0, size.height * 0.28);
 
     // Mobile stretches the time upward with the date on top, painted above
     // the block, which reserves room for them.
@@ -866,10 +866,10 @@ class _LockNotifications extends ConsumerWidget {
       right = size.width * 0.48;
       bottom = size.height * 0.1;
     } else {
-      final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
-      final clockHeight = math.min(250.0, size.height * 0.34);
+      final clockTop = math.max(48.0, size.height * 0.12);
+      final clockHeight = math.min(210.0, size.height * 0.28);
       final clockBottom = clockTop + clockHeight * (1 + scale) / 2;
-      top = clockBottom + metrics.visual(24);
+      top = clockBottom + metrics.visual(20);
       left = padding.left;
       right = padding.right;
       // The fingerprint ring and the keypad card keep the lower part.
