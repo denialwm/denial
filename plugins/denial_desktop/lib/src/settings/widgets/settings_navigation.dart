@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 
 import 'package:denial_flutter_sdk/localization.dart';
+import 'package:denial_flutter_sdk/shell_theme.dart';
 
 const settingsNavigationListKey = ValueKey<String>('settings-navigation-list');
 
@@ -76,11 +77,50 @@ extension SettingsPageIdPresentation on SettingsPageId {
   };
 }
 
+/// Navigation destinations grouped by the part of the system they shape. The
+/// groups keep their order in every navigation mode.
+class SettingsNavigationGroup {
+  const SettingsNavigationGroup(this.pages);
+
+  final List<SettingsPageId> pages;
+}
+
+const _personalGroup = SettingsNavigationGroup([
+  SettingsPageId.you,
+  SettingsPageId.appearance,
+  SettingsPageId.language,
+]);
+
+const _inputGroup = SettingsNavigationGroup([
+  SettingsPageId.keyboard,
+  SettingsPageId.touchpad,
+  SettingsPageId.shortcuts,
+]);
+
+const _desktopGroup = SettingsNavigationGroup([
+  SettingsPageId.environment,
+  SettingsPageId.animations,
+  SettingsPageId.layout,
+  SettingsPageId.overlays,
+  SettingsPageId.lockScreen,
+]);
+
+const _systemGroup = SettingsNavigationGroup([
+  SettingsPageId.fingerprint,
+  SettingsPageId.permissions,
+  SettingsPageId.audio,
+  SettingsPageId.displays,
+  SettingsPageId.network,
+  SettingsPageId.bluetooth,
+  SettingsPageId.power,
+  SettingsPageId.developer,
+]);
+
 class SettingsNavigation extends StatelessWidget {
   const SettingsNavigation({
     required this.selected,
     required this.onSelected,
-    required this.compact,
+    this.expanded = true,
     this.showTouchpad = false,
     this.showFingerprint = false,
     super.key,
@@ -88,50 +128,88 @@ class SettingsNavigation extends StatelessWidget {
 
   final SettingsPageId selected;
   final ValueChanged<SettingsPageId> onSelected;
-  final bool compact;
+
+  /// Full labels and group headings; otherwise only icons and group dividers.
+  final bool expanded;
   final bool showTouchpad;
   final bool showFingerprint;
 
-  Iterable<SettingsPageId> get _visiblePages => SettingsPageId.values.where(
-    (page) =>
-        (page != SettingsPageId.touchpad || showTouchpad) &&
-        (page != SettingsPageId.fingerprint || showFingerprint),
-  );
+  List<SettingsPageId> _visible(List<SettingsPageId> pages) => [
+    for (final page in pages)
+      if ((page != SettingsPageId.touchpad || showTouchpad) &&
+          (page != SettingsPageId.fingerprint || showFingerprint))
+        page,
+  ];
 
-  Widget _destination(BuildContext context, SettingsPageId page) {
-    final active = page == selected;
-    final label = Text(
-      page.label(context),
-      style: TextStyle(fontWeight: active ? FontWeight.w600 : FontWeight.w400),
+  @override
+  Widget build(BuildContext context) {
+    final groups = [
+      (
+        context.l10n.settingsNavigationGroupPersonal,
+        _visible(_personalGroup.pages),
+      ),
+      (context.l10n.settingsNavigationGroupInput, _visible(_inputGroup.pages)),
+      (
+        context.l10n.settingsNavigationGroupDesktop,
+        _visible(_desktopGroup.pages),
+      ),
+      (
+        context.l10n.settingsNavigationGroupSystem,
+        _visible(_systemGroup.pages),
+      ),
+    ];
+    // A hint of foreground over the chrome keeps the navigation distinct from
+    // the white cards without introducing a second palette.
+    final tint = Color.alphaBlend(
+      context.applicationColors.foreground.withValues(alpha: .04),
+      context.applicationColors.chrome,
     );
-    return Padding(
-      key: ValueKey<SettingsPageId>(page),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Semantics(
-        selected: active,
-        child: TextButton(
-          onPressed: () => onSelected(page),
-          style: TextButton.styleFrom(
-            foregroundColor: context.applicationColors.foreground,
-            backgroundColor: active
-                ? context.applicationColors.foreground.withValues(alpha: .12)
-                : null,
-            minimumSize: const Size(44, 44),
-            alignment: AlignmentDirectional.centerStart,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: DenialSurfaceGeometry.borderRadiusOf(
-                context,
-                inset: 12,
-              ),
+    return DenialMaterial(
+      role: DenialMaterialRole.sidebar,
+      child: ColoredBox(
+        color: tint,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: context.applicationColors.separator),
             ),
           ),
-          child: Row(
-            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(page.icon, size: 19),
-              const SizedBox(width: 12),
-              if (compact) label else Expanded(child: label),
+              _brand(context),
+              Expanded(
+                child: ListView(
+                  key: settingsNavigationListKey,
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                  children: [
+                    for (final (index, group) in groups.indexed) ...[
+                      if (group.$2.isNotEmpty) ...[
+                        if (!expanded && index > 0) _groupSeparator(context),
+                        if (expanded)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 14, 12, 6),
+                            child: Text(
+                              group.$1,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: .8,
+                                color: context.applicationColors.secondary
+                                    .withValues(alpha: .78),
+                              ),
+                            ),
+                          )
+                        else
+                          const SizedBox(height: 6),
+                        for (final page in group.$2)
+                          _destination(context, page),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+              _footer(context),
             ],
           ),
         ),
@@ -139,57 +217,121 @@ class SettingsNavigation extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) => DenialMaterial(
-    role: DenialMaterialRole.sidebar,
-    floating: true,
-    child: Builder(
-      builder: (context) {
-        if (compact) {
-          return SingleChildScrollView(
-            key: settingsNavigationListKey,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                for (final page in _visiblePages) _destination(context, page),
-              ],
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 20, 28),
-              child: Row(
-                children: [
-                  const Icon(Icons.settings_outlined, size: 23),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      context.l10n.settingsNavigationSection,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget _brand(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        expanded ? 22 : 0,
+        20,
+        expanded ? 20 : 0,
+        16,
+      ),
+      child: Row(
+        mainAxisAlignment: expanded
+            ? MainAxisAlignment.start
+            : MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.settings_outlined,
+            size: 22,
+            color: context.applicationColors.foreground,
+          ),
+          if (expanded) ...[
+            const SizedBox(width: 10),
             Expanded(
-              child: ListView(
-                key: settingsNavigationListKey,
-                padding: const EdgeInsets.only(bottom: 12),
-                children: [
-                  for (final page in _visiblePages) _destination(context, page),
-                ],
+              child: Text(
+                context.l10n.settingsNavigationSection,
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -.3),
               ),
             ),
           ],
-        );
-      },
-    ),
+        ],
+      ),
+    );
+  }
+
+  Widget _footer(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Divider(
+        height: 1,
+        thickness: 1,
+        indent: expanded ? 16 : 10,
+        endIndent: expanded ? 16 : 10,
+        color: context.applicationColors.separator,
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+        child: _destination(context, SettingsPageId.about),
+      ),
+    ],
   );
+
+  Widget _groupSeparator(BuildContext context) => Divider(
+    height: expanded ? 20 : 13,
+    thickness: 1,
+    indent: 12,
+    endIndent: 12,
+    color: context.applicationColors.separator.withValues(alpha: .7),
+  );
+
+  Widget _destination(BuildContext context, SettingsPageId page) {
+    final active = page == selected;
+    final accent = ShellTheme.of(context).accent;
+    final label = page.label(context);
+    final icon = Icon(
+      page.icon,
+      size: 18,
+      color: active ? accent : context.applicationColors.secondary,
+    );
+    final button = TextButton(
+      onPressed: () => onSelected(page),
+      style: TextButton.styleFrom(
+        foregroundColor: active
+            ? context.applicationColors.foreground
+            : context.applicationColors.secondary,
+        backgroundColor: active
+            ? context.applicationColors.foreground.withValues(alpha: .10)
+            : null,
+        minimumSize: const Size(0, 40),
+        padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 0),
+        alignment: expanded
+            ? AlignmentDirectional.centerStart
+            : AlignmentDirectional.center,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      ),
+      child: expanded
+          ? Row(
+              children: [
+                icon,
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : icon,
+    );
+    return Padding(
+      key: ValueKey<SettingsPageId>(page),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+      child: Semantics(
+        selected: active,
+        child: expanded
+            ? button
+            : Tooltip(
+                message: label,
+                child: Semantics(label: label, button: true, child: button),
+              ),
+      ),
+    );
+  }
 }

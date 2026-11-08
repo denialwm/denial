@@ -3,152 +3,29 @@ import 'package:flutter/material.dart';
 
 import 'package:denial_flutter_sdk/localization.dart';
 
-/// Page-owned commands are presented by the fixed application frame. Only the
-/// active page may publish them; outgoing transition children cannot restore
-/// stale callbacks. Updating these slots does not rebuild the page itself.
-class SettingsChromeController extends ChangeNotifier {
-  Object? _page;
-  Object? _owner;
-  bool _disposed = false;
-  Widget? toolbar;
-  Widget? footer;
-
-  void select(Object page) {
-    _page = page;
-    _owner = null;
-    toolbar = null;
-    footer = null;
-    notifyListeners();
-  }
-
-  void publish(Object page, Object owner, Widget? toolbar, Widget? footer) {
-    if (_disposed || page != _page) return;
-    _owner = owner;
-    this.toolbar = toolbar;
-    this.footer = footer;
-    notifyListeners();
-  }
-
-  void remove(Object owner) {
-    if (_disposed || !identical(owner, _owner)) return;
-    _owner = null;
-    toolbar = null;
-    footer = null;
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    super.dispose();
-  }
-}
-
-class SettingsChromeScope extends InheritedWidget {
-  const SettingsChromeScope({
-    required this.controller,
-    required this.page,
+/// Tells pages how the shell presents navigation. When navigation is hidden
+/// behind an overlay, page headers offer a menu button that opens it.
+class SettingsShellScope extends InheritedWidget {
+  const SettingsShellScope({
+    required this.navigationOverlay,
+    required this.openNavigation,
     required super.child,
     super.key,
   });
 
-  final SettingsChromeController controller;
-  final Object page;
+  final bool navigationOverlay;
+  final VoidCallback openNavigation;
 
-  static SettingsChromeScope? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<SettingsChromeScope>();
+  static SettingsShellScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingsShellScope>();
 
   @override
-  bool updateShouldNotify(SettingsChromeScope oldWidget) =>
-      controller != oldWidget.controller || page != oldWidget.page;
+  bool updateShouldNotify(SettingsShellScope oldWidget) =>
+      navigationOverlay != oldWidget.navigationOverlay;
 }
 
-class SettingsPageChrome extends StatefulWidget {
-  const SettingsPageChrome({
-    required this.child,
-    this.toolbar,
-    this.footer,
-    super.key,
-  });
-
-  final Widget child;
-  final Widget? toolbar;
-  final Widget? footer;
-
-  @override
-  State<SettingsPageChrome> createState() => _SettingsPageChromeState();
-}
-
-class _SettingsPageChromeState extends State<SettingsPageChrome> {
-  SettingsChromeController? _controller;
-  int _revision = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final scope = SettingsChromeScope.maybeOf(context);
-    _controller = scope?.controller;
-    final revision = ++_revision;
-    if (scope != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || revision != _revision) return;
-        scope.controller.publish(
-          scope.page,
-          this,
-          widget.toolbar,
-          widget.footer,
-        );
-      });
-      return widget.child;
-    }
-    // Standalone page consumers retain access to the same actions and errors.
-    return Column(
-      children: [
-        if (widget.toolbar != null) widget.toolbar!,
-        Expanded(child: widget.child),
-        if (widget.footer != null) widget.footer!,
-      ],
-    );
-  }
-
-  @override
-  void dispose() {
-    final controller = _controller;
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => controller?.remove(this),
-    );
-    super.dispose();
-  }
-}
-
-class SettingsCommandGroup extends StatelessWidget {
-  const SettingsCommandGroup({required this.children, super.key});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(DenialApplicationFrame.defaultInset),
-    child: Align(
-      alignment: AlignmentDirectional.centerEnd,
-      child: DenialMaterial(
-        role: DenialMaterialRole.toolbar,
-        floating: true,
-        inset: DenialApplicationFrame.defaultInset,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          child: Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 4,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: children,
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
+/// A page command rendered beside the page title. Commands stay reachable
+/// without scrolling, matching the flat shell's fixed header.
 class SettingsCommand extends StatelessWidget {
   const SettingsCommand({
     required this.label,
@@ -164,14 +41,17 @@ class SettingsCommand extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextButton.icon(
     onPressed: onPressed,
-    icon: Icon(icon, size: 19),
+    icon: Icon(icon, size: 16),
     label: Text(label),
     style: TextButton.styleFrom(
       foregroundColor: context.applicationColors.foreground,
-      minimumSize: const Size(44, 44),
-      shape: RoundedRectangleBorder(
-        borderRadius: DenialSurfaceGeometry.borderRadiusOf(context, inset: 6),
-      ),
+      backgroundColor: context.applicationColors.chrome,
+      disabledBackgroundColor: context.applicationColors.chrome,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      side: BorderSide(color: context.applicationColors.separator),
+      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
+      shape: const StadiumBorder(),
     ),
   );
 }
@@ -214,8 +94,6 @@ class _SettingsErrorNoticeState extends State<SettingsErrorNotice> {
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
       child: DenialMaterial(
         role: DenialMaterialRole.toolbar,
-        floating: true,
-        inset: 16,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(

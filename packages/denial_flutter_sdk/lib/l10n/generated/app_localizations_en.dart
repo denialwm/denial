@@ -10,95 +10,31 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get settingsApplicationThemingEnabled =>
-      'Theme supported application using Denial styling';
+  String get accessAllow => 'Allow';
 
   @override
-  String get settingsApplicationThemingDescription =>
-      'Apply Denial styling to supported application. Currently supported applications: Kitty.';
+  String get accessAllowOnce => 'Allow once';
 
   @override
-  String get settingsApplicationThemingReapply => 'Re-apply';
+  String get accessAlwaysAllow => 'Always allow';
 
   @override
-  String get settingsScrollingLayoutSwapTitle => 'Scrolling swaps';
+  String get accessDecline => 'Decline';
 
   @override
-  String get settingsScrollingLayoutPreserveSwapSizes =>
-      'Keep window sizes when swapping';
+  String get accessDeclineOnce => 'Decline once';
 
   @override
-  String get settingsScrollingLayoutPreserveSwapSizesDescription =>
-      'Keep each window’s width when swapping single-window columns on the same workspace and display. On vertical strips, keep height instead. Split columns keep their existing sizes.';
+  String get accessNeverAllow => 'Never allow';
 
   @override
-  String get shellPresentationDesktop => 'Desktop view';
-
-  @override
-  String get shellPresentationMobile => 'Mobile view';
-
-  @override
-  String get homeResizeWidget => 'Resize widget';
-
-  @override
-  String get homeFolderDefaultName => 'Folder';
-
-  @override
-  String get homeFolderGames => 'Games';
-
-  @override
-  String get homeFolderInternet => 'Internet';
-
-  @override
-  String get homeFolderOffice => 'Office';
-
-  @override
-  String get homeFolderGraphics => 'Graphics';
-
-  @override
-  String get homeFolderMedia => 'Media';
-
-  @override
-  String get homeFolderDevelopment => 'Development';
-
-  @override
-  String get homeFolderEducation => 'Education';
-
-  @override
-  String get homeFolderScience => 'Science';
-
-  @override
-  String get homeFolderSystem => 'System';
-
-  @override
-  String get homeFolderUtilities => 'Utilities';
-
-  @override
-  String get homeFolderSettings => 'Settings';
-
-  @override
-  String get homeFolderRename => 'Rename folder';
-
-  @override
-  String homeFolderApps(String name, int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count apps',
-      one: '1 app',
-    );
-    return '$name, $_temp0';
-  }
+  String get accessUnknownApp => 'An app';
 
   @override
   String get actionCancel => 'Cancel';
 
   @override
   String get actionDismiss => 'Dismiss';
-
-  @override
-  String get screenshotSelectionHint =>
-      'Drag to select an area · Esc to cancel';
 
   @override
   String get anchorBottomCenter => 'Bottom center';
@@ -134,6 +70,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get batteryCharging => 'Charging';
 
   @override
+  String get batteryCriticalNotificationTitle => 'Critical battery';
+
+  @override
   String get batteryDischarging => 'Discharging';
 
   @override
@@ -151,9 +90,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get batteryLowNotificationTitle => 'Low battery';
-
-  @override
-  String get batteryCriticalNotificationTitle => 'Critical battery';
 
   @override
   String batteryStateAndPercent(String state, int percent) {
@@ -375,10 +311,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chargeProtocolVooc => 'VOOC';
 
   @override
-  String get clipboardCloseHistory => 'Close clipboard history';
+  String get clipboardClearAll => 'Clear all';
 
   @override
-  String get clipboardClearAll => 'Clear all';
+  String get clipboardCloseHistory => 'Close clipboard history';
 
   @override
   String get clipboardDelete => 'Delete';
@@ -423,17 +359,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get clipboardPin => 'Pin';
-
-  @override
-  String get clipboardPinItem => 'Pin clipboard item';
-
-  @override
   String get clipboardNoSearchResultsDescription =>
       'Try a different word, file type, or application.';
 
   @override
   String get clipboardNoSearchResultsTitle => 'No echoes found';
+
+  @override
+  String get clipboardPin => 'Pin';
+
+  @override
+  String get clipboardPinItem => 'Pin clipboard item';
 
   @override
   String get clipboardPreviewUnavailable => 'Preview unavailable';
@@ -448,17 +384,95 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clipboardTypeText => 'TEXT';
 
   @override
+  String get clipboardUnavailableDescription =>
+      'The native history service did not answer.';
+
+  @override
+  String get clipboardUnavailableTitle => 'Clipboard bridge unavailable';
+
+  @override
   String get clipboardUnpin => 'Unpin';
 
   @override
   String get clipboardUnpinItem => 'Unpin clipboard item';
 
   @override
-  String get clipboardUnavailableDescription =>
-      'The native history service did not answer.';
+  String get colorPresetCool => 'Cool';
 
   @override
-  String get clipboardUnavailableTitle => 'Clipboard bridge unavailable';
+  String get colorPresetFilm => 'Film';
+
+  @override
+  String get colorPresetLogix => 'Logix';
+
+  @override
+  String get colorPresetMatte => 'Matte';
+
+  @override
+  String get colorPresetMono => 'Mono';
+
+  @override
+  String get colorPresetNight => 'Night';
+
+  @override
+  String get colorPresetWarm => 'Warm';
+
+  @override
+  String get colorTuningAction => 'Tune colors';
+
+  @override
+  String get colorTuningBase => 'Look';
+
+  @override
+  String get colorTuningBefore => 'Before';
+
+  @override
+  String get colorTuningClose => 'Close';
+
+  @override
+  String get colorTuningContrast => 'Contrast';
+
+  @override
+  String get colorTuningDesktop => 'Desktop';
+
+  @override
+  String get colorTuningExposure => 'Exposure';
+
+  @override
+  String get colorTuningFailed => 'Couldn’t change the colors.';
+
+  @override
+  String get colorTuningHighlights => 'Highlights';
+
+  @override
+  String get colorTuningMidtones => 'Midtones';
+
+  @override
+  String get colorTuningNoApp => 'Tap a window';
+
+  @override
+  String get colorTuningNoBase => 'None';
+
+  @override
+  String get colorTuningPresets => 'Presets';
+
+  @override
+  String get colorTuningReset => 'Reset';
+
+  @override
+  String get colorTuningSaturation => 'Saturation';
+
+  @override
+  String get colorTuningShadows => 'Shadows';
+
+  @override
+  String get colorTuningTint => 'Tint';
+
+  @override
+  String get colorTuningVibrance => 'Vibrance';
+
+  @override
+  String get colorTuningWarmth => 'Warmth';
 
   @override
   String get commonBluetooth => 'Bluetooth';
@@ -535,20 +549,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get desktopAudioOutputDevicesDescription =>
-      'Choose where desktop audio plays.';
-
-  @override
-  String get desktopAudioOutputDevicesTitle => 'Output devices';
-
-  @override
-  String get desktopAudioOutputDevicesUnavailable =>
-      'Audio output devices are unavailable.';
-
-  @override
-  String get desktopAudioOutputDeviceNotConnected => 'Not connected';
-
-  @override
   String get desktopApplicationAudioUnavailable =>
       'Application audio is unavailable.';
 
@@ -565,58 +565,24 @@ class AppLocalizationsEn extends AppLocalizations {
       'Adjust audio for individual applications.';
 
   @override
-  String get settingsNavigationYou => 'You';
-
-  @override
-  String get settingsYouDescription => 'Make this space yours.';
-
-  @override
-  String get settingsYouPreview => 'Your profile on the dashboard';
-
-  @override
-  String get settingsYouChoosePhoto => 'Choose photo';
-
-  @override
-  String get settingsYouDefaultPhoto => 'Use default avatar';
-
-  @override
-  String get settingsYouDisplayName => 'Display name';
-
-  @override
-  String get settingsYouNameHint =>
-      'Leave this empty to use your account name.';
-
-  @override
-  String get settingsYouAccountName => 'Use account name';
-
-  @override
-  String get settingsYouSave => 'Save name';
-
-  @override
-  String get settingsYouSaved => 'Name saved.';
-
-  @override
-  String get settingsYouImageError =>
-      'Could not use that photo. Choose a PNG, JPEG, WebP, GIF or BMP image under 16 MB.';
-
-  @override
-  String get settingsYouSaveError =>
-      'Could not save your profile. Please try again.';
-
-  @override
-  String get settingsYouLoadError => 'Could not load your profile.';
-
-  @override
-  String get desktopCurrentUser => 'User';
-
-  @override
-  String get desktopMixerTitle => 'Mixer';
-
-  @override
   String get desktopApplicationVolumeTitle => 'Application volume';
 
   @override
   String get desktopApplicationsTitle => 'Applications';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => 'Not connected';
+
+  @override
+  String get desktopAudioOutputDevicesDescription =>
+      'Choose where desktop audio plays.';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => 'Output devices';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable =>
+      'Audio output devices are unavailable.';
 
   @override
   String get desktopChooseWallpaper => 'Choose wallpaper';
@@ -636,15 +602,15 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get desktopCurrentUser => 'User';
+
+  @override
   String get desktopDashboardTitle => 'Dashboard';
 
   @override
   String desktopDisconnectDevice(String deviceName) {
     return 'Disconnect $deviceName';
   }
-
-  @override
-  String get desktopLoadingAudioOutputDevices => 'Loading output devices…';
 
   @override
   String get desktopEnableBluetoothForDevices =>
@@ -681,13 +647,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopLoadingApplications => 'Loading applications…';
 
   @override
+  String get desktopLoadingAudioOutputDevices => 'Loading output devices…';
+
+  @override
+  String get desktopMixerTitle => 'Mixer';
+
+  @override
   String get desktopNoApplicationAudio => 'No applications are playing audio.';
 
   @override
-  String get desktopNoAudioOutputDevices => 'No audio output devices found.';
+  String get desktopNoApplicationsFound => 'No applications found';
 
   @override
-  String get desktopNoApplicationsFound => 'No applications found';
+  String get desktopNoAudioOutputDevices => 'No audio output devices found.';
 
   @override
   String get desktopOpenApplicationAudio => 'Open application volume';
@@ -742,14 +714,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopScanBluetooth => 'Scan for Bluetooth devices';
 
   @override
-  String get desktopSelectAudioOutputDevice => 'Select audio output device';
-
-  @override
   String get desktopScanningBluetoothDevices =>
       'Scanning for Bluetooth devices…';
 
   @override
   String get desktopSearchApplications => 'Search applications';
+
+  @override
+  String get desktopSelectAudioOutputDevice => 'Select audio output device';
 
   @override
   String get desktopSystemProfile => 'System profile';
@@ -773,6 +745,112 @@ class AppLocalizationsEn extends AppLocalizations {
   String desktopVolumeForApplication(String applicationName) {
     return 'Volume for $applicationName';
   }
+
+  @override
+  String get dockAllApps => 'All apps';
+
+  @override
+  String get dockRemove => 'Remove from Dock';
+
+  @override
+  String get fingerprintAdd => 'Add fingerprint';
+
+  @override
+  String get fingerprintCancelled => 'Enrollment cancelled.';
+
+  @override
+  String get fingerprintChooseFinger => 'Finger to enroll';
+
+  @override
+  String get fingerprintContinue => 'Continue';
+
+  @override
+  String get fingerprintDescription =>
+      'Use your enrolled fingers to unlock Denial.';
+
+  @override
+  String get fingerprintDuplicate =>
+      'This fingerprint is already enrolled. Choose another finger.';
+
+  @override
+  String get fingerprintEmptyDescription =>
+      'Choose a finger below to enroll your first fingerprint.';
+
+  @override
+  String get fingerprintEmptyTitle => 'No fingerprints enrolled';
+
+  @override
+  String get fingerprintEnroll => 'Enroll fingerprint';
+
+  @override
+  String get fingerprintEnrolled =>
+      'Fingerprint enrolled. You can now use it to unlock Denial.';
+
+  @override
+  String get fingerprintExpired => 'Enter your PIN again to continue.';
+
+  @override
+  String get fingerprintLeftIndex => 'Left index finger';
+
+  @override
+  String get fingerprintLeftLittle => 'Left little finger';
+
+  @override
+  String get fingerprintLeftMiddle => 'Left middle finger';
+
+  @override
+  String get fingerprintLeftRing => 'Left ring finger';
+
+  @override
+  String get fingerprintLeftThumb => 'Left thumb';
+
+  @override
+  String get fingerprintPin => 'PIN';
+
+  @override
+  String get fingerprintPinNotSet => 'Set a lock PIN first.';
+
+  @override
+  String get fingerprintPinPrompt =>
+      'Enter your lock PIN to manage fingerprints.';
+
+  @override
+  String get fingerprintPreparing => 'Preparing the fingerprint reader…';
+
+  @override
+  String fingerprintProgress(int completed, int total) {
+    return '$completed of $total scans';
+  }
+
+  @override
+  String get fingerprintRetry =>
+      'Lift your finger and touch the sensor again, adjusting its position.';
+
+  @override
+  String get fingerprintRightIndex => 'Right index finger';
+
+  @override
+  String get fingerprintRightLittle => 'Right little finger';
+
+  @override
+  String get fingerprintRightMiddle => 'Right middle finger';
+
+  @override
+  String get fingerprintRightRing => 'Right ring finger';
+
+  @override
+  String get fingerprintRightThumb => 'Right thumb';
+
+  @override
+  String get fingerprintSection => 'Fingerprint';
+
+  @override
+  String get fingerprintTouchSensor =>
+      'Touch and lift your selected finger on the sensor.';
+
+  @override
+  String get fingerprintUnavailable =>
+      'Fingerprint management could not complete. Check the reader and try again.';
 
   @override
   String frameMilliseconds(String value) {
@@ -799,6 +877,136 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get frameShellWaiting => 'SHELL · WAIT';
+
+  @override
+  String homeFolderApps(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count apps',
+      one: '1 app',
+    );
+    return '$name, $_temp0';
+  }
+
+  @override
+  String get homeFolderDefaultName => 'Folder';
+
+  @override
+  String get homeFolderDevelopment => 'Development';
+
+  @override
+  String get homeFolderEducation => 'Education';
+
+  @override
+  String get homeFolderGames => 'Games';
+
+  @override
+  String get homeFolderGraphics => 'Graphics';
+
+  @override
+  String get homeFolderInternet => 'Internet';
+
+  @override
+  String get homeFolderMedia => 'Media';
+
+  @override
+  String get homeFolderOffice => 'Office';
+
+  @override
+  String get homeFolderRename => 'Rename folder';
+
+  @override
+  String get homeFolderScience => 'Science';
+
+  @override
+  String get homeFolderSettings => 'Settings';
+
+  @override
+  String get homeFolderSystem => 'System';
+
+  @override
+  String get homeFolderUtilities => 'Utilities';
+
+  @override
+  String get homeResizeWidget => 'Resize widget';
+
+  @override
+  String get inputDeckCpuChart => 'CPU chart';
+
+  @override
+  String get inputDeckCpuDescription =>
+      'Show processor usage above the keyboard.';
+
+  @override
+  String get inputDeckEnable => 'Use touch display as keyboard and touchpad';
+
+  @override
+  String inputDeckEnableDescription(String output) {
+    return 'Use $output for input whenever another display is available. Disconnect the external display to return to tablet mode.';
+  }
+
+  @override
+  String get inputDeckGpuCharts => 'GPU charts';
+
+  @override
+  String get inputDeckGpuDescription => 'Show usage for GPUs that report it.';
+
+  @override
+  String get inputDeckHeading => 'Keyboard & touchpad';
+
+  @override
+  String get inputDeckKeyboardSize => 'Keyboard size';
+
+  @override
+  String get inputDeckLeftClick => 'Left click';
+
+  @override
+  String get inputDeckNaturalScroll => 'Natural scrolling';
+
+  @override
+  String get inputDeckNaturalScrollDescription =>
+      'Content follows the movement of your fingers.';
+
+  @override
+  String get inputDeckPointerSpeed => 'Pointer speed';
+
+  @override
+  String get inputDeckRightClick => 'Right click';
+
+  @override
+  String get inputDeckTitle => 'Keyboard & touchpad display';
+
+  @override
+  String get inputDeckTouchDisplay => 'Touch display';
+
+  @override
+  String get inputDeckTouchDisplayDescription =>
+      'Display to use for keyboard and touchpad input.';
+
+  @override
+  String get inputDeckTouchpad => 'Touchpad';
+
+  @override
+  String get inputDeckTouchpadHeight => 'Touchpad height';
+
+  @override
+  String get inputDeckTouchpadHint =>
+      'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.';
+
+  @override
+  String get inputDeckTouchpadWidth => 'Touchpad width';
+
+  @override
+  String get inputDeckUnavailable =>
+      'Connect a touch display to configure this mode.';
+
+  @override
+  String get inputDeckUseAsDisplay => 'Use as display';
+
+  @override
+  String get inputDeckWaiting =>
+      'Ready when a second display is connected and powered on.';
 
   @override
   String launchOpeningApplication(String applicationName) {
@@ -828,6 +1036,17 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get lockDesktopPromptDescription =>
       'Enter your password to unlock this desktop session.';
+
+  @override
+  String get lockEnterPin => 'Enter PIN';
+
+  @override
+  String lockEnterPinToOpen(String applicationName) {
+    return 'Enter PIN to open $applicationName';
+  }
+
+  @override
+  String get lockFingerprintNotRecognized => 'Fingerprint not recognized';
 
   @override
   String get lockHideOnScreenKeyboard => 'Hide on-screen keyboard';
@@ -868,6 +1087,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get lockPerformanceStatusLabel => 'Desktop performance status';
 
   @override
+  String get lockPinDelete => 'Delete';
+
+  @override
+  String get lockPinObscured => 'PIN, obscured';
+
+  @override
+  String lockPinProgress(int entered, int length) {
+    return 'PIN, $entered of $length digits entered';
+  }
+
+  @override
   String get lockPleaseWait => 'Please wait…';
 
   @override
@@ -902,10 +1132,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get lockUnlockDenial => 'Unlock Denial';
 
   @override
+  String get lockUsePassword => 'Use password';
+
+  @override
+  String get lockUsePin => 'Use PIN';
+
+  @override
   String get lockWaitingForAuthentication => 'Waiting for authentication…';
 
   @override
   String get lockWelcomeBack => 'Welcome back';
+
+  @override
+  String get lockWrongPin => 'Wrong PIN';
 
   @override
   String longDate(String weekday, int day, String month) {
@@ -946,6 +1185,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get metricNow => 'NOW';
 
   @override
+  String get mobileChangeFailed => 'Unable to change mobile data';
+
+  @override
+  String get mobileConnected => 'Connected';
+
+  @override
+  String get mobileData => 'Mobile data';
+
+  @override
+  String get mobileDisconnected => 'Not connected';
+
+  @override
+  String get mobileUnavailable => 'Mobile network unavailable';
+
+  @override
   String get monthApril => 'April';
 
   @override
@@ -980,6 +1234,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get monthSeptember => 'September';
+
+  @override
+  String get moveToMonitor => 'Move to monitor';
 
   @override
   String get notificationDismiss => 'Dismiss notification';
@@ -1177,6 +1434,584 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get pluginsActivity => 'Activity';
+
+  @override
+  String get pluginsActivityDescription =>
+      'Installation progress and changes to your desktop.';
+
+  @override
+  String get pluginsActivityFallback => 'Plugin activity';
+
+  @override
+  String get pluginsAdd => 'Add plugin';
+
+  @override
+  String get pluginsAddLink => 'Add from a link';
+
+  @override
+  String get pluginsAddRepository => 'Add from a repository';
+
+  @override
+  String get pluginsAddRepositoryDescription =>
+      'Use a Git link to install a plugin from its developer.';
+
+  @override
+  String get pluginsAddToolbar => 'Add Plugin';
+
+  @override
+  String get pluginsAddTooltip => 'Add a plugin from a repository link';
+
+  @override
+  String get pluginsAdvancedOptions => 'Advanced options';
+
+  @override
+  String get pluginsAppTitle => 'Denial Plugins';
+
+  @override
+  String get pluginsApply => 'Apply plugins';
+
+  @override
+  String get pluginsApplyChanges => 'Apply changes';
+
+  @override
+  String get pluginsApplyPending => 'Apply pending actions';
+
+  @override
+  String get pluginsApplySelection =>
+      'Apply your plugin selection changes to your desktop.';
+
+  @override
+  String get pluginsApplySelectionUpdates =>
+      'Apply your selection changes and pending updates to your desktop.';
+
+  @override
+  String get pluginsApplyUnchanged =>
+      'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.';
+
+  @override
+  String get pluginsApplyingDesktop => 'Applying and checking your desktop';
+
+  @override
+  String get pluginsAutomaticDescription =>
+      'These keep your selected plugins working.';
+
+  @override
+  String get pluginsAutomaticTitle => 'Included automatically';
+
+  @override
+  String get pluginsBringNew => 'Bring something new.';
+
+  @override
+  String get pluginsBuild => 'Build plugins';
+
+  @override
+  String get pluginsBuildLog => 'Build log';
+
+  @override
+  String get pluginsByDenial => 'By Denial';
+
+  @override
+  String pluginsCandidateLabel(String name, String path) {
+    return '$name · $path';
+  }
+
+  @override
+  String get pluginsChangeFailed => 'Change couldn’t be completed';
+
+  @override
+  String get pluginsCheckChanges => 'Check your changes';
+
+  @override
+  String get pluginsCheckCompatibility => 'Check compatibility';
+
+  @override
+  String get pluginsCheckSelection => 'Check your selection';
+
+  @override
+  String get pluginsCheckUpdates => 'Check for plugin updates';
+
+  @override
+  String get pluginsCheckingCompatibility => 'Checking plugin compatibility';
+
+  @override
+  String get pluginsChoose => 'Choose a plugin';
+
+  @override
+  String get pluginsChooseDefaults => 'Choose default plugins';
+
+  @override
+  String get pluginsClearSearch => 'Clear search';
+
+  @override
+  String get pluginsClose => 'Close';
+
+  @override
+  String get pluginsCloseWhileWorking =>
+      'You can close this window. We’ll keep going.';
+
+  @override
+  String get pluginsCommunity => 'From the community';
+
+  @override
+  String get pluginsCommunityPlugin => 'Community plugin';
+
+  @override
+  String get pluginsCompilingDesktop => 'Compiling your desktop';
+
+  @override
+  String get pluginsCompilingSources => 'Compiling Dart sources';
+
+  @override
+  String get pluginsCompleted => 'Completed';
+
+  @override
+  String get pluginsConfigurationDescription =>
+      'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.';
+
+  @override
+  String get pluginsDartCompatible => 'Compatible Dart is required';
+
+  @override
+  String pluginsDartIncompatible(String installed, String constraint) {
+    return 'Dart $installed is installed, but Denial requires $constraint. Install a compatible Dart package and make sure dart is available in PATH, then try again.';
+  }
+
+  @override
+  String pluginsDartInstall(String expected) {
+    return 'Install Dart with your system package manager. Denial recommends Dart $expected. Make sure dart is available in PATH, then try again.';
+  }
+
+  @override
+  String get pluginsDartRequired => 'Dart is required';
+
+  @override
+  String get pluginsDesktopFeature => 'Desktop';
+
+  @override
+  String get pluginsDesktopOptions => 'Desktop options';
+
+  @override
+  String get pluginsDesktopOptionsDescription =>
+      'Updates, compatibility and recovery';
+
+  @override
+  String get pluginsDisable => 'Disable plugin';
+
+  @override
+  String get pluginsDiscard => 'Discard';
+
+  @override
+  String get pluginsDiscover => 'Discover';
+
+  @override
+  String get pluginsDiscoverAction => 'Discover Plugins';
+
+  @override
+  String get pluginsDiscoverDescription =>
+      'Add new features and make your desktop your own.';
+
+  @override
+  String get pluginsDiscoverMore => 'Discover more plugins';
+
+  @override
+  String get pluginsDiscoverTitle => 'Discover plugins';
+
+  @override
+  String get pluginsDiscoveryFailed =>
+      'Some discoveries couldn’t be loaded. Try refreshing again.';
+
+  @override
+  String get pluginsDismissError => 'Dismiss error';
+
+  @override
+  String get pluginsDone => 'Done';
+
+  @override
+  String pluginsElapsed(String stage, String clock) {
+    return '$stage · $clock elapsed';
+  }
+
+  @override
+  String get pluginsEnable => 'Enable plugin';
+
+  @override
+  String get pluginsFailureConflict =>
+      'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.';
+
+  @override
+  String get pluginsFailureDeclaration =>
+      'Plugin compatibility information needs attention. Check your selection and open details before applying again.';
+
+  @override
+  String get pluginsFailureDownload =>
+      'A download failed. Check your connection and try again.';
+
+  @override
+  String get pluginsFailureEngine =>
+      'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.';
+
+  @override
+  String get pluginsFailureGeneric =>
+      'This change could not be completed. Open details to see the cause.';
+
+  @override
+  String get pluginsFailureLogin =>
+      'Log out and back into Denial once to finish the update. Your choices are saved.';
+
+  @override
+  String get pluginsFailureMissing =>
+      'A required desktop feature is missing. Enable a plugin that provides it, then apply again.';
+
+  @override
+  String get pluginsFailurePanel =>
+      'More than one desktop panel is selected. Keep one enabled, then apply again.';
+
+  @override
+  String get pluginsFailureVersion =>
+      'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.';
+
+  @override
+  String get pluginsFailureWorker =>
+      'The background operation stopped unexpectedly. Check Activity before trying again.';
+
+  @override
+  String get pluginsFallbackDescription =>
+      'Customize your desktop with this plugin.';
+
+  @override
+  String get pluginsFind => 'Find plugins';
+
+  @override
+  String get pluginsFinding => 'Finding plugins…';
+
+  @override
+  String get pluginsGitRef => 'Branch, tag, or commit (optional)';
+
+  @override
+  String get pluginsInProgress => 'In progress';
+
+  @override
+  String get pluginsIncludeDependencies =>
+      'We’ll include anything this plugin needs automatically.';
+
+  @override
+  String get pluginsInstalled => 'Installed';
+
+  @override
+  String get pluginsInstalledDescription =>
+      'Choose the plugins that make up your desktop.';
+
+  @override
+  String get pluginsInstalledTitle => 'Installed plugins';
+
+  @override
+  String pluginsInstalledVersion(String version) {
+    return 'Denial $version is installed.';
+  }
+
+  @override
+  String pluginsInvalidDeclaration(String plugins) {
+    return '$plugins has invalid compatibility declarations. Open details to see the cause.';
+  }
+
+  @override
+  String get pluginsLibrary => 'Library';
+
+  @override
+  String get pluginsLoadingDesktop => 'Loading your saved desktop';
+
+  @override
+  String get pluginsLocalDevelopment => 'Local development';
+
+  @override
+  String get pluginsLocalDirectory => 'Local package or repository directory';
+
+  @override
+  String get pluginsLogLoadFailed => 'The build log could not be loaded.';
+
+  @override
+  String get pluginsMoreActions => 'More actions';
+
+  @override
+  String get pluginsNeedsAttention => 'Needs attention';
+
+  @override
+  String get pluginsNoActivity => 'No activity yet';
+
+  @override
+  String get pluginsNoActivityDescription =>
+      'Plugin installations and desktop changes will appear here.';
+
+  @override
+  String get pluginsNoBuildOutput => 'No build output was recorded.';
+
+  @override
+  String get pluginsNoCandidates =>
+      'No plugin package candidates were found in this repository.';
+
+  @override
+  String get pluginsNoCommunity =>
+      'No community plugins are listed yet. Add a plugin using its repository link.';
+
+  @override
+  String get pluginsNoMatches => 'No matching plugins';
+
+  @override
+  String get pluginsNoMatchesDescription =>
+      'Try another name or clear your search.';
+
+  @override
+  String get pluginsNoneInstalled => 'No plugins installed';
+
+  @override
+  String get pluginsNoneInstalledDescription =>
+      'Discover plugins for your desktop, or add one using a repository link.';
+
+  @override
+  String get pluginsNotSelected => 'Not selected';
+
+  @override
+  String get pluginsNothingFound => 'Nothing found yet';
+
+  @override
+  String get pluginsNothingFoundDescription =>
+      'Try another search, or add a plugin using its repository link.';
+
+  @override
+  String get pluginsOfficial => 'Made for Denial';
+
+  @override
+  String get pluginsOptimizing => 'Optimizing and generating native code';
+
+  @override
+  String get pluginsPaused => 'Your plugins are paused';
+
+  @override
+  String get pluginsPendingReady => 'Pending actions are ready';
+
+  @override
+  String get pluginsPreferences => 'Preferences';
+
+  @override
+  String get pluginsPreparingAssets => 'Preparing assets';
+
+  @override
+  String get pluginsPreparingBuild => 'Preparing your desktop build';
+
+  @override
+  String get pluginsPreparingDescription =>
+      'Denial is getting everything ready. You can leave this window open or come back later.';
+
+  @override
+  String get pluginsPreparingDesktop => 'Preparing your desktop';
+
+  @override
+  String get pluginsPreparingPlugins => 'Preparing your plugins';
+
+  @override
+  String get pluginsPreparingSupport => 'Preparing plugin support';
+
+  @override
+  String get pluginsPreparingTools => 'Preparing plugin tools';
+
+  @override
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  ) {
+    return '$feature is provided by $plugins. $owner accepts at most $maximum providers. Disable extra plugins before applying.';
+  }
+
+  @override
+  String pluginsProviderMissing(String owner, int minimum, String feature) {
+    return '$owner needs at least $minimum providers for $feature. Enable a compatible plugin before applying.';
+  }
+
+  @override
+  String get pluginsRebuild => 'Rebuild plugins';
+
+  @override
+  String pluginsRebuildDescription(String introduction) {
+    return '$introduction Rebuild your plugins to bring them back, with all their settings. No need to log out.';
+  }
+
+  @override
+  String get pluginsRecentActivity => 'Recent activity';
+
+  @override
+  String get pluginsRefresh => 'Refresh';
+
+  @override
+  String get pluginsRefreshDiscoveries => 'Refresh discoveries';
+
+  @override
+  String get pluginsRepositoryLink => 'Repository link';
+
+  @override
+  String get pluginsRestore => 'Restore default desktop';
+
+  @override
+  String get pluginsSearch => 'Search plugins';
+
+  @override
+  String get pluginsSearchInstalled => 'Search installed';
+
+  @override
+  String get pluginsSelect => 'Select plugin';
+
+  @override
+  String get pluginsSelected => 'Selected';
+
+  @override
+  String pluginsSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count selected',
+      one: '1 selected',
+      zero: '0 selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pluginsSelectedDesktop => 'Selected for your desktop';
+
+  @override
+  String get pluginsSelectionChanged => 'Your selection has changed';
+
+  @override
+  String get pluginsSetup => 'Set up plugins';
+
+  @override
+  String get pluginsSetupFailed =>
+      'Preparation could not finish. See Activity for details, then try again.';
+
+  @override
+  String get pluginsStaleSelection =>
+      'The selection changed elsewhere. Discard your draft to load the latest selection.';
+
+  @override
+  String get pluginsStartupFailed => 'Saved plugins could not start';
+
+  @override
+  String pluginsStep(int step, int total, String label) {
+    return 'Step $step of $total · $label';
+  }
+
+  @override
+  String pluginsStepsComplete(int completed, int total) {
+    return '$completed of $total steps complete';
+  }
+
+  @override
+  String get pluginsSwitchNow => 'Switch now';
+
+  @override
+  String pluginsSwitchSemantics(String name) {
+    return '$name plugin';
+  }
+
+  @override
+  String get pluginsSwitchingPause => 'Switching when you pause';
+
+  @override
+  String get pluginsTechnicalDetails => 'Technical details';
+
+  @override
+  String get pluginsTitle => 'Plugins';
+
+  @override
+  String get pluginsToolsAttention => 'Plugin tools need attention';
+
+  @override
+  String get pluginsToolsUnavailable =>
+      'Plugin tools are temporarily unavailable. Retrying automatically.';
+
+  @override
+  String get pluginsTrustDescription =>
+      'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.';
+
+  @override
+  String get pluginsTryAgain => 'Try again';
+
+  @override
+  String get pluginsUndo => 'Undo last change';
+
+  @override
+  String get pluginsUpdate => 'Update plugins';
+
+  @override
+  String get pluginsUpdated => 'Denial was updated.';
+
+  @override
+  String get pluginsUseDefaults => 'Use Denial defaults';
+
+  @override
+  String get pluginsUseLocal => 'Use a local development checkout';
+
+  @override
+  String get pluginsVerifyingDesktop => 'Verifying your desktop';
+
+  @override
+  String get pluginsVerifyingTools => 'Verifying plugin tools';
+
+  @override
+  String get pluginsViewDetails => 'View details';
+
+  @override
+  String get pluginsWaitingStart => 'Waiting to start';
+
+  @override
+  String get pluginsWorking => 'Working on your changes';
+
+  @override
+  String get pluginsYourPlugins => 'Your plugins';
+
+  @override
+  String get polkitAuthenticationRequired => 'Authentication is required.';
+
+  @override
+  String get polkitAuthenticationUnavailable =>
+      'Authentication is unavailable.';
+
+  @override
+  String get polkitCapsLock => 'Caps Lock';
+
+  @override
+  String get polkitClose => 'Close';
+
+  @override
+  String get polkitConfirm => 'Confirm';
+
+  @override
+  String get polkitContinue => 'Continue';
+
+  @override
+  String get polkitLocked => 'Temporarily locked';
+
+  @override
+  String get polkitPassword => 'Password';
+
+  @override
+  String get polkitPreparing => 'Preparing…';
+
+  @override
+  String get polkitRunCommandAsAdministrator =>
+      'Administrator authentication required.';
+
+  @override
+  String polkitRunCommandAsUser(String user) {
+    return 'Authentication is required to run this command as $user.';
+  }
+
+  @override
+  String get polkitVerifying => 'Verifying…';
+
+  @override
   String get powerActionHibernate => 'Hibernate';
 
   @override
@@ -1298,13 +2133,10 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get quickSettingsAirplaneMode => 'Airplane mode';
+
+  @override
   String get quickSettingsAutoRotate => 'Auto-rotate';
-
-  @override
-  String get quickSettingsScreenRecording => 'Screen recording';
-
-  @override
-  String get quickSettingsRecording => 'Recording';
 
   @override
   String get quickSettingsBalanced => 'Balanced';
@@ -1344,13 +2176,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quickSettingsOpenOnScreen => 'Open on-screen keyboard';
 
   @override
+  String get quickSettingsOrientationLock => 'Orientation lock';
+
+  @override
   String get quickSettingsPerformance => 'Performance';
+
+  @override
+  String get quickSettingsRecording => 'Recording';
+
+  @override
+  String get quickSettingsScreenRecording => 'Screen recording';
+
+  @override
+  String get quickSettingsScreenshot => 'Screenshot';
 
   @override
   String get quickSettingsSettingsUnavailable => 'Settings are unavailable.';
 
   @override
   String get quickSettingsSilent => 'Silent';
+
+  @override
+  String get screenshotSelectionHint =>
+      'Drag to select an area · Esc to cancel';
 
   @override
   String get settingsAboutArchitecture =>
@@ -1414,14 +2262,52 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsAnimationsTitle => 'Motion that matches your desktop.';
 
   @override
+  String get settingsAppearanceActions => 'Appearance actions';
+
+  @override
+  String get settingsAppearanceAdvancedEffects => 'Advanced effects';
+
+  @override
+  String get settingsAppearanceAdvancedEffectsDescription =>
+      'Color, optics, lighting and rendering.';
+
+  @override
+  String get settingsAppearanceColorEffects => 'Color';
+
+  @override
+  String get settingsAppearanceCompositingDescription =>
+      'Fine-tune where the effect is applied.';
+
+  @override
+  String get settingsAppearanceCursorAdvanced => 'Application cursors';
+
+  @override
   String get settingsAppearanceDescription =>
       'Changes made here are reflected across the desktop in real time.';
+
+  @override
+  String get settingsAppearanceLighting => 'Lighting';
+
+  @override
+  String get settingsAppearanceOptics => 'Optics';
+
+  @override
+  String get settingsAppearanceRendering => 'Rendering';
 
   @override
   String get settingsAppearanceSection => 'Appearance';
 
   @override
+  String get settingsAppearanceTheme => 'Theme';
+
+  @override
   String get settingsAppearanceTitle => 'Make the desktop feel like yours.';
+
+  @override
+  String get settingsAppearanceTransparency => 'Transparency';
+
+  @override
+  String get settingsAppearanceWindows => 'Windows';
 
   @override
   String get settingsApplicationAudioDescription =>
@@ -1440,10 +2326,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsApplicationCategorySystem => 'System';
 
   @override
+  String get settingsApplicationScaleApply => 'Apply';
+
+  @override
+  String get settingsApplicationScaleBackend => 'Scale method';
+
+  @override
+  String get settingsApplicationScaleBackendAuto => 'Automatic';
+
+  @override
+  String get settingsApplicationScaleBackendNone => 'Do nothing';
+
+  @override
+  String get settingsApplicationScaleCustom => 'Custom';
+
+  @override
+  String get settingsApplicationScaleDescription =>
+      'Override this application’s whole UI scale; restart the app to apply.';
+
+  @override
+  String get settingsApplicationScaleFollowSystem => 'Follow system';
+
+  @override
+  String get settingsApplicationScaleTitle => 'Per-application UI scale';
+
+  @override
+  String get settingsApplicationScaleValueLabel => 'Scale';
+
+  @override
   String get settingsApplicationSemanticsLabel => 'Denial Settings';
 
   @override
+  String get settingsApplicationThemingDescription =>
+      'Apply Denial styling to supported application. Currently supported applications: Kitty.';
+
+  @override
+  String get settingsApplicationThemingEnabled =>
+      'Theme supported application using Denial styling';
+
+  @override
+  String get settingsApplicationThemingReapply => 'Re-apply';
+
+  @override
   String get settingsApplicationTitle => 'Settings';
+
+  @override
+  String get settingsApplyDisplayConfiguration => 'Apply changes';
+
+  @override
+  String get settingsApplying => 'Applying…';
 
   @override
   String get settingsAudioDescription =>
@@ -1477,32 +2408,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsAutomaticIdleTitle => 'Automatic idle actions';
 
   @override
-  String get settingsPowerButtonTitle => 'Power button';
-
-  @override
-  String get settingsPowerButtonAction => 'Action';
-
-  @override
-  String get settingsPowerButtonDescription =>
-      'Choose what happens when you press the physical power button.';
-
-  @override
-  String get settingsPowerButtonSuspend => 'Suspend';
-
-  @override
-  String get settingsPowerButtonHibernate => 'Hibernate';
-
-  @override
-  String get settingsPowerButtonHibernateUnavailable =>
-      'Hibernate (unavailable)';
-
-  @override
-  String get settingsPowerButtonDpms => 'Turn off displays (DPMS)';
-
-  @override
-  String get settingsPowerButtonPowerOff => 'Power off';
-
-  @override
   String get settingsAutomaticLockToggle => 'Lock automatically';
 
   @override
@@ -1517,25 +2422,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Keep the session in memory and enter low power after extended inactivity.';
 
   @override
-  String get settingsSuspendMode => 'Suspend mode';
-
-  @override
-  String get settingsSuspendModeDescription =>
-      'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.';
-
-  @override
-  String get settingsSuspendModeS2idle => 'Suspend to idle (s2idle)';
-
-  @override
-  String get settingsSuspendModeShallow => 'Standby (shallow)';
-
-  @override
-  String get settingsSuspendModeDeep => 'Suspend to RAM (deep)';
-
-  @override
-  String get settingsSuspendModeUnavailable => 'Unavailable';
-
-  @override
   String get settingsAvailable => 'Available';
 
   @override
@@ -1544,6 +2430,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAvailableNetworksTitle => 'Available networks';
+
+  @override
+  String get settingsBackdropBlur => 'Backdrop blur';
+
+  @override
+  String get settingsBackdropBlurDescription =>
+      'Soften content behind translucent windows and panels. Higher quality uses more GPU.';
+
+  @override
+  String get settingsBackdropBlurEnabled => 'Enable backdrop blur';
+
+  @override
+  String get settingsBackdropBlurEnabledDescription =>
+      'Blur only where transparent content can reveal the desktop beneath it.';
+
+  @override
+  String get settingsBackdropBlurIntensity => 'Blur quality';
+
+  @override
+  String get settingsBackdropBlurLevelBest => 'Best';
+
+  @override
+  String get settingsBackdropBlurLevelFast => 'Fast';
+
+  @override
+  String get settingsBackdropBlurLevelGood => 'Good';
+
+  @override
+  String get settingsBackdropBlurLevelShitty => 'Shitty';
+
+  @override
+  String get settingsBackdropBlurOpacityThreshold =>
+      'Minimum pixel opacity for blur';
+
+  @override
+  String get settingsBackdropDimming => 'Backdrop dimming';
+
+  @override
+  String get settingsBarGeometryDescription =>
+      'Adjust the space reserved for the desktop system bar.';
+
+  @override
+  String get settingsBarGeometryTitle => 'System bar geometry';
+
+  @override
+  String get settingsBarThickness => 'Bar thickness';
 
   @override
   String get settingsBatteryChargeCycles => 'Charge cycles';
@@ -1700,124 +2632,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get settingsBackdropBlur => 'Backdrop blur';
-
-  @override
-  String get settingsBackdropBlurDescription =>
-      'Soften content behind translucent windows and panels. Higher quality uses more GPU.';
-
-  @override
-  String get settingsBackdropBlurEnabled => 'Enable backdrop blur';
-
-  @override
-  String get settingsBackdropBlurEnabledDescription =>
-      'Blur only where transparent content can reveal the desktop beneath it.';
-
-  @override
-  String get settingsBackdropBlurIntensity => 'Blur quality';
-
-  @override
-  String get settingsBackdropBlurLevelShitty => 'Shitty';
-
-  @override
-  String get settingsBackdropBlurLevelFast => 'Fast';
-
-  @override
-  String get settingsBackdropBlurLevelGood => 'Good';
-
-  @override
-  String get settingsBackdropBlurLevelBest => 'Best';
-
-  @override
-  String get settingsBackdropBlurOpacityThreshold =>
-      'Minimum pixel opacity for blur';
-
-  @override
-  String get settingsGlassAppearance => 'Glass appearance';
-
-  @override
-  String get settingsGlassShellOpacity => 'Shell glass opacity';
-
-  @override
-  String get settingsGlassWindowOpacity => 'Window glass opacity';
-
-  @override
-  String get settingsGlassAppPanelOpacity => 'App panels opacity';
-
-  @override
-  String get settingsTransparencyTitle => 'Transparency material';
-
-  @override
-  String get settingsTypographyTitle => 'Typography';
-
-  @override
-  String get settingsTransparencyOff => 'Off';
-
-  @override
-  String get settingsTransparencyBlur => 'Blur';
-
-  @override
-  String get settingsTransparencyGlass => 'Glass';
-
-  @override
-  String get settingsTransparencyOffDescription =>
-      'Leave translucent surfaces clear without processing the desktop behind them.';
-
-  @override
-  String get settingsTransparencyBlurDescription =>
-      'Use Denial’s current fast Gaussian backdrop blur.';
-
-  @override
-  String get settingsTransparencyGlassDescription =>
-      'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.';
-
-  @override
-  String get settingsGlassFrost => 'Frost';
-
-  @override
-  String get settingsGlassQuality => 'Render quality';
-
-  @override
-  String get settingsGlassThickness => 'Optical thickness';
-
-  @override
-  String get settingsGlassRefraction => 'Refraction';
-
-  @override
-  String get settingsGlassDispersion => 'Color dispersion';
-
-  @override
-  String get settingsGlassSaturation => 'Saturation';
-
-  @override
-  String get settingsGlassAccentTint => 'Accent tint';
-
-  @override
-  String get settingsGlassBrightness => 'Luminosity';
-
-  @override
-  String get settingsGlassLightAngle => 'Light direction';
-
-  @override
-  String get settingsGlassLightIntensity => 'Light intensity';
-
-  @override
-  String get settingsGlassEdgeStrength => 'Edge shine';
-
-  @override
-  String get settingsBackdropDimming => 'Backdrop dimming';
-
-  @override
-  String get settingsBarGeometryDescription =>
-      'Adjust the space reserved for the desktop system bar.';
-
-  @override
-  String get settingsBarGeometryTitle => 'System bar geometry';
-
-  @override
-  String get settingsBarThickness => 'Bar thickness';
-
-  @override
   String get settingsBluetoothAdapterDescription => 'Current adapter';
 
   @override
@@ -1873,6 +2687,52 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCloseEffectNone => 'None';
 
   @override
+  String get settingsColorInputBlue => 'Blue';
+
+  @override
+  String get settingsColorInputGreen => 'Green';
+
+  @override
+  String get settingsColorInputHex => 'HEX';
+
+  @override
+  String get settingsColorInputHexError => 'Use 3 or 6 hex digits.';
+
+  @override
+  String get settingsColorInputHexValue => 'Hex color';
+
+  @override
+  String get settingsColorInputHsl => 'HSL';
+
+  @override
+  String get settingsColorInputHslError => 'Use H 0–360 and S/L 0–100.';
+
+  @override
+  String get settingsColorInputHue => 'Hue';
+
+  @override
+  String get settingsColorInputLightness => 'Lightness';
+
+  @override
+  String get settingsColorInputNudgeHint =>
+      'Use ↑↓ to nudge · Hold Shift for 10';
+
+  @override
+  String get settingsColorInputRed => 'Red';
+
+  @override
+  String get settingsColorInputRgb => 'RGB';
+
+  @override
+  String get settingsColorInputRgbError => 'Use RGB values from 0 to 255.';
+
+  @override
+  String get settingsColorInputSaturation => 'Saturation';
+
+  @override
+  String get settingsColorInputTitle => 'Color values';
+
+  @override
   String get settingsColorPickerCloseSemanticsLabel => 'Close color picker';
 
   @override
@@ -1883,52 +2743,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Choose visually or enter exact color values.';
 
   @override
-  String get settingsColorInputTitle => 'Color values';
-
-  @override
-  String get settingsColorInputRgb => 'RGB';
-
-  @override
-  String get settingsColorInputHsl => 'HSL';
-
-  @override
-  String get settingsColorInputHex => 'HEX';
-
-  @override
-  String get settingsColorInputRed => 'Red';
-
-  @override
-  String get settingsColorInputGreen => 'Green';
-
-  @override
-  String get settingsColorInputBlue => 'Blue';
-
-  @override
-  String get settingsColorInputHue => 'Hue';
-
-  @override
-  String get settingsColorInputSaturation => 'Saturation';
-
-  @override
-  String get settingsColorInputLightness => 'Lightness';
-
-  @override
-  String get settingsColorInputHexValue => 'Hex color';
-
-  @override
-  String get settingsColorInputNudgeHint =>
-      'Use ↑↓ to nudge · Hold Shift for 10';
-
-  @override
-  String get settingsColorInputRgbError => 'Use RGB values from 0 to 255.';
-
-  @override
-  String get settingsColorInputHslError => 'Use H 0–360 and S/L 0–100.';
-
-  @override
-  String get settingsColorInputHexError => 'Use 3 or 6 hex digits.';
-
-  @override
   String get settingsColorPickerReset => 'Reset';
 
   @override
@@ -1936,6 +2750,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsColorPickerTitle => 'Accent color';
+
+  @override
+  String get settingsColorSchemeDark => 'Dark';
+
+  @override
+  String get settingsColorSchemeDescription =>
+      'Use the same colour scheme across Denial and supported applications.';
+
+  @override
+  String get settingsColorSchemeLight => 'Light';
+
+  @override
+  String get settingsColorSchemeNoPreference => 'No preference';
+
+  @override
+  String get settingsColorSchemeNoPreferenceDescription =>
+      'Denial keeps its default dark appearance while applications choose their own.';
+
+  @override
+  String get settingsColorSchemeTitle => 'Colour scheme';
 
   @override
   String get settingsColorWheelNextHue => 'Next hue';
@@ -1960,30 +2794,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsConnectedDisplaysTitle => 'Connected displays';
 
   @override
-  String get settingsCursorSize => 'Cursor size';
-
-  @override
-  String get settingsCursorTitle => 'Cursor';
-
-  @override
-  String get settingsCursorTheme => 'Cursor theme';
-
-  @override
-  String get settingsCursorImport => 'Import cursor ZIP';
-
-  @override
-  String get settingsCursorImporting => 'Importing…';
-
-  @override
-  String get settingsCursorImportFailed =>
-      'The cursor theme could not be imported.';
-
-  @override
-  String get settingsCursorRemove => 'Remove imported cursor theme';
-
-  @override
-  String get settingsCursorRemoveFailed =>
-      'The imported cursor theme could not be removed.';
+  String get settingsCornerRoundness => 'Corner roundness';
 
   @override
   String get settingsCursorAllowApplications =>
@@ -1994,898 +2805,37 @@ class AppLocalizationsEn extends AppLocalizations {
       'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.';
 
   @override
+  String get settingsCursorImport => 'Import cursor ZIP';
+
+  @override
+  String get settingsCursorImportFailed =>
+      'The cursor theme could not be imported.';
+
+  @override
+  String get settingsCursorImporting => 'Importing…';
+
+  @override
+  String get settingsCursorRemove => 'Remove imported cursor theme';
+
+  @override
+  String get settingsCursorRemoveFailed =>
+      'The imported cursor theme could not be removed.';
+
+  @override
+  String get settingsCursorSize => 'Cursor size';
+
+  @override
+  String get settingsCursorTheme => 'Cursor theme';
+
+  @override
+  String get settingsCursorTitle => 'Cursor';
+
+  @override
   String get settingsDashboardOverlayDescription =>
       'Position the desktop dashboard.';
 
   @override
   String get settingsDashboardOverlayTitle => 'Dashboard';
-
-  @override
-  String get settingsDisconnect => 'Disconnect';
-
-  @override
-  String get settingsApplying => 'Applying…';
-
-  @override
-  String get settingsApplyDisplayConfiguration => 'Apply changes';
-
-  @override
-  String get settingsDisplayApplyPersistentHint =>
-      'Keep changes to update this session and outputs.conf.';
-
-  @override
-  String get settingsDisplayApplySessionHint =>
-      'Keep changes to use them for this session.';
-
-  @override
-  String get settingsDisplayConfirmationTitle => 'Keep these display settings?';
-
-  @override
-  String settingsDisplayConfirmationMessage(int seconds) {
-    return 'The previous display settings will be restored automatically in $seconds s.';
-  }
-
-  @override
-  String get settingsDisplayKeepChanges => 'Keep changes';
-
-  @override
-  String get settingsDisplayRevertNow => 'Revert now';
-
-  @override
-  String get settingsDisplayArrangementSemantics =>
-      'Monitor arrangement editor';
-
-  @override
-  String get settingsDisplayCanvasPanHint =>
-      'Drag empty space to move the canvas. Use the mouse wheel to zoom.';
-
-  @override
-  String get settingsDisplayCanvasPanSemantics => 'Pannable monitor canvas';
-
-  @override
-  String get settingsDisplayArrangementTitle => 'Monitor configuration';
-
-  @override
-  String get settingsDisplayEnabled => 'Use this display';
-
-  @override
-  String get settingsDisplayEnabledDescription =>
-      'Include this monitor in the desktop. At least one display must remain enabled.';
-
-  @override
-  String get settingsDisplayBrightnessDescription =>
-      'Adjust the main display brightness.';
-
-  @override
-  String get settingsDisplayBrightnessTitle => 'Brightness';
-
-  @override
-  String settingsDisplayDetails(
-    int width,
-    int height,
-    String refreshRate,
-    String scale,
-  ) {
-    return '$width × $height · $refreshRate Hz · $scale×';
-  }
-
-  @override
-  String get settingsDisplayInformationUnavailable =>
-      'Display information is unavailable.';
-
-  @override
-  String get settingsDisplaysDescription =>
-      'Review connected outputs and control screen brightness.';
-
-  @override
-  String get settingsDisplaysSection => 'Displays & video';
-
-  @override
-  String get settingsDisplaysTitle => 'Displays and video.';
-
-  @override
-  String settingsDisplayPosition(int x, int y) {
-    return 'Position $x, $y';
-  }
-
-  @override
-  String get settingsDisplayPrimary => 'Primary display';
-
-  @override
-  String get settingsDisplayPrimaryAutomatic =>
-      'Automatic (highest refresh rate)';
-
-  @override
-  String get settingsDisplayPrimaryHint =>
-      'Shell surfaces open on the primary display. Automatic uses the enabled display with the highest refresh rate.';
-
-  @override
-  String get settingsDisplayRefreshRate => 'Refresh rate';
-
-  @override
-  String get settingsDisplayResolution => 'Resolution';
-
-  @override
-  String get settingsDisplayRotation => 'Rotation';
-
-  @override
-  String get settingsDisplayRotationNormal => 'Landscape';
-
-  @override
-  String get settingsDisplayRotation90 => '90° counterclockwise';
-
-  @override
-  String get settingsDisplayRotation180 => 'Upside down';
-
-  @override
-  String get settingsDisplayRotation270 => '90° clockwise';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxis => 'Scrolling layout axis';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisDescription =>
-      'Choose how scrolling windows are arranged on this display.';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisAuto =>
-      'Automatic (follows rotation)';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisHorizontal => 'Horizontal';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisVertical => 'Vertical';
-
-  @override
-  String get settingsDisplayScale => 'Scale';
-
-  @override
-  String get settingsDisplayScaleInvalid => 'Enter a value from 50 to 600.';
-
-  @override
-  String get settingsDisplayScalePreset => 'Presets';
-
-  @override
-  String get settingsDisplayScaleRange =>
-      'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.';
-
-  @override
-  String get settingsDisplayVariableRefreshRate =>
-      'Variable refresh rate (VRR)';
-
-  @override
-  String get settingsDisplayVariableRefreshRateDescription =>
-      'Match the monitor refresh rate to rendered content.';
-
-  @override
-  String get settingsDisplayZoomFit => 'Fit all monitors';
-
-  @override
-  String get settingsDisplayZoomIn => 'Zoom in';
-
-  @override
-  String settingsDisplayZoomLevel(int percent) {
-    return 'Canvas zoom $percent%';
-  }
-
-  @override
-  String get settingsDisplayZoomOut => 'Zoom out';
-
-  @override
-  String get settingsLoadingDisplays => 'Loading monitor configuration…';
-
-  @override
-  String get settingsMonitorDragHint =>
-      'Drag to arrange, or use the arrow keys to move.';
-
-  @override
-  String settingsMonitorSemantics(String name) {
-    return 'Monitor $name';
-  }
-
-  @override
-  String get settingsEdgeDistance => 'Edge distance';
-
-  @override
-  String get settingsFocusedWindows => 'Focused windows';
-
-  @override
-  String get settingsFontCatalogLoading => 'Finding installed fonts…';
-
-  @override
-  String get settingsFontDescription =>
-      'Use the system default or an installed font across the Denial shell.';
-
-  @override
-  String get settingsFontFamily => 'Font family';
-
-  @override
-  String get settingsFontSystemDefault => 'System default';
-
-  @override
-  String get settingsFocusedWindowBorder =>
-      'Highlight the focused window border';
-
-  @override
-  String get settingsFocusedWindowBorderDescription =>
-      'Turn this off to keep focused and unfocused window borders the same colour.';
-
-  @override
-  String get settingsHeaderContext => 'DENIAL / SYSTEM';
-
-  @override
-  String get settingsHeaderLogoSemanticsLabel => 'Denial';
-
-  @override
-  String get settingsHeight => 'Height';
-
-  @override
-  String get settingsHoverTrigger => 'Open on edge hover';
-
-  @override
-  String get settingsHoverTriggerDescription =>
-      'Reveal this panel when the pointer reaches its screen edge.';
-
-  @override
-  String get settingsHudOverlayDescription =>
-      'Position volume and brightness feedback.';
-
-  @override
-  String get settingsHudOverlayTitle => 'System level display';
-
-  @override
-  String get settingsDisplayOffTimeout => 'Turn displays off after';
-
-  @override
-  String get settingsIdleInhibitDescription =>
-      'Application activity such as video playback can temporarily pause these timers.';
-
-  @override
-  String get settingsIdleInhibitSemantics =>
-      'Applications may pause automatic idle actions';
-
-  @override
-  String get settingsInactivityTimeout => 'Inactivity timeout';
-
-  @override
-  String get settingsLockTimeout => 'Lock after';
-
-  @override
-  String get settingsLauncherOverlayDescription =>
-      'Position the application launcher.';
-
-  @override
-  String get settingsLauncherOverlayTitle => 'Applications';
-
-  @override
-  String get settingsLanguageDescription =>
-      'System default follows your desktop language. Changes apply immediately.';
-
-  @override
-  String get settingsLanguageEnglish => 'English';
-
-  @override
-  String get settingsLanguageInterfaceTitle => 'Interface language';
-
-  @override
-  String get settingsLanguageSection => 'Language';
-
-  @override
-  String get settingsLanguageSelectorSemantics => 'Denial interface language';
-
-  @override
-  String get settingsLanguageSimplifiedChinese => '简体中文';
-
-  @override
-  String get settingsLanguageSystemDefault => 'System default';
-
-  @override
-  String get settingsLanguageTitle => 'Choose the language Denial uses.';
-
-  @override
-  String get settingsKeyboardSection => 'Input';
-
-  @override
-  String get settingsKeyboardTitle =>
-      'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.';
-
-  @override
-  String get settingsKeyboardLayoutsTitle => 'Layouts and variants';
-
-  @override
-  String get settingsKeyboardLayoutsDescription =>
-      'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.';
-
-  @override
-  String get settingsKeyboardLayoutsLabel => 'Layouts';
-
-  @override
-  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
-
-  @override
-  String get settingsKeyboardOptionsLabel => 'XKB options';
-
-  @override
-  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
-
-  @override
-  String get settingsKeyboardOptionsDescription =>
-      'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.';
-
-  @override
-  String get settingsKeyboardRepeatTitle => 'Key repeat';
-
-  @override
-  String get settingsKeyboardRepeatDelay => 'Delay';
-
-  @override
-  String get settingsKeyboardRepeatRate => 'Rate';
-
-  @override
-  String get settingsKeyboardSwitchingTitle => 'Layout switching';
-
-  @override
-  String get settingsKeyboardActiveLayout => 'Active layout';
-
-  @override
-  String get settingsKeyboardSwitchingShortcut =>
-      'Super+Space selects the next layout. Add Shift to select the previous one.';
-
-  @override
-  String get settingsKeyboardApply => 'Apply keyboard settings';
-
-  @override
-  String get settingsKeyboardApplying => 'Applying…';
-
-  @override
-  String get settingsKeyboardLoading =>
-      'Reading the compositor keyboard configuration…';
-
-  @override
-  String get settingsKeyboardInvalidLayouts =>
-      'Enter at least one valid XKB layout.';
-
-  @override
-  String get settingsTouchpadSection => 'Input';
-
-  @override
-  String get settingsTouchpadTitle => 'Tune mouse and touchpad behavior.';
-
-  @override
-  String get settingsTouchpadTapToClick => 'Tap to click';
-
-  @override
-  String get settingsTouchpadTapToClickDescription =>
-      'Tap the touchpad to press the primary mouse button.';
-
-  @override
-  String get settingsTouchpadNaturalScroll => 'Reverse two-finger scrolling';
-
-  @override
-  String get settingsTouchpadNaturalScrollDescription =>
-      'Move content in the same direction as your fingers.';
-
-  @override
-  String get settingsTouchpadScrollSpeed => 'Finger scroll speed';
-
-  @override
-  String get settingsTouchpadScrollingLayoutSwipeSpeed =>
-      'Scrolling layout swipe speed';
-
-  @override
-  String get settingsMousePointerSpeed => 'Mouse pointer speed';
-
-  @override
-  String get settingsMouseAcceleration => 'Mouse acceleration';
-
-  @override
-  String get settingsMouseAccelerationDescription =>
-      'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.';
-
-  @override
-  String get settingsShortcutsSection => 'Shortcuts';
-
-  @override
-  String get settingsShortcutsTitle =>
-      'Choose what Denial does when a shortcut is pressed.';
-
-  @override
-  String settingsShortcutsConfigured(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count shortcuts',
-      one: '1 shortcut',
-      zero: 'No shortcuts',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String get settingsShortcutsAdd => 'Add shortcut';
-
-  @override
-  String get settingsShortcutsLoading =>
-      'Reading shortcuts from the compositor…';
-
-  @override
-  String get settingsShortcutsUnavailable =>
-      'The compositor shortcut configuration is unavailable.';
-
-  @override
-  String get settingsShortcutsRetry => 'Retry';
-
-  @override
-  String get settingsShortcutsEmpty =>
-      'No shortcuts are configured. Add one to make an action easier to reach.';
-
-  @override
-  String settingsShortcutsRowSemantics(String shortcut, String action) {
-    return '$shortcut, $action';
-  }
-
-  @override
-  String settingsShortcutsDeleteTooltip(String shortcut) {
-    return 'Delete $shortcut';
-  }
-
-  @override
-  String get settingsShortcutEditorAddTitle => 'Add shortcut';
-
-  @override
-  String get settingsShortcutEditorEditTitle => 'Edit shortcut';
-
-  @override
-  String get settingsShortcutEditorDescription =>
-      'Write a shortcut, choose what it runs, and let the compositor check it before saving.';
-
-  @override
-  String get settingsShortcutEditorShortcutLabel => 'Shortcut';
-
-  @override
-  String get settingsShortcutEditorShortcutHint => 'Super+K';
-
-  @override
-  String get settingsShortcutEditorShortcutExample =>
-      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
-
-  @override
-  String get settingsShortcutEditorSupportedInputs => 'Supported inputs';
-
-  @override
-  String get settingsShortcutEditorTargetLabel => 'Runs';
-
-  @override
-  String get settingsShortcutEditorTargetAction => 'Denial action';
-
-  @override
-  String get settingsShortcutEditorTargetApplication => 'Application';
-
-  @override
-  String get settingsShortcutEditorTargetProgram => 'Program';
-
-  @override
-  String get settingsShortcutEditorTargetShell => 'Shell command';
-
-  @override
-  String get settingsShortcutEditorProgramDescription =>
-      'Run a program directly, without a shell. Every argument is passed exactly as written.';
-
-  @override
-  String get settingsShortcutEditorProgramLabel => 'Program';
-
-  @override
-  String get settingsShortcutEditorProgramHint => 'foot';
-
-  @override
-  String get settingsShortcutEditorArgumentsLabel => 'Arguments';
-
-  @override
-  String get settingsShortcutEditorAddArgument => 'Add argument';
-
-  @override
-  String get settingsShortcutEditorNoArguments => 'No arguments';
-
-  @override
-  String settingsShortcutEditorArgumentLabel(int index) {
-    return 'Argument $index';
-  }
-
-  @override
-  String get settingsShortcutEditorArgumentHint => '--option';
-
-  @override
-  String settingsShortcutEditorRemoveArgument(int index) {
-    return 'Remove argument $index';
-  }
-
-  @override
-  String get settingsShortcutEditorShellDescription =>
-      'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.';
-
-  @override
-  String get settingsShortcutEditorShellCommandLabel => 'Shell command';
-
-  @override
-  String get settingsShortcutEditorShellCommandHint =>
-      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
-
-  @override
-  String get settingsShortcutEditorChooseAction => 'Choose an action';
-
-  @override
-  String get settingsShortcutEditorChooseApplication => 'Choose an application';
-
-  @override
-  String settingsShortcutApplicationTarget(String desktopFileId) {
-    return 'Application · $desktopFileId';
-  }
-
-  @override
-  String get settingsShortcutEditorValidating =>
-      'Checking with the compositor…';
-
-  @override
-  String settingsShortcutEditorValid(String shortcut) {
-    return 'Recognized as $shortcut';
-  }
-
-  @override
-  String settingsShortcutEditorConflict(String shortcut, String action) {
-    return '$shortcut is already assigned to $action.';
-  }
-
-  @override
-  String get settingsShortcutEditorSearch => 'Search';
-
-  @override
-  String get settingsShortcutEditorNoResults => 'No matching entries.';
-
-  @override
-  String get settingsShortcutEditorBack => 'Back to shortcut editor';
-
-  @override
-  String get settingsShortcutEditorDone => 'Done';
-
-  @override
-  String get settingsShortcutEditorCancel => 'Cancel';
-
-  @override
-  String get settingsShortcutEditorSave => 'Save';
-
-  @override
-  String get settingsShortcutEditorSaving => 'Saving…';
-
-  @override
-  String get settingsShortcutEditorDelete => 'Delete';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeUp =>
-      'Three-finger swipe up';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeLeft =>
-      'Three-finger swipe left';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeRight =>
-      'Three-finger swipe right';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeLeft =>
-      'Four-finger swipe left';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeRight =>
-      'Four-finger swipe right';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeUp => 'Four-finger swipe up';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeDown =>
-      'Four-finger swipe down';
-
-  @override
-  String get settingsShortcutInputCategoryModifier => 'Modifier';
-
-  @override
-  String get settingsShortcutInputCategoryNavigation => 'Navigation';
-
-  @override
-  String get settingsShortcutInputCategoryEditing => 'Editing';
-
-  @override
-  String get settingsShortcutInputCategoryPunctuation => 'Punctuation';
-
-  @override
-  String get settingsShortcutInputCategoryFunction => 'Function';
-
-  @override
-  String get settingsShortcutInputCategoryMedia => 'Media';
-
-  @override
-  String get settingsShortcutInputCategoryHardware => 'Hardware';
-
-  @override
-  String get settingsShortcutInputCategorySpecial => 'Special';
-
-  @override
-  String get settingsShortcutInputCategoryGesture => 'Gesture';
-
-  @override
-  String get settingsShortcutActionShutdown => 'Shut down';
-
-  @override
-  String get settingsShortcutActionOpenApplications => 'Open applications';
-
-  @override
-  String get settingsShortcutActionOpenDashboard => 'Open dashboard';
-
-  @override
-  String get settingsShortcutActionOpenSettings => 'Open Settings';
-
-  @override
-  String get settingsShortcutActionOpenOverview => 'Open overview';
-
-  @override
-  String get settingsShortcutActionToggleVerticalMaximize =>
-      'Maximize vertically';
-
-  @override
-  String get settingsShortcutActionWindowSwitcher => 'Switch windows';
-
-  @override
-  String get settingsShortcutActionOpenClipboard => 'Open clipboard';
-
-  @override
-  String get settingsShortcutActionCaptureRegion => 'Capture region';
-
-  @override
-  String get settingsShortcutActionCloseWindow => 'Close window';
-
-  @override
-  String get settingsShortcutActionMinimizeWindow => 'Minimize window';
-
-  @override
-  String get settingsShortcutActionMinimizeAllWindows => 'Minimize all windows';
-
-  @override
-  String get settingsShortcutActionToggleMaximize => 'Maximize or restore';
-
-  @override
-  String get settingsShortcutActionToggleFullscreen =>
-      'Enter or leave fullscreen';
-
-  @override
-  String get settingsShortcutActionToggleWindowAlwaysOnTop =>
-      'Toggle always on top';
-
-  @override
-  String get settingsShortcutActionReleasePointer => 'Release pointer';
-
-  @override
-  String get settingsShortcutActionLockScreen => 'Lock screen';
-
-  @override
-  String get settingsShortcutActionVolumeUp => 'Increase volume';
-
-  @override
-  String get settingsShortcutActionVolumeDown => 'Decrease volume';
-
-  @override
-  String get settingsShortcutActionVolumeMute => 'Mute or unmute';
-
-  @override
-  String get settingsShortcutActionBrightnessUp => 'Increase brightness';
-
-  @override
-  String get settingsShortcutActionBrightnessDown => 'Decrease brightness';
-
-  @override
-  String get settingsShortcutActionNextKeyboardLayout => 'Next keyboard layout';
-
-  @override
-  String get settingsShortcutActionPreviousKeyboardLayout =>
-      'Previous keyboard layout';
-
-  @override
-  String get settingsShortcutActionFocusLeft => 'Focus window left';
-
-  @override
-  String get settingsShortcutActionFocusRight => 'Focus window right';
-
-  @override
-  String get settingsShortcutActionFocusUp => 'Focus window above';
-
-  @override
-  String get settingsShortcutActionFocusDown => 'Focus window below';
-
-  @override
-  String get settingsShortcutActionSwapLeft => 'Swap window left';
-
-  @override
-  String get settingsShortcutActionSwapRight => 'Swap window right';
-
-  @override
-  String get settingsShortcutActionSwapUp => 'Swap window upward';
-
-  @override
-  String get settingsShortcutActionSwapDown => 'Swap window downward';
-
-  @override
-  String get settingsShortcutActionPreviousWorkspace => 'Previous workspace';
-
-  @override
-  String get settingsShortcutActionNextWorkspace => 'Next workspace';
-
-  @override
-  String get settingsShortcutActionMoveToPreviousWorkspace =>
-      'Move window to previous workspace';
-
-  @override
-  String get settingsShortcutActionMoveToNextWorkspace =>
-      'Move window to next workspace';
-
-  @override
-  String settingsShortcutActionSwitchWorkspace(int workspace) {
-    return 'Switch to workspace $workspace';
-  }
-
-  @override
-  String settingsShortcutActionMoveToWorkspace(int workspace) {
-    return 'Move window to workspace $workspace';
-  }
-
-  @override
-  String get settingsLayoutDescription =>
-      'Control the spacing reserved around ordinary and maximized windows.';
-
-  @override
-  String get settingsLayoutSection => 'Desktop layout';
-
-  @override
-  String get settingsLayoutTitle => 'Give every window room to breathe.';
-
-  @override
-  String get settingsWindowLayoutDescription =>
-      'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip; its axis is configured per display and follows rotation by default.';
-
-  @override
-  String get settingsWindowLayoutDwindle => 'Tiling';
-
-  @override
-  String get settingsWindowLayoutStacking => 'Stacking';
-
-  @override
-  String get settingsWindowLayoutScrolling => 'Scrolling';
-
-  @override
-  String get settingsWindowLayoutTitle => 'Window layout';
-
-  @override
-  String get settingsScrollingLayoutWheelTitle => 'Super + mouse wheel';
-
-  @override
-  String get settingsScrollingLayoutWheelDescription =>
-      'Hold Super and turn the mouse wheel to scroll the window strip.';
-
-  @override
-  String get settingsScrollingLayoutWheelSpeed => 'Wheel speed';
-
-  @override
-  String get settingsScrollingLayoutWheelUpDirection => 'Wheel up moves';
-
-  @override
-  String get settingsScrollingLayoutWheelUpLeft => 'Left';
-
-  @override
-  String get settingsScrollingLayoutWheelUpRight => 'Right';
-
-  @override
-  String get settingsWorkspacesTitle => 'Workspaces';
-
-  @override
-  String get settingsWorkspacesEnable => 'Enable workspaces';
-
-  @override
-  String get settingsWorkspacesDescription =>
-      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
-
-  @override
-  String get settingsWorkspaceCount => 'Workspace count';
-
-  @override
-  String get settingsWorkspaceSwitchingOrientation => 'Switching direction';
-
-  @override
-  String get settingsWorkspaceSwitchingHorizontal => 'Horizontal';
-
-  @override
-  String get settingsWorkspaceSwitchingVertical => 'Vertical';
-
-  @override
-  String workspaceLabel(int workspace) {
-    return 'Workspace $workspace';
-  }
-
-  @override
-  String get workspaceActive => 'active';
-
-  @override
-  String get workspaceOccupied => 'occupied';
-
-  @override
-  String get workspaceEmpty => 'empty';
-
-  @override
-  String get settingsLiveBadge => 'LIVE';
-
-  @override
-  String get settingsLiveChangesSemanticsLabel =>
-      'Changes are applied in real time';
-
-  @override
-  String get settingsLoadingAudio => 'Loading application audio…';
-
-  @override
-  String get settingsLockBackdropDescription =>
-      'Control wallpaper darkness and blur while locked.';
-
-  @override
-  String get settingsLockBackdropTitle => 'Backdrop';
-
-  @override
-  String get settingsLockInformationDescription =>
-      'Choose which useful details remain visible before sign-in.';
-
-  @override
-  String get settingsLockInformationTitle => 'Desktop status';
-
-  @override
-  String get settingsLockMotionDescription =>
-      'Animate the desktop lock screen when it appears.';
-
-  @override
-  String get settingsLockMotionTitle => 'Lock screen motion';
-
-  @override
-  String get settingsLockPreviewDate => 'Thursday 23 July';
-
-  @override
-  String get settingsLockPreviewSemantics => 'Lock screen preview';
-
-  @override
-  String get settingsLockPreviewStatus => 'CPU 18% · GPU 12% · 52°C';
-
-  @override
-  String get settingsLockPreviewTime => '22:41';
-
-  @override
-  String get settingsLockScreenDescription =>
-      'The main display presents an intentional sign-in stage while secondary displays remain calm and informative.';
-
-  @override
-  String get settingsLockScreenSection => 'Lock screen';
-
-  @override
-  String get settingsLockScreenTitle =>
-      'A desktop lock screen, not a stretched phone.';
-
-  @override
-  String get settingsMasterOutputDescription =>
-      'Set the current desktop output volume.';
-
-  @override
-  String get settingsMasterOutputTitle => 'Master output';
-
-  @override
-  String get settingsMaximizedSpacingDescription =>
-      'Keep a small margin around maximized windows.';
-
-  @override
-  String get settingsMaximizedSpacingTitle => 'Maximized spacing';
 
   @override
   String get settingsDeveloperAutoReloadDescription =>
@@ -3013,14 +2963,186 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => 'Source workspace';
 
   @override
-  String get settingsEnvironmentAdd => 'Add';
+  String get settingsDisconnect => 'Disconnect';
 
   @override
-  String get settingsEnvironmentAddedStatus => 'Added to launched applications';
+  String get settingsDisplayApplyPersistentHint =>
+      'Keep changes to update this session and outputs.conf.';
+
+  @override
+  String get settingsDisplayApplySessionHint =>
+      'Keep changes to use them for this session.';
+
+  @override
+  String get settingsDisplayArrangementSemantics =>
+      'Monitor arrangement editor';
+
+  @override
+  String get settingsDisplayArrangementTitle => 'Monitor configuration';
+
+  @override
+  String get settingsDisplayBrightnessDescription =>
+      'Adjust the main display brightness.';
+
+  @override
+  String get settingsDisplayBrightnessTitle => 'Brightness';
+
+  @override
+  String get settingsDisplayCanvasPanHint =>
+      'Drag empty space to move the canvas. Use the mouse wheel to zoom.';
+
+  @override
+  String get settingsDisplayCanvasPanSemantics => 'Pannable monitor canvas';
+
+  @override
+  String settingsDisplayConfirmationMessage(int seconds) {
+    return 'The previous display settings will be restored automatically in $seconds s.';
+  }
+
+  @override
+  String get settingsDisplayConfirmationTitle => 'Keep these display settings?';
+
+  @override
+  String settingsDisplayDetails(
+    int width,
+    int height,
+    String refreshRate,
+    String scale,
+  ) {
+    return '$width × $height · $refreshRate Hz · $scale×';
+  }
+
+  @override
+  String get settingsDisplayEnabled => 'Use this display';
+
+  @override
+  String get settingsDisplayEnabledDescription =>
+      'Include this monitor in the desktop. At least one display must remain enabled.';
+
+  @override
+  String get settingsDisplayInformationUnavailable =>
+      'Display information is unavailable.';
+
+  @override
+  String get settingsDisplayKeepChanges => 'Keep changes';
+
+  @override
+  String get settingsDisplayOffTimeout => 'Turn displays off after';
+
+  @override
+  String settingsDisplayPosition(int x, int y) {
+    return 'Position $x, $y';
+  }
+
+  @override
+  String get settingsDisplayPrimary => 'Primary display';
+
+  @override
+  String get settingsDisplayPrimaryAutomatic =>
+      'Automatic (highest refresh rate)';
+
+  @override
+  String get settingsDisplayPrimaryHint =>
+      'Shell surfaces open on the primary display. Automatic uses the enabled display with the highest refresh rate.';
+
+  @override
+  String get settingsDisplayRefreshRate => 'Refresh rate';
+
+  @override
+  String get settingsDisplayResolution => 'Resolution';
+
+  @override
+  String get settingsDisplayRevertNow => 'Revert now';
+
+  @override
+  String get settingsDisplayRotation => 'Rotation';
+
+  @override
+  String get settingsDisplayRotation180 => 'Upside down';
+
+  @override
+  String get settingsDisplayRotation270 => '90° clockwise';
+
+  @override
+  String get settingsDisplayRotation90 => '90° counterclockwise';
+
+  @override
+  String get settingsDisplayRotationNormal => 'Landscape';
+
+  @override
+  String get settingsDisplayScale => 'Scale';
+
+  @override
+  String get settingsDisplayScaleInvalid => 'Enter a value from 50 to 600.';
+
+  @override
+  String get settingsDisplayScalePreset => 'Presets';
+
+  @override
+  String get settingsDisplayScaleRange =>
+      'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxis => 'Scrolling layout axis';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisAuto =>
+      'Automatic (follows rotation)';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisDescription =>
+      'Choose how scrolling windows are arranged on this display.';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisHorizontal => 'Horizontal';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisVertical => 'Vertical';
+
+  @override
+  String get settingsDisplayVariableRefreshRate =>
+      'Variable refresh rate (VRR)';
+
+  @override
+  String get settingsDisplayVariableRefreshRateDescription =>
+      'Match the monitor refresh rate to rendered content.';
+
+  @override
+  String get settingsDisplayZoomFit => 'Fit all monitors';
+
+  @override
+  String get settingsDisplayZoomIn => 'Zoom in';
+
+  @override
+  String settingsDisplayZoomLevel(int percent) {
+    return 'Canvas zoom $percent%';
+  }
+
+  @override
+  String get settingsDisplayZoomOut => 'Zoom out';
+
+  @override
+  String get settingsDisplaysDescription =>
+      'Review connected outputs and control screen brightness.';
+
+  @override
+  String get settingsDisplaysSection => 'Displays & video';
+
+  @override
+  String get settingsDisplaysTitle => 'Displays and video.';
+
+  @override
+  String get settingsEdgeDistance => 'Edge distance';
+
+  @override
+  String get settingsEnvironmentAdd => 'Add';
 
   @override
   String get settingsEnvironmentAddModeDescription =>
       'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.';
+
+  @override
+  String get settingsEnvironmentAddedStatus => 'Added to launched applications';
 
   @override
   String get settingsEnvironmentAllApplications => 'All applications';
@@ -3098,6 +3220,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.';
 
   @override
+  String get settingsEnvironmentModeAdd => 'Add Variable';
+
+  @override
+  String get settingsEnvironmentModeHide => 'Hide Variable';
+
+  @override
   String get settingsEnvironmentNameDuplicate =>
       'That variable already has an override.';
 
@@ -3117,12 +3245,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsEnvironmentOverridesDefault =>
       'Overrides the all-applications rule';
-
-  @override
-  String get settingsEnvironmentModeAdd => 'Add Variable';
-
-  @override
-  String get settingsEnvironmentModeHide => 'Hide Variable';
 
   @override
   String get settingsEnvironmentRemoveDescription =>
@@ -3151,11 +3273,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Customize the environment of applications launched by Denial.';
 
   @override
-  String get settingsEnvironmentUpdate => 'Update variable';
-
-  @override
   String get settingsEnvironmentUnavailableApplication =>
       'Unavailable application';
+
+  @override
+  String get settingsEnvironmentUpdate => 'Update variable';
 
   @override
   String get settingsEnvironmentValueHint => 'e.g. 1';
@@ -3179,9 +3301,392 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsEnvironmentVariablesTitle => 'Configured overrides';
 
   @override
+  String get settingsFocusedWindowBorder =>
+      'Highlight the focused window border';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      'Turn this off to keep focused and unfocused window borders the same colour.';
+
+  @override
+  String get settingsFocusedWindows => 'Focused windows';
+
+  @override
+  String get settingsFontCatalogLoading => 'Finding installed fonts…';
+
+  @override
+  String get settingsFontDescription =>
+      'Use the system default or an installed font across the Denial shell.';
+
+  @override
+  String get settingsFontFamily => 'Font family';
+
+  @override
+  String get settingsFontSystemDefault => 'System default';
+
+  @override
+  String get settingsGlassAccentTint => 'Accent tint';
+
+  @override
+  String get settingsGlassAdvanced => 'Glass tuning';
+
+  @override
+  String get settingsGlassAppPanelOpacity => 'App panels opacity';
+
+  @override
+  String get settingsGlassAppearance => 'Glass appearance';
+
+  @override
+  String get settingsGlassBevelWidth => 'Bevel width';
+
+  @override
+  String get settingsGlassBrightness => 'Luminosity';
+
+  @override
+  String get settingsGlassDispersion => 'Color dispersion';
+
+  @override
+  String get settingsGlassEdgeStrength => 'Edge shine';
+
+  @override
+  String get settingsGlassFrost => 'Frost';
+
+  @override
+  String get settingsGlassLightAngle => 'Light direction';
+
+  @override
+  String get settingsGlassLightIntensity => 'Light intensity';
+
+  @override
+  String get settingsGlassOppositeLight => 'Opposite-edge light';
+
+  @override
+  String get settingsGlassQuality => 'Render quality';
+
+  @override
+  String get settingsGlassRefraction => 'Refraction';
+
+  @override
+  String get settingsGlassRefractionDepth => 'Refraction depth';
+
+  @override
+  String get settingsGlassReset => 'Reset glass';
+
+  @override
+  String get settingsGlassRimFalloff => 'Highlight falloff';
+
+  @override
+  String settingsGlassRimPixels(String width) {
+    return '$width px';
+  }
+
+  @override
+  String get settingsGlassRimWidth => 'Highlight width';
+
+  @override
+  String get settingsGlassSaturation => 'Saturation';
+
+  @override
+  String get settingsGlassShellOpacity => 'Shell glass opacity';
+
+  @override
+  String get settingsGlassThickness => 'Optical thickness';
+
+  @override
+  String get settingsGlassTuningDescription =>
+      'Changes apply immediately. The defaults preserve the original glass effect.';
+
+  @override
+  String get settingsGlassWindowOpacity => 'Window glass opacity';
+
+  @override
+  String get settingsHeaderContext => 'DENIAL / SYSTEM';
+
+  @override
+  String get settingsHeaderLogoSemanticsLabel => 'Denial';
+
+  @override
+  String get settingsHeight => 'Height';
+
+  @override
+  String get settingsHoverTrigger => 'Open on edge hover';
+
+  @override
+  String get settingsHoverTriggerDescription =>
+      'Reveal this panel when the pointer reaches its screen edge.';
+
+  @override
+  String get settingsHudOverlayDescription =>
+      'Position volume and brightness feedback.';
+
+  @override
+  String get settingsHudOverlayTitle => 'System level display';
+
+  @override
+  String get settingsIdleInhibitDescription =>
+      'Application activity such as video playback can temporarily pause these timers.';
+
+  @override
+  String get settingsIdleInhibitSemantics =>
+      'Applications may pause automatic idle actions';
+
+  @override
+  String get settingsInactivityTimeout => 'Inactivity timeout';
+
+  @override
+  String get settingsKeyboardActiveLayout => 'Active layout';
+
+  @override
+  String get settingsKeyboardApply => 'Apply keyboard settings';
+
+  @override
+  String get settingsKeyboardApplying => 'Applying…';
+
+  @override
+  String get settingsKeyboardInvalidLayouts =>
+      'Enter at least one valid XKB layout.';
+
+  @override
+  String get settingsKeyboardLayoutsDescription =>
+      'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.';
+
+  @override
+  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
+
+  @override
+  String get settingsKeyboardLayoutsLabel => 'Layouts';
+
+  @override
+  String get settingsKeyboardLayoutsTitle => 'Layouts and variants';
+
+  @override
+  String get settingsKeyboardLoading =>
+      'Reading the compositor keyboard configuration…';
+
+  @override
+  String get settingsKeyboardOptionsDescription =>
+      'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.';
+
+  @override
+  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
+
+  @override
+  String get settingsKeyboardOptionsLabel => 'XKB options';
+
+  @override
+  String get settingsKeyboardRepeatDelay => 'Delay';
+
+  @override
+  String get settingsKeyboardRepeatRate => 'Rate';
+
+  @override
+  String get settingsKeyboardRepeatTitle => 'Key repeat';
+
+  @override
+  String get settingsKeyboardSection => 'Input';
+
+  @override
+  String get settingsKeyboardSwitchingShortcut =>
+      'Super+Space selects the next layout. Add Shift to select the previous one.';
+
+  @override
+  String get settingsKeyboardSwitchingTitle => 'Layout switching';
+
+  @override
+  String get settingsKeyboardTitle =>
+      'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.';
+
+  @override
+  String get settingsLanguageDescription =>
+      'System default follows your desktop language. Changes apply immediately.';
+
+  @override
+  String get settingsLanguageEnglish => 'English';
+
+  @override
+  String get settingsLanguageInterfaceTitle => 'Interface language';
+
+  @override
+  String get settingsLanguageSection => 'Language';
+
+  @override
+  String get settingsLanguageSelectorSemantics => 'Denial interface language';
+
+  @override
+  String get settingsLanguageSimplifiedChinese => '简体中文';
+
+  @override
+  String get settingsLanguageSystemDefault => 'System default';
+
+  @override
+  String get settingsLanguageTitle => 'Choose the language Denial uses.';
+
+  @override
+  String get settingsLauncherOverlayDescription =>
+      'Position the application launcher.';
+
+  @override
+  String get settingsLauncherOverlayTitle => 'Applications';
+
+  @override
+  String get settingsLayoutDescription =>
+      'Control the spacing reserved around ordinary and maximized windows.';
+
+  @override
+  String get settingsLayoutSection => 'Desktop layout';
+
+  @override
+  String get settingsLayoutTitle => 'Give every window room to breathe.';
+
+  @override
+  String get settingsLiveBadge => 'LIVE';
+
+  @override
+  String get settingsLiveChangesSemanticsLabel =>
+      'Changes are applied in real time';
+
+  @override
+  String get settingsLoadingAudio => 'Loading application audio…';
+
+  @override
+  String get settingsLoadingDisplays => 'Loading monitor configuration…';
+
+  @override
+  String get settingsLockBackdropDescription =>
+      'Control wallpaper darkness and blur while locked.';
+
+  @override
+  String get settingsLockBackdropTitle => 'Backdrop';
+
+  @override
+  String get settingsLockInformationDescription =>
+      'Choose which useful details remain visible before sign-in.';
+
+  @override
+  String get settingsLockInformationTitle => 'Desktop status';
+
+  @override
+  String get settingsLockMotionDescription =>
+      'Animate the desktop lock screen when it appears.';
+
+  @override
+  String get settingsLockMotionTitle => 'Lock screen motion';
+
+  @override
+  String get settingsLockPinChange => 'Change PIN';
+
+  @override
+  String get settingsLockPinConfirm => 'Confirm PIN';
+
+  @override
+  String get settingsLockPinDescription =>
+      'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.';
+
+  @override
+  String get settingsLockPinLabel => 'Unlock with a PIN';
+
+  @override
+  String get settingsLockPinLengthHint => '4 to 12 digits';
+
+  @override
+  String get settingsLockPinMismatch => 'The PINs don’t match';
+
+  @override
+  String get settingsLockPinNew => 'New PIN';
+
+  @override
+  String get settingsLockPinOff => 'Off';
+
+  @override
+  String settingsLockPinOn(int length) {
+    return 'On, $length digits';
+  }
+
+  @override
+  String get settingsLockPinPassword => 'Account password';
+
+  @override
+  String get settingsLockPinRemove => 'Remove PIN';
+
+  @override
+  String get settingsLockPinSave => 'Save PIN';
+
+  @override
+  String get settingsLockPinSetUp => 'Set up PIN';
+
+  @override
+  String get settingsLockPinTitle => 'PIN';
+
+  @override
+  String get settingsLockPinUnavailable =>
+      'Couldn’t change the PIN. Try again.';
+
+  @override
+  String get settingsLockPinWrongPassword => 'Wrong password';
+
+  @override
+  String get settingsLockPreviewDate => 'Thursday 23 July';
+
+  @override
+  String get settingsLockPreviewSemantics => 'Lock screen preview';
+
+  @override
+  String get settingsLockPreviewStatus => 'CPU 18% · GPU 12% · 52°C';
+
+  @override
+  String get settingsLockPreviewTime => '22:41';
+
+  @override
+  String get settingsLockScreenDescription =>
+      'The main display presents an intentional sign-in stage while secondary displays remain calm and informative.';
+
+  @override
+  String get settingsLockScreenSection => 'Lock screen';
+
+  @override
+  String get settingsLockScreenTitle =>
+      'A desktop lock screen, not a stretched phone.';
+
+  @override
+  String get settingsLockTimeout => 'Lock after';
+
+  @override
+  String get settingsMasterOutputDescription =>
+      'Set the current desktop output volume.';
+
+  @override
+  String get settingsMasterOutputTitle => 'Master output';
+
+  @override
+  String get settingsMaximizedSpacingDescription =>
+      'Keep a small margin around maximized windows.';
+
+  @override
+  String get settingsMaximizedSpacingTitle => 'Maximized spacing';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes min';
   }
+
+  @override
+  String get settingsMonitorDragHint =>
+      'Drag to arrange, or use the arrow keys to move.';
+
+  @override
+  String settingsMonitorSemantics(String name) {
+    return 'Monitor $name';
+  }
+
+  @override
+  String get settingsMouseAcceleration => 'Mouse acceleration';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.';
+
+  @override
+  String get settingsMousePointerSpeed => 'Mouse pointer speed';
 
   @override
   String get settingsNavigationAbout => 'About';
@@ -3205,22 +3710,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNavigationDeveloper => 'Developer';
 
   @override
-  String get settingsNavigationEnvironment => 'App environment';
-
-  @override
   String get settingsNavigationDisplays => 'Displays & video';
 
   @override
-  String get settingsNavigationLanguage => 'Language';
+  String get settingsNavigationEnvironment => 'App environment';
 
   @override
   String get settingsNavigationKeyboard => 'Keyboard';
 
   @override
-  String get settingsNavigationTouchpad => 'Mouse & touchpad';
-
-  @override
-  String get settingsNavigationShortcuts => 'Shortcuts';
+  String get settingsNavigationLanguage => 'Language';
 
   @override
   String get settingsNavigationLockScreen => 'Lock screen';
@@ -3232,10 +3731,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNavigationOverlays => 'Overlays';
 
   @override
+  String get settingsNavigationPermissions => 'Permissions';
+
+  @override
   String get settingsNavigationPower => 'Power';
 
   @override
   String get settingsNavigationSection => 'Settings';
+
+  @override
+  String get settingsNavigationShortcuts => 'Shortcuts';
+
+  @override
+  String get settingsNavigationTouchpad => 'Mouse & touchpad';
+
+  @override
+  String get settingsNavigationYou => 'You';
 
   @override
   String get settingsNetworkDescription =>
@@ -3334,9 +3845,68 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsPermissionAllow => 'Always allow';
+
+  @override
+  String get settingsPermissionAsk => 'Ask';
+
+  @override
+  String get settingsPermissionDeny => 'Never allow';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsDescription =>
+      'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsTitle => 'Keyboard shortcuts';
+
+  @override
+  String get settingsPermissionsNone => 'No app has asked yet.';
+
+  @override
+  String get settingsPermissionsSaveFailed => 'Couldn’t save the change.';
+
+  @override
+  String get settingsPermissionsSection => 'Permissions';
+
+  @override
+  String get settingsPermissionsTitle =>
+      'Choose what apps may do. An app appears here once it has asked.';
+
+  @override
+  String get settingsPermissionsUnavailable =>
+      'Permissions can’t be read: the portal permission store is not available.';
+
+  @override
   String settingsPixels(int pixels) {
     return '$pixels px';
   }
+
+  @override
+  String get settingsPowerButtonAction => 'Action';
+
+  @override
+  String get settingsPowerButtonDescription =>
+      'Choose what happens when you press the physical power button.';
+
+  @override
+  String get settingsPowerButtonDpms => 'Turn off displays (DPMS)';
+
+  @override
+  String get settingsPowerButtonHibernate => 'Hibernate';
+
+  @override
+  String get settingsPowerButtonHibernateUnavailable =>
+      'Hibernate (unavailable)';
+
+  @override
+  String get settingsPowerButtonPowerOff => 'Power off';
+
+  @override
+  String get settingsPowerButtonSuspend => 'Suspend';
+
+  @override
+  String get settingsPowerButtonTitle => 'Power button';
 
   @override
   String get settingsPowerDescription =>
@@ -3352,6 +3922,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsRefresh => 'Refresh';
 
   @override
+  String get settingsResetAppearance => 'Reset appearance';
+
+  @override
+  String get settingsResetGlassEffects => 'Reset glass effects';
+
+  @override
   String get settingsResetPage => 'Reset page';
 
   @override
@@ -3364,34 +3940,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsScreenAnchor => 'Screen anchor';
 
   @override
+  String get settingsScrollingLayoutPreserveSwapSizes =>
+      'Keep window sizes when swapping';
+
+  @override
+  String get settingsScrollingLayoutPreserveSwapSizesDescription =>
+      'Keep each window’s width when swapping single-window columns on the same workspace and display. On vertical strips, keep height instead. Split columns keep their existing sizes.';
+
+  @override
+  String get settingsScrollingLayoutSwapTitle => 'Scrolling swaps';
+
+  @override
+  String get settingsScrollingLayoutWheelDescription =>
+      'Hold Super and turn the mouse wheel to scroll the window strip.';
+
+  @override
+  String get settingsScrollingLayoutWheelSpeed => 'Wheel speed';
+
+  @override
+  String get settingsScrollingLayoutWheelTitle => 'Super + mouse wheel';
+
+  @override
+  String get settingsScrollingLayoutWheelUpDirection => 'Wheel up moves';
+
+  @override
+  String get settingsScrollingLayoutWheelUpLeft => 'Left';
+
+  @override
+  String get settingsScrollingLayoutWheelUpRight => 'Right';
+
+  @override
   String get settingsShapeDescription =>
       'Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.';
 
   @override
   String get settingsShapeTitle => 'Shape';
-
-  @override
-  String get settingsCornerRoundness => 'Corner roundness';
-
-  @override
-  String get settingsColorSchemeTitle => 'Colour scheme';
-
-  @override
-  String get settingsColorSchemeDark => 'Dark';
-
-  @override
-  String get settingsColorSchemeLight => 'Light';
-
-  @override
-  String get settingsColorSchemeNoPreference => 'No preference';
-
-  @override
-  String get settingsColorSchemeDescription =>
-      'Use the same colour scheme across Denial and supported applications.';
-
-  @override
-  String get settingsColorSchemeNoPreferenceDescription =>
-      'Denial keeps its default dark appearance while applications choose their own.';
 
   @override
   String get settingsShellAccentChoose => 'Choose accent color';
@@ -3410,6 +3993,382 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShellAccentWallpaper => 'From wallpaper';
 
   @override
+  String get settingsShortcutActionBrightnessDown => 'Decrease brightness';
+
+  @override
+  String get settingsShortcutActionBrightnessUp => 'Increase brightness';
+
+  @override
+  String get settingsShortcutActionCaptureRegion => 'Capture region';
+
+  @override
+  String get settingsShortcutActionCloseWindow => 'Close window';
+
+  @override
+  String get settingsShortcutActionFocusDown => 'Focus window below';
+
+  @override
+  String get settingsShortcutActionFocusLeft => 'Focus window left';
+
+  @override
+  String get settingsShortcutActionFocusRight => 'Focus window right';
+
+  @override
+  String get settingsShortcutActionFocusUp => 'Focus window above';
+
+  @override
+  String get settingsShortcutActionLockScreen => 'Lock screen';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => 'Minimize all windows';
+
+  @override
+  String get settingsShortcutActionMinimizeWindow => 'Minimize window';
+
+  @override
+  String get settingsShortcutActionMoveToNextWorkspace =>
+      'Move window to next workspace';
+
+  @override
+  String get settingsShortcutActionMoveToPreviousWorkspace =>
+      'Move window to previous workspace';
+
+  @override
+  String settingsShortcutActionMoveToWorkspace(int workspace) {
+    return 'Move window to workspace $workspace';
+  }
+
+  @override
+  String get settingsShortcutActionNextKeyboardLayout => 'Next keyboard layout';
+
+  @override
+  String get settingsShortcutActionNextWorkspace => 'Next workspace';
+
+  @override
+  String get settingsShortcutActionOpenApplications => 'Open applications';
+
+  @override
+  String get settingsShortcutActionOpenClipboard => 'Open clipboard';
+
+  @override
+  String get settingsShortcutActionOpenDashboard => 'Open dashboard';
+
+  @override
+  String get settingsShortcutActionOpenOverview => 'Open overview';
+
+  @override
+  String get settingsShortcutActionOpenSettings => 'Open Settings';
+
+  @override
+  String get settingsShortcutActionPreviousKeyboardLayout =>
+      'Previous keyboard layout';
+
+  @override
+  String get settingsShortcutActionPreviousWorkspace => 'Previous workspace';
+
+  @override
+  String get settingsShortcutActionReleasePointer => 'Release pointer';
+
+  @override
+  String get settingsShortcutActionResetWindowHeight => 'Reset window height';
+
+  @override
+  String get settingsShortcutActionResetWindowWidth => 'Reset window width';
+
+  @override
+  String get settingsShortcutActionResizeGrowHeight => 'Grow window height';
+
+  @override
+  String get settingsShortcutActionResizeGrowWidth => 'Grow window width';
+
+  @override
+  String get settingsShortcutActionResizeShrinkHeight => 'Shrink window height';
+
+  @override
+  String get settingsShortcutActionResizeShrinkWidth => 'Shrink window width';
+
+  @override
+  String get settingsShortcutActionShutdown => 'Shut down';
+
+  @override
+  String get settingsShortcutActionSwapDown => 'Swap window downward';
+
+  @override
+  String get settingsShortcutActionSwapLeft => 'Swap window left';
+
+  @override
+  String get settingsShortcutActionSwapRight => 'Swap window right';
+
+  @override
+  String get settingsShortcutActionSwapUp => 'Swap window upward';
+
+  @override
+  String settingsShortcutActionSwitchWorkspace(int workspace) {
+    return 'Switch to workspace $workspace';
+  }
+
+  @override
+  String get settingsShortcutActionToggleFullscreen =>
+      'Enter or leave fullscreen';
+
+  @override
+  String get settingsShortcutActionToggleMaximize => 'Maximize or restore';
+
+  @override
+  String get settingsShortcutActionToggleVerticalMaximize =>
+      'Maximize vertically';
+
+  @override
+  String get settingsShortcutActionToggleWindowAlwaysOnTop =>
+      'Toggle always on top';
+
+  @override
+  String get settingsShortcutActionVolumeDown => 'Decrease volume';
+
+  @override
+  String get settingsShortcutActionVolumeMute => 'Mute or unmute';
+
+  @override
+  String get settingsShortcutActionVolumeUp => 'Increase volume';
+
+  @override
+  String get settingsShortcutActionWindowSwitcher => 'Switch windows';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return 'Application · $desktopFileId';
+  }
+
+  @override
+  String get settingsShortcutEditorAddArgument => 'Add argument';
+
+  @override
+  String get settingsShortcutEditorAddTitle => 'Add shortcut';
+
+  @override
+  String get settingsShortcutEditorArgumentHint => '--option';
+
+  @override
+  String settingsShortcutEditorArgumentLabel(int index) {
+    return 'Argument $index';
+  }
+
+  @override
+  String get settingsShortcutEditorArgumentsLabel => 'Arguments';
+
+  @override
+  String get settingsShortcutEditorBack => 'Back to shortcut editor';
+
+  @override
+  String get settingsShortcutEditorCancel => 'Cancel';
+
+  @override
+  String get settingsShortcutEditorChooseAction => 'Choose an action';
+
+  @override
+  String get settingsShortcutEditorChooseApplication => 'Choose an application';
+
+  @override
+  String settingsShortcutEditorConflict(String shortcut, String action) {
+    return '$shortcut is already assigned to $action.';
+  }
+
+  @override
+  String get settingsShortcutEditorDelete => 'Delete';
+
+  @override
+  String get settingsShortcutEditorDescription =>
+      'Write a shortcut, choose what it runs, and let the compositor check it before saving.';
+
+  @override
+  String get settingsShortcutEditorDone => 'Done';
+
+  @override
+  String get settingsShortcutEditorEditTitle => 'Edit shortcut';
+
+  @override
+  String get settingsShortcutEditorNoArguments => 'No arguments';
+
+  @override
+  String get settingsShortcutEditorNoResults => 'No matching entries.';
+
+  @override
+  String get settingsShortcutEditorProgramDescription =>
+      'Run a program directly, without a shell. Every argument is passed exactly as written.';
+
+  @override
+  String get settingsShortcutEditorProgramHint => 'foot';
+
+  @override
+  String get settingsShortcutEditorProgramLabel => 'Program';
+
+  @override
+  String settingsShortcutEditorRemoveArgument(int index) {
+    return 'Remove argument $index';
+  }
+
+  @override
+  String get settingsShortcutEditorSave => 'Save';
+
+  @override
+  String get settingsShortcutEditorSaving => 'Saving…';
+
+  @override
+  String get settingsShortcutEditorSearch => 'Search';
+
+  @override
+  String get settingsShortcutEditorShellCommandHint =>
+      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
+
+  @override
+  String get settingsShortcutEditorShellCommandLabel => 'Shell command';
+
+  @override
+  String get settingsShortcutEditorShellDescription =>
+      'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.';
+
+  @override
+  String get settingsShortcutEditorShortcutExample =>
+      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
+
+  @override
+  String get settingsShortcutEditorShortcutHint => 'Super+K';
+
+  @override
+  String get settingsShortcutEditorShortcutLabel => 'Shortcut';
+
+  @override
+  String get settingsShortcutEditorSupportedInputs => 'Supported inputs';
+
+  @override
+  String get settingsShortcutEditorTargetAction => 'Denial action';
+
+  @override
+  String get settingsShortcutEditorTargetApplication => 'Application';
+
+  @override
+  String get settingsShortcutEditorTargetLabel => 'Runs';
+
+  @override
+  String get settingsShortcutEditorTargetProgram => 'Program';
+
+  @override
+  String get settingsShortcutEditorTargetShell => 'Shell command';
+
+  @override
+  String settingsShortcutEditorValid(String shortcut) {
+    return 'Recognized as $shortcut';
+  }
+
+  @override
+  String get settingsShortcutEditorValidating =>
+      'Checking with the compositor…';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeDown =>
+      'Four-finger swipe down';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeLeft =>
+      'Four-finger swipe left';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeRight =>
+      'Four-finger swipe right';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeUp => 'Four-finger swipe up';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft =>
+      'Three-finger swipe left';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight =>
+      'Three-finger swipe right';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeUp =>
+      'Three-finger swipe up';
+
+  @override
+  String get settingsShortcutInputCategoryEditing => 'Editing';
+
+  @override
+  String get settingsShortcutInputCategoryFunction => 'Function';
+
+  @override
+  String get settingsShortcutInputCategoryGesture => 'Gesture';
+
+  @override
+  String get settingsShortcutInputCategoryHardware => 'Hardware';
+
+  @override
+  String get settingsShortcutInputCategoryMedia => 'Media';
+
+  @override
+  String get settingsShortcutInputCategoryModifier => 'Modifier';
+
+  @override
+  String get settingsShortcutInputCategoryNavigation => 'Navigation';
+
+  @override
+  String get settingsShortcutInputCategoryPunctuation => 'Punctuation';
+
+  @override
+  String get settingsShortcutInputCategorySpecial => 'Special';
+
+  @override
+  String get settingsShortcutProviderUnavailable => 'Provider unavailable';
+
+  @override
+  String get settingsShortcutsAdd => 'Add shortcut';
+
+  @override
+  String settingsShortcutsConfigured(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count shortcuts',
+      one: '1 shortcut',
+      zero: 'No shortcuts',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String settingsShortcutsDeleteTooltip(String shortcut) {
+    return 'Delete $shortcut';
+  }
+
+  @override
+  String get settingsShortcutsEmpty =>
+      'No shortcuts are configured. Add one to make an action easier to reach.';
+
+  @override
+  String get settingsShortcutsLoading =>
+      'Reading shortcuts from the compositor…';
+
+  @override
+  String get settingsShortcutsRetry => 'Retry';
+
+  @override
+  String settingsShortcutsRowSemantics(String shortcut, String action) {
+    return '$shortcut, $action';
+  }
+
+  @override
+  String get settingsShortcutsSection => 'Shortcuts';
+
+  @override
+  String get settingsShortcutsTitle =>
+      'Choose what Denial does when a shortcut is pressed.';
+
+  @override
+  String get settingsShortcutsUnavailable =>
+      'The compositor shortcut configuration is unavailable.';
+
+  @override
   String get settingsShowSystemStatus => 'Show performance and power status';
 
   @override
@@ -3424,6 +4383,28 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsStorageLocation =>
       'Settings are stored in\n~/.config/denial/settings.json';
+
+  @override
+  String get settingsSuspendMode => 'Suspend mode';
+
+  @override
+  String get settingsSuspendModeDeep => 'Suspend to RAM (deep)';
+
+  @override
+  String get settingsSuspendModeDescription =>
+      'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.';
+
+  @override
+  String get settingsSuspendModeS2idle => 'Suspend to idle (s2idle)';
+
+  @override
+  String get settingsSuspendModeShallow => 'Standby (shallow)';
+
+  @override
+  String get settingsSuspendModeUnavailable => 'Unavailable';
+
+  @override
+  String get settingsSuspendTimeout => 'Suspend after';
 
   @override
   String get settingsSystemBarCloneHint =>
@@ -3492,10 +4473,61 @@ class AppLocalizationsEn extends AppLocalizations {
       'Display information is not available yet.';
 
   @override
+  String get settingsTouchpadNaturalScroll => 'Reverse two-finger scrolling';
+
+  @override
+  String get settingsTouchpadNaturalScrollDescription =>
+      'Move content in the same direction as your fingers.';
+
+  @override
+  String get settingsTouchpadScrollSpeed => 'Finger scroll speed';
+
+  @override
+  String get settingsTouchpadScrollingLayoutSwipeSpeed =>
+      'Scrolling layout swipe speed';
+
+  @override
+  String get settingsTouchpadSection => 'Input';
+
+  @override
+  String get settingsTouchpadTapToClick => 'Tap to click';
+
+  @override
+  String get settingsTouchpadTapToClickDescription =>
+      'Tap the touchpad to press the primary mouse button.';
+
+  @override
+  String get settingsTouchpadTitle => 'Tune mouse and touchpad behavior.';
+
+  @override
+  String get settingsTransparencyBlur => 'Blur';
+
+  @override
+  String get settingsTransparencyBlurDescription =>
+      'Use Denial’s current fast Gaussian backdrop blur.';
+
+  @override
+  String get settingsTransparencyGlass => 'Glass';
+
+  @override
+  String get settingsTransparencyGlassDescription =>
+      'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.';
+
+  @override
+  String get settingsTransparencyOff => 'Off';
+
+  @override
+  String get settingsTransparencyOffDescription =>
+      'Leave translucent surfaces clear without processing the desktop behind them.';
+
+  @override
+  String get settingsTransparencyTitle => 'Transparency material';
+
+  @override
   String get settingsTwoHours => '2 hours';
 
   @override
-  String get settingsSuspendTimeout => 'Suspend after';
+  String get settingsTypographyTitle => 'Typography';
 
   @override
   String get settingsUnfocusedWindows => 'Unfocused windows';
@@ -3508,14 +4540,44 @@ class AppLocalizationsEn extends AppLocalizations {
       'The lock screen follows wallpaper changes and per-output assignments.';
 
   @override
+  String get settingsWallpaperApplied => 'Applied wallpaper';
+
+  @override
   String get settingsWallpaperChoose => 'Change';
+
+  @override
+  String get settingsWallpaperChooseFallback => 'Choose fallback image';
+
+  @override
+  String get settingsWallpaperDefault => 'Denial default';
 
   @override
   String get settingsWallpaperDescription =>
       'Choose the image shown behind the shell and on the lock screen.';
 
   @override
+  String settingsWallpaperDisplay(String name) {
+    return 'Display · $name';
+  }
+
+  @override
+  String get settingsWallpaperFallback => 'Fallback image';
+
+  @override
+  String get settingsWallpaperLive => 'Live / app-managed wallpaper';
+
+  @override
+  String get settingsWallpaperLiveDescription =>
+      'A wallpaper app is drawing this desktop. Choosing a fallback image will not stop it.';
+
+  @override
   String get settingsWallpaperPreviewSemantics => 'Current wallpaper preview';
+
+  @override
+  String get settingsWallpaperPreviewUnavailable => 'Preview unavailable';
+
+  @override
+  String get settingsWallpaperStatic => 'Static wallpaper';
 
   @override
   String get settingsWallpaperTitle => 'Wallpaper';
@@ -3541,6 +4603,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsWindowCloseEffectTitle => 'Window closing effect';
 
   @override
+  String get settingsWindowLayoutDescription =>
+      'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip; its axis is configured per display and follows rotation by default.';
+
+  @override
+  String get settingsWindowLayoutDwindle => 'Tiling';
+
+  @override
+  String get settingsWindowLayoutScrolling => 'Scrolling';
+
+  @override
+  String get settingsWindowLayoutStacking => 'Stacking';
+
+  @override
+  String get settingsWindowLayoutTitle => 'Window layout';
+
+  @override
   String get settingsWindowMinimizationDescription =>
       'Keep minimized windows as live previews on the desktop, or glide them beyond the screen edge until restored.';
 
@@ -3561,9 +4639,96 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsWindowOpacityTitle => 'Window opacity';
 
   @override
+  String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String get settingsWorkspaceSwitchingHorizontal => 'Horizontal';
+
+  @override
+  String get settingsWorkspaceSwitchingOrientation => 'Switching direction';
+
+  @override
+  String get settingsWorkspaceSwitchingVertical => 'Vertical';
+
+  @override
+  String get settingsWorkspacesDescription =>
+      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
+
+  @override
+  String get settingsWorkspacesEnable => 'Enable workspaces';
+
+  @override
+  String get settingsWorkspacesTitle => 'Workspaces';
+
+  @override
+  String get settingsYouAccountName => 'Use account name';
+
+  @override
+  String get settingsYouChoosePhoto => 'Choose photo';
+
+  @override
+  String get settingsYouDefaultPhoto => 'Use default avatar';
+
+  @override
+  String get settingsYouDescription => 'Make this space yours.';
+
+  @override
+  String get settingsYouDisplayName => 'Display name';
+
+  @override
+  String get settingsYouImageError =>
+      'Could not use that photo. Choose a PNG, JPEG, WebP, GIF or BMP image under 16 MB.';
+
+  @override
+  String get settingsYouLoadError => 'Could not load your profile.';
+
+  @override
+  String get settingsYouNameHint =>
+      'Leave this empty to use your account name.';
+
+  @override
+  String get settingsYouPreview => 'Your profile on the dashboard';
+
+  @override
+  String get settingsYouSave => 'Save name';
+
+  @override
+  String get settingsYouSaveError =>
+      'Could not save your profile. Please try again.';
+
+  @override
+  String get settingsYouSaved => 'Name saved.';
+
+  @override
+  String get shellPresentationDesktop => 'Desktop view';
+
+  @override
+  String get shellPresentationMobile => 'Mobile view';
+
+  @override
   String shortDate(String weekday, int day, String month) {
     return '$weekday $day $month';
   }
+
+  @override
+  String get simLocked => 'SIM locked';
+
+  @override
+  String get simPinLater => 'Later';
+
+  @override
+  String simPinRetries(int count) {
+    return '$count attempts remaining';
+  }
+
+  @override
+  String get simPinTitle => 'Unlock SIM';
+
+  @override
+  String get simPinUnlock => 'Unlock SIM';
+
+  @override
+  String get simPukRequired => 'SIM requires a PUK. Contact your carrier.';
 
   @override
   String statusBarLiveTime(String time) {
@@ -3594,8 +4759,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get thermalSensorSvooc => 'SVOOC';
 
   @override
+  String get timeAfternoon => 'PM';
+
+  @override
   String timeHoursMinutes(String hour, String minute) {
     return '$hour:$minute';
+  }
+
+  @override
+  String get timeMorning => 'AM';
+
+  @override
+  String timeTwelveHour(String hour, String minute, String period) {
+    return '$hour:$minute $period';
   }
 
   @override
@@ -3676,22 +4852,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Online wallpapers are unavailable. Local wallpapers still work.';
 
   @override
-  String get wallpaperPreviousPage => 'Previous wallpaper page';
-
-  @override
-  String get wallpaperNextPage => 'Next wallpaper page';
-
-  @override
-  String wallpaperPageNumber(int page) {
-    return 'Page $page';
-  }
-
-  @override
-  String wallpaperPageOfTotal(int page, int total) {
-    return 'Page $page of $total';
-  }
-
-  @override
   String get wallpaperLayout => 'Preview layout';
 
   @override
@@ -3743,7 +4903,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get wallpaperMobileVerticalPosition => 'Vertical';
 
   @override
+  String get wallpaperNextPage => 'Next wallpaper page';
+
+  @override
   String get wallpaperNoneFound => 'No wallpapers found';
+
+  @override
+  String wallpaperPageNumber(int page) {
+    return 'Page $page';
+  }
+
+  @override
+  String wallpaperPageOfTotal(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get wallpaperPreviousPage => 'Previous wallpaper page';
 
   @override
   String get wallpaperSearchHint => 'Search wallpapers';
@@ -3780,6 +4956,175 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get weekdayWednesday => 'Wednesday';
+
+  @override
+  String get welcomeAppearance => 'Appearance';
+
+  @override
+  String get welcomeAppearanceTitle => 'A desktop that feels like you.';
+
+  @override
+  String get welcomeBlur => 'Blur';
+
+  @override
+  String get welcomeCancel => 'Cancel';
+
+  @override
+  String get welcomeDark => 'Dark';
+
+  @override
+  String get welcomeDesktopUsage => 'Desktop essentials';
+
+  @override
+  String get welcomeDonate => 'Donate';
+
+  @override
+  String get welcomeDwindleDescription =>
+      'Windows tile into a balanced, branching layout.';
+
+  @override
+  String get welcomeExit => 'Exit';
+
+  @override
+  String get welcomeExitMessage =>
+      'The setup won\'t appear again, you can open it from your launcher.';
+
+  @override
+  String get welcomeExitSetup => 'Exit setup';
+
+  @override
+  String get welcomeFinish => 'Start using Denial';
+
+  @override
+  String get welcomeGetStarted => 'Get started';
+
+  @override
+  String get welcomeGlass => 'Glass';
+
+  @override
+  String get welcomeInstant =>
+      'Try a choice. Your desktop changes immediately.';
+
+  @override
+  String get welcomeIntro =>
+      'A different desktop. A few keys to make it yours.';
+
+  @override
+  String get welcomeKill => 'Kill / close the focused window';
+
+  @override
+  String get welcomeLayout => 'Layout';
+
+  @override
+  String get welcomeLayoutTitle => 'Make room for the way you work.';
+
+  @override
+  String get welcomeLight => 'Light';
+
+  @override
+  String get welcomeLinkError =>
+      'Could not open your browser. Please try again.';
+
+  @override
+  String get welcomeLinksPending => 'Donation links will be available soon.';
+
+  @override
+  String get welcomeMaterial => 'Window material';
+
+  @override
+  String get welcomeMove => 'Move a window';
+
+  @override
+  String get welcomeMoveGesture => 'Super + left-button drag';
+
+  @override
+  String get welcomeNext => 'Next';
+
+  @override
+  String get welcomeNothing => 'None';
+
+  @override
+  String get welcomePointerHint =>
+      'Hold Super (the Windows key) and drag anywhere on a window. These pointer gestures are built in.';
+
+  @override
+  String get welcomePrevious => 'Previous';
+
+  @override
+  String get welcomeRepository => 'Explore Denial on GitHub';
+
+  @override
+  String get welcomeResize => 'Resize a window';
+
+  @override
+  String get welcomeResizeGesture => 'Super + right-button drag';
+
+  @override
+  String get welcomeRetry => 'Retry';
+
+  @override
+  String get welcomeSaveError =>
+      'Could not save setup completion. Please try again.';
+
+  @override
+  String get welcomeScrollingDescription =>
+      'A flowing strip of windows with room to keep going.';
+
+  @override
+  String get welcomeShortcuts => 'Shortcuts';
+
+  @override
+  String get welcomeShortcutsDescription =>
+      'These are your current bindings. You can change them later in Settings → Shortcuts.';
+
+  @override
+  String get welcomeShortcutsError => 'Your shortcuts could not be loaded.';
+
+  @override
+  String get welcomeSponsors => 'GitHub Sponsors';
+
+  @override
+  String get welcomeStackingDescription => 'Place and overlap windows freely.';
+
+  @override
+  String get welcomeStart => 'Welcome';
+
+  @override
+  String get welcomeStartDescription =>
+      'Make yourself at home. We will walk through the essential shortcuts, help you choose a window layout, and make the desktop feel like yours. You can change these preferences later in Settings.';
+
+  @override
+  String get welcomeSupport => 'Support';
+
+  @override
+  String get welcomeSupportDescription =>
+      'Denial is built with care, curiosity, and the belief that a desktop can be different. If it feels like home, your support helps keep it growing.';
+
+  @override
+  String get welcomeSupportOptional =>
+      'Always optional. Thank you for giving Denial a place on your desktop.';
+
+  @override
+  String get welcomeSupportTitle => 'Help Denial become what comes next.';
+
+  @override
+  String get welcomeTheme => 'Theme';
+
+  @override
+  String get welcomeTiling => 'Tiling and keyboard control';
+
+  @override
+  String get welcomeTitle => 'Welcome to Denial';
+
+  @override
+  String get welcomeUnbound => 'Not assigned';
+
+  @override
+  String get welcomeWorkspaceDisabled =>
+      'Workspaces are currently disabled. Enable them in Settings → Layout to use these bindings.';
+
+  @override
+  String get welcomeWorkspaces => 'Workspaces';
 
   @override
   String get wifiAuthorizationMayBeRequired => 'Authorization may be required.';
@@ -3950,1318 +5295,34 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get settingsGlassAdvanced => 'Glass tuning';
+  String get workspaceActive => 'active';
 
   @override
-  String get settingsGlassReset => 'Reset glass';
+  String get workspaceEmpty => 'empty';
 
   @override
-  String get settingsGlassTuningDescription =>
-      'Changes apply immediately. The defaults preserve the original glass effect.';
-
-  @override
-  String get settingsGlassBevelWidth => 'Bevel width';
-
-  @override
-  String get settingsGlassRefractionDepth => 'Refraction depth';
-
-  @override
-  String get settingsGlassRimWidth => 'Highlight width';
-
-  @override
-  String get settingsGlassRimFalloff => 'Highlight falloff';
-
-  @override
-  String get settingsGlassOppositeLight => 'Opposite-edge light';
-
-  @override
-  String settingsGlassRimPixels(String width) {
-    return '$width px';
+  String workspaceLabel(int workspace) {
+    return 'Workspace $workspace';
   }
 
   @override
-  String get lockFingerprintNotRecognized => 'Fingerprint not recognized';
+  String get workspaceOccupied => 'occupied';
 
   @override
-  String get fingerprintSection => 'Fingerprint';
+  String get settingsNavigationGroupPersonal => 'Personalisation';
 
   @override
-  String get fingerprintPinPrompt =>
-      'Enter your lock PIN to manage fingerprints.';
+  String get settingsNavigationGroupInput => 'Input';
 
   @override
-  String get fingerprintPin => 'PIN';
+  String get settingsNavigationGroupDesktop => 'Desktop';
 
   @override
-  String get fingerprintContinue => 'Continue';
+  String get settingsNavigationGroupSystem => 'System';
 
   @override
-  String get fingerprintDescription =>
-      'Use your enrolled fingers to unlock Denial.';
+  String get settingsNavigationOpenMenu => 'Open navigation menu';
 
   @override
-  String get fingerprintEmptyTitle => 'No fingerprints enrolled';
-
-  @override
-  String get fingerprintEmptyDescription =>
-      'Choose a finger below to enroll your first fingerprint.';
-
-  @override
-  String get fingerprintChooseFinger => 'Finger to enroll';
-
-  @override
-  String get fingerprintEnroll => 'Enroll fingerprint';
-
-  @override
-  String get fingerprintAdd => 'Add fingerprint';
-
-  @override
-  String get fingerprintPinNotSet => 'Set a lock PIN first.';
-
-  @override
-  String get fingerprintExpired => 'Enter your PIN again to continue.';
-
-  @override
-  String get fingerprintPreparing => 'Preparing the fingerprint reader…';
-
-  @override
-  String get fingerprintTouchSensor =>
-      'Touch and lift your selected finger on the sensor.';
-
-  @override
-  String get fingerprintEnrolled =>
-      'Fingerprint enrolled. You can now use it to unlock Denial.';
-
-  @override
-  String get fingerprintCancelled => 'Enrollment cancelled.';
-
-  @override
-  String get fingerprintDuplicate =>
-      'This fingerprint is already enrolled. Choose another finger.';
-
-  @override
-  String get fingerprintRetry =>
-      'Lift your finger and touch the sensor again, adjusting its position.';
-
-  @override
-  String get fingerprintUnavailable =>
-      'Fingerprint management could not complete. Check the reader and try again.';
-
-  @override
-  String fingerprintProgress(int completed, int total) {
-    return '$completed of $total scans';
-  }
-
-  @override
-  String get fingerprintLeftThumb => 'Left thumb';
-
-  @override
-  String get fingerprintLeftIndex => 'Left index finger';
-
-  @override
-  String get fingerprintLeftMiddle => 'Left middle finger';
-
-  @override
-  String get fingerprintLeftRing => 'Left ring finger';
-
-  @override
-  String get fingerprintLeftLittle => 'Left little finger';
-
-  @override
-  String get fingerprintRightThumb => 'Right thumb';
-
-  @override
-  String get fingerprintRightIndex => 'Right index finger';
-
-  @override
-  String get fingerprintRightMiddle => 'Right middle finger';
-
-  @override
-  String get fingerprintRightRing => 'Right ring finger';
-
-  @override
-  String get fingerprintRightLittle => 'Right little finger';
-
-  @override
-  String get mobileData => 'Mobile data';
-
-  @override
-  String get mobileConnected => 'Connected';
-
-  @override
-  String get mobileDisconnected => 'Not connected';
-
-  @override
-  String get mobileUnavailable => 'Mobile network unavailable';
-
-  @override
-  String get mobileChangeFailed => 'Unable to change mobile data';
-
-  @override
-  String get simPinTitle => 'Unlock SIM';
-
-  @override
-  String get simPinUnlock => 'Unlock SIM';
-
-  @override
-  String get simPinLater => 'Later';
-
-  @override
-  String get simPukRequired => 'SIM requires a PUK. Contact your carrier.';
-
-  @override
-  String get simLocked => 'SIM locked';
-
-  @override
-  String simPinRetries(int count) {
-    return '$count attempts remaining';
-  }
-
-  @override
-  String get settingsShortcutActionResizeGrowWidth => 'Grow window width';
-
-  @override
-  String get settingsShortcutActionResizeShrinkWidth => 'Shrink window width';
-
-  @override
-  String get settingsShortcutActionResizeGrowHeight => 'Grow window height';
-
-  @override
-  String get settingsShortcutActionResizeShrinkHeight => 'Shrink window height';
-
-  @override
-  String get settingsShortcutActionResetWindowHeight => 'Reset window height';
-
-  @override
-  String get settingsShortcutActionResetWindowWidth => 'Reset window width';
-
-  @override
-  String get settingsAppearanceTheme => 'Theme';
-
-  @override
-  String get settingsAppearanceWindows => 'Windows';
-
-  @override
-  String get settingsAppearanceTransparency => 'Transparency';
-
-  @override
-  String get settingsAppearanceAdvancedEffects => 'Advanced effects';
-
-  @override
-  String get settingsAppearanceAdvancedEffectsDescription =>
-      'Color, optics, lighting and rendering.';
-
-  @override
-  String get settingsAppearanceCompositingDescription =>
-      'Fine-tune where the effect is applied.';
-
-  @override
-  String get settingsAppearanceColorEffects => 'Color';
-
-  @override
-  String get settingsAppearanceOptics => 'Optics';
-
-  @override
-  String get settingsAppearanceLighting => 'Lighting';
-
-  @override
-  String get settingsAppearanceRendering => 'Rendering';
-
-  @override
-  String get settingsAppearanceCursorAdvanced => 'Application cursors';
-
-  @override
-  String get settingsAppearanceActions => 'Appearance actions';
-
-  @override
-  String get settingsResetAppearance => 'Reset appearance';
-
-  @override
-  String get settingsResetGlassEffects => 'Reset glass effects';
-
-  @override
-  String get settingsWallpaperDefault => 'Denial default';
-
-  @override
-  String get settingsWallpaperLive => 'Live / app-managed wallpaper';
-
-  @override
-  String get settingsWallpaperStatic => 'Static wallpaper';
-
-  @override
-  String get settingsWallpaperLiveDescription =>
-      'A wallpaper app is drawing this desktop. Choosing a fallback image will not stop it.';
-
-  @override
-  String get settingsWallpaperChooseFallback => 'Choose fallback image';
-
-  @override
-  String get settingsWallpaperPreviewUnavailable => 'Preview unavailable';
-
-  @override
-  String get settingsWallpaperFallback => 'Fallback image';
-
-  @override
-  String settingsWallpaperDisplay(String name) {
-    return 'Display · $name';
-  }
-
-  @override
-  String get settingsWallpaperApplied => 'Applied wallpaper';
-
-  @override
-  String get settingsShortcutProviderUnavailable => 'Provider unavailable';
-
-  @override
-  String get welcomeStart => 'Welcome';
-
-  @override
-  String get welcomeGetStarted => 'Get started';
-
-  @override
-  String get welcomeStartDescription =>
-      'Make yourself at home. We will walk through the essential shortcuts, help you choose a window layout, and make the desktop feel like yours. You can change these preferences later in Settings.';
-
-  @override
-  String get welcomeTitle => 'Welcome to Denial';
-
-  @override
-  String get welcomeShortcuts => 'Shortcuts';
-
-  @override
-  String get welcomeLayout => 'Layout';
-
-  @override
-  String get welcomeAppearance => 'Appearance';
-
-  @override
-  String get welcomeSupport => 'Support';
-
-  @override
-  String get welcomeNext => 'Next';
-
-  @override
-  String get welcomePrevious => 'Previous';
-
-  @override
-  String get welcomeFinish => 'Start using Denial';
-
-  @override
-  String get welcomeExitSetup => 'Exit setup';
-
-  @override
-  String get welcomeExit => 'Exit';
-
-  @override
-  String get welcomeCancel => 'Cancel';
-
-  @override
-  String get welcomeExitMessage =>
-      'The setup won\'t appear again, you can open it from your launcher.';
-
-  @override
-  String get welcomeIntro =>
-      'A different desktop. A few keys to make it yours.';
-
-  @override
-  String get welcomeShortcutsDescription =>
-      'These are your current bindings. You can change them later in Settings → Shortcuts.';
-
-  @override
-  String get welcomeKill => 'Kill / close the focused window';
-
-  @override
-  String get welcomeMove => 'Move a window';
-
-  @override
-  String get welcomeResize => 'Resize a window';
-
-  @override
-  String get welcomeMoveGesture => 'Super + left-button drag';
-
-  @override
-  String get welcomeResizeGesture => 'Super + right-button drag';
-
-  @override
-  String get welcomePointerHint =>
-      'Hold Super (the Windows key) and drag anywhere on a window. These pointer gestures are built in.';
-
-  @override
-  String get welcomeUnbound => 'Not assigned';
-
-  @override
-  String get welcomeRetry => 'Retry';
-
-  @override
-  String get welcomeShortcutsError => 'Your shortcuts could not be loaded.';
-
-  @override
-  String get welcomeLayoutTitle => 'Make room for the way you work.';
-
-  @override
-  String get welcomeInstant =>
-      'Try a choice. Your desktop changes immediately.';
-
-  @override
-  String get welcomeStackingDescription => 'Place and overlap windows freely.';
-
-  @override
-  String get welcomeDwindleDescription =>
-      'Windows tile into a balanced, branching layout.';
-
-  @override
-  String get welcomeScrollingDescription =>
-      'A flowing strip of windows with room to keep going.';
-
-  @override
-  String get welcomeAppearanceTitle => 'A desktop that feels like you.';
-
-  @override
-  String get welcomeMaterial => 'Window material';
-
-  @override
-  String get welcomeGlass => 'Glass';
-
-  @override
-  String get welcomeBlur => 'Blur';
-
-  @override
-  String get welcomeNothing => 'None';
-
-  @override
-  String get welcomeTheme => 'Theme';
-
-  @override
-  String get welcomeLight => 'Light';
-
-  @override
-  String get welcomeDark => 'Dark';
-
-  @override
-  String get welcomeSupportTitle => 'Help Denial become what comes next.';
-
-  @override
-  String get welcomeSupportDescription =>
-      'Denial is built with care, curiosity, and the belief that a desktop can be different. If it feels like home, your support helps keep it growing.';
-
-  @override
-  String get welcomeSupportOptional =>
-      'Always optional. Thank you for giving Denial a place on your desktop.';
-
-  @override
-  String get welcomeDonate => 'Donate';
-
-  @override
-  String get welcomeSponsors => 'GitHub Sponsors';
-
-  @override
-  String get welcomeRepository => 'Explore Denial on GitHub';
-
-  @override
-  String get welcomeLinksPending => 'Donation links will be available soon.';
-
-  @override
-  String get welcomeLinkError =>
-      'Could not open your browser. Please try again.';
-
-  @override
-  String get welcomeSaveError =>
-      'Could not save setup completion. Please try again.';
-
-  @override
-  String get welcomeWorkspaceDisabled =>
-      'Workspaces are currently disabled. Enable them in Settings → Layout to use these bindings.';
-
-  @override
-  String get welcomeDesktopUsage => 'Desktop essentials';
-
-  @override
-  String get welcomeWorkspaces => 'Workspaces';
-
-  @override
-  String get welcomeTiling => 'Tiling and keyboard control';
-
-  @override
-  String get polkitRunCommandAsAdministrator =>
-      'Administrator authentication required.';
-
-  @override
-  String polkitRunCommandAsUser(String user) {
-    return 'Authentication is required to run this command as $user.';
-  }
-
-  @override
-  String get polkitAuthenticationRequired => 'Authentication is required.';
-
-  @override
-  String get polkitAuthenticationUnavailable =>
-      'Authentication is unavailable.';
-
-  @override
-  String get polkitPassword => 'Password';
-
-  @override
-  String get polkitVerifying => 'Verifying…';
-
-  @override
-  String get polkitPreparing => 'Preparing…';
-
-  @override
-  String get polkitCapsLock => 'Caps Lock';
-
-  @override
-  String get polkitConfirm => 'Confirm';
-
-  @override
-  String get polkitContinue => 'Continue';
-
-  @override
-  String get polkitClose => 'Close';
-
-  @override
-  String get polkitLocked => 'Temporarily locked';
-
-  @override
-  String get accessAllow => 'Allow';
-
-  @override
-  String get accessAllowOnce => 'Allow once';
-
-  @override
-  String get accessAlwaysAllow => 'Always allow';
-
-  @override
-  String get accessDecline => 'Decline';
-
-  @override
-  String get accessNeverAllow => 'Never allow';
-
-  @override
-  String get accessDeclineOnce => 'Decline once';
-
-  @override
-  String get accessUnknownApp => 'An app';
-
-  @override
-  String get pluginsAppTitle => 'Denial Plugins';
-
-  @override
-  String get pluginsTitle => 'Plugins';
-
-  @override
-  String get pluginsInstalled => 'Installed';
-
-  @override
-  String get pluginsDiscover => 'Discover';
-
-  @override
-  String get pluginsActivity => 'Activity';
-
-  @override
-  String get pluginsLibrary => 'Library';
-
-  @override
-  String get pluginsPreferences => 'Preferences';
-
-  @override
-  String get pluginsSearchInstalled => 'Search installed';
-
-  @override
-  String get pluginsSearch => 'Search plugins';
-
-  @override
-  String get pluginsClearSearch => 'Clear search';
-
-  @override
-  String get pluginsAddTooltip => 'Add a plugin from a repository link';
-
-  @override
-  String get pluginsAddToolbar => 'Add Plugin';
-
-  @override
-  String get pluginsMoreActions => 'More actions';
-
-  @override
-  String get pluginsRefresh => 'Refresh';
-
-  @override
-  String get pluginsInstalledTitle => 'Installed plugins';
-
-  @override
-  String get pluginsInstalledDescription =>
-      'Choose the plugins that make up your desktop.';
-
-  @override
-  String get pluginsNoneInstalled => 'No plugins installed';
-
-  @override
-  String get pluginsNoneInstalledDescription =>
-      'Discover plugins for your desktop, or add one using a repository link.';
-
-  @override
-  String get pluginsDiscoverAction => 'Discover Plugins';
-
-  @override
-  String get pluginsUseDefaults => 'Use Denial defaults';
-
-  @override
-  String get pluginsNoMatches => 'No matching plugins';
-
-  @override
-  String get pluginsNoMatchesDescription =>
-      'Try another name or clear your search.';
-
-  @override
-  String get pluginsAutomaticTitle => 'Included automatically';
-
-  @override
-  String get pluginsAutomaticDescription =>
-      'These keep your selected plugins working.';
-
-  @override
-  String get pluginsDiscoverMore => 'Discover more plugins';
-
-  @override
-  String get pluginsPreparingDesktop => 'Preparing your desktop';
-
-  @override
-  String get pluginsPreparingDescription =>
-      'Denial is getting everything ready. You can leave this window open or come back later.';
-
-  @override
-  String get pluginsTryAgain => 'Try again';
-
-  @override
-  String get pluginsFallbackDescription =>
-      'Customize your desktop with this plugin.';
-
-  @override
-  String get pluginsSelected => 'Selected';
-
-  @override
-  String get pluginsNotSelected => 'Not selected';
-
-  @override
-  String get pluginsDesktopOptions => 'Desktop options';
-
-  @override
-  String get pluginsDesktopOptionsDescription =>
-      'Updates, compatibility and recovery';
-
-  @override
-  String get pluginsCheckUpdates => 'Check for plugin updates';
-
-  @override
-  String get pluginsCheckCompatibility => 'Check compatibility';
-
-  @override
-  String get pluginsUndo => 'Undo last change';
-
-  @override
-  String get pluginsRestore => 'Restore default desktop';
-
-  @override
-  String get pluginsCheckSelection => 'Check your selection';
-
-  @override
-  String get pluginsStartupFailed => 'Saved plugins could not start';
-
-  @override
-  String get pluginsChangeFailed => 'Change couldn’t be completed';
-
-  @override
-  String get pluginsSelectionChanged => 'Your selection has changed';
-
-  @override
-  String get pluginsPaused => 'Your plugins are paused';
-
-  @override
-  String get pluginsPendingReady => 'Pending actions are ready';
-
-  @override
-  String get pluginsPreparingSupport => 'Preparing plugin support';
-
-  @override
-  String get pluginsViewDetails => 'View details';
-
-  @override
-  String get pluginsDiscard => 'Discard';
-
-  @override
-  String get pluginsSwitchNow => 'Switch now';
-
-  @override
-  String get pluginsDismissError => 'Dismiss error';
-
-  @override
-  String get pluginsInProgress => 'In progress';
-
-  @override
-  String get pluginsDiscoverTitle => 'Discover plugins';
-
-  @override
-  String get pluginsDiscoverDescription =>
-      'Add new features and make your desktop your own.';
-
-  @override
-  String get pluginsNothingFound => 'Nothing found yet';
-
-  @override
-  String get pluginsNothingFoundDescription =>
-      'Try another search, or add a plugin using its repository link.';
-
-  @override
-  String get pluginsOfficial => 'Made for Denial';
-
-  @override
-  String get pluginsCommunity => 'From the community';
-
-  @override
-  String get pluginsRefreshDiscoveries => 'Refresh discoveries';
-
-  @override
-  String get pluginsNoCommunity =>
-      'No community plugins are listed yet. Add a plugin using its repository link.';
-
-  @override
-  String get pluginsAddRepository => 'Add from a repository';
-
-  @override
-  String get pluginsAddRepositoryDescription =>
-      'Use a Git link to install a plugin from its developer.';
-
-  @override
-  String get pluginsAddLink => 'Add from a link';
-
-  @override
-  String get pluginsDiscoveryFailed =>
-      'Some discoveries couldn’t be loaded. Try refreshing again.';
-
-  @override
-  String get pluginsByDenial => 'By Denial';
-
-  @override
-  String get pluginsCommunityPlugin => 'Community plugin';
-
-  @override
-  String get pluginsSelectedDesktop => 'Selected for your desktop';
-
-  @override
-  String get pluginsSelect => 'Select plugin';
-
-  @override
-  String get pluginsRecentActivity => 'Recent activity';
-
-  @override
-  String get pluginsActivityDescription =>
-      'Installation progress and changes to your desktop.';
-
-  @override
-  String get pluginsNoActivity => 'No activity yet';
-
-  @override
-  String get pluginsNoActivityDescription =>
-      'Plugin installations and desktop changes will appear here.';
-
-  @override
-  String get pluginsCompleted => 'Completed';
-
-  @override
-  String get pluginsNeedsAttention => 'Needs attention';
-
-  @override
-  String get pluginsNoCandidates =>
-      'No plugin package candidates were found in this repository.';
-
-  @override
-  String get pluginsBringNew => 'Bring something new.';
-
-  @override
-  String get pluginsTrustDescription =>
-      'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.';
-
-  @override
-  String get pluginsLocalDirectory => 'Local package or repository directory';
-
-  @override
-  String get pluginsRepositoryLink => 'Repository link';
-
-  @override
-  String get pluginsAdvancedOptions => 'Advanced options';
-
-  @override
-  String get pluginsGitRef => 'Branch, tag, or commit (optional)';
-
-  @override
-  String get pluginsLocalDevelopment => 'Local development';
-
-  @override
-  String get pluginsUseLocal => 'Use a local development checkout';
-
-  @override
-  String get pluginsChoose => 'Choose a plugin';
-
-  @override
-  String get pluginsIncludeDependencies =>
-      'We’ll include anything this plugin needs automatically.';
-
-  @override
-  String get pluginsFinding => 'Finding plugins…';
-
-  @override
-  String get pluginsFind => 'Find plugins';
-
-  @override
-  String get pluginsAdd => 'Add plugin';
-
-  @override
-  String get pluginsYourPlugins => 'Your plugins';
-
-  @override
-  String get pluginsLogLoadFailed => 'The build log could not be loaded.';
-
-  @override
-  String get pluginsTechnicalDetails => 'Technical details';
-
-  @override
-  String get pluginsBuildLog => 'Build log';
-
-  @override
-  String get pluginsNoBuildOutput => 'No build output was recorded.';
-
-  @override
-  String get pluginsClose => 'Close';
-
-  @override
-  String get pluginsDone => 'Done';
-
-  @override
-  String get pluginsApply => 'Apply plugins';
-
-  @override
-  String get pluginsBuild => 'Build plugins';
-
-  @override
-  String get pluginsCheckChanges => 'Check your changes';
-
-  @override
-  String get pluginsEnable => 'Enable plugin';
-
-  @override
-  String get pluginsDisable => 'Disable plugin';
-
-  @override
-  String get pluginsUpdate => 'Update plugins';
-
-  @override
-  String get pluginsRebuild => 'Rebuild plugins';
-
-  @override
-  String get pluginsSetup => 'Set up plugins';
-
-  @override
-  String get pluginsChooseDefaults => 'Choose default plugins';
-
-  @override
-  String get pluginsActivityFallback => 'Plugin activity';
-
-  @override
-  String get pluginsWorking => 'Working on your changes';
-
-  @override
-  String get pluginsApplyChanges => 'Apply changes';
-
-  @override
-  String get pluginsApplyPending => 'Apply pending actions';
-
-  @override
-  String get pluginsApplySelectionUpdates =>
-      'Apply your selection changes and pending updates to your desktop.';
-
-  @override
-  String get pluginsApplySelection =>
-      'Apply your plugin selection changes to your desktop.';
-
-  @override
-  String get pluginsApplyUnchanged =>
-      'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.';
-
-  @override
-  String get pluginsStaleSelection =>
-      'The selection changed elsewhere. Discard your draft to load the latest selection.';
-
-  @override
-  String get pluginsUpdated => 'Denial was updated.';
-
-  @override
-  String get pluginsFailureEngine =>
-      'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.';
-
-  @override
-  String get pluginsFailureVersion =>
-      'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.';
-
-  @override
-  String get pluginsFailurePanel =>
-      'More than one desktop panel is selected. Keep one enabled, then apply again.';
-
-  @override
-  String get pluginsFailureConflict =>
-      'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.';
-
-  @override
-  String get pluginsFailureMissing =>
-      'A required desktop feature is missing. Enable a plugin that provides it, then apply again.';
-
-  @override
-  String get pluginsFailureLogin =>
-      'Log out and back into Denial once to finish the update. Your choices are saved.';
-
-  @override
-  String get pluginsFailureWorker =>
-      'The background operation stopped unexpectedly. Check Activity before trying again.';
-
-  @override
-  String get pluginsFailureDownload =>
-      'A download failed. Check your connection and try again.';
-
-  @override
-  String get pluginsFailureGeneric =>
-      'This change could not be completed. Open details to see the cause.';
-
-  @override
-  String get pluginsToolsUnavailable =>
-      'Plugin tools are temporarily unavailable. Retrying automatically.';
-
-  @override
-  String get pluginsDartCompatible => 'Compatible Dart is required';
-
-  @override
-  String get pluginsDartRequired => 'Dart is required';
-
-  @override
-  String get pluginsToolsAttention => 'Plugin tools need attention';
-
-  @override
-  String get pluginsSetupFailed =>
-      'Preparation could not finish. See Activity for details, then try again.';
-
-  @override
-  String get pluginsWaitingStart => 'Waiting to start';
-
-  @override
-  String get pluginsCloseWhileWorking =>
-      'You can close this window. We’ll keep going.';
-
-  @override
-  String get pluginsPreparingPlugins => 'Preparing your plugins';
-
-  @override
-  String get pluginsCheckingCompatibility => 'Checking plugin compatibility';
-
-  @override
-  String get pluginsPreparingBuild => 'Preparing your desktop build';
-
-  @override
-  String get pluginsCompilingSources => 'Compiling Dart sources';
-
-  @override
-  String get pluginsOptimizing => 'Optimizing and generating native code';
-
-  @override
-  String get pluginsPreparingAssets => 'Preparing assets';
-
-  @override
-  String get pluginsLoadingDesktop => 'Loading your saved desktop';
-
-  @override
-  String get pluginsCompilingDesktop => 'Compiling your desktop';
-
-  @override
-  String get pluginsVerifyingDesktop => 'Verifying your desktop';
-
-  @override
-  String get pluginsSwitchingPause => 'Switching when you pause';
-
-  @override
-  String get pluginsApplyingDesktop => 'Applying and checking your desktop';
-
-  @override
-  String get pluginsVerifyingTools => 'Verifying plugin tools';
-
-  @override
-  String get pluginsPreparingTools => 'Preparing plugin tools';
-
-  @override
-  String get pluginsConfigurationDescription =>
-      'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.';
-
-  @override
-  String pluginsSelectedCount(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count selected',
-      one: '1 selected',
-      zero: '0 selected',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String pluginsSwitchSemantics(String name) {
-    return '$name plugin';
-  }
-
-  @override
-  String pluginsCandidateLabel(String name, String path) {
-    return '$name · $path';
-  }
-
-  @override
-  String pluginsStepsComplete(int completed, int total) {
-    return '$completed of $total steps complete';
-  }
-
-  @override
-  String pluginsStep(int step, int total, String label) {
-    return 'Step $step of $total · $label';
-  }
-
-  @override
-  String pluginsElapsed(String stage, String clock) {
-    return '$stage · $clock elapsed';
-  }
-
-  @override
-  String pluginsInstalledVersion(String version) {
-    return 'Denial $version is installed.';
-  }
-
-  @override
-  String pluginsRebuildDescription(String introduction) {
-    return '$introduction Rebuild your plugins to bring them back, with all their settings. No need to log out.';
-  }
-
-  @override
-  String pluginsDartIncompatible(String installed, String constraint) {
-    return 'Dart $installed is installed, but Denial requires $constraint. Install a compatible Dart package and make sure dart is available in PATH, then try again.';
-  }
-
-  @override
-  String pluginsDartInstall(String expected) {
-    return 'Install Dart with your system package manager. Denial recommends Dart $expected. Make sure dart is available in PATH, then try again.';
-  }
-
-  @override
-  String pluginsProviderConflict(
-    String feature,
-    String plugins,
-    String owner,
-    int maximum,
-  ) {
-    return '$feature is provided by $plugins. $owner accepts at most $maximum providers. Disable extra plugins before applying.';
-  }
-
-  @override
-  String pluginsProviderMissing(String owner, int minimum, String feature) {
-    return '$owner needs at least $minimum providers for $feature. Enable a compatible plugin before applying.';
-  }
-
-  @override
-  String pluginsInvalidDeclaration(String plugins) {
-    return '$plugins has invalid compatibility declarations. Open details to see the cause.';
-  }
-
-  @override
-  String get pluginsFailureDeclaration =>
-      'Plugin compatibility information needs attention. Check your selection and open details before applying again.';
-
-  @override
-  String get pluginsDesktopFeature => 'Desktop';
-
-  @override
-  String get inputDeckTitle => 'Keyboard & touchpad display';
-
-  @override
-  String get inputDeckHeading => 'Keyboard & touchpad';
-
-  @override
-  String get inputDeckEnable => 'Use touch display as keyboard and touchpad';
-
-  @override
-  String get inputDeckUnavailable =>
-      'Connect a touch display to configure this mode.';
-
-  @override
-  String inputDeckEnableDescription(String output) {
-    return 'Use $output for input whenever another display is available. Disconnect the external display to return to tablet mode.';
-  }
-
-  @override
-  String get inputDeckWaiting =>
-      'Ready when a second display is connected and powered on.';
-
-  @override
-  String get inputDeckTouchDisplay => 'Touch display';
-
-  @override
-  String get inputDeckTouchDisplayDescription =>
-      'Display to use for keyboard and touchpad input.';
-
-  @override
-  String get inputDeckKeyboardSize => 'Keyboard size';
-
-  @override
-  String get inputDeckTouchpadWidth => 'Touchpad width';
-
-  @override
-  String get inputDeckTouchpadHeight => 'Touchpad height';
-
-  @override
-  String get inputDeckPointerSpeed => 'Pointer speed';
-
-  @override
-  String get inputDeckNaturalScroll => 'Natural scrolling';
-
-  @override
-  String get inputDeckNaturalScrollDescription =>
-      'Content follows the movement of your fingers.';
-
-  @override
-  String get inputDeckCpuChart => 'CPU chart';
-
-  @override
-  String get inputDeckCpuDescription =>
-      'Show processor usage above the keyboard.';
-
-  @override
-  String get inputDeckGpuCharts => 'GPU charts';
-
-  @override
-  String get inputDeckGpuDescription => 'Show usage for GPUs that report it.';
-
-  @override
-  String get inputDeckUseAsDisplay => 'Use as display';
-
-  @override
-  String get inputDeckTouchpad => 'Touchpad';
-
-  @override
-  String get inputDeckTouchpadHint =>
-      'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.';
-
-  @override
-  String get inputDeckLeftClick => 'Left click';
-
-  @override
-  String get inputDeckRightClick => 'Right click';
-
-  @override
-  String get lockEnterPin => 'Enter PIN';
-
-  @override
-  String lockEnterPinToOpen(String applicationName) {
-    return 'Enter PIN to open $applicationName';
-  }
-
-  @override
-  String lockPinProgress(int entered, int length) {
-    return 'PIN, $entered of $length digits entered';
-  }
-
-  @override
-  String get lockPinObscured => 'PIN, obscured';
-
-  @override
-  String get lockWrongPin => 'Wrong PIN';
-
-  @override
-  String get lockUsePassword => 'Use password';
-
-  @override
-  String get lockUsePin => 'Use PIN';
-
-  @override
-  String get lockPinDelete => 'Delete';
-
-  @override
-  String get settingsLockPinTitle => 'PIN';
-
-  @override
-  String get settingsLockPinLabel => 'Unlock with a PIN';
-
-  @override
-  String get settingsLockPinDescription =>
-      'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.';
-
-  @override
-  String settingsLockPinOn(int length) {
-    return 'On, $length digits';
-  }
-
-  @override
-  String get settingsLockPinOff => 'Off';
-
-  @override
-  String get settingsLockPinSetUp => 'Set up PIN';
-
-  @override
-  String get settingsLockPinChange => 'Change PIN';
-
-  @override
-  String get settingsLockPinRemove => 'Remove PIN';
-
-  @override
-  String get settingsLockPinSave => 'Save PIN';
-
-  @override
-  String get settingsLockPinPassword => 'Account password';
-
-  @override
-  String get settingsLockPinNew => 'New PIN';
-
-  @override
-  String get settingsLockPinConfirm => 'Confirm PIN';
-
-  @override
-  String get settingsLockPinLengthHint => '4 to 12 digits';
-
-  @override
-  String get settingsLockPinMismatch => 'The PINs don’t match';
-
-  @override
-  String get settingsLockPinWrongPassword => 'Wrong password';
-
-  @override
-  String get settingsLockPinUnavailable =>
-      'Couldn’t change the PIN. Try again.';
-
-  @override
-  String timeTwelveHour(String hour, String minute, String period) {
-    return '$hour:$minute $period';
-  }
-
-  @override
-  String get timeMorning => 'AM';
-
-  @override
-  String get timeAfternoon => 'PM';
-
-  @override
-  String get settingsNavigationPermissions => 'Permissions';
-
-  @override
-  String get settingsPermissionsSection => 'Permissions';
-
-  @override
-  String get settingsPermissionsTitle =>
-      'Choose what apps may do. An app appears here once it has asked.';
-
-  @override
-  String get settingsPermissionsKeyboardShortcutsTitle => 'Keyboard shortcuts';
-
-  @override
-  String get settingsPermissionsKeyboardShortcutsDescription =>
-      'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.';
-
-  @override
-  String get settingsPermissionsNone => 'No app has asked yet.';
-
-  @override
-  String get settingsPermissionsUnavailable =>
-      'Permissions can’t be read: the portal permission store is not available.';
-
-  @override
-  String get settingsPermissionsSaveFailed => 'Couldn’t save the change.';
-
-  @override
-  String get settingsPermissionAsk => 'Ask';
-
-  @override
-  String get settingsPermissionAllow => 'Always allow';
-
-  @override
-  String get settingsPermissionDeny => 'Never allow';
-
-  @override
-  String get colorTuningAction => 'Tune colors';
-
-  @override
-  String get colorTuningDesktop => 'Desktop';
-
-  @override
-  String get colorTuningNoApp => 'Tap a window';
-
-  @override
-  String get colorTuningBase => 'Look';
-
-  @override
-  String get colorTuningNoBase => 'None';
-
-  @override
-  String get colorTuningBefore => 'Before';
-
-  @override
-  String get colorTuningReset => 'Reset';
-
-  @override
-  String get colorTuningClose => 'Close';
-
-  @override
-  String get colorTuningShadows => 'Shadows';
-
-  @override
-  String get colorTuningMidtones => 'Midtones';
-
-  @override
-  String get colorTuningHighlights => 'Highlights';
-
-  @override
-  String get colorTuningExposure => 'Exposure';
-
-  @override
-  String get colorTuningContrast => 'Contrast';
-
-  @override
-  String get colorTuningSaturation => 'Saturation';
-
-  @override
-  String get colorTuningVibrance => 'Vibrance';
-
-  @override
-  String get colorTuningWarmth => 'Warmth';
-
-  @override
-  String get colorTuningTint => 'Tint';
-
-  @override
-  String get colorTuningFailed => 'Couldn’t change the colors.';
-
-  @override
-  String get colorPresetWarm => 'Warm';
-
-  @override
-  String get colorPresetCool => 'Cool';
-
-  @override
-  String get colorPresetLogix => 'Logix';
-
-  @override
-  String get colorPresetMatte => 'Matte';
-
-  @override
-  String get colorPresetFilm => 'Film';
-
-  @override
-  String get colorPresetNight => 'Night';
-
-  @override
-  String get colorPresetMono => 'Mono';
-
-  @override
-  String get colorTuningPresets => 'Presets';
-
-  @override
-  String get moveToMonitor => 'Move to monitor';
+  String get commonBack => 'Back';
 }

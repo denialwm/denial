@@ -10,86 +10,31 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get settingsApplicationThemingEnabled => '使用 Denial 样式为支持的应用设置主题';
+  String get accessAllow => '允许';
 
   @override
-  String get settingsApplicationThemingDescription =>
-      '将 Denial 样式应用到支持的应用。目前支持的应用：Kitty。';
+  String get accessAllowOnce => '仅允许这一次';
 
   @override
-  String get settingsApplicationThemingReapply => '重新应用';
+  String get accessAlwaysAllow => '始终允许';
 
   @override
-  String get settingsScrollingLayoutSwapTitle => '滚动布局交换';
+  String get accessDecline => '拒绝';
 
   @override
-  String get settingsScrollingLayoutPreserveSwapSizes => '交换时保留窗口大小';
+  String get accessDeclineOnce => '仅拒绝这一次';
 
   @override
-  String get settingsScrollingLayoutPreserveSwapSizesDescription =>
-      '在同一工作区和显示器上交换两个单窗口列时，保留各自的宽度。纵向滚动布局保留高度。拆分列保持原有大小。';
+  String get accessNeverAllow => '始终拒绝';
 
   @override
-  String get shellPresentationDesktop => '桌面视图';
-
-  @override
-  String get shellPresentationMobile => '移动视图';
-
-  @override
-  String get homeResizeWidget => '调整小组件大小';
-
-  @override
-  String get homeFolderDefaultName => '文件夹';
-
-  @override
-  String get homeFolderGames => '游戏';
-
-  @override
-  String get homeFolderInternet => '网络';
-
-  @override
-  String get homeFolderOffice => '办公';
-
-  @override
-  String get homeFolderGraphics => '图形';
-
-  @override
-  String get homeFolderMedia => '影音';
-
-  @override
-  String get homeFolderDevelopment => '开发';
-
-  @override
-  String get homeFolderEducation => '教育';
-
-  @override
-  String get homeFolderScience => '科学';
-
-  @override
-  String get homeFolderSystem => '系统';
-
-  @override
-  String get homeFolderUtilities => '工具';
-
-  @override
-  String get homeFolderSettings => '设置';
-
-  @override
-  String get homeFolderRename => '重命名文件夹';
-
-  @override
-  String homeFolderApps(String name, int count) {
-    return '$name，$count 个应用';
-  }
+  String get accessUnknownApp => '某个应用';
 
   @override
   String get actionCancel => '取消';
 
   @override
   String get actionDismiss => '关闭';
-
-  @override
-  String get screenshotSelectionHint => '拖动以选择区域 · 按 Esc 取消';
 
   @override
   String get anchorBottomCenter => '底部居中';
@@ -125,6 +70,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get batteryCharging => '正在充电';
 
   @override
+  String get batteryCriticalNotificationTitle => '电池电量严重不足';
+
+  @override
   String get batteryDischarging => '正在放电';
 
   @override
@@ -142,9 +90,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get batteryLowNotificationTitle => '电池电量低';
-
-  @override
-  String get batteryCriticalNotificationTitle => '电池电量严重不足';
 
   @override
   String batteryStateAndPercent(String state, int percent) {
@@ -354,10 +299,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chargeProtocolVooc => 'VOOC';
 
   @override
-  String get clipboardCloseHistory => '关闭剪贴板历史';
+  String get clipboardClearAll => '全部清除';
 
   @override
-  String get clipboardClearAll => '全部清除';
+  String get clipboardCloseHistory => '关闭剪贴板历史';
 
   @override
   String get clipboardDelete => '删除';
@@ -398,16 +343,16 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get clipboardPin => '固定';
-
-  @override
-  String get clipboardPinItem => '固定剪贴板项目';
-
-  @override
   String get clipboardNoSearchResultsDescription => '请尝试其他词语、文件类型或应用。';
 
   @override
   String get clipboardNoSearchResultsTitle => '未找到匹配项';
+
+  @override
+  String get clipboardPin => '固定';
+
+  @override
+  String get clipboardPinItem => '固定剪贴板项目';
 
   @override
   String get clipboardPreviewUnavailable => '预览不可用';
@@ -422,16 +367,94 @@ class AppLocalizationsZh extends AppLocalizations {
   String get clipboardTypeText => '文本';
 
   @override
+  String get clipboardUnavailableDescription => '原生历史记录服务没有响应。';
+
+  @override
+  String get clipboardUnavailableTitle => '剪贴板桥接不可用';
+
+  @override
   String get clipboardUnpin => '取消固定';
 
   @override
   String get clipboardUnpinItem => '取消固定剪贴板项目';
 
   @override
-  String get clipboardUnavailableDescription => '原生历史记录服务没有响应。';
+  String get colorPresetCool => '冷调';
 
   @override
-  String get clipboardUnavailableTitle => '剪贴板桥接不可用';
+  String get colorPresetFilm => '胶片';
+
+  @override
+  String get colorPresetLogix => 'Logix';
+
+  @override
+  String get colorPresetMatte => '哑光';
+
+  @override
+  String get colorPresetMono => '黑白';
+
+  @override
+  String get colorPresetNight => '夜色';
+
+  @override
+  String get colorPresetWarm => '暖调';
+
+  @override
+  String get colorTuningAction => '调整色彩';
+
+  @override
+  String get colorTuningBase => '风格';
+
+  @override
+  String get colorTuningBefore => '调色前';
+
+  @override
+  String get colorTuningClose => '关闭';
+
+  @override
+  String get colorTuningContrast => '对比度';
+
+  @override
+  String get colorTuningDesktop => '桌面';
+
+  @override
+  String get colorTuningExposure => '曝光';
+
+  @override
+  String get colorTuningFailed => '无法更改色彩。';
+
+  @override
+  String get colorTuningHighlights => '高光';
+
+  @override
+  String get colorTuningMidtones => '中间调';
+
+  @override
+  String get colorTuningNoApp => '点按一个窗口';
+
+  @override
+  String get colorTuningNoBase => '无';
+
+  @override
+  String get colorTuningPresets => '预设';
+
+  @override
+  String get colorTuningReset => '重置';
+
+  @override
+  String get colorTuningSaturation => '饱和度';
+
+  @override
+  String get colorTuningShadows => '阴影';
+
+  @override
+  String get colorTuningTint => '色调';
+
+  @override
+  String get colorTuningVibrance => '自然饱和度';
+
+  @override
+  String get colorTuningWarmth => '色温';
 
   @override
   String get commonBluetooth => '蓝牙';
@@ -508,18 +531,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get desktopAudioOutputDevicesDescription => '选择桌面音频的播放位置。';
-
-  @override
-  String get desktopAudioOutputDevicesTitle => '输出设备';
-
-  @override
-  String get desktopAudioOutputDevicesUnavailable => '音频输出设备不可用。';
-
-  @override
-  String get desktopAudioOutputDeviceNotConnected => '未连接';
-
-  @override
   String get desktopApplicationAudioUnavailable => '应用音频不可用。';
 
   @override
@@ -534,56 +545,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopApplicationVolumeDescription => '分别调节各个应用的音频。';
 
   @override
-  String get settingsNavigationYou => '你';
-
-  @override
-  String get settingsYouDescription => '让这片空间属于你。';
-
-  @override
-  String get settingsYouPreview => '仪表板上的个人资料';
-
-  @override
-  String get settingsYouChoosePhoto => '选择照片';
-
-  @override
-  String get settingsYouDefaultPhoto => '使用默认头像';
-
-  @override
-  String get settingsYouDisplayName => '显示名称';
-
-  @override
-  String get settingsYouNameHint => '留空以使用账户名称。';
-
-  @override
-  String get settingsYouAccountName => '使用账户名称';
-
-  @override
-  String get settingsYouSave => '保存名字';
-
-  @override
-  String get settingsYouSaved => '名字已保存。';
-
-  @override
-  String get settingsYouImageError =>
-      '无法使用该照片。请选择小于 16 MB 的 PNG、JPEG、WebP、GIF 或 BMP 图像。';
-
-  @override
-  String get settingsYouSaveError => '无法保存个人资料，请重试。';
-
-  @override
-  String get settingsYouLoadError => '无法加载个人资料。';
-
-  @override
-  String get desktopCurrentUser => '用户';
-
-  @override
-  String get desktopMixerTitle => '混音器';
-
-  @override
   String get desktopApplicationVolumeTitle => '应用音量';
 
   @override
   String get desktopApplicationsTitle => '应用';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => '未连接';
+
+  @override
+  String get desktopAudioOutputDevicesDescription => '选择桌面音频的播放位置。';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => '输出设备';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable => '音频输出设备不可用。';
 
   @override
   String get desktopChooseWallpaper => '选择壁纸';
@@ -603,15 +580,15 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get desktopCurrentUser => '用户';
+
+  @override
   String get desktopDashboardTitle => '仪表板';
 
   @override
   String desktopDisconnectDevice(String deviceName) {
     return '断开 $deviceName';
   }
-
-  @override
-  String get desktopLoadingAudioOutputDevices => '正在加载输出设备…';
 
   @override
   String get desktopEnableBluetoothForDevices => '开启蓝牙以查看设备。';
@@ -647,13 +624,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopLoadingApplications => '正在加载应用…';
 
   @override
+  String get desktopLoadingAudioOutputDevices => '正在加载输出设备…';
+
+  @override
+  String get desktopMixerTitle => '混音器';
+
+  @override
   String get desktopNoApplicationAudio => '没有应用正在播放音频。';
 
   @override
-  String get desktopNoAudioOutputDevices => '未找到音频输出设备。';
+  String get desktopNoApplicationsFound => '未找到应用';
 
   @override
-  String get desktopNoApplicationsFound => '未找到应用';
+  String get desktopNoAudioOutputDevices => '未找到音频输出设备。';
 
   @override
   String get desktopOpenApplicationAudio => '打开应用音量';
@@ -708,13 +691,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopScanBluetooth => '扫描蓝牙设备';
 
   @override
-  String get desktopSelectAudioOutputDevice => '选择音频输出设备';
-
-  @override
   String get desktopScanningBluetoothDevices => '正在扫描蓝牙设备…';
 
   @override
   String get desktopSearchApplications => '搜索应用';
+
+  @override
+  String get desktopSelectAudioOutputDevice => '选择音频输出设备';
 
   @override
   String get desktopSystemProfile => '系统配置';
@@ -738,6 +721,104 @@ class AppLocalizationsZh extends AppLocalizations {
   String desktopVolumeForApplication(String applicationName) {
     return '$applicationName 的音量';
   }
+
+  @override
+  String get dockAllApps => '全部应用';
+
+  @override
+  String get dockRemove => '从 Dock 移除';
+
+  @override
+  String get fingerprintAdd => '添加指纹';
+
+  @override
+  String get fingerprintCancelled => '已取消录入。';
+
+  @override
+  String get fingerprintChooseFinger => '要录入的手指';
+
+  @override
+  String get fingerprintContinue => '继续';
+
+  @override
+  String get fingerprintDescription => '使用已录入的指纹解锁 Denial。';
+
+  @override
+  String get fingerprintDuplicate => '此指纹已录入，请选择另一根手指。';
+
+  @override
+  String get fingerprintEmptyDescription => '在下方选择手指，录入第一个指纹。';
+
+  @override
+  String get fingerprintEmptyTitle => '尚未录入指纹';
+
+  @override
+  String get fingerprintEnroll => '录入指纹';
+
+  @override
+  String get fingerprintEnrolled => '指纹已录入，现在可以用它解锁 Denial。';
+
+  @override
+  String get fingerprintExpired => '请重新输入 PIN 码以继续。';
+
+  @override
+  String get fingerprintLeftIndex => '左食指';
+
+  @override
+  String get fingerprintLeftLittle => '左小指';
+
+  @override
+  String get fingerprintLeftMiddle => '左中指';
+
+  @override
+  String get fingerprintLeftRing => '左无名指';
+
+  @override
+  String get fingerprintLeftThumb => '左拇指';
+
+  @override
+  String get fingerprintPin => 'PIN 码';
+
+  @override
+  String get fingerprintPinNotSet => '请先设置锁屏 PIN 码。';
+
+  @override
+  String get fingerprintPinPrompt => '请输入锁屏 PIN 码以管理指纹。';
+
+  @override
+  String get fingerprintPreparing => '正在准备指纹读取器…';
+
+  @override
+  String fingerprintProgress(int completed, int total) {
+    return '已完成 $completed/$total 次扫描';
+  }
+
+  @override
+  String get fingerprintRetry => '抬起手指，调整位置后再次触碰传感器。';
+
+  @override
+  String get fingerprintRightIndex => '右食指';
+
+  @override
+  String get fingerprintRightLittle => '右小指';
+
+  @override
+  String get fingerprintRightMiddle => '右中指';
+
+  @override
+  String get fingerprintRightRing => '右无名指';
+
+  @override
+  String get fingerprintRightThumb => '右拇指';
+
+  @override
+  String get fingerprintSection => '指纹';
+
+  @override
+  String get fingerprintTouchSensor => '用所选手指触碰传感器，然后抬起。';
+
+  @override
+  String get fingerprintUnavailable => '无法完成指纹管理，请检查读取器后重试。';
 
   @override
   String frameMilliseconds(String value) {
@@ -766,6 +847,124 @@ class AppLocalizationsZh extends AppLocalizations {
   String get frameShellWaiting => 'SHELL · 等待';
 
   @override
+  String homeFolderApps(String name, int count) {
+    return '$name，$count 个应用';
+  }
+
+  @override
+  String get homeFolderDefaultName => '文件夹';
+
+  @override
+  String get homeFolderDevelopment => '开发';
+
+  @override
+  String get homeFolderEducation => '教育';
+
+  @override
+  String get homeFolderGames => '游戏';
+
+  @override
+  String get homeFolderGraphics => '图形';
+
+  @override
+  String get homeFolderInternet => '网络';
+
+  @override
+  String get homeFolderMedia => '影音';
+
+  @override
+  String get homeFolderOffice => '办公';
+
+  @override
+  String get homeFolderRename => '重命名文件夹';
+
+  @override
+  String get homeFolderScience => '科学';
+
+  @override
+  String get homeFolderSettings => '设置';
+
+  @override
+  String get homeFolderSystem => '系统';
+
+  @override
+  String get homeFolderUtilities => '工具';
+
+  @override
+  String get homeResizeWidget => '调整小组件大小';
+
+  @override
+  String get inputDeckCpuChart => 'CPU 图表';
+
+  @override
+  String get inputDeckCpuDescription => '在键盘上方显示处理器使用率。';
+
+  @override
+  String get inputDeckEnable => '将触摸显示屏用作键盘与触控板';
+
+  @override
+  String inputDeckEnableDescription(String output) {
+    return '当有其他显示屏可用时，使用 $output 进行输入。断开外接显示屏即可返回平板模式。';
+  }
+
+  @override
+  String get inputDeckGpuCharts => 'GPU 图表';
+
+  @override
+  String get inputDeckGpuDescription => '显示支持使用率报告的 GPU 的使用情况。';
+
+  @override
+  String get inputDeckHeading => '键盘与触控板';
+
+  @override
+  String get inputDeckKeyboardSize => '键盘大小';
+
+  @override
+  String get inputDeckLeftClick => '左键单击';
+
+  @override
+  String get inputDeckNaturalScroll => '自然滚动';
+
+  @override
+  String get inputDeckNaturalScrollDescription => '内容随手指移动方向滚动。';
+
+  @override
+  String get inputDeckPointerSpeed => '指针速度';
+
+  @override
+  String get inputDeckRightClick => '右键单击';
+
+  @override
+  String get inputDeckTitle => '键盘与触控板显示屏';
+
+  @override
+  String get inputDeckTouchDisplay => '触摸显示屏';
+
+  @override
+  String get inputDeckTouchDisplayDescription => '用于键盘与触控板输入的显示屏。';
+
+  @override
+  String get inputDeckTouchpad => '触控板';
+
+  @override
+  String get inputDeckTouchpadHeight => '触控板高度';
+
+  @override
+  String get inputDeckTouchpadHint => '触控板。单指移动指针，轻点单击，双指滚动或轻点以右键单击，双击并按住以拖动。';
+
+  @override
+  String get inputDeckTouchpadWidth => '触控板宽度';
+
+  @override
+  String get inputDeckUnavailable => '连接触摸显示屏以设置此模式。';
+
+  @override
+  String get inputDeckUseAsDisplay => '用作显示屏';
+
+  @override
+  String get inputDeckWaiting => '连接并开启第二个显示屏后即可使用。';
+
+  @override
   String launchOpeningApplication(String applicationName) {
     return '正在打开 $applicationName';
   }
@@ -792,6 +991,17 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get lockDesktopPromptDescription => '输入密码以解锁此桌面会话。';
+
+  @override
+  String get lockEnterPin => '输入 PIN 码';
+
+  @override
+  String lockEnterPinToOpen(String applicationName) {
+    return '输入 PIN 码以打开$applicationName';
+  }
+
+  @override
+  String get lockFingerprintNotRecognized => '未识别指纹';
 
   @override
   String get lockHideOnScreenKeyboard => '隐藏屏幕键盘';
@@ -832,6 +1042,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lockPerformanceStatusLabel => '桌面性能状态';
 
   @override
+  String get lockPinDelete => '删除';
+
+  @override
+  String get lockPinObscured => 'PIN 码，已隐藏';
+
+  @override
+  String lockPinProgress(int entered, int length) {
+    return 'PIN 码，已输入 $entered/$length 位';
+  }
+
+  @override
   String get lockPleaseWait => '请稍候…';
 
   @override
@@ -866,10 +1087,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lockUnlockDenial => '解锁 Denial';
 
   @override
+  String get lockUsePassword => '使用密码';
+
+  @override
+  String get lockUsePin => '使用 PIN 码';
+
+  @override
   String get lockWaitingForAuthentication => '正在等待验证…';
 
   @override
   String get lockWelcomeBack => '欢迎回来';
+
+  @override
+  String get lockWrongPin => 'PIN 码错误';
 
   @override
   String longDate(String weekday, int day, String month) {
@@ -910,6 +1140,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get metricNow => '当前';
 
   @override
+  String get mobileChangeFailed => '无法更改移动数据';
+
+  @override
+  String get mobileConnected => '已连接';
+
+  @override
+  String get mobileData => '移动数据';
+
+  @override
+  String get mobileDisconnected => '未连接';
+
+  @override
+  String get mobileUnavailable => '移动网络不可用';
+
+  @override
   String get monthApril => '四月';
 
   @override
@@ -944,6 +1189,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get monthSeptember => '九月';
+
+  @override
+  String get moveToMonitor => '移到显示器';
 
   @override
   String get notificationDismiss => '关闭通知';
@@ -1138,6 +1386,544 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get pluginsActivity => '活动';
+
+  @override
+  String get pluginsActivityDescription => '安装进度与桌面更改。';
+
+  @override
+  String get pluginsActivityFallback => '插件活动';
+
+  @override
+  String get pluginsAdd => '添加插件';
+
+  @override
+  String get pluginsAddLink => '通过链接添加';
+
+  @override
+  String get pluginsAddRepository => '从仓库添加';
+
+  @override
+  String get pluginsAddRepositoryDescription => '使用 Git 链接安装开发者提供的插件。';
+
+  @override
+  String get pluginsAddToolbar => '添加插件';
+
+  @override
+  String get pluginsAddTooltip => '通过仓库链接添加插件';
+
+  @override
+  String get pluginsAdvancedOptions => '高级选项';
+
+  @override
+  String get pluginsAppTitle => 'Denial 插件';
+
+  @override
+  String get pluginsApply => '应用插件';
+
+  @override
+  String get pluginsApplyChanges => '应用更改';
+
+  @override
+  String get pluginsApplyPending => '应用待处理操作';
+
+  @override
+  String get pluginsApplySelection => '将所选插件的更改应用到桌面。';
+
+  @override
+  String get pluginsApplySelectionUpdates => '将所选插件的更改和待处理更新应用到桌面。';
+
+  @override
+  String get pluginsApplyUnchanged => '开关状态未更改。待处理的插件更新需要应用到桌面。';
+
+  @override
+  String get pluginsApplyingDesktop => '正在应用并检查桌面';
+
+  @override
+  String get pluginsAutomaticDescription => '这些依赖确保所选插件正常运行。';
+
+  @override
+  String get pluginsAutomaticTitle => '自动包含';
+
+  @override
+  String get pluginsBringNew => '为桌面添加新功能。';
+
+  @override
+  String get pluginsBuild => '构建插件';
+
+  @override
+  String get pluginsBuildLog => '构建日志';
+
+  @override
+  String get pluginsByDenial => '由 Denial 提供';
+
+  @override
+  String pluginsCandidateLabel(String name, String path) {
+    return '$name · $path';
+  }
+
+  @override
+  String get pluginsChangeFailed => '无法完成更改';
+
+  @override
+  String get pluginsCheckChanges => '检查更改';
+
+  @override
+  String get pluginsCheckCompatibility => '检查兼容性';
+
+  @override
+  String get pluginsCheckSelection => '请检查所选插件';
+
+  @override
+  String get pluginsCheckUpdates => '检查插件更新';
+
+  @override
+  String get pluginsCheckingCompatibility => '正在检查插件兼容性';
+
+  @override
+  String get pluginsChoose => '选择插件';
+
+  @override
+  String get pluginsChooseDefaults => '选择默认插件';
+
+  @override
+  String get pluginsClearSearch => '清除搜索';
+
+  @override
+  String get pluginsClose => '关闭';
+
+  @override
+  String get pluginsCloseWhileWorking => '你可以关闭此窗口，操作会继续进行。';
+
+  @override
+  String get pluginsCommunity => '来自社区';
+
+  @override
+  String get pluginsCommunityPlugin => '社区插件';
+
+  @override
+  String get pluginsCompilingDesktop => '正在编译桌面';
+
+  @override
+  String get pluginsCompilingSources => '正在编译 Dart 源码';
+
+  @override
+  String get pluginsCompleted => '已完成';
+
+  @override
+  String get pluginsConfigurationDescription =>
+      '从插件库中选择插件，再统一应用更改。Denial 会为桌面准备所需的一切。\n\n你也可以通过仓库链接添加插件。之前正常运行的桌面仍可在桌面菜单中恢复。';
+
+  @override
+  String get pluginsDartCompatible => '需要兼容的 Dart 版本';
+
+  @override
+  String pluginsDartIncompatible(String installed, String constraint) {
+    return '已安装 Dart $installed，但 Denial 要求 $constraint。请安装兼容的 Dart 软件包，并确保 PATH 中可以找到 dart，然后重试。';
+  }
+
+  @override
+  String pluginsDartInstall(String expected) {
+    return '请使用系统软件包管理器安装 Dart。Denial 推荐 Dart $expected。请确保 PATH 中可以找到 dart，然后重试。';
+  }
+
+  @override
+  String get pluginsDartRequired => '需要 Dart';
+
+  @override
+  String get pluginsDesktopFeature => '桌面';
+
+  @override
+  String get pluginsDesktopOptions => '桌面选项';
+
+  @override
+  String get pluginsDesktopOptionsDescription => '更新、兼容性与恢复';
+
+  @override
+  String get pluginsDisable => '禁用插件';
+
+  @override
+  String get pluginsDiscard => '放弃更改';
+
+  @override
+  String get pluginsDiscover => '发现';
+
+  @override
+  String get pluginsDiscoverAction => '发现插件';
+
+  @override
+  String get pluginsDiscoverDescription => '添加新功能，打造属于自己的桌面。';
+
+  @override
+  String get pluginsDiscoverMore => '发现更多插件';
+
+  @override
+  String get pluginsDiscoverTitle => '发现插件';
+
+  @override
+  String get pluginsDiscoveryFailed => '部分插件信息无法加载，请尝试刷新。';
+
+  @override
+  String get pluginsDismissError => '关闭错误提示';
+
+  @override
+  String get pluginsDone => '完成';
+
+  @override
+  String pluginsElapsed(String stage, String clock) {
+    return '$stage · 已用时 $clock';
+  }
+
+  @override
+  String get pluginsEnable => '启用插件';
+
+  @override
+  String get pluginsFailureConflict => '多个插件提供了相同功能。请选择一个，然后重新应用。详情中列出了冲突的插件。';
+
+  @override
+  String get pluginsFailureDeclaration => '插件兼容性信息需要处理。请检查所选插件并查看详情，然后重新应用。';
+
+  @override
+  String get pluginsFailureDownload => '下载失败。请检查网络连接并重试。';
+
+  @override
+  String get pluginsFailureEngine =>
+      '已应用的插件已保存，但当前会话使用了不同的 Flutter 引擎。请使用引擎匹配的 Denial 会话重新加载插件。';
+
+  @override
+  String get pluginsFailureGeneric => '无法完成此更改。请打开详情查看原因。';
+
+  @override
+  String get pluginsFailureLogin => '请注销并重新登录 Denial 以完成更新。你的选择已保存。';
+
+  @override
+  String get pluginsFailureMissing => '缺少必需的桌面功能。请启用提供该功能的插件，然后重新应用。';
+
+  @override
+  String get pluginsFailurePanel => '选择了多个桌面面板。请只保留一个启用，然后重新应用。';
+
+  @override
+  String get pluginsFailureVersion =>
+      '已保存的插件是为其他 Denial 版本构建的。请使用与当前安装版本匹配的构建工具重新构建。';
+
+  @override
+  String get pluginsFailureWorker => '后台操作意外停止。请先查看活动记录，再重试。';
+
+  @override
+  String get pluginsFallbackDescription => '使用此插件自定义桌面。';
+
+  @override
+  String get pluginsFind => '查找插件';
+
+  @override
+  String get pluginsFinding => '正在查找插件…';
+
+  @override
+  String get pluginsGitRef => '分支、标签或提交（可选）';
+
+  @override
+  String get pluginsInProgress => '正在进行';
+
+  @override
+  String get pluginsIncludeDependencies => '我们会自动包含此插件所需的依赖。';
+
+  @override
+  String get pluginsInstalled => '已安装';
+
+  @override
+  String get pluginsInstalledDescription => '选择组成桌面的插件。';
+
+  @override
+  String get pluginsInstalledTitle => '已安装的插件';
+
+  @override
+  String pluginsInstalledVersion(String version) {
+    return '已安装 Denial $version。';
+  }
+
+  @override
+  String pluginsInvalidDeclaration(String plugins) {
+    return '$plugins 的兼容性声明无效。请打开详情查看原因。';
+  }
+
+  @override
+  String get pluginsLibrary => '插件库';
+
+  @override
+  String get pluginsLoadingDesktop => '正在加载已保存的桌面';
+
+  @override
+  String get pluginsLocalDevelopment => '本地开发';
+
+  @override
+  String get pluginsLocalDirectory => '本地软件包或仓库目录';
+
+  @override
+  String get pluginsLogLoadFailed => '无法加载构建日志。';
+
+  @override
+  String get pluginsMoreActions => '更多操作';
+
+  @override
+  String get pluginsNeedsAttention => '需要处理';
+
+  @override
+  String get pluginsNoActivity => '暂无活动';
+
+  @override
+  String get pluginsNoActivityDescription => '插件安装与桌面更改将显示在这里。';
+
+  @override
+  String get pluginsNoBuildOutput => '未记录构建输出。';
+
+  @override
+  String get pluginsNoCandidates => '此仓库中未找到可安装的插件包。';
+
+  @override
+  String get pluginsNoCommunity => '尚无社区插件。你可以通过仓库链接添加插件。';
+
+  @override
+  String get pluginsNoMatches => '没有匹配的插件';
+
+  @override
+  String get pluginsNoMatchesDescription => '请尝试其他名称，或清除搜索。';
+
+  @override
+  String get pluginsNoneInstalled => '尚未安装插件';
+
+  @override
+  String get pluginsNoneInstalledDescription => '发现适合桌面的插件，或通过仓库链接添加插件。';
+
+  @override
+  String get pluginsNotSelected => '未选择';
+
+  @override
+  String get pluginsNothingFound => '尚未找到插件';
+
+  @override
+  String get pluginsNothingFoundDescription => '请尝试其他搜索，或通过仓库链接添加插件。';
+
+  @override
+  String get pluginsOfficial => '为 Denial 打造';
+
+  @override
+  String get pluginsOptimizing => '正在优化并生成本机代码';
+
+  @override
+  String get pluginsPaused => '插件已暂停';
+
+  @override
+  String get pluginsPendingReady => '待处理操作已就绪';
+
+  @override
+  String get pluginsPreferences => '偏好设置';
+
+  @override
+  String get pluginsPreparingAssets => '正在准备资源';
+
+  @override
+  String get pluginsPreparingBuild => '正在准备桌面构建';
+
+  @override
+  String get pluginsPreparingDescription =>
+      'Denial 正在完成准备工作。你可以保持此窗口打开，也可以稍后再回来。';
+
+  @override
+  String get pluginsPreparingDesktop => '正在准备桌面';
+
+  @override
+  String get pluginsPreparingPlugins => '正在准备插件';
+
+  @override
+  String get pluginsPreparingSupport => '正在准备插件支持';
+
+  @override
+  String get pluginsPreparingTools => '正在准备插件工具';
+
+  @override
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  ) {
+    return '$plugins 都提供了$feature。$owner 最多接受 $maximum 个提供者。请禁用多余的插件后再应用。';
+  }
+
+  @override
+  String pluginsProviderMissing(String owner, int minimum, String feature) {
+    return '$owner 需要至少 $minimum 个$feature提供者。请启用兼容的插件后再应用。';
+  }
+
+  @override
+  String get pluginsRebuild => '重新构建插件';
+
+  @override
+  String pluginsRebuildDescription(String introduction) {
+    return '$introduction 重新构建插件即可恢复插件及其所有设置，无需注销。';
+  }
+
+  @override
+  String get pluginsRecentActivity => '最近活动';
+
+  @override
+  String get pluginsRefresh => '刷新';
+
+  @override
+  String get pluginsRefreshDiscoveries => '刷新插件列表';
+
+  @override
+  String get pluginsRepositoryLink => '仓库链接';
+
+  @override
+  String get pluginsRestore => '恢复默认桌面';
+
+  @override
+  String get pluginsSearch => '搜索插件';
+
+  @override
+  String get pluginsSearchInstalled => '搜索已安装的插件';
+
+  @override
+  String get pluginsSelect => '选择插件';
+
+  @override
+  String get pluginsSelected => '已选择';
+
+  @override
+  String pluginsSelectedCount(int count) {
+    return '已选择 $count 个插件';
+  }
+
+  @override
+  String get pluginsSelectedDesktop => '已为桌面选择';
+
+  @override
+  String get pluginsSelectionChanged => '所选插件已更改';
+
+  @override
+  String get pluginsSetup => '设置插件';
+
+  @override
+  String get pluginsSetupFailed => '准备工作未能完成。请查看活动记录中的详情，然后重试。';
+
+  @override
+  String get pluginsStaleSelection => '所选插件已在其他地方更改。请放弃当前更改以加载最新选择。';
+
+  @override
+  String get pluginsStartupFailed => '已保存的插件无法启动';
+
+  @override
+  String pluginsStep(int step, int total, String label) {
+    return '第 $step / $total 步 · $label';
+  }
+
+  @override
+  String pluginsStepsComplete(int completed, int total) {
+    return '已完成 $completed / $total 步';
+  }
+
+  @override
+  String get pluginsSwitchNow => '立即切换';
+
+  @override
+  String pluginsSwitchSemantics(String name) {
+    return '$name 插件';
+  }
+
+  @override
+  String get pluginsSwitchingPause => '将在你暂停操作时切换';
+
+  @override
+  String get pluginsTechnicalDetails => '技术详情';
+
+  @override
+  String get pluginsTitle => '插件';
+
+  @override
+  String get pluginsToolsAttention => '插件工具需要处理';
+
+  @override
+  String get pluginsToolsUnavailable => '插件工具暂时不可用，正在自动重试。';
+
+  @override
+  String get pluginsTrustDescription => '粘贴仓库链接以查找插件。插件将成为桌面的一部分，请选择你信任的代码。';
+
+  @override
+  String get pluginsTryAgain => '重试';
+
+  @override
+  String get pluginsUndo => '撤销上次更改';
+
+  @override
+  String get pluginsUpdate => '更新插件';
+
+  @override
+  String get pluginsUpdated => 'Denial 已更新。';
+
+  @override
+  String get pluginsUseDefaults => '使用 Denial 默认插件';
+
+  @override
+  String get pluginsUseLocal => '使用本地开发源码';
+
+  @override
+  String get pluginsVerifyingDesktop => '正在验证桌面';
+
+  @override
+  String get pluginsVerifyingTools => '正在验证插件工具';
+
+  @override
+  String get pluginsViewDetails => '查看详情';
+
+  @override
+  String get pluginsWaitingStart => '等待开始';
+
+  @override
+  String get pluginsWorking => '正在处理更改';
+
+  @override
+  String get pluginsYourPlugins => '你的插件';
+
+  @override
+  String get polkitAuthenticationRequired => '需要进行身份验证。';
+
+  @override
+  String get polkitAuthenticationUnavailable => '身份验证不可用。';
+
+  @override
+  String get polkitCapsLock => '大写锁定';
+
+  @override
+  String get polkitClose => '关闭';
+
+  @override
+  String get polkitConfirm => '确认';
+
+  @override
+  String get polkitContinue => '继续';
+
+  @override
+  String get polkitLocked => '已暂时锁定';
+
+  @override
+  String get polkitPassword => '密码';
+
+  @override
+  String get polkitPreparing => '正在准备…';
+
+  @override
+  String get polkitRunCommandAsAdministrator => '需要管理员身份验证。';
+
+  @override
+  String polkitRunCommandAsUser(String user) {
+    return '以 $user 身份运行此命令需要进行身份验证。';
+  }
+
+  @override
+  String get polkitVerifying => '正在验证…';
+
+  @override
   String get powerActionHibernate => '休眠';
 
   @override
@@ -1253,13 +2039,10 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get quickSettingsAirplaneMode => '飞行模式';
+
+  @override
   String get quickSettingsAutoRotate => '自动旋转';
-
-  @override
-  String get quickSettingsScreenRecording => '屏幕录制';
-
-  @override
-  String get quickSettingsRecording => '正在录制';
 
   @override
   String get quickSettingsBalanced => '均衡';
@@ -1299,13 +2082,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quickSettingsOpenOnScreen => '打开屏幕键盘';
 
   @override
+  String get quickSettingsOrientationLock => '方向锁定';
+
+  @override
   String get quickSettingsPerformance => '性能';
+
+  @override
+  String get quickSettingsRecording => '正在录制';
+
+  @override
+  String get quickSettingsScreenRecording => '屏幕录制';
+
+  @override
+  String get quickSettingsScreenshot => '截屏';
 
   @override
   String get quickSettingsSettingsUnavailable => '设置不可用。';
 
   @override
   String get quickSettingsSilent => '静音';
+
+  @override
+  String get screenshotSelectionHint => '拖动以选择区域 · 按 Esc 取消';
 
   @override
   String get settingsAboutArchitecture =>
@@ -1367,13 +2165,49 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAnimationsTitle => '与桌面相配的动效。';
 
   @override
+  String get settingsAppearanceActions => '外观操作';
+
+  @override
+  String get settingsAppearanceAdvancedEffects => '高级效果';
+
+  @override
+  String get settingsAppearanceAdvancedEffectsDescription => '颜色、光学、光照与渲染。';
+
+  @override
+  String get settingsAppearanceColorEffects => '颜色';
+
+  @override
+  String get settingsAppearanceCompositingDescription => '微调效果的应用范围。';
+
+  @override
+  String get settingsAppearanceCursorAdvanced => '应用光标';
+
+  @override
   String get settingsAppearanceDescription => '此处所做的更改会实时反映到整个桌面。';
+
+  @override
+  String get settingsAppearanceLighting => '光照';
+
+  @override
+  String get settingsAppearanceOptics => '光学';
+
+  @override
+  String get settingsAppearanceRendering => '渲染';
 
   @override
   String get settingsAppearanceSection => '外观';
 
   @override
+  String get settingsAppearanceTheme => '主题';
+
+  @override
   String get settingsAppearanceTitle => '让桌面更合你的心意。';
+
+  @override
+  String get settingsAppearanceTransparency => '透明效果';
+
+  @override
+  String get settingsAppearanceWindows => '窗口';
 
   @override
   String get settingsApplicationAudioDescription => '分别调节活动音频流。';
@@ -1391,10 +2225,53 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsApplicationCategorySystem => '系统';
 
   @override
+  String get settingsApplicationScaleApply => '应用';
+
+  @override
+  String get settingsApplicationScaleBackend => '缩放方式';
+
+  @override
+  String get settingsApplicationScaleBackendAuto => '自动识别';
+
+  @override
+  String get settingsApplicationScaleBackendNone => '不处理';
+
+  @override
+  String get settingsApplicationScaleCustom => '自定义';
+
+  @override
+  String get settingsApplicationScaleDescription => '覆盖此应用的整体界面缩放，应用重启后生效。';
+
+  @override
+  String get settingsApplicationScaleFollowSystem => '跟随系统';
+
+  @override
+  String get settingsApplicationScaleTitle => '界面缩放';
+
+  @override
+  String get settingsApplicationScaleValueLabel => '缩放比例';
+
+  @override
   String get settingsApplicationSemanticsLabel => 'Denial 设置';
 
   @override
+  String get settingsApplicationThemingDescription =>
+      '将 Denial 样式应用到支持的应用。目前支持的应用：Kitty。';
+
+  @override
+  String get settingsApplicationThemingEnabled => '使用 Denial 样式为支持的应用设置主题';
+
+  @override
+  String get settingsApplicationThemingReapply => '重新应用';
+
+  @override
   String get settingsApplicationTitle => '设置';
+
+  @override
+  String get settingsApplyDisplayConfiguration => '应用更改';
+
+  @override
+  String get settingsApplying => '正在应用…';
 
   @override
   String get settingsAudioDescription => '控制主输出和各个应用的音频流。';
@@ -1425,30 +2302,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAutomaticIdleTitle => '自动空闲操作';
 
   @override
-  String get settingsPowerButtonTitle => '电源按钮';
-
-  @override
-  String get settingsPowerButtonAction => '操作';
-
-  @override
-  String get settingsPowerButtonDescription => '选择按下实体电源按钮时执行的操作。';
-
-  @override
-  String get settingsPowerButtonSuspend => '挂起';
-
-  @override
-  String get settingsPowerButtonHibernate => '休眠';
-
-  @override
-  String get settingsPowerButtonHibernateUnavailable => '休眠（不可用）';
-
-  @override
-  String get settingsPowerButtonDpms => '关闭显示器（DPMS）';
-
-  @override
-  String get settingsPowerButtonPowerOff => '关机';
-
-  @override
   String get settingsAutomaticLockToggle => '自动锁定';
 
   @override
@@ -1462,25 +2315,6 @@ class AppLocalizationsZh extends AppLocalizations {
       '长时间无活动后在内存中保留会话并进入低功耗状态。';
 
   @override
-  String get settingsSuspendMode => '挂起模式';
-
-  @override
-  String get settingsSuspendModeDescription =>
-      '选择 Linux 在挂起时如何保持内存供电。Denial 活动期间的每次挂起都会使用此设置。';
-
-  @override
-  String get settingsSuspendModeS2idle => '挂起到空闲（s2idle）';
-
-  @override
-  String get settingsSuspendModeShallow => '待机（shallow）';
-
-  @override
-  String get settingsSuspendModeDeep => '挂起到内存（deep）';
-
-  @override
-  String get settingsSuspendModeUnavailable => '不可用';
-
-  @override
   String get settingsAvailable => '可用';
 
   @override
@@ -1488,6 +2322,48 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsAvailableNetworksTitle => '可用网络';
+
+  @override
+  String get settingsBackdropBlur => '背景模糊';
+
+  @override
+  String get settingsBackdropBlurDescription => '柔化半透明窗口和面板后的内容。质量越高，GPU 占用越多。';
+
+  @override
+  String get settingsBackdropBlurEnabled => '启用背景模糊';
+
+  @override
+  String get settingsBackdropBlurEnabledDescription => '仅在透明内容能够显示下方桌面的位置进行模糊。';
+
+  @override
+  String get settingsBackdropBlurIntensity => '模糊质量';
+
+  @override
+  String get settingsBackdropBlurLevelBest => '最佳';
+
+  @override
+  String get settingsBackdropBlurLevelFast => '快速';
+
+  @override
+  String get settingsBackdropBlurLevelGood => '良好';
+
+  @override
+  String get settingsBackdropBlurLevelShitty => '糟糕';
+
+  @override
+  String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
+
+  @override
+  String get settingsBackdropDimming => '背景变暗';
+
+  @override
+  String get settingsBarGeometryDescription => '调整桌面系统栏预留的空间。';
+
+  @override
+  String get settingsBarGeometryTitle => '系统栏尺寸';
+
+  @override
+  String get settingsBarThickness => '系统栏厚度';
 
   @override
   String get settingsBatteryChargeCycles => '充电循环';
@@ -1640,118 +2516,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get settingsBackdropBlur => '背景模糊';
-
-  @override
-  String get settingsBackdropBlurDescription => '柔化半透明窗口和面板后的内容。质量越高，GPU 占用越多。';
-
-  @override
-  String get settingsBackdropBlurEnabled => '启用背景模糊';
-
-  @override
-  String get settingsBackdropBlurEnabledDescription => '仅在透明内容能够显示下方桌面的位置进行模糊。';
-
-  @override
-  String get settingsBackdropBlurIntensity => '模糊质量';
-
-  @override
-  String get settingsBackdropBlurLevelShitty => '糟糕';
-
-  @override
-  String get settingsBackdropBlurLevelFast => '快速';
-
-  @override
-  String get settingsBackdropBlurLevelGood => '良好';
-
-  @override
-  String get settingsBackdropBlurLevelBest => '最佳';
-
-  @override
-  String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
-
-  @override
-  String get settingsGlassAppearance => '玻璃外观';
-
-  @override
-  String get settingsGlassShellOpacity => '桌面外壳玻璃不透明度';
-
-  @override
-  String get settingsGlassWindowOpacity => '窗口玻璃不透明度';
-
-  @override
-  String get settingsGlassAppPanelOpacity => '应用面板不透明度';
-
-  @override
-  String get settingsTransparencyTitle => '透明材质';
-
-  @override
-  String get settingsTypographyTitle => '字体';
-
-  @override
-  String get settingsTransparencyOff => '关闭';
-
-  @override
-  String get settingsTransparencyBlur => '模糊';
-
-  @override
-  String get settingsTransparencyGlass => '玻璃';
-
-  @override
-  String get settingsTransparencyOffDescription => '透明表面不处理其后的桌面内容。';
-
-  @override
-  String get settingsTransparencyBlurDescription => '使用 Denial 当前的快速高斯背景模糊。';
-
-  @override
-  String get settingsTransparencyGlassDescription =>
-      '通过磨砂、强调色染色的透镜折射清晰桌面，并添加定向边缘光。';
-
-  @override
-  String get settingsGlassFrost => '磨砂';
-
-  @override
-  String get settingsGlassQuality => '渲染质量';
-
-  @override
-  String get settingsGlassThickness => '光学厚度';
-
-  @override
-  String get settingsGlassRefraction => '折射';
-
-  @override
-  String get settingsGlassDispersion => '色散';
-
-  @override
-  String get settingsGlassSaturation => '饱和度';
-
-  @override
-  String get settingsGlassAccentTint => '强调色染色';
-
-  @override
-  String get settingsGlassBrightness => '明度';
-
-  @override
-  String get settingsGlassLightAngle => '光照方向';
-
-  @override
-  String get settingsGlassLightIntensity => '光照强度';
-
-  @override
-  String get settingsGlassEdgeStrength => '边缘高光';
-
-  @override
-  String get settingsBackdropDimming => '背景变暗';
-
-  @override
-  String get settingsBarGeometryDescription => '调整桌面系统栏预留的空间。';
-
-  @override
-  String get settingsBarGeometryTitle => '系统栏尺寸';
-
-  @override
-  String get settingsBarThickness => '系统栏厚度';
-
-  @override
   String get settingsBluetoothAdapterDescription => '当前适配器';
 
   @override
@@ -1803,6 +2567,51 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsCloseEffectNone => '无';
 
   @override
+  String get settingsColorInputBlue => '蓝色';
+
+  @override
+  String get settingsColorInputGreen => '绿色';
+
+  @override
+  String get settingsColorInputHex => 'HEX';
+
+  @override
+  String get settingsColorInputHexError => '请输入 3 位或 6 位十六进制数。';
+
+  @override
+  String get settingsColorInputHexValue => '十六进制颜色';
+
+  @override
+  String get settingsColorInputHsl => 'HSL';
+
+  @override
+  String get settingsColorInputHslError => 'H 须为 0–360，S/L 须为 0–100。';
+
+  @override
+  String get settingsColorInputHue => '色相';
+
+  @override
+  String get settingsColorInputLightness => '亮度';
+
+  @override
+  String get settingsColorInputNudgeHint => '使用 ↑↓ 微调 · 按住 Shift 调整 10';
+
+  @override
+  String get settingsColorInputRed => '红色';
+
+  @override
+  String get settingsColorInputRgb => 'RGB';
+
+  @override
+  String get settingsColorInputRgbError => 'RGB 值须在 0 到 255 之间。';
+
+  @override
+  String get settingsColorInputSaturation => '饱和度';
+
+  @override
+  String get settingsColorInputTitle => '颜色值';
+
+  @override
   String get settingsColorPickerCloseSemanticsLabel => '关闭颜色选择器';
 
   @override
@@ -1812,51 +2621,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsColorPickerInstructions => '可直观选择，也可输入精确的颜色值。';
 
   @override
-  String get settingsColorInputTitle => '颜色值';
-
-  @override
-  String get settingsColorInputRgb => 'RGB';
-
-  @override
-  String get settingsColorInputHsl => 'HSL';
-
-  @override
-  String get settingsColorInputHex => 'HEX';
-
-  @override
-  String get settingsColorInputRed => '红色';
-
-  @override
-  String get settingsColorInputGreen => '绿色';
-
-  @override
-  String get settingsColorInputBlue => '蓝色';
-
-  @override
-  String get settingsColorInputHue => '色相';
-
-  @override
-  String get settingsColorInputSaturation => '饱和度';
-
-  @override
-  String get settingsColorInputLightness => '亮度';
-
-  @override
-  String get settingsColorInputHexValue => '十六进制颜色';
-
-  @override
-  String get settingsColorInputNudgeHint => '使用 ↑↓ 微调 · 按住 Shift 调整 10';
-
-  @override
-  String get settingsColorInputRgbError => 'RGB 值须在 0 到 255 之间。';
-
-  @override
-  String get settingsColorInputHslError => 'H 须为 0–360，S/L 须为 0–100。';
-
-  @override
-  String get settingsColorInputHexError => '请输入 3 位或 6 位十六进制数。';
-
-  @override
   String get settingsColorPickerReset => '重置';
 
   @override
@@ -1864,6 +2628,25 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsColorPickerTitle => '强调色';
+
+  @override
+  String get settingsColorSchemeDark => '深色';
+
+  @override
+  String get settingsColorSchemeDescription => '在 Denial 和支持的应用中使用相同的配色方案。';
+
+  @override
+  String get settingsColorSchemeLight => '浅色';
+
+  @override
+  String get settingsColorSchemeNoPreference => '无偏好';
+
+  @override
+  String get settingsColorSchemeNoPreferenceDescription =>
+      'Denial 保持默认深色外观，应用可自行选择配色方案。';
+
+  @override
+  String get settingsColorSchemeTitle => '配色方案';
 
   @override
   String get settingsColorWheelNextHue => '下一个色相';
@@ -1887,28 +2670,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsConnectedDisplaysTitle => '已连接显示器';
 
   @override
-  String get settingsCursorSize => '光标大小';
-
-  @override
-  String get settingsCursorTitle => '光标';
-
-  @override
-  String get settingsCursorTheme => '光标主题';
-
-  @override
-  String get settingsCursorImport => '导入光标 ZIP';
-
-  @override
-  String get settingsCursorImporting => '正在导入…';
-
-  @override
-  String get settingsCursorImportFailed => '无法导入光标主题。';
-
-  @override
-  String get settingsCursorRemove => '移除导入的光标主题';
-
-  @override
-  String get settingsCursorRemoveFailed => '无法移除导入的光标主题。';
+  String get settingsCornerRoundness => '全局圆角';
 
   @override
   String get settingsCursorAllowApplications => '允许应用显示自己的光标';
@@ -1918,838 +2680,34 @@ class AppLocalizationsZh extends AppLocalizations {
       'Wayland 和 X11 应用可以提供光标图像。关闭后将始终使用所选的 Denial 主题。';
 
   @override
+  String get settingsCursorImport => '导入光标 ZIP';
+
+  @override
+  String get settingsCursorImportFailed => '无法导入光标主题。';
+
+  @override
+  String get settingsCursorImporting => '正在导入…';
+
+  @override
+  String get settingsCursorRemove => '移除导入的光标主题';
+
+  @override
+  String get settingsCursorRemoveFailed => '无法移除导入的光标主题。';
+
+  @override
+  String get settingsCursorSize => '光标大小';
+
+  @override
+  String get settingsCursorTheme => '光标主题';
+
+  @override
+  String get settingsCursorTitle => '光标';
+
+  @override
   String get settingsDashboardOverlayDescription => '设置桌面仪表板的位置。';
 
   @override
   String get settingsDashboardOverlayTitle => '仪表板';
-
-  @override
-  String get settingsDisconnect => '断开连接';
-
-  @override
-  String get settingsApplying => '正在应用…';
-
-  @override
-  String get settingsApplyDisplayConfiguration => '应用更改';
-
-  @override
-  String get settingsDisplayApplyPersistentHint =>
-      '保留更改后会更新当前会话和 outputs.conf。';
-
-  @override
-  String get settingsDisplayApplySessionHint => '保留更改后仅用于当前会话。';
-
-  @override
-  String get settingsDisplayConfirmationTitle => '保留这些显示设置吗？';
-
-  @override
-  String settingsDisplayConfirmationMessage(int seconds) {
-    return '将在 $seconds 秒后自动恢复之前的显示设置。';
-  }
-
-  @override
-  String get settingsDisplayKeepChanges => '保留更改';
-
-  @override
-  String get settingsDisplayRevertNow => '立即恢复';
-
-  @override
-  String get settingsDisplayArrangementSemantics => '显示器排列编辑器';
-
-  @override
-  String get settingsDisplayCanvasPanHint => '拖动空白区域以移动画布。使用鼠标滚轮进行缩放。';
-
-  @override
-  String get settingsDisplayCanvasPanSemantics => '可平移的显示器画布';
-
-  @override
-  String get settingsDisplayArrangementTitle => '显示器配置';
-
-  @override
-  String get settingsDisplayEnabled => '使用此显示器';
-
-  @override
-  String get settingsDisplayEnabledDescription => '将此显示器纳入桌面。必须至少启用一个显示器。';
-
-  @override
-  String get settingsDisplayBrightnessDescription => '调节主显示器亮度。';
-
-  @override
-  String get settingsDisplayBrightnessTitle => '亮度';
-
-  @override
-  String settingsDisplayDetails(
-    int width,
-    int height,
-    String refreshRate,
-    String scale,
-  ) {
-    return '$width × $height · $refreshRate Hz · $scale×';
-  }
-
-  @override
-  String get settingsDisplayInformationUnavailable => '显示信息不可用。';
-
-  @override
-  String get settingsDisplaysDescription => '查看已连接的输出并控制屏幕亮度。';
-
-  @override
-  String get settingsDisplaysSection => '显示器与视频';
-
-  @override
-  String get settingsDisplaysTitle => '显示器与视频。';
-
-  @override
-  String settingsDisplayPosition(int x, int y) {
-    return '位置 $x, $y';
-  }
-
-  @override
-  String get settingsDisplayPrimary => '主显示器';
-
-  @override
-  String get settingsDisplayPrimaryAutomatic => '自动（最高刷新率）';
-
-  @override
-  String get settingsDisplayPrimaryHint =>
-      'Shell 界面会在主显示器上打开。自动模式会使用刷新率最高的已启用显示器。';
-
-  @override
-  String get settingsDisplayRefreshRate => '刷新率';
-
-  @override
-  String get settingsDisplayResolution => '分辨率';
-
-  @override
-  String get settingsDisplayRotation => '旋转';
-
-  @override
-  String get settingsDisplayRotationNormal => '横向';
-
-  @override
-  String get settingsDisplayRotation90 => '逆时针 90°';
-
-  @override
-  String get settingsDisplayRotation180 => '倒置';
-
-  @override
-  String get settingsDisplayRotation270 => '顺时针 90°';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxis => '滚动布局轴';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisDescription =>
-      '选择滚动窗口在此显示器上的排列方向。';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisAuto => '自动（跟随旋转）';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisHorizontal => '横向';
-
-  @override
-  String get settingsDisplayScrollingLayoutAxisVertical => '纵向';
-
-  @override
-  String get settingsDisplayScale => '缩放';
-
-  @override
-  String get settingsDisplayScaleInvalid => '请输入 50 到 600 之间的数值。';
-
-  @override
-  String get settingsDisplayScalePreset => '预设';
-
-  @override
-  String get settingsDisplayScaleRange =>
-      '输入 50–600%。数值会舍入到最接近的受支持缩放比例。低于 100% 时画面可能较柔和。';
-
-  @override
-  String get settingsDisplayVariableRefreshRate => '可变刷新率 (VRR)';
-
-  @override
-  String get settingsDisplayVariableRefreshRateDescription =>
-      '使此显示器的刷新率与渲染内容相匹配。';
-
-  @override
-  String get settingsDisplayZoomFit => '适应所有显示器';
-
-  @override
-  String get settingsDisplayZoomIn => '放大';
-
-  @override
-  String settingsDisplayZoomLevel(int percent) {
-    return '画布缩放 $percent%';
-  }
-
-  @override
-  String get settingsDisplayZoomOut => '缩小';
-
-  @override
-  String get settingsLoadingDisplays => '正在加载显示器配置…';
-
-  @override
-  String get settingsMonitorDragHint => '拖动以排列，或使用方向键移动。';
-
-  @override
-  String settingsMonitorSemantics(String name) {
-    return '显示器 $name';
-  }
-
-  @override
-  String get settingsEdgeDistance => '边缘距离';
-
-  @override
-  String get settingsFocusedWindows => '聚焦窗口';
-
-  @override
-  String get settingsFontCatalogLoading => '正在查找已安装的字体…';
-
-  @override
-  String get settingsFontDescription => '在整个 Denial Shell 中使用系统默认字体或已安装的字体。';
-
-  @override
-  String get settingsFontFamily => '字体系列';
-
-  @override
-  String get settingsFontSystemDefault => '系统默认';
-
-  @override
-  String get settingsFocusedWindowBorder => '高亮聚焦窗口边框';
-
-  @override
-  String get settingsFocusedWindowBorderDescription =>
-      '关闭后，聚焦与未聚焦窗口将使用相同的边框颜色。';
-
-  @override
-  String get settingsHeaderContext => 'DENIAL / 系统';
-
-  @override
-  String get settingsHeaderLogoSemanticsLabel => 'Denial';
-
-  @override
-  String get settingsHeight => '高度';
-
-  @override
-  String get settingsHoverTrigger => '悬停屏幕边缘时打开';
-
-  @override
-  String get settingsHoverTriggerDescription => '当指针到达对应屏幕边缘时显示此面板。';
-
-  @override
-  String get settingsHudOverlayDescription => '设置音量和亮度反馈的位置。';
-
-  @override
-  String get settingsHudOverlayTitle => '系统级显示';
-
-  @override
-  String get settingsDisplayOffTimeout => '关闭显示器前等待';
-
-  @override
-  String get settingsIdleInhibitDescription => '视频播放等应用活动可以暂时暂停这些计时器。';
-
-  @override
-  String get settingsIdleInhibitSemantics => '应用可以暂停自动空闲操作';
-
-  @override
-  String get settingsInactivityTimeout => '无活动超时';
-
-  @override
-  String get settingsLockTimeout => '锁定前等待';
-
-  @override
-  String get settingsLauncherOverlayDescription => '设置应用启动器的位置。';
-
-  @override
-  String get settingsLauncherOverlayTitle => '应用';
-
-  @override
-  String get settingsLanguageDescription => '“跟随系统”会使用桌面语言。更改会立即生效。';
-
-  @override
-  String get settingsLanguageEnglish => 'English';
-
-  @override
-  String get settingsLanguageInterfaceTitle => '界面语言';
-
-  @override
-  String get settingsLanguageSection => '语言';
-
-  @override
-  String get settingsLanguageSelectorSemantics => 'Denial 界面语言';
-
-  @override
-  String get settingsLanguageSimplifiedChinese => '简体中文';
-
-  @override
-  String get settingsLanguageSystemDefault => '跟随系统';
-
-  @override
-  String get settingsLanguageTitle => '选择 Denial 使用的语言。';
-
-  @override
-  String get settingsKeyboardSection => '输入';
-
-  @override
-  String get settingsKeyboardTitle => '配置 Flutter、Wayland 和 Xwayland 共用的物理键盘。';
-
-  @override
-  String get settingsKeyboardLayoutsTitle => '布局与变体';
-
-  @override
-  String get settingsKeyboardLayoutsDescription =>
-      '按切换顺序输入布局。变体写在冒号后，例如 us, de:nodeadkeys。';
-
-  @override
-  String get settingsKeyboardLayoutsLabel => '布局';
-
-  @override
-  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
-
-  @override
-  String get settingsKeyboardOptionsLabel => 'XKB 选项';
-
-  @override
-  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
-
-  @override
-  String get settingsKeyboardOptionsDescription =>
-      '用逗号分隔选项，可启用 Compose、其他布局切换快捷键、Caps 重映射等 XKB 行为。';
-
-  @override
-  String get settingsKeyboardRepeatTitle => '按键重复';
-
-  @override
-  String get settingsKeyboardRepeatDelay => '延迟';
-
-  @override
-  String get settingsKeyboardRepeatRate => '速率';
-
-  @override
-  String get settingsKeyboardSwitchingTitle => '布局切换';
-
-  @override
-  String get settingsKeyboardActiveLayout => '当前布局';
-
-  @override
-  String get settingsKeyboardSwitchingShortcut =>
-      'Super+空格切换到下一个布局；同时按 Shift 切换到上一个。';
-
-  @override
-  String get settingsKeyboardApply => '应用键盘设置';
-
-  @override
-  String get settingsKeyboardApplying => '正在应用…';
-
-  @override
-  String get settingsKeyboardLoading => '正在读取合成器键盘配置…';
-
-  @override
-  String get settingsKeyboardInvalidLayouts => '请输入至少一个有效的 XKB 布局。';
-
-  @override
-  String get settingsTouchpadSection => '输入';
-
-  @override
-  String get settingsTouchpadTitle => '调整鼠标和触控板的操作方式。';
-
-  @override
-  String get settingsTouchpadTapToClick => '轻触点击';
-
-  @override
-  String get settingsTouchpadTapToClickDescription => '轻触触控板即可按下鼠标主键。';
-
-  @override
-  String get settingsTouchpadNaturalScroll => '反向双指滚动';
-
-  @override
-  String get settingsTouchpadNaturalScrollDescription => '让内容沿手指移动的方向滚动。';
-
-  @override
-  String get settingsTouchpadScrollSpeed => '手指滚动速度';
-
-  @override
-  String get settingsTouchpadScrollingLayoutSwipeSpeed => '滚动布局滑动速度';
-
-  @override
-  String get settingsMousePointerSpeed => '鼠标指针速度';
-
-  @override
-  String get settingsMouseAcceleration => '鼠标加速';
-
-  @override
-  String get settingsMouseAccelerationDescription =>
-      '移动越快，指针走得越远。关闭后指针与手的移动保持同步。';
-
-  @override
-  String get settingsShortcutsSection => '快捷键';
-
-  @override
-  String get settingsShortcutsTitle => '选择按下快捷键时 Denial 执行的操作。';
-
-  @override
-  String settingsShortcutsConfigured(int count) {
-    return '$count 个快捷键';
-  }
-
-  @override
-  String get settingsShortcutsAdd => '添加快捷键';
-
-  @override
-  String get settingsShortcutsLoading => '正在从合成器读取快捷键…';
-
-  @override
-  String get settingsShortcutsUnavailable => '合成器快捷键配置不可用。';
-
-  @override
-  String get settingsShortcutsRetry => '重试';
-
-  @override
-  String get settingsShortcutsEmpty => '尚未配置快捷键。添加一个即可更快触发操作。';
-
-  @override
-  String settingsShortcutsRowSemantics(String shortcut, String action) {
-    return '$shortcut，$action';
-  }
-
-  @override
-  String settingsShortcutsDeleteTooltip(String shortcut) {
-    return '删除 $shortcut';
-  }
-
-  @override
-  String get settingsShortcutEditorAddTitle => '添加快捷键';
-
-  @override
-  String get settingsShortcutEditorEditTitle => '编辑快捷键';
-
-  @override
-  String get settingsShortcutEditorDescription => '输入快捷键并选择其运行内容，保存前由合成器检查。';
-
-  @override
-  String get settingsShortcutEditorShortcutLabel => '快捷键';
-
-  @override
-  String get settingsShortcutEditorShortcutHint => 'Super+K';
-
-  @override
-  String get settingsShortcutEditorShortcutExample =>
-      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
-
-  @override
-  String get settingsShortcutEditorSupportedInputs => '支持的输入';
-
-  @override
-  String get settingsShortcutEditorTargetLabel => '运行';
-
-  @override
-  String get settingsShortcutEditorTargetAction => 'Denial 操作';
-
-  @override
-  String get settingsShortcutEditorTargetApplication => '应用';
-
-  @override
-  String get settingsShortcutEditorTargetProgram => '程序';
-
-  @override
-  String get settingsShortcutEditorTargetShell => 'Shell 命令';
-
-  @override
-  String get settingsShortcutEditorProgramDescription =>
-      '直接运行程序，不经过 Shell。每个参数都会按原样传递。';
-
-  @override
-  String get settingsShortcutEditorProgramLabel => '程序';
-
-  @override
-  String get settingsShortcutEditorProgramHint => 'foot';
-
-  @override
-  String get settingsShortcutEditorArgumentsLabel => '参数';
-
-  @override
-  String get settingsShortcutEditorAddArgument => '添加参数';
-
-  @override
-  String get settingsShortcutEditorNoArguments => '无参数';
-
-  @override
-  String settingsShortcutEditorArgumentLabel(int index) {
-    return '参数 $index';
-  }
-
-  @override
-  String get settingsShortcutEditorArgumentHint => '--option';
-
-  @override
-  String settingsShortcutEditorRemoveArgument(int index) {
-    return '移除参数 $index';
-  }
-
-  @override
-  String get settingsShortcutEditorShellDescription =>
-      '通过 sh -c 运行一条命令。支持 Shell 变量、管道、重定向和命令串联。';
-
-  @override
-  String get settingsShortcutEditorShellCommandLabel => 'Shell 命令';
-
-  @override
-  String get settingsShortcutEditorShellCommandHint =>
-      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
-
-  @override
-  String get settingsShortcutEditorChooseAction => '选择操作';
-
-  @override
-  String get settingsShortcutEditorChooseApplication => '选择应用';
-
-  @override
-  String settingsShortcutApplicationTarget(String desktopFileId) {
-    return '应用 · $desktopFileId';
-  }
-
-  @override
-  String get settingsShortcutEditorValidating => '正在通过合成器检查…';
-
-  @override
-  String settingsShortcutEditorValid(String shortcut) {
-    return '识别为 $shortcut';
-  }
-
-  @override
-  String settingsShortcutEditorConflict(String shortcut, String action) {
-    return '$shortcut 已分配给“$action”。';
-  }
-
-  @override
-  String get settingsShortcutEditorSearch => '搜索';
-
-  @override
-  String get settingsShortcutEditorNoResults => '没有匹配的项目。';
-
-  @override
-  String get settingsShortcutEditorBack => '返回快捷键编辑器';
-
-  @override
-  String get settingsShortcutEditorDone => '完成';
-
-  @override
-  String get settingsShortcutEditorCancel => '取消';
-
-  @override
-  String get settingsShortcutEditorSave => '保存';
-
-  @override
-  String get settingsShortcutEditorSaving => '正在保存…';
-
-  @override
-  String get settingsShortcutEditorDelete => '删除';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeUp => '三指向上轻扫';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeLeft => '三指向左轻扫';
-
-  @override
-  String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeLeft => '四指向左轻扫';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeRight => '四指向右轻扫';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeUp => '四指向上轻扫';
-
-  @override
-  String get settingsShortcutGestureFourFingerSwipeDown => '四指向下轻扫';
-
-  @override
-  String get settingsShortcutInputCategoryModifier => '修饰键';
-
-  @override
-  String get settingsShortcutInputCategoryNavigation => '导航';
-
-  @override
-  String get settingsShortcutInputCategoryEditing => '编辑';
-
-  @override
-  String get settingsShortcutInputCategoryPunctuation => '标点';
-
-  @override
-  String get settingsShortcutInputCategoryFunction => '功能键';
-
-  @override
-  String get settingsShortcutInputCategoryMedia => '媒体';
-
-  @override
-  String get settingsShortcutInputCategoryHardware => '硬件';
-
-  @override
-  String get settingsShortcutInputCategorySpecial => '特殊键';
-
-  @override
-  String get settingsShortcutInputCategoryGesture => '手势';
-
-  @override
-  String get settingsShortcutActionShutdown => '关机';
-
-  @override
-  String get settingsShortcutActionOpenApplications => '打开应用列表';
-
-  @override
-  String get settingsShortcutActionOpenDashboard => '打开仪表板';
-
-  @override
-  String get settingsShortcutActionOpenSettings => '打开设置';
-
-  @override
-  String get settingsShortcutActionOpenOverview => '打开概览';
-
-  @override
-  String get settingsShortcutActionToggleVerticalMaximize => '垂直最大化';
-
-  @override
-  String get settingsShortcutActionWindowSwitcher => '切换窗口';
-
-  @override
-  String get settingsShortcutActionOpenClipboard => '打开剪贴板';
-
-  @override
-  String get settingsShortcutActionCaptureRegion => '截取区域';
-
-  @override
-  String get settingsShortcutActionCloseWindow => '关闭窗口';
-
-  @override
-  String get settingsShortcutActionMinimizeWindow => '最小化窗口';
-
-  @override
-  String get settingsShortcutActionMinimizeAllWindows => '最小化所有窗口';
-
-  @override
-  String get settingsShortcutActionToggleMaximize => '最大化或还原';
-
-  @override
-  String get settingsShortcutActionToggleFullscreen => '进入或退出全屏';
-
-  @override
-  String get settingsShortcutActionToggleWindowAlwaysOnTop => '置顶或取消置顶窗口';
-
-  @override
-  String get settingsShortcutActionReleasePointer => '释放指针';
-
-  @override
-  String get settingsShortcutActionLockScreen => '锁定屏幕';
-
-  @override
-  String get settingsShortcutActionVolumeUp => '增大音量';
-
-  @override
-  String get settingsShortcutActionVolumeDown => '减小音量';
-
-  @override
-  String get settingsShortcutActionVolumeMute => '静音或取消静音';
-
-  @override
-  String get settingsShortcutActionBrightnessUp => '提高亮度';
-
-  @override
-  String get settingsShortcutActionBrightnessDown => '降低亮度';
-
-  @override
-  String get settingsShortcutActionNextKeyboardLayout => '下一个键盘布局';
-
-  @override
-  String get settingsShortcutActionPreviousKeyboardLayout => '上一个键盘布局';
-
-  @override
-  String get settingsShortcutActionFocusLeft => '聚焦左侧窗口';
-
-  @override
-  String get settingsShortcutActionFocusRight => '聚焦右侧窗口';
-
-  @override
-  String get settingsShortcutActionFocusUp => '聚焦上方窗口';
-
-  @override
-  String get settingsShortcutActionFocusDown => '聚焦下方窗口';
-
-  @override
-  String get settingsShortcutActionSwapLeft => '向左交换窗口';
-
-  @override
-  String get settingsShortcutActionSwapRight => '向右交换窗口';
-
-  @override
-  String get settingsShortcutActionSwapUp => '向上交换窗口';
-
-  @override
-  String get settingsShortcutActionSwapDown => '向下交换窗口';
-
-  @override
-  String get settingsShortcutActionPreviousWorkspace => '上一个工作区';
-
-  @override
-  String get settingsShortcutActionNextWorkspace => '下一个工作区';
-
-  @override
-  String get settingsShortcutActionMoveToPreviousWorkspace => '将窗口移至上一个工作区';
-
-  @override
-  String get settingsShortcutActionMoveToNextWorkspace => '将窗口移至下一个工作区';
-
-  @override
-  String settingsShortcutActionSwitchWorkspace(int workspace) {
-    return '切换到工作区 $workspace';
-  }
-
-  @override
-  String settingsShortcutActionMoveToWorkspace(int workspace) {
-    return '将窗口移至工作区 $workspace';
-  }
-
-  @override
-  String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
-
-  @override
-  String get settingsLayoutSection => '桌面布局';
-
-  @override
-  String get settingsLayoutTitle => '给每个窗口留出呼吸空间。';
-
-  @override
-  String get settingsWindowLayoutDescription =>
-      '堆叠允许窗口相互重叠。平铺动态划分桌面。滚动平铺将窗口排列成跟随焦点的长带；其方向可按显示器配置，默认跟随显示器旋转。';
-
-  @override
-  String get settingsWindowLayoutDwindle => '平铺';
-
-  @override
-  String get settingsWindowLayoutStacking => '堆叠';
-
-  @override
-  String get settingsWindowLayoutScrolling => '滚动平铺';
-
-  @override
-  String get settingsWindowLayoutTitle => '窗口布局';
-
-  @override
-  String get settingsScrollingLayoutWheelTitle => 'Super + 鼠标滚轮';
-
-  @override
-  String get settingsScrollingLayoutWheelDescription =>
-      '按住 Super 并滚动鼠标滚轮来移动窗口带。';
-
-  @override
-  String get settingsScrollingLayoutWheelSpeed => '滚轮速度';
-
-  @override
-  String get settingsScrollingLayoutWheelUpDirection => '滚轮向上移动';
-
-  @override
-  String get settingsScrollingLayoutWheelUpLeft => '向左';
-
-  @override
-  String get settingsScrollingLayoutWheelUpRight => '向右';
-
-  @override
-  String get settingsWorkspacesTitle => 'Workspaces';
-
-  @override
-  String get settingsWorkspacesEnable => 'Enable workspaces';
-
-  @override
-  String get settingsWorkspacesDescription =>
-      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
-
-  @override
-  String get settingsWorkspaceCount => 'Workspace count';
-
-  @override
-  String get settingsWorkspaceSwitchingOrientation => '切换方向';
-
-  @override
-  String get settingsWorkspaceSwitchingHorizontal => '水平';
-
-  @override
-  String get settingsWorkspaceSwitchingVertical => '垂直';
-
-  @override
-  String workspaceLabel(int workspace) {
-    return 'Workspace $workspace';
-  }
-
-  @override
-  String get workspaceActive => 'active';
-
-  @override
-  String get workspaceOccupied => 'occupied';
-
-  @override
-  String get workspaceEmpty => 'empty';
-
-  @override
-  String get settingsLiveBadge => '实时';
-
-  @override
-  String get settingsLiveChangesSemanticsLabel => '更改会实时应用';
-
-  @override
-  String get settingsLoadingAudio => '正在加载应用音频…';
-
-  @override
-  String get settingsLockBackdropDescription => '控制锁定时的壁纸暗度和模糊。';
-
-  @override
-  String get settingsLockBackdropTitle => '背景';
-
-  @override
-  String get settingsLockInformationDescription => '选择登录前仍可显示的有用信息。';
-
-  @override
-  String get settingsLockInformationTitle => '桌面状态';
-
-  @override
-  String get settingsLockMotionDescription => '在桌面锁屏出现时播放动画。';
-
-  @override
-  String get settingsLockMotionTitle => '锁屏动效';
-
-  @override
-  String get settingsLockPreviewDate => '7月23日 星期四';
-
-  @override
-  String get settingsLockPreviewSemantics => '锁屏预览';
-
-  @override
-  String get settingsLockPreviewStatus => 'CPU 18% · GPU 12% · 52°C';
-
-  @override
-  String get settingsLockPreviewTime => '22:41';
-
-  @override
-  String get settingsLockScreenDescription => '主显示器呈现专门的登录界面，辅助显示器则保持安静并显示信息。';
-
-  @override
-  String get settingsLockScreenSection => '锁屏';
-
-  @override
-  String get settingsLockScreenTitle => '桌面锁屏，而不是拉伸的手机界面。';
-
-  @override
-  String get settingsMasterOutputDescription => '设置当前桌面的输出音量。';
-
-  @override
-  String get settingsMasterOutputTitle => '主输出';
-
-  @override
-  String get settingsMaximizedSpacingDescription => '在最大化窗口周围保留少量边距。';
-
-  @override
-  String get settingsMaximizedSpacingTitle => '最大化间距';
 
   @override
   String get settingsDeveloperAutoReloadDescription =>
@@ -2875,14 +2833,176 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => '源码工作区';
 
   @override
-  String get settingsEnvironmentAdd => '添加';
+  String get settingsDisconnect => '断开连接';
 
   @override
-  String get settingsEnvironmentAddedStatus => '已添加到启动的应用';
+  String get settingsDisplayApplyPersistentHint =>
+      '保留更改后会更新当前会话和 outputs.conf。';
+
+  @override
+  String get settingsDisplayApplySessionHint => '保留更改后仅用于当前会话。';
+
+  @override
+  String get settingsDisplayArrangementSemantics => '显示器排列编辑器';
+
+  @override
+  String get settingsDisplayArrangementTitle => '显示器配置';
+
+  @override
+  String get settingsDisplayBrightnessDescription => '调节主显示器亮度。';
+
+  @override
+  String get settingsDisplayBrightnessTitle => '亮度';
+
+  @override
+  String get settingsDisplayCanvasPanHint => '拖动空白区域以移动画布。使用鼠标滚轮进行缩放。';
+
+  @override
+  String get settingsDisplayCanvasPanSemantics => '可平移的显示器画布';
+
+  @override
+  String settingsDisplayConfirmationMessage(int seconds) {
+    return '将在 $seconds 秒后自动恢复之前的显示设置。';
+  }
+
+  @override
+  String get settingsDisplayConfirmationTitle => '保留这些显示设置吗？';
+
+  @override
+  String settingsDisplayDetails(
+    int width,
+    int height,
+    String refreshRate,
+    String scale,
+  ) {
+    return '$width × $height · $refreshRate Hz · $scale×';
+  }
+
+  @override
+  String get settingsDisplayEnabled => '使用此显示器';
+
+  @override
+  String get settingsDisplayEnabledDescription => '将此显示器纳入桌面。必须至少启用一个显示器。';
+
+  @override
+  String get settingsDisplayInformationUnavailable => '显示信息不可用。';
+
+  @override
+  String get settingsDisplayKeepChanges => '保留更改';
+
+  @override
+  String get settingsDisplayOffTimeout => '关闭显示器前等待';
+
+  @override
+  String settingsDisplayPosition(int x, int y) {
+    return '位置 $x, $y';
+  }
+
+  @override
+  String get settingsDisplayPrimary => '主显示器';
+
+  @override
+  String get settingsDisplayPrimaryAutomatic => '自动（最高刷新率）';
+
+  @override
+  String get settingsDisplayPrimaryHint =>
+      'Shell 界面会在主显示器上打开。自动模式会使用刷新率最高的已启用显示器。';
+
+  @override
+  String get settingsDisplayRefreshRate => '刷新率';
+
+  @override
+  String get settingsDisplayResolution => '分辨率';
+
+  @override
+  String get settingsDisplayRevertNow => '立即恢复';
+
+  @override
+  String get settingsDisplayRotation => '旋转';
+
+  @override
+  String get settingsDisplayRotation180 => '倒置';
+
+  @override
+  String get settingsDisplayRotation270 => '顺时针 90°';
+
+  @override
+  String get settingsDisplayRotation90 => '逆时针 90°';
+
+  @override
+  String get settingsDisplayRotationNormal => '横向';
+
+  @override
+  String get settingsDisplayScale => '缩放';
+
+  @override
+  String get settingsDisplayScaleInvalid => '请输入 50 到 600 之间的数值。';
+
+  @override
+  String get settingsDisplayScalePreset => '预设';
+
+  @override
+  String get settingsDisplayScaleRange =>
+      '输入 50–600%。数值会舍入到最接近的受支持缩放比例。低于 100% 时画面可能较柔和。';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxis => '滚动布局轴';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisAuto => '自动（跟随旋转）';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisDescription =>
+      '选择滚动窗口在此显示器上的排列方向。';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisHorizontal => '横向';
+
+  @override
+  String get settingsDisplayScrollingLayoutAxisVertical => '纵向';
+
+  @override
+  String get settingsDisplayVariableRefreshRate => '可变刷新率 (VRR)';
+
+  @override
+  String get settingsDisplayVariableRefreshRateDescription =>
+      '使此显示器的刷新率与渲染内容相匹配。';
+
+  @override
+  String get settingsDisplayZoomFit => '适应所有显示器';
+
+  @override
+  String get settingsDisplayZoomIn => '放大';
+
+  @override
+  String settingsDisplayZoomLevel(int percent) {
+    return '画布缩放 $percent%';
+  }
+
+  @override
+  String get settingsDisplayZoomOut => '缩小';
+
+  @override
+  String get settingsDisplaysDescription => '查看已连接的输出并控制屏幕亮度。';
+
+  @override
+  String get settingsDisplaysSection => '显示器与视频';
+
+  @override
+  String get settingsDisplaysTitle => '显示器与视频。';
+
+  @override
+  String get settingsEdgeDistance => '边缘距离';
+
+  @override
+  String get settingsEnvironmentAdd => '添加';
 
   @override
   String get settingsEnvironmentAddModeDescription =>
       'Denial 执行应用时注入字面值。空值会保留为空字符串。';
+
+  @override
+  String get settingsEnvironmentAddedStatus => '已添加到启动的应用';
 
   @override
   String get settingsEnvironmentAllApplications => '所有应用';
@@ -2955,6 +3075,12 @@ class AppLocalizationsZh extends AppLocalizations {
       '在 exec 前移除继承的变量。应用会像从未导出过该名称一样运行。';
 
   @override
+  String get settingsEnvironmentModeAdd => '添加变量';
+
+  @override
+  String get settingsEnvironmentModeHide => '隐藏变量';
+
+  @override
   String get settingsEnvironmentNameDuplicate => '该变量已有覆盖项。';
 
   @override
@@ -2971,12 +3097,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsEnvironmentOverridesDefault => '覆盖所有应用规则';
-
-  @override
-  String get settingsEnvironmentModeAdd => '添加变量';
-
-  @override
-  String get settingsEnvironmentModeHide => '隐藏变量';
 
   @override
   String get settingsEnvironmentRemoveDescription => 'Denial 会在启动应用前移除继承的这个变量。';
@@ -3001,10 +3121,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsEnvironmentTitle => '自定义由 Denial 启动的应用环境。';
 
   @override
-  String get settingsEnvironmentUpdate => '更新变量';
+  String get settingsEnvironmentUnavailableApplication => '不可用的应用';
 
   @override
-  String get settingsEnvironmentUnavailableApplication => '不可用的应用';
+  String get settingsEnvironmentUpdate => '更新变量';
 
   @override
   String get settingsEnvironmentValueHint => '例如 1';
@@ -3027,9 +3147,369 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsEnvironmentVariablesTitle => '已配置的覆盖项';
 
   @override
+  String get settingsFocusedWindowBorder => '高亮聚焦窗口边框';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      '关闭后，聚焦与未聚焦窗口将使用相同的边框颜色。';
+
+  @override
+  String get settingsFocusedWindows => '聚焦窗口';
+
+  @override
+  String get settingsFontCatalogLoading => '正在查找已安装的字体…';
+
+  @override
+  String get settingsFontDescription => '在整个 Denial Shell 中使用系统默认字体或已安装的字体。';
+
+  @override
+  String get settingsFontFamily => '字体系列';
+
+  @override
+  String get settingsFontSystemDefault => '系统默认';
+
+  @override
+  String get settingsGlassAccentTint => '强调色染色';
+
+  @override
+  String get settingsGlassAdvanced => '玻璃效果调节';
+
+  @override
+  String get settingsGlassAppPanelOpacity => '应用面板不透明度';
+
+  @override
+  String get settingsGlassAppearance => '玻璃外观';
+
+  @override
+  String get settingsGlassBevelWidth => '斜边宽度';
+
+  @override
+  String get settingsGlassBrightness => '明度';
+
+  @override
+  String get settingsGlassDispersion => '色散';
+
+  @override
+  String get settingsGlassEdgeStrength => '边缘高光';
+
+  @override
+  String get settingsGlassFrost => '磨砂';
+
+  @override
+  String get settingsGlassLightAngle => '光照方向';
+
+  @override
+  String get settingsGlassLightIntensity => '光照强度';
+
+  @override
+  String get settingsGlassOppositeLight => '对侧边缘光照';
+
+  @override
+  String get settingsGlassQuality => '渲染质量';
+
+  @override
+  String get settingsGlassRefraction => '折射';
+
+  @override
+  String get settingsGlassRefractionDepth => '折射深度';
+
+  @override
+  String get settingsGlassReset => '重置玻璃效果';
+
+  @override
+  String get settingsGlassRimFalloff => '高光衰减';
+
+  @override
+  String settingsGlassRimPixels(String width) {
+    return '$width 像素';
+  }
+
+  @override
+  String get settingsGlassRimWidth => '高光宽度';
+
+  @override
+  String get settingsGlassSaturation => '饱和度';
+
+  @override
+  String get settingsGlassShellOpacity => '桌面外壳玻璃不透明度';
+
+  @override
+  String get settingsGlassThickness => '光学厚度';
+
+  @override
+  String get settingsGlassTuningDescription => '更改会立即生效。默认值保留原有的玻璃效果。';
+
+  @override
+  String get settingsGlassWindowOpacity => '窗口玻璃不透明度';
+
+  @override
+  String get settingsHeaderContext => 'DENIAL / 系统';
+
+  @override
+  String get settingsHeaderLogoSemanticsLabel => 'Denial';
+
+  @override
+  String get settingsHeight => '高度';
+
+  @override
+  String get settingsHoverTrigger => '悬停屏幕边缘时打开';
+
+  @override
+  String get settingsHoverTriggerDescription => '当指针到达对应屏幕边缘时显示此面板。';
+
+  @override
+  String get settingsHudOverlayDescription => '设置音量和亮度反馈的位置。';
+
+  @override
+  String get settingsHudOverlayTitle => '系统级显示';
+
+  @override
+  String get settingsIdleInhibitDescription => '视频播放等应用活动可以暂时暂停这些计时器。';
+
+  @override
+  String get settingsIdleInhibitSemantics => '应用可以暂停自动空闲操作';
+
+  @override
+  String get settingsInactivityTimeout => '无活动超时';
+
+  @override
+  String get settingsKeyboardActiveLayout => '当前布局';
+
+  @override
+  String get settingsKeyboardApply => '应用键盘设置';
+
+  @override
+  String get settingsKeyboardApplying => '正在应用…';
+
+  @override
+  String get settingsKeyboardInvalidLayouts => '请输入至少一个有效的 XKB 布局。';
+
+  @override
+  String get settingsKeyboardLayoutsDescription =>
+      '按切换顺序输入布局。变体写在冒号后，例如 us, de:nodeadkeys。';
+
+  @override
+  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
+
+  @override
+  String get settingsKeyboardLayoutsLabel => '布局';
+
+  @override
+  String get settingsKeyboardLayoutsTitle => '布局与变体';
+
+  @override
+  String get settingsKeyboardLoading => '正在读取合成器键盘配置…';
+
+  @override
+  String get settingsKeyboardOptionsDescription =>
+      '用逗号分隔选项，可启用 Compose、其他布局切换快捷键、Caps 重映射等 XKB 行为。';
+
+  @override
+  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
+
+  @override
+  String get settingsKeyboardOptionsLabel => 'XKB 选项';
+
+  @override
+  String get settingsKeyboardRepeatDelay => '延迟';
+
+  @override
+  String get settingsKeyboardRepeatRate => '速率';
+
+  @override
+  String get settingsKeyboardRepeatTitle => '按键重复';
+
+  @override
+  String get settingsKeyboardSection => '输入';
+
+  @override
+  String get settingsKeyboardSwitchingShortcut =>
+      'Super+空格切换到下一个布局；同时按 Shift 切换到上一个。';
+
+  @override
+  String get settingsKeyboardSwitchingTitle => '布局切换';
+
+  @override
+  String get settingsKeyboardTitle => '配置 Flutter、Wayland 和 Xwayland 共用的物理键盘。';
+
+  @override
+  String get settingsLanguageDescription => '“跟随系统”会使用桌面语言。更改会立即生效。';
+
+  @override
+  String get settingsLanguageEnglish => 'English';
+
+  @override
+  String get settingsLanguageInterfaceTitle => '界面语言';
+
+  @override
+  String get settingsLanguageSection => '语言';
+
+  @override
+  String get settingsLanguageSelectorSemantics => 'Denial 界面语言';
+
+  @override
+  String get settingsLanguageSimplifiedChinese => '简体中文';
+
+  @override
+  String get settingsLanguageSystemDefault => '跟随系统';
+
+  @override
+  String get settingsLanguageTitle => '选择 Denial 使用的语言。';
+
+  @override
+  String get settingsLauncherOverlayDescription => '设置应用启动器的位置。';
+
+  @override
+  String get settingsLauncherOverlayTitle => '应用';
+
+  @override
+  String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
+
+  @override
+  String get settingsLayoutSection => '桌面布局';
+
+  @override
+  String get settingsLayoutTitle => '给每个窗口留出呼吸空间。';
+
+  @override
+  String get settingsLiveBadge => '实时';
+
+  @override
+  String get settingsLiveChangesSemanticsLabel => '更改会实时应用';
+
+  @override
+  String get settingsLoadingAudio => '正在加载应用音频…';
+
+  @override
+  String get settingsLoadingDisplays => '正在加载显示器配置…';
+
+  @override
+  String get settingsLockBackdropDescription => '控制锁定时的壁纸暗度和模糊。';
+
+  @override
+  String get settingsLockBackdropTitle => '背景';
+
+  @override
+  String get settingsLockInformationDescription => '选择登录前仍可显示的有用信息。';
+
+  @override
+  String get settingsLockInformationTitle => '桌面状态';
+
+  @override
+  String get settingsLockMotionDescription => '在桌面锁屏出现时播放动画。';
+
+  @override
+  String get settingsLockMotionTitle => '锁屏动效';
+
+  @override
+  String get settingsLockPinChange => '更改 PIN 码';
+
+  @override
+  String get settingsLockPinConfirm => '确认 PIN 码';
+
+  @override
+  String get settingsLockPinDescription =>
+      '在锁屏上输入简短的数字 PIN 码代替密码。密码仍可解锁，其他操作仍需输入密码。';
+
+  @override
+  String get settingsLockPinLabel => '使用 PIN 码解锁';
+
+  @override
+  String get settingsLockPinLengthHint => '4 到 12 位数字';
+
+  @override
+  String get settingsLockPinMismatch => '两次输入的 PIN 码不一致';
+
+  @override
+  String get settingsLockPinNew => '新 PIN 码';
+
+  @override
+  String get settingsLockPinOff => '关闭';
+
+  @override
+  String settingsLockPinOn(int length) {
+    return '已开启，$length 位';
+  }
+
+  @override
+  String get settingsLockPinPassword => '账户密码';
+
+  @override
+  String get settingsLockPinRemove => '移除 PIN 码';
+
+  @override
+  String get settingsLockPinSave => '保存 PIN 码';
+
+  @override
+  String get settingsLockPinSetUp => '设置 PIN 码';
+
+  @override
+  String get settingsLockPinTitle => 'PIN 码';
+
+  @override
+  String get settingsLockPinUnavailable => '无法更改 PIN 码，请重试。';
+
+  @override
+  String get settingsLockPinWrongPassword => '密码错误';
+
+  @override
+  String get settingsLockPreviewDate => '7月23日 星期四';
+
+  @override
+  String get settingsLockPreviewSemantics => '锁屏预览';
+
+  @override
+  String get settingsLockPreviewStatus => 'CPU 18% · GPU 12% · 52°C';
+
+  @override
+  String get settingsLockPreviewTime => '22:41';
+
+  @override
+  String get settingsLockScreenDescription => '主显示器呈现专门的登录界面，辅助显示器则保持安静并显示信息。';
+
+  @override
+  String get settingsLockScreenSection => '锁屏';
+
+  @override
+  String get settingsLockScreenTitle => '桌面锁屏，而不是拉伸的手机界面。';
+
+  @override
+  String get settingsLockTimeout => '锁定前等待';
+
+  @override
+  String get settingsMasterOutputDescription => '设置当前桌面的输出音量。';
+
+  @override
+  String get settingsMasterOutputTitle => '主输出';
+
+  @override
+  String get settingsMaximizedSpacingDescription => '在最大化窗口周围保留少量边距。';
+
+  @override
+  String get settingsMaximizedSpacingTitle => '最大化间距';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes 分钟';
   }
+
+  @override
+  String get settingsMonitorDragHint => '拖动以排列，或使用方向键移动。';
+
+  @override
+  String settingsMonitorSemantics(String name) {
+    return '显示器 $name';
+  }
+
+  @override
+  String get settingsMouseAcceleration => '鼠标加速';
+
+  @override
+  String get settingsMouseAccelerationDescription =>
+      '移动越快，指针走得越远。关闭后指针与手的移动保持同步。';
+
+  @override
+  String get settingsMousePointerSpeed => '鼠标指针速度';
 
   @override
   String get settingsNavigationAbout => '关于';
@@ -3053,22 +3533,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsNavigationDeveloper => '开发者';
 
   @override
-  String get settingsNavigationEnvironment => '应用环境';
-
-  @override
   String get settingsNavigationDisplays => '显示器与视频';
 
   @override
-  String get settingsNavigationLanguage => '语言';
+  String get settingsNavigationEnvironment => '应用环境';
 
   @override
   String get settingsNavigationKeyboard => '键盘';
 
   @override
-  String get settingsNavigationTouchpad => '鼠标和触控板';
-
-  @override
-  String get settingsNavigationShortcuts => '快捷键';
+  String get settingsNavigationLanguage => '语言';
 
   @override
   String get settingsNavigationLockScreen => '锁屏';
@@ -3080,10 +3554,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsNavigationOverlays => '浮层';
 
   @override
+  String get settingsNavigationPermissions => '权限';
+
+  @override
   String get settingsNavigationPower => '电源';
 
   @override
   String get settingsNavigationSection => '设置';
+
+  @override
+  String get settingsNavigationShortcuts => '快捷键';
+
+  @override
+  String get settingsNavigationTouchpad => '鼠标和触控板';
+
+  @override
+  String get settingsNavigationYou => '你';
 
   @override
   String get settingsNetworkDescription => '管理 Wi-Fi 并连接附近的网络。';
@@ -3178,9 +3664,64 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get settingsPermissionAllow => '始终允许';
+
+  @override
+  String get settingsPermissionAsk => '询问';
+
+  @override
+  String get settingsPermissionDeny => '始终拒绝';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsDescription =>
+      '获得焦点时，被允许的应用会接收 Denial 自身快捷键所用的按键，例如 Super。';
+
+  @override
+  String get settingsPermissionsKeyboardShortcutsTitle => '键盘快捷键';
+
+  @override
+  String get settingsPermissionsNone => '还没有应用提出请求。';
+
+  @override
+  String get settingsPermissionsSaveFailed => '无法保存更改。';
+
+  @override
+  String get settingsPermissionsSection => '权限';
+
+  @override
+  String get settingsPermissionsTitle => '选择应用可以做什么。应用提出请求后会出现在这里。';
+
+  @override
+  String get settingsPermissionsUnavailable => '无法读取权限：门户权限存储不可用。';
+
+  @override
   String settingsPixels(int pixels) {
     return '$pixels 像素';
   }
+
+  @override
+  String get settingsPowerButtonAction => '操作';
+
+  @override
+  String get settingsPowerButtonDescription => '选择按下实体电源按钮时执行的操作。';
+
+  @override
+  String get settingsPowerButtonDpms => '关闭显示器（DPMS）';
+
+  @override
+  String get settingsPowerButtonHibernate => '休眠';
+
+  @override
+  String get settingsPowerButtonHibernateUnavailable => '休眠（不可用）';
+
+  @override
+  String get settingsPowerButtonPowerOff => '关机';
+
+  @override
+  String get settingsPowerButtonSuspend => '挂起';
+
+  @override
+  String get settingsPowerButtonTitle => '电源按钮';
 
   @override
   String get settingsPowerDescription => '控制显示器超时行为和空闲抑制。';
@@ -3195,6 +3736,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsRefresh => '刷新';
 
   @override
+  String get settingsResetAppearance => '重置外观';
+
+  @override
+  String get settingsResetGlassEffects => '重置玻璃效果';
+
+  @override
   String get settingsResetPage => '重置页面';
 
   @override
@@ -3207,32 +3754,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsScreenAnchor => '屏幕锚点';
 
   @override
+  String get settingsScrollingLayoutPreserveSwapSizes => '交换时保留窗口大小';
+
+  @override
+  String get settingsScrollingLayoutPreserveSwapSizesDescription =>
+      '在同一工作区和显示器上交换两个单窗口列时，保留各自的宽度。纵向滚动布局保留高度。拆分列保持原有大小。';
+
+  @override
+  String get settingsScrollingLayoutSwapTitle => '滚动布局交换';
+
+  @override
+  String get settingsScrollingLayoutWheelDescription =>
+      '按住 Super 并滚动鼠标滚轮来移动窗口带。';
+
+  @override
+  String get settingsScrollingLayoutWheelSpeed => '滚轮速度';
+
+  @override
+  String get settingsScrollingLayoutWheelTitle => 'Super + 鼠标滚轮';
+
+  @override
+  String get settingsScrollingLayoutWheelUpDirection => '滚轮向上移动';
+
+  @override
+  String get settingsScrollingLayoutWheelUpLeft => '向左';
+
+  @override
+  String get settingsScrollingLayoutWheelUpRight => '向右';
+
+  @override
   String get settingsShapeDescription => '统一缩放窗口、面板、卡片和控件的所有圆角。';
 
   @override
   String get settingsShapeTitle => '形状';
-
-  @override
-  String get settingsCornerRoundness => '全局圆角';
-
-  @override
-  String get settingsColorSchemeTitle => '配色方案';
-
-  @override
-  String get settingsColorSchemeDark => '深色';
-
-  @override
-  String get settingsColorSchemeLight => '浅色';
-
-  @override
-  String get settingsColorSchemeNoPreference => '无偏好';
-
-  @override
-  String get settingsColorSchemeDescription => '在 Denial 和支持的应用中使用相同的配色方案。';
-
-  @override
-  String get settingsColorSchemeNoPreferenceDescription =>
-      'Denial 保持默认深色外观，应用可自行选择配色方案。';
 
   @override
   String get settingsShellAccentChoose => '选择强调色';
@@ -3250,6 +3804,357 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShellAccentWallpaper => '来自壁纸';
 
   @override
+  String get settingsShortcutActionBrightnessDown => '降低亮度';
+
+  @override
+  String get settingsShortcutActionBrightnessUp => '提高亮度';
+
+  @override
+  String get settingsShortcutActionCaptureRegion => '截取区域';
+
+  @override
+  String get settingsShortcutActionCloseWindow => '关闭窗口';
+
+  @override
+  String get settingsShortcutActionFocusDown => '聚焦下方窗口';
+
+  @override
+  String get settingsShortcutActionFocusLeft => '聚焦左侧窗口';
+
+  @override
+  String get settingsShortcutActionFocusRight => '聚焦右侧窗口';
+
+  @override
+  String get settingsShortcutActionFocusUp => '聚焦上方窗口';
+
+  @override
+  String get settingsShortcutActionLockScreen => '锁定屏幕';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => '最小化所有窗口';
+
+  @override
+  String get settingsShortcutActionMinimizeWindow => '最小化窗口';
+
+  @override
+  String get settingsShortcutActionMoveToNextWorkspace => '将窗口移至下一个工作区';
+
+  @override
+  String get settingsShortcutActionMoveToPreviousWorkspace => '将窗口移至上一个工作区';
+
+  @override
+  String settingsShortcutActionMoveToWorkspace(int workspace) {
+    return '将窗口移至工作区 $workspace';
+  }
+
+  @override
+  String get settingsShortcutActionNextKeyboardLayout => '下一个键盘布局';
+
+  @override
+  String get settingsShortcutActionNextWorkspace => '下一个工作区';
+
+  @override
+  String get settingsShortcutActionOpenApplications => '打开应用列表';
+
+  @override
+  String get settingsShortcutActionOpenClipboard => '打开剪贴板';
+
+  @override
+  String get settingsShortcutActionOpenDashboard => '打开仪表板';
+
+  @override
+  String get settingsShortcutActionOpenOverview => '打开概览';
+
+  @override
+  String get settingsShortcutActionOpenSettings => '打开设置';
+
+  @override
+  String get settingsShortcutActionPreviousKeyboardLayout => '上一个键盘布局';
+
+  @override
+  String get settingsShortcutActionPreviousWorkspace => '上一个工作区';
+
+  @override
+  String get settingsShortcutActionReleasePointer => '释放指针';
+
+  @override
+  String get settingsShortcutActionResetWindowHeight => '重置窗口高度';
+
+  @override
+  String get settingsShortcutActionResetWindowWidth => '重置窗口宽度';
+
+  @override
+  String get settingsShortcutActionResizeGrowHeight => '增加窗口高度';
+
+  @override
+  String get settingsShortcutActionResizeGrowWidth => '增加窗口宽度';
+
+  @override
+  String get settingsShortcutActionResizeShrinkHeight => '减小窗口高度';
+
+  @override
+  String get settingsShortcutActionResizeShrinkWidth => '减小窗口宽度';
+
+  @override
+  String get settingsShortcutActionShutdown => '关机';
+
+  @override
+  String get settingsShortcutActionSwapDown => '向下交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapLeft => '向左交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapRight => '向右交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapUp => '向上交换窗口';
+
+  @override
+  String settingsShortcutActionSwitchWorkspace(int workspace) {
+    return '切换到工作区 $workspace';
+  }
+
+  @override
+  String get settingsShortcutActionToggleFullscreen => '进入或退出全屏';
+
+  @override
+  String get settingsShortcutActionToggleMaximize => '最大化或还原';
+
+  @override
+  String get settingsShortcutActionToggleVerticalMaximize => '垂直最大化';
+
+  @override
+  String get settingsShortcutActionToggleWindowAlwaysOnTop => '置顶或取消置顶窗口';
+
+  @override
+  String get settingsShortcutActionVolumeDown => '减小音量';
+
+  @override
+  String get settingsShortcutActionVolumeMute => '静音或取消静音';
+
+  @override
+  String get settingsShortcutActionVolumeUp => '增大音量';
+
+  @override
+  String get settingsShortcutActionWindowSwitcher => '切换窗口';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return '应用 · $desktopFileId';
+  }
+
+  @override
+  String get settingsShortcutEditorAddArgument => '添加参数';
+
+  @override
+  String get settingsShortcutEditorAddTitle => '添加快捷键';
+
+  @override
+  String get settingsShortcutEditorArgumentHint => '--option';
+
+  @override
+  String settingsShortcutEditorArgumentLabel(int index) {
+    return '参数 $index';
+  }
+
+  @override
+  String get settingsShortcutEditorArgumentsLabel => '参数';
+
+  @override
+  String get settingsShortcutEditorBack => '返回快捷键编辑器';
+
+  @override
+  String get settingsShortcutEditorCancel => '取消';
+
+  @override
+  String get settingsShortcutEditorChooseAction => '选择操作';
+
+  @override
+  String get settingsShortcutEditorChooseApplication => '选择应用';
+
+  @override
+  String settingsShortcutEditorConflict(String shortcut, String action) {
+    return '$shortcut 已分配给“$action”。';
+  }
+
+  @override
+  String get settingsShortcutEditorDelete => '删除';
+
+  @override
+  String get settingsShortcutEditorDescription => '输入快捷键并选择其运行内容，保存前由合成器检查。';
+
+  @override
+  String get settingsShortcutEditorDone => '完成';
+
+  @override
+  String get settingsShortcutEditorEditTitle => '编辑快捷键';
+
+  @override
+  String get settingsShortcutEditorNoArguments => '无参数';
+
+  @override
+  String get settingsShortcutEditorNoResults => '没有匹配的项目。';
+
+  @override
+  String get settingsShortcutEditorProgramDescription =>
+      '直接运行程序，不经过 Shell。每个参数都会按原样传递。';
+
+  @override
+  String get settingsShortcutEditorProgramHint => 'foot';
+
+  @override
+  String get settingsShortcutEditorProgramLabel => '程序';
+
+  @override
+  String settingsShortcutEditorRemoveArgument(int index) {
+    return '移除参数 $index';
+  }
+
+  @override
+  String get settingsShortcutEditorSave => '保存';
+
+  @override
+  String get settingsShortcutEditorSaving => '正在保存…';
+
+  @override
+  String get settingsShortcutEditorSearch => '搜索';
+
+  @override
+  String get settingsShortcutEditorShellCommandHint =>
+      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
+
+  @override
+  String get settingsShortcutEditorShellCommandLabel => 'Shell 命令';
+
+  @override
+  String get settingsShortcutEditorShellDescription =>
+      '通过 sh -c 运行一条命令。支持 Shell 变量、管道、重定向和命令串联。';
+
+  @override
+  String get settingsShortcutEditorShortcutExample =>
+      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
+
+  @override
+  String get settingsShortcutEditorShortcutHint => 'Super+K';
+
+  @override
+  String get settingsShortcutEditorShortcutLabel => '快捷键';
+
+  @override
+  String get settingsShortcutEditorSupportedInputs => '支持的输入';
+
+  @override
+  String get settingsShortcutEditorTargetAction => 'Denial 操作';
+
+  @override
+  String get settingsShortcutEditorTargetApplication => '应用';
+
+  @override
+  String get settingsShortcutEditorTargetLabel => '运行';
+
+  @override
+  String get settingsShortcutEditorTargetProgram => '程序';
+
+  @override
+  String get settingsShortcutEditorTargetShell => 'Shell 命令';
+
+  @override
+  String settingsShortcutEditorValid(String shortcut) {
+    return '识别为 $shortcut';
+  }
+
+  @override
+  String get settingsShortcutEditorValidating => '正在通过合成器检查…';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeDown => '四指向下轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeLeft => '四指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeRight => '四指向右轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeUp => '四指向上轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft => '三指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeUp => '三指向上轻扫';
+
+  @override
+  String get settingsShortcutInputCategoryEditing => '编辑';
+
+  @override
+  String get settingsShortcutInputCategoryFunction => '功能键';
+
+  @override
+  String get settingsShortcutInputCategoryGesture => '手势';
+
+  @override
+  String get settingsShortcutInputCategoryHardware => '硬件';
+
+  @override
+  String get settingsShortcutInputCategoryMedia => '媒体';
+
+  @override
+  String get settingsShortcutInputCategoryModifier => '修饰键';
+
+  @override
+  String get settingsShortcutInputCategoryNavigation => '导航';
+
+  @override
+  String get settingsShortcutInputCategoryPunctuation => '标点';
+
+  @override
+  String get settingsShortcutInputCategorySpecial => '特殊键';
+
+  @override
+  String get settingsShortcutProviderUnavailable => '提供方不可用';
+
+  @override
+  String get settingsShortcutsAdd => '添加快捷键';
+
+  @override
+  String settingsShortcutsConfigured(int count) {
+    return '$count 个快捷键';
+  }
+
+  @override
+  String settingsShortcutsDeleteTooltip(String shortcut) {
+    return '删除 $shortcut';
+  }
+
+  @override
+  String get settingsShortcutsEmpty => '尚未配置快捷键。添加一个即可更快触发操作。';
+
+  @override
+  String get settingsShortcutsLoading => '正在从合成器读取快捷键…';
+
+  @override
+  String get settingsShortcutsRetry => '重试';
+
+  @override
+  String settingsShortcutsRowSemantics(String shortcut, String action) {
+    return '$shortcut，$action';
+  }
+
+  @override
+  String get settingsShortcutsSection => '快捷键';
+
+  @override
+  String get settingsShortcutsTitle => '选择按下快捷键时 Denial 执行的操作。';
+
+  @override
+  String get settingsShortcutsUnavailable => '合成器快捷键配置不可用。';
+
+  @override
   String get settingsShowSystemStatus => '显示性能和电源状态';
 
   @override
@@ -3262,6 +4167,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsStorageLocation => '设置存储在\n~/.config/denial/settings.json';
+
+  @override
+  String get settingsSuspendMode => '挂起模式';
+
+  @override
+  String get settingsSuspendModeDeep => '挂起到内存（deep）';
+
+  @override
+  String get settingsSuspendModeDescription =>
+      '选择 Linux 在挂起时如何保持内存供电。Denial 活动期间的每次挂起都会使用此设置。';
+
+  @override
+  String get settingsSuspendModeS2idle => '挂起到空闲（s2idle）';
+
+  @override
+  String get settingsSuspendModeShallow => '待机（shallow）';
+
+  @override
+  String get settingsSuspendModeUnavailable => '不可用';
+
+  @override
+  String get settingsSuspendTimeout => '挂起前等待';
 
   @override
   String get settingsSystemBarCloneHint => '每个选中的显示器都有自己的系统栏。系统栏不会跨越显示器。';
@@ -3325,10 +4252,56 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSystemBarUnavailable => '显示信息尚不可用。';
 
   @override
+  String get settingsTouchpadNaturalScroll => '反向双指滚动';
+
+  @override
+  String get settingsTouchpadNaturalScrollDescription => '让内容沿手指移动的方向滚动。';
+
+  @override
+  String get settingsTouchpadScrollSpeed => '手指滚动速度';
+
+  @override
+  String get settingsTouchpadScrollingLayoutSwipeSpeed => '滚动布局滑动速度';
+
+  @override
+  String get settingsTouchpadSection => '输入';
+
+  @override
+  String get settingsTouchpadTapToClick => '轻触点击';
+
+  @override
+  String get settingsTouchpadTapToClickDescription => '轻触触控板即可按下鼠标主键。';
+
+  @override
+  String get settingsTouchpadTitle => '调整鼠标和触控板的操作方式。';
+
+  @override
+  String get settingsTransparencyBlur => '模糊';
+
+  @override
+  String get settingsTransparencyBlurDescription => '使用 Denial 当前的快速高斯背景模糊。';
+
+  @override
+  String get settingsTransparencyGlass => '玻璃';
+
+  @override
+  String get settingsTransparencyGlassDescription =>
+      '通过磨砂、强调色染色的透镜折射清晰桌面，并添加定向边缘光。';
+
+  @override
+  String get settingsTransparencyOff => '关闭';
+
+  @override
+  String get settingsTransparencyOffDescription => '透明表面不处理其后的桌面内容。';
+
+  @override
+  String get settingsTransparencyTitle => '透明材质';
+
+  @override
   String get settingsTwoHours => '2 小时';
 
   @override
-  String get settingsSuspendTimeout => '挂起前等待';
+  String get settingsTypographyTitle => '字体';
 
   @override
   String get settingsUnfocusedWindows => '未聚焦窗口';
@@ -3340,13 +4313,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsUseSystemWallpaperDescription => '锁屏会跟随壁纸更改和各输出的分配。';
 
   @override
+  String get settingsWallpaperApplied => '已应用的壁纸';
+
+  @override
   String get settingsWallpaperChoose => '更改';
+
+  @override
+  String get settingsWallpaperChooseFallback => '选择备用图片';
+
+  @override
+  String get settingsWallpaperDefault => 'Denial 默认';
 
   @override
   String get settingsWallpaperDescription => '选择在 Shell 后方和锁屏上显示的图像。';
 
   @override
+  String settingsWallpaperDisplay(String name) {
+    return '显示器 · $name';
+  }
+
+  @override
+  String get settingsWallpaperFallback => '备用图片';
+
+  @override
+  String get settingsWallpaperLive => '动态 / 应用管理的壁纸';
+
+  @override
+  String get settingsWallpaperLiveDescription => '壁纸应用正在绘制此桌面。选择备用图片不会停止该应用。';
+
+  @override
   String get settingsWallpaperPreviewSemantics => '当前壁纸预览';
+
+  @override
+  String get settingsWallpaperPreviewUnavailable => '预览不可用';
+
+  @override
+  String get settingsWallpaperStatic => '静态壁纸';
 
   @override
   String get settingsWallpaperTitle => '壁纸';
@@ -3370,6 +4372,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsWindowCloseEffectTitle => '窗口关闭效果';
 
   @override
+  String get settingsWindowLayoutDescription =>
+      '堆叠允许窗口相互重叠。平铺动态划分桌面。滚动平铺将窗口排列成跟随焦点的长带；其方向可按显示器配置，默认跟随显示器旋转。';
+
+  @override
+  String get settingsWindowLayoutDwindle => '平铺';
+
+  @override
+  String get settingsWindowLayoutScrolling => '滚动平铺';
+
+  @override
+  String get settingsWindowLayoutStacking => '堆叠';
+
+  @override
+  String get settingsWindowLayoutTitle => '窗口布局';
+
+  @override
   String get settingsWindowMinimizationDescription =>
       '让最小化窗口作为实时预览留在桌面上，或让它们滑出屏幕边缘，直到恢复。';
 
@@ -3389,9 +4407,94 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsWindowOpacityTitle => '窗口不透明度';
 
   @override
+  String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String get settingsWorkspaceSwitchingHorizontal => '水平';
+
+  @override
+  String get settingsWorkspaceSwitchingOrientation => '切换方向';
+
+  @override
+  String get settingsWorkspaceSwitchingVertical => '垂直';
+
+  @override
+  String get settingsWorkspacesDescription =>
+      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
+
+  @override
+  String get settingsWorkspacesEnable => 'Enable workspaces';
+
+  @override
+  String get settingsWorkspacesTitle => 'Workspaces';
+
+  @override
+  String get settingsYouAccountName => '使用账户名称';
+
+  @override
+  String get settingsYouChoosePhoto => '选择照片';
+
+  @override
+  String get settingsYouDefaultPhoto => '使用默认头像';
+
+  @override
+  String get settingsYouDescription => '让这片空间属于你。';
+
+  @override
+  String get settingsYouDisplayName => '显示名称';
+
+  @override
+  String get settingsYouImageError =>
+      '无法使用该照片。请选择小于 16 MB 的 PNG、JPEG、WebP、GIF 或 BMP 图像。';
+
+  @override
+  String get settingsYouLoadError => '无法加载个人资料。';
+
+  @override
+  String get settingsYouNameHint => '留空以使用账户名称。';
+
+  @override
+  String get settingsYouPreview => '仪表板上的个人资料';
+
+  @override
+  String get settingsYouSave => '保存名字';
+
+  @override
+  String get settingsYouSaveError => '无法保存个人资料，请重试。';
+
+  @override
+  String get settingsYouSaved => '名字已保存。';
+
+  @override
+  String get shellPresentationDesktop => '桌面视图';
+
+  @override
+  String get shellPresentationMobile => '移动视图';
+
+  @override
   String shortDate(String weekday, int day, String month) {
     return '$month$day日 $weekday';
   }
+
+  @override
+  String get simLocked => 'SIM 卡已锁定';
+
+  @override
+  String get simPinLater => '稍后';
+
+  @override
+  String simPinRetries(int count) {
+    return '剩余 $count 次尝试';
+  }
+
+  @override
+  String get simPinTitle => '解锁 SIM 卡';
+
+  @override
+  String get simPinUnlock => '解锁 SIM 卡';
+
+  @override
+  String get simPukRequired => 'SIM 卡需要 PUK。请联系运营商。';
 
   @override
   String statusBarLiveTime(String time) {
@@ -3422,8 +4525,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get thermalSensorSvooc => 'SVOOC';
 
   @override
+  String get timeAfternoon => '下午';
+
+  @override
   String timeHoursMinutes(String hour, String minute) {
     return '$hour:$minute';
+  }
+
+  @override
+  String get timeMorning => '上午';
+
+  @override
+  String timeTwelveHour(String hour, String minute, String period) {
+    return '$period$hour:$minute';
   }
 
   @override
@@ -3503,22 +4617,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wallpaperImageServerUnavailable => '在线壁纸不可用。本地壁纸仍可使用。';
 
   @override
-  String get wallpaperPreviousPage => '上一页壁纸';
-
-  @override
-  String get wallpaperNextPage => '下一页壁纸';
-
-  @override
-  String wallpaperPageNumber(int page) {
-    return '第 $page 页';
-  }
-
-  @override
-  String wallpaperPageOfTotal(int page, int total) {
-    return '第 $page 页，共 $total 页';
-  }
-
-  @override
   String get wallpaperLayout => '预览布局';
 
   @override
@@ -3567,7 +4665,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wallpaperMobileVerticalPosition => '垂直';
 
   @override
+  String get wallpaperNextPage => '下一页壁纸';
+
+  @override
   String get wallpaperNoneFound => '未找到壁纸';
+
+  @override
+  String wallpaperPageNumber(int page) {
+    return '第 $page 页';
+  }
+
+  @override
+  String wallpaperPageOfTotal(int page, int total) {
+    return '第 $page 页，共 $total 页';
+  }
+
+  @override
+  String get wallpaperPreviousPage => '上一页壁纸';
 
   @override
   String get wallpaperSearchHint => '搜索壁纸';
@@ -3604,6 +4718,164 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get weekdayWednesday => '星期三';
+
+  @override
+  String get welcomeAppearance => '外观';
+
+  @override
+  String get welcomeAppearanceTitle => '让桌面体现你的风格。';
+
+  @override
+  String get welcomeBlur => '模糊';
+
+  @override
+  String get welcomeCancel => '取消';
+
+  @override
+  String get welcomeDark => '深色';
+
+  @override
+  String get welcomeDesktopUsage => '桌面基本操作';
+
+  @override
+  String get welcomeDonate => '捐赠';
+
+  @override
+  String get welcomeDwindleDescription => '窗口自动平铺为分割布局。';
+
+  @override
+  String get welcomeExit => '退出';
+
+  @override
+  String get welcomeExitMessage => '设置向导将不再自动显示，你可以从启动器中重新打开它。';
+
+  @override
+  String get welcomeExitSetup => '退出设置';
+
+  @override
+  String get welcomeFinish => '开始使用 Denial';
+
+  @override
+  String get welcomeGetStarted => '开始设置';
+
+  @override
+  String get welcomeGlass => '玻璃';
+
+  @override
+  String get welcomeInstant => '选择一个选项，桌面将立即更新。';
+
+  @override
+  String get welcomeIntro => '不一样的桌面，用几个快捷键即可轻松上手。';
+
+  @override
+  String get welcomeKill => '关闭当前窗口';
+
+  @override
+  String get welcomeLayout => '布局';
+
+  @override
+  String get welcomeLayoutTitle => '选择适合你的工作方式。';
+
+  @override
+  String get welcomeLight => '浅色';
+
+  @override
+  String get welcomeLinkError => '无法打开浏览器，请重试。';
+
+  @override
+  String get welcomeLinksPending => '捐赠链接即将开放。';
+
+  @override
+  String get welcomeMaterial => '窗口材质';
+
+  @override
+  String get welcomeMove => '移动窗口';
+
+  @override
+  String get welcomeMoveGesture => 'Super + 按住鼠标左键拖动';
+
+  @override
+  String get welcomeNext => '下一步';
+
+  @override
+  String get welcomeNothing => '无';
+
+  @override
+  String get welcomePointerHint => '按住 Super（Windows 键）并在窗口任意位置拖动。这些鼠标操作是内置的。';
+
+  @override
+  String get welcomePrevious => '上一步';
+
+  @override
+  String get welcomeRepository => '在 GitHub 上了解 Denial';
+
+  @override
+  String get welcomeResize => '调整窗口大小';
+
+  @override
+  String get welcomeResizeGesture => 'Super + 按住鼠标右键拖动';
+
+  @override
+  String get welcomeRetry => '重试';
+
+  @override
+  String get welcomeSaveError => '无法保存设置完成状态，请重试。';
+
+  @override
+  String get welcomeScrollingDescription => '窗口横向排列，随时滚动扩展工作空间。';
+
+  @override
+  String get welcomeShortcuts => '快捷键';
+
+  @override
+  String get welcomeShortcutsDescription => '以下是你当前的快捷键。你可以稍后在“设置 → 快捷键”中修改。';
+
+  @override
+  String get welcomeShortcutsError => '无法加载你的快捷键。';
+
+  @override
+  String get welcomeSponsors => 'GitHub Sponsors';
+
+  @override
+  String get welcomeStackingDescription => '自由放置和重叠窗口。';
+
+  @override
+  String get welcomeStart => '欢迎';
+
+  @override
+  String get welcomeStartDescription =>
+      '欢迎来到你的新桌面。我们将带你了解常用快捷键、选择窗口布局，并打造适合你的桌面外观。你可以稍后在“设置”中更改这些偏好。';
+
+  @override
+  String get welcomeSupport => '支持';
+
+  @override
+  String get welcomeSupportDescription =>
+      'Denial 源于用心、好奇心，以及桌面可以与众不同的信念。如果你喜欢它，你的支持将帮助它继续成长。';
+
+  @override
+  String get welcomeSupportOptional => '支持完全自愿。感谢你选择 Denial。';
+
+  @override
+  String get welcomeSupportTitle => '帮助 Denial 继续成长。';
+
+  @override
+  String get welcomeTheme => '主题';
+
+  @override
+  String get welcomeTiling => '平铺与键盘操作';
+
+  @override
+  String get welcomeTitle => '欢迎使用 Denial';
+
+  @override
+  String get welcomeUnbound => '未分配';
+
+  @override
+  String get welcomeWorkspaceDisabled => '工作区当前已禁用。在“设置 → 布局”中启用后即可使用这些快捷键。';
+
+  @override
+  String get welcomeWorkspaces => '工作区';
 
   @override
   String get wifiAuthorizationMayBeRequired => '可能需要授权。';
@@ -3767,1246 +5039,34 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get settingsGlassAdvanced => '玻璃效果调节';
+  String get workspaceActive => 'active';
 
   @override
-  String get settingsGlassReset => '重置玻璃效果';
+  String get workspaceEmpty => 'empty';
 
   @override
-  String get settingsGlassTuningDescription => '更改会立即生效。默认值保留原有的玻璃效果。';
-
-  @override
-  String get settingsGlassBevelWidth => '斜边宽度';
-
-  @override
-  String get settingsGlassRefractionDepth => '折射深度';
-
-  @override
-  String get settingsGlassRimWidth => '高光宽度';
-
-  @override
-  String get settingsGlassRimFalloff => '高光衰减';
-
-  @override
-  String get settingsGlassOppositeLight => '对侧边缘光照';
-
-  @override
-  String settingsGlassRimPixels(String width) {
-    return '$width 像素';
+  String workspaceLabel(int workspace) {
+    return 'Workspace $workspace';
   }
 
   @override
-  String get lockFingerprintNotRecognized => '未识别指纹';
+  String get workspaceOccupied => 'occupied';
 
   @override
-  String get fingerprintSection => '指纹';
+  String get settingsNavigationGroupPersonal => '个性化';
 
   @override
-  String get fingerprintPinPrompt => '请输入锁屏 PIN 码以管理指纹。';
+  String get settingsNavigationGroupInput => '输入';
 
   @override
-  String get fingerprintPin => 'PIN 码';
+  String get settingsNavigationGroupDesktop => '桌面';
 
   @override
-  String get fingerprintContinue => '继续';
+  String get settingsNavigationGroupSystem => '系统';
 
   @override
-  String get fingerprintDescription => '使用已录入的指纹解锁 Denial。';
+  String get settingsNavigationOpenMenu => '打开导航菜单';
 
   @override
-  String get fingerprintEmptyTitle => '尚未录入指纹';
-
-  @override
-  String get fingerprintEmptyDescription => '在下方选择手指，录入第一个指纹。';
-
-  @override
-  String get fingerprintChooseFinger => '要录入的手指';
-
-  @override
-  String get fingerprintEnroll => '录入指纹';
-
-  @override
-  String get fingerprintAdd => '添加指纹';
-
-  @override
-  String get fingerprintPinNotSet => '请先设置锁屏 PIN 码。';
-
-  @override
-  String get fingerprintExpired => '请重新输入 PIN 码以继续。';
-
-  @override
-  String get fingerprintPreparing => '正在准备指纹读取器…';
-
-  @override
-  String get fingerprintTouchSensor => '用所选手指触碰传感器，然后抬起。';
-
-  @override
-  String get fingerprintEnrolled => '指纹已录入，现在可以用它解锁 Denial。';
-
-  @override
-  String get fingerprintCancelled => '已取消录入。';
-
-  @override
-  String get fingerprintDuplicate => '此指纹已录入，请选择另一根手指。';
-
-  @override
-  String get fingerprintRetry => '抬起手指，调整位置后再次触碰传感器。';
-
-  @override
-  String get fingerprintUnavailable => '无法完成指纹管理，请检查读取器后重试。';
-
-  @override
-  String fingerprintProgress(int completed, int total) {
-    return '已完成 $completed/$total 次扫描';
-  }
-
-  @override
-  String get fingerprintLeftThumb => '左拇指';
-
-  @override
-  String get fingerprintLeftIndex => '左食指';
-
-  @override
-  String get fingerprintLeftMiddle => '左中指';
-
-  @override
-  String get fingerprintLeftRing => '左无名指';
-
-  @override
-  String get fingerprintLeftLittle => '左小指';
-
-  @override
-  String get fingerprintRightThumb => '右拇指';
-
-  @override
-  String get fingerprintRightIndex => '右食指';
-
-  @override
-  String get fingerprintRightMiddle => '右中指';
-
-  @override
-  String get fingerprintRightRing => '右无名指';
-
-  @override
-  String get fingerprintRightLittle => '右小指';
-
-  @override
-  String get mobileData => '移动数据';
-
-  @override
-  String get mobileConnected => '已连接';
-
-  @override
-  String get mobileDisconnected => '未连接';
-
-  @override
-  String get mobileUnavailable => '移动网络不可用';
-
-  @override
-  String get mobileChangeFailed => '无法更改移动数据';
-
-  @override
-  String get simPinTitle => '解锁 SIM 卡';
-
-  @override
-  String get simPinUnlock => '解锁 SIM 卡';
-
-  @override
-  String get simPinLater => '稍后';
-
-  @override
-  String get simPukRequired => 'SIM 卡需要 PUK。请联系运营商。';
-
-  @override
-  String get simLocked => 'SIM 卡已锁定';
-
-  @override
-  String simPinRetries(int count) {
-    return '剩余 $count 次尝试';
-  }
-
-  @override
-  String get settingsShortcutActionResizeGrowWidth => '增加窗口宽度';
-
-  @override
-  String get settingsShortcutActionResizeShrinkWidth => '减小窗口宽度';
-
-  @override
-  String get settingsShortcutActionResizeGrowHeight => '增加窗口高度';
-
-  @override
-  String get settingsShortcutActionResizeShrinkHeight => '减小窗口高度';
-
-  @override
-  String get settingsShortcutActionResetWindowHeight => '重置窗口高度';
-
-  @override
-  String get settingsShortcutActionResetWindowWidth => '重置窗口宽度';
-
-  @override
-  String get settingsAppearanceTheme => '主题';
-
-  @override
-  String get settingsAppearanceWindows => '窗口';
-
-  @override
-  String get settingsAppearanceTransparency => '透明效果';
-
-  @override
-  String get settingsAppearanceAdvancedEffects => '高级效果';
-
-  @override
-  String get settingsAppearanceAdvancedEffectsDescription => '颜色、光学、光照与渲染。';
-
-  @override
-  String get settingsAppearanceCompositingDescription => '微调效果的应用范围。';
-
-  @override
-  String get settingsAppearanceColorEffects => '颜色';
-
-  @override
-  String get settingsAppearanceOptics => '光学';
-
-  @override
-  String get settingsAppearanceLighting => '光照';
-
-  @override
-  String get settingsAppearanceRendering => '渲染';
-
-  @override
-  String get settingsAppearanceCursorAdvanced => '应用光标';
-
-  @override
-  String get settingsAppearanceActions => '外观操作';
-
-  @override
-  String get settingsResetAppearance => '重置外观';
-
-  @override
-  String get settingsResetGlassEffects => '重置玻璃效果';
-
-  @override
-  String get settingsWallpaperDefault => 'Denial 默认';
-
-  @override
-  String get settingsWallpaperLive => '动态 / 应用管理的壁纸';
-
-  @override
-  String get settingsWallpaperStatic => '静态壁纸';
-
-  @override
-  String get settingsWallpaperLiveDescription => '壁纸应用正在绘制此桌面。选择备用图片不会停止该应用。';
-
-  @override
-  String get settingsWallpaperChooseFallback => '选择备用图片';
-
-  @override
-  String get settingsWallpaperPreviewUnavailable => '预览不可用';
-
-  @override
-  String get settingsWallpaperFallback => '备用图片';
-
-  @override
-  String settingsWallpaperDisplay(String name) {
-    return '显示器 · $name';
-  }
-
-  @override
-  String get settingsWallpaperApplied => '已应用的壁纸';
-
-  @override
-  String get settingsShortcutProviderUnavailable => '提供方不可用';
-
-  @override
-  String get welcomeStart => '欢迎';
-
-  @override
-  String get welcomeGetStarted => '开始设置';
-
-  @override
-  String get welcomeStartDescription =>
-      '欢迎来到你的新桌面。我们将带你了解常用快捷键、选择窗口布局，并打造适合你的桌面外观。你可以稍后在“设置”中更改这些偏好。';
-
-  @override
-  String get welcomeTitle => '欢迎使用 Denial';
-
-  @override
-  String get welcomeShortcuts => '快捷键';
-
-  @override
-  String get welcomeLayout => '布局';
-
-  @override
-  String get welcomeAppearance => '外观';
-
-  @override
-  String get welcomeSupport => '支持';
-
-  @override
-  String get welcomeNext => '下一步';
-
-  @override
-  String get welcomePrevious => '上一步';
-
-  @override
-  String get welcomeFinish => '开始使用 Denial';
-
-  @override
-  String get welcomeExitSetup => '退出设置';
-
-  @override
-  String get welcomeExit => '退出';
-
-  @override
-  String get welcomeCancel => '取消';
-
-  @override
-  String get welcomeExitMessage => '设置向导将不再自动显示，你可以从启动器中重新打开它。';
-
-  @override
-  String get welcomeIntro => '不一样的桌面，用几个快捷键即可轻松上手。';
-
-  @override
-  String get welcomeShortcutsDescription => '以下是你当前的快捷键。你可以稍后在“设置 → 快捷键”中修改。';
-
-  @override
-  String get welcomeKill => '关闭当前窗口';
-
-  @override
-  String get welcomeMove => '移动窗口';
-
-  @override
-  String get welcomeResize => '调整窗口大小';
-
-  @override
-  String get welcomeMoveGesture => 'Super + 按住鼠标左键拖动';
-
-  @override
-  String get welcomeResizeGesture => 'Super + 按住鼠标右键拖动';
-
-  @override
-  String get welcomePointerHint => '按住 Super（Windows 键）并在窗口任意位置拖动。这些鼠标操作是内置的。';
-
-  @override
-  String get welcomeUnbound => '未分配';
-
-  @override
-  String get welcomeRetry => '重试';
-
-  @override
-  String get welcomeShortcutsError => '无法加载你的快捷键。';
-
-  @override
-  String get welcomeLayoutTitle => '选择适合你的工作方式。';
-
-  @override
-  String get welcomeInstant => '选择一个选项，桌面将立即更新。';
-
-  @override
-  String get welcomeStackingDescription => '自由放置和重叠窗口。';
-
-  @override
-  String get welcomeDwindleDescription => '窗口自动平铺为分割布局。';
-
-  @override
-  String get welcomeScrollingDescription => '窗口横向排列，随时滚动扩展工作空间。';
-
-  @override
-  String get welcomeAppearanceTitle => '让桌面体现你的风格。';
-
-  @override
-  String get welcomeMaterial => '窗口材质';
-
-  @override
-  String get welcomeGlass => '玻璃';
-
-  @override
-  String get welcomeBlur => '模糊';
-
-  @override
-  String get welcomeNothing => '无';
-
-  @override
-  String get welcomeTheme => '主题';
-
-  @override
-  String get welcomeLight => '浅色';
-
-  @override
-  String get welcomeDark => '深色';
-
-  @override
-  String get welcomeSupportTitle => '帮助 Denial 继续成长。';
-
-  @override
-  String get welcomeSupportDescription =>
-      'Denial 源于用心、好奇心，以及桌面可以与众不同的信念。如果你喜欢它，你的支持将帮助它继续成长。';
-
-  @override
-  String get welcomeSupportOptional => '支持完全自愿。感谢你选择 Denial。';
-
-  @override
-  String get welcomeDonate => '捐赠';
-
-  @override
-  String get welcomeSponsors => 'GitHub Sponsors';
-
-  @override
-  String get welcomeRepository => '在 GitHub 上了解 Denial';
-
-  @override
-  String get welcomeLinksPending => '捐赠链接即将开放。';
-
-  @override
-  String get welcomeLinkError => '无法打开浏览器，请重试。';
-
-  @override
-  String get welcomeSaveError => '无法保存设置完成状态，请重试。';
-
-  @override
-  String get welcomeWorkspaceDisabled => '工作区当前已禁用。在“设置 → 布局”中启用后即可使用这些快捷键。';
-
-  @override
-  String get welcomeDesktopUsage => '桌面基本操作';
-
-  @override
-  String get welcomeWorkspaces => '工作区';
-
-  @override
-  String get welcomeTiling => '平铺与键盘操作';
-
-  @override
-  String get polkitRunCommandAsAdministrator => '需要管理员身份验证。';
-
-  @override
-  String polkitRunCommandAsUser(String user) {
-    return '以 $user 身份运行此命令需要进行身份验证。';
-  }
-
-  @override
-  String get polkitAuthenticationRequired => '需要进行身份验证。';
-
-  @override
-  String get polkitAuthenticationUnavailable => '身份验证不可用。';
-
-  @override
-  String get polkitPassword => '密码';
-
-  @override
-  String get polkitVerifying => '正在验证…';
-
-  @override
-  String get polkitPreparing => '正在准备…';
-
-  @override
-  String get polkitCapsLock => '大写锁定';
-
-  @override
-  String get polkitConfirm => '确认';
-
-  @override
-  String get polkitContinue => '继续';
-
-  @override
-  String get polkitClose => '关闭';
-
-  @override
-  String get polkitLocked => '已暂时锁定';
-
-  @override
-  String get accessAllow => '允许';
-
-  @override
-  String get accessAllowOnce => '仅允许这一次';
-
-  @override
-  String get accessAlwaysAllow => '始终允许';
-
-  @override
-  String get accessDecline => '拒绝';
-
-  @override
-  String get accessNeverAllow => '始终拒绝';
-
-  @override
-  String get accessDeclineOnce => '仅拒绝这一次';
-
-  @override
-  String get accessUnknownApp => '某个应用';
-
-  @override
-  String get pluginsAppTitle => 'Denial 插件';
-
-  @override
-  String get pluginsTitle => '插件';
-
-  @override
-  String get pluginsInstalled => '已安装';
-
-  @override
-  String get pluginsDiscover => '发现';
-
-  @override
-  String get pluginsActivity => '活动';
-
-  @override
-  String get pluginsLibrary => '插件库';
-
-  @override
-  String get pluginsPreferences => '偏好设置';
-
-  @override
-  String get pluginsSearchInstalled => '搜索已安装的插件';
-
-  @override
-  String get pluginsSearch => '搜索插件';
-
-  @override
-  String get pluginsClearSearch => '清除搜索';
-
-  @override
-  String get pluginsAddTooltip => '通过仓库链接添加插件';
-
-  @override
-  String get pluginsAddToolbar => '添加插件';
-
-  @override
-  String get pluginsMoreActions => '更多操作';
-
-  @override
-  String get pluginsRefresh => '刷新';
-
-  @override
-  String get pluginsInstalledTitle => '已安装的插件';
-
-  @override
-  String get pluginsInstalledDescription => '选择组成桌面的插件。';
-
-  @override
-  String get pluginsNoneInstalled => '尚未安装插件';
-
-  @override
-  String get pluginsNoneInstalledDescription => '发现适合桌面的插件，或通过仓库链接添加插件。';
-
-  @override
-  String get pluginsDiscoverAction => '发现插件';
-
-  @override
-  String get pluginsUseDefaults => '使用 Denial 默认插件';
-
-  @override
-  String get pluginsNoMatches => '没有匹配的插件';
-
-  @override
-  String get pluginsNoMatchesDescription => '请尝试其他名称，或清除搜索。';
-
-  @override
-  String get pluginsAutomaticTitle => '自动包含';
-
-  @override
-  String get pluginsAutomaticDescription => '这些依赖确保所选插件正常运行。';
-
-  @override
-  String get pluginsDiscoverMore => '发现更多插件';
-
-  @override
-  String get pluginsPreparingDesktop => '正在准备桌面';
-
-  @override
-  String get pluginsPreparingDescription =>
-      'Denial 正在完成准备工作。你可以保持此窗口打开，也可以稍后再回来。';
-
-  @override
-  String get pluginsTryAgain => '重试';
-
-  @override
-  String get pluginsFallbackDescription => '使用此插件自定义桌面。';
-
-  @override
-  String get pluginsSelected => '已选择';
-
-  @override
-  String get pluginsNotSelected => '未选择';
-
-  @override
-  String get pluginsDesktopOptions => '桌面选项';
-
-  @override
-  String get pluginsDesktopOptionsDescription => '更新、兼容性与恢复';
-
-  @override
-  String get pluginsCheckUpdates => '检查插件更新';
-
-  @override
-  String get pluginsCheckCompatibility => '检查兼容性';
-
-  @override
-  String get pluginsUndo => '撤销上次更改';
-
-  @override
-  String get pluginsRestore => '恢复默认桌面';
-
-  @override
-  String get pluginsCheckSelection => '请检查所选插件';
-
-  @override
-  String get pluginsStartupFailed => '已保存的插件无法启动';
-
-  @override
-  String get pluginsChangeFailed => '无法完成更改';
-
-  @override
-  String get pluginsSelectionChanged => '所选插件已更改';
-
-  @override
-  String get pluginsPaused => '插件已暂停';
-
-  @override
-  String get pluginsPendingReady => '待处理操作已就绪';
-
-  @override
-  String get pluginsPreparingSupport => '正在准备插件支持';
-
-  @override
-  String get pluginsViewDetails => '查看详情';
-
-  @override
-  String get pluginsDiscard => '放弃更改';
-
-  @override
-  String get pluginsSwitchNow => '立即切换';
-
-  @override
-  String get pluginsDismissError => '关闭错误提示';
-
-  @override
-  String get pluginsInProgress => '正在进行';
-
-  @override
-  String get pluginsDiscoverTitle => '发现插件';
-
-  @override
-  String get pluginsDiscoverDescription => '添加新功能，打造属于自己的桌面。';
-
-  @override
-  String get pluginsNothingFound => '尚未找到插件';
-
-  @override
-  String get pluginsNothingFoundDescription => '请尝试其他搜索，或通过仓库链接添加插件。';
-
-  @override
-  String get pluginsOfficial => '为 Denial 打造';
-
-  @override
-  String get pluginsCommunity => '来自社区';
-
-  @override
-  String get pluginsRefreshDiscoveries => '刷新插件列表';
-
-  @override
-  String get pluginsNoCommunity => '尚无社区插件。你可以通过仓库链接添加插件。';
-
-  @override
-  String get pluginsAddRepository => '从仓库添加';
-
-  @override
-  String get pluginsAddRepositoryDescription => '使用 Git 链接安装开发者提供的插件。';
-
-  @override
-  String get pluginsAddLink => '通过链接添加';
-
-  @override
-  String get pluginsDiscoveryFailed => '部分插件信息无法加载，请尝试刷新。';
-
-  @override
-  String get pluginsByDenial => '由 Denial 提供';
-
-  @override
-  String get pluginsCommunityPlugin => '社区插件';
-
-  @override
-  String get pluginsSelectedDesktop => '已为桌面选择';
-
-  @override
-  String get pluginsSelect => '选择插件';
-
-  @override
-  String get pluginsRecentActivity => '最近活动';
-
-  @override
-  String get pluginsActivityDescription => '安装进度与桌面更改。';
-
-  @override
-  String get pluginsNoActivity => '暂无活动';
-
-  @override
-  String get pluginsNoActivityDescription => '插件安装与桌面更改将显示在这里。';
-
-  @override
-  String get pluginsCompleted => '已完成';
-
-  @override
-  String get pluginsNeedsAttention => '需要处理';
-
-  @override
-  String get pluginsNoCandidates => '此仓库中未找到可安装的插件包。';
-
-  @override
-  String get pluginsBringNew => '为桌面添加新功能。';
-
-  @override
-  String get pluginsTrustDescription => '粘贴仓库链接以查找插件。插件将成为桌面的一部分，请选择你信任的代码。';
-
-  @override
-  String get pluginsLocalDirectory => '本地软件包或仓库目录';
-
-  @override
-  String get pluginsRepositoryLink => '仓库链接';
-
-  @override
-  String get pluginsAdvancedOptions => '高级选项';
-
-  @override
-  String get pluginsGitRef => '分支、标签或提交（可选）';
-
-  @override
-  String get pluginsLocalDevelopment => '本地开发';
-
-  @override
-  String get pluginsUseLocal => '使用本地开发源码';
-
-  @override
-  String get pluginsChoose => '选择插件';
-
-  @override
-  String get pluginsIncludeDependencies => '我们会自动包含此插件所需的依赖。';
-
-  @override
-  String get pluginsFinding => '正在查找插件…';
-
-  @override
-  String get pluginsFind => '查找插件';
-
-  @override
-  String get pluginsAdd => '添加插件';
-
-  @override
-  String get pluginsYourPlugins => '你的插件';
-
-  @override
-  String get pluginsLogLoadFailed => '无法加载构建日志。';
-
-  @override
-  String get pluginsTechnicalDetails => '技术详情';
-
-  @override
-  String get pluginsBuildLog => '构建日志';
-
-  @override
-  String get pluginsNoBuildOutput => '未记录构建输出。';
-
-  @override
-  String get pluginsClose => '关闭';
-
-  @override
-  String get pluginsDone => '完成';
-
-  @override
-  String get pluginsApply => '应用插件';
-
-  @override
-  String get pluginsBuild => '构建插件';
-
-  @override
-  String get pluginsCheckChanges => '检查更改';
-
-  @override
-  String get pluginsEnable => '启用插件';
-
-  @override
-  String get pluginsDisable => '禁用插件';
-
-  @override
-  String get pluginsUpdate => '更新插件';
-
-  @override
-  String get pluginsRebuild => '重新构建插件';
-
-  @override
-  String get pluginsSetup => '设置插件';
-
-  @override
-  String get pluginsChooseDefaults => '选择默认插件';
-
-  @override
-  String get pluginsActivityFallback => '插件活动';
-
-  @override
-  String get pluginsWorking => '正在处理更改';
-
-  @override
-  String get pluginsApplyChanges => '应用更改';
-
-  @override
-  String get pluginsApplyPending => '应用待处理操作';
-
-  @override
-  String get pluginsApplySelectionUpdates => '将所选插件的更改和待处理更新应用到桌面。';
-
-  @override
-  String get pluginsApplySelection => '将所选插件的更改应用到桌面。';
-
-  @override
-  String get pluginsApplyUnchanged => '开关状态未更改。待处理的插件更新需要应用到桌面。';
-
-  @override
-  String get pluginsStaleSelection => '所选插件已在其他地方更改。请放弃当前更改以加载最新选择。';
-
-  @override
-  String get pluginsUpdated => 'Denial 已更新。';
-
-  @override
-  String get pluginsFailureEngine =>
-      '已应用的插件已保存，但当前会话使用了不同的 Flutter 引擎。请使用引擎匹配的 Denial 会话重新加载插件。';
-
-  @override
-  String get pluginsFailureVersion =>
-      '已保存的插件是为其他 Denial 版本构建的。请使用与当前安装版本匹配的构建工具重新构建。';
-
-  @override
-  String get pluginsFailurePanel => '选择了多个桌面面板。请只保留一个启用，然后重新应用。';
-
-  @override
-  String get pluginsFailureConflict => '多个插件提供了相同功能。请选择一个，然后重新应用。详情中列出了冲突的插件。';
-
-  @override
-  String get pluginsFailureMissing => '缺少必需的桌面功能。请启用提供该功能的插件，然后重新应用。';
-
-  @override
-  String get pluginsFailureLogin => '请注销并重新登录 Denial 以完成更新。你的选择已保存。';
-
-  @override
-  String get pluginsFailureWorker => '后台操作意外停止。请先查看活动记录，再重试。';
-
-  @override
-  String get pluginsFailureDownload => '下载失败。请检查网络连接并重试。';
-
-  @override
-  String get pluginsFailureGeneric => '无法完成此更改。请打开详情查看原因。';
-
-  @override
-  String get pluginsToolsUnavailable => '插件工具暂时不可用，正在自动重试。';
-
-  @override
-  String get pluginsDartCompatible => '需要兼容的 Dart 版本';
-
-  @override
-  String get pluginsDartRequired => '需要 Dart';
-
-  @override
-  String get pluginsToolsAttention => '插件工具需要处理';
-
-  @override
-  String get pluginsSetupFailed => '准备工作未能完成。请查看活动记录中的详情，然后重试。';
-
-  @override
-  String get pluginsWaitingStart => '等待开始';
-
-  @override
-  String get pluginsCloseWhileWorking => '你可以关闭此窗口，操作会继续进行。';
-
-  @override
-  String get pluginsPreparingPlugins => '正在准备插件';
-
-  @override
-  String get pluginsCheckingCompatibility => '正在检查插件兼容性';
-
-  @override
-  String get pluginsPreparingBuild => '正在准备桌面构建';
-
-  @override
-  String get pluginsCompilingSources => '正在编译 Dart 源码';
-
-  @override
-  String get pluginsOptimizing => '正在优化并生成本机代码';
-
-  @override
-  String get pluginsPreparingAssets => '正在准备资源';
-
-  @override
-  String get pluginsLoadingDesktop => '正在加载已保存的桌面';
-
-  @override
-  String get pluginsCompilingDesktop => '正在编译桌面';
-
-  @override
-  String get pluginsVerifyingDesktop => '正在验证桌面';
-
-  @override
-  String get pluginsSwitchingPause => '将在你暂停操作时切换';
-
-  @override
-  String get pluginsApplyingDesktop => '正在应用并检查桌面';
-
-  @override
-  String get pluginsVerifyingTools => '正在验证插件工具';
-
-  @override
-  String get pluginsPreparingTools => '正在准备插件工具';
-
-  @override
-  String get pluginsConfigurationDescription =>
-      '从插件库中选择插件，再统一应用更改。Denial 会为桌面准备所需的一切。\n\n你也可以通过仓库链接添加插件。之前正常运行的桌面仍可在桌面菜单中恢复。';
-
-  @override
-  String pluginsSelectedCount(int count) {
-    return '已选择 $count 个插件';
-  }
-
-  @override
-  String pluginsSwitchSemantics(String name) {
-    return '$name 插件';
-  }
-
-  @override
-  String pluginsCandidateLabel(String name, String path) {
-    return '$name · $path';
-  }
-
-  @override
-  String pluginsStepsComplete(int completed, int total) {
-    return '已完成 $completed / $total 步';
-  }
-
-  @override
-  String pluginsStep(int step, int total, String label) {
-    return '第 $step / $total 步 · $label';
-  }
-
-  @override
-  String pluginsElapsed(String stage, String clock) {
-    return '$stage · 已用时 $clock';
-  }
-
-  @override
-  String pluginsInstalledVersion(String version) {
-    return '已安装 Denial $version。';
-  }
-
-  @override
-  String pluginsRebuildDescription(String introduction) {
-    return '$introduction 重新构建插件即可恢复插件及其所有设置，无需注销。';
-  }
-
-  @override
-  String pluginsDartIncompatible(String installed, String constraint) {
-    return '已安装 Dart $installed，但 Denial 要求 $constraint。请安装兼容的 Dart 软件包，并确保 PATH 中可以找到 dart，然后重试。';
-  }
-
-  @override
-  String pluginsDartInstall(String expected) {
-    return '请使用系统软件包管理器安装 Dart。Denial 推荐 Dart $expected。请确保 PATH 中可以找到 dart，然后重试。';
-  }
-
-  @override
-  String pluginsProviderConflict(
-    String feature,
-    String plugins,
-    String owner,
-    int maximum,
-  ) {
-    return '$plugins 都提供了$feature。$owner 最多接受 $maximum 个提供者。请禁用多余的插件后再应用。';
-  }
-
-  @override
-  String pluginsProviderMissing(String owner, int minimum, String feature) {
-    return '$owner 需要至少 $minimum 个$feature提供者。请启用兼容的插件后再应用。';
-  }
-
-  @override
-  String pluginsInvalidDeclaration(String plugins) {
-    return '$plugins 的兼容性声明无效。请打开详情查看原因。';
-  }
-
-  @override
-  String get pluginsFailureDeclaration => '插件兼容性信息需要处理。请检查所选插件并查看详情，然后重新应用。';
-
-  @override
-  String get pluginsDesktopFeature => '桌面';
-
-  @override
-  String get inputDeckTitle => '键盘与触控板显示屏';
-
-  @override
-  String get inputDeckHeading => '键盘与触控板';
-
-  @override
-  String get inputDeckEnable => '将触摸显示屏用作键盘与触控板';
-
-  @override
-  String get inputDeckUnavailable => '连接触摸显示屏以设置此模式。';
-
-  @override
-  String inputDeckEnableDescription(String output) {
-    return '当有其他显示屏可用时，使用 $output 进行输入。断开外接显示屏即可返回平板模式。';
-  }
-
-  @override
-  String get inputDeckWaiting => '连接并开启第二个显示屏后即可使用。';
-
-  @override
-  String get inputDeckTouchDisplay => '触摸显示屏';
-
-  @override
-  String get inputDeckTouchDisplayDescription => '用于键盘与触控板输入的显示屏。';
-
-  @override
-  String get inputDeckKeyboardSize => '键盘大小';
-
-  @override
-  String get inputDeckTouchpadWidth => '触控板宽度';
-
-  @override
-  String get inputDeckTouchpadHeight => '触控板高度';
-
-  @override
-  String get inputDeckPointerSpeed => '指针速度';
-
-  @override
-  String get inputDeckNaturalScroll => '自然滚动';
-
-  @override
-  String get inputDeckNaturalScrollDescription => '内容随手指移动方向滚动。';
-
-  @override
-  String get inputDeckCpuChart => 'CPU 图表';
-
-  @override
-  String get inputDeckCpuDescription => '在键盘上方显示处理器使用率。';
-
-  @override
-  String get inputDeckGpuCharts => 'GPU 图表';
-
-  @override
-  String get inputDeckGpuDescription => '显示支持使用率报告的 GPU 的使用情况。';
-
-  @override
-  String get inputDeckUseAsDisplay => '用作显示屏';
-
-  @override
-  String get inputDeckTouchpad => '触控板';
-
-  @override
-  String get inputDeckTouchpadHint => '触控板。单指移动指针，轻点单击，双指滚动或轻点以右键单击，双击并按住以拖动。';
-
-  @override
-  String get inputDeckLeftClick => '左键单击';
-
-  @override
-  String get inputDeckRightClick => '右键单击';
-
-  @override
-  String get lockEnterPin => '输入 PIN 码';
-
-  @override
-  String lockEnterPinToOpen(String applicationName) {
-    return '输入 PIN 码以打开$applicationName';
-  }
-
-  @override
-  String lockPinProgress(int entered, int length) {
-    return 'PIN 码，已输入 $entered/$length 位';
-  }
-
-  @override
-  String get lockPinObscured => 'PIN 码，已隐藏';
-
-  @override
-  String get lockWrongPin => 'PIN 码错误';
-
-  @override
-  String get lockUsePassword => '使用密码';
-
-  @override
-  String get lockUsePin => '使用 PIN 码';
-
-  @override
-  String get lockPinDelete => '删除';
-
-  @override
-  String get settingsLockPinTitle => 'PIN 码';
-
-  @override
-  String get settingsLockPinLabel => '使用 PIN 码解锁';
-
-  @override
-  String get settingsLockPinDescription =>
-      '在锁屏上输入简短的数字 PIN 码代替密码。密码仍可解锁，其他操作仍需输入密码。';
-
-  @override
-  String settingsLockPinOn(int length) {
-    return '已开启，$length 位';
-  }
-
-  @override
-  String get settingsLockPinOff => '关闭';
-
-  @override
-  String get settingsLockPinSetUp => '设置 PIN 码';
-
-  @override
-  String get settingsLockPinChange => '更改 PIN 码';
-
-  @override
-  String get settingsLockPinRemove => '移除 PIN 码';
-
-  @override
-  String get settingsLockPinSave => '保存 PIN 码';
-
-  @override
-  String get settingsLockPinPassword => '账户密码';
-
-  @override
-  String get settingsLockPinNew => '新 PIN 码';
-
-  @override
-  String get settingsLockPinConfirm => '确认 PIN 码';
-
-  @override
-  String get settingsLockPinLengthHint => '4 到 12 位数字';
-
-  @override
-  String get settingsLockPinMismatch => '两次输入的 PIN 码不一致';
-
-  @override
-  String get settingsLockPinWrongPassword => '密码错误';
-
-  @override
-  String get settingsLockPinUnavailable => '无法更改 PIN 码，请重试。';
-
-  @override
-  String timeTwelveHour(String hour, String minute, String period) {
-    return '$period$hour:$minute';
-  }
-
-  @override
-  String get timeMorning => '上午';
-
-  @override
-  String get timeAfternoon => '下午';
-
-  @override
-  String get settingsNavigationPermissions => '权限';
-
-  @override
-  String get settingsPermissionsSection => '权限';
-
-  @override
-  String get settingsPermissionsTitle => '选择应用可以做什么。应用提出请求后会出现在这里。';
-
-  @override
-  String get settingsPermissionsKeyboardShortcutsTitle => '键盘快捷键';
-
-  @override
-  String get settingsPermissionsKeyboardShortcutsDescription =>
-      '获得焦点时，被允许的应用会接收 Denial 自身快捷键所用的按键，例如 Super。';
-
-  @override
-  String get settingsPermissionsNone => '还没有应用提出请求。';
-
-  @override
-  String get settingsPermissionsUnavailable => '无法读取权限：门户权限存储不可用。';
-
-  @override
-  String get settingsPermissionsSaveFailed => '无法保存更改。';
-
-  @override
-  String get settingsPermissionAsk => '询问';
-
-  @override
-  String get settingsPermissionAllow => '始终允许';
-
-  @override
-  String get settingsPermissionDeny => '始终拒绝';
-
-  @override
-  String get colorTuningAction => '调整色彩';
-
-  @override
-  String get colorTuningDesktop => '桌面';
-
-  @override
-  String get colorTuningNoApp => '点按一个窗口';
-
-  @override
-  String get colorTuningBase => '风格';
-
-  @override
-  String get colorTuningNoBase => '无';
-
-  @override
-  String get colorTuningBefore => '调色前';
-
-  @override
-  String get colorTuningReset => '重置';
-
-  @override
-  String get colorTuningClose => '关闭';
-
-  @override
-  String get colorTuningShadows => '阴影';
-
-  @override
-  String get colorTuningMidtones => '中间调';
-
-  @override
-  String get colorTuningHighlights => '高光';
-
-  @override
-  String get colorTuningExposure => '曝光';
-
-  @override
-  String get colorTuningContrast => '对比度';
-
-  @override
-  String get colorTuningSaturation => '饱和度';
-
-  @override
-  String get colorTuningVibrance => '自然饱和度';
-
-  @override
-  String get colorTuningWarmth => '色温';
-
-  @override
-  String get colorTuningTint => '色调';
-
-  @override
-  String get colorTuningFailed => '无法更改色彩。';
-
-  @override
-  String get colorPresetWarm => '暖调';
-
-  @override
-  String get colorPresetCool => '冷调';
-
-  @override
-  String get colorPresetLogix => 'Logix';
-
-  @override
-  String get colorPresetMatte => '哑光';
-
-  @override
-  String get colorPresetFilm => '胶片';
-
-  @override
-  String get colorPresetNight => '夜色';
-
-  @override
-  String get colorPresetMono => '黑白';
-
-  @override
-  String get colorTuningPresets => '预设';
-
-  @override
-  String get moveToMonitor => '移到显示器';
+  String get commonBack => '返回';
 }

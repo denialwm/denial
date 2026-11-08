@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:denial_flutter_sdk/materials.dart';
 
 import 'dart:math' as math;
 
@@ -55,76 +54,74 @@ class _SettingsFingerprintPageState
             : null;
         if (!session.authorized) {
           // This branch contains no fingerprint names, counts or enrollment UI.
-          return SettingsPageChrome(
+          return SettingsPageScaffold(
+            title: l10n.fingerprintSection,
+            description: l10n.fingerprintDescription,
             footer: SettingsErrorNotice(message: error),
-            child: DenialContentPane(
-              sliversBuilder: (context, width) => [
-                SliverPadding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: math.max(24, (width - 360) / 2),
-                    vertical: 28,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          l10n.fingerprintPinPrompt,
-                          style: Theme.of(context).textTheme.titleMedium,
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                final inset = math.max(24.0, (constraints.maxWidth - 420) / 2);
+                return SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(inset, 24, inset, 28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l10n.fingerprintPinPrompt,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _pin,
+                        obscureText: true,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        enabled: !session.authenticating,
+                        autofocus: true,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        maxLength: lockPinMaxLength,
+                        decoration: InputDecoration(
+                          labelText: l10n.fingerprintPin,
+                          counterText: '',
                         ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _pin,
-                          obscureText: true,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          enabled: !session.authenticating,
-                          autofocus: true,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                          maxLength: lockPinMaxLength,
-                          decoration: InputDecoration(
-                            labelText: l10n.fingerprintPin,
-                            counterText: '',
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _authenticate(session),
-                        ),
-                        if (session.status != null && error == null) ...[
-                          const SizedBox(height: 12),
-                          Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              _status(context, session.status!),
-                              style: TextStyle(
-                                color: context.shellColors.performanceBad,
-                              ),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _authenticate(session),
+                      ),
+                      if (session.status != null && error == null) ...[
+                        const SizedBox(height: 12),
+                        Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            _status(context, session.status!),
+                            style: TextStyle(
+                              color: context.shellColors.performanceBad,
                             ),
                           ),
-                        ],
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: session.authenticating
-                              ? null
-                              : () => _authenticate(session),
-                          child: session.authenticating
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(l10n.fingerprintContinue),
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: session.authenticating
+                            ? null
+                            : () => _authenticate(session),
+                        child: session.authenticating
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(l10n.fingerprintContinue),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                );
+              },
             ),
           );
         }

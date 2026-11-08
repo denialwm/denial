@@ -15,6 +15,159 @@ import 'package:denial_flutter_sdk/settings.dart';
 import 'settings_page_chrome.dart';
 export 'settings_page_chrome.dart';
 
+/// Widest reading column for page headers and cards. Keeping one width for
+/// both keeps the header aligned with the cards on wide tablets.
+const double settingsContentMaxWidth = 1180;
+
+double settingsContentInset(double width) =>
+    math.max(24.0, (width - settingsContentMaxWidth) / 2);
+
+/// Fixed page header over a page-owned body.
+///
+/// The header never scrolls, so page commands stay reachable. When the shell
+/// hides navigation behind an overlay the header also carries the menu button.
+class SettingsPageScaffold extends StatelessWidget {
+  const SettingsPageScaffold({
+    required this.title,
+    required this.body,
+    this.description,
+    this.leading,
+    this.actions = const [],
+    this.footer,
+    super.key,
+  });
+
+  final String title;
+  final String? description;
+  final Widget? leading;
+  final List<Widget> actions;
+  final Widget body;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final shell = SettingsShellScope.maybeOf(context);
+    final menu =
+        leading ??
+        (shell != null && shell.navigationOverlay
+            ? IconButton(
+                tooltip: context.l10n.settingsNavigationOpenMenu,
+                icon: const Icon(Icons.menu_rounded),
+                onPressed: shell.openNavigation,
+              )
+            : null);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final inset = settingsContentInset(constraints.maxWidth);
+        final stackedHeader = constraints.maxWidth < 720;
+        final heading = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.5,
+                  color: context.applicationColors.foreground,
+                ),
+              ),
+            ),
+            if (description != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                description!,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: context.applicationColors.secondary,
+                ),
+              ),
+            ],
+          ],
+        );
+        final commands = actions.isEmpty ? const <Widget>[] : actions;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(inset, 28, inset, 18),
+              child: stackedHeader
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (menu != null) ...[
+                              menu,
+                              const SizedBox(width: 4),
+                            ],
+                            Expanded(child: heading),
+                          ],
+                        ),
+                        if (commands.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: commands,
+                            ),
+                          ),
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (menu != null) ...[menu, const SizedBox(width: 4)],
+                        Expanded(child: heading),
+                        if (commands.isNotEmpty) ...[
+                          const SizedBox(width: 16),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2, right: 2),
+                            child: Wrap(
+                              alignment: WrapAlignment.end,
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: commands,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: context.applicationColors.separator,
+            ),
+            Expanded(child: body),
+            ?footer,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class SettingsPageBackButton extends StatelessWidget {
+  const SettingsPageBackButton({required this.onPressed, super.key});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: context.l10n.commonBack,
+    icon: const Icon(Icons.arrow_back_rounded),
+    onPressed: onPressed,
+  );
+}
+
+/// Standard page: fixed heading plus a scrolling column of cards.
 class SettingsPageLayout extends StatelessWidget {
   const SettingsPageLayout({
     required this.icon,
@@ -24,7 +177,8 @@ class SettingsPageLayout extends StatelessWidget {
     this.onReset,
     this.commands = const [],
     this.footer,
-    this.cardSpacing = 12,
+    this.cardSpacing = 16,
+    this.leading,
     super.key,
   });
 
@@ -36,42 +190,104 @@ class SettingsPageLayout extends StatelessWidget {
   final List<Widget> commands;
   final Widget? footer;
   final double cardSpacing;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
-    return SettingsPageChrome(
-      toolbar: onReset == null && commands.isEmpty
-          ? null
-          : SettingsCommandGroup(
+    return SettingsPageScaffold(
+      title: eyebrow,
+      description: title,
+      leading: leading,
+      actions: [
+        ...commands,
+        if (onReset != null)
+          SettingsCommand(
+            label: context.l10n.settingsResetPage,
+            icon: Icons.restart_alt_rounded,
+            onPressed: onReset,
+          ),
+      ],
+      footer: footer,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final inset = settingsContentInset(constraints.maxWidth);
+          return SingleChildScrollView(
+            key: PageStorageKey<String>('settings-page-$eyebrow'),
+            padding: EdgeInsets.fromLTRB(inset, 22, inset, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ...commands,
-                if (onReset != null)
-                  SettingsCommand(
-                    label: context.l10n.settingsResetPage,
-                    icon: Icons.restart_alt_rounded,
-                    onPressed: onReset,
-                  ),
+                for (var index = 0; index < children.length; index++) ...[
+                  if (index > 0) SizedBox(height: cardSpacing),
+                  children[index],
+                ],
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Master-detail page: an independently scrolling list beside an independently
+/// scrolling detail column. Narrow layouts show one column at a time.
+class SettingsSplitLayout extends StatelessWidget {
+  const SettingsSplitLayout({
+    required this.title,
+    required this.list,
+    required this.detail,
+    this.description,
+    this.leading,
+    this.actions = const [],
+    this.footer,
+    this.listWidth = 320,
+    this.detailVisible = true,
+    super.key,
+  });
+
+  final String title;
+  final String? description;
+  final Widget list;
+  final Widget detail;
+  final Widget? leading;
+  final List<Widget> actions;
+  final Widget? footer;
+  final double listWidth;
+  final bool detailVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsPageScaffold(
+      title: title,
+      description: description,
+      leading: leading,
+      actions: actions,
       footer: footer,
-      child: DenialContentPane(
-        sliversBuilder: (context, width) {
-          final inset = math.max(width < 560 ? 24.0 : 32.0, (width - 920) / 2);
-          return [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 28, inset, 32),
-              sliver: SliverList.list(
-                children: [
-                  SettingsPageHeading(title: eyebrow, description: title),
-                  const SizedBox(height: 24),
-                  for (var index = 0; index < children.length; index++) ...[
-                    if (index > 0) SizedBox(height: cardSpacing),
-                    children[index],
-                  ],
-                ],
-              ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final inset = settingsContentInset(constraints.maxWidth);
+          if (!detailVisible) {
+            return SingleChildScrollView(
+              key: PageStorageKey<String>('settings-page-$title'),
+              padding: EdgeInsets.fromLTRB(inset, 20, inset, 28),
+              child: list,
+            );
+          }
+          return Padding(
+            padding: EdgeInsets.fromLTRB(inset, 20, inset, 24),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: listWidth,
+                  child: SingleChildScrollView(child: list),
+                ),
+                const SizedBox(width: 16),
+                Expanded(child: SingleChildScrollView(child: detail)),
+              ],
             ),
-          ];
+          );
         },
       ),
     );

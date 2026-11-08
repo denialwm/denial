@@ -111,6 +111,39 @@ class DenialMaterial extends StatelessWidget {
   }
 }
 
+/// Flat application composition: persistent navigation beside a content area
+/// that starts at the window's top edge.
+///
+/// Unlike [DenialApplicationFrame] there is no reveal gap, no floating sidebar
+/// card and no toolbar slot. The navigation supplies its own background and
+/// trailing divider, and the page owns its fixed header plus scrolling body.
+class DenialFlatApplicationFrame extends StatelessWidget {
+  const DenialFlatApplicationFrame({
+    required this.navigation,
+    required this.content,
+    this.navigationWidth = 272,
+    super.key,
+  });
+
+  final Widget navigation;
+  final Widget content;
+  final double navigationWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: context.applicationColors.canvas,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: navigationWidth, child: navigation),
+          Expanded(child: content),
+        ],
+      ),
+    );
+  }
+}
+
 /// Fixed navigation and commands over a scrolling content sheet. The sheet's
 /// leading gap reveals Denial; the sheet remains opaque while it scrolls.
 class DenialApplicationFrame extends StatelessWidget {

@@ -44,6 +44,23 @@ const settingsEnvironmentBackToApplicationsKey = ValueKey<String>(
 ValueKey<String> settingsEnvironmentApplicationScopeKey(String desktopFileId) =>
     ValueKey<String>('settings-environment-application-$desktopFileId');
 
+/// Reserved keys the scale card owns; the environment list hides them.
+const _applicationScaleKey = 'DENIAL_UI_SCALE';
+const _applicationScaleBackendKey = 'DENIAL_UI_SCALE_BACKEND';
+
+bool _isApplicationScaleKey(String name) =>
+    name == _applicationScaleKey || name == _applicationScaleBackendKey;
+
+Map<String, String?> _visibleEnvironment(Map<String, String?> variables) {
+  return <String, String?>{
+    for (final entry in variables.entries)
+      if (!_isApplicationScaleKey(entry.key)) entry.key: entry.value,
+  };
+}
+
+int _visibleEnvironmentCount(Map<String, String?>? variables) =>
+    variables?.keys.where((key) => !_isApplicationScaleKey(key)).length ?? 0;
+
 typedef ApplicationEnvironmentSave = void Function(
   String? desktopFileId,
   String? previousName,
@@ -138,7 +155,7 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
   Widget _buildWorkspace(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final narrow = constraints.maxWidth < 640;
+        final narrow = constraints.maxWidth < 720;
         final scopes = _EnvironmentApplicationScopeList(
           applications: widget.applications,
           settings: widget.settings,
@@ -170,7 +187,7 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(width: 252, child: scopes),
+            SizedBox(width: 300, child: scopes),
             const SizedBox(width: 12),
             Expanded(child: detail),
           ],
@@ -181,6 +198,8 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
 
   Widget _buildScopeDetail(BuildContext context, {required bool narrow}) {
     final variables = widget.settings.variablesFor(_selectedDesktopFileId);
+    final visibleVariables = _visibleEnvironment(variables);
+    final inheritedVariables = _visibleEnvironment(widget.settings.variables);
     final application = _selectedApplication;
     return Column(
       children: [
@@ -189,8 +208,8 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
           unavailableDesktopFileId: application == null
               ? _selectedDesktopFileId
               : null,
-          inheritedCount: widget.settings.variables.length,
-          scopeOverrideCount: variables.length,
+          inheritedCount: inheritedVariables.length,
+          scopeOverrideCount: visibleVariables.length,
           showBack: narrow,
           onBack: () => setState(() => _narrowDetailOpen = false),
           onClear: variables.isEmpty
@@ -201,11 +220,15 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
                 },
         ),
         const SizedBox(height: 12),
+        if (_selectedDesktopFileId != null) ...[
+          _buildScaleCard(context, variables),
+          const SizedBox(height: 12),
+        ],
         _buildEditorCard(context),
         const SizedBox(height: 12),
         _VariablesCard(
-          variables: variables,
-          defaultVariables: widget.settings.variables,
+          variables: visibleVariables,
+          defaultVariables: inheritedVariables,
           perApplication: _selectedDesktopFileId != null,
           onEdit: _edit,
           onDelete: _delete,
@@ -225,6 +248,44 @@ class _SettingsEnvironmentPageState extends State<SettingsEnvironmentPage> {
       }
     }
     return null;
+  }
+
+  Widget _buildScaleCard(
+    BuildContext context,
+    Map<String, String?> variables,
+  ) {
+    return _ApplicationScaleCard(
+      factor: double.tryParse(variables[_applicationScaleKey] ?? ''),
+      backend: variables[_applicationScaleBackendKey] ?? 'auto',
+      onFactorChanged: (value) {
+        final desktopFileId = _selectedDesktopFileId;
+        if (desktopFileId == null) return;
+        if (value == null) {
+          widget.onDelete(desktopFileId, _applicationScaleKey);
+        } else {
+          widget.onSave(
+            desktopFileId,
+            null,
+            _applicationScaleKey,
+            value.toString(),
+          );
+        }
+      },
+      onBackendChanged: (value) {
+        final desktopFileId = _selectedDesktopFileId;
+        if (desktopFileId == null) return;
+        if (value == 'auto') {
+          widget.onDelete(desktopFileId, _applicationScaleBackendKey);
+        } else {
+          widget.onSave(
+            desktopFileId,
+            null,
+            _applicationScaleBackendKey,
+            value,
+          );
+        }
+      },
+    );
   }
 
   Widget _buildEditorCard(BuildContext context) {
@@ -483,8 +544,9 @@ class _EnvironmentApplicationScopeList extends StatelessWidget {
               _EnvironmentApplicationEntry(
                 desktopFileId: application.id,
                 application: application,
-                overrideCount:
-                    settings.applications[application.id]?.length ?? 0,
+                overrideCount: _visibleEnvironmentCount(
+                  settings.applications[application.id],
+                ),
               ),
           for (final desktopFileId in settings.applications.keys)
             if (!installed.containsKey(desktopFileId) &&
@@ -495,7 +557,9 @@ class _EnvironmentApplicationScopeList extends StatelessWidget {
                 ))
               _EnvironmentApplicationEntry(
                 desktopFileId: desktopFileId,
-                overrideCount: settings.applications[desktopFileId]!.length,
+                overrideCount: _visibleEnvironmentCount(
+                  settings.applications[desktopFileId],
+                ),
               ),
         ]..sort((first, second) {
           final configured = (second.overrideCount > 0 ? 1 : 0).compareTo(
@@ -562,7 +626,9 @@ class _EnvironmentApplicationScopeList extends StatelessWidget {
                         desktopFileId: context
                             .l10n
                             .settingsEnvironmentAllApplicationsDescription,
-                        overrideCount: settings.variables.length,
+                        overrideCount: _visibleEnvironmentCount(
+                          settings.variables,
+                        ),
                         onPressed: () => onSelected(null),
                       );
                     }
@@ -1359,6 +1425,192 @@ class _EnvironmentTextField extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A friendly per-application UI scale. It stores two reserved environment
+/// keys which deniald turns into toolkit-specific settings at launch.
+class _ApplicationScaleCard extends StatefulWidget {
+  const _ApplicationScaleCard({
+    required this.factor,
+    required this.backend,
+    required this.onFactorChanged,
+    required this.onBackendChanged,
+  });
+
+  final double? factor;
+  final String backend;
+  final ValueChanged<double?> onFactorChanged;
+  final ValueChanged<String> onBackendChanged;
+
+  @override
+  State<_ApplicationScaleCard> createState() => _ApplicationScaleCardState();
+}
+
+class _ApplicationScaleCardState extends State<_ApplicationScaleCard> {
+  static const _presets = <double>[1.0, 1.25, 1.5, 1.75, 2.0];
+  static const _customValue = -1.0;
+
+  late final TextEditingController _custom = TextEditingController(
+    text: _formatFactor(widget.factor),
+  );
+  late bool _customOpen = _isCustom(widget.factor);
+
+  static String _formatFactor(double? factor) =>
+      factor == null ? '1.5' : factor.toStringAsFixed(2);
+
+  static bool _isCustom(double? factor) =>
+      factor != null && !_presets.any((p) => (p - factor).abs() < 0.001);
+
+  @override
+  void didUpdateWidget(covariant _ApplicationScaleCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.factor != widget.factor) {
+      _custom.text = _formatFactor(widget.factor);
+      _customOpen = _isCustom(widget.factor);
+    }
+  }
+
+  @override
+  void dispose() {
+    _custom.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final factor = widget.factor;
+    final preset = factor == null || !_isCustom(factor);
+    final selected = factor == null
+        ? null
+        : preset
+        ? factor
+        : _customValue;
+    final scaleChoices = <SettingsChoice<double?>>[
+      SettingsChoice<double?>(
+        null,
+        l10n.settingsApplicationScaleFollowSystem,
+      ),
+      for (final value in _presets)
+        SettingsChoice<double?>(value, '${(value * 100).round()}%'),
+      SettingsChoice<double?>(
+        _customValue,
+        l10n.settingsApplicationScaleCustom,
+      ),
+    ];
+    final backendChoices = <SettingsChoice<String>>[
+      SettingsChoice<String>(
+        'auto',
+        l10n.settingsApplicationScaleBackendAuto,
+      ),
+      const SettingsChoice<String>('gtk', 'GTK'),
+      const SettingsChoice<String>('qt', 'Qt'),
+      const SettingsChoice<String>('electron', 'Electron'),
+      const SettingsChoice<String>('firefox', 'Firefox'),
+      const SettingsChoice<String>('java', 'Java'),
+      SettingsChoice<String>(
+        'none',
+        l10n.settingsApplicationScaleBackendNone,
+      ),
+    ];
+    return SettingsCardGroup(
+      children: [
+        SettingsSection(
+          title: l10n.settingsApplicationScaleTitle,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                l10n.settingsApplicationScaleDescription,
+                style: ShellText.base.copyWith(
+                  color: context.applicationColors.secondary,
+                  fontSize: 11.5,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SettingsSegmentedControl<double?>(
+                value: selected,
+                choices: scaleChoices,
+                onChanged: (value) {
+                  if (value == null) {
+                    setState(() => _customOpen = false);
+                    widget.onFactorChanged(null);
+                  } else if (value == _customValue) {
+                    setState(() => _customOpen = true);
+                  } else {
+                    setState(() => _customOpen = false);
+                    widget.onFactorChanged(value);
+                  }
+                },
+              ),
+              if (_customOpen) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _custom,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: ShellText.base.copyWith(
+                          color: context.applicationColors.foreground,
+                        ),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: l10n.settingsApplicationScaleValueLabel,
+                          filled: true,
+                          fillColor: context.applicationColors.control,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius:
+                                DenialSurfaceGeometry.borderRadiusOf(context),
+                            borderSide: BorderSide(
+                              color: context.applicationColors.separator,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SettingsTextButton(
+                      label: l10n.settingsApplicationScaleApply,
+                      onPressed: () {
+                        final value = double.tryParse(_custom.text.trim());
+                        if (value == null || value < 0.5 || value > 3.0) {
+                          return;
+                        }
+                        widget.onFactorChanged(value);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                l10n.settingsApplicationScaleBackend,
+                style: ShellText.base.copyWith(
+                  color: context.applicationColors.foreground,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SettingsSegmentedControl<String>(
+                value: widget.backend,
+                choices: backendChoices,
+                onChanged: widget.onBackendChanged,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

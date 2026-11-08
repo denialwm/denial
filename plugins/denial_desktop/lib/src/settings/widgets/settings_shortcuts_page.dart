@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/materials.dart';
 
@@ -157,69 +156,50 @@ class _ShortcutsPageLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsPageChrome(
-      toolbar: SettingsCommandGroup(
-        children: [
-          SettingsCommand(
-            label: context.l10n.settingsShortcutsAdd,
-            icon: Icons.add_rounded,
-            onPressed: onAdd,
-          ),
-        ],
-      ),
+    final count = state.configuration?.shortcuts.length;
+    return SettingsPageScaffold(
+      title: context.l10n.settingsShortcutsSection,
+      description: context.l10n.settingsShortcutsTitle,
+      actions: [
+        SettingsCommand(
+          label: context.l10n.settingsShortcutsAdd,
+          icon: Icons.add_rounded,
+          onPressed: onAdd,
+        ),
+      ],
       footer: SettingsErrorNotice(
         message: state.error,
         onRetry: state.busy ? null : onRetry,
       ),
-      child: DenialContentPane(
-        sliversBuilder: (context, width) {
-          final inset = math.max(width < 560 ? 24.0 : 32.0, (width - 920) / 2);
-          return [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 28, inset, 16),
-              sliver: SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [_ShortcutsHeader(state: state)],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final inset = settingsContentInset(constraints.maxWidth);
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 20, inset, 12),
+                sliver: SliverToBoxAdapter(
+                  child: count == null
+                      ? const SizedBox.shrink()
+                      : Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _ShortcutCountBadge(count: count),
+                        ),
                 ),
               ),
-            ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 0, inset, 32),
-              sliver: _ShortcutList(
-                state: state,
-                onRetry: onRetry,
-                onEdit: onEdit,
-                onDelete: onDelete,
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 0, inset, 28),
+                sliver: _ShortcutList(
+                  state: state,
+                  onRetry: onRetry,
+                  onEdit: onEdit,
+                  onDelete: onDelete,
+                ),
               ),
-            ),
-          ];
+            ],
+          );
         },
       ),
-    );
-  }
-}
-
-class _ShortcutsHeader extends StatelessWidget {
-  const _ShortcutsHeader({required this.state});
-
-  final ShortcutConfigurationState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final count = state.configuration?.shortcuts.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsPageHeading(
-          title: context.l10n.settingsShortcutsSection,
-          description: context.l10n.settingsShortcutsTitle,
-        ),
-        if (count != null) ...[
-          const SizedBox(height: 16),
-          _ShortcutCountBadge(count: count),
-        ],
-      ],
     );
   }
 }
@@ -296,8 +276,7 @@ class _ShortcutList extends StatelessWidget {
     }
     return SliverList.separated(
       itemCount: configuration.shortcuts.length,
-      separatorBuilder: (_, _) =>
-          Divider(height: 1, color: context.applicationColors.separator),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final binding = configuration.shortcuts[index];
         return DenialMaterial(

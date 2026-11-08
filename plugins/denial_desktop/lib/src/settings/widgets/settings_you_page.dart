@@ -1,7 +1,4 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
-
-import 'package:denial_flutter_sdk/materials.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -308,17 +305,17 @@ class _SettingsYouPageState extends ConsumerState<SettingsYouPage> {
               ],
             ],
           );
-    return SettingsPageChrome(
-      child: DenialContentPane(
-        leadingOverlap: 80,
-        sliversBuilder: (context, width) {
-          final inset = math.max(width < 560 ? 24.0 : 32.0, (width - 920) / 2);
-          return [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 0, inset, 32),
-              sliver: SliverToBoxAdapter(child: content),
-            ),
-          ];
+    return SettingsPageScaffold(
+      title: context.l10n.settingsNavigationYou,
+      description: context.l10n.settingsYouDescription,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final inset = settingsContentInset(constraints.maxWidth);
+          return SingleChildScrollView(
+            key: const PageStorageKey<String>('settings-page-you'),
+            padding: EdgeInsets.fromLTRB(inset, 20, inset, 32),
+            child: content,
+          );
         },
       ),
     );

@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:denial_flutter_sdk/materials.dart';
 
-import 'dart:math' as math;
-
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 
 import '../../widgets/denial_wordmark.dart';
+import 'settings_controls.dart';
 
 const settingsAboutWordmarkKey = ValueKey<String>('settings-about-wordmark');
 
@@ -19,14 +18,17 @@ class SettingsAboutPage extends StatelessWidget {
     return Semantics(
       container: true,
       label: context.l10n.settingsAboutPageSemanticsLabel,
-      child: DenialContentPane(
-        sliversBuilder: (context, width) {
-          final inset = math.max(width < 560 ? 24.0 : 32.0, (width - 760) / 2);
-          return [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 28, inset, 32),
-              sliver: SliverList.list(
-                children: const [
+      child: SettingsPageScaffold(
+        title: context.l10n.settingsNavigationAbout,
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final inset = settingsContentInset(constraints.maxWidth);
+            return SingleChildScrollView(
+              key: const PageStorageKey<String>('settings-page-about'),
+              padding: EdgeInsets.fromLTRB(inset, 20, inset, 32),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   _AboutHero(),
                   SizedBox(height: 28),
                   _AboutDescription(),
@@ -34,9 +36,9 @@ class SettingsAboutPage extends StatelessWidget {
                   _AboutCredit(),
                 ],
               ),
-            ),
-          ];
-        },
+            );
+          },
+        ),
       ),
     );
   }

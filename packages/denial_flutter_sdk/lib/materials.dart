@@ -10,6 +10,10 @@ export 'src/theme/application_theme.dart'
         DenialApplicationTheme,
         DenialApplicationThemeContext;
 export 'src/widgets/application_material.dart'
-    show DenialApplicationFrame, DenialContentPane, DenialMaterial;
+    show
+      DenialApplicationFrame,
+      DenialContentPane,
+      DenialFlatApplicationFrame,
+      DenialMaterial;
 export 'src/widgets/content_switcher.dart' show DenialContentSwitcher;
 export 'src/widgets/surface_geometry.dart' show DenialSurfaceGeometry;

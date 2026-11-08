@@ -46,6 +46,16 @@ final settingsDesktopApplicationsProvider = FutureProvider<List<DesktopApp>>(
 );
 const denialSettingsApplicationId = 'dev.denial.settings';
 
+/// Flat shell breakpoints, in the application's logical pixels. The standalone
+/// Settings surface is laid out at 1/1.3 of the window size, so a landscape
+/// tablet lands in the expanded layout and a portrait tablet keeps an icon
+/// rail instead of hiding navigation.
+const double _expandedNavigationWidth = 1200;
+const double _railNavigationWidth = 760;
+const double _sidebarWidth = 272;
+const double _railWidth = 72;
+const double _drawerWidth = 280;
+
 bool isDenialSettingsApplicationId(String appId) =>
     appId.trim().toLowerCase() == denialSettingsApplicationId;
 
@@ -106,24 +116,18 @@ class DenialSettingsApplication extends ConsumerStatefulWidget {
 class _DenialSettingsApplicationState
     extends ConsumerState<DenialSettingsApplication> {
   late SettingsPageId _page;
-  final _chrome = SettingsChromeController();
   var _colorPickerOpen = false;
+  var _drawerOpen = false;
+  final _pageStorageBucket = PageStorageBucket();
   int? _scheduledPageRequestId;
 
   @override
   void initState() {
     super.initState();
     _page = widget.initialPage;
-    _chrome.select(_page);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_revealPendingDisplayConfirmation());
     });
-  }
-
-  @override
-  void dispose() {
-    _chrome.dispose();
-    super.dispose();
   }
 
   Future<void> _revealPendingDisplayConfirmation() async {
@@ -147,8 +151,10 @@ class _DenialSettingsApplicationState
     if (_page == SettingsPageId.fingerprint) {
       ref.read(fingerprintSessionProvider).close();
     }
-    _chrome.select(page);
-    setState(() => _page = page);
+    setState(() {
+      _page = page;
+      _drawerOpen = false;
+    });
   }
 
   @override
@@ -163,55 +169,86 @@ class _DenialSettingsApplicationState
         data: context.applicationTheme.materialTheme,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final compactNavigation =
-                constraints.maxWidth < 800 ||
-                MediaQuery.textScalerOf(context).scale(14) > 21;
+            final width = constraints.maxWidth;
+            final expanded = width >= _expandedNavigationWidth;
+            final drawer = width < _railNavigationWidth;
+            final navigation = SettingsNavigation(
+              selected: _page,
+              expanded: expanded || drawer,
+              showTouchpad: true,
+              showFingerprint: showFingerprint,
+              onSelected: _selectPage,
+            );
+            final content = PageStorage(
+              bucket: _pageStorageBucket,
+              child: DenialContentSwitcher(
+                contentKey: ValueKey<SettingsPageId>(_page),
+                duration:
+                    MediaQuery.disableAnimationsOf(context) ||
+                        ref.watch(
+                              shellSettingsProvider.select(
+                                (settings) => settings.animations.durationScale,
+                              ),
+                            ) ==
+                            0
+                    ? Duration.zero
+                    : const Duration(milliseconds: 160),
+                child: SettingsShellScope(
+                  navigationOverlay: drawer,
+                  openNavigation: () => setState(() => _drawerOpen = true),
+                  child: _SettingsPageBody(
+                    page: _page,
+                    onOpenAccentPicker: () =>
+                        setState(() => _colorPickerOpen = true),
+                    onOpenWallpaperSelector: () =>
+                        unawaited(_openWallpaperSelector()),
+                    onPickCursorZip: widget.onPickCursorZip,
+                    onPickProfileImage: widget.onPickProfileImage,
+                  ),
+                ),
+              ),
+            );
             return Stack(
               fit: StackFit.expand,
               children: [
-                AnimatedBuilder(
-                  animation: _chrome,
-                  child: DenialContentSwitcher(
-                    contentKey: ValueKey<SettingsPageId>(_page),
-                    duration:
-                        MediaQuery.disableAnimationsOf(context) ||
-                            ref.watch(
-                                  shellSettingsProvider.select(
-                                    (settings) =>
-                                        settings.animations.durationScale,
-                                  ),
-                                ) ==
-                                0
-                        ? Duration.zero
-                        : const Duration(milliseconds: 160),
-                    child: SettingsChromeScope(
-                      controller: _chrome,
-                      page: _page,
-                      child: _SettingsPageBody(
-                        page: _page,
-                        onOpenAccentPicker: () =>
-                            setState(() => _colorPickerOpen = true),
-                        onOpenWallpaperSelector: () =>
-                            unawaited(_openWallpaperSelector()),
-                        onPickCursorZip: widget.onPickCursorZip,
-                        onPickProfileImage: widget.onPickProfileImage,
-                      ),
+                if (drawer)
+                  ColoredBox(
+                    color: context.applicationColors.canvas,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        content,
+                        IgnorePointer(
+                          ignoring: !_drawerOpen,
+                          child: AnimatedOpacity(
+                            opacity: _drawerOpen ? 1 : 0,
+                            duration: const Duration(milliseconds: 160),
+                            child: GestureDetector(
+                              onTap: () => setState(() => _drawerOpen = false),
+                              child: ColoredBox(
+                                color: Colors.black.withValues(alpha: .34),
+                              ),
+                            ),
+                          ),
+                        ),
+                        AnimatedPositioned(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOutCubic,
+                          left: _drawerOpen ? 0 : -_drawerWidth,
+                          top: 0,
+                          bottom: 0,
+                          width: _drawerWidth,
+                          child: navigation,
+                        ),
+                      ],
                     ),
+                  )
+                else
+                  DenialFlatApplicationFrame(
+                    navigationWidth: expanded ? _sidebarWidth : _railWidth,
+                    navigation: navigation,
+                    content: content,
                   ),
-                  builder: (context, content) => DenialApplicationFrame(
-                    compact: compactNavigation,
-                    navigation: SettingsNavigation(
-                      selected: _page,
-                      compact: compactNavigation,
-                      showTouchpad: true,
-                      showFingerprint: showFingerprint,
-                      onSelected: _selectPage,
-                    ),
-                    toolbar: _chrome.toolbar ?? const SizedBox.shrink(),
-                    footer: _chrome.footer,
-                    content: content!,
-                  ),
-                ),
                 Positioned.fill(
                   child: AnimatedSwitcher(
                     duration: MediaQuery.disableAnimationsOf(context)

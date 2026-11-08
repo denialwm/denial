@@ -98,143 +98,47 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
-  /// Application appearance synchronization setting.
+  /// Permission prompt: grants what an app asked for.
   ///
   /// In en, this message translates to:
-  /// **'Theme supported application using Denial styling'**
-  String get settingsApplicationThemingEnabled;
+  /// **'Allow'**
+  String get accessAllow;
 
-  /// Application appearance synchronization setting.
+  /// Permission prompt: grants it while the app keeps running.
   ///
   /// In en, this message translates to:
-  /// **'Apply Denial styling to supported application. Currently supported applications: Kitty.'**
-  String get settingsApplicationThemingDescription;
+  /// **'Allow once'**
+  String get accessAllowOnce;
 
-  /// Application appearance synchronization setting.
+  /// Permission prompt: grants it and remembers the answer.
   ///
   /// In en, this message translates to:
-  /// **'Re-apply'**
-  String get settingsApplicationThemingReapply;
+  /// **'Always allow'**
+  String get accessAlwaysAllow;
 
-  /// Scrolling layout swap setting.
+  /// Permission prompt: refuses what an app asked for.
   ///
   /// In en, this message translates to:
-  /// **'Scrolling swaps'**
-  String get settingsScrollingLayoutSwapTitle;
+  /// **'Decline'**
+  String get accessDecline;
 
-  /// Scrolling layout swap setting.
+  /// Permission prompt: refuses it while the app keeps running.
   ///
   /// In en, this message translates to:
-  /// **'Keep window sizes when swapping'**
-  String get settingsScrollingLayoutPreserveSwapSizes;
+  /// **'Decline once'**
+  String get accessDeclineOnce;
 
-  /// Scrolling layout swap setting.
+  /// Permission prompt: refuses it and remembers the answer.
   ///
   /// In en, this message translates to:
-  /// **'Keep each window’s width when swapping single-window columns on the same workspace and display. On vertical strips, keep height instead. Split columns keep their existing sizes.'**
-  String get settingsScrollingLayoutPreserveSwapSizesDescription;
+  /// **'Never allow'**
+  String get accessNeverAllow;
 
-  /// Desktop presentation toggle in the mobile Quick Settings panel. This changes the widget layout, not native session policy.
+  /// Permission prompt: names an app that did not say which one it is.
   ///
   /// In en, this message translates to:
-  /// **'Desktop view'**
-  String get shellPresentationDesktop;
-
-  /// Accessible label for the mobile presentation button in the desktop Dashboard. This changes the widget layout, not native session policy.
-  ///
-  /// In en, this message translates to:
-  /// **'Mobile view'**
-  String get shellPresentationMobile;
-
-  /// Accessible label for a home widget resize handle.
-  ///
-  /// In en, this message translates to:
-  /// **'Resize widget'**
-  String get homeResizeWidget;
-
-  /// Name of a new home screen folder whose apps share no category.
-  ///
-  /// In en, this message translates to:
-  /// **'Folder'**
-  String get homeFolderDefaultName;
-
-  /// Suggested name of a new home screen folder of games.
-  ///
-  /// In en, this message translates to:
-  /// **'Games'**
-  String get homeFolderGames;
-
-  /// Suggested name of a new home screen folder of network apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Internet'**
-  String get homeFolderInternet;
-
-  /// Suggested name of a new home screen folder of office apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Office'**
-  String get homeFolderOffice;
-
-  /// Suggested name of a new home screen folder of graphics apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Graphics'**
-  String get homeFolderGraphics;
-
-  /// Suggested name of a new home screen folder of audio and video apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Media'**
-  String get homeFolderMedia;
-
-  /// Suggested name of a new home screen folder of developer tools.
-  ///
-  /// In en, this message translates to:
-  /// **'Development'**
-  String get homeFolderDevelopment;
-
-  /// Suggested name of a new home screen folder of education apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Education'**
-  String get homeFolderEducation;
-
-  /// Suggested name of a new home screen folder of science apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Science'**
-  String get homeFolderScience;
-
-  /// Suggested name of a new home screen folder of system tools.
-  ///
-  /// In en, this message translates to:
-  /// **'System'**
-  String get homeFolderSystem;
-
-  /// Suggested name of a new home screen folder of utilities.
-  ///
-  /// In en, this message translates to:
-  /// **'Utilities'**
-  String get homeFolderUtilities;
-
-  /// Suggested name of a new home screen folder of settings apps.
-  ///
-  /// In en, this message translates to:
-  /// **'Settings'**
-  String get homeFolderSettings;
-
-  /// Accessible hint for the editable name of an open home screen folder.
-  ///
-  /// In en, this message translates to:
-  /// **'Rename folder'**
-  String get homeFolderRename;
-
-  /// Accessible label of a home screen folder: its name and how many apps it holds.
-  ///
-  /// In en, this message translates to:
-  /// **'{name}, {count, plural, =1{1 app} other{{count} apps}}'**
-  String homeFolderApps(String name, int count);
+  /// **'An app'**
+  String get accessUnknownApp;
 
   /// English UI text for actionCancel.
   ///
@@ -247,12 +151,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get actionDismiss;
-
-  /// Instruction shown while selecting a desktop screenshot region.
-  ///
-  /// In en, this message translates to:
-  /// **'Drag to select an area · Esc to cancel'**
-  String get screenshotSelectionHint;
 
   /// English UI text for anchorBottomCenter.
   ///
@@ -320,6 +218,12 @@ abstract class AppLocalizations {
   /// **'Charging'**
   String get batteryCharging;
 
+  /// Title for the 10%, 5%, and 1% battery notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Critical battery'**
+  String get batteryCriticalNotificationTitle;
+
   /// English UI text for batteryDischarging.
   ///
   /// In en, this message translates to:
@@ -349,12 +253,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Low battery'**
   String get batteryLowNotificationTitle;
-
-  /// Title for the 10%, 5%, and 1% battery notifications.
-  ///
-  /// In en, this message translates to:
-  /// **'Critical battery'**
-  String get batteryCriticalNotificationTitle;
 
   /// English UI text for batteryStateAndPercent.
   ///
@@ -698,17 +596,17 @@ abstract class AppLocalizations {
   /// **'VOOC'**
   String get chargeProtocolVooc;
 
-  /// Accessible label for the barrier that closes clipboard history.
-  ///
-  /// In en, this message translates to:
-  /// **'Close clipboard history'**
-  String get clipboardCloseHistory;
-
   /// Label for clearing all unpinned clipboard-history entries.
   ///
   /// In en, this message translates to:
   /// **'Clear all'**
   String get clipboardClearAll;
+
+  /// Accessible label for the barrier that closes clipboard history.
+  ///
+  /// In en, this message translates to:
+  /// **'Close clipboard history'**
+  String get clipboardCloseHistory;
 
   /// Tooltip for deleting a clipboard-history entry.
   ///
@@ -782,18 +680,6 @@ abstract class AppLocalizations {
   /// **'{type} clipboard item. {preview}'**
   String clipboardItemSemantics(String type, String preview);
 
-  /// Tooltip for pinning a clipboard-history entry.
-  ///
-  /// In en, this message translates to:
-  /// **'Pin'**
-  String get clipboardPin;
-
-  /// Accessible label for pinning a clipboard-history entry.
-  ///
-  /// In en, this message translates to:
-  /// **'Pin clipboard item'**
-  String get clipboardPinItem;
-
   /// Guidance shown when clipboard search has no results.
   ///
   /// In en, this message translates to:
@@ -805,6 +691,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No echoes found'**
   String get clipboardNoSearchResultsTitle;
+
+  /// Tooltip for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get clipboardPin;
+
+  /// Accessible label for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin clipboard item'**
+  String get clipboardPinItem;
 
   /// Fallback label when a clipboard image preview cannot be rendered.
   ///
@@ -830,6 +728,18 @@ abstract class AppLocalizations {
   /// **'TEXT'**
   String get clipboardTypeText;
 
+  /// Explanation shown when the native clipboard-history service is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The native history service did not answer.'**
+  String get clipboardUnavailableDescription;
+
+  /// Title shown when the native clipboard-history service is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Clipboard bridge unavailable'**
+  String get clipboardUnavailableTitle;
+
   /// Tooltip for unpinning a clipboard-history entry.
   ///
   /// In en, this message translates to:
@@ -842,17 +752,161 @@ abstract class AppLocalizations {
   /// **'Unpin clipboard item'**
   String get clipboardUnpinItem;
 
-  /// Explanation shown when the native clipboard-history service is unavailable.
+  /// Color tuning: a built-in look.
   ///
   /// In en, this message translates to:
-  /// **'The native history service did not answer.'**
-  String get clipboardUnavailableDescription;
+  /// **'Cool'**
+  String get colorPresetCool;
 
-  /// Title shown when the native clipboard-history service is unavailable.
+  /// Color tuning: a built-in look.
   ///
   /// In en, this message translates to:
-  /// **'Clipboard bridge unavailable'**
-  String get clipboardUnavailableTitle;
+  /// **'Film'**
+  String get colorPresetFilm;
+
+  /// Color tuning: a built-in look, named after its author. Not translated.
+  ///
+  /// In en, this message translates to:
+  /// **'Logix'**
+  String get colorPresetLogix;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Matte'**
+  String get colorPresetMatte;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Mono'**
+  String get colorPresetMono;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Night'**
+  String get colorPresetNight;
+
+  /// Color tuning: a built-in look.
+  ///
+  /// In en, this message translates to:
+  /// **'Warm'**
+  String get colorPresetWarm;
+
+  /// Shell action and panel title: the color tuning editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Tune colors'**
+  String get colorTuningAction;
+
+  /// Color tuning: the base LUT the grade sits on.
+  ///
+  /// In en, this message translates to:
+  /// **'Look'**
+  String get colorTuningBase;
+
+  /// Color tuning: hold to show the target without the grade.
+  ///
+  /// In en, this message translates to:
+  /// **'Before'**
+  String get colorTuningBefore;
+
+  /// Color tuning: close the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get colorTuningClose;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Contrast'**
+  String get colorTuningContrast;
+
+  /// Color tuning target: the whole desktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get colorTuningDesktop;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Exposure'**
+  String get colorTuningExposure;
+
+  /// Color tuning: the compositor refused a change.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t change the colors.'**
+  String get colorTuningFailed;
+
+  /// Color tuning wheel: gain.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlights'**
+  String get colorTuningHighlights;
+
+  /// Color tuning wheel: gamma.
+  ///
+  /// In en, this message translates to:
+  /// **'Midtones'**
+  String get colorTuningMidtones;
+
+  /// Color tuning target chip when no app window has been focused yet.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a window'**
+  String get colorTuningNoApp;
+
+  /// Color tuning: no base LUT.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get colorTuningNoBase;
+
+  /// Color tuning: shows the built-in looks.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get colorTuningPresets;
+
+  /// Color tuning: return every control to neutral.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get colorTuningReset;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get colorTuningSaturation;
+
+  /// Color tuning wheel: lift.
+  ///
+  /// In en, this message translates to:
+  /// **'Shadows'**
+  String get colorTuningShadows;
+
+  /// Color tuning slider: white balance between green and magenta.
+  ///
+  /// In en, this message translates to:
+  /// **'Tint'**
+  String get colorTuningTint;
+
+  /// Color tuning slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Vibrance'**
+  String get colorTuningVibrance;
+
+  /// Color tuning slider: white balance between cool and warm.
+  ///
+  /// In en, this message translates to:
+  /// **'Warmth'**
+  String get colorTuningWarmth;
 
   /// English UI text for commonBluetooth.
   ///
@@ -986,30 +1040,6 @@ abstract class AppLocalizations {
   /// **'Activate {windowTitle}'**
   String desktopActivateWindow(String windowTitle);
 
-  /// English UI text for desktopAudioOutputDevicesDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose where desktop audio plays.'**
-  String get desktopAudioOutputDevicesDescription;
-
-  /// English UI text for desktopAudioOutputDevicesTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Output devices'**
-  String get desktopAudioOutputDevicesTitle;
-
-  /// English UI text for desktopAudioOutputDevicesUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Audio output devices are unavailable.'**
-  String get desktopAudioOutputDevicesUnavailable;
-
-  /// Status shown for an audio output whose jack or route is explicitly unavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Not connected'**
-  String get desktopAudioOutputDeviceNotConnected;
-
   /// English UI text for desktopApplicationAudioUnavailable.
   ///
   /// In en, this message translates to:
@@ -1034,96 +1064,6 @@ abstract class AppLocalizations {
   /// **'Adjust audio for individual applications.'**
   String get desktopApplicationVolumeDescription;
 
-  /// You profile settings: settingsNavigationYou.
-  ///
-  /// In en, this message translates to:
-  /// **'You'**
-  String get settingsNavigationYou;
-
-  /// You profile settings: settingsYouDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Make this space yours.'**
-  String get settingsYouDescription;
-
-  /// You profile settings: settingsYouPreview.
-  ///
-  /// In en, this message translates to:
-  /// **'Your profile on the dashboard'**
-  String get settingsYouPreview;
-
-  /// You profile settings: settingsYouChoosePhoto.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose photo'**
-  String get settingsYouChoosePhoto;
-
-  /// You profile settings: settingsYouDefaultPhoto.
-  ///
-  /// In en, this message translates to:
-  /// **'Use default avatar'**
-  String get settingsYouDefaultPhoto;
-
-  /// You profile settings: settingsYouDisplayName.
-  ///
-  /// In en, this message translates to:
-  /// **'Display name'**
-  String get settingsYouDisplayName;
-
-  /// You profile settings: settingsYouNameHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Leave this empty to use your account name.'**
-  String get settingsYouNameHint;
-
-  /// You profile settings: settingsYouAccountName.
-  ///
-  /// In en, this message translates to:
-  /// **'Use account name'**
-  String get settingsYouAccountName;
-
-  /// You profile settings: settingsYouSave.
-  ///
-  /// In en, this message translates to:
-  /// **'Save name'**
-  String get settingsYouSave;
-
-  /// You profile settings: settingsYouSaved.
-  ///
-  /// In en, this message translates to:
-  /// **'Name saved.'**
-  String get settingsYouSaved;
-
-  /// You profile settings: settingsYouImageError.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not use that photo. Choose a PNG, JPEG, WebP, GIF or BMP image under 16 MB.'**
-  String get settingsYouImageError;
-
-  /// You profile settings: settingsYouSaveError.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not save your profile. Please try again.'**
-  String get settingsYouSaveError;
-
-  /// You profile settings: settingsYouLoadError.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not load your profile.'**
-  String get settingsYouLoadError;
-
-  /// Fallback user name in the dashboard when the session has no account name.
-  ///
-  /// In en, this message translates to:
-  /// **'User'**
-  String get desktopCurrentUser;
-
-  /// Expandable application audio mixer row in the desktop dashboard.
-  ///
-  /// In en, this message translates to:
-  /// **'Mixer'**
-  String get desktopMixerTitle;
-
   /// English UI text for desktopApplicationVolumeTitle.
   ///
   /// In en, this message translates to:
@@ -1135,6 +1075,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Applications'**
   String get desktopApplicationsTitle;
+
+  /// Status shown for an audio output whose jack or route is explicitly unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get desktopAudioOutputDeviceNotConnected;
+
+  /// English UI text for desktopAudioOutputDevicesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose where desktop audio plays.'**
+  String get desktopAudioOutputDevicesDescription;
+
+  /// English UI text for desktopAudioOutputDevicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Output devices'**
+  String get desktopAudioOutputDevicesTitle;
+
+  /// English UI text for desktopAudioOutputDevicesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output devices are unavailable.'**
+  String get desktopAudioOutputDevicesUnavailable;
 
   /// English UI text for desktopChooseWallpaper.
   ///
@@ -1166,6 +1130,12 @@ abstract class AppLocalizations {
   /// **'Connect {deviceName}'**
   String desktopConnectDevice(String deviceName);
 
+  /// Fallback user name in the dashboard when the session has no account name.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get desktopCurrentUser;
+
   /// English UI text for desktopDashboardTitle.
   ///
   /// In en, this message translates to:
@@ -1177,12 +1147,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disconnect {deviceName}'**
   String desktopDisconnectDevice(String deviceName);
-
-  /// English UI text for desktopLoadingAudioOutputDevices.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading output devices…'**
-  String get desktopLoadingAudioOutputDevices;
 
   /// English UI text for desktopEnableBluetoothForDevices.
   ///
@@ -1238,23 +1202,35 @@ abstract class AppLocalizations {
   /// **'Loading applications…'**
   String get desktopLoadingApplications;
 
+  /// English UI text for desktopLoadingAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading output devices…'**
+  String get desktopLoadingAudioOutputDevices;
+
+  /// Expandable application audio mixer row in the desktop dashboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Mixer'**
+  String get desktopMixerTitle;
+
   /// English UI text for desktopNoApplicationAudio.
   ///
   /// In en, this message translates to:
   /// **'No applications are playing audio.'**
   String get desktopNoApplicationAudio;
 
-  /// English UI text for desktopNoAudioOutputDevices.
-  ///
-  /// In en, this message translates to:
-  /// **'No audio output devices found.'**
-  String get desktopNoAudioOutputDevices;
-
   /// English UI text for desktopNoApplicationsFound.
   ///
   /// In en, this message translates to:
   /// **'No applications found'**
   String get desktopNoApplicationsFound;
+
+  /// English UI text for desktopNoAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio output devices found.'**
+  String get desktopNoAudioOutputDevices;
 
   /// English UI text for desktopOpenApplicationAudio.
   ///
@@ -1352,12 +1328,6 @@ abstract class AppLocalizations {
   /// **'Scan for Bluetooth devices'**
   String get desktopScanBluetooth;
 
-  /// English UI text for desktopSelectAudioOutputDevice.
-  ///
-  /// In en, this message translates to:
-  /// **'Select audio output device'**
-  String get desktopSelectAudioOutputDevice;
-
   /// English UI text for desktopScanningBluetoothDevices.
   ///
   /// In en, this message translates to:
@@ -1369,6 +1339,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Search applications'**
   String get desktopSearchApplications;
+
+  /// English UI text for desktopSelectAudioOutputDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Select audio output device'**
+  String get desktopSelectAudioOutputDevice;
 
   /// English UI text for desktopSystemProfile.
   ///
@@ -1412,6 +1388,198 @@ abstract class AppLocalizations {
   /// **'Volume for {applicationName}'**
   String desktopVolumeForApplication(String applicationName);
 
+  /// Dock button that opens the full application grid.
+  ///
+  /// In en, this message translates to:
+  /// **'All apps'**
+  String get dockAllApps;
+
+  /// Dock item menu action that unpins the app.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from Dock'**
+  String get dockRemove;
+
+  /// Fingerprint settings: fingerprintAdd
+  ///
+  /// In en, this message translates to:
+  /// **'Add fingerprint'**
+  String get fingerprintAdd;
+
+  /// Fingerprint settings: fingerprintCancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Enrollment cancelled.'**
+  String get fingerprintCancelled;
+
+  /// Fingerprint settings: fingerprintChooseFinger
+  ///
+  /// In en, this message translates to:
+  /// **'Finger to enroll'**
+  String get fingerprintChooseFinger;
+
+  /// Fingerprint settings: fingerprintContinue
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get fingerprintContinue;
+
+  /// Fingerprint settings: fingerprintDescription
+  ///
+  /// In en, this message translates to:
+  /// **'Use your enrolled fingers to unlock Denial.'**
+  String get fingerprintDescription;
+
+  /// Fingerprint settings: fingerprintDuplicate
+  ///
+  /// In en, this message translates to:
+  /// **'This fingerprint is already enrolled. Choose another finger.'**
+  String get fingerprintDuplicate;
+
+  /// Fingerprint settings: fingerprintEmptyDescription
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a finger below to enroll your first fingerprint.'**
+  String get fingerprintEmptyDescription;
+
+  /// Fingerprint settings: fingerprintEmptyTitle
+  ///
+  /// In en, this message translates to:
+  /// **'No fingerprints enrolled'**
+  String get fingerprintEmptyTitle;
+
+  /// Fingerprint settings: fingerprintEnroll
+  ///
+  /// In en, this message translates to:
+  /// **'Enroll fingerprint'**
+  String get fingerprintEnroll;
+
+  /// Fingerprint settings: fingerprintEnrolled
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint enrolled. You can now use it to unlock Denial.'**
+  String get fingerprintEnrolled;
+
+  /// Fingerprint settings: fingerprintExpired
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your PIN again to continue.'**
+  String get fingerprintExpired;
+
+  /// Fingerprint settings: fingerprintLeftIndex
+  ///
+  /// In en, this message translates to:
+  /// **'Left index finger'**
+  String get fingerprintLeftIndex;
+
+  /// Fingerprint settings: fingerprintLeftLittle
+  ///
+  /// In en, this message translates to:
+  /// **'Left little finger'**
+  String get fingerprintLeftLittle;
+
+  /// Fingerprint settings: fingerprintLeftMiddle
+  ///
+  /// In en, this message translates to:
+  /// **'Left middle finger'**
+  String get fingerprintLeftMiddle;
+
+  /// Fingerprint settings: fingerprintLeftRing
+  ///
+  /// In en, this message translates to:
+  /// **'Left ring finger'**
+  String get fingerprintLeftRing;
+
+  /// Fingerprint settings: fingerprintLeftThumb
+  ///
+  /// In en, this message translates to:
+  /// **'Left thumb'**
+  String get fingerprintLeftThumb;
+
+  /// Fingerprint settings: fingerprintPin
+  ///
+  /// In en, this message translates to:
+  /// **'PIN'**
+  String get fingerprintPin;
+
+  /// Fingerprint settings: fingerprintPinNotSet
+  ///
+  /// In en, this message translates to:
+  /// **'Set a lock PIN first.'**
+  String get fingerprintPinNotSet;
+
+  /// Fingerprint settings: fingerprintPinPrompt
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your lock PIN to manage fingerprints.'**
+  String get fingerprintPinPrompt;
+
+  /// Fingerprint settings: fingerprintPreparing
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the fingerprint reader…'**
+  String get fingerprintPreparing;
+
+  /// Fingerprint settings: fingerprintProgress
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} scans'**
+  String fingerprintProgress(int completed, int total);
+
+  /// Fingerprint settings: fingerprintRetry
+  ///
+  /// In en, this message translates to:
+  /// **'Lift your finger and touch the sensor again, adjusting its position.'**
+  String get fingerprintRetry;
+
+  /// Fingerprint settings: fingerprintRightIndex
+  ///
+  /// In en, this message translates to:
+  /// **'Right index finger'**
+  String get fingerprintRightIndex;
+
+  /// Fingerprint settings: fingerprintRightLittle
+  ///
+  /// In en, this message translates to:
+  /// **'Right little finger'**
+  String get fingerprintRightLittle;
+
+  /// Fingerprint settings: fingerprintRightMiddle
+  ///
+  /// In en, this message translates to:
+  /// **'Right middle finger'**
+  String get fingerprintRightMiddle;
+
+  /// Fingerprint settings: fingerprintRightRing
+  ///
+  /// In en, this message translates to:
+  /// **'Right ring finger'**
+  String get fingerprintRightRing;
+
+  /// Fingerprint settings: fingerprintRightThumb
+  ///
+  /// In en, this message translates to:
+  /// **'Right thumb'**
+  String get fingerprintRightThumb;
+
+  /// Fingerprint settings: fingerprintSection
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get fingerprintSection;
+
+  /// Fingerprint settings: fingerprintTouchSensor
+  ///
+  /// In en, this message translates to:
+  /// **'Touch and lift your selected finger on the sensor.'**
+  String get fingerprintTouchSensor;
+
+  /// Fingerprint settings: fingerprintUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint management could not complete. Check the reader and try again.'**
+  String get fingerprintUnavailable;
+
   /// English UI text for frameMilliseconds.
   ///
   /// In en, this message translates to:
@@ -1447,6 +1615,234 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'SHELL · WAIT'**
   String get frameShellWaiting;
+
+  /// Accessible label of a home screen folder: its name and how many apps it holds.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {count, plural, =1{1 app} other{{count} apps}}'**
+  String homeFolderApps(String name, int count);
+
+  /// Name of a new home screen folder whose apps share no category.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder'**
+  String get homeFolderDefaultName;
+
+  /// Suggested name of a new home screen folder of developer tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Development'**
+  String get homeFolderDevelopment;
+
+  /// Suggested name of a new home screen folder of education apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Education'**
+  String get homeFolderEducation;
+
+  /// Suggested name of a new home screen folder of games.
+  ///
+  /// In en, this message translates to:
+  /// **'Games'**
+  String get homeFolderGames;
+
+  /// Suggested name of a new home screen folder of graphics apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Graphics'**
+  String get homeFolderGraphics;
+
+  /// Suggested name of a new home screen folder of network apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Internet'**
+  String get homeFolderInternet;
+
+  /// Suggested name of a new home screen folder of audio and video apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Media'**
+  String get homeFolderMedia;
+
+  /// Suggested name of a new home screen folder of office apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Office'**
+  String get homeFolderOffice;
+
+  /// Accessible hint for the editable name of an open home screen folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename folder'**
+  String get homeFolderRename;
+
+  /// Suggested name of a new home screen folder of science apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Science'**
+  String get homeFolderScience;
+
+  /// Suggested name of a new home screen folder of settings apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get homeFolderSettings;
+
+  /// Suggested name of a new home screen folder of system tools.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get homeFolderSystem;
+
+  /// Suggested name of a new home screen folder of utilities.
+  ///
+  /// In en, this message translates to:
+  /// **'Utilities'**
+  String get homeFolderUtilities;
+
+  /// Accessible label for a home widget resize handle.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize widget'**
+  String get homeResizeWidget;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'CPU chart'**
+  String get inputDeckCpuChart;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Show processor usage above the keyboard.'**
+  String get inputDeckCpuDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use touch display as keyboard and touchpad'**
+  String get inputDeckEnable;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use {output} for input whenever another display is available. Disconnect the external display to return to tablet mode.'**
+  String inputDeckEnableDescription(String output);
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'GPU charts'**
+  String get inputDeckGpuCharts;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Show usage for GPUs that report it.'**
+  String get inputDeckGpuDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard & touchpad'**
+  String get inputDeckHeading;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard size'**
+  String get inputDeckKeyboardSize;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Left click'**
+  String get inputDeckLeftClick;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Natural scrolling'**
+  String get inputDeckNaturalScroll;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Content follows the movement of your fingers.'**
+  String get inputDeckNaturalScrollDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Pointer speed'**
+  String get inputDeckPointerSpeed;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Right click'**
+  String get inputDeckRightClick;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard & touchpad display'**
+  String get inputDeckTitle;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touch display'**
+  String get inputDeckTouchDisplay;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Display to use for keyboard and touchpad input.'**
+  String get inputDeckTouchDisplayDescription;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad'**
+  String get inputDeckTouchpad;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad height'**
+  String get inputDeckTouchpadHeight;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.'**
+  String get inputDeckTouchpadHint;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad width'**
+  String get inputDeckTouchpadWidth;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect a touch display to configure this mode.'**
+  String get inputDeckUnavailable;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Use as display'**
+  String get inputDeckUseAsDisplay;
+
+  /// Touch display keyboard and touchpad mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready when a second display is connected and powered on.'**
+  String get inputDeckWaiting;
 
   /// English UI text for launchOpeningApplication.
   ///
@@ -1495,6 +1891,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter your password to unlock this desktop session.'**
   String get lockDesktopPromptDescription;
+
+  /// Title above the lock screen PIN entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter PIN'**
+  String get lockEnterPin;
+
+  /// Title above the lock screen PIN entry after a notification was tapped; it opens once unlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter PIN to open {applicationName}'**
+  String lockEnterPinToOpen(String applicationName);
+
+  /// Brief lock screen feedback when a fingerprint does not match.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint not recognized'**
+  String get lockFingerprintNotRecognized;
 
   /// English UI text for lockHideOnScreenKeyboard.
   ///
@@ -1568,6 +1982,24 @@ abstract class AppLocalizations {
   /// **'Desktop performance status'**
   String get lockPerformanceStatusLabel;
 
+  /// Lock screen PIN keypad key that removes the last digit.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get lockPinDelete;
+
+  /// Screen reader label for the hidden PIN field.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN, obscured'**
+  String get lockPinObscured;
+
+  /// Screen reader label for the lock screen PIN dots.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN, {entered} of {length} digits entered'**
+  String lockPinProgress(int entered, int length);
+
   /// English UI text for lockPleaseWait.
   ///
   /// In en, this message translates to:
@@ -1628,6 +2060,18 @@ abstract class AppLocalizations {
   /// **'Unlock Denial'**
   String get lockUnlockDenial;
 
+  /// Switches the lock screen from the PIN to the account password.
+  ///
+  /// In en, this message translates to:
+  /// **'Use password'**
+  String get lockUsePassword;
+
+  /// Switches the lock screen from the account password back to the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Use PIN'**
+  String get lockUsePin;
+
   /// English UI text for lockWaitingForAuthentication.
   ///
   /// In en, this message translates to:
@@ -1639,6 +2083,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Welcome back'**
   String get lockWelcomeBack;
+
+  /// Shown after a rejected lock screen PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong PIN'**
+  String get lockWrongPin;
 
   /// English UI text for longDate.
   ///
@@ -1712,6 +2162,36 @@ abstract class AppLocalizations {
   /// **'NOW'**
   String get metricNow;
 
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to change mobile data'**
+  String get mobileChangeFailed;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get mobileConnected;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile data'**
+  String get mobileData;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get mobileDisconnected;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile network unavailable'**
+  String get mobileUnavailable;
+
   /// English UI text for monthApril.
   ///
   /// In en, this message translates to:
@@ -1783,6 +2263,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'September'**
   String get monthSeptember;
+
+  /// Button on a phone recents card: moves the app to the external monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to monitor'**
+  String get moveToMonitor;
 
   /// English UI text for notificationDismiss.
   ///
@@ -2100,6 +2586,1013 @@ abstract class AppLocalizations {
   /// **'{percent} percent'**
   String percentValue(int percent);
 
+  /// Plugin Manager: Activity.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get pluginsActivity;
+
+  /// Plugin Manager: ActivityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Installation progress and changes to your desktop.'**
+  String get pluginsActivityDescription;
+
+  /// Plugin Manager: ActivityFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin activity'**
+  String get pluginsActivityFallback;
+
+  /// Plugin Manager: Add.
+  ///
+  /// In en, this message translates to:
+  /// **'Add plugin'**
+  String get pluginsAdd;
+
+  /// Plugin Manager: AddLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Add from a link'**
+  String get pluginsAddLink;
+
+  /// Plugin Manager: AddRepository.
+  ///
+  /// In en, this message translates to:
+  /// **'Add from a repository'**
+  String get pluginsAddRepository;
+
+  /// Plugin Manager: AddRepositoryDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a Git link to install a plugin from its developer.'**
+  String get pluginsAddRepositoryDescription;
+
+  /// Plugin Manager: AddToolbar.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Plugin'**
+  String get pluginsAddToolbar;
+
+  /// Plugin Manager: AddTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a plugin from a repository link'**
+  String get pluginsAddTooltip;
+
+  /// Plugin Manager: AdvancedOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced options'**
+  String get pluginsAdvancedOptions;
+
+  /// Plugin Manager: AppTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial Plugins'**
+  String get pluginsAppTitle;
+
+  /// Plugin Manager: Apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply plugins'**
+  String get pluginsApply;
+
+  /// Plugin Manager: ApplyChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply changes'**
+  String get pluginsApplyChanges;
+
+  /// Plugin Manager: ApplyPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply pending actions'**
+  String get pluginsApplyPending;
+
+  /// Plugin Manager: ApplySelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply your plugin selection changes to your desktop.'**
+  String get pluginsApplySelection;
+
+  /// Plugin Manager: ApplySelectionUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply your selection changes and pending updates to your desktop.'**
+  String get pluginsApplySelectionUpdates;
+
+  /// Plugin Manager: ApplyUnchanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.'**
+  String get pluginsApplyUnchanged;
+
+  /// Plugin Manager: ApplyingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying and checking your desktop'**
+  String get pluginsApplyingDesktop;
+
+  /// Plugin Manager: AutomaticDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'These keep your selected plugins working.'**
+  String get pluginsAutomaticDescription;
+
+  /// Plugin Manager: AutomaticTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Included automatically'**
+  String get pluginsAutomaticTitle;
+
+  /// Plugin Manager: BringNew.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring something new.'**
+  String get pluginsBringNew;
+
+  /// Plugin Manager: Build.
+  ///
+  /// In en, this message translates to:
+  /// **'Build plugins'**
+  String get pluginsBuild;
+
+  /// Plugin Manager: BuildLog.
+  ///
+  /// In en, this message translates to:
+  /// **'Build log'**
+  String get pluginsBuildLog;
+
+  /// Plugin Manager: ByDenial.
+  ///
+  /// In en, this message translates to:
+  /// **'By Denial'**
+  String get pluginsByDenial;
+
+  /// Plugin Manager: CandidateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} · {path}'**
+  String pluginsCandidateLabel(String name, String path);
+
+  /// Plugin Manager: ChangeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Change couldn’t be completed'**
+  String get pluginsChangeFailed;
+
+  /// Plugin Manager: CheckChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your changes'**
+  String get pluginsCheckChanges;
+
+  /// Plugin Manager: CheckCompatibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Check compatibility'**
+  String get pluginsCheckCompatibility;
+
+  /// Plugin Manager: CheckSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Check your selection'**
+  String get pluginsCheckSelection;
+
+  /// Plugin Manager: CheckUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for plugin updates'**
+  String get pluginsCheckUpdates;
+
+  /// Plugin Manager: CheckingCompatibility.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking plugin compatibility'**
+  String get pluginsCheckingCompatibility;
+
+  /// Plugin Manager: Choose.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a plugin'**
+  String get pluginsChoose;
+
+  /// Plugin Manager: ChooseDefaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose default plugins'**
+  String get pluginsChooseDefaults;
+
+  /// Plugin Manager: ClearSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get pluginsClearSearch;
+
+  /// Plugin Manager: Close.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get pluginsClose;
+
+  /// Plugin Manager: CloseWhileWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'You can close this window. We’ll keep going.'**
+  String get pluginsCloseWhileWorking;
+
+  /// Plugin Manager: Community.
+  ///
+  /// In en, this message translates to:
+  /// **'From the community'**
+  String get pluginsCommunity;
+
+  /// Plugin Manager: CommunityPlugin.
+  ///
+  /// In en, this message translates to:
+  /// **'Community plugin'**
+  String get pluginsCommunityPlugin;
+
+  /// Plugin Manager: CompilingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Compiling your desktop'**
+  String get pluginsCompilingDesktop;
+
+  /// Plugin Manager: CompilingSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Compiling Dart sources'**
+  String get pluginsCompilingSources;
+
+  /// Plugin Manager: Completed.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get pluginsCompleted;
+
+  /// Plugin Manager: ConfigurationDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.'**
+  String get pluginsConfigurationDescription;
+
+  /// Plugin Manager: DartCompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'Compatible Dart is required'**
+  String get pluginsDartCompatible;
+
+  /// Plugin Manager: DartIncompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'Dart {installed} is installed, but Denial requires {constraint}. Install a compatible Dart package and make sure dart is available in PATH, then try again.'**
+  String pluginsDartIncompatible(String installed, String constraint);
+
+  /// Plugin Manager: DartInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install Dart with your system package manager. Denial recommends Dart {expected}. Make sure dart is available in PATH, then try again.'**
+  String pluginsDartInstall(String expected);
+
+  /// Plugin Manager: DartRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Dart is required'**
+  String get pluginsDartRequired;
+
+  /// Plugin Manager: DesktopFeature.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get pluginsDesktopFeature;
+
+  /// Plugin Manager: DesktopOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop options'**
+  String get pluginsDesktopOptions;
+
+  /// Plugin Manager: DesktopOptionsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates, compatibility and recovery'**
+  String get pluginsDesktopOptionsDescription;
+
+  /// Plugin Manager: Disable.
+  ///
+  /// In en, this message translates to:
+  /// **'Disable plugin'**
+  String get pluginsDisable;
+
+  /// Plugin Manager: Discard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get pluginsDiscard;
+
+  /// Plugin Manager: Discover.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover'**
+  String get pluginsDiscover;
+
+  /// Plugin Manager: DiscoverAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover Plugins'**
+  String get pluginsDiscoverAction;
+
+  /// Plugin Manager: DiscoverDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Add new features and make your desktop your own.'**
+  String get pluginsDiscoverDescription;
+
+  /// Plugin Manager: DiscoverMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover more plugins'**
+  String get pluginsDiscoverMore;
+
+  /// Plugin Manager: DiscoverTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover plugins'**
+  String get pluginsDiscoverTitle;
+
+  /// Plugin Manager: DiscoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Some discoveries couldn’t be loaded. Try refreshing again.'**
+  String get pluginsDiscoveryFailed;
+
+  /// Plugin Manager: DismissError.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss error'**
+  String get pluginsDismissError;
+
+  /// Plugin Manager: Done.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get pluginsDone;
+
+  /// Plugin Manager: Elapsed.
+  ///
+  /// In en, this message translates to:
+  /// **'{stage} · {clock} elapsed'**
+  String pluginsElapsed(String stage, String clock);
+
+  /// Plugin Manager: Enable.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable plugin'**
+  String get pluginsEnable;
+
+  /// Plugin Manager: FailureConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.'**
+  String get pluginsFailureConflict;
+
+  /// Plugin Manager compatibility declaration or preflight failure summary.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin compatibility information needs attention. Check your selection and open details before applying again.'**
+  String get pluginsFailureDeclaration;
+
+  /// Plugin Manager: FailureDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'A download failed. Check your connection and try again.'**
+  String get pluginsFailureDownload;
+
+  /// Plugin Manager: FailureEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.'**
+  String get pluginsFailureEngine;
+
+  /// Plugin Manager: FailureGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'This change could not be completed. Open details to see the cause.'**
+  String get pluginsFailureGeneric;
+
+  /// Plugin Manager: FailureLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Log out and back into Denial once to finish the update. Your choices are saved.'**
+  String get pluginsFailureLogin;
+
+  /// Plugin Manager: FailureMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'A required desktop feature is missing. Enable a plugin that provides it, then apply again.'**
+  String get pluginsFailureMissing;
+
+  /// Plugin Manager: FailurePanel.
+  ///
+  /// In en, this message translates to:
+  /// **'More than one desktop panel is selected. Keep one enabled, then apply again.'**
+  String get pluginsFailurePanel;
+
+  /// Plugin Manager: FailureVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.'**
+  String get pluginsFailureVersion;
+
+  /// Plugin Manager: FailureWorker.
+  ///
+  /// In en, this message translates to:
+  /// **'The background operation stopped unexpectedly. Check Activity before trying again.'**
+  String get pluginsFailureWorker;
+
+  /// Plugin Manager: FallbackDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize your desktop with this plugin.'**
+  String get pluginsFallbackDescription;
+
+  /// Plugin Manager: Find.
+  ///
+  /// In en, this message translates to:
+  /// **'Find plugins'**
+  String get pluginsFind;
+
+  /// Plugin Manager: Finding.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding plugins…'**
+  String get pluginsFinding;
+
+  /// Plugin Manager: GitRef.
+  ///
+  /// In en, this message translates to:
+  /// **'Branch, tag, or commit (optional)'**
+  String get pluginsGitRef;
+
+  /// Plugin Manager: InProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get pluginsInProgress;
+
+  /// Plugin Manager: IncludeDependencies.
+  ///
+  /// In en, this message translates to:
+  /// **'We’ll include anything this plugin needs automatically.'**
+  String get pluginsIncludeDependencies;
+
+  /// Plugin Manager: Installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed'**
+  String get pluginsInstalled;
+
+  /// Plugin Manager: InstalledDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the plugins that make up your desktop.'**
+  String get pluginsInstalledDescription;
+
+  /// Plugin Manager: InstalledTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed plugins'**
+  String get pluginsInstalledTitle;
+
+  /// Plugin Manager: InstalledVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial {version} is installed.'**
+  String pluginsInstalledVersion(String version);
+
+  /// Plugin Manager: InvalidDeclaration.
+  ///
+  /// In en, this message translates to:
+  /// **'{plugins} has invalid compatibility declarations. Open details to see the cause.'**
+  String pluginsInvalidDeclaration(String plugins);
+
+  /// Plugin Manager: Library.
+  ///
+  /// In en, this message translates to:
+  /// **'Library'**
+  String get pluginsLibrary;
+
+  /// Plugin Manager: LoadingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading your saved desktop'**
+  String get pluginsLoadingDesktop;
+
+  /// Plugin Manager: LocalDevelopment.
+  ///
+  /// In en, this message translates to:
+  /// **'Local development'**
+  String get pluginsLocalDevelopment;
+
+  /// Plugin Manager: LocalDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Local package or repository directory'**
+  String get pluginsLocalDirectory;
+
+  /// Plugin Manager: LogLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The build log could not be loaded.'**
+  String get pluginsLogLoadFailed;
+
+  /// Plugin Manager: MoreActions.
+  ///
+  /// In en, this message translates to:
+  /// **'More actions'**
+  String get pluginsMoreActions;
+
+  /// Plugin Manager: NeedsAttention.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs attention'**
+  String get pluginsNeedsAttention;
+
+  /// Plugin Manager: NoActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'No activity yet'**
+  String get pluginsNoActivity;
+
+  /// Plugin Manager: NoActivityDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin installations and desktop changes will appear here.'**
+  String get pluginsNoActivityDescription;
+
+  /// Plugin Manager: NoBuildOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'No build output was recorded.'**
+  String get pluginsNoBuildOutput;
+
+  /// Plugin Manager: NoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugin package candidates were found in this repository.'**
+  String get pluginsNoCandidates;
+
+  /// Plugin Manager: NoCommunity.
+  ///
+  /// In en, this message translates to:
+  /// **'No community plugins are listed yet. Add a plugin using its repository link.'**
+  String get pluginsNoCommunity;
+
+  /// Plugin Manager: NoMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching plugins'**
+  String get pluginsNoMatches;
+
+  /// Plugin Manager: NoMatchesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another name or clear your search.'**
+  String get pluginsNoMatchesDescription;
+
+  /// Plugin Manager: NoneInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'No plugins installed'**
+  String get pluginsNoneInstalled;
+
+  /// Plugin Manager: NoneInstalledDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover plugins for your desktop, or add one using a repository link.'**
+  String get pluginsNoneInstalledDescription;
+
+  /// Plugin Manager: NotSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not selected'**
+  String get pluginsNotSelected;
+
+  /// Plugin Manager: NothingFound.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing found yet'**
+  String get pluginsNothingFound;
+
+  /// Plugin Manager: NothingFoundDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another search, or add a plugin using its repository link.'**
+  String get pluginsNothingFoundDescription;
+
+  /// Plugin Manager: Official.
+  ///
+  /// In en, this message translates to:
+  /// **'Made for Denial'**
+  String get pluginsOfficial;
+
+  /// Plugin Manager: Optimizing.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimizing and generating native code'**
+  String get pluginsOptimizing;
+
+  /// Plugin Manager: Paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Your plugins are paused'**
+  String get pluginsPaused;
+
+  /// Plugin Manager: PendingReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending actions are ready'**
+  String get pluginsPendingReady;
+
+  /// Plugin Manager: Preferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences'**
+  String get pluginsPreferences;
+
+  /// Plugin Manager: PreparingAssets.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing assets'**
+  String get pluginsPreparingAssets;
+
+  /// Plugin Manager: PreparingBuild.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your desktop build'**
+  String get pluginsPreparingBuild;
+
+  /// Plugin Manager: PreparingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial is getting everything ready. You can leave this window open or come back later.'**
+  String get pluginsPreparingDescription;
+
+  /// Plugin Manager: PreparingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your desktop'**
+  String get pluginsPreparingDesktop;
+
+  /// Plugin Manager: PreparingPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing your plugins'**
+  String get pluginsPreparingPlugins;
+
+  /// Plugin Manager: PreparingSupport.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing plugin support'**
+  String get pluginsPreparingSupport;
+
+  /// Plugin Manager: PreparingTools.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing plugin tools'**
+  String get pluginsPreparingTools;
+
+  /// Plugin Manager: ProviderConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'{feature} is provided by {plugins}. {owner} accepts at most {maximum} providers. Disable extra plugins before applying.'**
+  String pluginsProviderConflict(
+    String feature,
+    String plugins,
+    String owner,
+    int maximum,
+  );
+
+  /// Plugin Manager: ProviderMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'{owner} needs at least {minimum} providers for {feature}. Enable a compatible plugin before applying.'**
+  String pluginsProviderMissing(String owner, int minimum, String feature);
+
+  /// Plugin Manager: Rebuild.
+  ///
+  /// In en, this message translates to:
+  /// **'Rebuild plugins'**
+  String get pluginsRebuild;
+
+  /// Plugin Manager: RebuildDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'{introduction} Rebuild your plugins to bring them back, with all their settings. No need to log out.'**
+  String pluginsRebuildDescription(String introduction);
+
+  /// Plugin Manager: RecentActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent activity'**
+  String get pluginsRecentActivity;
+
+  /// Plugin Manager: Refresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get pluginsRefresh;
+
+  /// Plugin Manager: RefreshDiscoveries.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh discoveries'**
+  String get pluginsRefreshDiscoveries;
+
+  /// Plugin Manager: RepositoryLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Repository link'**
+  String get pluginsRepositoryLink;
+
+  /// Plugin Manager: Restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore default desktop'**
+  String get pluginsRestore;
+
+  /// Plugin Manager: Search.
+  ///
+  /// In en, this message translates to:
+  /// **'Search plugins'**
+  String get pluginsSearch;
+
+  /// Plugin Manager: SearchInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Search installed'**
+  String get pluginsSearchInstalled;
+
+  /// Plugin Manager: Select.
+  ///
+  /// In en, this message translates to:
+  /// **'Select plugin'**
+  String get pluginsSelect;
+
+  /// Plugin Manager: Selected.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get pluginsSelected;
+
+  /// Plugin Manager: SelectedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{0 selected} =1{1 selected} other{{count} selected}}'**
+  String pluginsSelectedCount(int count);
+
+  /// Plugin Manager: SelectedDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected for your desktop'**
+  String get pluginsSelectedDesktop;
+
+  /// Plugin Manager: SelectionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Your selection has changed'**
+  String get pluginsSelectionChanged;
+
+  /// Plugin Manager: Setup.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up plugins'**
+  String get pluginsSetup;
+
+  /// Plugin Manager: SetupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparation could not finish. See Activity for details, then try again.'**
+  String get pluginsSetupFailed;
+
+  /// Plugin Manager: StaleSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'The selection changed elsewhere. Discard your draft to load the latest selection.'**
+  String get pluginsStaleSelection;
+
+  /// Plugin Manager: StartupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved plugins could not start'**
+  String get pluginsStartupFailed;
+
+  /// Plugin Manager: Step.
+  ///
+  /// In en, this message translates to:
+  /// **'Step {step} of {total} · {label}'**
+  String pluginsStep(int step, int total, String label);
+
+  /// Plugin Manager: StepsComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} steps complete'**
+  String pluginsStepsComplete(int completed, int total);
+
+  /// Plugin Manager: SwitchNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch now'**
+  String get pluginsSwitchNow;
+
+  /// Plugin Manager: SwitchSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} plugin'**
+  String pluginsSwitchSemantics(String name);
+
+  /// Plugin Manager: SwitchingPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching when you pause'**
+  String get pluginsSwitchingPause;
+
+  /// Plugin Manager: TechnicalDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Technical details'**
+  String get pluginsTechnicalDetails;
+
+  /// Plugin Manager: Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugins'**
+  String get pluginsTitle;
+
+  /// Plugin Manager: ToolsAttention.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin tools need attention'**
+  String get pluginsToolsAttention;
+
+  /// Plugin Manager: ToolsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin tools are temporarily unavailable. Retrying automatically.'**
+  String get pluginsToolsUnavailable;
+
+  /// Plugin Manager: TrustDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.'**
+  String get pluginsTrustDescription;
+
+  /// Plugin Manager: TryAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get pluginsTryAgain;
+
+  /// Plugin Manager: Undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo last change'**
+  String get pluginsUndo;
+
+  /// Plugin Manager: Update.
+  ///
+  /// In en, this message translates to:
+  /// **'Update plugins'**
+  String get pluginsUpdate;
+
+  /// Plugin Manager: Updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial was updated.'**
+  String get pluginsUpdated;
+
+  /// Plugin Manager: UseDefaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Denial defaults'**
+  String get pluginsUseDefaults;
+
+  /// Plugin Manager: UseLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a local development checkout'**
+  String get pluginsUseLocal;
+
+  /// Plugin Manager: VerifyingDesktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying your desktop'**
+  String get pluginsVerifyingDesktop;
+
+  /// Plugin Manager: VerifyingTools.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying plugin tools'**
+  String get pluginsVerifyingTools;
+
+  /// Plugin Manager: ViewDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'View details'**
+  String get pluginsViewDetails;
+
+  /// Plugin Manager: WaitingStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to start'**
+  String get pluginsWaitingStart;
+
+  /// Plugin Manager: Working.
+  ///
+  /// In en, this message translates to:
+  /// **'Working on your changes'**
+  String get pluginsWorking;
+
+  /// Plugin Manager: YourPlugins.
+  ///
+  /// In en, this message translates to:
+  /// **'Your plugins'**
+  String get pluginsYourPlugins;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication is required.'**
+  String get polkitAuthenticationRequired;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication is unavailable.'**
+  String get polkitAuthenticationUnavailable;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Caps Lock'**
+  String get polkitCapsLock;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get polkitClose;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get polkitConfirm;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get polkitContinue;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporarily locked'**
+  String get polkitLocked;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get polkitPassword;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing…'**
+  String get polkitPreparing;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Administrator authentication required.'**
+  String get polkitRunCommandAsAdministrator;
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication is required to run this command as {user}.'**
+  String polkitRunCommandAsUser(String user);
+
+  /// Authentication prompt text.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying…'**
+  String get polkitVerifying;
+
   /// English UI text for powerActionHibernate.
   ///
   /// In en, this message translates to:
@@ -2310,23 +3803,17 @@ abstract class AppLocalizations {
   /// **'{watts} W'**
   String powerWattsDecimal(String watts);
 
+  /// Quick Settings toggle that turns every radio off.
+  ///
+  /// In en, this message translates to:
+  /// **'Airplane mode'**
+  String get quickSettingsAirplaneMode;
+
   /// Quick Settings toggle that is on while the screen follows the orientation sensor.
   ///
   /// In en, this message translates to:
   /// **'Auto-rotate'**
   String get quickSettingsAutoRotate;
-
-  /// Quick Settings tile that starts a screen recording, and stops it when tapped again.
-  ///
-  /// In en, this message translates to:
-  /// **'Screen recording'**
-  String get quickSettingsScreenRecording;
-
-  /// Subtitle of the Screen recording tile while it records.
-  ///
-  /// In en, this message translates to:
-  /// **'Recording'**
-  String get quickSettingsRecording;
 
   /// English UI text for quickSettingsBalanced.
   ///
@@ -2394,11 +3881,35 @@ abstract class AppLocalizations {
   /// **'Open on-screen keyboard'**
   String get quickSettingsOpenOnScreen;
 
+  /// Quick Settings toggle that freezes the current screen rotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Orientation lock'**
+  String get quickSettingsOrientationLock;
+
   /// English UI text for quickSettingsPerformance.
   ///
   /// In en, this message translates to:
   /// **'Performance'**
   String get quickSettingsPerformance;
+
+  /// Subtitle of the Screen recording tile while it records.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording'**
+  String get quickSettingsRecording;
+
+  /// Quick Settings tile that starts a screen recording, and stops it when tapped again.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen recording'**
+  String get quickSettingsScreenRecording;
+
+  /// Quick Settings button that captures the screen.
+  ///
+  /// In en, this message translates to:
+  /// **'Screenshot'**
+  String get quickSettingsScreenshot;
 
   /// English UI text for quickSettingsSettingsUnavailable.
   ///
@@ -2411,6 +3922,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Silent'**
   String get quickSettingsSilent;
+
+  /// Instruction shown while selecting a desktop screenshot region.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to select an area · Esc to cancel'**
+  String get screenshotSelectionHint;
 
   /// Second explanatory paragraph on the Settings About page.
   ///
@@ -2520,11 +4037,65 @@ abstract class AppLocalizations {
   /// **'Motion that matches your desktop.'**
   String get settingsAnimationsTitle;
 
+  /// Tooltip for Appearance actions menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance actions'**
+  String get settingsAppearanceActions;
+
+  /// Disclosure for detailed transparency controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced effects'**
+  String get settingsAppearanceAdvancedEffects;
+
+  /// Summary of advanced glass controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Color, optics, lighting and rendering.'**
+  String get settingsAppearanceAdvancedEffectsDescription;
+
+  /// Advanced glass color controls heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get settingsAppearanceColorEffects;
+
+  /// Summary of advanced blur controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Fine-tune where the effect is applied.'**
+  String get settingsAppearanceCompositingDescription;
+
+  /// Disclosure for application-provided cursors.
+  ///
+  /// In en, this message translates to:
+  /// **'Application cursors'**
+  String get settingsAppearanceCursorAdvanced;
+
   /// Explanation that shell appearance changes are applied immediately.
   ///
   /// In en, this message translates to:
   /// **'Changes made here are reflected across the desktop in real time.'**
   String get settingsAppearanceDescription;
+
+  /// Advanced glass lighting controls heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Lighting'**
+  String get settingsAppearanceLighting;
+
+  /// Advanced glass optical controls heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Optics'**
+  String get settingsAppearanceOptics;
+
+  /// Advanced glass rendering controls heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Rendering'**
+  String get settingsAppearanceRendering;
 
   /// Uppercase label for the appearance settings section.
   ///
@@ -2532,11 +4103,29 @@ abstract class AppLocalizations {
   /// **'Appearance'**
   String get settingsAppearanceSection;
 
+  /// Appearance card heading for color scheme and accent.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get settingsAppearanceTheme;
+
   /// Heading introducing personalization controls.
   ///
   /// In en, this message translates to:
   /// **'Make the desktop feel like yours.'**
   String get settingsAppearanceTitle;
+
+  /// Appearance card heading for transparency and its effects.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparency'**
+  String get settingsAppearanceTransparency;
+
+  /// Appearance card heading for window shape and focus.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows'**
+  String get settingsAppearanceWindows;
 
   /// English UI text for settingsApplicationAudioDescription.
   ///
@@ -2568,17 +4157,101 @@ abstract class AppLocalizations {
   /// **'System'**
   String get settingsApplicationCategorySystem;
 
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get settingsApplicationScaleApply;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale method'**
+  String get settingsApplicationScaleBackend;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic'**
+  String get settingsApplicationScaleBackendAuto;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Do nothing'**
+  String get settingsApplicationScaleBackendNone;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get settingsApplicationScaleCustom;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Override this application’s whole UI scale; restart the app to apply.'**
+  String get settingsApplicationScaleDescription;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow system'**
+  String get settingsApplicationScaleFollowSystem;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Per-application UI scale'**
+  String get settingsApplicationScaleTitle;
+
+  /// Settings · per-application UI scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale'**
+  String get settingsApplicationScaleValueLabel;
+
   /// Accessibility label for the complete Settings application.
   ///
   /// In en, this message translates to:
   /// **'Denial Settings'**
   String get settingsApplicationSemanticsLabel;
 
+  /// Application appearance synchronization setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply Denial styling to supported application. Currently supported applications: Kitty.'**
+  String get settingsApplicationThemingDescription;
+
+  /// Application appearance synchronization setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme supported application using Denial styling'**
+  String get settingsApplicationThemingEnabled;
+
+  /// Application appearance synchronization setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-apply'**
+  String get settingsApplicationThemingReapply;
+
   /// Display name of the built-in Denial Settings application.
   ///
   /// In en, this message translates to:
   /// **'Settings'**
   String get settingsApplicationTitle;
+
+  /// Button label that applies the edited monitor configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply changes'**
+  String get settingsApplyDisplayConfiguration;
+
+  /// Busy label shown while a display configuration is being applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get settingsApplying;
 
   /// English UI text for settingsAudioDescription.
   ///
@@ -2634,54 +4307,6 @@ abstract class AppLocalizations {
   /// **'Automatic idle actions'**
   String get settingsAutomaticIdleTitle;
 
-  /// Title for physical power button behavior settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Power button'**
-  String get settingsPowerButtonTitle;
-
-  /// Label for the physical power button action selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Action'**
-  String get settingsPowerButtonAction;
-
-  /// Explanation for the physical power button action selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose what happens when you press the physical power button.'**
-  String get settingsPowerButtonDescription;
-
-  /// Power button action that suspends the system.
-  ///
-  /// In en, this message translates to:
-  /// **'Suspend'**
-  String get settingsPowerButtonSuspend;
-
-  /// Power button action that hibernates the system.
-  ///
-  /// In en, this message translates to:
-  /// **'Hibernate'**
-  String get settingsPowerButtonHibernate;
-
-  /// Disabled persisted hibernate action when hibernation is unavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Hibernate (unavailable)'**
-  String get settingsPowerButtonHibernateUnavailable;
-
-  /// Power button action that toggles compositor-owned display power.
-  ///
-  /// In en, this message translates to:
-  /// **'Turn off displays (DPMS)'**
-  String get settingsPowerButtonDpms;
-
-  /// Power button action that powers off the system.
-  ///
-  /// In en, this message translates to:
-  /// **'Power off'**
-  String get settingsPowerButtonPowerOff;
-
   /// Toggle for automatically locking the session after inactivity.
   ///
   /// In en, this message translates to:
@@ -2706,42 +4331,6 @@ abstract class AppLocalizations {
   /// **'Keep the session in memory and enter low power after extended inactivity.'**
   String get settingsAutomaticSuspendToggleDescription;
 
-  /// Label for choosing the kernel memory sleep mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Suspend mode'**
-  String get settingsSuspendMode;
-
-  /// Explanation for the kernel memory sleep mode selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.'**
-  String get settingsSuspendModeDescription;
-
-  /// Friendly label for the Linux s2idle memory sleep mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Suspend to idle (s2idle)'**
-  String get settingsSuspendModeS2idle;
-
-  /// Friendly label for the Linux shallow memory sleep mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Standby (shallow)'**
-  String get settingsSuspendModeShallow;
-
-  /// Friendly label for the Linux deep memory sleep mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Suspend to RAM (deep)'**
-  String get settingsSuspendModeDeep;
-
-  /// Disabled suspend mode selector value when Linux exposes no memory sleep mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Unavailable'**
-  String get settingsSuspendModeUnavailable;
-
   /// English UI text for settingsAvailable.
   ///
   /// In en, this message translates to:
@@ -2759,6 +4348,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Available networks'**
   String get settingsAvailableNetworksTitle;
+
+  /// English UI text for settingsBackdropBlur.
+  ///
+  /// In en, this message translates to:
+  /// **'Backdrop blur'**
+  String get settingsBackdropBlur;
+
+  /// Explanation and performance guidance for compositor backdrop blur.
+  ///
+  /// In en, this message translates to:
+  /// **'Soften content behind translucent windows and panels. Higher quality uses more GPU.'**
+  String get settingsBackdropBlurDescription;
+
+  /// Toggle label for compositor backdrop blur.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable backdrop blur'**
+  String get settingsBackdropBlurEnabled;
+
+  /// Description of the compositor backdrop blur toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Blur only where transparent content can reveal the desktop beneath it.'**
+  String get settingsBackdropBlurEnabledDescription;
+
+  /// Slider label for the compositor backdrop blur quality level.
+  ///
+  /// In en, this message translates to:
+  /// **'Blur quality'**
+  String get settingsBackdropBlurIntensity;
+
+  /// Highest-quality compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Best'**
+  String get settingsBackdropBlurLevelBest;
+
+  /// Fast compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast'**
+  String get settingsBackdropBlurLevelFast;
+
+  /// Good-quality compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Good'**
+  String get settingsBackdropBlurLevelGood;
+
+  /// Lowest-quality, fastest compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Shitty'**
+  String get settingsBackdropBlurLevelShitty;
+
+  /// Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimum pixel opacity for blur'**
+  String get settingsBackdropBlurOpacityThreshold;
+
+  /// English UI text for settingsBackdropDimming.
+  ///
+  /// In en, this message translates to:
+  /// **'Backdrop dimming'**
+  String get settingsBackdropDimming;
+
+  /// English UI text for settingsBarGeometryDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Adjust the space reserved for the desktop system bar.'**
+  String get settingsBarGeometryDescription;
+
+  /// English UI text for settingsBarGeometryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'System bar geometry'**
+  String get settingsBarGeometryTitle;
+
+  /// English UI text for settingsBarThickness.
+  ///
+  /// In en, this message translates to:
+  /// **'Bar thickness'**
+  String get settingsBarThickness;
 
   /// Label for a battery's completed charge-cycle count.
   ///
@@ -3036,228 +4709,6 @@ abstract class AppLocalizations {
   /// **'{value} Wh'**
   String settingsBatteryWattHours(String value);
 
-  /// English UI text for settingsBackdropBlur.
-  ///
-  /// In en, this message translates to:
-  /// **'Backdrop blur'**
-  String get settingsBackdropBlur;
-
-  /// Explanation and performance guidance for compositor backdrop blur.
-  ///
-  /// In en, this message translates to:
-  /// **'Soften content behind translucent windows and panels. Higher quality uses more GPU.'**
-  String get settingsBackdropBlurDescription;
-
-  /// Toggle label for compositor backdrop blur.
-  ///
-  /// In en, this message translates to:
-  /// **'Enable backdrop blur'**
-  String get settingsBackdropBlurEnabled;
-
-  /// Description of the compositor backdrop blur toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Blur only where transparent content can reveal the desktop beneath it.'**
-  String get settingsBackdropBlurEnabledDescription;
-
-  /// Slider label for the compositor backdrop blur quality level.
-  ///
-  /// In en, this message translates to:
-  /// **'Blur quality'**
-  String get settingsBackdropBlurIntensity;
-
-  /// Lowest-quality, fastest compositor backdrop blur level.
-  ///
-  /// In en, this message translates to:
-  /// **'Shitty'**
-  String get settingsBackdropBlurLevelShitty;
-
-  /// Fast compositor backdrop blur level.
-  ///
-  /// In en, this message translates to:
-  /// **'Fast'**
-  String get settingsBackdropBlurLevelFast;
-
-  /// Good-quality compositor backdrop blur level.
-  ///
-  /// In en, this message translates to:
-  /// **'Good'**
-  String get settingsBackdropBlurLevelGood;
-
-  /// Highest-quality compositor backdrop blur level.
-  ///
-  /// In en, this message translates to:
-  /// **'Best'**
-  String get settingsBackdropBlurLevelBest;
-
-  /// Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered.
-  ///
-  /// In en, this message translates to:
-  /// **'Minimum pixel opacity for blur'**
-  String get settingsBackdropBlurOpacityThreshold;
-
-  /// Dark or light appearance for glass surfaces.
-  ///
-  /// In en, this message translates to:
-  /// **'Glass appearance'**
-  String get settingsGlassAppearance;
-
-  /// Opacity of Denial shell surfaces: launcher, Dashboard, taskbar and top cards.
-  ///
-  /// In en, this message translates to:
-  /// **'Shell glass opacity'**
-  String get settingsGlassShellOpacity;
-
-  /// Opacity of compatible application window backgrounds; other applications and foreground controls are unaffected.
-  ///
-  /// In en, this message translates to:
-  /// **'Window glass opacity'**
-  String get settingsGlassWindowOpacity;
-
-  /// Opacity of glass sidebars and toolbars within compatible applications, independent of shell and window background opacity.
-  ///
-  /// In en, this message translates to:
-  /// **'App panels opacity'**
-  String get settingsGlassAppPanelOpacity;
-
-  /// Title for choosing the visual material behind translucent shell surfaces.
-  ///
-  /// In en, this message translates to:
-  /// **'Transparency material'**
-  String get settingsTransparencyTitle;
-
-  /// Title for shell typography appearance settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Typography'**
-  String get settingsTypographyTitle;
-
-  /// Transparency material choice that disables backdrop processing.
-  ///
-  /// In en, this message translates to:
-  /// **'Off'**
-  String get settingsTransparencyOff;
-
-  /// Transparency material choice for the existing backdrop blur.
-  ///
-  /// In en, this message translates to:
-  /// **'Blur'**
-  String get settingsTransparencyBlur;
-
-  /// Transparency material choice for Denial's native glass effect.
-  ///
-  /// In en, this message translates to:
-  /// **'Glass'**
-  String get settingsTransparencyGlass;
-
-  /// Description of the disabled transparency material.
-  ///
-  /// In en, this message translates to:
-  /// **'Leave translucent surfaces clear without processing the desktop behind them.'**
-  String get settingsTransparencyOffDescription;
-
-  /// Description of the existing blur material.
-  ///
-  /// In en, this message translates to:
-  /// **'Use Denial’s current fast Gaussian backdrop blur.'**
-  String get settingsTransparencyBlurDescription;
-
-  /// Description of the native glass material.
-  ///
-  /// In en, this message translates to:
-  /// **'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.'**
-  String get settingsTransparencyGlassDescription;
-
-  /// Glass setting controlling the backdrop blur radius.
-  ///
-  /// In en, this message translates to:
-  /// **'Frost'**
-  String get settingsGlassFrost;
-
-  /// Glass setting controlling intermediate texture resolution.
-  ///
-  /// In en, this message translates to:
-  /// **'Render quality'**
-  String get settingsGlassQuality;
-
-  /// Glass setting controlling the width of the refractive edge.
-  ///
-  /// In en, this message translates to:
-  /// **'Optical thickness'**
-  String get settingsGlassThickness;
-
-  /// Glass setting controlling background displacement.
-  ///
-  /// In en, this message translates to:
-  /// **'Refraction'**
-  String get settingsGlassRefraction;
-
-  /// Glass setting controlling chromatic separation.
-  ///
-  /// In en, this message translates to:
-  /// **'Color dispersion'**
-  String get settingsGlassDispersion;
-
-  /// Glass setting controlling backdrop color saturation.
-  ///
-  /// In en, this message translates to:
-  /// **'Saturation'**
-  String get settingsGlassSaturation;
-
-  /// Glass setting controlling how much of the shell accent is mixed into the material.
-  ///
-  /// In en, this message translates to:
-  /// **'Accent tint'**
-  String get settingsGlassAccentTint;
-
-  /// Glass setting controlling adaptive brightening or darkening.
-  ///
-  /// In en, this message translates to:
-  /// **'Luminosity'**
-  String get settingsGlassBrightness;
-
-  /// Glass setting controlling the angle of the simulated key light.
-  ///
-  /// In en, this message translates to:
-  /// **'Light direction'**
-  String get settingsGlassLightAngle;
-
-  /// Glass setting controlling directional lighting strength.
-  ///
-  /// In en, this message translates to:
-  /// **'Light intensity'**
-  String get settingsGlassLightIntensity;
-
-  /// Glass setting controlling rim and caustic highlights.
-  ///
-  /// In en, this message translates to:
-  /// **'Edge shine'**
-  String get settingsGlassEdgeStrength;
-
-  /// English UI text for settingsBackdropDimming.
-  ///
-  /// In en, this message translates to:
-  /// **'Backdrop dimming'**
-  String get settingsBackdropDimming;
-
-  /// English UI text for settingsBarGeometryDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust the space reserved for the desktop system bar.'**
-  String get settingsBarGeometryDescription;
-
-  /// English UI text for settingsBarGeometryTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'System bar geometry'**
-  String get settingsBarGeometryTitle;
-
-  /// English UI text for settingsBarThickness.
-  ///
-  /// In en, this message translates to:
-  /// **'Bar thickness'**
-  String get settingsBarThickness;
-
   /// English UI text for settingsBluetoothAdapterDescription.
   ///
   /// In en, this message translates to:
@@ -3360,6 +4811,96 @@ abstract class AppLocalizations {
   /// **'None'**
   String get settingsCloseEffectNone;
 
+  /// Label for the blue RGB channel input.
+  ///
+  /// In en, this message translates to:
+  /// **'Blue'**
+  String get settingsColorInputBlue;
+
+  /// Label for the green RGB channel input.
+  ///
+  /// In en, this message translates to:
+  /// **'Green'**
+  String get settingsColorInputGreen;
+
+  /// Label for hexadecimal color-value input mode.
+  ///
+  /// In en, this message translates to:
+  /// **'HEX'**
+  String get settingsColorInputHex;
+
+  /// Validation error for an invalid hexadecimal color value.
+  ///
+  /// In en, this message translates to:
+  /// **'Use 3 or 6 hex digits.'**
+  String get settingsColorInputHexError;
+
+  /// Label for the exact hexadecimal color input.
+  ///
+  /// In en, this message translates to:
+  /// **'Hex color'**
+  String get settingsColorInputHexValue;
+
+  /// Label for HSL color-value input mode.
+  ///
+  /// In en, this message translates to:
+  /// **'HSL'**
+  String get settingsColorInputHsl;
+
+  /// Validation error for out-of-range HSL color values.
+  ///
+  /// In en, this message translates to:
+  /// **'Use H 0–360 and S/L 0–100.'**
+  String get settingsColorInputHslError;
+
+  /// Label for the HSL hue input.
+  ///
+  /// In en, this message translates to:
+  /// **'Hue'**
+  String get settingsColorInputHue;
+
+  /// Label for the HSL lightness input.
+  ///
+  /// In en, this message translates to:
+  /// **'Lightness'**
+  String get settingsColorInputLightness;
+
+  /// Keyboard hint below exact color channel inputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Use ↑↓ to nudge · Hold Shift for 10'**
+  String get settingsColorInputNudgeHint;
+
+  /// Label for the red RGB channel input.
+  ///
+  /// In en, this message translates to:
+  /// **'Red'**
+  String get settingsColorInputRed;
+
+  /// Label for RGB color-value input mode.
+  ///
+  /// In en, this message translates to:
+  /// **'RGB'**
+  String get settingsColorInputRgb;
+
+  /// Validation error for out-of-range RGB color values.
+  ///
+  /// In en, this message translates to:
+  /// **'Use RGB values from 0 to 255.'**
+  String get settingsColorInputRgbError;
+
+  /// Label for the HSL saturation input.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get settingsColorInputSaturation;
+
+  /// Heading for exact color-value input controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Color values'**
+  String get settingsColorInputTitle;
+
   /// Accessibility label for the icon button that closes the color picker.
   ///
   /// In en, this message translates to:
@@ -3378,96 +4919,6 @@ abstract class AppLocalizations {
   /// **'Choose visually or enter exact color values.'**
   String get settingsColorPickerInstructions;
 
-  /// Heading for exact color-value input controls.
-  ///
-  /// In en, this message translates to:
-  /// **'Color values'**
-  String get settingsColorInputTitle;
-
-  /// Label for RGB color-value input mode.
-  ///
-  /// In en, this message translates to:
-  /// **'RGB'**
-  String get settingsColorInputRgb;
-
-  /// Label for HSL color-value input mode.
-  ///
-  /// In en, this message translates to:
-  /// **'HSL'**
-  String get settingsColorInputHsl;
-
-  /// Label for hexadecimal color-value input mode.
-  ///
-  /// In en, this message translates to:
-  /// **'HEX'**
-  String get settingsColorInputHex;
-
-  /// Label for the red RGB channel input.
-  ///
-  /// In en, this message translates to:
-  /// **'Red'**
-  String get settingsColorInputRed;
-
-  /// Label for the green RGB channel input.
-  ///
-  /// In en, this message translates to:
-  /// **'Green'**
-  String get settingsColorInputGreen;
-
-  /// Label for the blue RGB channel input.
-  ///
-  /// In en, this message translates to:
-  /// **'Blue'**
-  String get settingsColorInputBlue;
-
-  /// Label for the HSL hue input.
-  ///
-  /// In en, this message translates to:
-  /// **'Hue'**
-  String get settingsColorInputHue;
-
-  /// Label for the HSL saturation input.
-  ///
-  /// In en, this message translates to:
-  /// **'Saturation'**
-  String get settingsColorInputSaturation;
-
-  /// Label for the HSL lightness input.
-  ///
-  /// In en, this message translates to:
-  /// **'Lightness'**
-  String get settingsColorInputLightness;
-
-  /// Label for the exact hexadecimal color input.
-  ///
-  /// In en, this message translates to:
-  /// **'Hex color'**
-  String get settingsColorInputHexValue;
-
-  /// Keyboard hint below exact color channel inputs.
-  ///
-  /// In en, this message translates to:
-  /// **'Use ↑↓ to nudge · Hold Shift for 10'**
-  String get settingsColorInputNudgeHint;
-
-  /// Validation error for out-of-range RGB color values.
-  ///
-  /// In en, this message translates to:
-  /// **'Use RGB values from 0 to 255.'**
-  String get settingsColorInputRgbError;
-
-  /// Validation error for out-of-range HSL color values.
-  ///
-  /// In en, this message translates to:
-  /// **'Use H 0–360 and S/L 0–100.'**
-  String get settingsColorInputHslError;
-
-  /// Validation error for an invalid hexadecimal color value.
-  ///
-  /// In en, this message translates to:
-  /// **'Use 3 or 6 hex digits.'**
-  String get settingsColorInputHexError;
-
   /// Button label that restores the default border color.
   ///
   /// In en, this message translates to:
@@ -3485,6 +4936,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Accent color'**
   String get settingsColorPickerTitle;
+
+  /// Dark colour-scheme choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get settingsColorSchemeDark;
+
+  /// Explanation for an explicit dark or light desktop preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the same colour scheme across Denial and supported applications.'**
+  String get settingsColorSchemeDescription;
+
+  /// Light colour-scheme choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get settingsColorSchemeLight;
+
+  /// Choice that lets applications select their own colour scheme.
+  ///
+  /// In en, this message translates to:
+  /// **'No preference'**
+  String get settingsColorSchemeNoPreference;
+
+  /// Explanation of the no-preference state and Denial's concrete fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial keeps its default dark appearance while applications choose their own.'**
+  String get settingsColorSchemeNoPreferenceDescription;
+
+  /// Title for the desktop-wide colour-scheme preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Colour scheme'**
+  String get settingsColorSchemeTitle;
 
   /// Accessibility value announced when increasing the color wheel.
   ///
@@ -3528,53 +5015,11 @@ abstract class AppLocalizations {
   /// **'Connected displays'**
   String get settingsConnectedDisplaysTitle;
 
-  /// Label for the physical cursor-size slider.
+  /// Slider label for the global shell corner-radius scale.
   ///
   /// In en, this message translates to:
-  /// **'Cursor size'**
-  String get settingsCursorSize;
-
-  /// Heading for cursor appearance settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Cursor'**
-  String get settingsCursorTitle;
-
-  /// Heading above the cursor theme selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Cursor theme'**
-  String get settingsCursorTheme;
-
-  /// Button for importing an animated Windows cursor archive.
-  ///
-  /// In en, this message translates to:
-  /// **'Import cursor ZIP'**
-  String get settingsCursorImport;
-
-  /// Busy label while a cursor archive is being imported.
-  ///
-  /// In en, this message translates to:
-  /// **'Importing…'**
-  String get settingsCursorImporting;
-
-  /// Generic cursor import failure message.
-  ///
-  /// In en, this message translates to:
-  /// **'The cursor theme could not be imported.'**
-  String get settingsCursorImportFailed;
-
-  /// Tooltip for removing an imported cursor theme.
-  ///
-  /// In en, this message translates to:
-  /// **'Remove imported cursor theme'**
-  String get settingsCursorRemove;
-
-  /// Generic cursor removal failure message.
-  ///
-  /// In en, this message translates to:
-  /// **'The imported cursor theme could not be removed.'**
-  String get settingsCursorRemoveFailed;
+  /// **'Corner roundness'**
+  String get settingsCornerRoundness;
 
   /// Toggle label for client-defined cursor surfaces.
   ///
@@ -3588,6 +5033,54 @@ abstract class AppLocalizations {
   /// **'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.'**
   String get settingsCursorAllowApplicationsDescription;
 
+  /// Button for importing an animated Windows cursor archive.
+  ///
+  /// In en, this message translates to:
+  /// **'Import cursor ZIP'**
+  String get settingsCursorImport;
+
+  /// Generic cursor import failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The cursor theme could not be imported.'**
+  String get settingsCursorImportFailed;
+
+  /// Busy label while a cursor archive is being imported.
+  ///
+  /// In en, this message translates to:
+  /// **'Importing…'**
+  String get settingsCursorImporting;
+
+  /// Tooltip for removing an imported cursor theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove imported cursor theme'**
+  String get settingsCursorRemove;
+
+  /// Generic cursor removal failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The imported cursor theme could not be removed.'**
+  String get settingsCursorRemoveFailed;
+
+  /// Label for the physical cursor-size slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor size'**
+  String get settingsCursorSize;
+
+  /// Heading above the cursor theme selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor theme'**
+  String get settingsCursorTheme;
+
+  /// Heading for cursor appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor'**
+  String get settingsCursorTitle;
+
   /// English UI text for settingsDashboardOverlayDescription.
   ///
   /// In en, this message translates to:
@@ -3599,1559 +5092,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dashboard'**
   String get settingsDashboardOverlayTitle;
-
-  /// English UI text for settingsDisconnect.
-  ///
-  /// In en, this message translates to:
-  /// **'Disconnect'**
-  String get settingsDisconnect;
-
-  /// Busy label shown while a display configuration is being applied.
-  ///
-  /// In en, this message translates to:
-  /// **'Applying…'**
-  String get settingsApplying;
-
-  /// Button label that applies the edited monitor configuration.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply changes'**
-  String get settingsApplyDisplayConfiguration;
-
-  /// Explains that display changes will be persisted.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep changes to update this session and outputs.conf.'**
-  String get settingsDisplayApplyPersistentHint;
-
-  /// Explains that display changes cannot be persisted.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep changes to use them for this session.'**
-  String get settingsDisplayApplySessionHint;
-
-  /// Title of the timed display configuration confirmation dialog.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep these display settings?'**
-  String get settingsDisplayConfirmationTitle;
-
-  /// Countdown shown before an unconfirmed display configuration is rolled back.
-  ///
-  /// In en, this message translates to:
-  /// **'The previous display settings will be restored automatically in {seconds} s.'**
-  String settingsDisplayConfirmationMessage(int seconds);
-
-  /// Button that confirms a newly applied display configuration.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep changes'**
-  String get settingsDisplayKeepChanges;
-
-  /// Button that immediately restores the previous display configuration.
-  ///
-  /// In en, this message translates to:
-  /// **'Revert now'**
-  String get settingsDisplayRevertNow;
-
-  /// Accessibility label for the draggable monitor arrangement.
-  ///
-  /// In en, this message translates to:
-  /// **'Monitor arrangement editor'**
-  String get settingsDisplayArrangementSemantics;
-
-  /// Instruction shown above the pannable monitor arrangement canvas.
-  ///
-  /// In en, this message translates to:
-  /// **'Drag empty space to move the canvas. Use the mouse wheel to zoom.'**
-  String get settingsDisplayCanvasPanHint;
-
-  /// Accessibility label for the draggable background of the monitor arrangement.
-  ///
-  /// In en, this message translates to:
-  /// **'Pannable monitor canvas'**
-  String get settingsDisplayCanvasPanSemantics;
-
-  /// Heading for output modes, scale, rotation, and arrangement.
-  ///
-  /// In en, this message translates to:
-  /// **'Monitor configuration'**
-  String get settingsDisplayArrangementTitle;
-
-  /// Label for including a connected monitor in the desktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Use this display'**
-  String get settingsDisplayEnabled;
-
-  /// Explanation shown below the monitor enable toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Include this monitor in the desktop. At least one display must remain enabled.'**
-  String get settingsDisplayEnabledDescription;
-
-  /// English UI text for settingsDisplayBrightnessDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust the main display brightness.'**
-  String get settingsDisplayBrightnessDescription;
-
-  /// English UI text for settingsDisplayBrightnessTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Brightness'**
-  String get settingsDisplayBrightnessTitle;
-
-  /// English UI text for settingsDisplayDetails.
-  ///
-  /// In en, this message translates to:
-  /// **'{width} × {height} · {refreshRate} Hz · {scale}×'**
-  String settingsDisplayDetails(
-    int width,
-    int height,
-    String refreshRate,
-    String scale,
-  );
-
-  /// English UI text for settingsDisplayInformationUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Display information is unavailable.'**
-  String get settingsDisplayInformationUnavailable;
-
-  /// English UI text for settingsDisplaysDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Review connected outputs and control screen brightness.'**
-  String get settingsDisplaysDescription;
-
-  /// English UI text for settingsDisplaysSection.
-  ///
-  /// In en, this message translates to:
-  /// **'Displays & video'**
-  String get settingsDisplaysSection;
-
-  /// English UI text for settingsDisplaysTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Displays and video.'**
-  String get settingsDisplaysTitle;
-
-  /// Logical position of one monitor in the desktop layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Position {x}, {y}'**
-  String settingsDisplayPosition(int x, int y);
-
-  /// Label for choosing the output that owns primary shell experiences.
-  ///
-  /// In en, this message translates to:
-  /// **'Primary display'**
-  String get settingsDisplayPrimary;
-
-  /// Choice that lets the compositor select the primary display by refresh rate.
-  ///
-  /// In en, this message translates to:
-  /// **'Automatic (highest refresh rate)'**
-  String get settingsDisplayPrimaryAutomatic;
-
-  /// Explains the primary display selector and its automatic fallback.
-  ///
-  /// In en, this message translates to:
-  /// **'Shell surfaces open on the primary display. Automatic uses the enabled display with the highest refresh rate.'**
-  String get settingsDisplayPrimaryHint;
-
-  /// Label for the monitor refresh-rate selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Refresh rate'**
-  String get settingsDisplayRefreshRate;
-
-  /// Label for the monitor resolution selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Resolution'**
-  String get settingsDisplayResolution;
-
-  /// Label for the monitor rotation selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Rotation'**
-  String get settingsDisplayRotation;
-
-  /// Label for an unrotated monitor.
-  ///
-  /// In en, this message translates to:
-  /// **'Landscape'**
-  String get settingsDisplayRotationNormal;
-
-  /// Label for a monitor rotated by 90 degrees.
-  ///
-  /// In en, this message translates to:
-  /// **'90° counterclockwise'**
-  String get settingsDisplayRotation90;
-
-  /// Label for a monitor rotated by 180 degrees.
-  ///
-  /// In en, this message translates to:
-  /// **'Upside down'**
-  String get settingsDisplayRotation180;
-
-  /// Label for a monitor rotated by 270 degrees.
-  ///
-  /// In en, this message translates to:
-  /// **'90° clockwise'**
-  String get settingsDisplayRotation270;
-
-  /// Label for choosing the scrolling window layout axis on one monitor.
-  ///
-  /// In en, this message translates to:
-  /// **'Scrolling layout axis'**
-  String get settingsDisplayScrollingLayoutAxis;
-
-  /// Explanation shown beside the per-monitor scrolling layout axis selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose how scrolling windows are arranged on this display.'**
-  String get settingsDisplayScrollingLayoutAxisDescription;
-
-  /// Choice that derives the scrolling layout axis from the monitor rotation.
-  ///
-  /// In en, this message translates to:
-  /// **'Automatic (follows rotation)'**
-  String get settingsDisplayScrollingLayoutAxisAuto;
-
-  /// Choice that forces a horizontal scrolling window strip.
-  ///
-  /// In en, this message translates to:
-  /// **'Horizontal'**
-  String get settingsDisplayScrollingLayoutAxisHorizontal;
-
-  /// Choice that forces a vertical scrolling window strip.
-  ///
-  /// In en, this message translates to:
-  /// **'Vertical'**
-  String get settingsDisplayScrollingLayoutAxisVertical;
-
-  /// Label for the monitor scale selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Scale'**
-  String get settingsDisplayScale;
-
-  /// Validation error for a monitor scale outside the editable percentage range.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a value from 50 to 600.'**
-  String get settingsDisplayScaleInvalid;
-
-  /// Label for the common monitor scale preset selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Presets'**
-  String get settingsDisplayScalePreset;
-
-  /// Guidance shown below the editable monitor scale percentage.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.'**
-  String get settingsDisplayScaleRange;
-
-  /// Label for enabling variable refresh rate on a supported monitor.
-  ///
-  /// In en, this message translates to:
-  /// **'Variable refresh rate (VRR)'**
-  String get settingsDisplayVariableRefreshRate;
-
-  /// Explanation shown below the variable refresh rate toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Match the monitor refresh rate to rendered content.'**
-  String get settingsDisplayVariableRefreshRateDescription;
-
-  /// Tooltip for fitting the complete monitor layout in the canvas.
-  ///
-  /// In en, this message translates to:
-  /// **'Fit all monitors'**
-  String get settingsDisplayZoomFit;
-
-  /// Tooltip for increasing monitor canvas zoom.
-  ///
-  /// In en, this message translates to:
-  /// **'Zoom in'**
-  String get settingsDisplayZoomIn;
-
-  /// Accessibility label for the current monitor canvas zoom.
-  ///
-  /// In en, this message translates to:
-  /// **'Canvas zoom {percent}%'**
-  String settingsDisplayZoomLevel(int percent);
-
-  /// Tooltip for decreasing monitor canvas zoom.
-  ///
-  /// In en, this message translates to:
-  /// **'Zoom out'**
-  String get settingsDisplayZoomOut;
-
-  /// Loading notice on the monitor settings page.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading monitor configuration…'**
-  String get settingsLoadingDisplays;
-
-  /// Accessibility hint for a draggable monitor tile.
-  ///
-  /// In en, this message translates to:
-  /// **'Drag to arrange, or use the arrow keys to move.'**
-  String get settingsMonitorDragHint;
-
-  /// Accessibility label for one monitor tile.
-  ///
-  /// In en, this message translates to:
-  /// **'Monitor {name}'**
-  String settingsMonitorSemantics(String name);
-
-  /// English UI text for settingsEdgeDistance.
-  ///
-  /// In en, this message translates to:
-  /// **'Edge distance'**
-  String get settingsEdgeDistance;
-
-  /// English UI text for settingsFocusedWindows.
-  ///
-  /// In en, this message translates to:
-  /// **'Focused windows'**
-  String get settingsFocusedWindows;
-
-  /// Description shown while the shell font catalog is loading.
-  ///
-  /// In en, this message translates to:
-  /// **'Finding installed fonts…'**
-  String get settingsFontCatalogLoading;
-
-  /// Explanation for the shell font family selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Use the system default or an installed font across the Denial shell.'**
-  String get settingsFontDescription;
-
-  /// Label for the shell font family selector.
-  ///
-  /// In en, this message translates to:
-  /// **'Font family'**
-  String get settingsFontFamily;
-
-  /// Option that restores the platform's default font family.
-  ///
-  /// In en, this message translates to:
-  /// **'System default'**
-  String get settingsFontSystemDefault;
-
-  /// Toggle label for changing the focused window border to the accent colour.
-  ///
-  /// In en, this message translates to:
-  /// **'Highlight the focused window border'**
-  String get settingsFocusedWindowBorder;
-
-  /// Explanation of the focused-window border highlight toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Turn this off to keep focused and unfocused window borders the same colour.'**
-  String get settingsFocusedWindowBorderDescription;
-
-  /// Compact product and section context shown in the Settings header.
-  ///
-  /// In en, this message translates to:
-  /// **'DENIAL / SYSTEM'**
-  String get settingsHeaderContext;
-
-  /// Accessibility label for the Denial wordmark in the Settings header.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial'**
-  String get settingsHeaderLogoSemanticsLabel;
-
-  /// English UI text for settingsHeight.
-  ///
-  /// In en, this message translates to:
-  /// **'Height'**
-  String get settingsHeight;
-
-  /// Per-panel toggle label for a pointer hover trigger at the output edge.
-  ///
-  /// In en, this message translates to:
-  /// **'Open on edge hover'**
-  String get settingsHoverTrigger;
-
-  /// Explanation for a panel's hover-trigger preference.
-  ///
-  /// In en, this message translates to:
-  /// **'Reveal this panel when the pointer reaches its screen edge.'**
-  String get settingsHoverTriggerDescription;
-
-  /// English UI text for settingsHudOverlayDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Position volume and brightness feedback.'**
-  String get settingsHudOverlayDescription;
-
-  /// English UI text for settingsHudOverlayTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'System level display'**
-  String get settingsHudOverlayTitle;
-
-  /// Label for the automatic display power-off timeout.
-  ///
-  /// In en, this message translates to:
-  /// **'Turn displays off after'**
-  String get settingsDisplayOffTimeout;
-
-  /// English UI text for settingsIdleInhibitDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Application activity such as video playback can temporarily pause these timers.'**
-  String get settingsIdleInhibitDescription;
-
-  /// English UI text for settingsIdleInhibitSemantics.
-  ///
-  /// In en, this message translates to:
-  /// **'Applications may pause automatic idle actions'**
-  String get settingsIdleInhibitSemantics;
-
-  /// English UI text for settingsInactivityTimeout.
-  ///
-  /// In en, this message translates to:
-  /// **'Inactivity timeout'**
-  String get settingsInactivityTimeout;
-
-  /// Label for the automatic lock timeout.
-  ///
-  /// In en, this message translates to:
-  /// **'Lock after'**
-  String get settingsLockTimeout;
-
-  /// English UI text for settingsLauncherOverlayDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Position the application launcher.'**
-  String get settingsLauncherOverlayDescription;
-
-  /// English UI text for settingsLauncherOverlayTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Applications'**
-  String get settingsLauncherOverlayTitle;
-
-  /// Explanation shown beside the Settings language selector.
-  ///
-  /// In en, this message translates to:
-  /// **'System default follows your desktop language. Changes apply immediately.'**
-  String get settingsLanguageDescription;
-
-  /// Self-name for the English language option.
-  ///
-  /// In en, this message translates to:
-  /// **'English'**
-  String get settingsLanguageEnglish;
-
-  /// Heading for the interface language setting.
-  ///
-  /// In en, this message translates to:
-  /// **'Interface language'**
-  String get settingsLanguageInterfaceTitle;
-
-  /// Eyebrow label for the Settings language page.
-  ///
-  /// In en, this message translates to:
-  /// **'Language'**
-  String get settingsLanguageSection;
-
-  /// Accessibility label for the interface language choices.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial interface language'**
-  String get settingsLanguageSelectorSemantics;
-
-  /// Self-name for the Simplified Chinese language option.
-  ///
-  /// In en, this message translates to:
-  /// **'简体中文'**
-  String get settingsLanguageSimplifiedChinese;
-
-  /// Language option that follows the operating system locale.
-  ///
-  /// In en, this message translates to:
-  /// **'System default'**
-  String get settingsLanguageSystemDefault;
-
-  /// Title text for the Settings language page.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose the language Denial uses.'**
-  String get settingsLanguageTitle;
-
-  /// Section eyebrow for physical keyboard settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Input'**
-  String get settingsKeyboardSection;
-
-  /// Physical keyboard settings page description.
-  ///
-  /// In en, this message translates to:
-  /// **'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.'**
-  String get settingsKeyboardTitle;
-
-  /// Title for configured XKB layouts.
-  ///
-  /// In en, this message translates to:
-  /// **'Layouts and variants'**
-  String get settingsKeyboardLayoutsTitle;
-
-  /// Help for XKB layout and variant syntax.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.'**
-  String get settingsKeyboardLayoutsDescription;
-
-  /// Label for the XKB layouts field.
-  ///
-  /// In en, this message translates to:
-  /// **'Layouts'**
-  String get settingsKeyboardLayoutsLabel;
-
-  /// Example XKB layouts.
-  ///
-  /// In en, this message translates to:
-  /// **'us, de:nodeadkeys'**
-  String get settingsKeyboardLayoutsHint;
-
-  /// Label for XKB options.
-  ///
-  /// In en, this message translates to:
-  /// **'XKB options'**
-  String get settingsKeyboardOptionsLabel;
-
-  /// Example XKB options.
-  ///
-  /// In en, this message translates to:
-  /// **'compose:menu, caps:escape'**
-  String get settingsKeyboardOptionsHint;
-
-  /// Help for the XKB options field.
-  ///
-  /// In en, this message translates to:
-  /// **'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.'**
-  String get settingsKeyboardOptionsDescription;
-
-  /// Title for keyboard repeat settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Key repeat'**
-  String get settingsKeyboardRepeatTitle;
-
-  /// Keyboard repeat delay label.
-  ///
-  /// In en, this message translates to:
-  /// **'Delay'**
-  String get settingsKeyboardRepeatDelay;
-
-  /// Keyboard repeat rate label.
-  ///
-  /// In en, this message translates to:
-  /// **'Rate'**
-  String get settingsKeyboardRepeatRate;
-
-  /// Title for keyboard layout switching status.
-  ///
-  /// In en, this message translates to:
-  /// **'Layout switching'**
-  String get settingsKeyboardSwitchingTitle;
-
-  /// Label for the active keyboard layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Active layout'**
-  String get settingsKeyboardActiveLayout;
-
-  /// Description of Denial's physical layout switching shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Super+Space selects the next layout. Add Shift to select the previous one.'**
-  String get settingsKeyboardSwitchingShortcut;
-
-  /// Button label for applying keyboard settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply keyboard settings'**
-  String get settingsKeyboardApply;
-
-  /// Busy label while keyboard settings are applied.
-  ///
-  /// In en, this message translates to:
-  /// **'Applying…'**
-  String get settingsKeyboardApplying;
-
-  /// Loading label for keyboard settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Reading the compositor keyboard configuration…'**
-  String get settingsKeyboardLoading;
-
-  /// Validation error for the keyboard layouts field.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter at least one valid XKB layout.'**
-  String get settingsKeyboardInvalidLayouts;
-
-  /// Eyebrow label for mouse and touchpad settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Input'**
-  String get settingsTouchpadSection;
-
-  /// Description of the mouse and touchpad settings page.
-  ///
-  /// In en, this message translates to:
-  /// **'Tune mouse and touchpad behavior.'**
-  String get settingsTouchpadTitle;
-
-  /// Label for the touchpad tap-to-click toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Tap to click'**
-  String get settingsTouchpadTapToClick;
-
-  /// Description of the touchpad tap-to-click toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Tap the touchpad to press the primary mouse button.'**
-  String get settingsTouchpadTapToClickDescription;
-
-  /// Label for the touchpad natural scrolling toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Reverse two-finger scrolling'**
-  String get settingsTouchpadNaturalScroll;
-
-  /// Description of the touchpad natural scrolling toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Move content in the same direction as your fingers.'**
-  String get settingsTouchpadNaturalScrollDescription;
-
-  /// Label for the continuous touchpad scroll speed slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Finger scroll speed'**
-  String get settingsTouchpadScrollSpeed;
-
-  /// Label for the continuous three-finger scrolling-layout swipe speed slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Scrolling layout swipe speed'**
-  String get settingsTouchpadScrollingLayoutSwipeSpeed;
-
-  /// Label for the mouse pointer speed slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Mouse pointer speed'**
-  String get settingsMousePointerSpeed;
-
-  /// Label for the mouse pointer acceleration toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Mouse acceleration'**
-  String get settingsMouseAcceleration;
-
-  /// Description of the mouse pointer acceleration toggle.
-  ///
-  /// In en, this message translates to:
-  /// **'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.'**
-  String get settingsMouseAccelerationDescription;
-
-  /// Eyebrow label for the configured shortcuts page.
-  ///
-  /// In en, this message translates to:
-  /// **'Shortcuts'**
-  String get settingsShortcutsSection;
-
-  /// Description of the configured shortcuts page.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose what Denial does when a shortcut is pressed.'**
-  String get settingsShortcutsTitle;
-
-  /// Number of shortcuts currently configured.
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =0 {No shortcuts} =1 {1 shortcut} other {{count} shortcuts}}'**
-  String settingsShortcutsConfigured(int count);
-
-  /// Button label for adding a shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Add shortcut'**
-  String get settingsShortcutsAdd;
-
-  /// Loading message for the configured shortcut list.
-  ///
-  /// In en, this message translates to:
-  /// **'Reading shortcuts from the compositor…'**
-  String get settingsShortcutsLoading;
-
-  /// Message shown when configured shortcuts cannot be loaded.
-  ///
-  /// In en, this message translates to:
-  /// **'The compositor shortcut configuration is unavailable.'**
-  String get settingsShortcutsUnavailable;
-
-  /// Button label for retrying a shortcut configuration read.
-  ///
-  /// In en, this message translates to:
-  /// **'Retry'**
-  String get settingsShortcutsRetry;
-
-  /// Empty state message for the configured shortcut list.
-  ///
-  /// In en, this message translates to:
-  /// **'No shortcuts are configured. Add one to make an action easier to reach.'**
-  String get settingsShortcutsEmpty;
-
-  /// Accessibility summary for a configured shortcut row.
-  ///
-  /// In en, this message translates to:
-  /// **'{shortcut}, {action}'**
-  String settingsShortcutsRowSemantics(String shortcut, String action);
-
-  /// Tooltip for deleting a configured shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete {shortcut}'**
-  String settingsShortcutsDeleteTooltip(String shortcut);
-
-  /// Title of the shortcut editor when adding a binding.
-  ///
-  /// In en, this message translates to:
-  /// **'Add shortcut'**
-  String get settingsShortcutEditorAddTitle;
-
-  /// Title of the shortcut editor when editing a binding.
-  ///
-  /// In en, this message translates to:
-  /// **'Edit shortcut'**
-  String get settingsShortcutEditorEditTitle;
-
-  /// Introductory text in the shortcut editor.
-  ///
-  /// In en, this message translates to:
-  /// **'Write a shortcut, choose what it runs, and let the compositor check it before saving.'**
-  String get settingsShortcutEditorDescription;
-
-  /// Label for the shortcut expression field.
-  ///
-  /// In en, this message translates to:
-  /// **'Shortcut'**
-  String get settingsShortcutEditorShortcutLabel;
-
-  /// Example shown in an empty shortcut expression field.
-  ///
-  /// In en, this message translates to:
-  /// **'Super+K'**
-  String get settingsShortcutEditorShortcutHint;
-
-  /// Persistent examples of accepted shortcut expression formats.
-  ///
-  /// In en, this message translates to:
-  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft'**
-  String get settingsShortcutEditorShortcutExample;
-
-  /// Button and catalog title for supported shortcut inputs.
-  ///
-  /// In en, this message translates to:
-  /// **'Supported inputs'**
-  String get settingsShortcutEditorSupportedInputs;
-
-  /// Label for choosing what a shortcut runs.
-  ///
-  /// In en, this message translates to:
-  /// **'Runs'**
-  String get settingsShortcutEditorTargetLabel;
-
-  /// Shortcut target option for a built-in Denial action.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial action'**
-  String get settingsShortcutEditorTargetAction;
-
-  /// Shortcut target option for a desktop application with a stable desktop-file identity.
-  ///
-  /// In en, this message translates to:
-  /// **'Application'**
-  String get settingsShortcutEditorTargetApplication;
-
-  /// Shortcut target option for directly spawning a program.
-  ///
-  /// In en, this message translates to:
-  /// **'Program'**
-  String get settingsShortcutEditorTargetProgram;
-
-  /// Shortcut target option for a command run through sh.
-  ///
-  /// In en, this message translates to:
-  /// **'Shell command'**
-  String get settingsShortcutEditorTargetShell;
-
-  /// Explanation of direct Niri-style program execution.
-  ///
-  /// In en, this message translates to:
-  /// **'Run a program directly, without a shell. Every argument is passed exactly as written.'**
-  String get settingsShortcutEditorProgramDescription;
-
-  /// Label for the directly executed program.
-  ///
-  /// In en, this message translates to:
-  /// **'Program'**
-  String get settingsShortcutEditorProgramLabel;
-
-  /// Example executable in the direct program field.
-  ///
-  /// In en, this message translates to:
-  /// **'foot'**
-  String get settingsShortcutEditorProgramHint;
-
-  /// Label above a direct program's argument list.
-  ///
-  /// In en, this message translates to:
-  /// **'Arguments'**
-  String get settingsShortcutEditorArgumentsLabel;
-
-  /// Button for appending one direct program argument.
-  ///
-  /// In en, this message translates to:
-  /// **'Add argument'**
-  String get settingsShortcutEditorAddArgument;
-
-  /// Empty state for a direct program's argument list.
-  ///
-  /// In en, this message translates to:
-  /// **'No arguments'**
-  String get settingsShortcutEditorNoArguments;
-
-  /// Label for one direct program argument.
-  ///
-  /// In en, this message translates to:
-  /// **'Argument {index}'**
-  String settingsShortcutEditorArgumentLabel(int index);
-
-  /// Example direct program argument.
-  ///
-  /// In en, this message translates to:
-  /// **'--option'**
-  String get settingsShortcutEditorArgumentHint;
-
-  /// Tooltip for removing one direct program argument.
-  ///
-  /// In en, this message translates to:
-  /// **'Remove argument {index}'**
-  String settingsShortcutEditorRemoveArgument(int index);
-
-  /// Explanation of Niri-style shell command execution.
-  ///
-  /// In en, this message translates to:
-  /// **'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.'**
-  String get settingsShortcutEditorShellDescription;
-
-  /// Label for the shell command field.
-  ///
-  /// In en, this message translates to:
-  /// **'Shell command'**
-  String get settingsShortcutEditorShellCommandLabel;
-
-  /// Example shell command.
-  ///
-  /// In en, this message translates to:
-  /// **'grim -g \"\$(slurp)\" ~/Pictures/capture.png'**
-  String get settingsShortcutEditorShellCommandHint;
-
-  /// Title of the shortcut action catalog.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose an action'**
-  String get settingsShortcutEditorChooseAction;
-
-  /// Title and empty selection label for the shortcut application catalog.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose an application'**
-  String get settingsShortcutEditorChooseApplication;
-
-  /// Configured shortcut target carrying a standard desktop-file identity.
-  ///
-  /// In en, this message translates to:
-  /// **'Application · {desktopFileId}'**
-  String settingsShortcutApplicationTarget(String desktopFileId);
-
-  /// Status shown while Rust validates a shortcut draft.
-  ///
-  /// In en, this message translates to:
-  /// **'Checking with the compositor…'**
-  String get settingsShortcutEditorValidating;
-
-  /// Status shown for a valid canonical shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Recognized as {shortcut}'**
-  String settingsShortcutEditorValid(String shortcut);
-
-  /// Conflict reported by the native shortcut validator.
-  ///
-  /// In en, this message translates to:
-  /// **'{shortcut} is already assigned to {action}.'**
-  String settingsShortcutEditorConflict(String shortcut, String action);
-
-  /// Hint for shortcut editor catalog searches.
-  ///
-  /// In en, this message translates to:
-  /// **'Search'**
-  String get settingsShortcutEditorSearch;
-
-  /// Empty result message for shortcut editor catalogs.
-  ///
-  /// In en, this message translates to:
-  /// **'No matching entries.'**
-  String get settingsShortcutEditorNoResults;
-
-  /// Tooltip for returning from a shortcut catalog.
-  ///
-  /// In en, this message translates to:
-  /// **'Back to shortcut editor'**
-  String get settingsShortcutEditorBack;
-
-  /// Button label for closing the supported input catalog.
-  ///
-  /// In en, this message translates to:
-  /// **'Done'**
-  String get settingsShortcutEditorDone;
-
-  /// Button label for closing the shortcut editor.
-  ///
-  /// In en, this message translates to:
-  /// **'Cancel'**
-  String get settingsShortcutEditorCancel;
-
-  /// Button label for saving a shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Save'**
-  String get settingsShortcutEditorSave;
-
-  /// Button label while a shortcut mutation is running.
-  ///
-  /// In en, this message translates to:
-  /// **'Saving…'**
-  String get settingsShortcutEditorSaving;
-
-  /// Button label for deleting the shortcut being edited.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete'**
-  String get settingsShortcutEditorDelete;
-
-  /// Friendly display name for the three-finger swipe-up gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Three-finger swipe up'**
-  String get settingsShortcutGestureThreeFingerSwipeUp;
-
-  /// Friendly display name for the three-finger swipe-left gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Three-finger swipe left'**
-  String get settingsShortcutGestureThreeFingerSwipeLeft;
-
-  /// Friendly display name for the three-finger swipe-right gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Three-finger swipe right'**
-  String get settingsShortcutGestureThreeFingerSwipeRight;
-
-  /// Friendly display name for the four-finger swipe-left gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Four-finger swipe left'**
-  String get settingsShortcutGestureFourFingerSwipeLeft;
-
-  /// Friendly display name for the four-finger swipe-right gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Four-finger swipe right'**
-  String get settingsShortcutGestureFourFingerSwipeRight;
-
-  /// Friendly display name for the four-finger swipe-up gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Four-finger swipe up'**
-  String get settingsShortcutGestureFourFingerSwipeUp;
-
-  /// Friendly display name for the four-finger swipe-down gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Four-finger swipe down'**
-  String get settingsShortcutGestureFourFingerSwipeDown;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Modifier'**
-  String get settingsShortcutInputCategoryModifier;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Navigation'**
-  String get settingsShortcutInputCategoryNavigation;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Editing'**
-  String get settingsShortcutInputCategoryEditing;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Punctuation'**
-  String get settingsShortcutInputCategoryPunctuation;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Function'**
-  String get settingsShortcutInputCategoryFunction;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Media'**
-  String get settingsShortcutInputCategoryMedia;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Hardware'**
-  String get settingsShortcutInputCategoryHardware;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Special'**
-  String get settingsShortcutInputCategorySpecial;
-
-  /// Supported shortcut input category.
-  ///
-  /// In en, this message translates to:
-  /// **'Gesture'**
-  String get settingsShortcutInputCategoryGesture;
-
-  /// Display name for the shutdown shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Shut down'**
-  String get settingsShortcutActionShutdown;
-
-  /// Display name for the open applications shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Open applications'**
-  String get settingsShortcutActionOpenApplications;
-
-  /// Display name for the open dashboard shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Open dashboard'**
-  String get settingsShortcutActionOpenDashboard;
-
-  /// Display name for the open Settings shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Open Settings'**
-  String get settingsShortcutActionOpenSettings;
-
-  /// Display name for the open overview shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Open overview'**
-  String get settingsShortcutActionOpenOverview;
-
-  /// Display name for the vertical maximize shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Maximize vertically'**
-  String get settingsShortcutActionToggleVerticalMaximize;
-
-  /// Display name for the window switcher shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Switch windows'**
-  String get settingsShortcutActionWindowSwitcher;
-
-  /// Display name for the clipboard shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Open clipboard'**
-  String get settingsShortcutActionOpenClipboard;
-
-  /// Display name for the region capture shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Capture region'**
-  String get settingsShortcutActionCaptureRegion;
-
-  /// Display name for the close window shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Close window'**
-  String get settingsShortcutActionCloseWindow;
-
-  /// Display name for the minimize window shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Minimize window'**
-  String get settingsShortcutActionMinimizeWindow;
-
-  /// Display name for the minimize all windows shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Minimize all windows'**
-  String get settingsShortcutActionMinimizeAllWindows;
-
-  /// Display name for the toggle maximize shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Maximize or restore'**
-  String get settingsShortcutActionToggleMaximize;
-
-  /// Display name for the toggle fullscreen shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter or leave fullscreen'**
-  String get settingsShortcutActionToggleFullscreen;
-
-  /// Display name for the shortcut action that pins or unpins the focused window above other windows.
-  ///
-  /// In en, this message translates to:
-  /// **'Toggle always on top'**
-  String get settingsShortcutActionToggleWindowAlwaysOnTop;
-
-  /// Display name for the release pointer shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Release pointer'**
-  String get settingsShortcutActionReleasePointer;
-
-  /// Display name for the lock screen shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Lock screen'**
-  String get settingsShortcutActionLockScreen;
-
-  /// Display name for the volume up shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Increase volume'**
-  String get settingsShortcutActionVolumeUp;
-
-  /// Display name for the volume down shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Decrease volume'**
-  String get settingsShortcutActionVolumeDown;
-
-  /// Display name for the volume mute shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Mute or unmute'**
-  String get settingsShortcutActionVolumeMute;
-
-  /// Display name for the brightness up shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Increase brightness'**
-  String get settingsShortcutActionBrightnessUp;
-
-  /// Display name for the brightness down shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Decrease brightness'**
-  String get settingsShortcutActionBrightnessDown;
-
-  /// Display name for the next keyboard layout shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Next keyboard layout'**
-  String get settingsShortcutActionNextKeyboardLayout;
-
-  /// Display name for the previous keyboard layout shortcut action.
-  ///
-  /// In en, this message translates to:
-  /// **'Previous keyboard layout'**
-  String get settingsShortcutActionPreviousKeyboardLayout;
-
-  /// Display name for focusing the tiled window to the left.
-  ///
-  /// In en, this message translates to:
-  /// **'Focus window left'**
-  String get settingsShortcutActionFocusLeft;
-
-  /// Display name for focusing the tiled window to the right.
-  ///
-  /// In en, this message translates to:
-  /// **'Focus window right'**
-  String get settingsShortcutActionFocusRight;
-
-  /// Display name for focusing the tiled window above.
-  ///
-  /// In en, this message translates to:
-  /// **'Focus window above'**
-  String get settingsShortcutActionFocusUp;
-
-  /// Display name for focusing the tiled window below.
-  ///
-  /// In en, this message translates to:
-  /// **'Focus window below'**
-  String get settingsShortcutActionFocusDown;
-
-  /// Display name for swapping a tiled window to the left.
-  ///
-  /// In en, this message translates to:
-  /// **'Swap window left'**
-  String get settingsShortcutActionSwapLeft;
-
-  /// Display name for swapping a tiled window to the right.
-  ///
-  /// In en, this message translates to:
-  /// **'Swap window right'**
-  String get settingsShortcutActionSwapRight;
-
-  /// Display name for swapping a tiled window upward.
-  ///
-  /// In en, this message translates to:
-  /// **'Swap window upward'**
-  String get settingsShortcutActionSwapUp;
-
-  /// Display name for swapping a tiled window downward.
-  ///
-  /// In en, this message translates to:
-  /// **'Swap window downward'**
-  String get settingsShortcutActionSwapDown;
-
-  /// Display name for switching to the previous monitor-local workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Previous workspace'**
-  String get settingsShortcutActionPreviousWorkspace;
-
-  /// Display name for switching to the next monitor-local workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Next workspace'**
-  String get settingsShortcutActionNextWorkspace;
-
-  /// Display name for moving the focused window to the previous workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Move window to previous workspace'**
-  String get settingsShortcutActionMoveToPreviousWorkspace;
-
-  /// Display name for moving the focused window to the next workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Move window to next workspace'**
-  String get settingsShortcutActionMoveToNextWorkspace;
-
-  /// Display name for switching directly to a numbered workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Switch to workspace {workspace}'**
-  String settingsShortcutActionSwitchWorkspace(int workspace);
-
-  /// Display name for moving the focused window to a numbered workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Move window to workspace {workspace}'**
-  String settingsShortcutActionMoveToWorkspace(int workspace);
-
-  /// English UI text for settingsLayoutDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Control the spacing reserved around ordinary and maximized windows.'**
-  String get settingsLayoutDescription;
-
-  /// English UI text for settingsLayoutSection.
-  ///
-  /// In en, this message translates to:
-  /// **'Desktop layout'**
-  String get settingsLayoutSection;
-
-  /// English UI text for settingsLayoutTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Give every window room to breathe.'**
-  String get settingsLayoutTitle;
-
-  /// Explains the available desktop window layouts.
-  ///
-  /// In en, this message translates to:
-  /// **'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip; its axis is configured per display and follows rotation by default.'**
-  String get settingsWindowLayoutDescription;
-
-  /// Label for the Dwindle tiling window layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Tiling'**
-  String get settingsWindowLayoutDwindle;
-
-  /// Label for the freely overlapping window layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Stacking'**
-  String get settingsWindowLayoutStacking;
-
-  /// Label for the focus-following adaptive-axis scrolling layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Scrolling'**
-  String get settingsWindowLayoutScrolling;
-
-  /// Title for choosing how desktop windows are arranged.
-  ///
-  /// In en, this message translates to:
-  /// **'Window layout'**
-  String get settingsWindowLayoutTitle;
-
-  /// Heading for mouse-wheel navigation in the scrolling window layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Super + mouse wheel'**
-  String get settingsScrollingLayoutWheelTitle;
-
-  /// Explains the scrolling-layout mouse-wheel shortcut.
-  ///
-  /// In en, this message translates to:
-  /// **'Hold Super and turn the mouse wheel to scroll the window strip.'**
-  String get settingsScrollingLayoutWheelDescription;
-
-  /// Label for the scrolling-layout mouse-wheel speed slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Wheel speed'**
-  String get settingsScrollingLayoutWheelSpeed;
-
-  /// Label for choosing the scrolling-layout direction of a wheel-up gesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Wheel up moves'**
-  String get settingsScrollingLayoutWheelUpDirection;
-
-  /// Choice that maps mouse-wheel up to leftward scrolling-layout travel.
-  ///
-  /// In en, this message translates to:
-  /// **'Left'**
-  String get settingsScrollingLayoutWheelUpLeft;
-
-  /// Choice that maps mouse-wheel up to rightward scrolling-layout travel.
-  ///
-  /// In en, this message translates to:
-  /// **'Right'**
-  String get settingsScrollingLayoutWheelUpRight;
-
-  /// Heading for monitor-local workspace settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Workspaces'**
-  String get settingsWorkspacesTitle;
-
-  /// Toggle which enables monitor-local workspaces.
-  ///
-  /// In en, this message translates to:
-  /// **'Enable workspaces'**
-  String get settingsWorkspacesEnable;
-
-  /// Explanation of Denial's monitor-local workspace model.
-  ///
-  /// In en, this message translates to:
-  /// **'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.'**
-  String get settingsWorkspacesDescription;
-
-  /// Label for the number of workspaces per monitor.
-  ///
-  /// In en, this message translates to:
-  /// **'Workspace count'**
-  String get settingsWorkspaceCount;
-
-  /// Label for choosing the direction of workspace transition motion.
-  ///
-  /// In en, this message translates to:
-  /// **'Switching direction'**
-  String get settingsWorkspaceSwitchingOrientation;
-
-  /// Label for horizontal workspace transition motion.
-  ///
-  /// In en, this message translates to:
-  /// **'Horizontal'**
-  String get settingsWorkspaceSwitchingHorizontal;
-
-  /// Label for vertical workspace transition motion.
-  ///
-  /// In en, this message translates to:
-  /// **'Vertical'**
-  String get settingsWorkspaceSwitchingVertical;
-
-  /// Accessible and visible label for a numbered workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'Workspace {workspace}'**
-  String workspaceLabel(int workspace);
-
-  /// Accessible workspace state for the currently active workspace.
-  ///
-  /// In en, this message translates to:
-  /// **'active'**
-  String get workspaceActive;
-
-  /// Accessible workspace state when ordinary windows are present.
-  ///
-  /// In en, this message translates to:
-  /// **'occupied'**
-  String get workspaceOccupied;
-
-  /// Accessible workspace state when no ordinary windows are present.
-  ///
-  /// In en, this message translates to:
-  /// **'empty'**
-  String get workspaceEmpty;
-
-  /// Short uppercase status label indicating immediate application.
-  ///
-  /// In en, this message translates to:
-  /// **'LIVE'**
-  String get settingsLiveBadge;
-
-  /// Accessibility label for the live-change status badge.
-  ///
-  /// In en, this message translates to:
-  /// **'Changes are applied in real time'**
-  String get settingsLiveChangesSemanticsLabel;
-
-  /// English UI text for settingsLoadingAudio.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading application audio…'**
-  String get settingsLoadingAudio;
-
-  /// English UI text for settingsLockBackdropDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Control wallpaper darkness and blur while locked.'**
-  String get settingsLockBackdropDescription;
-
-  /// English UI text for settingsLockBackdropTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Backdrop'**
-  String get settingsLockBackdropTitle;
-
-  /// English UI text for settingsLockInformationDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose which useful details remain visible before sign-in.'**
-  String get settingsLockInformationDescription;
-
-  /// English UI text for settingsLockInformationTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Desktop status'**
-  String get settingsLockInformationTitle;
-
-  /// English UI text for settingsLockMotionDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Animate the desktop lock screen when it appears.'**
-  String get settingsLockMotionDescription;
-
-  /// English UI text for settingsLockMotionTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Lock screen motion'**
-  String get settingsLockMotionTitle;
-
-  /// English UI text for settingsLockPreviewDate.
-  ///
-  /// In en, this message translates to:
-  /// **'Thursday 23 July'**
-  String get settingsLockPreviewDate;
-
-  /// English UI text for settingsLockPreviewSemantics.
-  ///
-  /// In en, this message translates to:
-  /// **'Lock screen preview'**
-  String get settingsLockPreviewSemantics;
-
-  /// English UI text for settingsLockPreviewStatus.
-  ///
-  /// In en, this message translates to:
-  /// **'CPU 18% · GPU 12% · 52°C'**
-  String get settingsLockPreviewStatus;
-
-  /// English UI text for settingsLockPreviewTime.
-  ///
-  /// In en, this message translates to:
-  /// **'22:41'**
-  String get settingsLockPreviewTime;
-
-  /// English UI text for settingsLockScreenDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'The main display presents an intentional sign-in stage while secondary displays remain calm and informative.'**
-  String get settingsLockScreenDescription;
-
-  /// English UI text for settingsLockScreenSection.
-  ///
-  /// In en, this message translates to:
-  /// **'Lock screen'**
-  String get settingsLockScreenSection;
-
-  /// English UI text for settingsLockScreenTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'A desktop lock screen, not a stretched phone.'**
-  String get settingsLockScreenTitle;
-
-  /// English UI text for settingsMasterOutputDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Set the current desktop output volume.'**
-  String get settingsMasterOutputDescription;
-
-  /// English UI text for settingsMasterOutputTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Master output'**
-  String get settingsMasterOutputTitle;
-
-  /// English UI text for settingsMaximizedSpacingDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Keep a small margin around maximized windows.'**
-  String get settingsMaximizedSpacingDescription;
-
-  /// English UI text for settingsMaximizedSpacingTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Maximized spacing'**
-  String get settingsMaximizedSpacingTitle;
 
   /// Description for automatic live UI reload.
   ///
@@ -5381,23 +5321,316 @@ abstract class AppLocalizations {
   /// **'Source workspace'**
   String get settingsDeveloperWorkspaceTitle;
 
+  /// English UI text for settingsDisconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get settingsDisconnect;
+
+  /// Explains that display changes will be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to update this session and outputs.conf.'**
+  String get settingsDisplayApplyPersistentHint;
+
+  /// Explains that display changes cannot be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to use them for this session.'**
+  String get settingsDisplayApplySessionHint;
+
+  /// Accessibility label for the draggable monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor arrangement editor'**
+  String get settingsDisplayArrangementSemantics;
+
+  /// Heading for output modes, scale, rotation, and arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor configuration'**
+  String get settingsDisplayArrangementTitle;
+
+  /// English UI text for settingsDisplayBrightnessDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Adjust the main display brightness.'**
+  String get settingsDisplayBrightnessDescription;
+
+  /// English UI text for settingsDisplayBrightnessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness'**
+  String get settingsDisplayBrightnessTitle;
+
+  /// Instruction shown above the pannable monitor arrangement canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag empty space to move the canvas. Use the mouse wheel to zoom.'**
+  String get settingsDisplayCanvasPanHint;
+
+  /// Accessibility label for the draggable background of the monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Pannable monitor canvas'**
+  String get settingsDisplayCanvasPanSemantics;
+
+  /// Countdown shown before an unconfirmed display configuration is rolled back.
+  ///
+  /// In en, this message translates to:
+  /// **'The previous display settings will be restored automatically in {seconds} s.'**
+  String settingsDisplayConfirmationMessage(int seconds);
+
+  /// Title of the timed display configuration confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep these display settings?'**
+  String get settingsDisplayConfirmationTitle;
+
+  /// English UI text for settingsDisplayDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'{width} × {height} · {refreshRate} Hz · {scale}×'**
+  String settingsDisplayDetails(
+    int width,
+    int height,
+    String refreshRate,
+    String scale,
+  );
+
+  /// Label for including a connected monitor in the desktop.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this display'**
+  String get settingsDisplayEnabled;
+
+  /// Explanation shown below the monitor enable toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Include this monitor in the desktop. At least one display must remain enabled.'**
+  String get settingsDisplayEnabledDescription;
+
+  /// English UI text for settingsDisplayInformationUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Display information is unavailable.'**
+  String get settingsDisplayInformationUnavailable;
+
+  /// Button that confirms a newly applied display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes'**
+  String get settingsDisplayKeepChanges;
+
+  /// Label for the automatic display power-off timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn displays off after'**
+  String get settingsDisplayOffTimeout;
+
+  /// Logical position of one monitor in the desktop layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Position {x}, {y}'**
+  String settingsDisplayPosition(int x, int y);
+
+  /// Label for choosing the output that owns primary shell experiences.
+  ///
+  /// In en, this message translates to:
+  /// **'Primary display'**
+  String get settingsDisplayPrimary;
+
+  /// Choice that lets the compositor select the primary display by refresh rate.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (highest refresh rate)'**
+  String get settingsDisplayPrimaryAutomatic;
+
+  /// Explains the primary display selector and its automatic fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell surfaces open on the primary display. Automatic uses the enabled display with the highest refresh rate.'**
+  String get settingsDisplayPrimaryHint;
+
+  /// Label for the monitor refresh-rate selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh rate'**
+  String get settingsDisplayRefreshRate;
+
+  /// Label for the monitor resolution selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get settingsDisplayResolution;
+
+  /// Button that immediately restores the previous display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert now'**
+  String get settingsDisplayRevertNow;
+
+  /// Label for the monitor rotation selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation'**
+  String get settingsDisplayRotation;
+
+  /// Label for a monitor rotated by 180 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'Upside down'**
+  String get settingsDisplayRotation180;
+
+  /// Label for a monitor rotated by 270 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° clockwise'**
+  String get settingsDisplayRotation270;
+
+  /// Label for a monitor rotated by 90 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° counterclockwise'**
+  String get settingsDisplayRotation90;
+
+  /// Label for an unrotated monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get settingsDisplayRotationNormal;
+
+  /// Label for the monitor scale selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale'**
+  String get settingsDisplayScale;
+
+  /// Validation error for a monitor scale outside the editable percentage range.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a value from 50 to 600.'**
+  String get settingsDisplayScaleInvalid;
+
+  /// Label for the common monitor scale preset selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get settingsDisplayScalePreset;
+
+  /// Guidance shown below the editable monitor scale percentage.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.'**
+  String get settingsDisplayScaleRange;
+
+  /// Label for choosing the scrolling window layout axis on one monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling layout axis'**
+  String get settingsDisplayScrollingLayoutAxis;
+
+  /// Choice that derives the scrolling layout axis from the monitor rotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (follows rotation)'**
+  String get settingsDisplayScrollingLayoutAxisAuto;
+
+  /// Explanation shown beside the per-monitor scrolling layout axis selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how scrolling windows are arranged on this display.'**
+  String get settingsDisplayScrollingLayoutAxisDescription;
+
+  /// Choice that forces a horizontal scrolling window strip.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get settingsDisplayScrollingLayoutAxisHorizontal;
+
+  /// Choice that forces a vertical scrolling window strip.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get settingsDisplayScrollingLayoutAxisVertical;
+
+  /// Label for enabling variable refresh rate on a supported monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Variable refresh rate (VRR)'**
+  String get settingsDisplayVariableRefreshRate;
+
+  /// Explanation shown below the variable refresh rate toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Match the monitor refresh rate to rendered content.'**
+  String get settingsDisplayVariableRefreshRateDescription;
+
+  /// Tooltip for fitting the complete monitor layout in the canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit all monitors'**
+  String get settingsDisplayZoomFit;
+
+  /// Tooltip for increasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get settingsDisplayZoomIn;
+
+  /// Accessibility label for the current monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas zoom {percent}%'**
+  String settingsDisplayZoomLevel(int percent);
+
+  /// Tooltip for decreasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get settingsDisplayZoomOut;
+
+  /// English UI text for settingsDisplaysDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Review connected outputs and control screen brightness.'**
+  String get settingsDisplaysDescription;
+
+  /// English UI text for settingsDisplaysSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Displays & video'**
+  String get settingsDisplaysSection;
+
+  /// English UI text for settingsDisplaysTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Displays and video.'**
+  String get settingsDisplaysTitle;
+
+  /// English UI text for settingsEdgeDistance.
+  ///
+  /// In en, this message translates to:
+  /// **'Edge distance'**
+  String get settingsEdgeDistance;
+
   /// Button label for adding an application environment override.
   ///
   /// In en, this message translates to:
   /// **'Add'**
   String get settingsEnvironmentAdd;
 
-  /// Accessibility label for the green plus on a set environment override.
-  ///
-  /// In en, this message translates to:
-  /// **'Added to launched applications'**
-  String get settingsEnvironmentAddedStatus;
-
   /// Technical explanation shown in Add Variable mode.
   ///
   /// In en, this message translates to:
   /// **'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.'**
   String get settingsEnvironmentAddModeDescription;
+
+  /// Accessibility label for the green plus on a set environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to launched applications'**
+  String get settingsEnvironmentAddedStatus;
 
   /// Name of the default environment scope applied to every direct Denial application launch.
   ///
@@ -5519,6 +5752,18 @@ abstract class AppLocalizations {
   /// **'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.'**
   String get settingsEnvironmentHideModeDescription;
 
+  /// Tab label for setting an application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Variable'**
+  String get settingsEnvironmentModeAdd;
+
+  /// Tab label for removing an inherited application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide Variable'**
+  String get settingsEnvironmentModeHide;
+
   /// Validation error for a duplicate application environment variable.
   ///
   /// In en, this message translates to:
@@ -5554,18 +5799,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Overrides the all-applications rule'**
   String get settingsEnvironmentOverridesDefault;
-
-  /// Tab label for setting an application environment variable.
-  ///
-  /// In en, this message translates to:
-  /// **'Add Variable'**
-  String get settingsEnvironmentModeAdd;
-
-  /// Tab label for removing an inherited application environment variable.
-  ///
-  /// In en, this message translates to:
-  /// **'Hide Variable'**
-  String get settingsEnvironmentModeHide;
 
   /// Description of the remove-from-child environment option.
   ///
@@ -5609,17 +5842,17 @@ abstract class AppLocalizations {
   /// **'Customize the environment of applications launched by Denial.'**
   String get settingsEnvironmentTitle;
 
-  /// Button label for updating an application environment override.
-  ///
-  /// In en, this message translates to:
-  /// **'Update variable'**
-  String get settingsEnvironmentUpdate;
-
   /// Fallback name for a configured desktop-file ID that is no longer installed.
   ///
   /// In en, this message translates to:
   /// **'Unavailable application'**
   String get settingsEnvironmentUnavailableApplication;
+
+  /// Button label for updating an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Update variable'**
+  String get settingsEnvironmentUpdate;
 
   /// Example application environment variable value.
   ///
@@ -5657,11 +5890,707 @@ abstract class AppLocalizations {
   /// **'Configured overrides'**
   String get settingsEnvironmentVariablesTitle;
 
+  /// Toggle label for changing the focused window border to the accent colour.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight the focused window border'**
+  String get settingsFocusedWindowBorder;
+
+  /// Explanation of the focused-window border highlight toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn this off to keep focused and unfocused window borders the same colour.'**
+  String get settingsFocusedWindowBorderDescription;
+
+  /// English UI text for settingsFocusedWindows.
+  ///
+  /// In en, this message translates to:
+  /// **'Focused windows'**
+  String get settingsFocusedWindows;
+
+  /// Description shown while the shell font catalog is loading.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding installed fonts…'**
+  String get settingsFontCatalogLoading;
+
+  /// Explanation for the shell font family selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the system default or an installed font across the Denial shell.'**
+  String get settingsFontDescription;
+
+  /// Label for the shell font family selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Font family'**
+  String get settingsFontFamily;
+
+  /// Option that restores the platform's default font family.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsFontSystemDefault;
+
+  /// Glass setting controlling how much of the shell accent is mixed into the material.
+  ///
+  /// In en, this message translates to:
+  /// **'Accent tint'**
+  String get settingsGlassAccentTint;
+
+  /// Glass appearance tuning: Advanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass tuning'**
+  String get settingsGlassAdvanced;
+
+  /// Opacity of glass sidebars and toolbars within compatible applications, independent of shell and window background opacity.
+  ///
+  /// In en, this message translates to:
+  /// **'App panels opacity'**
+  String get settingsGlassAppPanelOpacity;
+
+  /// Dark or light appearance for glass surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass appearance'**
+  String get settingsGlassAppearance;
+
+  /// Glass appearance tuning: BevelWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Bevel width'**
+  String get settingsGlassBevelWidth;
+
+  /// Glass setting controlling adaptive brightening or darkening.
+  ///
+  /// In en, this message translates to:
+  /// **'Luminosity'**
+  String get settingsGlassBrightness;
+
+  /// Glass setting controlling chromatic separation.
+  ///
+  /// In en, this message translates to:
+  /// **'Color dispersion'**
+  String get settingsGlassDispersion;
+
+  /// Glass setting controlling rim and caustic highlights.
+  ///
+  /// In en, this message translates to:
+  /// **'Edge shine'**
+  String get settingsGlassEdgeStrength;
+
+  /// Glass setting controlling the backdrop blur radius.
+  ///
+  /// In en, this message translates to:
+  /// **'Frost'**
+  String get settingsGlassFrost;
+
+  /// Glass setting controlling the angle of the simulated key light.
+  ///
+  /// In en, this message translates to:
+  /// **'Light direction'**
+  String get settingsGlassLightAngle;
+
+  /// Glass setting controlling directional lighting strength.
+  ///
+  /// In en, this message translates to:
+  /// **'Light intensity'**
+  String get settingsGlassLightIntensity;
+
+  /// Glass appearance tuning: OppositeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Opposite-edge light'**
+  String get settingsGlassOppositeLight;
+
+  /// Glass setting controlling intermediate texture resolution.
+  ///
+  /// In en, this message translates to:
+  /// **'Render quality'**
+  String get settingsGlassQuality;
+
+  /// Glass setting controlling background displacement.
+  ///
+  /// In en, this message translates to:
+  /// **'Refraction'**
+  String get settingsGlassRefraction;
+
+  /// Glass appearance tuning: RefractionDepth.
+  ///
+  /// In en, this message translates to:
+  /// **'Refraction depth'**
+  String get settingsGlassRefractionDepth;
+
+  /// Glass appearance tuning: Reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset glass'**
+  String get settingsGlassReset;
+
+  /// Glass appearance tuning: RimFalloff.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight falloff'**
+  String get settingsGlassRimFalloff;
+
+  /// Width of the glass highlight in pixels, including fractional values.
+  ///
+  /// In en, this message translates to:
+  /// **'{width} px'**
+  String settingsGlassRimPixels(String width);
+
+  /// Glass appearance tuning: RimWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight width'**
+  String get settingsGlassRimWidth;
+
+  /// Glass setting controlling backdrop color saturation.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get settingsGlassSaturation;
+
+  /// Opacity of Denial shell surfaces: launcher, Dashboard, taskbar and top cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell glass opacity'**
+  String get settingsGlassShellOpacity;
+
+  /// Glass setting controlling the width of the refractive edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Optical thickness'**
+  String get settingsGlassThickness;
+
+  /// Glass appearance tuning: TuningDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes apply immediately. The defaults preserve the original glass effect.'**
+  String get settingsGlassTuningDescription;
+
+  /// Opacity of compatible application window backgrounds; other applications and foreground controls are unaffected.
+  ///
+  /// In en, this message translates to:
+  /// **'Window glass opacity'**
+  String get settingsGlassWindowOpacity;
+
+  /// Compact product and section context shown in the Settings header.
+  ///
+  /// In en, this message translates to:
+  /// **'DENIAL / SYSTEM'**
+  String get settingsHeaderContext;
+
+  /// Accessibility label for the Denial wordmark in the Settings header.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial'**
+  String get settingsHeaderLogoSemanticsLabel;
+
+  /// English UI text for settingsHeight.
+  ///
+  /// In en, this message translates to:
+  /// **'Height'**
+  String get settingsHeight;
+
+  /// Per-panel toggle label for a pointer hover trigger at the output edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Open on edge hover'**
+  String get settingsHoverTrigger;
+
+  /// Explanation for a panel's hover-trigger preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal this panel when the pointer reaches its screen edge.'**
+  String get settingsHoverTriggerDescription;
+
+  /// English UI text for settingsHudOverlayDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Position volume and brightness feedback.'**
+  String get settingsHudOverlayDescription;
+
+  /// English UI text for settingsHudOverlayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'System level display'**
+  String get settingsHudOverlayTitle;
+
+  /// English UI text for settingsIdleInhibitDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Application activity such as video playback can temporarily pause these timers.'**
+  String get settingsIdleInhibitDescription;
+
+  /// English UI text for settingsIdleInhibitSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications may pause automatic idle actions'**
+  String get settingsIdleInhibitSemantics;
+
+  /// English UI text for settingsInactivityTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Inactivity timeout'**
+  String get settingsInactivityTimeout;
+
+  /// Label for the active keyboard layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Active layout'**
+  String get settingsKeyboardActiveLayout;
+
+  /// Button label for applying keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply keyboard settings'**
+  String get settingsKeyboardApply;
+
+  /// Busy label while keyboard settings are applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get settingsKeyboardApplying;
+
+  /// Validation error for the keyboard layouts field.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at least one valid XKB layout.'**
+  String get settingsKeyboardInvalidLayouts;
+
+  /// Help for XKB layout and variant syntax.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.'**
+  String get settingsKeyboardLayoutsDescription;
+
+  /// Example XKB layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'us, de:nodeadkeys'**
+  String get settingsKeyboardLayoutsHint;
+
+  /// Label for the XKB layouts field.
+  ///
+  /// In en, this message translates to:
+  /// **'Layouts'**
+  String get settingsKeyboardLayoutsLabel;
+
+  /// Title for configured XKB layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'Layouts and variants'**
+  String get settingsKeyboardLayoutsTitle;
+
+  /// Loading label for keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading the compositor keyboard configuration…'**
+  String get settingsKeyboardLoading;
+
+  /// Help for the XKB options field.
+  ///
+  /// In en, this message translates to:
+  /// **'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.'**
+  String get settingsKeyboardOptionsDescription;
+
+  /// Example XKB options.
+  ///
+  /// In en, this message translates to:
+  /// **'compose:menu, caps:escape'**
+  String get settingsKeyboardOptionsHint;
+
+  /// Label for XKB options.
+  ///
+  /// In en, this message translates to:
+  /// **'XKB options'**
+  String get settingsKeyboardOptionsLabel;
+
+  /// Keyboard repeat delay label.
+  ///
+  /// In en, this message translates to:
+  /// **'Delay'**
+  String get settingsKeyboardRepeatDelay;
+
+  /// Keyboard repeat rate label.
+  ///
+  /// In en, this message translates to:
+  /// **'Rate'**
+  String get settingsKeyboardRepeatRate;
+
+  /// Title for keyboard repeat settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Key repeat'**
+  String get settingsKeyboardRepeatTitle;
+
+  /// Section eyebrow for physical keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Input'**
+  String get settingsKeyboardSection;
+
+  /// Description of Denial's physical layout switching shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Super+Space selects the next layout. Add Shift to select the previous one.'**
+  String get settingsKeyboardSwitchingShortcut;
+
+  /// Title for keyboard layout switching status.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout switching'**
+  String get settingsKeyboardSwitchingTitle;
+
+  /// Physical keyboard settings page description.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.'**
+  String get settingsKeyboardTitle;
+
+  /// Explanation shown beside the Settings language selector.
+  ///
+  /// In en, this message translates to:
+  /// **'System default follows your desktop language. Changes apply immediately.'**
+  String get settingsLanguageDescription;
+
+  /// Self-name for the English language option.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get settingsLanguageEnglish;
+
+  /// Heading for the interface language setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface language'**
+  String get settingsLanguageInterfaceTitle;
+
+  /// Eyebrow label for the Settings language page.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguageSection;
+
+  /// Accessibility label for the interface language choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial interface language'**
+  String get settingsLanguageSelectorSemantics;
+
+  /// Self-name for the Simplified Chinese language option.
+  ///
+  /// In en, this message translates to:
+  /// **'简体中文'**
+  String get settingsLanguageSimplifiedChinese;
+
+  /// Language option that follows the operating system locale.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystemDefault;
+
+  /// Title text for the Settings language page.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the language Denial uses.'**
+  String get settingsLanguageTitle;
+
+  /// English UI text for settingsLauncherOverlayDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Position the application launcher.'**
+  String get settingsLauncherOverlayDescription;
+
+  /// English UI text for settingsLauncherOverlayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications'**
+  String get settingsLauncherOverlayTitle;
+
+  /// English UI text for settingsLayoutDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Control the spacing reserved around ordinary and maximized windows.'**
+  String get settingsLayoutDescription;
+
+  /// English UI text for settingsLayoutSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop layout'**
+  String get settingsLayoutSection;
+
+  /// English UI text for settingsLayoutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Give every window room to breathe.'**
+  String get settingsLayoutTitle;
+
+  /// Short uppercase status label indicating immediate application.
+  ///
+  /// In en, this message translates to:
+  /// **'LIVE'**
+  String get settingsLiveBadge;
+
+  /// Accessibility label for the live-change status badge.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes are applied in real time'**
+  String get settingsLiveChangesSemanticsLabel;
+
+  /// English UI text for settingsLoadingAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading application audio…'**
+  String get settingsLoadingAudio;
+
+  /// Loading notice on the monitor settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading monitor configuration…'**
+  String get settingsLoadingDisplays;
+
+  /// English UI text for settingsLockBackdropDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Control wallpaper darkness and blur while locked.'**
+  String get settingsLockBackdropDescription;
+
+  /// English UI text for settingsLockBackdropTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Backdrop'**
+  String get settingsLockBackdropTitle;
+
+  /// English UI text for settingsLockInformationDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose which useful details remain visible before sign-in.'**
+  String get settingsLockInformationDescription;
+
+  /// English UI text for settingsLockInformationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop status'**
+  String get settingsLockInformationTitle;
+
+  /// English UI text for settingsLockMotionDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Animate the desktop lock screen when it appears.'**
+  String get settingsLockMotionDescription;
+
+  /// English UI text for settingsLockMotionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock screen motion'**
+  String get settingsLockMotionTitle;
+
+  /// Button that replaces the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Change PIN'**
+  String get settingsLockPinChange;
+
+  /// Field that repeats the new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm PIN'**
+  String get settingsLockPinConfirm;
+
+  /// Lock screen settings row description.
+  ///
+  /// In en, this message translates to:
+  /// **'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.'**
+  String get settingsLockPinDescription;
+
+  /// Lock screen settings row title.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock with a PIN'**
+  String get settingsLockPinLabel;
+
+  /// Helper text under the new PIN field.
+  ///
+  /// In en, this message translates to:
+  /// **'4 to 12 digits'**
+  String get settingsLockPinLengthHint;
+
+  /// Error when the confirmation differs from the new PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'The PINs don’t match'**
+  String get settingsLockPinMismatch;
+
+  /// Field for the new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'New PIN'**
+  String get settingsLockPinNew;
+
+  /// Status when no unlock PIN is set.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get settingsLockPinOff;
+
+  /// Status of the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'On, {length} digits'**
+  String settingsLockPinOn(int length);
+
+  /// Field for the account password before changing the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Account password'**
+  String get settingsLockPinPassword;
+
+  /// Button that removes the unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove PIN'**
+  String get settingsLockPinRemove;
+
+  /// Button that saves a new unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Save PIN'**
+  String get settingsLockPinSave;
+
+  /// Button that starts creating an unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up PIN'**
+  String get settingsLockPinSetUp;
+
+  /// Lock screen settings section for the optional unlock PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN'**
+  String get settingsLockPinTitle;
+
+  /// Error when deniald could not save or remove the PIN.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t change the PIN. Try again.'**
+  String get settingsLockPinUnavailable;
+
+  /// Error when the account password is rejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password'**
+  String get settingsLockPinWrongPassword;
+
+  /// English UI text for settingsLockPreviewDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Thursday 23 July'**
+  String get settingsLockPreviewDate;
+
+  /// English UI text for settingsLockPreviewSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock screen preview'**
+  String get settingsLockPreviewSemantics;
+
+  /// English UI text for settingsLockPreviewStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'CPU 18% · GPU 12% · 52°C'**
+  String get settingsLockPreviewStatus;
+
+  /// English UI text for settingsLockPreviewTime.
+  ///
+  /// In en, this message translates to:
+  /// **'22:41'**
+  String get settingsLockPreviewTime;
+
+  /// English UI text for settingsLockScreenDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The main display presents an intentional sign-in stage while secondary displays remain calm and informative.'**
+  String get settingsLockScreenDescription;
+
+  /// English UI text for settingsLockScreenSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock screen'**
+  String get settingsLockScreenSection;
+
+  /// English UI text for settingsLockScreenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A desktop lock screen, not a stretched phone.'**
+  String get settingsLockScreenTitle;
+
+  /// Label for the automatic lock timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock after'**
+  String get settingsLockTimeout;
+
+  /// English UI text for settingsMasterOutputDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Set the current desktop output volume.'**
+  String get settingsMasterOutputDescription;
+
+  /// English UI text for settingsMasterOutputTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Master output'**
+  String get settingsMasterOutputTitle;
+
+  /// English UI text for settingsMaximizedSpacingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep a small margin around maximized windows.'**
+  String get settingsMaximizedSpacingDescription;
+
+  /// English UI text for settingsMaximizedSpacingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximized spacing'**
+  String get settingsMaximizedSpacingTitle;
+
   /// English UI text for settingsMinutes.
   ///
   /// In en, this message translates to:
   /// **'{minutes} min'**
   String settingsMinutes(int minutes);
+
+  /// Accessibility hint for a draggable monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to arrange, or use the arrow keys to move.'**
+  String get settingsMonitorDragHint;
+
+  /// Accessibility label for one monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor {name}'**
+  String settingsMonitorSemantics(String name);
+
+  /// Label for the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse acceleration'**
+  String get settingsMouseAcceleration;
+
+  /// Description of the mouse pointer acceleration toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster movements carry the pointer farther. Off keeps the pointer in step with your hand.'**
+  String get settingsMouseAccelerationDescription;
+
+  /// Label for the mouse pointer speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse pointer speed'**
+  String get settingsMousePointerSpeed;
 
   /// Label for the About destination in Settings navigation.
   ///
@@ -5705,23 +6634,17 @@ abstract class AppLocalizations {
   /// **'Developer'**
   String get settingsNavigationDeveloper;
 
-  /// Settings navigation label for application environment overrides.
-  ///
-  /// In en, this message translates to:
-  /// **'App environment'**
-  String get settingsNavigationEnvironment;
-
   /// English UI text for settingsNavigationDisplays.
   ///
   /// In en, this message translates to:
   /// **'Displays & video'**
   String get settingsNavigationDisplays;
 
-  /// Label for the Language destination in Settings navigation.
+  /// Settings navigation label for application environment overrides.
   ///
   /// In en, this message translates to:
-  /// **'Language'**
-  String get settingsNavigationLanguage;
+  /// **'App environment'**
+  String get settingsNavigationEnvironment;
 
   /// Settings navigation label for physical keyboard configuration.
   ///
@@ -5729,17 +6652,11 @@ abstract class AppLocalizations {
   /// **'Keyboard'**
   String get settingsNavigationKeyboard;
 
-  /// Settings navigation label for mouse and touchpad configuration.
+  /// Label for the Language destination in Settings navigation.
   ///
   /// In en, this message translates to:
-  /// **'Mouse & touchpad'**
-  String get settingsNavigationTouchpad;
-
-  /// Settings navigation label for configured shortcuts.
-  ///
-  /// In en, this message translates to:
-  /// **'Shortcuts'**
-  String get settingsNavigationShortcuts;
+  /// **'Language'**
+  String get settingsNavigationLanguage;
 
   /// English UI text for settingsNavigationLockScreen.
   ///
@@ -5759,6 +6676,12 @@ abstract class AppLocalizations {
   /// **'Overlays'**
   String get settingsNavigationOverlays;
 
+  /// Label for the Permissions destination in Settings navigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get settingsNavigationPermissions;
+
   /// English UI text for settingsNavigationPower.
   ///
   /// In en, this message translates to:
@@ -5770,6 +6693,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings'**
   String get settingsNavigationSection;
+
+  /// Settings navigation label for configured shortcuts.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts'**
+  String get settingsNavigationShortcuts;
+
+  /// Settings navigation label for mouse and touchpad configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse & touchpad'**
+  String get settingsNavigationTouchpad;
+
+  /// You profile settings: settingsNavigationYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get settingsNavigationYou;
 
   /// English UI text for settingsNetworkDescription.
   ///
@@ -5951,11 +6892,119 @@ abstract class AppLocalizations {
   /// **'{percent}%'**
   String settingsPercent(int percent);
 
+  /// Permissions page: always allow the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Always allow'**
+  String get settingsPermissionAllow;
+
+  /// Permissions page: ask the next time the app wants the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask'**
+  String get settingsPermissionAsk;
+
+  /// Permissions page: never allow the permission.
+  ///
+  /// In en, this message translates to:
+  /// **'Never allow'**
+  String get settingsPermissionDeny;
+
+  /// Permissions page: explains the keyboard shortcuts permission.
+  ///
+  /// In en, this message translates to:
+  /// **'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.'**
+  String get settingsPermissionsKeyboardShortcutsDescription;
+
+  /// Permissions page: the permission to receive Denial's shortcut keys.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard shortcuts'**
+  String get settingsPermissionsKeyboardShortcutsTitle;
+
+  /// Permissions page: no app has asked for this permission.
+  ///
+  /// In en, this message translates to:
+  /// **'No app has asked yet.'**
+  String get settingsPermissionsNone;
+
+  /// Permissions page: storing an answer failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t save the change.'**
+  String get settingsPermissionsSaveFailed;
+
+  /// Heading of the Permissions page in Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get settingsPermissionsSection;
+
+  /// Description of the Permissions page in Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what apps may do. An app appears here once it has asked.'**
+  String get settingsPermissionsTitle;
+
+  /// Permissions page: xdg-permission-store could not be reached.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions can’t be read: the portal permission store is not available.'**
+  String get settingsPermissionsUnavailable;
+
   /// English UI text for settingsPixels.
   ///
   /// In en, this message translates to:
   /// **'{pixels} px'**
   String settingsPixels(int pixels);
+
+  /// Label for the physical power button action selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Action'**
+  String get settingsPowerButtonAction;
+
+  /// Explanation for the physical power button action selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what happens when you press the physical power button.'**
+  String get settingsPowerButtonDescription;
+
+  /// Power button action that toggles compositor-owned display power.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off displays (DPMS)'**
+  String get settingsPowerButtonDpms;
+
+  /// Power button action that hibernates the system.
+  ///
+  /// In en, this message translates to:
+  /// **'Hibernate'**
+  String get settingsPowerButtonHibernate;
+
+  /// Disabled persisted hibernate action when hibernation is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hibernate (unavailable)'**
+  String get settingsPowerButtonHibernateUnavailable;
+
+  /// Power button action that powers off the system.
+  ///
+  /// In en, this message translates to:
+  /// **'Power off'**
+  String get settingsPowerButtonPowerOff;
+
+  /// Power button action that suspends the system.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend'**
+  String get settingsPowerButtonSuspend;
+
+  /// Title for physical power button behavior settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Power button'**
+  String get settingsPowerButtonTitle;
 
   /// English UI text for settingsPowerDescription.
   ///
@@ -5981,6 +7030,18 @@ abstract class AppLocalizations {
   /// **'Refresh'**
   String get settingsRefresh;
 
+  /// Action to reset Appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset appearance'**
+  String get settingsResetAppearance;
+
+  /// Action to reset glass effects while preserving appearance and all three opacity settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset glass effects'**
+  String get settingsResetGlassEffects;
+
   /// English UI text for settingsResetPage.
   ///
   /// In en, this message translates to:
@@ -6005,6 +7066,60 @@ abstract class AppLocalizations {
   /// **'Screen anchor'**
   String get settingsScreenAnchor;
 
+  /// Scrolling layout swap setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep window sizes when swapping'**
+  String get settingsScrollingLayoutPreserveSwapSizes;
+
+  /// Scrolling layout swap setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep each window’s width when swapping single-window columns on the same workspace and display. On vertical strips, keep height instead. Split columns keep their existing sizes.'**
+  String get settingsScrollingLayoutPreserveSwapSizesDescription;
+
+  /// Scrolling layout swap setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling swaps'**
+  String get settingsScrollingLayoutSwapTitle;
+
+  /// Explains the scrolling-layout mouse-wheel shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold Super and turn the mouse wheel to scroll the window strip.'**
+  String get settingsScrollingLayoutWheelDescription;
+
+  /// Label for the scrolling-layout mouse-wheel speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Wheel speed'**
+  String get settingsScrollingLayoutWheelSpeed;
+
+  /// Heading for mouse-wheel navigation in the scrolling window layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Super + mouse wheel'**
+  String get settingsScrollingLayoutWheelTitle;
+
+  /// Label for choosing the scrolling-layout direction of a wheel-up gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Wheel up moves'**
+  String get settingsScrollingLayoutWheelUpDirection;
+
+  /// Choice that maps mouse-wheel up to leftward scrolling-layout travel.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get settingsScrollingLayoutWheelUpLeft;
+
+  /// Choice that maps mouse-wheel up to rightward scrolling-layout travel.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get settingsScrollingLayoutWheelUpRight;
+
   /// English UI text for settingsShapeDescription.
   ///
   /// In en, this message translates to:
@@ -6016,48 +7131,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Shape'**
   String get settingsShapeTitle;
-
-  /// Slider label for the global shell corner-radius scale.
-  ///
-  /// In en, this message translates to:
-  /// **'Corner roundness'**
-  String get settingsCornerRoundness;
-
-  /// Title for the desktop-wide colour-scheme preference.
-  ///
-  /// In en, this message translates to:
-  /// **'Colour scheme'**
-  String get settingsColorSchemeTitle;
-
-  /// Dark colour-scheme choice.
-  ///
-  /// In en, this message translates to:
-  /// **'Dark'**
-  String get settingsColorSchemeDark;
-
-  /// Light colour-scheme choice.
-  ///
-  /// In en, this message translates to:
-  /// **'Light'**
-  String get settingsColorSchemeLight;
-
-  /// Choice that lets applications select their own colour scheme.
-  ///
-  /// In en, this message translates to:
-  /// **'No preference'**
-  String get settingsColorSchemeNoPreference;
-
-  /// Explanation for an explicit dark or light desktop preference.
-  ///
-  /// In en, this message translates to:
-  /// **'Use the same colour scheme across Denial and supported applications.'**
-  String get settingsColorSchemeDescription;
-
-  /// Explanation of the no-preference state and Denial's concrete fallback.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial keeps its default dark appearance while applications choose their own.'**
-  String get settingsColorSchemeNoPreferenceDescription;
 
   /// English UI text for settingsShellAccentChoose.
   ///
@@ -6089,6 +7162,660 @@ abstract class AppLocalizations {
   /// **'From wallpaper'**
   String get settingsShellAccentWallpaper;
 
+  /// Display name for the brightness down shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease brightness'**
+  String get settingsShortcutActionBrightnessDown;
+
+  /// Display name for the brightness up shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase brightness'**
+  String get settingsShortcutActionBrightnessUp;
+
+  /// Display name for the region capture shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture region'**
+  String get settingsShortcutActionCaptureRegion;
+
+  /// Display name for the close window shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Close window'**
+  String get settingsShortcutActionCloseWindow;
+
+  /// Display name for focusing the tiled window below.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window below'**
+  String get settingsShortcutActionFocusDown;
+
+  /// Display name for focusing the tiled window to the left.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window left'**
+  String get settingsShortcutActionFocusLeft;
+
+  /// Display name for focusing the tiled window to the right.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window right'**
+  String get settingsShortcutActionFocusRight;
+
+  /// Display name for focusing the tiled window above.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window above'**
+  String get settingsShortcutActionFocusUp;
+
+  /// Display name for the lock screen shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock screen'**
+  String get settingsShortcutActionLockScreen;
+
+  /// Display name for the minimize all windows shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize all windows'**
+  String get settingsShortcutActionMinimizeAllWindows;
+
+  /// Display name for the minimize window shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize window'**
+  String get settingsShortcutActionMinimizeWindow;
+
+  /// Display name for moving the focused window to the next workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to next workspace'**
+  String get settingsShortcutActionMoveToNextWorkspace;
+
+  /// Display name for moving the focused window to the previous workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to previous workspace'**
+  String get settingsShortcutActionMoveToPreviousWorkspace;
+
+  /// Display name for moving the focused window to a numbered workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to workspace {workspace}'**
+  String settingsShortcutActionMoveToWorkspace(int workspace);
+
+  /// Display name for the next keyboard layout shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Next keyboard layout'**
+  String get settingsShortcutActionNextKeyboardLayout;
+
+  /// Display name for switching to the next monitor-local workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Next workspace'**
+  String get settingsShortcutActionNextWorkspace;
+
+  /// Display name for the open applications shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open applications'**
+  String get settingsShortcutActionOpenApplications;
+
+  /// Display name for the clipboard shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open clipboard'**
+  String get settingsShortcutActionOpenClipboard;
+
+  /// Display name for the open dashboard shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open dashboard'**
+  String get settingsShortcutActionOpenDashboard;
+
+  /// Display name for the open overview shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open overview'**
+  String get settingsShortcutActionOpenOverview;
+
+  /// Display name for the open Settings shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get settingsShortcutActionOpenSettings;
+
+  /// Display name for the previous keyboard layout shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous keyboard layout'**
+  String get settingsShortcutActionPreviousKeyboardLayout;
+
+  /// Display name for switching to the previous monitor-local workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous workspace'**
+  String get settingsShortcutActionPreviousWorkspace;
+
+  /// Display name for the release pointer shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Release pointer'**
+  String get settingsShortcutActionReleasePointer;
+
+  /// Shortcut action label: reset window height.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset window height'**
+  String get settingsShortcutActionResetWindowHeight;
+
+  /// Shortcut action label: reset window width.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset window width'**
+  String get settingsShortcutActionResetWindowWidth;
+
+  /// Shortcut action label: grow window height.
+  ///
+  /// In en, this message translates to:
+  /// **'Grow window height'**
+  String get settingsShortcutActionResizeGrowHeight;
+
+  /// Shortcut action label: grow window width.
+  ///
+  /// In en, this message translates to:
+  /// **'Grow window width'**
+  String get settingsShortcutActionResizeGrowWidth;
+
+  /// Shortcut action label: shrink window height.
+  ///
+  /// In en, this message translates to:
+  /// **'Shrink window height'**
+  String get settingsShortcutActionResizeShrinkHeight;
+
+  /// Shortcut action label: shrink window width.
+  ///
+  /// In en, this message translates to:
+  /// **'Shrink window width'**
+  String get settingsShortcutActionResizeShrinkWidth;
+
+  /// Display name for the shutdown shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Shut down'**
+  String get settingsShortcutActionShutdown;
+
+  /// Display name for swapping a tiled window downward.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window downward'**
+  String get settingsShortcutActionSwapDown;
+
+  /// Display name for swapping a tiled window to the left.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window left'**
+  String get settingsShortcutActionSwapLeft;
+
+  /// Display name for swapping a tiled window to the right.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window right'**
+  String get settingsShortcutActionSwapRight;
+
+  /// Display name for swapping a tiled window upward.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window upward'**
+  String get settingsShortcutActionSwapUp;
+
+  /// Display name for switching directly to a numbered workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to workspace {workspace}'**
+  String settingsShortcutActionSwitchWorkspace(int workspace);
+
+  /// Display name for the toggle fullscreen shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter or leave fullscreen'**
+  String get settingsShortcutActionToggleFullscreen;
+
+  /// Display name for the toggle maximize shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize or restore'**
+  String get settingsShortcutActionToggleMaximize;
+
+  /// Display name for the vertical maximize shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize vertically'**
+  String get settingsShortcutActionToggleVerticalMaximize;
+
+  /// Display name for the shortcut action that pins or unpins the focused window above other windows.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle always on top'**
+  String get settingsShortcutActionToggleWindowAlwaysOnTop;
+
+  /// Display name for the volume down shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease volume'**
+  String get settingsShortcutActionVolumeDown;
+
+  /// Display name for the volume mute shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute or unmute'**
+  String get settingsShortcutActionVolumeMute;
+
+  /// Display name for the volume up shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase volume'**
+  String get settingsShortcutActionVolumeUp;
+
+  /// Display name for the window switcher shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch windows'**
+  String get settingsShortcutActionWindowSwitcher;
+
+  /// Configured shortcut target carrying a standard desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application · {desktopFileId}'**
+  String settingsShortcutApplicationTarget(String desktopFileId);
+
+  /// Button for appending one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Add argument'**
+  String get settingsShortcutEditorAddArgument;
+
+  /// Title of the shortcut editor when adding a binding.
+  ///
+  /// In en, this message translates to:
+  /// **'Add shortcut'**
+  String get settingsShortcutEditorAddTitle;
+
+  /// Example direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'--option'**
+  String get settingsShortcutEditorArgumentHint;
+
+  /// Label for one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Argument {index}'**
+  String settingsShortcutEditorArgumentLabel(int index);
+
+  /// Label above a direct program's argument list.
+  ///
+  /// In en, this message translates to:
+  /// **'Arguments'**
+  String get settingsShortcutEditorArgumentsLabel;
+
+  /// Tooltip for returning from a shortcut catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to shortcut editor'**
+  String get settingsShortcutEditorBack;
+
+  /// Button label for closing the shortcut editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get settingsShortcutEditorCancel;
+
+  /// Title of the shortcut action catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an action'**
+  String get settingsShortcutEditorChooseAction;
+
+  /// Title and empty selection label for the shortcut application catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an application'**
+  String get settingsShortcutEditorChooseApplication;
+
+  /// Conflict reported by the native shortcut validator.
+  ///
+  /// In en, this message translates to:
+  /// **'{shortcut} is already assigned to {action}.'**
+  String settingsShortcutEditorConflict(String shortcut, String action);
+
+  /// Button label for deleting the shortcut being edited.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get settingsShortcutEditorDelete;
+
+  /// Introductory text in the shortcut editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a shortcut, choose what it runs, and let the compositor check it before saving.'**
+  String get settingsShortcutEditorDescription;
+
+  /// Button label for closing the supported input catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get settingsShortcutEditorDone;
+
+  /// Title of the shortcut editor when editing a binding.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit shortcut'**
+  String get settingsShortcutEditorEditTitle;
+
+  /// Empty state for a direct program's argument list.
+  ///
+  /// In en, this message translates to:
+  /// **'No arguments'**
+  String get settingsShortcutEditorNoArguments;
+
+  /// Empty result message for shortcut editor catalogs.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching entries.'**
+  String get settingsShortcutEditorNoResults;
+
+  /// Explanation of direct Niri-style program execution.
+  ///
+  /// In en, this message translates to:
+  /// **'Run a program directly, without a shell. Every argument is passed exactly as written.'**
+  String get settingsShortcutEditorProgramDescription;
+
+  /// Example executable in the direct program field.
+  ///
+  /// In en, this message translates to:
+  /// **'foot'**
+  String get settingsShortcutEditorProgramHint;
+
+  /// Label for the directly executed program.
+  ///
+  /// In en, this message translates to:
+  /// **'Program'**
+  String get settingsShortcutEditorProgramLabel;
+
+  /// Tooltip for removing one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove argument {index}'**
+  String settingsShortcutEditorRemoveArgument(int index);
+
+  /// Button label for saving a shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get settingsShortcutEditorSave;
+
+  /// Button label while a shortcut mutation is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get settingsShortcutEditorSaving;
+
+  /// Hint for shortcut editor catalog searches.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get settingsShortcutEditorSearch;
+
+  /// Example shell command.
+  ///
+  /// In en, this message translates to:
+  /// **'grim -g \"\$(slurp)\" ~/Pictures/capture.png'**
+  String get settingsShortcutEditorShellCommandHint;
+
+  /// Label for the shell command field.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell command'**
+  String get settingsShortcutEditorShellCommandLabel;
+
+  /// Explanation of Niri-style shell command execution.
+  ///
+  /// In en, this message translates to:
+  /// **'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.'**
+  String get settingsShortcutEditorShellDescription;
+
+  /// Persistent examples of accepted shortcut expression formats.
+  ///
+  /// In en, this message translates to:
+  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft'**
+  String get settingsShortcutEditorShortcutExample;
+
+  /// Example shown in an empty shortcut expression field.
+  ///
+  /// In en, this message translates to:
+  /// **'Super+K'**
+  String get settingsShortcutEditorShortcutHint;
+
+  /// Label for the shortcut expression field.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcut'**
+  String get settingsShortcutEditorShortcutLabel;
+
+  /// Button and catalog title for supported shortcut inputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Supported inputs'**
+  String get settingsShortcutEditorSupportedInputs;
+
+  /// Shortcut target option for a built-in Denial action.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial action'**
+  String get settingsShortcutEditorTargetAction;
+
+  /// Shortcut target option for a desktop application with a stable desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application'**
+  String get settingsShortcutEditorTargetApplication;
+
+  /// Label for choosing what a shortcut runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Runs'**
+  String get settingsShortcutEditorTargetLabel;
+
+  /// Shortcut target option for directly spawning a program.
+  ///
+  /// In en, this message translates to:
+  /// **'Program'**
+  String get settingsShortcutEditorTargetProgram;
+
+  /// Shortcut target option for a command run through sh.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell command'**
+  String get settingsShortcutEditorTargetShell;
+
+  /// Status shown for a valid canonical shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognized as {shortcut}'**
+  String settingsShortcutEditorValid(String shortcut);
+
+  /// Status shown while Rust validates a shortcut draft.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking with the compositor…'**
+  String get settingsShortcutEditorValidating;
+
+  /// Friendly display name for the four-finger swipe-down gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe down'**
+  String get settingsShortcutGestureFourFingerSwipeDown;
+
+  /// Friendly display name for the four-finger swipe-left gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe left'**
+  String get settingsShortcutGestureFourFingerSwipeLeft;
+
+  /// Friendly display name for the four-finger swipe-right gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe right'**
+  String get settingsShortcutGestureFourFingerSwipeRight;
+
+  /// Friendly display name for the four-finger swipe-up gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe up'**
+  String get settingsShortcutGestureFourFingerSwipeUp;
+
+  /// Friendly display name for the three-finger swipe-left gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe left'**
+  String get settingsShortcutGestureThreeFingerSwipeLeft;
+
+  /// Friendly display name for the three-finger swipe-right gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe right'**
+  String get settingsShortcutGestureThreeFingerSwipeRight;
+
+  /// Friendly display name for the three-finger swipe-up gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe up'**
+  String get settingsShortcutGestureThreeFingerSwipeUp;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing'**
+  String get settingsShortcutInputCategoryEditing;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Function'**
+  String get settingsShortcutInputCategoryFunction;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Gesture'**
+  String get settingsShortcutInputCategoryGesture;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware'**
+  String get settingsShortcutInputCategoryHardware;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Media'**
+  String get settingsShortcutInputCategoryMedia;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Modifier'**
+  String get settingsShortcutInputCategoryModifier;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Navigation'**
+  String get settingsShortcutInputCategoryNavigation;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Punctuation'**
+  String get settingsShortcutInputCategoryPunctuation;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Special'**
+  String get settingsShortcutInputCategorySpecial;
+
+  /// Shown for a shortcut whose plugin action is currently unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Provider unavailable'**
+  String get settingsShortcutProviderUnavailable;
+
+  /// Button label for adding a shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Add shortcut'**
+  String get settingsShortcutsAdd;
+
+  /// Number of shortcuts currently configured.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0 {No shortcuts} =1 {1 shortcut} other {{count} shortcuts}}'**
+  String settingsShortcutsConfigured(int count);
+
+  /// Tooltip for deleting a configured shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {shortcut}'**
+  String settingsShortcutsDeleteTooltip(String shortcut);
+
+  /// Empty state message for the configured shortcut list.
+  ///
+  /// In en, this message translates to:
+  /// **'No shortcuts are configured. Add one to make an action easier to reach.'**
+  String get settingsShortcutsEmpty;
+
+  /// Loading message for the configured shortcut list.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading shortcuts from the compositor…'**
+  String get settingsShortcutsLoading;
+
+  /// Button label for retrying a shortcut configuration read.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get settingsShortcutsRetry;
+
+  /// Accessibility summary for a configured shortcut row.
+  ///
+  /// In en, this message translates to:
+  /// **'{shortcut}, {action}'**
+  String settingsShortcutsRowSemantics(String shortcut, String action);
+
+  /// Eyebrow label for the configured shortcuts page.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts'**
+  String get settingsShortcutsSection;
+
+  /// Description of the configured shortcuts page.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what Denial does when a shortcut is pressed.'**
+  String get settingsShortcutsTitle;
+
+  /// Message shown when configured shortcuts cannot be loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'The compositor shortcut configuration is unavailable.'**
+  String get settingsShortcutsUnavailable;
+
   /// English UI text for settingsShowSystemStatus.
   ///
   /// In en, this message translates to:
@@ -6112,6 +7839,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Settings are stored in\n~/.config/denial/settings.json'**
   String get settingsStorageLocation;
+
+  /// Label for choosing the kernel memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend mode'**
+  String get settingsSuspendMode;
+
+  /// Friendly label for the Linux deep memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend to RAM (deep)'**
+  String get settingsSuspendModeDeep;
+
+  /// Explanation for the kernel memory sleep mode selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.'**
+  String get settingsSuspendModeDescription;
+
+  /// Friendly label for the Linux s2idle memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend to idle (s2idle)'**
+  String get settingsSuspendModeS2idle;
+
+  /// Friendly label for the Linux shallow memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Standby (shallow)'**
+  String get settingsSuspendModeShallow;
+
+  /// Disabled suspend mode selector value when Linux exposes no memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get settingsSuspendModeUnavailable;
+
+  /// Label for the automatic suspend timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend after'**
+  String get settingsSuspendTimeout;
 
   /// Clarifies that multiple bars are cloned rather than stretched.
   ///
@@ -6209,17 +7978,107 @@ abstract class AppLocalizations {
   /// **'Display information is not available yet.'**
   String get settingsSystemBarUnavailable;
 
+  /// Label for the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse two-finger scrolling'**
+  String get settingsTouchpadNaturalScroll;
+
+  /// Description of the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move content in the same direction as your fingers.'**
+  String get settingsTouchpadNaturalScrollDescription;
+
+  /// Label for the continuous touchpad scroll speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Finger scroll speed'**
+  String get settingsTouchpadScrollSpeed;
+
+  /// Label for the continuous three-finger scrolling-layout swipe speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling layout swipe speed'**
+  String get settingsTouchpadScrollingLayoutSwipeSpeed;
+
+  /// Eyebrow label for mouse and touchpad settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Input'**
+  String get settingsTouchpadSection;
+
+  /// Label for the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to click'**
+  String get settingsTouchpadTapToClick;
+
+  /// Description of the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the touchpad to press the primary mouse button.'**
+  String get settingsTouchpadTapToClickDescription;
+
+  /// Description of the mouse and touchpad settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Tune mouse and touchpad behavior.'**
+  String get settingsTouchpadTitle;
+
+  /// Transparency material choice for the existing backdrop blur.
+  ///
+  /// In en, this message translates to:
+  /// **'Blur'**
+  String get settingsTransparencyBlur;
+
+  /// Description of the existing blur material.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Denial’s current fast Gaussian backdrop blur.'**
+  String get settingsTransparencyBlurDescription;
+
+  /// Transparency material choice for Denial's native glass effect.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass'**
+  String get settingsTransparencyGlass;
+
+  /// Description of the native glass material.
+  ///
+  /// In en, this message translates to:
+  /// **'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.'**
+  String get settingsTransparencyGlassDescription;
+
+  /// Transparency material choice that disables backdrop processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get settingsTransparencyOff;
+
+  /// Description of the disabled transparency material.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave translucent surfaces clear without processing the desktop behind them.'**
+  String get settingsTransparencyOffDescription;
+
+  /// Title for choosing the visual material behind translucent shell surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparency material'**
+  String get settingsTransparencyTitle;
+
   /// English UI text for settingsTwoHours.
   ///
   /// In en, this message translates to:
   /// **'2 hours'**
   String get settingsTwoHours;
 
-  /// Label for the automatic suspend timeout.
+  /// Title for shell typography appearance settings.
   ///
   /// In en, this message translates to:
-  /// **'Suspend after'**
-  String get settingsSuspendTimeout;
+  /// **'Typography'**
+  String get settingsTypographyTitle;
 
   /// English UI text for settingsUnfocusedWindows.
   ///
@@ -6239,11 +8098,29 @@ abstract class AppLocalizations {
   /// **'The lock screen follows wallpaper changes and per-output assignments.'**
   String get settingsUseSystemWallpaperDescription;
 
+  /// Label for the wallpaper applied in appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Applied wallpaper'**
+  String get settingsWallpaperApplied;
+
   /// Action that opens the shell wallpaper selector.
   ///
   /// In en, this message translates to:
   /// **'Change'**
   String get settingsWallpaperChoose;
+
+  /// Wallpaper card: ChooseFallback
+  ///
+  /// In en, this message translates to:
+  /// **'Choose fallback image'**
+  String get settingsWallpaperChooseFallback;
+
+  /// Wallpaper card: Default
+  ///
+  /// In en, this message translates to:
+  /// **'Denial default'**
+  String get settingsWallpaperDefault;
 
   /// Explanation of the wallpaper appearance setting.
   ///
@@ -6251,11 +8128,47 @@ abstract class AppLocalizations {
   /// **'Choose the image shown behind the shell and on the lock screen.'**
   String get settingsWallpaperDescription;
 
+  /// Wallpaper card: Display
+  ///
+  /// In en, this message translates to:
+  /// **'Display · {name}'**
+  String settingsWallpaperDisplay(String name);
+
+  /// Caption for the saved fallback image without a filename.
+  ///
+  /// In en, this message translates to:
+  /// **'Fallback image'**
+  String get settingsWallpaperFallback;
+
+  /// Wallpaper card: Live
+  ///
+  /// In en, this message translates to:
+  /// **'Live / app-managed wallpaper'**
+  String get settingsWallpaperLive;
+
+  /// Wallpaper card: LiveDescription
+  ///
+  /// In en, this message translates to:
+  /// **'A wallpaper app is drawing this desktop. Choosing a fallback image will not stop it.'**
+  String get settingsWallpaperLiveDescription;
+
   /// Accessibility label for the current wallpaper thumbnail.
   ///
   /// In en, this message translates to:
   /// **'Current wallpaper preview'**
   String get settingsWallpaperPreviewSemantics;
+
+  /// Wallpaper card: PreviewUnavailable
+  ///
+  /// In en, this message translates to:
+  /// **'Preview unavailable'**
+  String get settingsWallpaperPreviewUnavailable;
+
+  /// Wallpaper card: Static
+  ///
+  /// In en, this message translates to:
+  /// **'Static wallpaper'**
+  String get settingsWallpaperStatic;
 
   /// Title of the wallpaper appearance setting.
   ///
@@ -6299,6 +8212,36 @@ abstract class AppLocalizations {
   /// **'Window closing effect'**
   String get settingsWindowCloseEffectTitle;
 
+  /// Explains the available desktop window layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'Stacking lets windows overlap. Tiling divides the desktop dynamically. Scrolling follows focus along a strip; its axis is configured per display and follows rotation by default.'**
+  String get settingsWindowLayoutDescription;
+
+  /// Label for the Dwindle tiling window layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Tiling'**
+  String get settingsWindowLayoutDwindle;
+
+  /// Label for the focus-following adaptive-axis scrolling layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrolling'**
+  String get settingsWindowLayoutScrolling;
+
+  /// Label for the freely overlapping window layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Stacking'**
+  String get settingsWindowLayoutStacking;
+
+  /// Title for choosing how desktop windows are arranged.
+  ///
+  /// In en, this message translates to:
+  /// **'Window layout'**
+  String get settingsWindowLayoutTitle;
+
   /// Explanation of the minimized-window placement setting.
   ///
   /// In en, this message translates to:
@@ -6335,11 +8278,173 @@ abstract class AppLocalizations {
   /// **'Window opacity'**
   String get settingsWindowOpacityTitle;
 
+  /// Label for the number of workspaces per monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace count'**
+  String get settingsWorkspaceCount;
+
+  /// Label for horizontal workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get settingsWorkspaceSwitchingHorizontal;
+
+  /// Label for choosing the direction of workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching direction'**
+  String get settingsWorkspaceSwitchingOrientation;
+
+  /// Label for vertical workspace transition motion.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get settingsWorkspaceSwitchingVertical;
+
+  /// Explanation of Denial's monitor-local workspace model.
+  ///
+  /// In en, this message translates to:
+  /// **'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.'**
+  String get settingsWorkspacesDescription;
+
+  /// Toggle which enables monitor-local workspaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable workspaces'**
+  String get settingsWorkspacesEnable;
+
+  /// Heading for monitor-local workspace settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspaces'**
+  String get settingsWorkspacesTitle;
+
+  /// You profile settings: settingsYouAccountName.
+  ///
+  /// In en, this message translates to:
+  /// **'Use account name'**
+  String get settingsYouAccountName;
+
+  /// You profile settings: settingsYouChoosePhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose photo'**
+  String get settingsYouChoosePhoto;
+
+  /// You profile settings: settingsYouDefaultPhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Use default avatar'**
+  String get settingsYouDefaultPhoto;
+
+  /// You profile settings: settingsYouDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Make this space yours.'**
+  String get settingsYouDescription;
+
+  /// You profile settings: settingsYouDisplayName.
+  ///
+  /// In en, this message translates to:
+  /// **'Display name'**
+  String get settingsYouDisplayName;
+
+  /// You profile settings: settingsYouImageError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not use that photo. Choose a PNG, JPEG, WebP, GIF or BMP image under 16 MB.'**
+  String get settingsYouImageError;
+
+  /// You profile settings: settingsYouLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load your profile.'**
+  String get settingsYouLoadError;
+
+  /// You profile settings: settingsYouNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave this empty to use your account name.'**
+  String get settingsYouNameHint;
+
+  /// You profile settings: settingsYouPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile on the dashboard'**
+  String get settingsYouPreview;
+
+  /// You profile settings: settingsYouSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save name'**
+  String get settingsYouSave;
+
+  /// You profile settings: settingsYouSaveError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save your profile. Please try again.'**
+  String get settingsYouSaveError;
+
+  /// You profile settings: settingsYouSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Name saved.'**
+  String get settingsYouSaved;
+
+  /// Desktop presentation toggle in the mobile Quick Settings panel. This changes the widget layout, not native session policy.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop view'**
+  String get shellPresentationDesktop;
+
+  /// Accessible label for the mobile presentation button in the desktop Dashboard. This changes the widget layout, not native session policy.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile view'**
+  String get shellPresentationMobile;
+
   /// English UI text for shortDate.
   ///
   /// In en, this message translates to:
   /// **'{weekday} {day} {month}'**
   String shortDate(String weekday, int day, String month);
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM locked'**
+  String get simLocked;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get simPinLater;
+
+  /// No description provided for @simPinRetries.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} attempts remaining'**
+  String simPinRetries(int count);
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock SIM'**
+  String get simPinTitle;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock SIM'**
+  String get simPinUnlock;
+
+  /// Mobile connectivity and SIM authentication UI.
+  ///
+  /// In en, this message translates to:
+  /// **'SIM requires a PUK. Contact your carrier.'**
+  String get simPukRequired;
 
   /// English UI text for statusBarLiveTime.
   ///
@@ -6389,11 +8494,29 @@ abstract class AppLocalizations {
   /// **'SVOOC'**
   String get thermalSensorSvooc;
 
+  /// From noon on a 12-hour clock.
+  ///
+  /// In en, this message translates to:
+  /// **'PM'**
+  String get timeAfternoon;
+
   /// English UI text for timeHoursMinutes.
   ///
   /// In en, this message translates to:
   /// **'{hour}:{minute}'**
   String timeHoursMinutes(String hour, String minute);
+
+  /// Before noon on a 12-hour clock.
+  ///
+  /// In en, this message translates to:
+  /// **'AM'**
+  String get timeMorning;
+
+  /// A time on a 12-hour clock: 5:45 PM.
+  ///
+  /// In en, this message translates to:
+  /// **'{hour}:{minute} {period}'**
+  String timeTwelveHour(String hour, String minute, String period);
 
   /// English UI text for valueUnavailable.
   ///
@@ -6527,30 +8650,6 @@ abstract class AppLocalizations {
   /// **'Online wallpapers are unavailable. Local wallpapers still work.'**
   String get wallpaperImageServerUnavailable;
 
-  /// Wallpaper catalog pagination control.
-  ///
-  /// In en, this message translates to:
-  /// **'Previous wallpaper page'**
-  String get wallpaperPreviousPage;
-
-  /// Wallpaper catalog pagination control.
-  ///
-  /// In en, this message translates to:
-  /// **'Next wallpaper page'**
-  String get wallpaperNextPage;
-
-  /// Wallpaper catalog pagination control.
-  ///
-  /// In en, this message translates to:
-  /// **'Page {page}'**
-  String wallpaperPageNumber(int page);
-
-  /// Wallpaper catalog pagination control.
-  ///
-  /// In en, this message translates to:
-  /// **'Page {page} of {total}'**
-  String wallpaperPageOfTotal(int page, int total);
-
   /// Accessibility label for the wallpaper selector's strip/gallery layout switch.
   ///
   /// In en, this message translates to:
@@ -6647,11 +8746,35 @@ abstract class AppLocalizations {
   /// **'Vertical'**
   String get wallpaperMobileVerticalPosition;
 
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Next wallpaper page'**
+  String get wallpaperNextPage;
+
   /// English UI text for wallpaperNoneFound.
   ///
   /// In en, this message translates to:
   /// **'No wallpapers found'**
   String get wallpaperNoneFound;
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page}'**
+  String wallpaperPageNumber(int page);
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} of {total}'**
+  String wallpaperPageOfTotal(int page, int total);
+
+  /// Wallpaper catalog pagination control.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous wallpaper page'**
+  String get wallpaperPreviousPage;
 
   /// English UI text for wallpaperSearchHint.
   ///
@@ -6724,6 +8847,318 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Wednesday'**
   String get weekdayWednesday;
+
+  /// Welcome wizard: Appearance.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get welcomeAppearance;
+
+  /// Welcome wizard: AppearanceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A desktop that feels like you.'**
+  String get welcomeAppearanceTitle;
+
+  /// Welcome wizard: Blur.
+  ///
+  /// In en, this message translates to:
+  /// **'Blur'**
+  String get welcomeBlur;
+
+  /// Welcome wizard: Cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get welcomeCancel;
+
+  /// Welcome wizard: Dark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get welcomeDark;
+
+  /// Welcome shortcut concept group heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop essentials'**
+  String get welcomeDesktopUsage;
+
+  /// Donation button; the destination follows the active language.
+  ///
+  /// In en, this message translates to:
+  /// **'Donate'**
+  String get welcomeDonate;
+
+  /// Welcome wizard: DwindleDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows tile into a balanced, branching layout.'**
+  String get welcomeDwindleDescription;
+
+  /// Welcome wizard: Exit.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit'**
+  String get welcomeExit;
+
+  /// Welcome wizard: ExitMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'The setup won\'\'t appear again, you can open it from your launcher.'**
+  String get welcomeExitMessage;
+
+  /// Welcome wizard: ExitSetup.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit setup'**
+  String get welcomeExitSetup;
+
+  /// Welcome wizard: Finish.
+  ///
+  /// In en, this message translates to:
+  /// **'Start using Denial'**
+  String get welcomeFinish;
+
+  /// Button to begin setup from the welcome screen.
+  ///
+  /// In en, this message translates to:
+  /// **'Get started'**
+  String get welcomeGetStarted;
+
+  /// Welcome wizard: Glass.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass'**
+  String get welcomeGlass;
+
+  /// Welcome wizard: Instant.
+  ///
+  /// In en, this message translates to:
+  /// **'Try a choice. Your desktop changes immediately.'**
+  String get welcomeInstant;
+
+  /// Welcome wizard: Intro.
+  ///
+  /// In en, this message translates to:
+  /// **'A different desktop. A few keys to make it yours.'**
+  String get welcomeIntro;
+
+  /// Welcome wizard: Kill.
+  ///
+  /// In en, this message translates to:
+  /// **'Kill / close the focused window'**
+  String get welcomeKill;
+
+  /// Welcome wizard: Layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout'**
+  String get welcomeLayout;
+
+  /// Welcome wizard: LayoutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room for the way you work.'**
+  String get welcomeLayoutTitle;
+
+  /// Welcome wizard: Light.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get welcomeLight;
+
+  /// Welcome wizard: LinkError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open your browser. Please try again.'**
+  String get welcomeLinkError;
+
+  /// Welcome wizard: LinksPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Donation links will be available soon.'**
+  String get welcomeLinksPending;
+
+  /// Welcome wizard: Material.
+  ///
+  /// In en, this message translates to:
+  /// **'Window material'**
+  String get welcomeMaterial;
+
+  /// Welcome wizard: Move.
+  ///
+  /// In en, this message translates to:
+  /// **'Move a window'**
+  String get welcomeMove;
+
+  /// Welcome wizard: MoveGesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Super + left-button drag'**
+  String get welcomeMoveGesture;
+
+  /// Welcome wizard: Next.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get welcomeNext;
+
+  /// Welcome wizard: Nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get welcomeNothing;
+
+  /// Welcome wizard: PointerHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold Super (the Windows key) and drag anywhere on a window. These pointer gestures are built in.'**
+  String get welcomePointerHint;
+
+  /// Welcome wizard: Previous.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous'**
+  String get welcomePrevious;
+
+  /// Welcome wizard: Repository.
+  ///
+  /// In en, this message translates to:
+  /// **'Explore Denial on GitHub'**
+  String get welcomeRepository;
+
+  /// Welcome wizard: Resize.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize a window'**
+  String get welcomeResize;
+
+  /// Welcome wizard: ResizeGesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Super + right-button drag'**
+  String get welcomeResizeGesture;
+
+  /// Welcome wizard: Retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get welcomeRetry;
+
+  /// Welcome wizard: SaveError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save setup completion. Please try again.'**
+  String get welcomeSaveError;
+
+  /// Welcome wizard: ScrollingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'A flowing strip of windows with room to keep going.'**
+  String get welcomeScrollingDescription;
+
+  /// Welcome wizard: Shortcuts.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts'**
+  String get welcomeShortcuts;
+
+  /// Welcome wizard: ShortcutsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'These are your current bindings. You can change them later in Settings → Shortcuts.'**
+  String get welcomeShortcutsDescription;
+
+  /// Welcome wizard: ShortcutsError.
+  ///
+  /// In en, this message translates to:
+  /// **'Your shortcuts could not be loaded.'**
+  String get welcomeShortcutsError;
+
+  /// Welcome wizard: Sponsors.
+  ///
+  /// In en, this message translates to:
+  /// **'GitHub Sponsors'**
+  String get welcomeSponsors;
+
+  /// Welcome wizard: StackingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Place and overlap windows freely.'**
+  String get welcomeStackingDescription;
+
+  /// Progress label for the first welcome wizard step.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome'**
+  String get welcomeStart;
+
+  /// Introduction to the welcome wizard and its setup steps.
+  ///
+  /// In en, this message translates to:
+  /// **'Make yourself at home. We will walk through the essential shortcuts, help you choose a window layout, and make the desktop feel like yours. You can change these preferences later in Settings.'**
+  String get welcomeStartDescription;
+
+  /// Welcome wizard: Support.
+  ///
+  /// In en, this message translates to:
+  /// **'Support'**
+  String get welcomeSupport;
+
+  /// Welcome wizard: SupportDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial is built with care, curiosity, and the belief that a desktop can be different. If it feels like home, your support helps keep it growing.'**
+  String get welcomeSupportDescription;
+
+  /// Welcome wizard: SupportOptional.
+  ///
+  /// In en, this message translates to:
+  /// **'Always optional. Thank you for giving Denial a place on your desktop.'**
+  String get welcomeSupportOptional;
+
+  /// Welcome wizard: SupportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Help Denial become what comes next.'**
+  String get welcomeSupportTitle;
+
+  /// Welcome wizard: Theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get welcomeTheme;
+
+  /// Welcome shortcut concept group heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Tiling and keyboard control'**
+  String get welcomeTiling;
+
+  /// Welcome wizard: Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome to Denial'**
+  String get welcomeTitle;
+
+  /// Welcome wizard: Unbound.
+  ///
+  /// In en, this message translates to:
+  /// **'Not assigned'**
+  String get welcomeUnbound;
+
+  /// Welcome wizard: WorkspaceDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspaces are currently disabled. Enable them in Settings → Layout to use these bindings.'**
+  String get welcomeWorkspaceDisabled;
+
+  /// Welcome shortcut concept group heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspaces'**
+  String get welcomeWorkspaces;
 
   /// English UI text for wifiAuthorizationMayBeRequired.
   ///
@@ -7007,2380 +9442,65 @@ abstract class AppLocalizations {
   /// **'Window {windowId}'**
   String windowUntitled(int windowId);
 
-  /// Glass appearance tuning: Advanced.
+  /// Accessible workspace state for the currently active workspace.
   ///
   /// In en, this message translates to:
-  /// **'Glass tuning'**
-  String get settingsGlassAdvanced;
+  /// **'active'**
+  String get workspaceActive;
 
-  /// Glass appearance tuning: Reset.
+  /// Accessible workspace state when no ordinary windows are present.
   ///
   /// In en, this message translates to:
-  /// **'Reset glass'**
-  String get settingsGlassReset;
+  /// **'empty'**
+  String get workspaceEmpty;
 
-  /// Glass appearance tuning: TuningDescription.
+  /// Accessible and visible label for a numbered workspace.
   ///
   /// In en, this message translates to:
-  /// **'Changes apply immediately. The defaults preserve the original glass effect.'**
-  String get settingsGlassTuningDescription;
+  /// **'Workspace {workspace}'**
+  String workspaceLabel(int workspace);
 
-  /// Glass appearance tuning: BevelWidth.
+  /// Accessible workspace state when ordinary windows are present.
   ///
   /// In en, this message translates to:
-  /// **'Bevel width'**
-  String get settingsGlassBevelWidth;
+  /// **'occupied'**
+  String get workspaceOccupied;
 
-  /// Glass appearance tuning: RefractionDepth.
+  /// Settings · flat shell navigation group.
   ///
   /// In en, this message translates to:
-  /// **'Refraction depth'**
-  String get settingsGlassRefractionDepth;
+  /// **'Personalisation'**
+  String get settingsNavigationGroupPersonal;
 
-  /// Glass appearance tuning: RimWidth.
+  /// Settings · flat shell navigation group.
   ///
   /// In en, this message translates to:
-  /// **'Highlight width'**
-  String get settingsGlassRimWidth;
+  /// **'Input'**
+  String get settingsNavigationGroupInput;
 
-  /// Glass appearance tuning: RimFalloff.
-  ///
-  /// In en, this message translates to:
-  /// **'Highlight falloff'**
-  String get settingsGlassRimFalloff;
-
-  /// Glass appearance tuning: OppositeLight.
-  ///
-  /// In en, this message translates to:
-  /// **'Opposite-edge light'**
-  String get settingsGlassOppositeLight;
-
-  /// Width of the glass highlight in pixels, including fractional values.
-  ///
-  /// In en, this message translates to:
-  /// **'{width} px'**
-  String settingsGlassRimPixels(String width);
-
-  /// Brief lock screen feedback when a fingerprint does not match.
-  ///
-  /// In en, this message translates to:
-  /// **'Fingerprint not recognized'**
-  String get lockFingerprintNotRecognized;
-
-  /// Fingerprint settings: fingerprintSection
-  ///
-  /// In en, this message translates to:
-  /// **'Fingerprint'**
-  String get fingerprintSection;
-
-  /// Fingerprint settings: fingerprintPinPrompt
-  ///
-  /// In en, this message translates to:
-  /// **'Enter your lock PIN to manage fingerprints.'**
-  String get fingerprintPinPrompt;
-
-  /// Fingerprint settings: fingerprintPin
-  ///
-  /// In en, this message translates to:
-  /// **'PIN'**
-  String get fingerprintPin;
-
-  /// Fingerprint settings: fingerprintContinue
-  ///
-  /// In en, this message translates to:
-  /// **'Continue'**
-  String get fingerprintContinue;
-
-  /// Fingerprint settings: fingerprintDescription
-  ///
-  /// In en, this message translates to:
-  /// **'Use your enrolled fingers to unlock Denial.'**
-  String get fingerprintDescription;
-
-  /// Fingerprint settings: fingerprintEmptyTitle
-  ///
-  /// In en, this message translates to:
-  /// **'No fingerprints enrolled'**
-  String get fingerprintEmptyTitle;
-
-  /// Fingerprint settings: fingerprintEmptyDescription
-  ///
-  /// In en, this message translates to:
-  /// **'Choose a finger below to enroll your first fingerprint.'**
-  String get fingerprintEmptyDescription;
-
-  /// Fingerprint settings: fingerprintChooseFinger
-  ///
-  /// In en, this message translates to:
-  /// **'Finger to enroll'**
-  String get fingerprintChooseFinger;
-
-  /// Fingerprint settings: fingerprintEnroll
-  ///
-  /// In en, this message translates to:
-  /// **'Enroll fingerprint'**
-  String get fingerprintEnroll;
-
-  /// Fingerprint settings: fingerprintAdd
-  ///
-  /// In en, this message translates to:
-  /// **'Add fingerprint'**
-  String get fingerprintAdd;
-
-  /// Fingerprint settings: fingerprintPinNotSet
-  ///
-  /// In en, this message translates to:
-  /// **'Set a lock PIN first.'**
-  String get fingerprintPinNotSet;
-
-  /// Fingerprint settings: fingerprintExpired
-  ///
-  /// In en, this message translates to:
-  /// **'Enter your PIN again to continue.'**
-  String get fingerprintExpired;
-
-  /// Fingerprint settings: fingerprintPreparing
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing the fingerprint reader…'**
-  String get fingerprintPreparing;
-
-  /// Fingerprint settings: fingerprintTouchSensor
-  ///
-  /// In en, this message translates to:
-  /// **'Touch and lift your selected finger on the sensor.'**
-  String get fingerprintTouchSensor;
-
-  /// Fingerprint settings: fingerprintEnrolled
-  ///
-  /// In en, this message translates to:
-  /// **'Fingerprint enrolled. You can now use it to unlock Denial.'**
-  String get fingerprintEnrolled;
-
-  /// Fingerprint settings: fingerprintCancelled
-  ///
-  /// In en, this message translates to:
-  /// **'Enrollment cancelled.'**
-  String get fingerprintCancelled;
-
-  /// Fingerprint settings: fingerprintDuplicate
-  ///
-  /// In en, this message translates to:
-  /// **'This fingerprint is already enrolled. Choose another finger.'**
-  String get fingerprintDuplicate;
-
-  /// Fingerprint settings: fingerprintRetry
-  ///
-  /// In en, this message translates to:
-  /// **'Lift your finger and touch the sensor again, adjusting its position.'**
-  String get fingerprintRetry;
-
-  /// Fingerprint settings: fingerprintUnavailable
-  ///
-  /// In en, this message translates to:
-  /// **'Fingerprint management could not complete. Check the reader and try again.'**
-  String get fingerprintUnavailable;
-
-  /// Fingerprint settings: fingerprintProgress
-  ///
-  /// In en, this message translates to:
-  /// **'{completed} of {total} scans'**
-  String fingerprintProgress(int completed, int total);
-
-  /// Fingerprint settings: fingerprintLeftThumb
-  ///
-  /// In en, this message translates to:
-  /// **'Left thumb'**
-  String get fingerprintLeftThumb;
-
-  /// Fingerprint settings: fingerprintLeftIndex
-  ///
-  /// In en, this message translates to:
-  /// **'Left index finger'**
-  String get fingerprintLeftIndex;
-
-  /// Fingerprint settings: fingerprintLeftMiddle
-  ///
-  /// In en, this message translates to:
-  /// **'Left middle finger'**
-  String get fingerprintLeftMiddle;
-
-  /// Fingerprint settings: fingerprintLeftRing
-  ///
-  /// In en, this message translates to:
-  /// **'Left ring finger'**
-  String get fingerprintLeftRing;
-
-  /// Fingerprint settings: fingerprintLeftLittle
-  ///
-  /// In en, this message translates to:
-  /// **'Left little finger'**
-  String get fingerprintLeftLittle;
-
-  /// Fingerprint settings: fingerprintRightThumb
-  ///
-  /// In en, this message translates to:
-  /// **'Right thumb'**
-  String get fingerprintRightThumb;
-
-  /// Fingerprint settings: fingerprintRightIndex
-  ///
-  /// In en, this message translates to:
-  /// **'Right index finger'**
-  String get fingerprintRightIndex;
-
-  /// Fingerprint settings: fingerprintRightMiddle
-  ///
-  /// In en, this message translates to:
-  /// **'Right middle finger'**
-  String get fingerprintRightMiddle;
-
-  /// Fingerprint settings: fingerprintRightRing
-  ///
-  /// In en, this message translates to:
-  /// **'Right ring finger'**
-  String get fingerprintRightRing;
-
-  /// Fingerprint settings: fingerprintRightLittle
-  ///
-  /// In en, this message translates to:
-  /// **'Right little finger'**
-  String get fingerprintRightLittle;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Mobile data'**
-  String get mobileData;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Connected'**
-  String get mobileConnected;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Not connected'**
-  String get mobileDisconnected;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Mobile network unavailable'**
-  String get mobileUnavailable;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Unable to change mobile data'**
-  String get mobileChangeFailed;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Unlock SIM'**
-  String get simPinTitle;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Unlock SIM'**
-  String get simPinUnlock;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'Later'**
-  String get simPinLater;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'SIM requires a PUK. Contact your carrier.'**
-  String get simPukRequired;
-
-  /// Mobile connectivity and SIM authentication UI.
-  ///
-  /// In en, this message translates to:
-  /// **'SIM locked'**
-  String get simLocked;
-
-  /// No description provided for @simPinRetries.
-  ///
-  /// In en, this message translates to:
-  /// **'{count} attempts remaining'**
-  String simPinRetries(int count);
-
-  /// Shortcut action label: grow window width.
-  ///
-  /// In en, this message translates to:
-  /// **'Grow window width'**
-  String get settingsShortcutActionResizeGrowWidth;
-
-  /// Shortcut action label: shrink window width.
-  ///
-  /// In en, this message translates to:
-  /// **'Shrink window width'**
-  String get settingsShortcutActionResizeShrinkWidth;
-
-  /// Shortcut action label: grow window height.
-  ///
-  /// In en, this message translates to:
-  /// **'Grow window height'**
-  String get settingsShortcutActionResizeGrowHeight;
-
-  /// Shortcut action label: shrink window height.
-  ///
-  /// In en, this message translates to:
-  /// **'Shrink window height'**
-  String get settingsShortcutActionResizeShrinkHeight;
-
-  /// Shortcut action label: reset window height.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset window height'**
-  String get settingsShortcutActionResetWindowHeight;
-
-  /// Shortcut action label: reset window width.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset window width'**
-  String get settingsShortcutActionResetWindowWidth;
-
-  /// Appearance card heading for color scheme and accent.
-  ///
-  /// In en, this message translates to:
-  /// **'Theme'**
-  String get settingsAppearanceTheme;
-
-  /// Appearance card heading for window shape and focus.
-  ///
-  /// In en, this message translates to:
-  /// **'Windows'**
-  String get settingsAppearanceWindows;
-
-  /// Appearance card heading for transparency and its effects.
-  ///
-  /// In en, this message translates to:
-  /// **'Transparency'**
-  String get settingsAppearanceTransparency;
-
-  /// Disclosure for detailed transparency controls.
-  ///
-  /// In en, this message translates to:
-  /// **'Advanced effects'**
-  String get settingsAppearanceAdvancedEffects;
-
-  /// Summary of advanced glass controls.
-  ///
-  /// In en, this message translates to:
-  /// **'Color, optics, lighting and rendering.'**
-  String get settingsAppearanceAdvancedEffectsDescription;
-
-  /// Summary of advanced blur controls.
-  ///
-  /// In en, this message translates to:
-  /// **'Fine-tune where the effect is applied.'**
-  String get settingsAppearanceCompositingDescription;
-
-  /// Advanced glass color controls heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Color'**
-  String get settingsAppearanceColorEffects;
-
-  /// Advanced glass optical controls heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Optics'**
-  String get settingsAppearanceOptics;
-
-  /// Advanced glass lighting controls heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Lighting'**
-  String get settingsAppearanceLighting;
-
-  /// Advanced glass rendering controls heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Rendering'**
-  String get settingsAppearanceRendering;
-
-  /// Disclosure for application-provided cursors.
-  ///
-  /// In en, this message translates to:
-  /// **'Application cursors'**
-  String get settingsAppearanceCursorAdvanced;
-
-  /// Tooltip for Appearance actions menu.
-  ///
-  /// In en, this message translates to:
-  /// **'Appearance actions'**
-  String get settingsAppearanceActions;
-
-  /// Action to reset Appearance settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset appearance'**
-  String get settingsResetAppearance;
-
-  /// Action to reset glass effects while preserving appearance and all three opacity settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset glass effects'**
-  String get settingsResetGlassEffects;
-
-  /// Wallpaper card: Default
-  ///
-  /// In en, this message translates to:
-  /// **'Denial default'**
-  String get settingsWallpaperDefault;
-
-  /// Wallpaper card: Live
-  ///
-  /// In en, this message translates to:
-  /// **'Live / app-managed wallpaper'**
-  String get settingsWallpaperLive;
-
-  /// Wallpaper card: Static
-  ///
-  /// In en, this message translates to:
-  /// **'Static wallpaper'**
-  String get settingsWallpaperStatic;
-
-  /// Wallpaper card: LiveDescription
-  ///
-  /// In en, this message translates to:
-  /// **'A wallpaper app is drawing this desktop. Choosing a fallback image will not stop it.'**
-  String get settingsWallpaperLiveDescription;
-
-  /// Wallpaper card: ChooseFallback
-  ///
-  /// In en, this message translates to:
-  /// **'Choose fallback image'**
-  String get settingsWallpaperChooseFallback;
-
-  /// Wallpaper card: PreviewUnavailable
-  ///
-  /// In en, this message translates to:
-  /// **'Preview unavailable'**
-  String get settingsWallpaperPreviewUnavailable;
-
-  /// Caption for the saved fallback image without a filename.
-  ///
-  /// In en, this message translates to:
-  /// **'Fallback image'**
-  String get settingsWallpaperFallback;
-
-  /// Wallpaper card: Display
-  ///
-  /// In en, this message translates to:
-  /// **'Display · {name}'**
-  String settingsWallpaperDisplay(String name);
-
-  /// Label for the wallpaper applied in appearance settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Applied wallpaper'**
-  String get settingsWallpaperApplied;
-
-  /// Shown for a shortcut whose plugin action is currently unavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Provider unavailable'**
-  String get settingsShortcutProviderUnavailable;
-
-  /// Progress label for the first welcome wizard step.
-  ///
-  /// In en, this message translates to:
-  /// **'Welcome'**
-  String get welcomeStart;
-
-  /// Button to begin setup from the welcome screen.
-  ///
-  /// In en, this message translates to:
-  /// **'Get started'**
-  String get welcomeGetStarted;
-
-  /// Introduction to the welcome wizard and its setup steps.
-  ///
-  /// In en, this message translates to:
-  /// **'Make yourself at home. We will walk through the essential shortcuts, help you choose a window layout, and make the desktop feel like yours. You can change these preferences later in Settings.'**
-  String get welcomeStartDescription;
-
-  /// Welcome wizard: Title.
-  ///
-  /// In en, this message translates to:
-  /// **'Welcome to Denial'**
-  String get welcomeTitle;
-
-  /// Welcome wizard: Shortcuts.
-  ///
-  /// In en, this message translates to:
-  /// **'Shortcuts'**
-  String get welcomeShortcuts;
-
-  /// Welcome wizard: Layout.
-  ///
-  /// In en, this message translates to:
-  /// **'Layout'**
-  String get welcomeLayout;
-
-  /// Welcome wizard: Appearance.
-  ///
-  /// In en, this message translates to:
-  /// **'Appearance'**
-  String get welcomeAppearance;
-
-  /// Welcome wizard: Support.
-  ///
-  /// In en, this message translates to:
-  /// **'Support'**
-  String get welcomeSupport;
-
-  /// Welcome wizard: Next.
-  ///
-  /// In en, this message translates to:
-  /// **'Next'**
-  String get welcomeNext;
-
-  /// Welcome wizard: Previous.
-  ///
-  /// In en, this message translates to:
-  /// **'Previous'**
-  String get welcomePrevious;
-
-  /// Welcome wizard: Finish.
-  ///
-  /// In en, this message translates to:
-  /// **'Start using Denial'**
-  String get welcomeFinish;
-
-  /// Welcome wizard: ExitSetup.
-  ///
-  /// In en, this message translates to:
-  /// **'Exit setup'**
-  String get welcomeExitSetup;
-
-  /// Welcome wizard: Exit.
-  ///
-  /// In en, this message translates to:
-  /// **'Exit'**
-  String get welcomeExit;
-
-  /// Welcome wizard: Cancel.
-  ///
-  /// In en, this message translates to:
-  /// **'Cancel'**
-  String get welcomeCancel;
-
-  /// Welcome wizard: ExitMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'The setup won\'\'t appear again, you can open it from your launcher.'**
-  String get welcomeExitMessage;
-
-  /// Welcome wizard: Intro.
-  ///
-  /// In en, this message translates to:
-  /// **'A different desktop. A few keys to make it yours.'**
-  String get welcomeIntro;
-
-  /// Welcome wizard: ShortcutsDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'These are your current bindings. You can change them later in Settings → Shortcuts.'**
-  String get welcomeShortcutsDescription;
-
-  /// Welcome wizard: Kill.
-  ///
-  /// In en, this message translates to:
-  /// **'Kill / close the focused window'**
-  String get welcomeKill;
-
-  /// Welcome wizard: Move.
-  ///
-  /// In en, this message translates to:
-  /// **'Move a window'**
-  String get welcomeMove;
-
-  /// Welcome wizard: Resize.
-  ///
-  /// In en, this message translates to:
-  /// **'Resize a window'**
-  String get welcomeResize;
-
-  /// Welcome wizard: MoveGesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Super + left-button drag'**
-  String get welcomeMoveGesture;
-
-  /// Welcome wizard: ResizeGesture.
-  ///
-  /// In en, this message translates to:
-  /// **'Super + right-button drag'**
-  String get welcomeResizeGesture;
-
-  /// Welcome wizard: PointerHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Hold Super (the Windows key) and drag anywhere on a window. These pointer gestures are built in.'**
-  String get welcomePointerHint;
-
-  /// Welcome wizard: Unbound.
-  ///
-  /// In en, this message translates to:
-  /// **'Not assigned'**
-  String get welcomeUnbound;
-
-  /// Welcome wizard: Retry.
-  ///
-  /// In en, this message translates to:
-  /// **'Retry'**
-  String get welcomeRetry;
-
-  /// Welcome wizard: ShortcutsError.
-  ///
-  /// In en, this message translates to:
-  /// **'Your shortcuts could not be loaded.'**
-  String get welcomeShortcutsError;
-
-  /// Welcome wizard: LayoutTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Make room for the way you work.'**
-  String get welcomeLayoutTitle;
-
-  /// Welcome wizard: Instant.
-  ///
-  /// In en, this message translates to:
-  /// **'Try a choice. Your desktop changes immediately.'**
-  String get welcomeInstant;
-
-  /// Welcome wizard: StackingDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Place and overlap windows freely.'**
-  String get welcomeStackingDescription;
-
-  /// Welcome wizard: DwindleDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Windows tile into a balanced, branching layout.'**
-  String get welcomeDwindleDescription;
-
-  /// Welcome wizard: ScrollingDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'A flowing strip of windows with room to keep going.'**
-  String get welcomeScrollingDescription;
-
-  /// Welcome wizard: AppearanceTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'A desktop that feels like you.'**
-  String get welcomeAppearanceTitle;
-
-  /// Welcome wizard: Material.
-  ///
-  /// In en, this message translates to:
-  /// **'Window material'**
-  String get welcomeMaterial;
-
-  /// Welcome wizard: Glass.
-  ///
-  /// In en, this message translates to:
-  /// **'Glass'**
-  String get welcomeGlass;
-
-  /// Welcome wizard: Blur.
-  ///
-  /// In en, this message translates to:
-  /// **'Blur'**
-  String get welcomeBlur;
-
-  /// Welcome wizard: Nothing.
-  ///
-  /// In en, this message translates to:
-  /// **'None'**
-  String get welcomeNothing;
-
-  /// Welcome wizard: Theme.
-  ///
-  /// In en, this message translates to:
-  /// **'Theme'**
-  String get welcomeTheme;
-
-  /// Welcome wizard: Light.
-  ///
-  /// In en, this message translates to:
-  /// **'Light'**
-  String get welcomeLight;
-
-  /// Welcome wizard: Dark.
-  ///
-  /// In en, this message translates to:
-  /// **'Dark'**
-  String get welcomeDark;
-
-  /// Welcome wizard: SupportTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Help Denial become what comes next.'**
-  String get welcomeSupportTitle;
-
-  /// Welcome wizard: SupportDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial is built with care, curiosity, and the belief that a desktop can be different. If it feels like home, your support helps keep it growing.'**
-  String get welcomeSupportDescription;
-
-  /// Welcome wizard: SupportOptional.
-  ///
-  /// In en, this message translates to:
-  /// **'Always optional. Thank you for giving Denial a place on your desktop.'**
-  String get welcomeSupportOptional;
-
-  /// Donation button; the destination follows the active language.
-  ///
-  /// In en, this message translates to:
-  /// **'Donate'**
-  String get welcomeDonate;
-
-  /// Welcome wizard: Sponsors.
-  ///
-  /// In en, this message translates to:
-  /// **'GitHub Sponsors'**
-  String get welcomeSponsors;
-
-  /// Welcome wizard: Repository.
-  ///
-  /// In en, this message translates to:
-  /// **'Explore Denial on GitHub'**
-  String get welcomeRepository;
-
-  /// Welcome wizard: LinksPending.
-  ///
-  /// In en, this message translates to:
-  /// **'Donation links will be available soon.'**
-  String get welcomeLinksPending;
-
-  /// Welcome wizard: LinkError.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not open your browser. Please try again.'**
-  String get welcomeLinkError;
-
-  /// Welcome wizard: SaveError.
-  ///
-  /// In en, this message translates to:
-  /// **'Could not save setup completion. Please try again.'**
-  String get welcomeSaveError;
-
-  /// Welcome wizard: WorkspaceDisabled.
-  ///
-  /// In en, this message translates to:
-  /// **'Workspaces are currently disabled. Enable them in Settings → Layout to use these bindings.'**
-  String get welcomeWorkspaceDisabled;
-
-  /// Welcome shortcut concept group heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Desktop essentials'**
-  String get welcomeDesktopUsage;
-
-  /// Welcome shortcut concept group heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Workspaces'**
-  String get welcomeWorkspaces;
-
-  /// Welcome shortcut concept group heading.
-  ///
-  /// In en, this message translates to:
-  /// **'Tiling and keyboard control'**
-  String get welcomeTiling;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Administrator authentication required.'**
-  String get polkitRunCommandAsAdministrator;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Authentication is required to run this command as {user}.'**
-  String polkitRunCommandAsUser(String user);
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Authentication is required.'**
-  String get polkitAuthenticationRequired;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Authentication is unavailable.'**
-  String get polkitAuthenticationUnavailable;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Password'**
-  String get polkitPassword;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Verifying…'**
-  String get polkitVerifying;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing…'**
-  String get polkitPreparing;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Caps Lock'**
-  String get polkitCapsLock;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Confirm'**
-  String get polkitConfirm;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Continue'**
-  String get polkitContinue;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Close'**
-  String get polkitClose;
-
-  /// Authentication prompt text.
-  ///
-  /// In en, this message translates to:
-  /// **'Temporarily locked'**
-  String get polkitLocked;
-
-  /// Permission prompt: grants what an app asked for.
-  ///
-  /// In en, this message translates to:
-  /// **'Allow'**
-  String get accessAllow;
-
-  /// Permission prompt: grants it while the app keeps running.
-  ///
-  /// In en, this message translates to:
-  /// **'Allow once'**
-  String get accessAllowOnce;
-
-  /// Permission prompt: grants it and remembers the answer.
-  ///
-  /// In en, this message translates to:
-  /// **'Always allow'**
-  String get accessAlwaysAllow;
-
-  /// Permission prompt: refuses what an app asked for.
-  ///
-  /// In en, this message translates to:
-  /// **'Decline'**
-  String get accessDecline;
-
-  /// Permission prompt: refuses it and remembers the answer.
-  ///
-  /// In en, this message translates to:
-  /// **'Never allow'**
-  String get accessNeverAllow;
-
-  /// Permission prompt: refuses it while the app keeps running.
-  ///
-  /// In en, this message translates to:
-  /// **'Decline once'**
-  String get accessDeclineOnce;
-
-  /// Permission prompt: names an app that did not say which one it is.
-  ///
-  /// In en, this message translates to:
-  /// **'An app'**
-  String get accessUnknownApp;
-
-  /// Plugin Manager: AppTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial Plugins'**
-  String get pluginsAppTitle;
-
-  /// Plugin Manager: Title.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugins'**
-  String get pluginsTitle;
-
-  /// Plugin Manager: Installed.
-  ///
-  /// In en, this message translates to:
-  /// **'Installed'**
-  String get pluginsInstalled;
-
-  /// Plugin Manager: Discover.
-  ///
-  /// In en, this message translates to:
-  /// **'Discover'**
-  String get pluginsDiscover;
-
-  /// Plugin Manager: Activity.
-  ///
-  /// In en, this message translates to:
-  /// **'Activity'**
-  String get pluginsActivity;
-
-  /// Plugin Manager: Library.
-  ///
-  /// In en, this message translates to:
-  /// **'Library'**
-  String get pluginsLibrary;
-
-  /// Plugin Manager: Preferences.
-  ///
-  /// In en, this message translates to:
-  /// **'Preferences'**
-  String get pluginsPreferences;
-
-  /// Plugin Manager: SearchInstalled.
-  ///
-  /// In en, this message translates to:
-  /// **'Search installed'**
-  String get pluginsSearchInstalled;
-
-  /// Plugin Manager: Search.
-  ///
-  /// In en, this message translates to:
-  /// **'Search plugins'**
-  String get pluginsSearch;
-
-  /// Plugin Manager: ClearSearch.
-  ///
-  /// In en, this message translates to:
-  /// **'Clear search'**
-  String get pluginsClearSearch;
-
-  /// Plugin Manager: AddTooltip.
-  ///
-  /// In en, this message translates to:
-  /// **'Add a plugin from a repository link'**
-  String get pluginsAddTooltip;
-
-  /// Plugin Manager: AddToolbar.
-  ///
-  /// In en, this message translates to:
-  /// **'Add Plugin'**
-  String get pluginsAddToolbar;
-
-  /// Plugin Manager: MoreActions.
-  ///
-  /// In en, this message translates to:
-  /// **'More actions'**
-  String get pluginsMoreActions;
-
-  /// Plugin Manager: Refresh.
-  ///
-  /// In en, this message translates to:
-  /// **'Refresh'**
-  String get pluginsRefresh;
-
-  /// Plugin Manager: InstalledTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Installed plugins'**
-  String get pluginsInstalledTitle;
-
-  /// Plugin Manager: InstalledDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose the plugins that make up your desktop.'**
-  String get pluginsInstalledDescription;
-
-  /// Plugin Manager: NoneInstalled.
-  ///
-  /// In en, this message translates to:
-  /// **'No plugins installed'**
-  String get pluginsNoneInstalled;
-
-  /// Plugin Manager: NoneInstalledDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Discover plugins for your desktop, or add one using a repository link.'**
-  String get pluginsNoneInstalledDescription;
-
-  /// Plugin Manager: DiscoverAction.
-  ///
-  /// In en, this message translates to:
-  /// **'Discover Plugins'**
-  String get pluginsDiscoverAction;
-
-  /// Plugin Manager: UseDefaults.
-  ///
-  /// In en, this message translates to:
-  /// **'Use Denial defaults'**
-  String get pluginsUseDefaults;
-
-  /// Plugin Manager: NoMatches.
-  ///
-  /// In en, this message translates to:
-  /// **'No matching plugins'**
-  String get pluginsNoMatches;
-
-  /// Plugin Manager: NoMatchesDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Try another name or clear your search.'**
-  String get pluginsNoMatchesDescription;
-
-  /// Plugin Manager: AutomaticTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Included automatically'**
-  String get pluginsAutomaticTitle;
-
-  /// Plugin Manager: AutomaticDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'These keep your selected plugins working.'**
-  String get pluginsAutomaticDescription;
-
-  /// Plugin Manager: DiscoverMore.
-  ///
-  /// In en, this message translates to:
-  /// **'Discover more plugins'**
-  String get pluginsDiscoverMore;
-
-  /// Plugin Manager: PreparingDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing your desktop'**
-  String get pluginsPreparingDesktop;
-
-  /// Plugin Manager: PreparingDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial is getting everything ready. You can leave this window open or come back later.'**
-  String get pluginsPreparingDescription;
-
-  /// Plugin Manager: TryAgain.
-  ///
-  /// In en, this message translates to:
-  /// **'Try again'**
-  String get pluginsTryAgain;
-
-  /// Plugin Manager: FallbackDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Customize your desktop with this plugin.'**
-  String get pluginsFallbackDescription;
-
-  /// Plugin Manager: Selected.
-  ///
-  /// In en, this message translates to:
-  /// **'Selected'**
-  String get pluginsSelected;
-
-  /// Plugin Manager: NotSelected.
-  ///
-  /// In en, this message translates to:
-  /// **'Not selected'**
-  String get pluginsNotSelected;
-
-  /// Plugin Manager: DesktopOptions.
-  ///
-  /// In en, this message translates to:
-  /// **'Desktop options'**
-  String get pluginsDesktopOptions;
-
-  /// Plugin Manager: DesktopOptionsDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Updates, compatibility and recovery'**
-  String get pluginsDesktopOptionsDescription;
-
-  /// Plugin Manager: CheckUpdates.
-  ///
-  /// In en, this message translates to:
-  /// **'Check for plugin updates'**
-  String get pluginsCheckUpdates;
-
-  /// Plugin Manager: CheckCompatibility.
-  ///
-  /// In en, this message translates to:
-  /// **'Check compatibility'**
-  String get pluginsCheckCompatibility;
-
-  /// Plugin Manager: Undo.
-  ///
-  /// In en, this message translates to:
-  /// **'Undo last change'**
-  String get pluginsUndo;
-
-  /// Plugin Manager: Restore.
-  ///
-  /// In en, this message translates to:
-  /// **'Restore default desktop'**
-  String get pluginsRestore;
-
-  /// Plugin Manager: CheckSelection.
-  ///
-  /// In en, this message translates to:
-  /// **'Check your selection'**
-  String get pluginsCheckSelection;
-
-  /// Plugin Manager: StartupFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Saved plugins could not start'**
-  String get pluginsStartupFailed;
-
-  /// Plugin Manager: ChangeFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Change couldn’t be completed'**
-  String get pluginsChangeFailed;
-
-  /// Plugin Manager: SelectionChanged.
-  ///
-  /// In en, this message translates to:
-  /// **'Your selection has changed'**
-  String get pluginsSelectionChanged;
-
-  /// Plugin Manager: Paused.
-  ///
-  /// In en, this message translates to:
-  /// **'Your plugins are paused'**
-  String get pluginsPaused;
-
-  /// Plugin Manager: PendingReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Pending actions are ready'**
-  String get pluginsPendingReady;
-
-  /// Plugin Manager: PreparingSupport.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing plugin support'**
-  String get pluginsPreparingSupport;
-
-  /// Plugin Manager: ViewDetails.
-  ///
-  /// In en, this message translates to:
-  /// **'View details'**
-  String get pluginsViewDetails;
-
-  /// Plugin Manager: Discard.
-  ///
-  /// In en, this message translates to:
-  /// **'Discard'**
-  String get pluginsDiscard;
-
-  /// Plugin Manager: SwitchNow.
-  ///
-  /// In en, this message translates to:
-  /// **'Switch now'**
-  String get pluginsSwitchNow;
-
-  /// Plugin Manager: DismissError.
-  ///
-  /// In en, this message translates to:
-  /// **'Dismiss error'**
-  String get pluginsDismissError;
-
-  /// Plugin Manager: InProgress.
-  ///
-  /// In en, this message translates to:
-  /// **'In progress'**
-  String get pluginsInProgress;
-
-  /// Plugin Manager: DiscoverTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Discover plugins'**
-  String get pluginsDiscoverTitle;
-
-  /// Plugin Manager: DiscoverDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Add new features and make your desktop your own.'**
-  String get pluginsDiscoverDescription;
-
-  /// Plugin Manager: NothingFound.
-  ///
-  /// In en, this message translates to:
-  /// **'Nothing found yet'**
-  String get pluginsNothingFound;
-
-  /// Plugin Manager: NothingFoundDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Try another search, or add a plugin using its repository link.'**
-  String get pluginsNothingFoundDescription;
-
-  /// Plugin Manager: Official.
-  ///
-  /// In en, this message translates to:
-  /// **'Made for Denial'**
-  String get pluginsOfficial;
-
-  /// Plugin Manager: Community.
-  ///
-  /// In en, this message translates to:
-  /// **'From the community'**
-  String get pluginsCommunity;
-
-  /// Plugin Manager: RefreshDiscoveries.
-  ///
-  /// In en, this message translates to:
-  /// **'Refresh discoveries'**
-  String get pluginsRefreshDiscoveries;
-
-  /// Plugin Manager: NoCommunity.
-  ///
-  /// In en, this message translates to:
-  /// **'No community plugins are listed yet. Add a plugin using its repository link.'**
-  String get pluginsNoCommunity;
-
-  /// Plugin Manager: AddRepository.
-  ///
-  /// In en, this message translates to:
-  /// **'Add from a repository'**
-  String get pluginsAddRepository;
-
-  /// Plugin Manager: AddRepositoryDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Use a Git link to install a plugin from its developer.'**
-  String get pluginsAddRepositoryDescription;
-
-  /// Plugin Manager: AddLink.
-  ///
-  /// In en, this message translates to:
-  /// **'Add from a link'**
-  String get pluginsAddLink;
-
-  /// Plugin Manager: DiscoveryFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Some discoveries couldn’t be loaded. Try refreshing again.'**
-  String get pluginsDiscoveryFailed;
-
-  /// Plugin Manager: ByDenial.
-  ///
-  /// In en, this message translates to:
-  /// **'By Denial'**
-  String get pluginsByDenial;
-
-  /// Plugin Manager: CommunityPlugin.
-  ///
-  /// In en, this message translates to:
-  /// **'Community plugin'**
-  String get pluginsCommunityPlugin;
-
-  /// Plugin Manager: SelectedDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Selected for your desktop'**
-  String get pluginsSelectedDesktop;
-
-  /// Plugin Manager: Select.
-  ///
-  /// In en, this message translates to:
-  /// **'Select plugin'**
-  String get pluginsSelect;
-
-  /// Plugin Manager: RecentActivity.
-  ///
-  /// In en, this message translates to:
-  /// **'Recent activity'**
-  String get pluginsRecentActivity;
-
-  /// Plugin Manager: ActivityDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Installation progress and changes to your desktop.'**
-  String get pluginsActivityDescription;
-
-  /// Plugin Manager: NoActivity.
-  ///
-  /// In en, this message translates to:
-  /// **'No activity yet'**
-  String get pluginsNoActivity;
-
-  /// Plugin Manager: NoActivityDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin installations and desktop changes will appear here.'**
-  String get pluginsNoActivityDescription;
-
-  /// Plugin Manager: Completed.
-  ///
-  /// In en, this message translates to:
-  /// **'Completed'**
-  String get pluginsCompleted;
-
-  /// Plugin Manager: NeedsAttention.
-  ///
-  /// In en, this message translates to:
-  /// **'Needs attention'**
-  String get pluginsNeedsAttention;
-
-  /// Plugin Manager: NoCandidates.
-  ///
-  /// In en, this message translates to:
-  /// **'No plugin package candidates were found in this repository.'**
-  String get pluginsNoCandidates;
-
-  /// Plugin Manager: BringNew.
-  ///
-  /// In en, this message translates to:
-  /// **'Bring something new.'**
-  String get pluginsBringNew;
-
-  /// Plugin Manager: TrustDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Paste a repository link to find its plugins. Plugins become part of your desktop, so choose code you trust.'**
-  String get pluginsTrustDescription;
-
-  /// Plugin Manager: LocalDirectory.
-  ///
-  /// In en, this message translates to:
-  /// **'Local package or repository directory'**
-  String get pluginsLocalDirectory;
-
-  /// Plugin Manager: RepositoryLink.
-  ///
-  /// In en, this message translates to:
-  /// **'Repository link'**
-  String get pluginsRepositoryLink;
-
-  /// Plugin Manager: AdvancedOptions.
-  ///
-  /// In en, this message translates to:
-  /// **'Advanced options'**
-  String get pluginsAdvancedOptions;
-
-  /// Plugin Manager: GitRef.
-  ///
-  /// In en, this message translates to:
-  /// **'Branch, tag, or commit (optional)'**
-  String get pluginsGitRef;
-
-  /// Plugin Manager: LocalDevelopment.
-  ///
-  /// In en, this message translates to:
-  /// **'Local development'**
-  String get pluginsLocalDevelopment;
-
-  /// Plugin Manager: UseLocal.
-  ///
-  /// In en, this message translates to:
-  /// **'Use a local development checkout'**
-  String get pluginsUseLocal;
-
-  /// Plugin Manager: Choose.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose a plugin'**
-  String get pluginsChoose;
-
-  /// Plugin Manager: IncludeDependencies.
-  ///
-  /// In en, this message translates to:
-  /// **'We’ll include anything this plugin needs automatically.'**
-  String get pluginsIncludeDependencies;
-
-  /// Plugin Manager: Finding.
-  ///
-  /// In en, this message translates to:
-  /// **'Finding plugins…'**
-  String get pluginsFinding;
-
-  /// Plugin Manager: Find.
-  ///
-  /// In en, this message translates to:
-  /// **'Find plugins'**
-  String get pluginsFind;
-
-  /// Plugin Manager: Add.
-  ///
-  /// In en, this message translates to:
-  /// **'Add plugin'**
-  String get pluginsAdd;
-
-  /// Plugin Manager: YourPlugins.
-  ///
-  /// In en, this message translates to:
-  /// **'Your plugins'**
-  String get pluginsYourPlugins;
-
-  /// Plugin Manager: LogLoadFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'The build log could not be loaded.'**
-  String get pluginsLogLoadFailed;
-
-  /// Plugin Manager: TechnicalDetails.
-  ///
-  /// In en, this message translates to:
-  /// **'Technical details'**
-  String get pluginsTechnicalDetails;
-
-  /// Plugin Manager: BuildLog.
-  ///
-  /// In en, this message translates to:
-  /// **'Build log'**
-  String get pluginsBuildLog;
-
-  /// Plugin Manager: NoBuildOutput.
-  ///
-  /// In en, this message translates to:
-  /// **'No build output was recorded.'**
-  String get pluginsNoBuildOutput;
-
-  /// Plugin Manager: Close.
-  ///
-  /// In en, this message translates to:
-  /// **'Close'**
-  String get pluginsClose;
-
-  /// Plugin Manager: Done.
-  ///
-  /// In en, this message translates to:
-  /// **'Done'**
-  String get pluginsDone;
-
-  /// Plugin Manager: Apply.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply plugins'**
-  String get pluginsApply;
-
-  /// Plugin Manager: Build.
-  ///
-  /// In en, this message translates to:
-  /// **'Build plugins'**
-  String get pluginsBuild;
-
-  /// Plugin Manager: CheckChanges.
-  ///
-  /// In en, this message translates to:
-  /// **'Check your changes'**
-  String get pluginsCheckChanges;
-
-  /// Plugin Manager: Enable.
-  ///
-  /// In en, this message translates to:
-  /// **'Enable plugin'**
-  String get pluginsEnable;
-
-  /// Plugin Manager: Disable.
-  ///
-  /// In en, this message translates to:
-  /// **'Disable plugin'**
-  String get pluginsDisable;
-
-  /// Plugin Manager: Update.
-  ///
-  /// In en, this message translates to:
-  /// **'Update plugins'**
-  String get pluginsUpdate;
-
-  /// Plugin Manager: Rebuild.
-  ///
-  /// In en, this message translates to:
-  /// **'Rebuild plugins'**
-  String get pluginsRebuild;
-
-  /// Plugin Manager: Setup.
-  ///
-  /// In en, this message translates to:
-  /// **'Set up plugins'**
-  String get pluginsSetup;
-
-  /// Plugin Manager: ChooseDefaults.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose default plugins'**
-  String get pluginsChooseDefaults;
-
-  /// Plugin Manager: ActivityFallback.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin activity'**
-  String get pluginsActivityFallback;
-
-  /// Plugin Manager: Working.
-  ///
-  /// In en, this message translates to:
-  /// **'Working on your changes'**
-  String get pluginsWorking;
-
-  /// Plugin Manager: ApplyChanges.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply changes'**
-  String get pluginsApplyChanges;
-
-  /// Plugin Manager: ApplyPending.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply pending actions'**
-  String get pluginsApplyPending;
-
-  /// Plugin Manager: ApplySelectionUpdates.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply your selection changes and pending updates to your desktop.'**
-  String get pluginsApplySelectionUpdates;
-
-  /// Plugin Manager: ApplySelection.
-  ///
-  /// In en, this message translates to:
-  /// **'Apply your plugin selection changes to your desktop.'**
-  String get pluginsApplySelection;
-
-  /// Plugin Manager: ApplyUnchanged.
-  ///
-  /// In en, this message translates to:
-  /// **'Your switches are unchanged. Pending plugin updates need to be applied to your desktop.'**
-  String get pluginsApplyUnchanged;
-
-  /// Plugin Manager: StaleSelection.
-  ///
-  /// In en, this message translates to:
-  /// **'The selection changed elsewhere. Discard your draft to load the latest selection.'**
-  String get pluginsStaleSelection;
-
-  /// Plugin Manager: Updated.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial was updated.'**
-  String get pluginsUpdated;
-
-  /// Plugin Manager: FailureEngine.
-  ///
-  /// In en, this message translates to:
-  /// **'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.'**
-  String get pluginsFailureEngine;
-
-  /// Plugin Manager: FailureVersion.
-  ///
-  /// In en, this message translates to:
-  /// **'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.'**
-  String get pluginsFailureVersion;
-
-  /// Plugin Manager: FailurePanel.
-  ///
-  /// In en, this message translates to:
-  /// **'More than one desktop panel is selected. Keep one enabled, then apply again.'**
-  String get pluginsFailurePanel;
-
-  /// Plugin Manager: FailureConflict.
-  ///
-  /// In en, this message translates to:
-  /// **'Multiple plugins provide the same feature. Choose one, then apply again. Details identify the conflicting plugins.'**
-  String get pluginsFailureConflict;
-
-  /// Plugin Manager: FailureMissing.
-  ///
-  /// In en, this message translates to:
-  /// **'A required desktop feature is missing. Enable a plugin that provides it, then apply again.'**
-  String get pluginsFailureMissing;
-
-  /// Plugin Manager: FailureLogin.
-  ///
-  /// In en, this message translates to:
-  /// **'Log out and back into Denial once to finish the update. Your choices are saved.'**
-  String get pluginsFailureLogin;
-
-  /// Plugin Manager: FailureWorker.
-  ///
-  /// In en, this message translates to:
-  /// **'The background operation stopped unexpectedly. Check Activity before trying again.'**
-  String get pluginsFailureWorker;
-
-  /// Plugin Manager: FailureDownload.
-  ///
-  /// In en, this message translates to:
-  /// **'A download failed. Check your connection and try again.'**
-  String get pluginsFailureDownload;
-
-  /// Plugin Manager: FailureGeneric.
-  ///
-  /// In en, this message translates to:
-  /// **'This change could not be completed. Open details to see the cause.'**
-  String get pluginsFailureGeneric;
-
-  /// Plugin Manager: ToolsUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin tools are temporarily unavailable. Retrying automatically.'**
-  String get pluginsToolsUnavailable;
-
-  /// Plugin Manager: DartCompatible.
-  ///
-  /// In en, this message translates to:
-  /// **'Compatible Dart is required'**
-  String get pluginsDartCompatible;
-
-  /// Plugin Manager: DartRequired.
-  ///
-  /// In en, this message translates to:
-  /// **'Dart is required'**
-  String get pluginsDartRequired;
-
-  /// Plugin Manager: ToolsAttention.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin tools need attention'**
-  String get pluginsToolsAttention;
-
-  /// Plugin Manager: SetupFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparation could not finish. See Activity for details, then try again.'**
-  String get pluginsSetupFailed;
-
-  /// Plugin Manager: WaitingStart.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting to start'**
-  String get pluginsWaitingStart;
-
-  /// Plugin Manager: CloseWhileWorking.
-  ///
-  /// In en, this message translates to:
-  /// **'You can close this window. We’ll keep going.'**
-  String get pluginsCloseWhileWorking;
-
-  /// Plugin Manager: PreparingPlugins.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing your plugins'**
-  String get pluginsPreparingPlugins;
-
-  /// Plugin Manager: CheckingCompatibility.
-  ///
-  /// In en, this message translates to:
-  /// **'Checking plugin compatibility'**
-  String get pluginsCheckingCompatibility;
-
-  /// Plugin Manager: PreparingBuild.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing your desktop build'**
-  String get pluginsPreparingBuild;
-
-  /// Plugin Manager: CompilingSources.
-  ///
-  /// In en, this message translates to:
-  /// **'Compiling Dart sources'**
-  String get pluginsCompilingSources;
-
-  /// Plugin Manager: Optimizing.
-  ///
-  /// In en, this message translates to:
-  /// **'Optimizing and generating native code'**
-  String get pluginsOptimizing;
-
-  /// Plugin Manager: PreparingAssets.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing assets'**
-  String get pluginsPreparingAssets;
-
-  /// Plugin Manager: LoadingDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading your saved desktop'**
-  String get pluginsLoadingDesktop;
-
-  /// Plugin Manager: CompilingDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Compiling your desktop'**
-  String get pluginsCompilingDesktop;
-
-  /// Plugin Manager: VerifyingDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Verifying your desktop'**
-  String get pluginsVerifyingDesktop;
-
-  /// Plugin Manager: SwitchingPause.
-  ///
-  /// In en, this message translates to:
-  /// **'Switching when you pause'**
-  String get pluginsSwitchingPause;
-
-  /// Plugin Manager: ApplyingDesktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Applying and checking your desktop'**
-  String get pluginsApplyingDesktop;
-
-  /// Plugin Manager: VerifyingTools.
-  ///
-  /// In en, this message translates to:
-  /// **'Verifying plugin tools'**
-  String get pluginsVerifyingTools;
-
-  /// Plugin Manager: PreparingTools.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing plugin tools'**
-  String get pluginsPreparingTools;
-
-  /// Plugin Manager: ConfigurationDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose plugins from your library, then apply your changes together. Denial takes care of preparing everything your desktop needs.\n\nYou can also add plugins using a repository link. Previous working desktops remain available in the desktop menu.'**
-  String get pluginsConfigurationDescription;
-
-  /// Plugin Manager: SelectedCount.
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =0{0 selected} =1{1 selected} other{{count} selected}}'**
-  String pluginsSelectedCount(int count);
-
-  /// Plugin Manager: SwitchSemantics.
-  ///
-  /// In en, this message translates to:
-  /// **'{name} plugin'**
-  String pluginsSwitchSemantics(String name);
-
-  /// Plugin Manager: CandidateLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'{name} · {path}'**
-  String pluginsCandidateLabel(String name, String path);
-
-  /// Plugin Manager: StepsComplete.
-  ///
-  /// In en, this message translates to:
-  /// **'{completed} of {total} steps complete'**
-  String pluginsStepsComplete(int completed, int total);
-
-  /// Plugin Manager: Step.
-  ///
-  /// In en, this message translates to:
-  /// **'Step {step} of {total} · {label}'**
-  String pluginsStep(int step, int total, String label);
-
-  /// Plugin Manager: Elapsed.
-  ///
-  /// In en, this message translates to:
-  /// **'{stage} · {clock} elapsed'**
-  String pluginsElapsed(String stage, String clock);
-
-  /// Plugin Manager: InstalledVersion.
-  ///
-  /// In en, this message translates to:
-  /// **'Denial {version} is installed.'**
-  String pluginsInstalledVersion(String version);
-
-  /// Plugin Manager: RebuildDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'{introduction} Rebuild your plugins to bring them back, with all their settings. No need to log out.'**
-  String pluginsRebuildDescription(String introduction);
-
-  /// Plugin Manager: DartIncompatible.
-  ///
-  /// In en, this message translates to:
-  /// **'Dart {installed} is installed, but Denial requires {constraint}. Install a compatible Dart package and make sure dart is available in PATH, then try again.'**
-  String pluginsDartIncompatible(String installed, String constraint);
-
-  /// Plugin Manager: DartInstall.
-  ///
-  /// In en, this message translates to:
-  /// **'Install Dart with your system package manager. Denial recommends Dart {expected}. Make sure dart is available in PATH, then try again.'**
-  String pluginsDartInstall(String expected);
-
-  /// Plugin Manager: ProviderConflict.
-  ///
-  /// In en, this message translates to:
-  /// **'{feature} is provided by {plugins}. {owner} accepts at most {maximum} providers. Disable extra plugins before applying.'**
-  String pluginsProviderConflict(
-    String feature,
-    String plugins,
-    String owner,
-    int maximum,
-  );
-
-  /// Plugin Manager: ProviderMissing.
-  ///
-  /// In en, this message translates to:
-  /// **'{owner} needs at least {minimum} providers for {feature}. Enable a compatible plugin before applying.'**
-  String pluginsProviderMissing(String owner, int minimum, String feature);
-
-  /// Plugin Manager: InvalidDeclaration.
-  ///
-  /// In en, this message translates to:
-  /// **'{plugins} has invalid compatibility declarations. Open details to see the cause.'**
-  String pluginsInvalidDeclaration(String plugins);
-
-  /// Plugin Manager compatibility declaration or preflight failure summary.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin compatibility information needs attention. Check your selection and open details before applying again.'**
-  String get pluginsFailureDeclaration;
-
-  /// Plugin Manager: DesktopFeature.
+  /// Settings · flat shell navigation group.
   ///
   /// In en, this message translates to:
   /// **'Desktop'**
-  String get pluginsDesktopFeature;
+  String get settingsNavigationGroupDesktop;
 
-  /// Touch display keyboard and touchpad mode.
+  /// Settings · flat shell navigation group.
   ///
   /// In en, this message translates to:
-  /// **'Keyboard & touchpad display'**
-  String get inputDeckTitle;
+  /// **'System'**
+  String get settingsNavigationGroupSystem;
 
-  /// Touch display keyboard and touchpad mode.
+  /// Settings · flat shell navigation group.
   ///
   /// In en, this message translates to:
-  /// **'Keyboard & touchpad'**
-  String get inputDeckHeading;
+  /// **'Open navigation menu'**
+  String get settingsNavigationOpenMenu;
 
-  /// Touch display keyboard and touchpad mode.
+  /// Generic back action.
   ///
   /// In en, this message translates to:
-  /// **'Use touch display as keyboard and touchpad'**
-  String get inputDeckEnable;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Connect a touch display to configure this mode.'**
-  String get inputDeckUnavailable;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Use {output} for input whenever another display is available. Disconnect the external display to return to tablet mode.'**
-  String inputDeckEnableDescription(String output);
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Ready when a second display is connected and powered on.'**
-  String get inputDeckWaiting;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Touch display'**
-  String get inputDeckTouchDisplay;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Display to use for keyboard and touchpad input.'**
-  String get inputDeckTouchDisplayDescription;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Keyboard size'**
-  String get inputDeckKeyboardSize;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Touchpad width'**
-  String get inputDeckTouchpadWidth;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Touchpad height'**
-  String get inputDeckTouchpadHeight;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Pointer speed'**
-  String get inputDeckPointerSpeed;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Natural scrolling'**
-  String get inputDeckNaturalScroll;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Content follows the movement of your fingers.'**
-  String get inputDeckNaturalScrollDescription;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'CPU chart'**
-  String get inputDeckCpuChart;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Show processor usage above the keyboard.'**
-  String get inputDeckCpuDescription;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'GPU charts'**
-  String get inputDeckGpuCharts;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Show usage for GPUs that report it.'**
-  String get inputDeckGpuDescription;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Use as display'**
-  String get inputDeckUseAsDisplay;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Touchpad'**
-  String get inputDeckTouchpad;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Touchpad. One finger moves the pointer. Tap to click. Two fingers scroll or tap for right click. Double tap and hold to drag.'**
-  String get inputDeckTouchpadHint;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Left click'**
-  String get inputDeckLeftClick;
-
-  /// Touch display keyboard and touchpad mode.
-  ///
-  /// In en, this message translates to:
-  /// **'Right click'**
-  String get inputDeckRightClick;
-
-  /// Title above the lock screen PIN entry.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter PIN'**
-  String get lockEnterPin;
-
-  /// Title above the lock screen PIN entry after a notification was tapped; it opens once unlocked.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter PIN to open {applicationName}'**
-  String lockEnterPinToOpen(String applicationName);
-
-  /// Screen reader label for the lock screen PIN dots.
-  ///
-  /// In en, this message translates to:
-  /// **'PIN, {entered} of {length} digits entered'**
-  String lockPinProgress(int entered, int length);
-
-  /// Screen reader label for the hidden PIN field.
-  ///
-  /// In en, this message translates to:
-  /// **'PIN, obscured'**
-  String get lockPinObscured;
-
-  /// Shown after a rejected lock screen PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Wrong PIN'**
-  String get lockWrongPin;
-
-  /// Switches the lock screen from the PIN to the account password.
-  ///
-  /// In en, this message translates to:
-  /// **'Use password'**
-  String get lockUsePassword;
-
-  /// Switches the lock screen from the account password back to the PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Use PIN'**
-  String get lockUsePin;
-
-  /// Lock screen PIN keypad key that removes the last digit.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete'**
-  String get lockPinDelete;
-
-  /// Lock screen settings section for the optional unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'PIN'**
-  String get settingsLockPinTitle;
-
-  /// Lock screen settings row title.
-  ///
-  /// In en, this message translates to:
-  /// **'Unlock with a PIN'**
-  String get settingsLockPinLabel;
-
-  /// Lock screen settings row description.
-  ///
-  /// In en, this message translates to:
-  /// **'Type a short numeric PIN on the lock screen instead of your password. The password still unlocks too, and everything else keeps asking for it.'**
-  String get settingsLockPinDescription;
-
-  /// Status of the unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'On, {length} digits'**
-  String settingsLockPinOn(int length);
-
-  /// Status when no unlock PIN is set.
-  ///
-  /// In en, this message translates to:
-  /// **'Off'**
-  String get settingsLockPinOff;
-
-  /// Button that starts creating an unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Set up PIN'**
-  String get settingsLockPinSetUp;
-
-  /// Button that replaces the unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Change PIN'**
-  String get settingsLockPinChange;
-
-  /// Button that removes the unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Remove PIN'**
-  String get settingsLockPinRemove;
-
-  /// Button that saves a new unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Save PIN'**
-  String get settingsLockPinSave;
-
-  /// Field for the account password before changing the PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Account password'**
-  String get settingsLockPinPassword;
-
-  /// Field for the new unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'New PIN'**
-  String get settingsLockPinNew;
-
-  /// Field that repeats the new unlock PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Confirm PIN'**
-  String get settingsLockPinConfirm;
-
-  /// Helper text under the new PIN field.
-  ///
-  /// In en, this message translates to:
-  /// **'4 to 12 digits'**
-  String get settingsLockPinLengthHint;
-
-  /// Error when the confirmation differs from the new PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'The PINs don’t match'**
-  String get settingsLockPinMismatch;
-
-  /// Error when the account password is rejected.
-  ///
-  /// In en, this message translates to:
-  /// **'Wrong password'**
-  String get settingsLockPinWrongPassword;
-
-  /// Error when deniald could not save or remove the PIN.
-  ///
-  /// In en, this message translates to:
-  /// **'Couldn’t change the PIN. Try again.'**
-  String get settingsLockPinUnavailable;
-
-  /// A time on a 12-hour clock: 5:45 PM.
-  ///
-  /// In en, this message translates to:
-  /// **'{hour}:{minute} {period}'**
-  String timeTwelveHour(String hour, String minute, String period);
-
-  /// Before noon on a 12-hour clock.
-  ///
-  /// In en, this message translates to:
-  /// **'AM'**
-  String get timeMorning;
-
-  /// From noon on a 12-hour clock.
-  ///
-  /// In en, this message translates to:
-  /// **'PM'**
-  String get timeAfternoon;
-
-  /// Label for the Permissions destination in Settings navigation.
-  ///
-  /// In en, this message translates to:
-  /// **'Permissions'**
-  String get settingsNavigationPermissions;
-
-  /// Heading of the Permissions page in Settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Permissions'**
-  String get settingsPermissionsSection;
-
-  /// Description of the Permissions page in Settings.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose what apps may do. An app appears here once it has asked.'**
-  String get settingsPermissionsTitle;
-
-  /// Permissions page: the permission to receive Denial's shortcut keys.
-  ///
-  /// In en, this message translates to:
-  /// **'Keyboard shortcuts'**
-  String get settingsPermissionsKeyboardShortcutsTitle;
-
-  /// Permissions page: explains the keyboard shortcuts permission.
-  ///
-  /// In en, this message translates to:
-  /// **'While it has focus, an allowed app receives the keys Denial uses for its own shortcuts, such as Super.'**
-  String get settingsPermissionsKeyboardShortcutsDescription;
-
-  /// Permissions page: no app has asked for this permission.
-  ///
-  /// In en, this message translates to:
-  /// **'No app has asked yet.'**
-  String get settingsPermissionsNone;
-
-  /// Permissions page: xdg-permission-store could not be reached.
-  ///
-  /// In en, this message translates to:
-  /// **'Permissions can’t be read: the portal permission store is not available.'**
-  String get settingsPermissionsUnavailable;
-
-  /// Permissions page: storing an answer failed.
-  ///
-  /// In en, this message translates to:
-  /// **'Couldn’t save the change.'**
-  String get settingsPermissionsSaveFailed;
-
-  /// Permissions page: ask the next time the app wants the permission.
-  ///
-  /// In en, this message translates to:
-  /// **'Ask'**
-  String get settingsPermissionAsk;
-
-  /// Permissions page: always allow the permission.
-  ///
-  /// In en, this message translates to:
-  /// **'Always allow'**
-  String get settingsPermissionAllow;
-
-  /// Permissions page: never allow the permission.
-  ///
-  /// In en, this message translates to:
-  /// **'Never allow'**
-  String get settingsPermissionDeny;
-
-  /// Shell action and panel title: the color tuning editor.
-  ///
-  /// In en, this message translates to:
-  /// **'Tune colors'**
-  String get colorTuningAction;
-
-  /// Color tuning target: the whole desktop.
-  ///
-  /// In en, this message translates to:
-  /// **'Desktop'**
-  String get colorTuningDesktop;
-
-  /// Color tuning target chip when no app window has been focused yet.
-  ///
-  /// In en, this message translates to:
-  /// **'Tap a window'**
-  String get colorTuningNoApp;
-
-  /// Color tuning: the base LUT the grade sits on.
-  ///
-  /// In en, this message translates to:
-  /// **'Look'**
-  String get colorTuningBase;
-
-  /// Color tuning: no base LUT.
-  ///
-  /// In en, this message translates to:
-  /// **'None'**
-  String get colorTuningNoBase;
-
-  /// Color tuning: hold to show the target without the grade.
-  ///
-  /// In en, this message translates to:
-  /// **'Before'**
-  String get colorTuningBefore;
-
-  /// Color tuning: return every control to neutral.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset'**
-  String get colorTuningReset;
-
-  /// Color tuning: close the editor.
-  ///
-  /// In en, this message translates to:
-  /// **'Close'**
-  String get colorTuningClose;
-
-  /// Color tuning wheel: lift.
-  ///
-  /// In en, this message translates to:
-  /// **'Shadows'**
-  String get colorTuningShadows;
-
-  /// Color tuning wheel: gamma.
-  ///
-  /// In en, this message translates to:
-  /// **'Midtones'**
-  String get colorTuningMidtones;
-
-  /// Color tuning wheel: gain.
-  ///
-  /// In en, this message translates to:
-  /// **'Highlights'**
-  String get colorTuningHighlights;
-
-  /// Color tuning slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Exposure'**
-  String get colorTuningExposure;
-
-  /// Color tuning slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Contrast'**
-  String get colorTuningContrast;
-
-  /// Color tuning slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Saturation'**
-  String get colorTuningSaturation;
-
-  /// Color tuning slider.
-  ///
-  /// In en, this message translates to:
-  /// **'Vibrance'**
-  String get colorTuningVibrance;
-
-  /// Color tuning slider: white balance between cool and warm.
-  ///
-  /// In en, this message translates to:
-  /// **'Warmth'**
-  String get colorTuningWarmth;
-
-  /// Color tuning slider: white balance between green and magenta.
-  ///
-  /// In en, this message translates to:
-  /// **'Tint'**
-  String get colorTuningTint;
-
-  /// Color tuning: the compositor refused a change.
-  ///
-  /// In en, this message translates to:
-  /// **'Couldn’t change the colors.'**
-  String get colorTuningFailed;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Warm'**
-  String get colorPresetWarm;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Cool'**
-  String get colorPresetCool;
-
-  /// Color tuning: a built-in look, named after its author. Not translated.
-  ///
-  /// In en, this message translates to:
-  /// **'Logix'**
-  String get colorPresetLogix;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Matte'**
-  String get colorPresetMatte;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Film'**
-  String get colorPresetFilm;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Night'**
-  String get colorPresetNight;
-
-  /// Color tuning: a built-in look.
-  ///
-  /// In en, this message translates to:
-  /// **'Mono'**
-  String get colorPresetMono;
-
-  /// Color tuning: shows the built-in looks.
-  ///
-  /// In en, this message translates to:
-  /// **'Presets'**
-  String get colorTuningPresets;
-
-  /// Button on a phone recents card: moves the app to the external monitor.
-  ///
-  /// In en, this message translates to:
-  /// **'Move to monitor'**
-  String get moveToMonitor;
+  /// **'Back'**
+  String get commonBack;
 }
 
 class _AppLocalizationsDelegate
