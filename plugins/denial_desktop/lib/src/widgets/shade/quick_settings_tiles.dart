@@ -376,11 +376,11 @@ class QuickSettingsTiles extends StatelessWidget {
           _buildDesignRow(rowTiles, tileHeight: tileHeight, gutter: gutter),
         ],
         if (brightnessControl != null) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: gutter),
           revealRow(3, brightnessControl!),
         ],
         if (volumeControl != null) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: gutter),
           revealRow(4, volumeControl!),
         ],
       ],

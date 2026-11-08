@@ -8,11 +8,13 @@ import 'package:flutter/material.dart'
     show
         Colors,
         Icons,
-        RoundedRectSliderTrackShape,
-        SliderComponentShape,
+        BaseSliderTrackShape,
         RoundSliderThumbShape,
         Slider,
-        SliderTheme;
+        SliderComponentShape,
+        SliderTheme,
+        SliderThemeData,
+        SliderTrackShape;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1261,10 +1263,11 @@ class _HorizontalRangeCard extends StatelessWidget {
                       elevation: 2,
                     ),
                     overlayShape: SliderComponentShape.noOverlay,
-                    trackShape: const RoundedRectSliderTrackShape(),
+                    trackShape: const _FullWidthTrackShape(),
                   ),
                   child: Slider(
                     value: clamped,
+                    padding: EdgeInsets.zero,
                     onChangeStart: start == null ? null : (_) => start(),
                     onChanged: onChanged,
                     onChangeEnd: onChangeEnd,
@@ -1580,5 +1583,72 @@ class _FlashlightTileState extends ConsumerState<_FlashlightTile> {
       stacked: widget.stacked,
       onTap: () => ref.read(flashlightProvider.notifier).toggle(),
     );
+  }
+}
+
+/// A track that fills the slider's box instead of insetting itself by the
+/// thumb width; on a wide row the thumb never needs reserved space.
+class _FullWidthTrackShape extends SliderTrackShape with BaseSliderTrackShape {
+  const _FullWidthTrackShape();
+
+  @override
+  Rect getPreferredRect({
+    required RenderBox parentBox,
+    Offset offset = Offset.zero,
+    required SliderThemeData sliderTheme,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    final height = sliderTheme.trackHeight ?? 4;
+    return Rect.fromLTWH(
+      offset.dx,
+      offset.dy + (parentBox.size.height - height) / 2,
+      parentBox.size.width,
+      height,
+    );
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required TextDirection textDirection,
+    required Offset thumbCenter,
+    Offset? secondaryOffset,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    final height = sliderTheme.trackHeight;
+    if (height == null || height <= 0) return;
+    final rect = getPreferredRect(
+      parentBox: parentBox,
+      offset: offset,
+      sliderTheme: sliderTheme,
+      isEnabled: isEnabled,
+      isDiscrete: isDiscrete,
+    );
+    final radius = Radius.circular(rect.height / 2);
+    final canvas = context.canvas;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, radius),
+      Paint()..color = sliderTheme.inactiveTrackColor ?? Colors.transparent,
+    );
+    final thumbWidth =
+        sliderTheme.thumbShape?.getPreferredSize(isEnabled, isDiscrete).width ??
+        0;
+    final activeRight = (thumbCenter.dx + thumbWidth / 2).clamp(
+      rect.left,
+      rect.right,
+    );
+    final active = Rect.fromLTRB(rect.left, rect.top, activeRight, rect.bottom);
+    if (active.width > 0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(active, radius),
+        Paint()..color = sliderTheme.activeTrackColor ?? Colors.transparent,
+      );
+    }
   }
 }
