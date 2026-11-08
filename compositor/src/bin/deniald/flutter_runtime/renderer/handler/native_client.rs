@@ -192,10 +192,15 @@ impl FlutterGlHandler {
             "disabled_texture_ids":disabled,"live_allocation_bytes":state.pool.as_ref().map_or(0,|pool|pool.live_bytes())})
     }
 
+    /// `scale` is the engine's device pixel ratio: the merged image replaces
+    /// the surface tree at the resolution Flutter draws it. A root's buffer
+    /// scale says nothing about its subsurfaces, and is 1 for clients that
+    /// size buffers through wp_viewporter.
     pub(in crate::flutter_runtime) fn update_native_window_plans(
         &self,
         windows: &mut [wire::WindowDescription],
         frames: &[ExternalTextureFrame],
+        scale: f64,
         changed: &mut Vec<i64>,
     ) {
         let scene = crate::output_color::scene_encoding();
@@ -216,12 +221,9 @@ impl FlutterGlHandler {
             ) else {
                 continue;
             };
-            let Some(plan) = NativeWindowPlan::new(
-                window.window_id,
-                canvas,
-                f64::from(window.scale_120) / 120.0,
-                &window.surfaces,
-            ) else {
+            let Some(plan) =
+                NativeWindowPlan::new(window.window_id, canvas, scale, &window.surfaces)
+            else {
                 continue;
             };
             if state.disabled.contains(&plan.texture_id) {
