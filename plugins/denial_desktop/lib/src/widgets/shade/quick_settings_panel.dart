@@ -9,7 +9,7 @@ import 'package:flutter/material.dart'
         Colors,
         Icons,
         RoundedRectSliderTrackShape,
-        RoundSliderOverlayShape,
+        SliderComponentShape,
         RoundSliderThumbShape,
         Slider,
         SliderTheme;
@@ -1225,15 +1225,15 @@ class _HorizontalRangeCard extends StatelessWidget {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(9, 1, 9, 1),
+        padding: const EdgeInsets.fromLTRB(6, 1, 6, 1),
         child: Row(
           children: [
             Icon(
               icon,
-              size: 15 * inverse,
+              size: 14 * inverse,
               color: context.shellColors.panelText,
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 4),
             Text(
               label,
               style: TextStyle(
@@ -1245,7 +1245,7 @@ class _HorizontalRangeCard extends StatelessWidget {
                 decoration: TextDecoration.none,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: SizedBox(
                 height: 22,
@@ -1260,9 +1260,7 @@ class _HorizontalRangeCard extends StatelessWidget {
                       enabledThumbRadius: 4,
                       elevation: 2,
                     ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 10,
-                    ),
+                    overlayShape: SliderComponentShape.noOverlay,
                     trackShape: const RoundedRectSliderTrackShape(),
                   ),
                   child: Slider(
@@ -1275,28 +1273,24 @@ class _HorizontalRangeCard extends StatelessWidget {
               ),
             ),
             if (onSecondaryTap case final open?) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: open,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    color: context.shellColors.surfaceContainerHigh,
-                    borderRadius: theme.borderRadius(6),
-                  ),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
                   child: Icon(
                     Icons.chevron_right_rounded,
-                    size: 12,
-                    color: context.shellColors.panelText,
+                    size: 16,
+                    color: context.shellColors.panelText.withValues(alpha: .72),
                   ),
                 ),
               ),
             ],
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             SizedBox(
-              width: 30,
+              width: 26,
               child: Text(
                 '${(clamped * 100).round()}%',
                 textAlign: TextAlign.right,
