@@ -14,6 +14,7 @@ class ShellBackdropBlur extends StatelessWidget {
   const ShellBackdropBlur({
     required this.child,
     this.blur = true,
+    this.force = false,
     this.grouped = false,
     this.useWindowAlphaThreshold = false,
     this.singleWindowSurface = false,
@@ -30,6 +31,10 @@ class ShellBackdropBlur extends StatelessWidget {
 
   final Widget child;
   final bool blur;
+
+  /// Blur even when the theme's transparency mode is off. The shade uses
+  /// this so a translucent panel never shows a sharp app through it.
+  final bool force;
   final bool grouped;
   final bool useWindowAlphaThreshold;
   final bool singleWindowSurface;
@@ -58,7 +63,7 @@ class ShellBackdropBlur extends StatelessWidget {
     final radius = borderRadius?.resolve(Directionality.of(context));
     final available =
         blur &&
-        theme.backdropBlurEnabled &&
+        (theme.backdropBlurEnabled || force) &&
         (theme.transparencyMode == ShellTransparencyMode.glass ||
             theme.backdropBlurSigma > 0) &&
         (!useWindowAlphaThreshold || theme.backdropBlurOpacityThreshold < 1.0);
