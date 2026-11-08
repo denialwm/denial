@@ -205,44 +205,192 @@ class _LockPreview extends StatelessWidget {
               ),
               Positioned(
                 right: 24,
-                top: 22,
-                bottom: 22,
-                width: 168,
+                top: 20,
+                bottom: 20,
+                width: 208,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: context.shellColors.panelBackgroundBottom,
-                    borderRadius: DenialSurfaceGeometry.borderRadiusOf(context),
-                    border: Border.all(color: accent.withAlpha(96)),
-                    boxShadow: [
+                    color: ShellMediaColors.darkness.withValues(alpha: .46),
+                    borderRadius: DenialSurfaceGeometry.borderRadiusOf(
+                      context,
+                    ),
+                    border: Border.all(
+                      color: ShellMediaColors.lightForeground.withValues(
+                        alpha: .14,
+                      ),
+                    ),
+                    boxShadow: const [
                       BoxShadow(
-                        color: context.shellColors.shadow,
+                        color: Color(0x59000000),
                         blurRadius: 18,
                         offset: Offset(0, 8),
                       ),
                     ],
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Icon(
-                          Icons.lock_outline_rounded,
-                          size: 18,
-                          color: accent,
+                        Row(
+                          children: [
+                            Container(
+                              width: 26,
+                              height: 26,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: ShellMediaColors.lightForeground
+                                    .withValues(alpha: .12),
+                                border: Border.all(
+                                  color: ShellMediaColors.lightForeground
+                                      .withValues(alpha: .24),
+                                ),
+                              ),
+                              child: Text(
+                                'U',
+                                style: ShellText.base.copyWith(
+                                  color: ShellMediaColors.lightForeground,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    l10n.lockWelcomeBack,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: ShellText.base.copyWith(
+                                      color: ShellMediaColors.lightForeground,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    l10n.lockEnterPin,
+                                    style: ShellText.base.copyWith(
+                                      color: ShellMediaColors
+                                          .lightForegroundSecondary,
+                                      fontSize: 8.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 12,
+                              color: ShellMediaColors.lightForegroundSecondary,
+                            ),
+                          ],
                         ),
-                        const Spacer(),
-                        Text(
-                          l10n.lockWelcomeBack,
-                          style: ShellText.cardTitle.copyWith(fontSize: 14),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (var index = 0; index < 6; index++) ...[
+                              if (index > 0) const SizedBox(width: 7),
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: index < 4
+                                      ? ShellMediaColors.lightForeground
+                                      : Colors.transparent,
+                                  border: Border.all(
+                                    color: ShellMediaColors.lightForeground
+                                        .withValues(alpha: .34),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          l10n.lockPressEnter,
-                          style: ShellText.base.copyWith(
-                            color: context.applicationColors.secondary,
-                            fontSize: 9,
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final row in const [
+                                  ['1', '2', '3'],
+                                  ['4', '5', '6'],
+                                  ['7', '8', '9'],
+                                ]) ...[
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      for (final digit in row) ...[
+                                        if (digit != row.first)
+                                          const SizedBox(width: 6),
+                                        _PreviewKey(digit: digit),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                ],
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(width: 34),
+                                    const SizedBox(width: 6),
+                                    const _PreviewKey(digit: '0'),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      width: 34,
+                                      height: 26,
+                                      decoration: BoxDecoration(
+                                        color: ShellMediaColors.lightForeground
+                                            .withValues(alpha: .06),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(
+                                        Icons.backspace_outlined,
+                                        size: 12,
+                                        color: ShellMediaColors
+                                            .lightForegroundSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              l10n.lockUsePassword,
+                              style: ShellText.base.copyWith(
+                                color: accent,
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              '  ·  ',
+                              style: ShellText.base.copyWith(
+                                color: ShellMediaColors.lightForegroundSecondary,
+                                fontSize: 8.5,
+                              ),
+                            ),
+                            Text(
+                              l10n.commonCancel,
+                              style: ShellText.base.copyWith(
+                                color: ShellMediaColors.lightForegroundSecondary,
+                                fontSize: 8.5,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -251,6 +399,36 @@ class _LockPreview extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewKey extends StatelessWidget {
+  const _PreviewKey({required this.digit});
+
+  final String digit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 26,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: ShellMediaColors.lightForeground.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: ShellMediaColors.lightForeground.withValues(alpha: .10),
+        ),
+      ),
+      child: Text(
+        digit,
+        style: ShellText.base.copyWith(
+          color: ShellMediaColors.lightForeground,
+          fontSize: 12,
+          fontWeight: FontWeight.w300,
         ),
       ),
     );
