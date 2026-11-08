@@ -129,6 +129,17 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     }
   }
 
+  /// Re-reads the default sink after an output switch: devices carry their
+  /// own level and the worker's push may describe the old sink.
+  Future<void> refreshVolume() async {
+    final level = await _audio.readLevel();
+    if (level == null) return;
+    _handleAudioState(
+      AudioLevelState(level: level, requestSerial: 0),
+      _buildGeneration,
+    );
+  }
+
   Future<void> _loadInitialPowerProfile(int generation) async {
     final profile = await _power.read();
     if (isBuildGenerationActive(generation) && profile != null) {
