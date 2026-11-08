@@ -55,6 +55,7 @@ class SettingsAppearancePage extends StatefulWidget {
     required this.onOpenWallpaperSelector,
     required this.onColorSchemePreferenceChanged,
     required this.onAccentSourceChanged,
+    required this.onAccentColorChanged,
     required this.onOpenAccentPicker,
     required this.fontFamilies,
     required this.fontCatalogLoading,
@@ -92,6 +93,7 @@ class SettingsAppearancePage extends StatefulWidget {
   final ValueChanged<DesktopColorSchemePreference>
   onColorSchemePreferenceChanged;
   final ValueChanged<ShellAccentSource> onAccentSourceChanged;
+  final ValueChanged<Color> onAccentColorChanged;
   final VoidCallback onOpenAccentPicker;
   final List<String> fontFamilies;
   final bool fontCatalogLoading;
@@ -245,6 +247,16 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
                     ),
                     if (widget.settings.accentSource ==
                         ShellAccentSource.custom) ...[
+                      const SizedBox(height: 10),
+                      _AccentPresets(
+                        selected: widget.settings.customAccentColor,
+                        onSelected: (color) {
+                          widget.onAccentSourceChanged(
+                            ShellAccentSource.custom,
+                          );
+                          widget.onAccentColorChanged(color);
+                        },
+                      ),
                       const SizedBox(height: 10),
                       SettingsColorButton(
                         key: settingsAccentColorTriggerKey,
@@ -982,4 +994,77 @@ String _backdropBlurLevelLabel(
     ShellBackdropBlurLevel.good => l10n.settingsBackdropBlurLevelGood,
     ShellBackdropBlurLevel.best => l10n.settingsBackdropBlurLevelBest,
   };
+}
+
+/// A short palette of shell accents, so a colour can be picked without
+/// opening the wheel. The wheel stays for anything else.
+const _accentPresets = <Color>[
+  Color(0xFF11733C),
+  Color(0xFF2F9E6F),
+  Color(0xFF2F6FEB),
+  Color(0xFF7C5CD6),
+  Color(0xFFD9822B),
+  Color(0xFFD94F4F),
+  Color(0xFF1F9E9E),
+  Color(0xFFD9538C),
+];
+
+class _AccentPresets extends StatelessWidget {
+  const _AccentPresets({required this.selected, required this.onSelected});
+
+  final Color selected;
+  final ValueChanged<Color> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedValue = selected.toARGB32();
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: context.l10n.settingsShellAccentPresets,
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final color in _accentPresets)
+            Builder(
+              builder: (context) {
+                final active = color.toARGB32() == selectedValue;
+                return Semantics(
+                  button: true,
+                  selected: active,
+                  label: formatOpaqueColorHex(color),
+                  child: GestureDetector(
+                    onTap: () => onSelected(color),
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: active
+                              ? context.applicationColors.foreground
+                              : context.applicationColors.separator,
+                          width: active ? 2 : 1,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
 }

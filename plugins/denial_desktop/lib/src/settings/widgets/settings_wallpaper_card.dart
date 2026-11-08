@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:denial_flutter_sdk/materials.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
@@ -66,12 +71,12 @@ class SettingsWallpaperCard extends StatelessWidget {
           Text(l10n.settingsWallpaperDisplay(outputName!), style: secondary),
         ],
         const SizedBox(height: 16),
-        SettingsTextButton(
-          key: chooseKey,
-          label: external
+        _WallpaperActions(
+          chooseKey: chooseKey,
+          chooseLabel: external
               ? l10n.settingsWallpaperChooseFallback
               : l10n.settingsWallpaperChoose,
-          onPressed: onChoose,
+          onChoose: onChoose,
         ),
       ],
     );
@@ -189,6 +194,184 @@ class _WallpaperPreview extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The picker button and the Bing daily shortcut. Bing is fetched on demand
+/// and applied straight to the wallpaper store, so it never opens the picker.
+class _WallpaperActions extends ConsumerStatefulWidget {
+  const _WallpaperActions({
+    required this.chooseKey,
+    required this.chooseLabel,
+    required this.onChoose,
+  });
+
+  final Key chooseKey;
+  final String chooseLabel;
+  final VoidCallback onChoose;
+
+  @override
+  ConsumerState<_WallpaperActions> createState() => _WallpaperActionsState();
+}
+
+class _WallpaperActionsState extends ConsumerState<_WallpaperActions> {
+  static final Uri _archiveUri = Uri.parse(
+    'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN',
+  );
+  static const Duration _requestTimeout = Duration(seconds: 20);
+  static const Duration _downloadTimeout = Duration(seconds: 60);
+  static const int _maximumBytes = 64 * 1024 * 1024;
+
+  var _busy = false;
+  String? _error;
+
+  Future<void> _applyBingDaily() async {
+    final l10n = context.l10n;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(_archiveUri).timeout(_requestTimeout);
+      request.headers.set(
+        HttpHeaders.userAgentHeader,
+        'denial-settings/1.0',
+      );
+      final response = await request.close().timeout(_requestTimeout);
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        throw HttpException('Bing returned HTTP ${response.statusCode}');
+      }
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(_requestTimeout);
+      final decoded = jsonDecode(body);
+      final images = decoded is Map<String, dynamic> ? decoded['images'] : null;
+      if (images is! List || images.isEmpty || images.first is! Map) {
+        throw const FormatException('Invalid Bing response');
+      }
+      final image = (images.first as Map).cast<String, Object?>();
+      final urlBase = image['urlbase'] as String?;
+      final url = image['url'] as String?;
+      final imageUri = urlBase != null && urlBase.isNotEmpty
+          ? Uri.parse('https://www.bing.com${urlBase}_UHD.jpg')
+          : url != null && url.isNotEmpty
+          ? Uri.parse(
+              url.startsWith('http') ? url : 'https://www.bing.com$url',
+            )
+          : null;
+      if (imageUri == null) {
+        throw const FormatException('Missing Bing image URL');
+      }
+      final title = (image['title'] as String?)?.trim();
+
+      final imageRequest = await client
+          .getUrl(imageUri)
+          .timeout(_requestTimeout);
+      imageRequest.headers.set(
+        HttpHeaders.userAgentHeader,
+        'denial-settings/1.0',
+      );
+      final imageResponse = await imageRequest.close().timeout(_downloadTimeout);
+      if (imageResponse.statusCode != HttpStatus.ok) {
+        await imageResponse.drain<void>();
+        throw HttpException('Bing image returned HTTP ${imageResponse.statusCode}');
+      }
+      if (imageResponse.contentLength > _maximumBytes) {
+        await imageResponse.drain<void>();
+        throw const FormatException('Bing image is too large');
+      }
+      final paths = ref.read(runtimePathsProvider);
+      final directory = Directory(paths.wallpaperDirectory);
+      await directory.create(recursive: true);
+      final now = DateTime.now();
+      String two(int value) => value.toString().padLeft(2, '0');
+      final stamp = '${now.year}${two(now.month)}${two(now.day)}';
+      final file = File('${directory.path}/bing-daily-$stamp.jpg');
+      final sink = file.openWrite();
+      try {
+        await imageResponse.pipe(sink).timeout(_downloadTimeout);
+      } on Object {
+        await sink.close();
+        rethrow;
+      }
+      if (!mounted) {
+        return;
+      }
+      ref
+          .read(wallpaperControllerProvider.notifier)
+          .commitCandidate(
+            WallpaperCandidate(
+              id: 'bing-daily-$stamp',
+              providerId: 'bing',
+              label: (title == null || title.isEmpty)
+                  ? l10n.settingsWallpaperBingDaily
+                  : title,
+              previewUri: imageUri,
+              downloadUri: imageUri,
+              width: 3840,
+              height: 2160,
+              sourceUri: Uri.parse('https://www.bing.com'),
+            ),
+            WallpaperResource.file(file.path),
+            revealOriginFraction: const Offset(0.5, 0.5),
+            target: const WallpaperTarget.all(),
+          );
+      setState(() => _busy = false);
+    } on Object catch (error) {
+      debugPrint('Bing daily wallpaper failed: $error');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = l10n.settingsWallpaperBingFailed;
+      });
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SettingsTextButton(
+              key: widget.chooseKey,
+              label: widget.chooseLabel,
+              onPressed: widget.onChoose,
+            ),
+            SettingsTextButton(
+              label: _busy
+                  ? l10n.settingsWallpaperBingFetching
+                  : l10n.settingsWallpaperBingDaily,
+              onPressed: _busy ? null : _applyBingDaily,
+            ),
+          ],
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _error!,
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.35,
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

@@ -387,6 +387,7 @@ class _SettingsPageBody extends ConsumerWidget {
           onOpenWallpaperSelector: onOpenWallpaperSelector,
           onColorSchemePreferenceChanged: controller.setColorSchemePreference,
           onAccentSourceChanged: controller.setAccentSource,
+          onAccentColorChanged: controller.setCustomAccentColor,
           onOpenAccentPicker: onOpenAccentPicker,
           fontFamilies: fontCatalog.value ?? const <String>[],
           fontCatalogLoading: fontCatalog.isLoading,

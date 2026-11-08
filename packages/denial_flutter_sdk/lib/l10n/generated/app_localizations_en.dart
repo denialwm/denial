@@ -5558,4 +5558,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get lockEnterPassword => 'Enter password';
+
+  @override
+  String get settingsWallpaperBingDaily => 'Bing daily image';
+
+  @override
+  String get settingsWallpaperBingFetching => 'Fetching…';
+
+  @override
+  String get settingsWallpaperBingFailed =>
+      'Could not fetch Bing’s daily image. Check the connection and try again.';
+
+  @override
+  String get settingsShellAccentPresets => 'Preset colours';
 }

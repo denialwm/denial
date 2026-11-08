@@ -9933,6 +9933,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter password'**
   String get lockEnterPassword;
+
+  /// Appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Bing daily image'**
+  String get settingsWallpaperBingDaily;
+
+  /// Appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetching…'**
+  String get settingsWallpaperBingFetching;
+
+  /// Appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not fetch Bing’s daily image. Check the connection and try again.'**
+  String get settingsWallpaperBingFailed;
+
+  /// Appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset colours'**
+  String get settingsShellAccentPresets;
 }
 
 class _AppLocalizationsDelegate

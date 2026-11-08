@@ -5301,4 +5301,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get lockEnterPassword => '输入密码';
+
+  @override
+  String get settingsWallpaperBingDaily => '必应每日一图';
+
+  @override
+  String get settingsWallpaperBingFetching => '正在获取…';
+
+  @override
+  String get settingsWallpaperBingFailed => '无法获取必应每日一图，请检查网络后重试。';
+
+  @override
+  String get settingsShellAccentPresets => '预设颜色';
 }

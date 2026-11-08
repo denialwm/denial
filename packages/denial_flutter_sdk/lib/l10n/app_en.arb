@@ -7508,5 +7508,21 @@
   "lockEnterPassword": "Enter password",
   "@lockEnterPassword": {
     "description": "Lock screen · password prompt subtitle."
+  },
+  "settingsWallpaperBingDaily": "Bing daily image",
+  "@settingsWallpaperBingDaily": {
+    "description": "Appearance settings."
+  },
+  "settingsWallpaperBingFetching": "Fetching…",
+  "@settingsWallpaperBingFetching": {
+    "description": "Appearance settings."
+  },
+  "settingsWallpaperBingFailed": "Could not fetch Bing’s daily image. Check the connection and try again.",
+  "@settingsWallpaperBingFailed": {
+    "description": "Appearance settings."
+  },
+  "settingsShellAccentPresets": "Preset colours",
+  "@settingsShellAccentPresets": {
+    "description": "Appearance settings."
   }
 }

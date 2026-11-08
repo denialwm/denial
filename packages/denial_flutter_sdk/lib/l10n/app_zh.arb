@@ -1665,5 +1665,9 @@
   "settingsDeviceUptimeMinutes": "{minutes} 分钟",
   "settingsDeviceNotConnected": "未连接",
   "settingsDeviceReleaseBuild": "发布构建",
-  "lockEnterPassword": "输入密码"
+  "lockEnterPassword": "输入密码",
+  "settingsWallpaperBingDaily": "必应每日一图",
+  "settingsWallpaperBingFetching": "正在获取…",
+  "settingsWallpaperBingFailed": "无法获取必应每日一图，请检查网络后重试。",
+  "settingsShellAccentPresets": "预设颜色"
 }
