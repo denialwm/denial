@@ -801,10 +801,7 @@ fn application_command(
             .iter()
             .any(|argument| argument.starts_with("--force-device-scale-factor"))
     {
-        arguments.push(format!(
-            "--force-device-scale-factor={}",
-            scale.factor
-        ));
+        arguments.push(format!("--force-device-scale-factor={}", scale.factor));
     }
     if let (Some(scale), Some(ScaleBackend::Firefox)) = (scale, scale_backend) {
         write_firefox_scale(scale.factor);
@@ -1172,14 +1169,10 @@ fn wait_for_exit_or_arrival(arrivals: &OwnedFd, children: &[TrackedChild]) {
     };
 }
 
-
 /// Resolves the toolkit family for an application scale when the user left the
 /// backend on automatic. Unknown applications fall back to GTK, whose extra
 /// variables are ignored by other toolkits.
-fn detect_scale_backend(
-    desktop_file_id: Option<&str>,
-    arguments: &[String],
-) -> ScaleBackend {
+fn detect_scale_backend(desktop_file_id: Option<&str>, arguments: &[String]) -> ScaleBackend {
     let id = desktop_file_id.unwrap_or_default().to_ascii_lowercase();
     let executable = arguments
         .first()
@@ -1264,9 +1257,7 @@ fn write_firefox_scale(factor: f64) {
                 .filter(|line| !line.contains("layout.css.devPixelsPerPx"))
                 .collect();
             lines.push(&line);
-            if let Err(error) =
-                std::fs::write(&user_js, format!("{}\n", lines.join("\n")))
-            {
+            if let Err(error) = std::fs::write(&user_js, format!("{}\n", lines.join("\n"))) {
                 warn!(%error, path = %user_js.display(), "could not write Firefox UI scale");
             }
         }

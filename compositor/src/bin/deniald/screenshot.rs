@@ -394,7 +394,11 @@ fn notify_screenshot_saved(path: &Path) {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("Screenshots");
-    let summary = if zh { "截图已保存" } else { "Screenshot saved" };
+    let summary = if zh {
+        "截图已保存"
+    } else {
+        "Screenshot saved"
+    };
     let body = if zh {
         format!("{file} · 已复制到剪贴板")
     } else {

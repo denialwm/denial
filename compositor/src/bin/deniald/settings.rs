@@ -234,10 +234,7 @@ impl ApplicationEnvironment {
 
     /// The per-application UI scale, if the settings carry one. Values outside
     /// the supported range are ignored rather than passed to an application.
-    pub(super) fn scale_for(
-        &self,
-        desktop_file_id: Option<&str>,
-    ) -> Option<ApplicationScale> {
+    pub(super) fn scale_for(&self, desktop_file_id: Option<&str>) -> Option<ApplicationScale> {
         let raw = self
             .override_for(APPLICATION_SCALE_ENV, desktop_file_id)?
             .as_deref()?;
