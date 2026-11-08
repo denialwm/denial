@@ -5574,4 +5574,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get screenshotFullScreen => 'Full screen shot';
+
+  @override
+  String get settingsAudioOutputTitle => 'Output device';
+
+  @override
+  String get settingsAudioOutputLoading => 'Looking for output devices…';
+
+  @override
+  String get settingsAudioOutputUnavailable => 'Unavailable';
 }

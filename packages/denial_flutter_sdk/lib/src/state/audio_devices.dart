@@ -116,6 +116,14 @@ class AudioDevicesController extends Notifier<AudioDevicesState>
     );
     _audio.selectOutputDevice(name);
     _armResponseTimeout();
+    // The bridge applies the switch without publishing a fresh sink list;
+    // ask again shortly so the checkmark follows the audio.
+    final generation = _buildGeneration;
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
+      if (isBuildGenerationActive(generation)) {
+        _audio.requestOutputDevices();
+      }
+    });
   }
 
   void _handleDevices(List<AudioOutputDevice> devices, int generation) {

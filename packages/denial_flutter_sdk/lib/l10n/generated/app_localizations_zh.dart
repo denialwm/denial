@@ -5316,4 +5316,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get screenshotFullScreen => '全屏截图';
+
+  @override
+  String get settingsAudioOutputTitle => '输出设备';
+
+  @override
+  String get settingsAudioOutputLoading => '正在检测输出设备…';
+
+  @override
+  String get settingsAudioOutputUnavailable => '不可用';
 }

@@ -9963,6 +9963,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Full screen shot'**
   String get screenshotFullScreen;
+
+  /// Audio settings · output device selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Output device'**
+  String get settingsAudioOutputTitle;
+
+  /// Audio settings · output device selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Looking for output devices…'**
+  String get settingsAudioOutputLoading;
+
+  /// Audio settings · output device selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get settingsAudioOutputUnavailable;
 }
 
 class _AppLocalizationsDelegate

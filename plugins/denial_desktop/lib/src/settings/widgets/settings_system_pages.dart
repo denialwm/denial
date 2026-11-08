@@ -27,6 +27,7 @@ class _SettingsAudioPageState extends ConsumerState<SettingsAudioPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(appAudioProvider.notifier).refresh();
+        ref.read(audioDevicesProvider.notifier).refresh();
       }
     });
   }
@@ -38,6 +39,8 @@ class _SettingsAudioPageState extends ConsumerState<SettingsAudioPage> {
     final quickController = ref.read(quickSettingsProvider.notifier);
     final applications = ref.watch(appAudioProvider);
     final applicationController = ref.read(appAudioProvider.notifier);
+    final devices = ref.watch(audioDevicesProvider);
+    final deviceController = ref.read(audioDevicesProvider.notifier);
     return SettingsPageLayout(
       icon: Icons.volume_up_rounded,
       eyebrow: l10n.settingsAudioSection,
@@ -47,7 +50,10 @@ class _SettingsAudioPageState extends ConsumerState<SettingsAudioPage> {
         SettingsCommand(
           label: l10n.settingsRefresh,
           icon: Icons.refresh_rounded,
-          onPressed: applicationController.refresh,
+          onPressed: () {
+            applicationController.refresh();
+            deviceController.refresh();
+          },
         ),
       ],
       footer: SettingsErrorNotice(
@@ -57,6 +63,39 @@ class _SettingsAudioPageState extends ConsumerState<SettingsAudioPage> {
       children: [
         SettingsCardGroup(
           children: [
+            SettingsSection(
+              title: l10n.settingsAudioOutputTitle,
+              status: devices.activeDevice?.description,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (index, device) in devices.devices.indexed) ...[
+                    if (index > 0)
+                      Divider(
+                        height: 1,
+                        color: context.applicationColors.separator,
+                      ),
+                    _AudioOutputDeviceRow(
+                      device: device,
+                      busy: devices.changing,
+                      onSelected: () => deviceController.select(device.name),
+                    ),
+                  ],
+                  if (devices.devices.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        devices.loading
+                            ? l10n.settingsAudioOutputLoading
+                            : l10n.settingsAudioOutputUnavailable,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: context.applicationColors.secondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
             SettingsSection(
               title: l10n.settingsMasterOutputTitle,
               child: SettingsSlider(
@@ -498,6 +537,95 @@ class _SettingsNotice extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AudioOutputDeviceRow extends StatelessWidget {
+  const _AudioOutputDeviceRow({
+    required this.device,
+    required this.busy,
+    required this.onSelected,
+  });
+
+  final AudioOutputDevice device;
+  final bool busy;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final accent = ShellTheme.of(context).accent;
+    final enabled = device.available && !device.active && !busy;
+    return Semantics(
+      button: true,
+      selected: device.active,
+      label: device.description,
+      child: TextButton(
+        onPressed: enabled ? onSelected : null,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          foregroundColor: context.applicationColors.foreground,
+          alignment: AlignmentDirectional.centerStart,
+          shape: RoundedRectangleBorder(
+            borderRadius: DenialSurfaceGeometry.borderRadiusOf(
+              context,
+              inset: 8,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              device.active ? Icons.volume_up_rounded : Icons.speaker_rounded,
+              size: 20,
+              color: device.active
+                  ? accent
+                  : context.applicationColors.secondary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    device.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: device.active
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    device.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.applicationColors.secondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (device.active)
+              Icon(Icons.check_rounded, size: 18, color: accent)
+            else if (!device.available)
+              Text(
+                l10n.settingsAudioOutputUnavailable,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.applicationColors.secondary,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -7528,5 +7528,17 @@
   "screenshotFullScreen": "Full screen shot",
   "@screenshotFullScreen": {
     "description": "Screenshot selection · full-screen action."
+  },
+  "settingsAudioOutputTitle": "Output device",
+  "@settingsAudioOutputTitle": {
+    "description": "Audio settings · output device selection."
+  },
+  "settingsAudioOutputLoading": "Looking for output devices…",
+  "@settingsAudioOutputLoading": {
+    "description": "Audio settings · output device selection."
+  },
+  "settingsAudioOutputUnavailable": "Unavailable",
+  "@settingsAudioOutputUnavailable": {
+    "description": "Audio settings · output device selection."
   }
 }
