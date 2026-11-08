@@ -36,9 +36,8 @@ class AudioOutputSurface extends ConsumerWidget {
               border: Border.all(color: context.shellColors.hairline),
             ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
@@ -100,44 +99,52 @@ class AudioOutputSurface extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  if (state.devices.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        state.loading
-                            ? l10n.settingsAudioOutputLoading
-                            : l10n.settingsAudioOutputUnavailable,
-                        style: ShellText.base.copyWith(
-                          color: context.shellColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                    )
-                  else
-                    Column(
-                      children: [
-                        for (final (index, device)
-                            in state.devices.indexed) ...[
-                          if (index > 0) const SizedBox(height: 10),
-                          _AudioOutputOption(
-                            device: device,
-                            busy: state.changing,
-                            onSelected: () {
-                              controller.select(device.name);
-                              Future<void>.delayed(
-                                const Duration(milliseconds: 500),
-                                () {
-                                  ref
-                                      .read(quickSettingsProvider.notifier)
-                                      .refreshVolume();
-                                },
-                              );
-                              onClose();
-                            },
-                          ),
-                        ],
-                      ],
+                  // The device list takes the leftover height so the sheet
+                  // matches the Wi-Fi details sheet instead of hugging its
+                  // content.
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: state.devices.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                state.loading
+                                    ? l10n.settingsAudioOutputLoading
+                                    : l10n.settingsAudioOutputUnavailable,
+                                style: ShellText.base.copyWith(
+                                  color: context.shellColors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            )
+                          : Column(
+                              children: [
+                                for (final (index, device)
+                                    in state.devices.indexed) ...[
+                                  if (index > 0) const SizedBox(height: 10),
+                                  _AudioOutputOption(
+                                    device: device,
+                                    busy: state.changing,
+                                    onSelected: () {
+                                      controller.select(device.name);
+                                      Future<void>.delayed(
+                                        const Duration(milliseconds: 500),
+                                        () {
+                                          ref
+                                              .read(
+                                                quickSettingsProvider.notifier,
+                                              )
+                                              .refreshVolume();
+                                        },
+                                      );
+                                      onClose();
+                                    },
+                                  ),
+                                ],
+                              ],
+                            ),
                     ),
+                  ),
                   const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
