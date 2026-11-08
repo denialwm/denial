@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_fingerprint_verify_v1">
+  <copyright>
+    Copyright 2026 Denial contributors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="denial_fingerprint_verifier_v1" version="1">
+    <description summary="ask the user to touch the fingerprint sensor">
+      A client asks Denial to verify the session user's fingerprint, as a
+      phone does for an application's biometric prompt. Denial shows the
+      sensor, runs the reader with the lighting and feedback it uses for its
+      own lock screen, and reports the result. The client draws no sensor of
+      its own.
+
+      Only the session's unlocked desktop verifies for a client. While the
+      session is locked, a pending verification waits; it continues once the
+      session is unlocked again. One verification runs at a time: a newer one,
+      from any client, ends the older with done(cancelled).
+
+      A match proves only that an enrolled finger touched the reader while
+      the verification was pending. It is never an unlock.
+    </description>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the verifier">
+        Existing verifications are unaffected.
+      </description>
+    </request>
+    <request name="verify">
+      <description summary="start a verification">
+        A host without a usable reader ends it at once with done(unavailable).
+      </description>
+      <arg name="id" type="new_id" interface="denial_fingerprint_verification_v1"/>
+    </request>
+  </interface>
+
+  <interface name="denial_fingerprint_verification_v1" version="1">
+    <description summary="one pending fingerprint verification">
+      Events arrive until done. After done the object is inert and the client
+      destroys it.
+    </description>
+    <enum name="outcome">
+      <entry name="match" value="0" summary="an enrolled finger matched"/>
+      <entry name="unavailable" value="1" summary="the reader cannot verify now"/>
+      <entry name="cancelled" value="2" summary="a newer verification replaced this one"/>
+    </enum>
+    <request name="destroy" type="destructor">
+      <description summary="cancel or release the verification">
+        A pending verification stops and the sensor is no longer shown.
+      </description>
+    </request>
+    <event name="ready">
+      <description summary="the reader is listening">
+        Sent each time the reader arms, including after a rejected finger.
+      </description>
+    </event>
+    <event name="rejected">
+      <description summary="a finger did not match">
+        The reader listens again; the verification stays pending.
+      </description>
+    </event>
+    <event name="done">
+      <description summary="the verification ended"/>
+      <arg name="outcome" type="uint" enum="outcome"/>
+    </event>
+  </interface>
+</protocol>

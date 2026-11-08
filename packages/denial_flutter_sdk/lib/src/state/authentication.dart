@@ -59,6 +59,7 @@ class AuthenticationState {
     this.fingerprintReader = false,
     this.fingerprintAvailable = false,
     this.fingerprintScanning = false,
+    this.fingerprintWanted = false,
     this.fingerprintSensor,
   });
 
@@ -78,6 +79,7 @@ class AuthenticationState {
       fingerprintReader = false,
       fingerprintAvailable = false,
       fingerprintScanning = false,
+      fingerprintWanted = false,
       fingerprintSensor = null;
 
   final bool synchronized;
@@ -108,6 +110,10 @@ class AuthenticationState {
   /// A finger is present while the reader is processing a scan.
   final bool fingerprintScanning;
 
+  /// The reader serves the lock screen or an application that asked for a
+  /// fingerprint, so the shell marks the sensor.
+  final bool fingerprintWanted;
+
   /// Under-display sensor, as fractions of the panel in its native
   /// orientation. Null for readers that sit outside the screen.
   final Rect? fingerprintSensor;
@@ -134,6 +140,7 @@ class AuthenticationState {
     bool? fingerprintReader,
     bool? fingerprintAvailable,
     bool? fingerprintScanning,
+    bool? fingerprintWanted,
     Rect? fingerprintSensor,
     bool clearFingerprintSensor = false,
   }) {
@@ -157,6 +164,7 @@ class AuthenticationState {
       fingerprintReader: fingerprintReader ?? this.fingerprintReader,
       fingerprintAvailable: fingerprintAvailable ?? this.fingerprintAvailable,
       fingerprintScanning: fingerprintScanning ?? this.fingerprintScanning,
+      fingerprintWanted: fingerprintWanted ?? this.fingerprintWanted,
       fingerprintSensor: clearFingerprintSensor
           ? null
           : (fingerprintSensor ?? this.fingerprintSensor),
@@ -258,6 +266,7 @@ class AuthenticationController extends Notifier<AuthenticationState>
         fingerprintReader: fingerprint != null,
         fingerprintAvailable: fingerprint?.ready ?? false,
         fingerprintScanning: fingerprint?.scanning ?? false,
+        fingerprintWanted: fingerprint?.wanted ?? false,
         fingerprintSensor: fingerprint?.sensor,
         clearFingerprintSensor: fingerprint?.sensor == null,
       );
@@ -324,25 +333,25 @@ class AuthenticationController extends Notifier<AuthenticationState>
 
   /// Null without a reader; deniald sends an empty payload then. A payload
   /// without `ready` comes from a deniald that reported only armed readers.
-  static ({Rect? sensor, bool ready, bool scanning})? _credentialFingerprint(
-    String payload,
-  ) {
+  static ({Rect? sensor, bool ready, bool scanning, bool wanted})?
+  _credentialFingerprint(String payload) {
     if (payload.isEmpty) return null;
     try {
       final fingerprint = (jsonDecode(payload) as Map)['fingerprint'];
       if (fingerprint is! Map) return null;
       final ready = fingerprint['ready'] != false;
       final scanning = fingerprint['scanning'] == true;
+      final wanted = fingerprint['wanted'] == true;
       final sensor = fingerprint['sensor'];
       if (sensor is! Map) {
-        return (sensor: null, ready: ready, scanning: scanning);
+        return (sensor: null, ready: ready, scanning: scanning, wanted: wanted);
       }
       final values = [
         for (final key in const ['x', 'y', 'width', 'height'])
           (sensor[key] as num?)?.toDouble(),
       ];
       if (values.any((value) => value == null || !value.isFinite)) {
-        return (sensor: null, ready: ready, scanning: scanning);
+        return (sensor: null, ready: ready, scanning: scanning, wanted: wanted);
       }
       final rect = Rect.fromLTWH(
         values[0]!,
@@ -357,7 +366,12 @@ class AuthenticationController extends Notifier<AuthenticationState>
           rect.top >= 0 &&
           rect.right <= 1 &&
           rect.bottom <= 1;
-      return (sensor: valid ? rect : null, ready: ready, scanning: scanning);
+      return (
+        sensor: valid ? rect : null,
+        ready: ready,
+        scanning: scanning,
+        wanted: wanted,
+      );
     } on Object {
       return null;
     }

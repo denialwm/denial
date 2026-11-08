@@ -399,8 +399,8 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                     desktop: widget.desktop,
                   ),
                 ),
-              // The sensor mark and the swipe pill stay put and fade as the
-              // face moves away.
+              // The swipe pill stays put and fades as the face moves away.
+              // The shell draws the fingerprint mark (FingerprintMark).
               if (!widget.desktop && widget.authenticationEnabled) ...[
                 _AmbientHidden(
                   opacity: _ambientHidden,
@@ -408,14 +408,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                     face: _face,
                     fadeDistance: _dragDistance(size.height) * _unlockThreshold,
                   ),
-                ),
-                _LockFingerprintRing(
-                  present: authentication.fingerprintReader,
-                  ready: authentication.fingerprintAvailable,
-                  scanning: authentication.fingerprintScanning,
-                  sensor: authentication.fingerprintSensor,
-                  face: _face,
-                  fadeDistance: _dragDistance(size.height) * _unlockThreshold,
                 ),
               ],
               CompositedTranslation(

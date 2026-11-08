@@ -1267,6 +1267,17 @@ pub(super) fn is_root_client(client: &Client) -> bool {
         .is_some_and(|state| state.peer_uid == Some(0))
 }
 
+/// Root, or the user the session runs as.
+#[cfg(feature = "flutter")]
+pub(super) fn is_session_user_client(client: &Client) -> bool {
+    // SAFETY: getuid has no preconditions.
+    let session_uid = unsafe { libc::getuid() };
+    client
+        .get_data::<handlers::DenialClientState>()
+        .and_then(|state| state.peer_uid)
+        .is_some_and(|uid| uid == 0 || uid == session_uid)
+}
+
 #[cfg(all(test, feature = "flutter"))]
 pub(super) fn fingerprint_test_client(uid: Option<u32>) -> Arc<dyn ClientData> {
     let mut data = handlers::DenialClientState::default();

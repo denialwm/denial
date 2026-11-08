@@ -856,6 +856,13 @@ struct AuthenticationState {
     fingerprint_enabled: bool,
     /// Under-display sensor as panel fractions: x, y, width, height.
     fingerprint_sensor: Option<[f64; 4]>,
+    /// The reader serves the lock screen or an application, so the shell
+    /// marks the sensor.
+    fingerprint_wanted: bool,
+    /// The application verification the reader serves while unlocked; a
+    /// newer request replaces it.
+    app_request: Option<u64>,
+    next_app_request: u64,
     /// Asks the worker to re-read the PIN record, which Settings may have
     /// changed while the session was unlocked.
     credential_refresh: bool,
@@ -889,6 +896,24 @@ struct SharedAuthentication {
     /// Wakes a listening fingerprint scan to recheck its cancellation.
     fingerprint_changed: crate::wakeup::Wakeup,
     events: Mutex<VecDeque<AuthenticationEvent>>,
+    app_events: Mutex<VecDeque<(u64, AppFingerprintEvent)>>,
+}
+
+/// What an application's fingerprint verification hears.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AppFingerprintEvent {
+    /// The reader listens for a finger.
+    Ready,
+    /// A finger did not match; the reader listens again.
+    Rejected,
+    Done(AppFingerprintResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AppFingerprintResult {
+    Match,
+    Unavailable,
+    Cancelled,
 }
 
 impl SharedAuthentication {
@@ -905,6 +930,16 @@ impl SharedAuthentication {
         }
         events.push_back(event);
         self.events_pending.store(true, Ordering::Release);
+        drop(events);
+        crate::loop_wake::wake();
+    }
+
+    fn push_app_event(&self, request: u64, event: AppFingerprintEvent) {
+        let mut events = lock_unpoisoned(&self.app_events);
+        if events.len() == MAX_PENDING_EVENTS {
+            events.pop_front();
+        }
+        events.push_back((request, event));
         drop(events);
         crate::loop_wake::wake();
     }
@@ -998,6 +1033,9 @@ impl AuthenticationController {
                 fingerprint_offered: true,
                 fingerprint_enabled: true,
                 fingerprint_sensor: None,
+                fingerprint_wanted: false,
+                app_request: None,
+                next_app_request: 1,
                 credential_refresh: true,
                 available,
                 unavailable_reason,
@@ -1006,6 +1044,7 @@ impl AuthenticationController {
             }),
             condition: Condvar::new(),
             events: Mutex::new(VecDeque::with_capacity(16)),
+            app_events: Mutex::new(VecDeque::new()),
         });
         let worker_shared = Arc::clone(&shared);
         let username = current_username();
@@ -1153,6 +1192,37 @@ impl AuthenticationController {
         self.shared.notify();
         self.publish_state();
         true
+    }
+
+    /// An application asks for a fingerprint. The reader serves it while the
+    /// session is unlocked; an older request ends as cancelled.
+    pub(super) fn request_fingerprint(&self) -> u64 {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        let request = state.next_app_request;
+        state.next_app_request = request.wrapping_add(1);
+        if let Some(older) = state.app_request.replace(request) {
+            self.shared.push_app_event(
+                older,
+                AppFingerprintEvent::Done(AppFingerprintResult::Cancelled),
+            );
+        }
+        drop(state);
+        self.shared.notify();
+        request
+    }
+
+    /// The application no longer waits for this request.
+    pub(super) fn end_fingerprint_request(&self, request: u64) {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        if state.app_request == Some(request) {
+            state.app_request = None;
+            drop(state);
+            self.shared.notify();
+        }
+    }
+
+    pub(super) fn take_fingerprint_events(&self) -> Vec<(u64, AppFingerprintEvent)> {
+        lock_unpoisoned(&self.shared.app_events).drain(..).collect()
     }
 
     pub(super) fn try_event(&self) -> Option<AuthenticationEvent> {
@@ -1532,7 +1602,12 @@ fn credential_event(
             },
         );
         serde_json::json!({
-            "fingerprint": {"sensor": sensor, "ready": state.fingerprint_ready, "scanning": state.fingerprint_scanning}
+            "fingerprint": {
+                "sensor": sensor,
+                "ready": state.fingerprint_ready,
+                "scanning": state.fingerprint_scanning,
+                "wanted": state.fingerprint_wanted,
+            }
         })
         .to_string()
     } else {
