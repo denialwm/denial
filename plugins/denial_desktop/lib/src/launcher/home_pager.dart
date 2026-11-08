@@ -111,9 +111,19 @@ class _HomePagerState extends State<HomePager> {
         );
         final visualHeight =
             (geometry.rows - 1) * geometry.stepY + rowVisualHeight;
+        // Center the visible grid between the status row above and the dock
+        // below, instead of leaving all of the spare height at the bottom.
+        final verticalOffset =
+            ((constraints.maxHeight -
+                        visualHeight -
+                        HomePager.dotsReservedHeight) /
+                    2)
+                .clamp(0.0, double.infinity);
         final dotsTop =
+            verticalOffset +
             visualHeight +
             (constraints.maxHeight -
+                        verticalOffset -
                         visualHeight -
                         HomePager.dotsReservedHeight)
                     .clamp(0.0, double.infinity) /
@@ -153,11 +163,14 @@ class _HomePagerState extends State<HomePager> {
           children: [
             Align(
               alignment: Alignment.topCenter,
-              child: SizedBox(
-                key: widget.viewportKey,
-                width: double.infinity,
-                height: geometry.height,
-                child: content,
+              child: Padding(
+                padding: EdgeInsets.only(top: verticalOffset),
+                child: SizedBox(
+                  key: widget.viewportKey,
+                  width: double.infinity,
+                  height: geometry.height,
+                  child: content,
+                ),
               ),
             ),
             if (slots != null)

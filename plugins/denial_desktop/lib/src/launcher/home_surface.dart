@@ -15,6 +15,7 @@ import 'home_grid_geometry.dart';
 import 'home_icon_locator.dart';
 import 'home_interactions.dart';
 import 'home_launch.dart';
+import '../features/mobile/mobile_dock_layer.dart';
 import 'home_pager.dart';
 import 'home_resize_controller.dart';
 import 'widgets/home_backdrop.dart';
@@ -51,7 +52,8 @@ class HomeSurface extends ConsumerStatefulWidget {
 
 class _HomeSurfaceState extends ConsumerState<HomeSurface>
     implements HomeGridHost, HomeInteractions {
-  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(0, 66, 0, 4);
+  // The bottom reserves the home dock and the gesture strip above it.
+  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(0, 66, 0, 124);
 
   /// A widget held in its resize frame starts moving past this distance.
   static const double _widgetDragSlop = 28;
@@ -428,6 +430,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
               ),
             ),
             const Positioned.fill(child: HomeFolderPanel()),
+            const Positioned.fill(child: MobileDockLayer()),
+            // Above the dock, so a lifted icon stays visible over it.
             const Positioned.fill(child: HomeDragLayer()),
           ],
         ),
