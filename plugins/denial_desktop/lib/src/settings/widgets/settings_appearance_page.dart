@@ -229,53 +229,56 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
                 label: l10n.settingsShellAccentTitle,
                 description: l10n.settingsShellAccentDescription,
                 controlWidth: 520,
-                control: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    // Source, custom colour and the picker read as one line.
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SettingsSegmentedControl<ShellAccentSource>(
-                          value: widget.settings.accentSource,
-                          choices: [
-                            SettingsChoice(
-                              ShellAccentSource.wallpaper,
-                              l10n.settingsShellAccentWallpaper,
-                            ),
-                            SettingsChoice(
-                              ShellAccentSource.custom,
-                              l10n.settingsShellAccentCustom,
+                control: SizedBox(
+                  width: double.infinity,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Source, custom colour and the picker read as one line.
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SettingsSegmentedControl<ShellAccentSource>(
+                            value: widget.settings.accentSource,
+                            choices: [
+                              SettingsChoice(
+                                ShellAccentSource.wallpaper,
+                                l10n.settingsShellAccentWallpaper,
+                              ),
+                              SettingsChoice(
+                                ShellAccentSource.custom,
+                                l10n.settingsShellAccentCustom,
+                              ),
+                            ],
+                            onChanged: widget.onAccentSourceChanged,
+                          ),
+                          if (widget.settings.accentSource ==
+                              ShellAccentSource.custom) ...[
+                            const SizedBox(width: 10),
+                            SettingsColorButton(
+                              key: settingsAccentColorTriggerKey,
+                              color: widget.settings.customAccentColor,
+                              label: l10n.settingsShellAccentChoose,
+                              onPressed: widget.onOpenAccentPicker,
                             ),
                           ],
-                          onChanged: widget.onAccentSourceChanged,
-                        ),
-                        if (widget.settings.accentSource ==
-                            ShellAccentSource.custom) ...[
-                          const SizedBox(width: 10),
-                          SettingsColorButton(
-                            key: settingsAccentColorTriggerKey,
-                            color: widget.settings.customAccentColor,
-                            label: l10n.settingsShellAccentChoose,
-                            onPressed: widget.onOpenAccentPicker,
-                          ),
                         ],
-                      ],
-                    ),
-                    if (widget.settings.accentSource ==
-                        ShellAccentSource.custom) ...[
-                      const SizedBox(height: 10),
-                      _AccentPresets(
-                        selected: widget.settings.customAccentColor,
-                        onSelected: (color) {
-                          widget.onAccentSourceChanged(
-                            ShellAccentSource.custom,
-                          );
-                          widget.onAccentColorChanged(color);
-                        },
                       ),
+                      if (widget.settings.accentSource ==
+                          ShellAccentSource.custom) ...[
+                        const SizedBox(height: 10),
+                        _AccentPresets(
+                          selected: widget.settings.customAccentColor,
+                          onSelected: (color) {
+                            widget.onAccentSourceChanged(
+                              ShellAccentSource.custom,
+                            );
+                            widget.onAccentColorChanged(color);
+                          },
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -437,8 +440,7 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
               ),
             ),
           ),
-        ]
-        else ...[
+        ] else ...[
           if (mode == ShellTransparencyMode.blur)
             SettingsCardPadding(
               child: SettingsSlider(
