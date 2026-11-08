@@ -79,10 +79,11 @@ class SettingsPageScaffold extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 description!,
-                style: TextStyle(
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   fontSize: 13,
                   height: 1.4,
                   color: context.applicationColors.secondary,
+                  decoration: TextDecoration.none,
                 ),
               ),
             ],

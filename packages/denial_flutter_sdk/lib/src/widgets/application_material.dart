@@ -131,13 +131,23 @@ class DenialFlatApplicationFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Pages draw their headers directly on this surface, so they need the
+    // application's text defaults rather than the framework's root debug style.
+    final body = DefaultTextStyle(
+      style:
+          Theme.of(context).textTheme.bodyMedium?.copyWith(
+            decoration: TextDecoration.none,
+          ) ??
+          const TextStyle(decoration: TextDecoration.none),
+      child: content,
+    );
     return ColoredBox(
       color: context.applicationColors.canvas,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(width: navigationWidth, child: navigation),
-          Expanded(child: content),
+          Expanded(child: body),
         ],
       ),
     );
