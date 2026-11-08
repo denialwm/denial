@@ -43,7 +43,7 @@ notification stands whose `desktop-entry` is the calls app the settings name
 app's window over the lock screen. The window keeps running, takes touch,
 and the screen wakes when it first shows; the keyboard stays with the lock
 screen. The app has to be running: whoever posts the call starts it. On
-Denial phones denial-apps' `calls-manager` posts both notifications and
+Denial phones Phonewave's `calls-manager` posts both notifications and
 starts the calls app when a call rings while the phone is locked.
 
 ## Messaging apps
