@@ -349,7 +349,8 @@ class _LockClockBlock extends StatelessWidget {
               child: HomeClockWidget(
                 clock: clock,
                 showStatus: showSystemStatus,
-                timeStretch: desktop ? 1.0 : 2.0,
+                // The lock reads as a normal clock in both orientations.
+                timeStretch: 1.0,
                 detailsAbove: !desktop,
                 dateColor: desktop
                     ? ShellMediaColors.lightForegroundSecondary

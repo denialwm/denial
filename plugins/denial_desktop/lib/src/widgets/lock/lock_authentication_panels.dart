@@ -316,7 +316,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
         child: SafeArea(
           minimum: const EdgeInsets.fromLTRB(18, 12, 18, 22),
           child: Align(
-            alignment: Alignment.bottomCenter,
+            alignment: const Alignment(0, 0.12),
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: 620,

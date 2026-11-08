@@ -1491,13 +1491,15 @@ class _LockPinCardState extends ConsumerState<_LockPinCard>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              CompositedTranslation(
-                translation: _shakeOffset,
-                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                child: _PinDots(
-                  length: authentication.pinLength.clamp(1, 12),
-                  filled: _filled,
-                  error: _wrong,
+              Center(
+                child: CompositedTranslation(
+                  translation: _shakeOffset,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  child: _PinDots(
+                    length: authentication.pinLength.clamp(1, 12),
+                    filled: _filled,
+                    error: _wrong,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),

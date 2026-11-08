@@ -260,6 +260,11 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
         // this change causes tells it again what the pane shows.
         if (next.locked && !(previous?.locked ?? false)) {
           _fingerprintOffered = null;
+          // Every lock starts from the PIN, not from the credential the
+          // previous session happened to end on.
+          _usePassword = false;
+          _authenticationVisible = false;
+          _beginWhenIdle = false;
         }
         _beginIfIdle(next);
       });
@@ -300,7 +305,8 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       _responseController.clear();
       if (authentication.prompt?.requiresResponse ?? false) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && (_authenticationVisible || authentication.busy)) {
+          if (mounted &&
+              (_authenticationVisible || _usePassword || authentication.busy)) {
             _responseFocus.requestFocus();
           }
         });
@@ -501,9 +507,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   !pinCardVisible &&
                   (wide
                       ? _authenticationVisible ||
+                            _usePassword ||
                             authentication.busy ||
                             authentication.resultMessage != null
-                      : credentialShown && !pinMode))
+                      : (_authenticationVisible || _usePassword) && !pinMode))
                 _LockAuthenticationPanel(
                   desktop: wide,
                   state: authentication,
@@ -545,13 +552,11 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   ),
                 ),
               if (pinCardVisible && !wide)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
+                Positioned.fill(
                   child: SafeArea(
-                    minimum: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                    child: Center(
+                    minimum: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                    child: Align(
+                      alignment: const Alignment(0, 0.12),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 620),
                         child: _LockPinCard(
