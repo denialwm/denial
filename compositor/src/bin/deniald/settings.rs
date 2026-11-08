@@ -73,6 +73,43 @@ pub(super) fn x11_gtk_input_method_backend_fallback() -> &'static str {
         .expect("GTK input-method backend fallback must contain Wayland and X11 arms")
 }
 
+/// Internal environment keys that carry a per-application UI scale. The
+/// launcher consumes them and removes them from the child environment.
+pub(super) const APPLICATION_SCALE_ENV: &str = "DENIAL_UI_SCALE";
+pub(super) const APPLICATION_SCALE_BACKEND_ENV: &str = "DENIAL_UI_SCALE_BACKEND";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ScaleBackend {
+    Auto,
+    Gtk,
+    Qt,
+    Electron,
+    Firefox,
+    Java,
+    None,
+}
+
+impl ScaleBackend {
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "gtk" => Some(Self::Gtk),
+            "qt" => Some(Self::Qt),
+            "electron" => Some(Self::Electron),
+            "firefox" => Some(Self::Firefox),
+            "java" => Some(Self::Java),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ApplicationScale {
+    pub(super) factor: f64,
+    pub(super) backend: ScaleBackend,
+}
+
 /// Environment overrides applied only to processes launched by Denial.
 ///
 /// The default map applies to every direct launch. A map keyed by the standard
@@ -193,6 +230,27 @@ impl ApplicationEnvironment {
             .and_then(|desktop_file_id| self.application_overrides.get(desktop_file_id))
             .and_then(|overrides| overrides.get(name))
             .or_else(|| self.default_overrides.get(name))
+    }
+
+    /// The per-application UI scale, if the settings carry one. Values outside
+    /// the supported range are ignored rather than passed to an application.
+    pub(super) fn scale_for(
+        &self,
+        desktop_file_id: Option<&str>,
+    ) -> Option<ApplicationScale> {
+        let raw = self
+            .override_for(APPLICATION_SCALE_ENV, desktop_file_id)?
+            .as_deref()?;
+        let factor = raw.trim().parse::<f64>().ok()?;
+        if !factor.is_finite() || !(0.5..=3.0).contains(&factor) {
+            return None;
+        }
+        let backend = self
+            .override_for(APPLICATION_SCALE_BACKEND_ENV, desktop_file_id)
+            .and_then(|value| value.as_deref())
+            .and_then(ScaleBackend::parse)
+            .unwrap_or(ScaleBackend::Auto);
+        Some(ApplicationScale { factor, backend })
     }
 }
 

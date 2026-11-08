@@ -18,7 +18,8 @@ use tracing::{debug, info, warn};
 
 use crate::DEFAULT_QT_QPA_PLATFORMTHEME;
 use crate::settings::{
-    ApplicationEnvironment, DEFAULT_CURSOR_SIZE, load_application_environment, load_cursor_size,
+    APPLICATION_SCALE_BACKEND_ENV, APPLICATION_SCALE_ENV, ApplicationEnvironment,
+    DEFAULT_CURSOR_SIZE, ScaleBackend, load_application_environment, load_cursor_size,
     validate_desktop_file_id,
 };
 use crate::x11_input_method::discover_xim_modifier;
@@ -779,6 +780,7 @@ fn application_command(
         launch_request_id,
         activation_token,
     } = launch;
+    let mut arguments = arguments.to_vec();
     let SessionEnvironment {
         wayland_display,
         x11_display,
@@ -786,6 +788,27 @@ fn application_command(
         cursor_size,
         application: application_environment,
     } = session;
+    let scale = application_environment.scale_for(desktop_file_id);
+    let scale_backend = scale.map(|scale| {
+        if scale.backend == ScaleBackend::Auto {
+            detect_scale_backend(desktop_file_id, &arguments)
+        } else {
+            scale.backend
+        }
+    });
+    if let (Some(scale), Some(ScaleBackend::Electron)) = (scale, scale_backend)
+        && !arguments
+            .iter()
+            .any(|argument| argument.starts_with("--force-device-scale-factor"))
+    {
+        arguments.push(format!(
+            "--force-device-scale-factor={}",
+            scale.factor
+        ));
+    }
+    if let (Some(scale), Some(ScaleBackend::Firefox)) = (scale, scale_backend) {
+        write_firefox_scale(scale.factor);
+    }
     let mut command = Command::new(&arguments[0]);
     // Command inherits the user session environment intentionally: PATH,
     // locale, TERM/COLORTERM, HOME, XDG data/config roots and toolkit settings
@@ -830,7 +853,15 @@ fn application_command(
     // them after Denial's inherited-session cleanup and endpoint defaults so
     // an explicit null can remove DISPLAY or another default deliberately.
     // Per-launch activation metadata below remains compositor-owned.
+    // Generated scale variables go in first so an explicit environment
+    // override from the same page still wins.
+    if let (Some(scale), Some(backend)) = (scale, scale_backend) {
+        apply_scale_environment(&mut command, scale.factor, backend);
+    }
     application_environment.apply(&mut command, desktop_file_id, discovered_xmodifiers);
+    // The scale keys are instructions to the launcher, not child environment.
+    command.env_remove(APPLICATION_SCALE_ENV);
+    command.env_remove(APPLICATION_SCALE_BACKEND_ENV);
     // Internal tool metadata must never replace an application's restored mask.
     command.env_remove(denial_core::cpu_affinity::APPLICATION_CPUS_ENV);
     // calloop's signalfd intentionally blocks the shutdown signals in every
@@ -1139,4 +1170,105 @@ fn wait_for_exit_or_arrival(arrivals: &OwnedFd, children: &[TrackedChild]) {
             size_of::<u64>(),
         )
     };
+}
+
+
+/// Resolves the toolkit family for an application scale when the user left the
+/// backend on automatic. Unknown applications fall back to GTK, whose extra
+/// variables are ignored by other toolkits.
+fn detect_scale_backend(
+    desktop_file_id: Option<&str>,
+    arguments: &[String],
+) -> ScaleBackend {
+    let id = desktop_file_id.unwrap_or_default().to_ascii_lowercase();
+    let executable = arguments
+        .first()
+        .map(|argument| {
+            argument
+                .rsplit('/')
+                .next()
+                .unwrap_or(argument)
+                .to_ascii_lowercase()
+        })
+        .unwrap_or_default();
+    if id.contains("firefox") || executable.contains("firefox") {
+        ScaleBackend::Firefox
+    } else if id.contains("qq")
+        || executable.contains("qq")
+        || executable.contains("chrome")
+        || executable.contains("chromium")
+        || executable.contains("electron")
+    {
+        ScaleBackend::Electron
+    } else {
+        ScaleBackend::Gtk
+    }
+}
+
+fn apply_scale_environment(command: &mut Command, factor: f64, backend: ScaleBackend) {
+    match backend {
+        ScaleBackend::Gtk => {
+            // GDK splits fractional scaling into an integer geometry scale and
+            // a fractional text scale.
+            let integer = factor.round().clamp(1.0, 4.0);
+            let dpi = factor / integer;
+            command.env("GDK_SCALE", format!("{}", integer as u32));
+            command.env("GDK_DPI_SCALE", format!("{dpi}"));
+        }
+        ScaleBackend::Qt => {
+            command.env("QT_SCALE_FACTOR", format!("{factor}"));
+        }
+        ScaleBackend::Java => {
+            let option = format!("-Dsun.java2d.uiScale={factor}");
+            let value = std::env::var("JAVA_TOOL_OPTIONS")
+                .ok()
+                .filter(|existing| !existing.trim().is_empty())
+                .map(|existing| format!("{existing} {option}"))
+                .unwrap_or(option);
+            command.env("JAVA_TOOL_OPTIONS", value);
+        }
+        ScaleBackend::Electron
+        | ScaleBackend::Firefox
+        | ScaleBackend::None
+        | ScaleBackend::Auto => {}
+    }
+}
+
+/// Firefox only exposes its whole-UI pixel ratio through a profile pref.
+fn write_firefox_scale(factor: f64) {
+    let line = format!("user_pref(\"layout.css.devPixelsPerPx\", \"{factor}\");");
+    let mut roots = Vec::new();
+    if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
+        roots.push(std::path::PathBuf::from(config).join("mozilla/firefox"));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        // Firefox 159 keeps its XDG profile under ~/.config even when
+        // XDG_CONFIG_HOME is unset, and older releases use ~/.mozilla.
+        roots.push(home.join(".config/mozilla/firefox"));
+        roots.push(home.join(".mozilla/firefox"));
+    }
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let profile = entry.path();
+            if !profile.is_dir() || !profile.join("prefs.js").is_file() {
+                continue;
+            }
+            let user_js = profile.join("user.js");
+            let existing = std::fs::read_to_string(&user_js).unwrap_or_default();
+            let mut lines: Vec<&str> = existing
+                .lines()
+                .filter(|line| !line.contains("layout.css.devPixelsPerPx"))
+                .collect();
+            lines.push(&line);
+            if let Err(error) =
+                std::fs::write(&user_js, format!("{}\n", lines.join("\n")))
+            {
+                warn!(%error, path = %user_js.display(), "could not write Firefox UI scale");
+            }
+        }
+    }
 }
