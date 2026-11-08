@@ -169,8 +169,33 @@ class _DenialSettingsStandaloneContentState
           title: widget.title,
           debugShowCheckedModeBanner: false,
           color: _standaloneRootBackground,
-          builder: (context, child) =>
-              ColoredBox(color: _standaloneRootBackground, child: child),
+          builder: (context, child) {
+            // The tablet UI needs a larger Settings surface than a desktop
+            // window at the same logical size. Lay the app out at a smaller
+            // logical size and scale it back up: controls grow together and
+            // glyphs stay vector-crisp.
+            final media = MediaQuery.of(context);
+            const uiScale = 1.3;
+            final scaled = media.size / uiScale;
+            return ColoredBox(
+              color: _standaloneRootBackground,
+              child: MediaQuery(
+                data: media.copyWith(size: scaled),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Transform.scale(
+                    scale: uiScale,
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: scaled.width,
+                      height: scaled.height,
+                      child: child,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
           locale: presentation.locale,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
