@@ -358,121 +358,118 @@ class _SessionActionTileState extends State<_SessionActionTile> {
       enabled: widget.enabled,
       label: _actionLabel(action, l10n),
       hint: subtitle,
-      child: Tooltip(
-        message: subtitle,
-        child: FocusableActionDetector(
-          enabled: widget.enabled,
-          mouseCursor: widget.enabled
-              ? SystemMouseCursors.click
-              : SystemMouseCursors.basic,
-          onShowFocusHighlight: (focused) => setState(() => _focused = focused),
-          shortcuts: const <ShortcutActivator, Intent>{
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-          },
-          actions: <Type, Action<Intent>>{
-            ActivateIntent: CallbackAction<ActivateIntent>(
-              onInvoke: (_) {
-                if (widget.enabled) {
-                  widget.onPressed();
-                }
-                return null;
-              },
-            ),
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.enabled ? widget.onPressed : null,
-            child: AnimatedContainer(
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : Motion.tile,
-              constraints: const BoxConstraints(minHeight: 70),
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
-              decoration: BoxDecoration(
-                color: widget.enabled
-                    ? context.shellColors.surfaceContainerHigh
-                    : context.shellColors.tileOff,
-                borderRadius: context.shellTheme.borderRadius(
-                  ShellRadii.tileWide,
-                ),
-                border: Border.all(
-                  color: _focused
-                      ? accent.primary
-                      : context.shellColors.hairlineSoft,
-                  width: _focused ? 1.5 : 1,
-                ),
+      child: FocusableActionDetector(
+        enabled: widget.enabled,
+        mouseCursor: widget.enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              if (widget.enabled) {
+                widget.onPressed();
+              }
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.enabled ? widget.onPressed : null,
+          child: AnimatedContainer(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : Motion.tile,
+            constraints: const BoxConstraints(minHeight: 70),
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+            decoration: BoxDecoration(
+              color: widget.enabled
+                  ? context.shellColors.surfaceContainerHigh
+                  : context.shellColors.tileOff,
+              borderRadius: context.shellTheme.borderRadius(
+                ShellRadii.tileWide,
               ),
-              child: Row(
-                children: <Widget>[
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: widget.enabled
-                          ? accent.container
-                          : context.shellColors.surfaceContainerHighest,
-                      shape: BoxShape.circle,
-                    ),
-                    child: SizedBox.square(
-                      dimension: widget.compact ? 30 : 42,
-                      child: widget.busy
-                          ? Padding(
-                              padding: EdgeInsets.all(widget.compact ? 7 : 12),
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: accent.primary,
-                              ),
-                            )
-                          : Icon(
-                              _actionIcon(action),
-                              size: 21,
-                              color: widget.enabled
-                                  ? accent.onContainer
-                                  : context.shellColors.textTertiary,
-                            ),
-                    ),
+              border: Border.all(
+                color: _focused
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
+                width: _focused ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: widget.enabled
+                        ? accent.container
+                        : context.shellColors.surfaceContainerHighest,
+                    shape: BoxShape.circle,
                   ),
-                  SizedBox(width: widget.compact ? 9 : 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          _actionLabel(action, l10n),
-                          style: ShellText.cardTitle.copyWith(
+                  child: SizedBox.square(
+                    dimension: widget.compact ? 30 : 42,
+                    child: widget.busy
+                        ? Padding(
+                            padding: EdgeInsets.all(widget.compact ? 7 : 12),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: accent.primary,
+                            ),
+                          )
+                        : Icon(
+                            _actionIcon(action),
+                            size: 21,
                             color: widget.enabled
-                                ? context.shellColors.panelText
+                                ? accent.onContainer
                                 : context.shellColors.textTertiary,
                           ),
+                  ),
+                ),
+                SizedBox(width: widget.compact ? 9 : 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        _actionLabel(action, l10n),
+                        style: ShellText.cardTitle.copyWith(
+                          color: widget.enabled
+                              ? context.shellColors.panelText
+                              : context.shellColors.textTertiary,
                         ),
-                        if (!widget.compact) const SizedBox(height: 4),
-                        if (!widget.compact)
-                          Text(
-                            subtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: ShellText.base.copyWith(
-                              color: reason == null
-                                  ? context.shellColors.textSecondary
-                                  : context.shellColors.textTertiary,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                            ),
+                      ),
+                      if (!widget.compact) const SizedBox(height: 4),
+                      if (!widget.compact)
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: ShellText.base.copyWith(
+                            color: reason == null
+                                ? context.shellColors.textSecondary
+                                : context.shellColors.textTertiary,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
                           ),
-                      ],
+                        ),
+                    ],
+                  ),
+                ),
+                if (action.requiresConfirmation && !widget.compact)
+                  Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: context.shellColors.textTertiary,
                     ),
                   ),
-                  if (action.requiresConfirmation && !widget.compact)
-                    Padding(
-                      padding: EdgeInsets.only(left: 8),
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        size: 20,
-                        color: context.shellColors.textTertiary,
-                      ),
-                    ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
