@@ -8,7 +8,10 @@ import 'package:denial_flutter_sdk/system_services.dart';
 import '../shade/quick_settings_tiles.dart';
 
 class MobileDataTile extends ConsumerStatefulWidget {
-  const MobileDataTile({super.key});
+  const MobileDataTile({super.key, this.stacked = false});
+
+  final bool stacked;
+
   @override
   ConsumerState<MobileDataTile> createState() => _MobileDataTileState();
 }
@@ -43,6 +46,7 @@ class _MobileDataTileState extends ConsumerState<MobileDataTile> {
       enabled: state.canToggle && !_busy,
       busy: _busy,
       wide: true,
+      stacked: widget.stacked,
       onTap: () async {
         setState(() {
           _busy = true;
