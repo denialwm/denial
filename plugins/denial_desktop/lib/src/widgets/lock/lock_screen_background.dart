@@ -815,13 +815,24 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
 /// unless the lock screen settings hide them. They slide with the face and
 /// let drags through to the swipe; a tap asks for the PIN, then opens.
 class _LockNotifications extends ConsumerWidget {
-  const _LockNotifications({required this.scale, required this.onOpen});
+  const _LockNotifications({
+    required this.scale,
+    required this.onOpen,
+    this.desktop = false,
+    this.bottomInset,
+  });
 
   /// The clock's scale, which moves its lower edge.
   final double scale;
 
   /// The tapped group's key.
   final ValueChanged<String> onOpen;
+
+  /// Landscape places the stack under the clock, beside the keypad card.
+  final bool desktop;
+
+  /// Mobile keeps the stack above the keypad card.
+  final double? bottomInset;
 
   static const int _shown = 3;
 
@@ -838,19 +849,36 @@ class _LockNotifications extends ConsumerWidget {
     if (groups.isEmpty) {
       return const SizedBox.shrink();
     }
-    // The same block _LockClockBlock lays the mobile time out in.
+    // The same blocks _LockClockBlock lays the clock out in.
     final size = MediaQuery.sizeOf(context);
-    final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
-    final clockHeight = math.min(250.0, size.height * 0.34);
-    final clockBottom = clockTop + clockHeight * (1 + scale) / 2;
     final metrics = MobileUiMetrics.of(context);
     final padding = MediaQuery.viewPaddingOf(context);
+    final double top;
+    final double left;
+    final double right;
+    final double bottom;
+    if (desktop) {
+      final clockTop = math.max(72.0, size.height * 0.22);
+      final clockHeight = math.min(280.0, size.height * 0.36);
+      top = clockTop + clockHeight + 24;
+      left = math.max(48.0, size.width * 0.065);
+      right = size.width * 0.48;
+      bottom = size.height * 0.1;
+    } else {
+      final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
+      final clockHeight = math.min(250.0, size.height * 0.34);
+      final clockBottom = clockTop + clockHeight * (1 + scale) / 2;
+      top = clockBottom + metrics.visual(24);
+      left = padding.left;
+      right = padding.right;
+      // The fingerprint ring and the keypad card keep the lower part.
+      bottom = bottomInset ?? size.height * 0.3;
+    }
     return Positioned(
-      left: padding.left,
-      right: padding.right,
-      top: clockBottom + metrics.visual(24),
-      // The fingerprint ring and the swipe pill keep the lower part.
-      bottom: size.height * 0.3,
+      left: left,
+      right: right,
+      top: top,
+      bottom: bottom,
       child: ClipRect(
         child: SingleChildScrollView(
           physics: const NeverScrollableScrollPhysics(),

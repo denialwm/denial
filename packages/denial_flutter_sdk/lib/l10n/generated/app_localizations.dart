@@ -9927,6 +9927,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Release build'**
   String get settingsDeviceReleaseBuild;
+
+  /// Lock screen · password prompt subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter password'**
+  String get lockEnterPassword;
 }
 
 class _AppLocalizationsDelegate

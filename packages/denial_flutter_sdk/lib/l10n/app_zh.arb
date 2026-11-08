@@ -1664,5 +1664,6 @@
   "settingsDeviceUptimeHours": "{hours} 小时",
   "settingsDeviceUptimeMinutes": "{minutes} 分钟",
   "settingsDeviceNotConnected": "未连接",
-  "settingsDeviceReleaseBuild": "发布构建"
+  "settingsDeviceReleaseBuild": "发布构建",
+  "lockEnterPassword": "输入密码"
 }

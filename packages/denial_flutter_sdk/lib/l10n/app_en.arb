@@ -7504,5 +7504,9 @@
   "settingsDeviceReleaseBuild": "Release build",
   "@settingsDeviceReleaseBuild": {
     "description": "Settings · device information page."
+  },
+  "lockEnterPassword": "Enter password",
+  "@lockEnterPassword": {
+    "description": "Lock screen · password prompt subtitle."
   }
 }

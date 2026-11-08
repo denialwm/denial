@@ -45,6 +45,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart'
         wallpaperDepthDirectory,
         wallpaperDepthProvider;
 
+import '../../profile/desktop_profile.dart';
 import '../../state/notification_groups.dart';
 import '../edge_panel_layer.dart';
 import '../mobile_ui_metrics.dart';

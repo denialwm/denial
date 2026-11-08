@@ -5555,4 +5555,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsDeviceReleaseBuild => 'Release build';
+
+  @override
+  String get lockEnterPassword => 'Enter password';
 }

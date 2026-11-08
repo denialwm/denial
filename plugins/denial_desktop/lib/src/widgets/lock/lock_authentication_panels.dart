@@ -73,63 +73,16 @@ class _LockAuthenticationPanel extends StatelessWidget {
               maxWidth: desktop ? math.min(460.0, size.width * 0.42) : 520,
               maxHeight: math.max(220.0, size.height * (desktop ? 0.86 : 0.72)),
             ),
-            child: DecoratedBox(
+            child: _LockCredentialCard(
               key: const ValueKey<String>('desktop-lock-authentication-panel'),
-              decoration: _desktopLockPanelDecoration(
-                theme: theme,
-                accent: accent,
-              ),
+              desktop: true,
+              subtitle: l10n.lockEnterPassword,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                 child: FocusTraversalGroup(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: accent.subtle,
-                              shape: BoxShape.circle,
-                            ),
-                            child: SizedBox(
-                              width: 42,
-                              height: 42,
-                              child: Icon(
-                                Icons.lock_outline_rounded,
-                                size: 21,
-                                color: accent.primary,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  l10n.lockUnlockDenial,
-                                  style: ShellText.statusClock.copyWith(
-                                    fontSize: 20,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  state.available
-                                      ? l10n.lockPamVerified
-                                      : l10n.lockAuthenticationUnavailable,
-                                  style: ShellText.base.copyWith(
-                                    color: context.shellColors.textTertiary,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
                       if (message != null && message.isNotEmpty) ...[
                         const SizedBox(height: 15),
                         Semantics(
@@ -138,15 +91,17 @@ class _LockAuthenticationPanel extends StatelessWidget {
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: error
-                                  ? context.shellColors.performanceBad
-                                        .withValues(alpha: 0.14)
-                                  : accent.subtle,
+                                  ? ShellTelemetryColors.danger.withValues(
+                                      alpha: 0.18,
+                                    )
+                                  : accent.primary.withValues(alpha: 0.16),
                               borderRadius: context.shellTheme.borderRadius(14),
                               border: Border.all(
                                 color: error
-                                    ? context.shellColors.performanceBad
-                                          .withValues(alpha: 0.40)
-                                    : accent.outline,
+                                    ? ShellTelemetryColors.danger.withValues(
+                                        alpha: 0.45,
+                                      )
+                                    : accent.primary.withValues(alpha: 0.40),
                               ),
                             ),
                             child: Padding(
@@ -158,8 +113,8 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 message,
                                 style: ShellText.base.copyWith(
                                   color: error
-                                      ? context.shellColors.performanceBad
-                                      : context.shellColors.textSecondary,
+                                      ? ShellTelemetryColors.danger
+                                      : ShellMediaColors.lightForeground,
                                   fontSize: 13,
                                   height: 1.25,
                                 ),
@@ -176,7 +131,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                             l10n.lockRetryInSeconds(cooldownSeconds),
                             textAlign: TextAlign.center,
                             style: ShellText.base.copyWith(
-                              color: context.shellColors.performanceWarning,
+                              color: ShellTelemetryColors.warning,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -285,6 +240,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                             label: usingPin
                                 ? l10n.lockUsePassword
                                 : l10n.lockUsePin,
+                            color: accent.primary,
                             onPressed: onSwitch,
                           ),
                         ),
@@ -363,48 +319,25 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
             alignment: Alignment.bottomCenter,
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: 480,
+                maxWidth: 620,
                 maxHeight: math.max(210.0, size.height * 0.58),
               ),
-              child: DecoratedBox(
+              child: _LockCredentialCard(
                 key: const ValueKey<String>('mobile-lock-authentication-panel'),
-                decoration: BoxDecoration(
-                  color: context.shellColors.surfaceContainerLow,
-                  borderRadius: context.shellTheme.borderRadius(24),
-                  border: Border.all(color: context.shellColors.hairline),
-                ),
+                desktop: false,
+                subtitle: l10n.lockEnterPassword,
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
                   child: FocusTraversalGroup(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                l10n.lockUnlockDenial,
-                                style: ShellText.base.copyWith(
-                                  fontSize: 23,
-                                  height: 1.1,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.35,
-                                ),
-                              ),
-                            ),
-                            _MobileLockCancelButton(
-                              label: l10n.commonCancel,
-                              onPressed: onCancel,
-                            ),
-                          ],
-                        ),
                         if (!state.available) ...[
                           const SizedBox(height: 7),
                           Text(
                             l10n.lockAuthenticationUnavailable,
                             style: ShellText.base.copyWith(
-                              color: context.shellColors.textTertiary,
+                              color: ShellMediaColors.lightForegroundSecondary,
                               fontSize: 13,
                             ),
                           ),
@@ -418,8 +351,8 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                               message,
                               style: ShellText.base.copyWith(
                                 color: error
-                                    ? context.shellColors.performanceBad
-                                    : context.shellColors.textSecondary,
+                                    ? ShellTelemetryColors.danger
+                                    : ShellMediaColors.lightForeground,
                                 fontSize: 13,
                                 height: 1.3,
                                 fontWeight: error
@@ -452,7 +385,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                 ? l10n.lockAuthenticationResponse
                                 : promptLabel,
                             style: ShellText.base.copyWith(
-                              color: context.shellColors.textSecondary,
+                              color: ShellMediaColors.lightForegroundSecondary,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -547,50 +480,36 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                             onPressed: onBegin,
                           ),
                         ],
-                        if (onUsePin case final onUsePin?) ...[
-                          const SizedBox(height: 8),
-                          Center(
-                            child: _PinLink(
-                              label: l10n.lockUsePin,
-                              onPressed: onUsePin,
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (onUsePin case final onUsePin?)
+                              _PinLink(
+                                label: l10n.lockUsePin,
+                                color: accent.primary,
+                                onPressed: onUsePin,
+                              ),
+                            Text(
+                              '·',
+                              style: ShellText.base.copyWith(
+                                color:
+                                    ShellMediaColors.lightForegroundSecondary,
+                                fontSize: 14,
+                              ),
                             ),
-                          ),
-                        ],
+                            _PinLink(
+                              label: l10n.commonCancel,
+                              color: ShellMediaColors.lightForegroundSecondary,
+                              onPressed: onCancel,
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MobileLockCancelButton extends StatelessWidget {
-  const _MobileLockCancelButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
-          child: Text(
-            label,
-            style: ShellText.base.copyWith(
-              color: context.shellColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ),

@@ -5298,4 +5298,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsDeviceReleaseBuild => '发布构建';
+
+  @override
+  String get lockEnterPassword => '输入密码';
 }

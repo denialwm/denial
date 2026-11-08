@@ -324,11 +324,22 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       builder: (context, constraints) {
         final size = constraints.biggest;
         _height = size.height;
+        // Lock layout follows the panel, not the session type: a tablet in
+        // landscape gets the split face even though it runs the mobile shell.
+        final wide = size.width > size.height;
         // Mobile opens only by swiping up; a stray touch leaves the clock,
         // and a double tap turns the screen off, as on home.
         // The face can be caught again while it is still sliding home.
+        final pinCardVisible =
+            widget.authenticationEnabled &&
+            authentication.pinConfigured &&
+            !_usePassword &&
+            !simPending;
         final allowsSwipe =
-            widget.authenticationEnabled && !widget.desktop && !credentialShown;
+            widget.authenticationEnabled &&
+            !wide &&
+            !credentialShown &&
+            !pinCardVisible;
         final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
         final revealed = credentialShown || _credentialReveal.value > 0.0
             ? _revealed
@@ -336,10 +347,14 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
 
         final content = GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.authenticationEnabled && widget.desktop
+          onTap: widget.authenticationEnabled && wide
               ? _showAuthentication
               : null,
-          onDoubleTap: allowsSwipe ? _blankDisplays : null,
+          // The keypad replaces the swipe, but double-tap still blanks the
+          // panel (mobile only, as before).
+          onDoubleTap: widget.authenticationEnabled && !wide
+              ? _blankDisplays
+              : null,
           onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
           onPanUpdate: allowsSwipe
               ? (details) => _updateGesture(details.delta, size.height)
@@ -362,10 +377,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   children: [
                     _LockClockBlock(
                       clock: clock,
-                      desktop: widget.desktop,
+                      desktop: wide,
                       scale: lockSettings.clockScale,
                       showSystemStatus: lockSettings.showSystemStatus,
-                      parts: widget.desktop
+                      parts: wide
                           ? const {
                               HomeClockPart.time,
                               HomeClockPart.date,
@@ -377,7 +392,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               ),
               // The subject stays put while the clock slides behind it.
-              if (!widget.desktop &&
+              if (!wide &&
                   (widget.authenticationEnabled || widget.ambientOnly)) ...[
                 const _LockDepthForeground(),
                 CustomPaint(
@@ -401,7 +416,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               // The sensor mark and the swipe pill stay put and fade as the
               // face moves away.
-              if (!widget.desktop && widget.authenticationEnabled) ...[
+              if (!wide && widget.authenticationEnabled && !pinCardVisible) ...[
                 _AmbientHidden(
                   opacity: _ambientHidden,
                   child: _LockSwipePill(
@@ -424,7 +439,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (!widget.desktop) ...[
+                    if (!wide) ...[
                       _LockClockBlock(
                         clock: clock,
                         desktop: false,
@@ -447,7 +462,13 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         ),
                       ),
                     ],
-                    if (!widget.desktop && widget.authenticationEnabled)
+                    if (wide && widget.authenticationEnabled)
+                      _LockNotifications(
+                        scale: lockSettings.clockScale,
+                        onOpen: _openAfterUnlock,
+                        desktop: true,
+                      ),
+                    if (!wide && widget.authenticationEnabled)
                       _AmbientHidden(
                         opacity: _ambientHidden,
                         child: Stack(
@@ -456,30 +477,35 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                             _LockNotifications(
                               scale: lockSettings.clockScale,
                               onOpen: _openAfterUnlock,
+                              bottomInset: pinCardVisible
+                                  ? size.height * 0.5
+                                  : null,
                             ),
                             const _LockGlyph(),
                           ],
                         ),
                       ),
-                    if (widget.desktop &&
+                    if (wide &&
                         widget.authenticationEnabled &&
                         !simPending &&
                         !_authenticationVisible &&
                         !authentication.busy &&
-                        authentication.resultMessage == null)
+                        authentication.resultMessage == null &&
+                        !pinCardVisible)
                       _DesktopUnlockPrompt(onBegin: _showAuthentication),
                   ],
                 ),
               ),
               if (widget.authenticationEnabled &&
                   !simPending &&
-                  (widget.desktop
+                  !pinCardVisible &&
+                  (wide
                       ? _authenticationVisible ||
                             authentication.busy ||
                             authentication.resultMessage != null
                       : credentialShown && !pinMode))
                 _LockAuthenticationPanel(
-                  desktop: widget.desktop,
+                  desktop: wide,
                   state: authentication,
                   controller: _responseController,
                   focusNode: _responseFocus,
@@ -500,15 +526,44 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   interactive: credentialShown,
                   onLater: ref.read(simPinDeferralProvider.notifier).defer,
                 ),
-              if (revealed == _LockCredential.pin)
-                _MobileLockPinStage(
-                  key: const ValueKey<String>('mobile-lock-pin-stage'),
-                  reveal: _pinStageReveal,
-                  interactive: credentialShown,
-                  onBegin: () =>
-                      ref.read(authenticationProvider.notifier).begin(),
-                  onCancel: _cancelAuthentication,
-                  onUsePassword: () => _switchCredential(password: true),
+              if (pinCardVisible && wide)
+                Positioned(
+                  right: math.max(32.0, size.width * 0.06),
+                  top: 0,
+                  bottom: 0,
+                  width: 440,
+                  child: SafeArea(
+                    minimum: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: _LockPinCard(
+                        key: const ValueKey<String>('desktop-lock-pin-card'),
+                        desktop: true,
+                        onCancel: _cancelAuthentication,
+                        onUsePassword: () => _switchCredential(password: true),
+                      ),
+                    ),
+                  ),
+                ),
+              if (pinCardVisible && !wide)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SafeArea(
+                    minimum: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 620),
+                        child: _LockPinCard(
+                          key: const ValueKey<String>('mobile-lock-pin-card'),
+                          desktop: false,
+                          onCancel: _cancelAuthentication,
+                          onUsePassword: () =>
+                              _switchCredential(password: true),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               if (widget.authenticationEnabled)
                 _LockFingerprintFeedback(

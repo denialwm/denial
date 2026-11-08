@@ -7,243 +7,6 @@ part of 'lock_screen_layer.dart';
 /// Motion follows the shell rules: the stage fades through a snapshot and
 /// moves its layer, and the shake only moves the dots' layer.
 /// While it leaves, touches go through to the face behind it.
-class _MobileLockPinStage extends ConsumerStatefulWidget {
-  const _MobileLockPinStage({
-    super.key,
-    required this.reveal,
-    required this.interactive,
-    required this.onBegin,
-    required this.onCancel,
-    required this.onUsePassword,
-  });
-
-  /// 0 hidden, 1 fully shown; already curved.
-  final Animation<double> reveal;
-
-  /// False once the stage is dismissed, while it still fades out.
-  final bool interactive;
-  final VoidCallback onBegin;
-  final VoidCallback onCancel;
-  final VoidCallback onUsePassword;
-
-  @override
-  ConsumerState<_MobileLockPinStage> createState() =>
-      _MobileLockPinStageState();
-}
-
-class _MobileLockPinStageState extends ConsumerState<_MobileLockPinStage>
-    with SingleTickerProviderStateMixin {
-  /// Character codes, scrubbed as soon as they are sent or dropped.
-  final List<int> _digits = <int>[];
-  final FocusNode _keys = FocusNode(debugLabel: 'lock-pin-keys');
-  late final AnimationController _shake = AnimationController(
-    vsync: this,
-    duration: _pinShakeDuration,
-  );
-  late final Animation<Offset> _shakeOffset = _shake.drive(
-    const _PinShakeOffset(),
-  );
-  late final Animation<Offset> _rise = widget.reveal.drive(_pinStageRise);
-
-  /// The app a tapped notification opens after unlocking; kept while the
-  /// stage fades out.
-  String? _opens;
-
-  /// Dots shown filled; stays full while deniald checks a submitted PIN.
-  int _filled = 0;
-  bool _submitted = false;
-  bool _pendingSubmit = false;
-  bool _wrong = false;
-
-  @override
-  void dispose() {
-    _scrub();
-    _keys.dispose();
-    _shake.dispose();
-    super.dispose();
-  }
-
-  void _scrub() {
-    _digits.fillRange(0, _digits.length, 0);
-    _digits.clear();
-  }
-
-  bool _acceptsInput(AuthenticationState state) =>
-      state.locked &&
-      state.available &&
-      !state.rateLimited &&
-      !_submitted &&
-      !_shake.isAnimating;
-
-  void _press(int digit) {
-    final state = ref.read(authenticationProvider);
-    if (!_acceptsInput(state) || _digits.length >= state.pinLength) {
-      return;
-    }
-    ref.read(hapticsServiceProvider).pulse();
-    setState(() {
-      _digits.add(0x30 + digit);
-      _filled = _digits.length;
-      _wrong = false;
-    });
-    // A failed attempt ends deniald's prompt; the next digit opens another.
-    if (!state.busy) {
-      widget.onBegin();
-    }
-    if (_digits.length == state.pinLength) {
-      _submit();
-    }
-  }
-
-  void _delete() {
-    if (_submitted || _digits.isEmpty || _shake.isAnimating) {
-      return;
-    }
-    ref.read(hapticsServiceProvider).pulse();
-    setState(() {
-      _digits.last = 0;
-      _digits.removeLast();
-      _filled = _digits.length;
-    });
-  }
-
-  void _clear() {
-    if (_submitted || _digits.isEmpty || _shake.isAnimating) {
-      return;
-    }
-    ref.read(hapticsServiceProvider).pulse();
-    setState(() {
-      _scrub();
-      _filled = 0;
-    });
-  }
-
-  void _submit() {
-    final state = ref.read(authenticationProvider);
-    final prompt = state.prompt;
-    if (!state.busy || prompt == null || !prompt.isPin) {
-      // The prompt is still on its way; submit as soon as it lands.
-      _pendingSubmit = true;
-      return;
-    }
-    _pendingSubmit = false;
-    final pin = String.fromCharCodes(_digits);
-    _scrub();
-    setState(() => _submitted = true);
-    ref.read(authenticationProvider.notifier).respond(pin);
-  }
-
-  void _attemptFinished(AuthenticationState state) {
-    _submitted = false;
-    if (!state.locked) {
-      return;
-    }
-    if (!state.resultIsError || state.resultMessage == null) {
-      // Cancelled or timed out: start over quietly.
-      setState(() => _filled = 0);
-      return;
-    }
-    setState(() => _wrong = true);
-    _rejectPin(
-      context: context,
-      haptics: ref.read(hapticsServiceProvider),
-      shake: _shake,
-      settle: () {
-        if (mounted) setState(() => _filled = 0);
-      },
-    );
-  }
-
-  KeyEventResult _handleKey(FocusNode node, KeyEvent event) => _handlePinKey(
-    event,
-    onDigit: _press,
-    onDelete: _delete,
-    onCancel: widget.onCancel,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final authentication = ref.watch(authenticationProvider);
-    ref.listen<AuthenticationState>(authenticationProvider, (previous, next) {
-      if (_pendingSubmit && next.busy && (next.prompt?.isPin ?? false)) {
-        _submit();
-      }
-      if (_submitted && (previous?.busy ?? false) && !next.busy) {
-        _attemptFinished(next);
-      }
-    });
-    final l10n = context.l10n;
-    if (widget.interactive) {
-      final groupKey = ref.watch(lockNotificationOpenProvider);
-      final opening = groupKey == null
-          ? null
-          : ref.watch(
-              desktopNotificationsProvider.select(
-                (state) => state.groups
-                    .where((group) => group.key == groupKey)
-                    .firstOrNull
-                    ?.newest
-                    .notification,
-              ),
-            );
-      _opens = opening == null ? null : notificationAppName(opening, l10n);
-    }
-    final opens = _opens;
-    final cooldownSeconds = (authentication.cooldown.inMilliseconds / 1000)
-        .ceil()
-        .clamp(1, 30);
-    final (message, messageColor) = authentication.rateLimited
-        ? (
-            l10n.lockRetryInSeconds(cooldownSeconds),
-            ShellTelemetryColors.warning,
-          )
-        : _wrong
-        ? (l10n.lockWrongPin, ShellTelemetryColors.danger)
-        : !authentication.available
-        ? (
-            authentication.statusMessage ?? l10n.lockAuthenticationUnavailable,
-            ShellMediaColors.lightForegroundSecondary,
-          )
-        : (null, ShellMediaColors.lightForegroundSecondary);
-
-    return _PinStageFrame(
-      reveal: widget.reveal,
-      interactive: widget.interactive,
-      rise: _rise,
-      focusNode: _keys,
-      onKeyEvent: _handleKey,
-      icon: Icons.lock_rounded,
-      title: opens == null ? l10n.lockEnterPin : l10n.lockEnterPinToOpen(opens),
-      shakeOffset: _shakeOffset,
-      length: authentication.pinLength.clamp(1, 12),
-      filled: _filled,
-      error: _wrong,
-      message: message,
-      messageColor: messageColor,
-      enabled: _acceptsInput(authentication),
-      onDigit: _press,
-      trailing: (keySize) => _filled == 0 || _submitted
-          ? _PinTextKey(
-              size: keySize,
-              label: l10n.commonCancel,
-              onPressed: widget.onCancel,
-            )
-          : _PinIconKey(
-              size: keySize,
-              icon: Icons.backspace_outlined,
-              label: l10n.lockPinDelete,
-              onPressed: _delete,
-              onLongPress: _clear,
-            ),
-      link: _PinLink(
-        label: l10n.lockUsePassword,
-        onPressed: widget.onUsePassword,
-        color: ShellMediaColors.lightForegroundSecondary,
-      ),
-    );
-  }
-}
-
 /// The same keypad for the modem's SIM PIN, which takes 4 to 8 digits, so the
 /// user confirms it instead of the last digit submitting.
 ///
@@ -522,7 +285,6 @@ class _PinStageFrame extends StatelessWidget {
     required this.onDigit,
     required this.trailing,
     this.leading,
-    this.link,
   });
 
   final Animation<double> reveal;
@@ -542,7 +304,6 @@ class _PinStageFrame extends StatelessWidget {
   final ValueChanged<int> onDigit;
   final Widget Function(double keySize) trailing;
   final Widget Function(double keySize)? leading;
-  final Widget? link;
 
   @override
   Widget build(BuildContext context) {
@@ -655,9 +416,6 @@ class _PinStageFrame extends StatelessWidget {
                             trailing: trailing(keySize),
                           ),
                           SizedBox(height: compact ? 10 : 22),
-                          if (link case final link?)
-                            FadeSnapshot(opacity: reveal, child: link),
-                          SizedBox(height: compact ? 4 : 10),
                         ],
                       );
                     },
@@ -959,6 +717,7 @@ class _PinPad extends StatelessWidget {
     required this.onDigit,
     required this.leading,
     required this.trailing,
+    this.keyRadius,
   });
 
   final double keySize;
@@ -971,6 +730,9 @@ class _PinPad extends StatelessWidget {
   final ValueChanged<int> onDigit;
   final Widget leading;
   final Widget trailing;
+
+  /// Null keeps the dial-pad circles; a radius matches the card keypad.
+  final double? keyRadius;
 
   static const List<String> _letters = <String>[
     '',
@@ -1034,13 +796,14 @@ class _PinPad extends StatelessWidget {
         letters: _letters[digit],
         enabled: enabled,
         glass: glass,
+        cornerRadius: keyRadius,
         onPressed: () => onDigit(digit),
       );
     });
     if (!glass) {
       return FadeSnapshot(opacity: reveal, child: keys);
     }
-    final radius = BorderRadius.circular(keySize / 2);
+    final radius = BorderRadius.circular(keyRadius ?? keySize / 2);
     final shading = theme.windowGlassShading;
     final keyGlass = shading?.withThickness(
       math.min(shading.thickness, keySize * _glassDepth),
@@ -1167,12 +930,14 @@ class _PinDigitKey extends StatelessWidget {
     required this.enabled,
     required this.glass,
     required this.onPressed,
+    this.cornerRadius,
   });
 
   final double size;
   final int digit;
   final String letters;
   final bool enabled;
+  final double? cornerRadius;
 
   /// The pad draws this key's glass beneath it; the key adds only the press.
   final bool glass;
@@ -1197,6 +962,7 @@ class _PinDigitKey extends StatelessWidget {
           pressed: ShellMediaColors.lightForeground.withValues(
             alpha: glass ? 0.24 : 0.32,
           ),
+          cornerRadius: cornerRadius,
         ),
         child: Center(
           child: Column(
@@ -1242,6 +1008,7 @@ class _PinIconKey extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.onLongPress,
+    this.cornerRadius,
   });
 
   final double size;
@@ -1249,6 +1016,7 @@ class _PinIconKey extends StatelessWidget {
   final String label;
   final VoidCallback onPressed;
   final VoidCallback? onLongPress;
+  final double? cornerRadius;
 
   @override
   Widget build(BuildContext context) {
@@ -1263,6 +1031,7 @@ class _PinIconKey extends StatelessWidget {
           press: press,
           rest: ShellMediaColors.lightForeground.withValues(alpha: 0),
           pressed: ShellMediaColors.lightForeground.withValues(alpha: 0.16),
+          cornerRadius: cornerRadius,
         ),
         child: Center(
           child: Icon(
@@ -1323,11 +1092,15 @@ class _PinKeyFillPainter extends CustomPainter {
     required this.press,
     required this.rest,
     required this.pressed,
+    this.cornerRadius,
   }) : super(repaint: press);
 
   final Animation<double> press;
   final Color rest;
   final Color pressed;
+
+  /// Null keeps the dial-pad circle; a radius matches the card keypad.
+  final double? cornerRadius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1335,20 +1108,26 @@ class _PinKeyFillPainter extends CustomPainter {
     if (color.a == 0) {
       return;
     }
-    canvas.drawCircle(
-      size.center(Offset.zero),
-      size.shortestSide / 2,
-      Paint()
-        ..isAntiAlias = true
-        ..color = color,
-    );
+    final paint = Paint()
+      ..isAntiAlias = true
+      ..color = color;
+    final radius = cornerRadius;
+    if (radius == null) {
+      canvas.drawCircle(size.center(Offset.zero), size.shortestSide / 2, paint);
+    } else {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+        paint,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant _PinKeyFillPainter oldDelegate) =>
       oldDelegate.press != press ||
       oldDelegate.rest != rest ||
-      oldDelegate.pressed != pressed;
+      oldDelegate.pressed != pressed ||
+      oldDelegate.cornerRadius != cornerRadius;
 }
 
 class _PinLink extends StatelessWidget {
@@ -1382,6 +1161,415 @@ class _PinLink extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The shared chrome for credential cards: account identity, a subtitle and
+/// one body. The PIN and password paths differ only in that body.
+class _LockCredentialCard extends ConsumerWidget {
+  const _LockCredentialCard({
+    required this.subtitle,
+    required this.child,
+    this.desktop = false,
+    super.key,
+  });
+
+  final String subtitle;
+  final Widget child;
+  final bool desktop;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final account = ref.watch(desktopAccountNameProvider);
+    final name = (account == null || account.trim().isEmpty)
+        ? l10n.lockWelcomeBack
+        : account.trim();
+    final initial = name.characters.first.toUpperCase();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ShellMediaColors.darkness.withValues(alpha: .46),
+        borderRadius: BorderRadius.circular(desktop ? 28 : 30),
+        border: Border.all(
+          color: ShellMediaColors.lightForeground.withValues(alpha: .14),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x59000000),
+            blurRadius: 42,
+            offset: Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          desktop ? 26 : 30,
+          desktop ? 24 : 26,
+          desktop ? 26 : 30,
+          desktop ? 14 : 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: ShellMediaColors.lightForeground.withValues(
+                      alpha: .12,
+                    ),
+                    border: Border.all(
+                      color: ShellMediaColors.lightForeground.withValues(
+                        alpha: .24,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    initial,
+                    style: ShellText.base.copyWith(
+                      color: ShellMediaColors.lightForeground,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ShellText.base.copyWith(
+                          color: ShellMediaColors.lightForeground,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: ShellText.base.copyWith(
+                          color: ShellMediaColors.lightForegroundSecondary,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Icon(
+                  Icons.lock_outline_rounded,
+                  size: 18,
+                  color: ShellMediaColors.lightForegroundSecondary,
+                ),
+              ],
+            ),
+            SizedBox(height: desktop ? 18 : 22),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// PIN entry as a lock-screen card. Both paradigms keep the keypad visible:
+/// landscape places it beside the clock, portrait keeps it along the bottom,
+/// and neither ever asks the system for a text field.
+class _LockPinCard extends ConsumerStatefulWidget {
+  const _LockPinCard({
+    required this.desktop,
+    required this.onCancel,
+    required this.onUsePassword,
+    super.key,
+  });
+
+  final bool desktop;
+  final VoidCallback onCancel;
+  final VoidCallback onUsePassword;
+
+  @override
+  ConsumerState<_LockPinCard> createState() => _LockPinCardState();
+}
+
+class _LockPinCardState extends ConsumerState<_LockPinCard>
+    with SingleTickerProviderStateMixin {
+  /// Character codes, scrubbed as soon as they are sent or dropped.
+  final List<int> _digits = <int>[];
+  final FocusNode _keys = FocusNode(debugLabel: 'lock-pin-card-keys');
+  late final AnimationController _shake = AnimationController(
+    vsync: this,
+    duration: _pinShakeDuration,
+  );
+  late final Animation<Offset> _shakeOffset = _shake.drive(
+    const _PinShakeOffset(),
+  );
+
+  int _filled = 0;
+  bool _submitted = false;
+  bool _pendingSubmit = false;
+  bool _wrong = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The lock face's own focus node also autofocuses; claim focus for the
+    // keypad so hardware digits reach it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _keys.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrub();
+    _keys.dispose();
+    _shake.dispose();
+    super.dispose();
+  }
+
+  void _scrub() {
+    _digits.fillRange(0, _digits.length, 0);
+    _digits.clear();
+  }
+
+  bool _acceptsInput(AuthenticationState state) =>
+      state.locked &&
+      state.available &&
+      !state.rateLimited &&
+      !_submitted &&
+      !_shake.isAnimating;
+
+  void _press(int digit) {
+    final state = ref.read(authenticationProvider);
+    if (!_acceptsInput(state) || _digits.length >= state.pinLength) {
+      return;
+    }
+    ref.read(hapticsServiceProvider).pulse();
+    setState(() {
+      _digits.add(0x30 + digit);
+      _filled = _digits.length;
+      _wrong = false;
+    });
+    // A failed attempt ends deniald's prompt; the next digit opens another.
+    if (!state.busy) {
+      ref.read(authenticationProvider.notifier).begin();
+    }
+    if (_digits.length == state.pinLength) {
+      _submit();
+    }
+  }
+
+  void _delete() {
+    if (_submitted || _digits.isEmpty || _shake.isAnimating) {
+      return;
+    }
+    ref.read(hapticsServiceProvider).pulse();
+    setState(() {
+      _digits.last = 0;
+      _digits.removeLast();
+      _filled = _digits.length;
+    });
+  }
+
+  void _clear() {
+    if (_submitted || _digits.isEmpty || _shake.isAnimating) {
+      return;
+    }
+    ref.read(hapticsServiceProvider).pulse();
+    setState(() {
+      _scrub();
+      _filled = 0;
+    });
+  }
+
+  void _submit() {
+    final state = ref.read(authenticationProvider);
+    final prompt = state.prompt;
+    if (!state.busy || prompt == null || !prompt.isPin) {
+      // The prompt is still on its way; submit as soon as it lands.
+      _pendingSubmit = true;
+      return;
+    }
+    _pendingSubmit = false;
+    final pin = String.fromCharCodes(_digits);
+    _scrub();
+    setState(() => _submitted = true);
+    ref.read(authenticationProvider.notifier).respond(pin);
+  }
+
+  void _attemptFinished(AuthenticationState state) {
+    _submitted = false;
+    if (!state.locked) {
+      return;
+    }
+    if (!state.resultIsError || state.resultMessage == null) {
+      setState(() => _filled = 0);
+      return;
+    }
+    setState(() => _wrong = true);
+    _rejectPin(
+      context: context,
+      haptics: ref.read(hapticsServiceProvider),
+      shake: _shake,
+      settle: () {
+        if (mounted) setState(() => _filled = 0);
+      },
+    );
+  }
+
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) => _handlePinKey(
+    event,
+    onDigit: _press,
+    onDelete: _delete,
+    onCancel: widget.onCancel,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final authentication = ref.watch(authenticationProvider);
+    ref.listen<AuthenticationState>(authenticationProvider, (previous, next) {
+      if (_pendingSubmit && next.busy && (next.prompt?.isPin ?? false)) {
+        _submit();
+      }
+      if (_submitted && (previous?.busy ?? false) && !next.busy) {
+        _attemptFinished(next);
+      }
+      if (next.locked && !(previous?.locked ?? false)) {
+        setState(() {
+          _scrub();
+          _filled = 0;
+          _wrong = false;
+        });
+      }
+    });
+    final l10n = context.l10n;
+    final keySize = widget.desktop ? 72.0 : 88.0;
+    final keyRadius = keySize * 0.28;
+    final cooldownSeconds = (authentication.cooldown.inMilliseconds / 1000)
+        .ceil()
+        .clamp(1, 30);
+    final (message, messageColor) = authentication.rateLimited
+        ? (
+            l10n.lockRetryInSeconds(cooldownSeconds),
+            ShellTelemetryColors.warning,
+          )
+        : _wrong
+        ? (l10n.lockWrongPin, ShellTelemetryColors.danger)
+        : !authentication.available
+        ? (
+            authentication.statusMessage ?? l10n.lockAuthenticationUnavailable,
+            ShellMediaColors.lightForegroundSecondary,
+          )
+        : (null, ShellMediaColors.lightForegroundSecondary);
+    final enabled = _acceptsInput(authentication);
+    return Focus(
+      focusNode: _keys,
+      autofocus: true,
+      onKeyEvent: _handleKey,
+      child: Semantics(
+        container: true,
+        explicitChildNodes: true,
+        label: l10n.lockEnterPin,
+        child: _LockCredentialCard(
+          desktop: widget.desktop,
+          subtitle: l10n.lockEnterPin,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              CompositedTranslation(
+                translation: _shakeOffset,
+                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                child: _PinDots(
+                  length: authentication.pinLength.clamp(1, 12),
+                  filled: _filled,
+                  error: _wrong,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 18,
+                child: message == null
+                    ? null
+                    : Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          message,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: ShellText.base.copyWith(
+                            color: messageColor,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 10),
+              Center(
+                child: _PinPad(
+                  keySize: keySize,
+                  reveal: const AlwaysStoppedAnimation<double>(1),
+                  rise: const AlwaysStoppedAnimation<Offset>(Offset.zero),
+                  scrim: ShellMediaColors.darkness.withValues(alpha: .42),
+                  enabled: enabled,
+                  keyRadius: keyRadius,
+                  onDigit: _press,
+                  leading: SizedBox.square(dimension: keySize),
+                  trailing: _filled == 0 || _submitted
+                      ? SizedBox.square(dimension: keySize)
+                      : _PinIconKey(
+                          size: keySize,
+                          cornerRadius: keyRadius,
+                          icon: Icons.backspace_outlined,
+                          label: l10n.lockPinDelete,
+                          onPressed: _delete,
+                          onLongPress: _clear,
+                        ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _PinLink(
+                    label: l10n.lockUsePassword,
+                    color: ShellTheme.of(context).accent,
+                    onPressed: widget.onUsePassword,
+                  ),
+                  Text(
+                    '·',
+                    style: ShellText.base.copyWith(
+                      color: ShellMediaColors.lightForegroundSecondary,
+                      fontSize: 14,
+                    ),
+                  ),
+                  _PinLink(
+                    label: l10n.commonCancel,
+                    color: ShellMediaColors.lightForegroundSecondary,
+                    onPressed: () {
+                      _clear();
+                      widget.onCancel();
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
