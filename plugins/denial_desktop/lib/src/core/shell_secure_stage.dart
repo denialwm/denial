@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
+import '../state/over_lock_window.dart';
 import '../widgets/lock/sim_pin_lock.dart';
 
 import 'package:denial_flutter_sdk/motion.dart';
@@ -46,6 +47,7 @@ class ShellSecureStage extends ConsumerWidget {
           )
         : false;
     final fingerprint = ref.watch(fingerprintSceneProvider);
+    final overLockWindow = ref.watch(overLockWindowProvider);
     final stage = UnlockTransitionHost(
       fingerprintBlack: fingerprint.black || fingerprint.reveal,
       lockFrameToken: ref.watch(lockFrameRequestProvider),
@@ -58,6 +60,13 @@ class ShellSecureStage extends ConsumerWidget {
           .completeUnlockTransition,
       scene: scene,
       chrome: chrome,
+      overLock: overLockWindow == null
+          ? null
+          : WindowContentRect(
+              key: ValueKey<int>(overLockWindow.objectId),
+              window: overLockWindow,
+              active: true,
+            ),
     );
     return ref.watch(referenceShellProfileProvider) ==
             ReferenceShellProfile.mobile
@@ -85,6 +94,7 @@ class UnlockTransitionHost extends StatefulWidget {
     this.fingerprintBlack = false,
     this.lockFrameToken = 0,
     this.onLockFrameLaidOut,
+    this.overLock,
   });
 
   final bool locked;
@@ -98,6 +108,9 @@ class UnlockTransitionHost extends StatefulWidget {
   final bool fingerprintBlack;
   final int lockFrameToken;
   final ValueChanged<int>? onLockFrameLaidOut;
+
+  /// The calls app's window during a call, drawn above the lock screen.
+  final Widget? overLock;
 
   @override
   State<UnlockTransitionHost> createState() => _UnlockTransitionHostState();
@@ -184,6 +197,7 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
           scene: widget.scene,
           chrome: widget.chrome,
           lockLayer: child,
+          overLock: widget.overLock,
         );
       },
     );
@@ -281,6 +295,7 @@ class _UnlockVerticalStack extends StatelessWidget {
     required this.scene,
     required this.chrome,
     required this.lockLayer,
+    required this.overLock,
   });
 
   final double progress;
@@ -288,6 +303,7 @@ class _UnlockVerticalStack extends StatelessWidget {
   final Widget scene;
   final Widget chrome;
   final Widget? lockLayer;
+  final Widget? overLock;
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +345,7 @@ class _UnlockVerticalStack extends StatelessWidget {
                   fallbackSize: constraints.biggest,
                   child: currentLockLayer,
                 ),
+              if (currentLockLayer != null && overLock != null) overLock!,
             ],
           ),
         );

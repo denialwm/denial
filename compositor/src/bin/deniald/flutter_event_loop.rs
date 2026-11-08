@@ -173,6 +173,7 @@ fn process_flutter_event_batch(
         events.scene_sync.mark_dirty();
     }
     synchronize_authentication_boundary(events);
+    wayland_frontend::synchronize_over_lock_window(events);
     synchronize_flutter_window_commands(runtime, events)?;
     Ok(())
 }

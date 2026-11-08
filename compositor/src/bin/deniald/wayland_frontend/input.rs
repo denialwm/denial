@@ -1195,6 +1195,23 @@ impl WaylandFrontend {
             .map_or(InputTarget::Flutter, InputTarget::Client)
     }
 
+    /// While the phone is locked, only the calls app's window shown over the
+    /// lock screen takes input; everything else goes to the lock screen.
+    #[cfg(feature = "flutter")]
+    fn locked_input_target(&mut self, position: Point<f64, Logical>) -> InputTarget {
+        match self.input_target(position) {
+            InputTarget::Client(route)
+                if route
+                    .window
+                    .as_ref()
+                    .is_some_and(|window| self.window_over_lock(window)) =>
+            {
+                InputTarget::Client(route)
+            }
+            _ => InputTarget::Flutter,
+        }
+    }
+
     pub(super) fn pointer_motion_target(
         &mut self,
         position: Point<f64, Logical>,

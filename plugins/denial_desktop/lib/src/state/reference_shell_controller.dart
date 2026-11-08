@@ -14,6 +14,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'app_deck.dart';
 import 'reference_shell_state.dart';
 import 'input_deck.dart';
+import 'over_lock_window.dart';
 import 'phone_desk.dart';
 import 'phone_desk_input.dart';
 import 'reference_shell_metrics.dart';
@@ -1561,6 +1562,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       interactions: interactions,
       topInset: topInset,
       appsMoving: _deck.presenting.value,
+      overLockWindow: ref.read(overLockWindowProvider),
       sceneOrigin: split?.phoneRect.topLeft ?? Offset.zero,
       composer: split == null ? null : ref.read(phoneDeskInputComposerProvider),
     );

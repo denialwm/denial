@@ -29,6 +29,7 @@ pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 30;
 pub(super) const MIN_WORKSPACE_COUNT: u8 = 2;
 pub(super) const MAX_WORKSPACE_COUNT: u8 = 9;
 pub(super) const DEFAULT_WORKSPACE_COUNT: u8 = 4;
+pub(super) const DEFAULT_CALLS_APP: &str = "org.denialwm.Calls";
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
@@ -870,6 +871,18 @@ impl SettingsManager {
             .and_then(|lock| lock.get("fingerprintUnlock"))
             .and_then(Value::as_bool)
             .unwrap_or(true)
+    }
+
+    /// The desktop entry of the calls app, the one app whose call window may
+    /// show over the lock screen while its call notification stands.
+    pub(super) fn calls_app(&self) -> &str {
+        self.document
+            .get("lockScreen")
+            .and_then(Value::as_object)
+            .and_then(|lock| lock.get("callsApp"))
+            .and_then(Value::as_str)
+            .filter(|app| !app.is_empty())
+            .unwrap_or(DEFAULT_CALLS_APP)
     }
 
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {

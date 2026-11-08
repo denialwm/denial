@@ -58,7 +58,12 @@ class _MobileNotificationBannerViewState
   void _armTimeout() {
     _timeout?.cancel();
     final notification = widget.notification;
-    if (notification == null || notification.historyOnly) return;
+    // A critical banner, such as a call ringing, stays until it is closed.
+    if (notification == null ||
+        notification.historyOnly ||
+        notification.bannerDuration == null) {
+      return;
+    }
     _timeout = Timer(const Duration(seconds: 5), () {
       if (mounted) widget.onHide(notification.id);
     });

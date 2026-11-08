@@ -291,6 +291,7 @@ use window_management::SHELL_FRAME_BORDER;
 pub(super) use window_management::{
     apply_window_commands, finalize_topology_window_reconciliation, finish_desk_window_drag,
     queue_local_flutter_window_placement, queue_transient_window_placement, queue_window_placement,
+    synchronize_over_lock_window,
 };
 #[cfg(feature = "flutter")]
 use window_management::{

@@ -9,10 +9,13 @@
 //! and so do windows on a desk next to the phone.
 //!
 //! The phone's lock screen covers every window: all of them are suspended
-//! while the session is locked, so apps stay paused until it unlocks.
+//! while the session is locked, so apps stay paused until it unlocks. The
+//! one exception is the calls app's window while its call stands: it shows
+//! over the lock screen and keeps running.
 
 use std::collections::HashSet;
 
+use smithay::desktop::Window;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::backend::ObjectId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -41,6 +44,8 @@ pub(super) struct MinimizedWindows {
     kept_textures: Vec<u64>,
     /// The lock screen covers every window.
     covered: bool,
+    /// The calls app's window shown over the lock screen, by root surface.
+    over_lock: Option<ObjectId>,
 }
 
 impl WaylandFrontend {
@@ -89,6 +94,66 @@ impl WaylandFrontend {
         self.minimized_windows.covered
     }
 
+    /// Whether the lock screen keeps `window` suspended: every window but the
+    /// one shown over it.
+    pub(super) fn window_covered(&self, window: &Window) -> bool {
+        self.minimized_windows.covered && !self.window_over_lock(window)
+    }
+
+    pub(super) fn window_over_lock(&self, window: &Window) -> bool {
+        self.minimized_windows
+            .over_lock
+            .as_ref()
+            .is_some_and(|over_lock| {
+                self.window_root_surface(window)
+                    .is_some_and(|root| root.id() == *over_lock)
+            })
+    }
+
+    /// Shows the window of `app_id` over the lock screen and lets it run, or
+    /// none with `None`. Returns the window when it newly shows there.
+    #[cfg(feature = "flutter")]
+    pub(crate) fn set_over_lock_app(&mut self, app_id: Option<&str>) -> Option<Window> {
+        let window = app_id
+            .filter(|_| self.mobile_shell && self.minimized_windows.covered)
+            .and_then(|app_id| {
+                self.space
+                    .elements()
+                    .find(|window| {
+                        ManagedWindow::new(window)
+                            .and_then(|managed| managed.identity())
+                            .is_some_and(|identity| identity.app_id() == app_id)
+                    })
+                    .cloned()
+            });
+        let root = window
+            .as_ref()
+            .and_then(|window| self.window_root_surface(window))
+            .map(|root| root.id());
+        if root == self.minimized_windows.over_lock {
+            return None;
+        }
+        let previous = std::mem::replace(&mut self.minimized_windows.over_lock, root);
+        if let Some(previous) = previous
+            && let Some(managed) = self
+                .space
+                .elements()
+                .find(|window| {
+                    self.window_root_surface(window)
+                        .is_some_and(|root| root.id() == previous)
+                })
+                .and_then(ManagedWindow::new)
+        {
+            managed
+                .prepare_suspended(self.windows_covered() || self.surface_is_minimized(&previous));
+        }
+        let window = window?;
+        if let Some(managed) = ManagedWindow::new(&window) {
+            managed.prepare_suspended(false);
+        }
+        Some(window)
+    }
+
     /// Follows the phone's session lock: suspends every window while the
     /// lock screen covers it, and gives unlocked windows back their state.
     pub(crate) fn set_windows_covered(&mut self, covered: bool) {
@@ -96,6 +161,7 @@ impl WaylandFrontend {
             return;
         }
         self.minimized_windows.covered = covered;
+        self.minimized_windows.over_lock = None;
         for window in self.space.elements() {
             let Some(managed) = ManagedWindow::new(window) else {
                 continue;

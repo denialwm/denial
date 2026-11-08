@@ -32,6 +32,7 @@ class ReferenceInputLayoutCoordinator {
     required ShellInteractionSnapshot interactions,
     double topInset = 0.0,
     bool appsMoving = false,
+    DenialWindow? overLockWindow,
     Offset sceneOrigin = Offset.zero,
     PhoneDeskInputComposer? composer,
   }) {
@@ -55,6 +56,23 @@ class ReferenceInputLayoutCoordinator {
           progress: edgePanelProgress,
           scrollStripVisible: scrollStripVisible,
         );
+    // The calls app's window over the lock screen takes its touches; the
+    // keyboard stays with the lock screen.
+    if (state.lockLayerVisible && overLockWindow != null) {
+      _publishInputLayout(
+        viewSize: viewSize,
+        shellRegions: const <Rect>[],
+        windows: _inputRegionsForWindow(
+          window: overLockWindow,
+          viewSize: viewSize,
+          contentOffset: 0.0,
+          inputBottom: viewSize.height,
+          topInset: 0.0,
+        ),
+        keyboardCapture: true,
+      );
+      return;
+    }
     if (state.lockLayerVisible) {
       final lockBackgroundWindow = state.primaryWindow;
       _publishInputLayout(

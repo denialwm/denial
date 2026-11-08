@@ -154,6 +154,10 @@ pub(super) struct RuntimeState {
     pub(super) resolved_theme_accent: DesktopAccentColor,
     #[cfg(feature = "flutter")]
     pub(super) pending_notification_events: VecDeque<notification_server::NotificationEvent>,
+    /// The call notifications that stand, with the desktop entry each names:
+    /// the calls app's window shows over the lock screen while one does.
+    #[cfg(feature = "flutter")]
+    pub(super) call_notifications: HashMap<u32, String>,
     #[cfg(feature = "flutter")]
     pub(super) control: ControlRequests,
     #[cfg(feature = "flutter")]
@@ -253,6 +257,43 @@ impl RuntimeState {
                 .authentication
                 .as_ref()
                 .is_some_and(|authentication| authentication.locked())
+    }
+
+    /// Follows the call notifications in `events`: `call.incoming` while a
+    /// call rings, `call` while one goes on.
+    #[cfg(feature = "flutter")]
+    pub(super) fn note_call_notifications<'a>(
+        &mut self,
+        events: impl IntoIterator<Item = &'a notification_server::NotificationEvent>,
+    ) {
+        for event in events {
+            match event.notification.as_ref() {
+                Some(notification)
+                    if matches!(notification.category.as_str(), "call.incoming" | "call") =>
+                {
+                    self.call_notifications
+                        .insert(event.notification_id, notification.desktop_entry.clone());
+                }
+                _ => {
+                    self.call_notifications.remove(&event.notification_id);
+                }
+            }
+        }
+    }
+
+    /// The calls app whose window shows over the lock screen: the one the
+    /// settings name, while the phone is locked and one of its calls stands.
+    #[cfg(feature = "flutter")]
+    pub(super) fn over_lock_app(&self) -> Option<String> {
+        if !self.secure_session_locked() {
+            return None;
+        }
+        let frontend = self.wayland.as_ref()?;
+        let calls_app = frontend.settings.calls_app();
+        self.call_notifications
+            .values()
+            .any(|entry| entry == calls_app)
+            .then(|| calls_app.to_owned())
     }
 
     pub(super) fn queue_shell_action(

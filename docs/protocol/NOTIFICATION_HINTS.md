@@ -30,6 +30,22 @@ Other servers ignore them, so apps can send them everywhere.
 Groups never cross apps: deniald scopes the group to `desktop-entry`, else
 the app name, else the D-Bus sender.
 
+## Calls
+
+A call ringing here is category `call.incoming` with urgency critical: its
+banner stays until the notification closes, and shows its actions without
+being expanded. Post it with `x-denial-clearable` false, and replace it with
+a quiet `resident` one of category `call` while the call goes on.
+
+On a phone, while the session is locked and a `call.incoming` or `call`
+notification stands whose `desktop-entry` is the calls app the settings name
+(`lockScreen.callsApp`, by default `org.denialwm.Calls`), Denial shows that
+app's window over the lock screen. The window keeps running, takes touch,
+and the screen wakes when it first shows; the keyboard stays with the lock
+screen. The app has to be running: whoever posts the call starts it. On
+Denial phones denial-apps' `calls-manager` posts both notifications and
+starts the calls app when a call rings while the phone is locked.
+
 ## Messaging apps
 
 - One notification per conversation, `replaces_id` on every new message.

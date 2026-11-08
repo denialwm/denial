@@ -124,6 +124,13 @@ class DesktopNotification {
   /// Ongoing notifications belong in history, without a heads-up banner.
   bool get historyOnly => resident || expireTimeoutMs == 0;
 
+  /// A call ringing here: the notification spec's `call.incoming` category.
+  /// Its banner shows its actions, such as Answer and Decline, at once.
+  bool get incomingCall => category == 'call.incoming';
+
+  /// A call ringing or going on: `call.incoming` or `call`.
+  bool get call => incomingCall || category == 'call';
+
   /// A tap opens something: the default action, else the desktop entry's app.
   bool get opensApp =>
       desktopEntry.isNotEmpty ||
