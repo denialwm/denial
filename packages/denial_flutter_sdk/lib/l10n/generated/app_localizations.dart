@@ -3827,6 +3827,12 @@ abstract class AppLocalizations {
   /// **'Battery saver'**
   String get quickSettingsBatterySaver;
 
+  /// Quick Settings tile that opens the clipboard history tray.
+  ///
+  /// In en, this message translates to:
+  /// **'Clipboard'**
+  String get quickSettingsClipboard;
+
   /// English UI text for quickSettingsClose.
   ///
   /// In en, this message translates to:

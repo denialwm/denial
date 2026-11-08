@@ -2145,6 +2145,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quickSettingsBatterySaver => 'Battery saver';
 
   @override
+  String get quickSettingsClipboard => 'Clipboard';
+
+  @override
   String get quickSettingsClose => 'Close quick settings';
 
   @override

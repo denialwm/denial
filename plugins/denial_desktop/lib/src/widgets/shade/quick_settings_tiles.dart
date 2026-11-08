@@ -30,7 +30,7 @@ class QuickSettingsTiles extends StatelessWidget {
     this.mobileDataTile,
     this.airplaneTile,
     this.orientationLockTile,
-    this.autoRotateTile,
+    this.clipboardTile,
     this.desktopViewTile,
     this.autoBrightnessTile,
     this.darkModeTile,
@@ -62,7 +62,7 @@ class QuickSettingsTiles extends StatelessWidget {
   final Widget? mobileDataTile;
   final Widget? airplaneTile;
   final Widget? orientationLockTile;
-  final Widget? autoRotateTile;
+  final Widget? clipboardTile;
   final Widget? desktopViewTile;
   final Widget? autoBrightnessTile;
   final Widget? darkModeTile;
@@ -326,7 +326,7 @@ class QuickSettingsTiles extends StatelessWidget {
         ),
         1,
       ),
-      if (autoRotateTile != null) (autoRotateTile!, 1),
+      if (clipboardTile != null) (clipboardTile!, 1),
       if (desktopViewTile != null) (desktopViewTile!, 1),
       if (autoBrightnessTile != null) (autoBrightnessTile!, 1),
       if (darkModeTile != null) (darkModeTile!, 1),

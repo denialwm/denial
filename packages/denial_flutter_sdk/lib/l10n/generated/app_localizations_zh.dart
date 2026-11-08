@@ -2051,6 +2051,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get quickSettingsBatterySaver => '省电';
 
   @override
+  String get quickSettingsClipboard => '剪贴板';
+
+  @override
   String get quickSettingsClose => '关闭快速设置';
 
   @override

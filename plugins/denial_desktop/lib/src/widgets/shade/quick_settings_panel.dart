@@ -60,6 +60,7 @@ import 'shade_dismiss_gesture.dart';
 import 'shade_expansion_motion.dart';
 import 'shade_reference_geometry.dart';
 import 'status_bar.dart';
+import '../../state/clipboard_tray.dart' show clipboardTrayProvider;
 import '../../state/phone_desk.dart';
 
 enum ShadePage { notifications, quickSettings }
@@ -1018,15 +1019,17 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
         stacked: designLayout,
         onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
       ),
-      autoRotateTile: QuickTile(
-        icon: Icons.screen_rotation_rounded,
-        title: l10n.quickSettingsAutoRotate,
-        subtitle: rotationLock.locked ? l10n.commonOff : l10n.commonOn,
-        active: !rotationLock.locked,
-        enabled: rotationLock.supported && !rotationLock.busy,
-        busy: rotationLock.busy,
+      // The shade closes first so the tray slides in over the desktop
+      // instead of under the fading panel.
+      clipboardTile: QuickTile(
+        icon: Icons.content_paste_rounded,
+        title: l10n.quickSettingsClipboard,
+        active: false,
         stacked: designLayout,
-        onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
+        onTap: () {
+          ref.read(referenceShellProvider.notifier).closeQuickSettings();
+          ref.read(clipboardTrayProvider.notifier).open();
+        },
       ),
       autoBrightnessTile: _AutoBrightnessTile(stacked: designLayout),
       darkModeTile: _DarkModeTile(stacked: designLayout),

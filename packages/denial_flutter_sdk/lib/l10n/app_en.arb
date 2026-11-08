@@ -3009,6 +3009,10 @@
   "@quickSettingsBatterySaver": {
     "description": "English UI text for quickSettingsBatterySaver."
   },
+  "quickSettingsClipboard": "Clipboard",
+  "@quickSettingsClipboard": {
+    "description": "Quick Settings tile that opens the clipboard history tray."
+  },
   "quickSettingsClose": "Close quick settings",
   "@quickSettingsClose": {
     "description": "English UI text for quickSettingsClose."
