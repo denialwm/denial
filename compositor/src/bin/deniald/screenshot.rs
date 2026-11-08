@@ -57,6 +57,7 @@ impl ScreenshotManager {
                     match write_png(job) {
                         Ok(output) => {
                             info!(path = %output.path.display(), "saved screenshot");
+                            notify_screenshot_saved(&output.path);
                             match clipboard.set_image_png(output.png) {
                                 Ok(item_id) => {
                                     info!(item_id, "published screenshot to the clipboard");
@@ -379,6 +380,31 @@ impl Write for ScreenshotPngSink {
 
     fn flush(&mut self) -> io::Result<()> {
         self.file.flush()
+    }
+}
+
+/// Posts a desktop notification once the PNG is on disk. deniald already
+/// inherits the session bus, so notify-send reaches Denial's own server.
+fn notify_screenshot_saved(path: &Path) {
+    let zh = std::env::var("LANG")
+        .unwrap_or_default()
+        .to_lowercase()
+        .contains("zh");
+    let file = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Screenshots");
+    let summary = if zh { "截图已保存" } else { "Screenshot saved" };
+    let body = if zh {
+        format!("{file} · 已复制到剪贴板")
+    } else {
+        format!("{file} · Copied to clipboard")
+    };
+    if let Err(error) = std::process::Command::new("notify-send")
+        .args(["-a", "Denial", "-i", "camera-photo", summary, &body])
+        .status()
+    {
+        warn!(%error, "could not show screenshot notification");
     }
 }
 

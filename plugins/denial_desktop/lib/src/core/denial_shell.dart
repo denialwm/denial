@@ -327,6 +327,7 @@ class _ProfileScene extends StatelessWidget {
                 chrome: scene.chrome,
               ),
             ),
+            const ScreenshotSelectionLayer(),
             const MobileSystemOverlayLayer(),
             const SystemKeyboardLayer(),
             // Over everything on the phone, like the lock screen it comes

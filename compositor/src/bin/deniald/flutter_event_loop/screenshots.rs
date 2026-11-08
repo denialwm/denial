@@ -136,6 +136,7 @@ impl Session<'_, '_> {
             topology,
             scheduler,
             swapchain,
+            events,
             flutter: runtime,
             ..
         } = self;
@@ -153,6 +154,21 @@ impl Session<'_, '_> {
                 warn!("screenshot capture skipped because the atlas is unavailable");
                 return Ok(());
             };
+            // On the phone the screenshot button opens the region selector
+            // instead of silently grabbing the whole output.
+            if events
+                .wayland
+                .as_ref()
+                .is_some_and(|frontend| frontend.mobile_shell())
+            {
+                if let Some(output) = atlas.outputs.first() {
+                    events.pending_screenshot_selection = Some(output.id);
+                    // handle_screenshot_request runs after the pending-selection
+                    // check, so wake the loop for the next pass.
+                    crate::loop_wake::wake();
+                }
+                return Ok(());
+            }
             let output_swapchains = swapchain
                 .outputs()
                 .ok_or("live screenshot has no physical output pools")?;

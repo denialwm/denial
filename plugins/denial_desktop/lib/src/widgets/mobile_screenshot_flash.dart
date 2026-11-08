@@ -50,9 +50,26 @@ class _MobileScreenshotFlashState extends ConsumerState<MobileScreenshotFlash>
   void initState() {
     super.initState();
     _shellActions = ref.read(denialBridgeProvider).shellActions.listen((event) {
-      if (event.action != DenialShellAction.screenshotCaptured) return;
-      ref.read(hapticsServiceProvider).pulse();
-      _controller.forward(from: 0);
+      if (event.action == DenialShellAction.screenshotCaptured) {
+        ref.read(hapticsServiceProvider).pulse();
+        _controller.forward(from: 0);
+        return;
+      }
+      // The desktop shell owns these bindings; the mobile scene needs the
+      // same session wiring so region selection can run here too.
+      final selection = ref.read(screenshotSelectionProvider.notifier);
+      if (event.action == DenialShellAction.screenshotPrepare) {
+        if (selection.prepare(event.requestId)) {
+          ref.read(denialBridgeProvider).screenshotPrepared(event.requestId);
+        }
+      } else if (event.action == DenialShellAction.screenshotTextureReady) {
+        final textureId = event.textureId;
+        if (textureId != null) {
+          selection.textureReady(event.requestId, textureId);
+        }
+      } else if (event.action == DenialShellAction.screenshotDone) {
+        selection.done(event.requestId);
+      }
     });
     _controller.addStatusListener((_) => setState(() {}));
   }
