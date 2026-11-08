@@ -9981,6 +9981,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unavailable'**
   String get settingsAudioOutputUnavailable;
+
+  /// Audio output selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Using {name}'**
+  String settingsAudioOutputInUse(String name);
+
+  /// Audio output selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching moves playing audio to the new output; each device keeps its own level.'**
+  String get settingsAudioOutputNote;
+
+  /// Audio output selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get audioOutputActive;
+
+  /// Audio output selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready'**
+  String get audioOutputReady;
 }
 
 class _AppLocalizationsDelegate

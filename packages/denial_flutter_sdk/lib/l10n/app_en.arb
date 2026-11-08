@@ -7540,5 +7540,26 @@
   "settingsAudioOutputUnavailable": "Unavailable",
   "@settingsAudioOutputUnavailable": {
     "description": "Audio settings · output device selection."
+  },
+  "settingsAudioOutputInUse": "Using {name}",
+  "@settingsAudioOutputInUse": {
+    "description": "Audio output selection.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsAudioOutputNote": "Switching moves playing audio to the new output; each device keeps its own level.",
+  "@settingsAudioOutputNote": {
+    "description": "Audio output selection."
+  },
+  "audioOutputActive": "Active",
+  "@audioOutputActive": {
+    "description": "Audio output selection."
+  },
+  "audioOutputReady": "Ready",
+  "@audioOutputReady": {
+    "description": "Audio output selection."
   }
 }

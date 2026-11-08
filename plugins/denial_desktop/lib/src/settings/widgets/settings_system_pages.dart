@@ -65,30 +65,51 @@ class _SettingsAudioPageState extends ConsumerState<SettingsAudioPage> {
           children: [
             SettingsSection(
               title: l10n.settingsAudioOutputTitle,
-              status: devices.activeDevice?.description,
+              status: devices.activeDevice == null
+                  ? null
+                  : l10n.settingsAudioOutputInUse(
+                      devices.activeDevice!.description,
+                    ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final (index, device) in devices.devices.indexed) ...[
-                    if (index > 0)
-                      Divider(
-                        height: 1,
-                        color: context.applicationColors.separator,
-                      ),
+                  for (final device in devices.devices)
                     _AudioOutputDeviceRow(
                       device: device,
                       busy: devices.changing,
-                      onSelected: () => deviceController.select(device.name),
+                      onSelected: () {
+                        deviceController.select(device.name);
+                        Future<void>.delayed(
+                          const Duration(milliseconds: 500),
+                          () {
+                            if (!mounted) return;
+                            ref
+                                .read(quickSettingsProvider.notifier)
+                                .refreshVolume();
+                          },
+                        );
+                      },
                     ),
-                  ],
                   if (devices.devices.isEmpty)
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       child: Text(
                         devices.loading
                             ? l10n.settingsAudioOutputLoading
                             : l10n.settingsAudioOutputUnavailable,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: context.applicationColors.secondary,
+                        ),
+                      ),
+                    ),
+                  if (devices.devices.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+                      child: Text(
+                        l10n.settingsAudioOutputNote,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.4,
                           color: context.applicationColors.secondary,
                         ),
                       ),
@@ -558,73 +579,111 @@ class _AudioOutputDeviceRow extends StatelessWidget {
     final l10n = context.l10n;
     final accent = ShellTheme.of(context).accent;
     final enabled = device.available && !device.active && !busy;
-    return Semantics(
-      button: true,
-      selected: device.active,
-      label: device.description,
-      child: TextButton(
-        onPressed: enabled ? onSelected : null,
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          foregroundColor: context.applicationColors.foreground,
-          alignment: AlignmentDirectional.centerStart,
-          shape: RoundedRectangleBorder(
-            borderRadius: DenialSurfaceGeometry.borderRadiusOf(
-              context,
-              inset: 8,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Semantics(
+        button: true,
+        selected: device.active,
+        label: device.description,
+        child: TextButton(
+          onPressed: enabled ? onSelected : null,
+          style: TextButton.styleFrom(
+            minimumSize: const Size(0, 58),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            foregroundColor: context.applicationColors.foreground,
+            backgroundColor: device.active
+                ? accent.withValues(alpha: .10)
+                : null,
+            alignment: AlignmentDirectional.centerStart,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              device.active ? Icons.volume_up_rounded : Icons.speaker_rounded,
-              size: 20,
-              color: device.active
-                  ? accent
-                  : context.applicationColors.secondary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    device.description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: device.active
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+          child: SizedBox(
+            height: 58,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: device.active
+                        ? context.applicationColors.chrome
+                        : context.applicationColors.control,
+                    border: Border.all(
+                      color: device.active
+                          ? accent.withValues(alpha: .55)
+                          : Colors.transparent,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    device.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: context.applicationColors.secondary,
-                    ),
+                  child: Icon(
+                    device.active
+                        ? Icons.volume_up_rounded
+                        : Icons.speaker_rounded,
+                    size: 19,
+                    color: device.active
+                        ? accent
+                        : context.applicationColors.secondary,
                   ),
-                ],
-              ),
-            ),
-            if (device.active)
-              Icon(Icons.check_rounded, size: 18, color: accent)
-            else if (!device.available)
-              Text(
-                l10n.settingsAudioOutputUnavailable,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.applicationColors.secondary,
                 ),
-              ),
-          ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        device.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: context.applicationColors.foreground,
+                          fontSize: 14,
+                          fontWeight: device.active
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        device.available
+                            ? device.name
+                            : '${device.name} · '
+                                  '${l10n.settingsAudioOutputUnavailable}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: context.applicationColors.secondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: device.active
+                        ? context.applicationColors.chrome
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: device.active
+                          ? accent
+                          : context.applicationColors.separator,
+                      width: device.active ? 6 : 1.6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

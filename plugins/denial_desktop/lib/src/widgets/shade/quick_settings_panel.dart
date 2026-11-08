@@ -25,6 +25,7 @@ import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
 import '../../state/quick_settings.dart';
+import '../connectivity/audio_output_surface.dart';
 import '../../state/reference_shell_presentation.dart';
 import '../../state/reference_shell_profile.dart';
 
@@ -1151,14 +1152,20 @@ class _VolumeRangeBar extends ConsumerWidget {
     );
     final controller = ref.read(quickSettingsProvider.notifier);
     if (horizontal) {
-      final device = ref.watch(
-        audioDevicesProvider.select((state) => state.activeDevice),
-      );
       return _HorizontalRangeCard(
         icon: Icons.volume_up_rounded,
         label: context.l10n.commonVolume,
         value: volume,
-        secondaryLabel: device?.description,
+        onSecondaryTap: () {
+          ref
+              .read(shellPopupControllerProvider.notifier)
+              .show(
+                keyName: 'audio-output',
+                debugLabel: 'Audio output',
+                builder: (_, handle) =>
+                    AudioOutputSurface(onClose: handle.close),
+              );
+        },
         onChangeStart: controller.beginVolumeInteraction,
         onChanged: controller.setDashboardVolume,
         onChangeEnd: controller.commitDashboardVolume,
@@ -1187,15 +1194,15 @@ class _HorizontalRangeCard extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     this.onChangeStart,
-    this.secondaryLabel,
+    this.onSecondaryTap,
   });
 
   final IconData icon;
   final String label;
   final double value;
 
-  /// Shown between the track and the percentage, e.g. the audio output.
-  final String? secondaryLabel;
+  /// Opens the output picker; renders a compact chevron button.
+  final VoidCallback? onSecondaryTap;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
   final VoidCallback? onChangeStart;
@@ -1266,20 +1273,22 @@ class _HorizontalRangeCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (secondaryLabel case final secondary?) ...[
+            if (onSecondaryTap case final open?) ...[
               const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 150),
-                child: Text(
-                  secondary,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: context.shellColors.textTertiary,
-                    fontSize: 11.5,
-                    height: 1.1,
-                    letterSpacing: 0,
-                    decoration: TextDecoration.none,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: open,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: context.shellColors.surfaceContainerHigh,
+                    borderRadius: theme.borderRadius(8),
+                  ),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: context.shellColors.panelText,
                   ),
                 ),
               ),

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Denial — 音频输出设计</title>
+<style>
+  :root {
+    --accent: #7c5cd6;
+    --accent-soft: rgba(124, 92, 214, .12);
+    --accent-line: rgba(124, 92, 214, .5);
+    --canvas: #f3f2f5;
+    --card: #ffffff;
+    --sidebar: #ecebf0;
+    --text: #1e1d22;
+    --muted: #6f6d78;
+    --faint: #9c9aa5;
+    --line: #e7e5ec;
+    --line-soft: rgba(30, 29, 34, .07);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    display: grid; place-items: center;
+    background: #0d0c12; color: var(--text);
+    font-family: "Noto Sans SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    overflow: hidden; -webkit-user-select: none; user-select: none;
+  }
+  .viewport { position: relative; }
+  .stage { display: flex; gap: 54px; align-items: flex-start; transform-origin: top left; }
+
+  /* ---------------- settings ---------------- */
+  .app {
+    width: 1707px; height: 1067px; flex: none;
+    display: grid; grid-template-columns: 272px 1fr;
+    background: var(--canvas);
+    border-radius: 26px; overflow: hidden;
+    box-shadow: 0 40px 120px rgba(0,0,0,.6);
+  }
+  .sidebar {
+    background: var(--sidebar); border-right: 1px solid var(--line);
+    padding: 22px 14px 16px; display: flex; flex-direction: column;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 12px 18px; font-size: 19px; font-weight: 700; }
+  .brand svg { width: 22px; height: 22px; }
+  .nav { display: flex; flex-direction: column; gap: 1px; }
+  .nav-label { padding: 14px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--faint); }
+  .nav-item { display: flex; align-items: center; gap: 11px; height: 40px; padding: 0 12px; border-radius: 11px; color: var(--muted); font-size: 13.5px; }
+  .nav-item svg { width: 18px; height: 18px; flex: none; }
+  .nav-item.active { background: #dfdde7; color: var(--text); font-weight: 600; }
+  .nav-item.active svg { color: var(--accent); }
+  .nav-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); }
+
+  .content { display: flex; flex-direction: column; min-width: 0; }
+  .header { border-bottom: 1px solid var(--line); }
+  .header-inner { max-width: 1180px; margin: 0 auto; padding: 28px 0 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+  .title { font-size: 26px; font-weight: 700; letter-spacing: -.5px; }
+  .subtitle { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; padding-top: 2px; }
+  .action { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 15px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 12.5px; font-weight: 500; }
+  .action svg { width: 15px; height: 15px; color: var(--muted); }
+
+  .body { padding: 22px 0 28px; }
+  .col { width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px 24px; }
+  .card-head { display: flex; align-items: center; gap: 9px; font-size: 14.5px; font-weight: 700; }
+  .card-head svg { width: 17px; height: 17px; color: var(--accent); }
+  .card-head .status { margin-left: auto; font-size: 11.5px; color: var(--faint); font-weight: 500; }
+
+  .device {
+    display: flex; align-items: center; gap: 14px;
+    height: 58px; padding: 0 10px; margin: 0 -10px;
+    border-radius: 12px;
+  }
+  .device + .device { border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+  .device.active { background: var(--accent-soft); border-top-color: transparent; margin-top: 2px; }
+  .device .glyph {
+    width: 38px; height: 38px; border-radius: 999px; flex: none;
+    display: grid; place-items: center;
+    background: #f2f0f7; color: var(--muted);
+  }
+  .device.active .glyph { background: #fff; color: var(--accent); box-shadow: 0 0 0 1px var(--accent-line); }
+  .device .glyph svg { width: 19px; height: 19px; }
+  .device .meta { min-width: 0; }
+  .device .name { font-size: 14px; font-weight: 600; }
+  .device .hint { margin-top: 2px; font-size: 11.5px; color: var(--faint); font-family: ui-monospace, monospace; }
+  .device .radio {
+    margin-left: auto; width: 20px; height: 20px; border-radius: 999px;
+    border: 1.6px solid #c9c6d2; flex: none;
+  }
+  .device.active .radio { border: 6px solid var(--accent); background: #fff; }
+  .unavailable { margin-left: auto; font-size: 11px; color: var(--faint); }
+  .note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 11.5px; color: var(--faint); }
+
+  .row-line { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+  .row-line .label { width: 74px; font-size: 13px; font-weight: 600; flex: none; }
+  .track { flex: 1; height: 4px; border-radius: 999px; background: #e6e3ee; position: relative; }
+  .track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--accent); }
+  .track b {
+    position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 999px;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); transform: translate(-50%, -50%);
+  }
+  .pct { width: 42px; text-align: right; font-size: 12.5px; color: var(--faint); flex: none; }
+
+  .app-audio { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .app-audio .icon { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, #d94f4f, #f0a04b); flex: none; }
+  .app-audio .icon.blue { background: linear-gradient(135deg, #2f6feb, #66a3ff); }
+  .app-audio .name { width: 130px; font-size: 13px; font-weight: 550; }
+  .app-audio .track { flex: 1; }
+  .app-audio .pct { width: 42px; text-align: right; font-size: 12.5px; color: var(--faint); }
+
+  /* ---------------- shade + popup ---------------- */
+  .right-col { display: flex; flex-direction: column; gap: 34px; }
+  .wall {
+    border-radius: 24px; overflow: hidden; position: relative;
+    background:
+      radial-gradient(420px 300px at 18% 24%, rgba(86,118,220,.42), transparent 62%),
+      radial-gradient(460px 340px at 84% 74%, rgba(143,78,205,.40), transparent 64%),
+      linear-gradient(142deg, #0a0f24 0%, #17203d 46%, #090d1c 100%);
+    box-shadow: 0 30px 90px rgba(0,0,0,.55);
+  }
+  .vol-frame { width: 860px; height: 300px; }
+  .vol-frame .shade-card {
+    position: absolute; left: 20px; right: 20px;
+    background: rgba(244,243,247,.88); border-radius: 16px;
+    padding: 8px 12px; display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 12px 30px rgba(0,0,0,.22);
+  }
+  .vol-frame .pct { width: 36px; }
+  .vol-frame .icon { width: 20px; height: 20px; color: #2a2830; }
+  .vol-frame .label { font-size: 14.5px; font-weight: 600; flex: none; }
+  .vol-frame .track { background: #dcd9e3; }
+  .device-pill {
+    display: grid; place-items: center; flex: none;
+    width: 34px; height: 34px; border-radius: 9px;
+    background: #e9e7ee;
+  }
+  .device-pill svg { width: 16px; height: 16px; color: #55525f; }
+
+  .popup-frame { width: 860px; height: 520px; }
+  .popup {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 540px; background: rgba(250,250,252,.94);
+    border: 1px solid rgba(255,255,255,.4); border-radius: 24px;
+    padding: 18px 16px 14px; box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  }
+  .popup-head { display: flex; align-items: center; gap: 10px; }
+  .popup-head .glyph { width: 34px; height: 34px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+  .popup-head .glyph svg { width: 18px; height: 18px; }
+  .popup-title { font-size: 17px; font-weight: 700; }
+  .popup-sub { margin-top: 1px; font-size: 11.5px; color: var(--faint); }
+  .popup-actions { margin-left: auto; display: flex; gap: 7px; }
+  .popup-action {
+    width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+    color: #3d3a46; background: #efedf3;
+  }
+  .popup-action svg { width: 17px; height: 17px; }
+  .popup-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .popup-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; border-radius: 14px; background: #f1eff5;
+  }
+  .popup-row.active { background: var(--accent-soft); border: 1px solid var(--accent-line); padding: 11px 13px; }
+  .popup-row .glyph {
+    width: 36px; height: 36px; border-radius: 999px; flex: none;
+    display: grid; place-items: center; background: #fff; color: #5f5c68;
+  }
+  .popup-row.active .glyph { color: var(--accent); }
+  .popup-row .glyph svg { width: 18px; height: 18px; }
+  .popup-row .name { font-size: 13.5px; font-weight: 600; }
+  .popup-row .hint { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+  .popup-row .radio { margin-left: auto; width: 19px; height: 19px; border-radius: 999px; border: 1.6px solid #c9c6d2; flex: none; }
+  .popup-row.active .radio { border: 5.5px solid var(--accent); background: #fff; }
+  .popup .device { height: 52px; margin: 0; padding: 0 8px; border-radius: 10px; }
+  .popup .device + .device { border-top: 1px solid var(--line); border-radius: 10px; }
+  .popup .device.active { margin-top: 0; }
+  .popup .device .glyph { width: 32px; height: 32px; }
+  .popup .device .name { font-size: 13px; }
+  .popup .device .hint { font-size: 10.5px; }
+  .popup .device .radio { width: 18px; height: 18px; }
+  .popup .device.active .radio { border-width: 5px; }
+  .popup .note { margin-top: 8px; padding-top: 10px; }
+
+  .caption { margin-top: 12px; font-size: 12px; letter-spacing: .12em; color: rgba(255,255,255,.36); text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="viewport" id="viewport">
+<div class="stage" id="stage">
+
+  <!-- ================= Settings 音频 ================= -->
+  <div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h.01M8 17h.01"/></svg>
+          设置
+        </div>
+        <nav class="nav">
+          <div class="nav-label">个性化</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>你</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>外观</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>语言</div>
+          <div class="nav-label">输入</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>键盘</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>鼠标和触控板</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h8"/></svg>快捷键</div>
+          <div class="nav-label">桌面</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m8 9 3 3-3 3M13 15h4"/></svg>应用环境</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 1 16 0"/><path d="M12 12l4-3"/><path d="M4 12h2M18 12h2"/></svg>动画</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>桌面布局</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18"/></svg>浮层</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>锁屏</div>
+          <div class="nav-label">系统</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 5 6v5c0 4.4 2.8 8.4 7 10 4.2-1.6 7-5.6 7-10V6Z"/></svg>权限</div>
+          <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>音频</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>显示器与视频</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M6 15a6 6 0 0 1 12 0"/><path d="M9 18a3 3 0 0 1 6 0"/></svg>网络</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 7 10 10M17 7 7 17"/><path d="M12 3 7 8v6l5 5 5-5V8Z"/></svg>蓝牙</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6 6a8 8 0 1 0 12 0"/></svg>电源</div>
+        </nav>
+        <div class="nav nav-foot">
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M10 18h4"/></svg>此设备</div>
+          <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>关于</div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="header">
+          <div class="header-inner">
+            <div>
+              <div class="title">音频</div>
+              <div class="subtitle">整个桌面的音频。</div>
+            </div>
+            <div class="actions">
+              <button class="action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+                刷新
+              </button>
+              <button class="action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+                重置页面
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div class="body">
+          <div class="col">
+            <section class="card">
+              <div class="card-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>
+                输出设备
+                <span class="status">正在使用 Protected Speakers</span>
+              </div>
+
+              <div class="device active">
+                <div class="glyph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9Z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+                </div>
+                <div class="meta">
+                  <div class="name">Protected Speakers</div>
+                  <div class="hint">effect_input.nabu_spk_protect · 扬声器保护</div>
+                </div>
+                <div class="radio"></div>
+              </div>
+
+              <div class="device">
+                <div class="glyph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1.2"/></svg>
+                </div>
+                <div class="meta">
+                  <div class="name">Speaker playback</div>
+                  <div class="hint">alsa_output.platform-sound.HiFi__Speaker__sink</div>
+                </div>
+                <div class="radio"></div>
+              </div>
+
+              <div class="note">切换设备后，正在播放的音频会移动到新的输出；每个设备保留自己的音量。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+                主输出
+              </div>
+              <div class="row-line">
+                <span class="label">输出音量</span>
+                <div class="track"><i style="width:100%"></i><b style="left:100%"></b></div>
+                <span class="pct">100%</span>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>
+                应用音频
+              </div>
+              <div class="app-audio">
+                <div class="icon"></div>
+                <span class="name">网易云音乐</span>
+                <div class="track"><i style="width:100%"></i><b style="left:100%"></b></div>
+                <span class="pct">100%</span>
+              </div>
+              <div class="app-audio">
+                <div class="icon blue"></div>
+                <span class="name">Firefox</span>
+                <div class="track"><i style="width:68%"></i><b style="left:68%"></b></div>
+                <span class="pct">68%</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="caption">SETTINGS · 音频</div>
+  </div>
+
+  <!-- ================= right column ================= -->
+  <div class="right-col">
+    <div>
+      <div class="wall vol-frame">
+        <div class="shade-card" style="top:26px">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+          <span class="label">亮度</span>
+          <div class="track"><i style="width:100%"></i><b style="left:100%"></b></div>
+          <span class="pct" style="margin-left:auto">100%</span>
+        </div>
+        <div class="shade-card" style="top:126px">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9Z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <span class="label">音量</span>
+          <div class="track"><i style="width:100%"></i><b style="left:100%"></b></div>
+          <div class="device-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 6 6 6-6 6"/></svg>
+          </div>
+          <span class="pct">100%</span>
+        </div>
+      </div>
+      <div class="caption">下拉栏 · 音量行</div>
+    </div>
+
+    <div>
+      <div class="wall popup-frame">
+        <div class="popup">
+          <div class="popup-head">
+            <div class="glyph">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9Z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+            </div>
+            <div>
+              <div class="popup-title">输出设备</div>
+              <div class="popup-sub">当前：Protected Speakers</div>
+            </div>
+            <div class="popup-actions">
+              <div class="popup-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+              </div>
+              <div class="popup-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="popup-list">
+            <div class="popup-row active">
+              <div class="glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9Z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+              </div>
+              <div class="meta">
+                <div class="name">Protected Speakers</div>
+                <div class="hint">已启用 · 扬声器保护</div>
+              </div>
+              <div class="radio"></div>
+            </div>
+            <div class="popup-row">
+              <div class="glyph">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7" r="1.2"/></svg>
+              </div>
+              <div class="meta">
+                <div class="name">Speaker playback</div>
+                <div class="hint">内置音频 · 可直接使用</div>
+              </div>
+              <div class="radio"></div>
+            </div>
+          </div>
+
+          <div class="note">切换后，正在播放的声音会移动到所选设备；每个设备保留自己的音量。</div>
+        </div>
+      </div>
+      <div class="caption">输出设备 · 弹出层</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+  const viewport = document.getElementById('viewport');
+  const stage = document.getElementById('stage');
+  function fit() {
+    const naturalWidth = stage.scrollWidth;
+    const naturalHeight = stage.scrollHeight;
+    const scale = Math.min(
+      (window.innerWidth - 80) / naturalWidth,
+      (window.innerHeight - 80) / naturalHeight,
+      1,
+    );
+    stage.style.transform = `scale(${scale})`;
+    viewport.style.width = `${naturalWidth * scale}px`;
+    viewport.style.height = `${naturalHeight * scale}px`;
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

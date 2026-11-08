@@ -5325,4 +5325,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsAudioOutputUnavailable => '不可用';
+
+  @override
+  String settingsAudioOutputInUse(String name) {
+    return '正在使用 $name';
+  }
+
+  @override
+  String get settingsAudioOutputNote => '切换设备后，正在播放的音频会移动到新的输出；每个设备保留自己的音量。';
+
+  @override
+  String get audioOutputActive => '已启用';
+
+  @override
+  String get audioOutputReady => '可直接使用';
 }

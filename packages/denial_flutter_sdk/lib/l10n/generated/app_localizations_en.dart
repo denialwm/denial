@@ -5583,4 +5583,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAudioOutputUnavailable => 'Unavailable';
+
+  @override
+  String settingsAudioOutputInUse(String name) {
+    return 'Using $name';
+  }
+
+  @override
+  String get settingsAudioOutputNote =>
+      'Switching moves playing audio to the new output; each device keeps its own level.';
+
+  @override
+  String get audioOutputActive => 'Active';
+
+  @override
+  String get audioOutputReady => 'Ready';
 }

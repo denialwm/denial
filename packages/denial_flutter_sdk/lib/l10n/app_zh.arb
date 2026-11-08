@@ -1673,5 +1673,9 @@
   "screenshotFullScreen": "全屏截图",
   "settingsAudioOutputTitle": "输出设备",
   "settingsAudioOutputLoading": "正在检测输出设备…",
-  "settingsAudioOutputUnavailable": "不可用"
+  "settingsAudioOutputUnavailable": "不可用",
+  "settingsAudioOutputInUse": "正在使用 {name}",
+  "settingsAudioOutputNote": "切换设备后，正在播放的音频会移动到新的输出；每个设备保留自己的音量。",
+  "audioOutputActive": "已启用",
+  "audioOutputReady": "可直接使用"
 }
