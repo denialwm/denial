@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Denial 快速设置 — 右侧重设计</title>
+<style>
+  :root {
+    --accent: #8a6be0;
+    --accent-strong: #6d4fd1;
+    --accent-ink: #14092e;
+    --panel: rgba(20, 21, 30, 0.62);
+    --card: rgba(255, 255, 255, 0.075);
+    --card-hover: rgba(255, 255, 255, 0.12);
+    --card-border: rgba(255, 255, 255, 0.12);
+    --text: #f2f3f8;
+    --muted: rgba(242, 243, 248, 0.62);
+    --faint: rgba(242, 243, 248, 0.38);
+    --radius-xl: 26px;
+    --radius-lg: 22px;
+    --radius-md: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    display: grid; place-items: center;
+    background: #0c0c12;
+    font-family: "Noto Sans SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+  .viewport { position: relative; }
+  .device {
+    position: relative;
+    width: 1707px; height: 1067px;
+    border-radius: 30px;
+    overflow: hidden;
+    transform-origin: top left;
+    background:
+      radial-gradient(1200px 800px at 18% 6%, #2b3a4c 0%, transparent 58%),
+      radial-gradient(1000px 700px at 88% 92%, #3a2f52 0%, transparent 62%),
+      linear-gradient(135deg, #141a26 0%, #1d2330 45%, #241f2e 100%);
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+  }
+  .wallpaper {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(950px 640px at 22% 16%, rgba(90, 120, 220, .24), transparent 62%),
+      radial-gradient(760px 520px at 84% 80%, rgba(143, 78, 205, .22), transparent 64%),
+      radial-gradient(520px 420px at 62% 28%, rgba(255, 210, 140, .07), transparent 70%);
+  }
+
+  /* status bar */
+  .statusbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 45px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 34px; font-size: 14px; color: var(--muted); z-index: 20;
+  }
+  .statusbar .right { display: flex; align-items: center; gap: 12px; }
+  .battery { display: flex; align-items: center; gap: 6px; }
+  .battery .shell {
+    width: 24px; height: 12px; border: 1.5px solid rgba(255,255,255,.5);
+    border-radius: 4px; padding: 1.5px; position: relative;
+  }
+  .battery .shell::after {
+    content: ""; position: absolute; right: -4px; top: 2.5px;
+    width: 2.5px; height: 5px; border-radius: 0 2px 2px 0;
+    background: rgba(255,255,255,.5);
+  }
+  .battery .fill { height: 100%; width: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent-strong), var(--accent)); }
+
+  /* shade */
+  .shade {
+    position: absolute; inset: 45px 0 0 0;
+    padding: 30px 40px 26px;
+    background: var(--panel);
+    backdrop-filter: blur(44px) saturate(150%);
+    -webkit-backdrop-filter: blur(44px) saturate(150%);
+    border-top: 1px solid rgba(255,255,255,.08);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 32px;
+    z-index: 10;
+  }
+
+  /* left: notifications */
+  .notif-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding-bottom: 40px; }
+  .notif-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 6px; }
+  .notif-title { font-size: 17px; font-weight: 600; }
+  .notif-clear {
+    width: 32px; height: 32px; border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--card); border: 1px solid var(--card-border);
+    color: var(--muted);
+  }
+  .notif-clear svg { width: 16px; height: 16px; }
+  .notif {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; border-radius: 18px;
+    background: var(--card); border: 1px solid var(--card-border);
+  }
+  .notif .app { width: 38px; height: 38px; border-radius: 11px; flex: none; display: grid; place-items: center; background: linear-gradient(135deg, #4a5a7a, #2f3a52); }
+  .notif .app svg { width: 19px; height: 19px; stroke: rgba(255,255,255,.75); fill: none; stroke-width: 1.7; }
+  .notif .body { min-width: 0; }
+  .notif .name { font-size: 14px; font-weight: 600; }
+  .notif .text { margin-top: 2px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .notif-foot { margin-top: 4px; padding-left: 6px; font-size: 12px; color: var(--faint); }
+
+  /* right: control centre */
+  .control { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; padding: 2px 2px 2px; }
+  .clock .time { font-size: 62px; line-height: .95; font-weight: 600; letter-spacing: -.03em; }
+  .clock .date { margin-top: 8px; font-size: 15px; color: var(--muted); }
+  .hero-actions { display: flex; gap: 10px; }
+  .icon-btn {
+    width: 48px; height: 48px; border-radius: 15px;
+    display: grid; place-items: center;
+    background: var(--card); border: 1px solid var(--card-border); color: var(--text);
+  }
+  .icon-btn svg { width: 20px; height: 20px; }
+
+  /* tiles: 3 columns × 4 rows */
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .tile {
+    position: relative; min-height: 92px;
+    border-radius: 18px;
+    padding: 12px 15px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    background: var(--card); border: 1px solid var(--card-border);
+    color: var(--text); overflow: hidden;
+  }
+  .tile-head { display: flex; align-items: center; justify-content: space-between; }
+  .tile-icon { width: 22px; height: 22px; opacity: .95; }
+  .chev { width: 15px; height: 15px; opacity: .5; }
+  .tile-title { font-size: 13.5px; font-weight: 600; letter-spacing: .01em; }
+  .tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .tile.on {
+    background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 100%);
+    border-color: transparent; color: var(--accent-ink);
+    box-shadow: 0 10px 24px rgba(109, 79, 209, .30);
+  }
+  .tile.on .tile-sub { color: rgba(20, 9, 46, .70); }
+  .tile.on .chev { opacity: .6; }
+
+  /* sliders */
+  .sliders { display: flex; flex-direction: column; gap: 12px; margin-top: 2px; }
+  .slider-card {
+    border-radius: var(--radius-md);
+    background: var(--card); border: 1px solid var(--card-border);
+    padding: 8px 14px; display: flex; align-items: center; gap: 12px;
+  }
+  .slider-card .icon { width: 20px; height: 20px; color: var(--text); flex: none; }
+  .slider-card .label { font-size: 14px; font-weight: 600; flex: none; }
+  .track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,.16); position: relative; }
+  .track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--accent); }
+  .track b {
+    position: absolute; top: 50%; width: 15px; height: 15px; border-radius: 999px;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); transform: translate(-50%,-50%);
+  }
+  .pct { width: 38px; text-align: right; font-size: 12px; color: var(--faint); flex: none; }
+  .device-btn {
+    width: 33px; height: 33px; border-radius: 9px; flex: none;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.09);
+  }
+  .device-btn svg { width: 16px; height: 16px; color: var(--text); }
+
+  .caption { margin-top: 12px; text-align: center; font-size: 12px; letter-spacing: .12em; color: rgba(255,255,255,.34); }
+</style>
+</head>
+<body>
+
+<div class="viewport" id="viewport">
+  <div class="device" id="device">
+    <div class="wallpaper"></div>
+
+    <div class="statusbar">
+      <span>19:42</span>
+      <span class="right">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 9a13 13 0 0 1 18 0"/><path d="M6.5 12.5a8.5 8.5 0 0 1 11 0"/><path d="M10 16a4 4 0 0 1 4 0"/><circle cx="12" cy="19.4" r=".9" fill="currentColor" stroke="none"/></svg>
+        <span class="battery"><span class="shell"><span class="fill"></span></span>100%</span>
+      </span>
+    </div>
+
+    <div class="shade">
+      <!-- notifications -->
+      <div class="notif-col">
+        <div class="notif-head">
+          <span class="notif-title">通知</span>
+          <span class="notif-clear" aria-label="全部清除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.5 3.5 9.8 8.2"/>
+              <path d="M12.4 6.6 17.4 11.6"/>
+              <path d="m8.2 9.8 6 6"/>
+              <path d="M8.2 9.8 4.5 13.5a1.4 1.4 0 0 0 0 2l4 4a1.4 1.4 0 0 0 2 0l3.7-3.7Z"/>
+              <path d="m5.5 12.5 6 6"/>
+            </svg>
+          </span>
+        </div>
+        <div class="notif">
+          <div class="app">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </div>
+          <div class="body">
+            <div class="name">Droidloom is starting</div>
+            <div class="text">Android apps open once it is ready.</div>
+          </div>
+        </div>
+        <div class="notif">
+          <div class="app">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18"/></svg>
+          </div>
+          <div class="body">
+            <div class="name">截图已保存</div>
+            <div class="text">Screenshot-1794…png · 已复制到剪贴板</div>
+          </div>
+        </div>
+        <div class="notif-foot">还有 2 条通知 · 解锁后查看</div>
+      </div>
+
+      <!-- control centre -->
+      <div class="control">
+        <div class="hero">
+          <div class="clock">
+            <div class="time">19:42</div>
+            <div class="date">十一月8日 星期日</div>
+          </div>
+          <div class="hero-actions">
+            <div class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="4"/><path d="M8 6l1.5-2h5L16 6"/></svg>
+            </div>
+            <div class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>
+            </div>
+            <div class="icon-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9"/><path d="M6.5 6a8 8 0 1 0 11 0"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="tiles">
+          <!-- row 1: connectivity -->
+          <div class="tile on">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9a13 13 0 0 1 18 0"/><path d="M6.5 12.5a8.5 8.5 0 0 1 11 0"/><path d="M10 16a4 4 0 0 1 4 0"/><circle cx="12" cy="19.4" r=".9" fill="currentColor" stroke="none"/></svg>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+            </div>
+            <div><div class="tile-title">Wi-Fi</div><div class="tile-sub">Xiaomi 17 Pro</div></div>
+          </div>
+          <div class="tile on">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m7 7 10 10M17 7 7 17"/><path d="M12 3 7 8v6l5 5 5-5V8Z"/></svg>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>
+            </div>
+            <div><div class="tile-title">蓝牙</div><div class="tile-sub">开启 · alarm</div></div>
+          </div>
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 18V9M9 18V5M14 18v-6M19 18V7"/></svg>
+            </div>
+            <div><div class="tile-title">移动数据</div><div class="tile-sub">移动网络不可用</div></div>
+          </div>
+
+          <!-- row 2 -->
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 17 14 5l3 12-6-3z"/></svg>
+            </div>
+            <div><div class="tile-title">飞行模式</div><div class="tile-sub">关闭</div></div>
+          </div>
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+            </div>
+            <div><div class="tile-title">静音</div><div class="tile-sub">正常</div></div>
+          </div>
+          <div class="tile on">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg>
+            </div>
+            <div><div class="tile-title">方向锁定</div><div class="tile-sub">开启</div></div>
+          </div>
+
+          <!-- row 3 -->
+          <div class="tile on">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19V9M12 19V5M19 19v-7"/></svg>
+            </div>
+            <div><div class="tile-title">均衡</div><div class="tile-sub">性能模式</div></div>
+          </div>
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 0 0-14-5"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14 5"/><path d="M20 20v-5h-5"/></svg>
+            </div>
+            <div><div class="tile-title">自动旋转</div><div class="tile-sub">关闭</div></div>
+          </div>
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6M12 17v4"/></svg>
+            </div>
+            <div><div class="tile-title">桌面视图</div><div class="tile-sub">关闭</div></div>
+          </div>
+
+          <!-- row 4: new -->
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/><path d="m8.6 15.4 6.8-6.8"/></svg>
+            </div>
+            <div><div class="tile-title">自动亮度</div><div class="tile-sub">关闭 · 手动</div></div>
+          </div>
+          <div class="tile on">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z"/></svg>
+            </div>
+            <div><div class="tile-title">深色模式</div><div class="tile-sub">已开启 · 跟随系统</div></div>
+          </div>
+          <div class="tile">
+            <div class="tile-head">
+              <svg class="tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12l-3 8v7H9v-7Z"/><path d="M9 18h6v3H9z"/></svg>
+            </div>
+            <div><div class="tile-title">手电筒</div><div class="tile-sub">关闭</div></div>
+          </div>
+        </div>
+
+        <div class="sliders">
+          <div class="slider-card">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+            <span class="label">亮度</span>
+            <div class="track"><i style="width:100%"></i><b style="left:100%"></b></div>
+            <span class="pct">100%</span>
+          </div>
+          <div class="slider-card">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9Z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+            <span class="label">音量</span>
+            <div class="track"><i style="width:37%"></i><b style="left:37%"></b></div>
+            <div class="device-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 6 6 6-6 6"/></svg>
+            </div>
+            <span class="pct">37%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="caption">快速设置 · 1707 × 1067</div>
+</div>
+
+<script>
+  const viewport = document.getElementById('viewport');
+  const device = document.getElementById('device');
+  function fit() {
+    const scale = Math.min(
+      (window.innerWidth - 60) / 1707,
+      (window.innerHeight - 90) / 1067,
+      1,
+    );
+    device.style.transform = `scale(${scale})`;
+    viewport.style.width = `${1707 * scale}px`;
+    viewport.style.height = `${1067 * scale + 34}px`;
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

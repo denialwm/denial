@@ -1677,5 +1677,10 @@
   "settingsAudioOutputInUse": "正在使用 {name}",
   "settingsAudioOutputNote": "切换设备后，正在播放的音频会移动到新的输出；每个设备保留自己的音量。",
   "audioOutputActive": "已启用",
-  "audioOutputReady": "可直接使用"
+  "audioOutputReady": "可直接使用",
+  "quickSettingsDarkMode": "深色模式",
+  "quickSettingsAutoBrightness": "自动亮度",
+  "quickSettingsFlashlight": "手电筒",
+  "quickSettingsFollowSystem": "跟随系统",
+  "quickSettingsManual": "手动"
 }

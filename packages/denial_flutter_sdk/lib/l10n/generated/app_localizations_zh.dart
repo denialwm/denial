@@ -5339,4 +5339,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get audioOutputReady => '可直接使用';
+
+  @override
+  String get quickSettingsDarkMode => '深色模式';
+
+  @override
+  String get quickSettingsAutoBrightness => '自动亮度';
+
+  @override
+  String get quickSettingsFlashlight => '手电筒';
+
+  @override
+  String get quickSettingsFollowSystem => '跟随系统';
+
+  @override
+  String get quickSettingsManual => '手动';
 }

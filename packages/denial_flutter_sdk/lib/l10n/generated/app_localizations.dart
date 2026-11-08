@@ -10005,6 +10005,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Ready'**
   String get audioOutputReady;
+
+  /// Quick settings tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark mode'**
+  String get quickSettingsDarkMode;
+
+  /// Quick settings tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto brightness'**
+  String get quickSettingsAutoBrightness;
+
+  /// Quick settings tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Flashlight'**
+  String get quickSettingsFlashlight;
+
+  /// Quick settings tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Following system'**
+  String get quickSettingsFollowSystem;
+
+  /// Quick settings tiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual'**
+  String get quickSettingsManual;
 }
 
 class _AppLocalizationsDelegate

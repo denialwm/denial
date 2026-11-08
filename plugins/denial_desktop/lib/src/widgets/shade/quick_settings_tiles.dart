@@ -2,8 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart'
     show CircularProgressIndicator, Icons, IconData, Tooltip;
-import 'package:flutter/foundation.dart' show ValueListenable;
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -13,7 +11,6 @@ import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/effects.dart';
 
-import '../liquid/liquid.dart';
 import '../liquid/water_reveal.dart';
 import 'shade_reference_geometry.dart';
 
@@ -31,10 +28,18 @@ class QuickSettingsTiles extends StatelessWidget {
   const QuickSettingsTiles({
     super.key,
     this.mobileDataTile,
+    this.airplaneTile,
+    this.orientationLockTile,
+    this.autoRotateTile,
+    this.desktopViewTile,
+    this.autoBrightnessTile,
+    this.darkModeTile,
+    this.flashlightTile,
     this.brightnessControl,
     this.volumeControl,
-    this.expansionProgress,
     this.footerTiles = const [],
+    this.expansionProgress,
+    this.designLayout = false,
     required this.wifi,
     required this.wifiSubtitle,
     required this.wifiEnabled,
@@ -55,13 +60,26 @@ class QuickSettingsTiles extends StatelessWidget {
   });
 
   final Widget? mobileDataTile;
+  final Widget? airplaneTile;
+  final Widget? orientationLockTile;
+  final Widget? autoRotateTile;
+  final Widget? desktopViewTile;
+  final Widget? autoBrightnessTile;
+  final Widget? darkModeTile;
+  final Widget? flashlightTile;
   final Widget? brightnessControl;
   final Widget? volumeControl;
-  final Animation<double>? expansionProgress;
 
   /// A row below the grid, aligned with its columns: a square tile takes
   /// one column and a wide one two, four columns at most.
   final List<QuickTile> footerTiles;
+
+  final Animation<double>? expansionProgress;
+
+  /// Wide, landscape split layout: three columns of short tiles with their
+  /// contents stacked, followed by the sliders as full-width cards. The
+  /// phone pager keeps the four-column capsule grid.
+  final bool designLayout;
   final bool wifi;
   final String wifiSubtitle;
   final bool wifiEnabled;
@@ -88,13 +106,12 @@ class QuickSettingsTiles extends StatelessWidget {
       'the footer row has four columns',
     );
     final l10n = context.l10n;
+    if (designLayout) return _buildDesignLayout(context);
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Water runs down the grid with the shade: each row starts filling
-        // a little after the one above, and within a row left to right.
-        // Closing, the lowest rows drain first, all of it before the
-        // shade's blur fades.
-        Widget reveal(int index, Widget child, {required (int, int) cell}) {
+        // Water runs down the grid with the shade, row by row. Closing,
+        // the lowest rows drain first, before the shade's blur fades.
+        Widget reveal(Widget child, {required (int, int) cell}) {
           final progress = expansionProgress;
           if (progress == null) return child;
           final (row, column) = cell;
@@ -138,7 +155,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: wide,
                 height: capsule,
                 child: reveal(
-                  0,
                   QuickTile(
                     icon: Icons.wifi_rounded,
                     title: l10n.commonWifi,
@@ -159,7 +175,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: wide,
                 height: capsule,
                 child: reveal(
-                  1,
                   QuickTile(
                     icon: Icons.bluetooth_rounded,
                     title: l10n.commonBluetooth,
@@ -180,7 +195,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: column,
                 height: tall,
                 child: reveal(
-                  2,
                   brightnessControl ?? const SizedBox.expand(),
                   cell: (1, 0),
                 ),
@@ -191,7 +205,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: column,
                 height: tall,
                 child: reveal(
-                  3,
                   volumeControl ?? const SizedBox.expand(),
                   cell: (1, 1),
                 ),
@@ -202,7 +215,7 @@ class QuickSettingsTiles extends StatelessWidget {
                   top: row,
                   width: wide,
                   height: capsule,
-                  child: reveal(4, mobileDataTile!, cell: (1, 2)),
+                  child: reveal(mobileDataTile!, cell: (1, 2)),
                 ),
               Positioned(
                 left: pitch * 2,
@@ -210,7 +223,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: column,
                 height: row,
                 child: reveal(
-                  5,
                   QuickTile(
                     icon: _profileIcon(profile),
                     title: _profileLabel(profile, l10n),
@@ -226,7 +238,6 @@ class QuickSettingsTiles extends StatelessWidget {
                 width: column,
                 height: row,
                 child: reveal(
-                  6,
                   QuickTile(
                     icon: Icons.notifications_off_rounded,
                     title: l10n.quickSettingsSilent,
@@ -246,11 +257,7 @@ class QuickSettingsTiles extends StatelessWidget {
                   top: footerTop,
                   width: tile.wide ? wide : column,
                   height: tile.wide ? capsule : row,
-                  child: reveal(
-                    7 + index,
-                    tile,
-                    cell: (3, footerColumns[index]),
-                  ),
+                  child: reveal(tile, cell: (3, footerColumns[index])),
                 ),
             ],
           ),
@@ -258,10 +265,164 @@ class QuickSettingsTiles extends StatelessWidget {
       },
     );
   }
+
+  Widget _buildDesignLayout(BuildContext context) {
+    final l10n = context.l10n;
+    const tileHeight = 44.0;
+    const gutter = 6.0;
+    final entries = <(Widget, int)>[
+      (
+        QuickTile(
+          icon: Icons.wifi_rounded,
+          title: l10n.commonWifi,
+          subtitle: wifiSubtitle,
+          active: wifi,
+          enabled: wifiEnabled,
+          busy: wifiBusy,
+          stacked: true,
+          onTap: onToggleWifi,
+          onDetails: onOpenWifi,
+        ),
+        1,
+      ),
+      (
+        QuickTile(
+          icon: Icons.bluetooth_rounded,
+          title: l10n.commonBluetooth,
+          subtitle: bluetoothSubtitle,
+          active: bluetooth,
+          enabled: bluetoothEnabled,
+          busy: bluetoothBusy,
+          stacked: true,
+          onTap: onToggleBluetooth,
+          onDetails: onOpenBluetooth,
+        ),
+        1,
+      ),
+      if (mobileDataTile != null) (mobileDataTile!, 1),
+      if (airplaneTile != null) (airplaneTile!, 1),
+      (
+        QuickTile(
+          icon: Icons.notifications_off_rounded,
+          title: l10n.quickSettingsSilent,
+          subtitle: dndReady
+              ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
+              : l10n.commonLoading,
+          active: dnd,
+          enabled: dndReady,
+          stacked: true,
+          onTap: onToggleDnd,
+        ),
+        1,
+      ),
+      if (orientationLockTile != null) (orientationLockTile!, 1),
+      (
+        QuickTile(
+          icon: _profileIcon(profile),
+          title: _profileLabel(profile, l10n),
+          active: profile != PowerProfile.balanced,
+          stacked: true,
+          onTap: onCycleProfile,
+        ),
+        1,
+      ),
+      if (autoRotateTile != null) (autoRotateTile!, 1),
+      if (desktopViewTile != null) (desktopViewTile!, 1),
+      if (autoBrightnessTile != null) (autoBrightnessTile!, 1),
+      if (darkModeTile != null) (darkModeTile!, 1),
+      if (flashlightTile != null) (flashlightTile!, 1),
+    ];
+
+    // Water runs down the redesign row by row, sliders included, so every
+    // card fades in and out with the shade.
+    Widget revealRow(int row, Widget child, {int column = 0}) {
+      final progress = expansionProgress;
+      if (progress == null) return child;
+      return WaterReveal(
+        progress: progress,
+        start: 0.33 + 0.05 * row + 0.01 * column,
+        child: child,
+      );
+    }
+
+    final revealed = <(Widget, int)>[
+      for (final (index, entry) in entries.indexed)
+        (revealRow(index ~/ 4, entry.$1, column: index % 4), entry.$2),
+    ];
+
+    // Pack the tiles into rows of three columns; a two-column tile only
+    // fits where the row still has room for it.
+    final rows = <List<(Widget, int)>>[];
+    var row = <(Widget, int)>[];
+    var used = 0;
+    for (final entry in revealed) {
+      final span = entry.$2.clamp(1, 4);
+      if (used + span > 4) {
+        rows.add(row);
+        row = [];
+        used = 0;
+      }
+      row.add((entry.$1, span));
+      used += span;
+    }
+    if (row.isNotEmpty) rows.add(row);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (index, rowTiles) in rows.indexed) ...[
+          if (index > 0) const SizedBox(height: gutter),
+          _buildDesignRow(rowTiles, tileHeight: tileHeight, gutter: gutter),
+        ],
+        if (brightnessControl != null) ...[
+          const SizedBox(height: 14),
+          revealRow(3, brightnessControl!),
+        ],
+        if (volumeControl != null) ...[
+          const SizedBox(height: 14),
+          revealRow(4, volumeControl!),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDesignRow(
+    List<(Widget, int)> tiles, {
+    required double tileHeight,
+    required double gutter,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const columns = 4;
+        final columnWidth =
+            (constraints.maxWidth - gutter * (columns - 1)) / columns;
+        final children = <Widget>[];
+        var used = 0;
+        for (final (index, entry) in tiles.indexed) {
+          final (tile, span) = entry;
+          if (index > 0) children.add(SizedBox(width: gutter));
+          children.add(
+            SizedBox(
+              width: columnWidth * span + gutter * (span - 1),
+              height: tileHeight,
+              child: tile,
+            ),
+          );
+          used += span;
+        }
+        while (used < columns) {
+          if (used > 0) children.add(SizedBox(width: gutter));
+          children.add(SizedBox(width: columnWidth));
+          used += 1;
+        }
+        return Row(children: children);
+      },
+    );
+  }
 }
 
-/// A single quick-settings tile. Animates its surface between the off and
-/// active (accent) states.
+/// A single quick-settings tile. Shows the off glass or the accent surface.
 class QuickTile extends StatefulWidget {
   const QuickTile({
     super.key,
@@ -271,6 +432,7 @@ class QuickTile extends StatefulWidget {
     required this.onTap,
     this.subtitle,
     this.wide = false,
+    this.stacked = false,
     this.enabled = true,
     this.busy = false,
     this.onDetails,
@@ -282,6 +444,11 @@ class QuickTile extends StatefulWidget {
   final bool active;
   final VoidCallback onTap;
   final bool wide;
+
+  /// Stacked contents for the wide split layout: icon on top, label at the
+  /// bottom edge, like the redesigned quick settings.
+  final bool stacked;
+
   final bool enabled;
   final bool busy;
   final VoidCallback? onDetails;
@@ -290,63 +457,8 @@ class QuickTile extends StatefulWidget {
   State<QuickTile> createState() => _QuickTileState();
 }
 
-class _QuickTileState extends State<QuickTile>
-    with SingleTickerProviderStateMixin {
+class _QuickTileState extends State<QuickTile> {
   bool _focused = false;
-  late final _TilePour _pour = _TilePour(this, widget.active);
-
-  /// Where the last tap landed across the tile, 0 to 1; the liquid pours
-  /// in or drains out there. A state that changes much later, or from
-  /// elsewhere, pours from the middle.
-  double _tapAt = 0.5;
-  DateTime _tappedAt = DateTime(0);
-
-  ValueListenable<double>? _reveal;
-  double _revealAmount = 1;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _pour.reduced = MediaQuery.disableAnimationsOf(context);
-    final reveal = LiquidRevealScope.maybeOf(context);
-    if (reveal != _reveal) {
-      _reveal?.removeListener(_revealChanged);
-      _reveal = reveal?..addListener(_revealChanged);
-      _revealAmount = reveal?.value ?? 1;
-    }
-  }
-
-  /// While the shade carries the tile, a lit tile's liquid rides below the
-  /// brim and sloshes with the motion; at rest it is simply full.
-  void _revealChanged() {
-    final amount = _reveal!.value;
-    _pour.stir(amount, amount - _revealAmount, fromEmpty: _revealAmount <= 0);
-    _revealAmount = amount;
-  }
-
-  @override
-  void didUpdateWidget(covariant QuickTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.active == widget.active) return;
-    final recent =
-        DateTime.now().difference(_tappedAt) < const Duration(seconds: 3);
-    _pour.turn(widget.active, at: recent ? _tapAt : 0.5);
-    _tappedAt = DateTime(0);
-  }
-
-  @override
-  void dispose() {
-    _reveal?.removeListener(_revealChanged);
-    _pour.dispose();
-    super.dispose();
-  }
-
-  void _noteTap(TapUpDetails details) {
-    final width = context.size?.width ?? 0;
-    if (width <= 0) return;
-    _tapAt = (details.localPosition.dx / width).clamp(0.05, 0.95).toDouble();
-    _tappedAt = DateTime.now();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -392,9 +504,10 @@ class _QuickTileState extends State<QuickTile>
         },
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapUp: widget.enabled ? _noteTap : null,
           onTap: widget.enabled ? widget.onTap : null,
-          child: widget.wide
+          child: widget.stacked
+              ? _buildStacked(off, on, theme.scaledRadius(10))
+              : widget.wide
               ? _buildWide(off, on, radius)
               : _buildSmall(off, on, radius),
         ),
@@ -477,6 +590,82 @@ class _QuickTileState extends State<QuickTile>
     );
   }
 
+  Widget _buildStacked(_TileInk off, _TileInk on, double radius) {
+    final visualScale = ShadeReferenceGeometry.inverseScaleOf(context);
+    return _animatedSurface(
+      radius: radius,
+      off: off,
+      on: on,
+      content: (ink) => Padding(
+        padding: const EdgeInsets.fromLTRB(8, 7, 6, 7),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox.square(
+                  dimension: 30 * visualScale,
+                  child: Center(
+                    child: widget.busy
+                        ? SizedBox.square(
+                            dimension: 20 * visualScale,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2 * visualScale,
+                              color: ink.foreground,
+                            ),
+                          )
+                        : Icon(
+                            widget.icon,
+                            color: ink.foreground,
+                            size: 30 * visualScale,
+                          ),
+                  ),
+                ),
+                const Spacer(),
+                if (widget.onDetails != null)
+                  _TileDetailsButton(
+                    label: context.l10n.quickSettingsOpenDetails(widget.title),
+                    foreground: ink.foreground,
+                    dimension: 14,
+                    onPressed: widget.onDetails!,
+                  ),
+              ],
+            ),
+            const Spacer(),
+            Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: ink.foreground,
+                fontSize: 18,
+                height: 1.05,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+                decoration: TextDecoration.none,
+              ),
+            ),
+            if (widget.subtitle != null) ...[
+              SizedBox(height: 2 * visualScale),
+              Text(
+                widget.subtitle!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: ink.secondary,
+                  fontSize: 14,
+                  height: 1.05,
+                  letterSpacing: 0,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSmall(_TileInk off, _TileInk on, double radius) {
     final visualScale = ShadeReferenceGeometry.inverseScaleOf(context);
     return LayoutBuilder(
@@ -555,9 +744,7 @@ class _QuickTileState extends State<QuickTile>
     );
   }
 
-  /// The tile's surface: off glass, with the accent poured in as liquid
-  /// when it turns on and drained out when it turns off. The contents are
-  /// drawn in the off ink above the liquid and in the on ink beneath it.
+  /// The tile's surface: plain glass or the accent, with no liquid motion.
   Widget _animatedSurface({
     required double radius,
     required _TileInk off,
@@ -567,63 +754,34 @@ class _QuickTileState extends State<QuickTile>
     final theme = ShellTheme.of(context);
     final accent = theme.accentPalette;
     final glass = theme.transparencyMode == ShellTransparencyMode.glass;
-    final colors = _TileSurfaceColors(
-      off: theme.cardColor(context.shellColors.tileOff),
-      on: accent.primary,
-      offBorder: _focused
-          ? accent.primary
-          : glass
-          ? null
-          : context.shellColors.hairlineSoft,
-      onBorder: _focused || !glass ? accent.primary : null,
-      borderWidth: _focused ? 1.5 : 1,
-    );
-    // The liquid moves in the clippers and the painter; the tree is rebuilt
-    // only when the tile turns full, empty or in between.
-    return ValueListenableBuilder<_PourPhase>(
-      valueListenable: _pour.phase,
-      builder: (context, phase, _) {
-        final dry = phase.dry;
-        final wet = phase.wet;
-        Widget layer(_TileInk ink, bool liquid, bool shown) => Visibility(
-          visible: shown,
-          maintainState: true,
-          maintainAnimation: true,
-          maintainSize: true,
-          // Only the layer of the state the tile is turning to takes input;
-          // a hidden layer's spinner does not tick.
-          child: TickerMode(
-            enabled: shown,
-            child: IgnorePointer(
-              ignoring: liquid != widget.active,
-              child: ExcludeSemantics(
-                excluding: liquid != widget.active,
-                child: ClipPath(
-                  clipper: _PourClipper(_pour, liquid: liquid),
-                  clipBehavior: dry && wet ? Clip.antiAlias : Clip.none,
-                  child: content(ink),
-                ),
-              ),
-            ),
-          ),
-        );
-        // Only an off tile frosts its backdrop, as before the liquid: a lit
-        // tile sloshing below its brim does not pay for a blur.
-        return ShellBackdropBlur(
-          blur: !widget.active && glass && theme.effectivePanelOpacity < 1,
-          separateChild: true,
+    final ink = widget.active ? on : off;
+    final border = _focused
+        ? accent.primary
+        : glass
+        ? null
+        : widget.active
+        ? accent.primary
+        : context.shellColors.hairlineSoft;
+    return ShellBackdropBlur(
+      blur: !widget.active && glass && theme.effectivePanelOpacity < 1,
+      separateChild: true,
+      borderRadius: BorderRadius.circular(radius),
+      clipUnfiltered: false,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: widget.active
+              ? accent.primary
+              : theme.cardColor(context.shellColors.tileOff),
           borderRadius: BorderRadius.circular(radius),
-          // The painter rounds the tile itself.
-          clipUnfiltered: false,
-          child: CustomPaint(
-            painter: _TileSurfacePainter(_pour, colors, radius),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [layer(off, false, dry), layer(on, true, wet)],
-            ),
+          border: Border.all(
+            color: border ?? const Color(0x00000000),
+            width: _focused ? 1.5 : 1,
           ),
-        );
-      },
+        ),
+        child: content(ink),
+      ),
     );
   }
 }
@@ -636,320 +794,18 @@ class _TileInk {
   final Color secondary;
 }
 
-@immutable
-class _TileSurfaceColors {
-  const _TileSurfaceColors({
-    required this.off,
-    required this.on,
-    required this.offBorder,
-    required this.onBorder,
-    required this.borderWidth,
-  });
-
-  final Color off;
-  final Color on;
-  final Color? offBorder;
-  final Color? onBorder;
-  final double borderWidth;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _TileSurfaceColors &&
-      other.off == off &&
-      other.on == on &&
-      other.offBorder == offBorder &&
-      other.onBorder == onBorder &&
-      other.borderWidth == borderWidth;
-
-  @override
-  int get hashCode => Object.hash(off, on, offBorder, onBorder, borderWidth);
-}
-
-/// The accent liquid in a tile: its level rises to full when the tile
-/// turns on and falls to empty when it turns off, its surface bulging
-/// where the tap landed and ringing as it settles.
-class _TilePour extends ChangeNotifier {
-  _TilePour(TickerProvider vsync, bool active)
-    : _level = LiquidSpring(active ? 1 : 0, stiffness: 200, dampingRatio: 0.8) {
-    _ticker = vsync.createTicker(_tick);
-  }
-
-  late final Ticker _ticker;
-  Duration _last = Duration.zero;
-  final LiquidSpring _level;
-
-  /// Rings longer than the recipe's surface, so the slosh lasts.
-  final LiquidSpring _surface = LiquidSpring(
-    0,
-    stiffness: 300,
-    dampingRatio: 0.11,
-  );
-
-  /// How far below the brim a lit tile's liquid rides while the shade
-  /// moves it, as a fraction of its height.
-  final LiquidSpring _slack = LiquidSpring(
-    0,
-    stiffness: 100,
-    dampingRatio: 0.42,
-  );
-
-  /// The fastest the surface is ever kicked, in pixels per second, and the
-  /// fastest the liquid rises back to the brim, in heights per second.
-  static const double _calmSwing = 90;
-  static const double _calmRise = 1.5;
-
-  bool _arriving = false;
-  double _time = 0;
-  double _height = 62;
-  double centre = 0.5;
-  bool reduced = false;
-
-  /// Whether the tile shows any dry glass and any liquid.
-  late final ValueNotifier<_PourPhase> phase = ValueNotifier(_phaseNow());
-
-  /// The surface of the current frame, kept for the clippers and the
-  /// painter that all ask for it.
-  List<Offset>? _points;
-  Size _pointsSize = Size.zero;
-
-  double get level =>
-      (_level.value - math.max(0.0, _slack.value)).clamp(0.0, 1.0).toDouble();
-
-  _PourPhase _phaseNow() {
-    final level = this.level;
-    return _PourPhase(dry: level < 1, wet: level > 0 || surface.abs() > 0.5);
-  }
-
-  /// The liquid moved: drops the kept surface and tells the clippers, the
-  /// painter and, when it changed, the tile.
-  void _moved() {
-    _points = null;
-    final now = _phaseNow();
-    if (now != phase.value) phase.value = now;
-    notifyListeners();
-  }
-
-  double get surface => _surface.value;
-  double get time => _time;
-
-  void turn(bool active, {required double at}) {
-    centre = at;
-    _level.target = active ? 1 : 0;
-    if (reduced) {
-      _level.settle();
-      _surface.set(0);
-      _moved();
-      return;
-    }
-    if (!_ticker.isActive) {
-      _last = Duration.zero;
-      _ticker.start();
-    }
-  }
-
-  /// The shade moved the tile: [amount] is how far it is revealed and
-  /// [change] the step it just took.
-  void stir(double amount, double change, {required bool fromEmpty}) {
-    if (_level.target < 1) return;
-    if (amount <= 0 || amount >= 1) {
-      _arriving = false;
-      _slack.target = 0;
-    } else {
-      // Arriving, the liquid comes in half full and stays there until the
-      // tile is in, then rises to the brim.
-      if (fromEmpty) {
-        _arriving = true;
-        _slack.value = 0.5;
-      }
-      _slack.target = _arriving ? 0.5 : 0.22;
-      // Each step tugs the surface, but never past a gentle swing: a quick
-      // swipe that opens the shade in a few frames sloshes no harder than
-      // a slow one.
-      _surface.velocity = (_surface.velocity + change * 900)
-          .clamp(-_calmSwing, _calmSwing)
-          .toDouble();
-    }
-    if (reduced) {
-      _slack.settle();
-      _surface.set(0);
-      _moved();
-      return;
-    }
-    if (!_ticker.isActive) {
-      _last = Duration.zero;
-      _ticker.start();
-    }
-  }
-
-  /// The liquid below its surface, or with [liquid] false the dry glass
-  /// above it.
-  Path region(Size size, {required bool liquid}) {
-    _height = size.height;
-    final points = _surfaceLine(size);
-    final path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (final point in points.skip(1)) {
-      path.lineTo(point.dx, point.dy);
-    }
-    final edge = liquid ? size.height : 0.0;
-    return path
-      ..lineTo(size.width, edge)
-      ..lineTo(0, edge)
-      ..close();
-  }
-
-  /// The liquid's surface, left to right. Waves are sized in pixels, so a
-  /// wide tile sloshes like a wide container: a taller swell where the tap
-  /// landed, a tilt, and waves running across it.
-  List<Offset> _surfaceLine(Size size) {
-    final kept = _points;
-    if (kept != null && size == _pointsSize) return kept;
-    final width = size.width;
-    final y = size.height * (1 - level);
-    // A full or empty tile has no surface to show.
-    final calm = math.min(1.0, math.min(level, 1 - level) * 6);
-    final scale = (width / 76).clamp(1.0, 2.0);
-    final bulge = surface * calm * scale;
-    final tilt = bulge.abs() * 0.4 * math.sin(_time * 22);
-    final wave = bulge.abs() * 0.3;
-    final spread = (width * 0.22).clamp(14.0, 26.0);
-    const steps = 20;
-    final points = <Offset>[];
-    for (var i = 0; i <= steps; i += 1) {
-      final t = i / steps;
-      final x = width * t;
-      final distance = (x - centre * width) / spread;
-      final top =
-          y -
-          bulge * math.exp(-distance * distance / 2) +
-          tilt * (1 - 2 * t) +
-          wave * math.sin(x / 9 - _time * 9);
-      points.add(Offset(x, top));
-    }
-    _pointsSize = size;
-    return _points = points;
-  }
-
-  void _tick(Duration elapsed) {
-    final dt = _last == Duration.zero
-        ? 1 / 120
-        : ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
-    _last = elapsed;
-    _time += dt;
-    _level.step(dt);
-    _slack.step(dt);
-    _slack.velocity = _slack.velocity.clamp(-_calmRise, _calmRise).toDouble();
-    // A small tile sloshes less than a tall bar.
-    _surface.target = LiquidTuning.surfaceTarget(
-      (_level.velocity - _slack.velocity) * _height * 0.6,
-    );
-    _surface.step(dt);
-    _moved();
-    if (_level.resting(0.0005) &&
-        _slack.resting(0.0005) &&
-        _surface.resting(0.05)) {
-      _level.settle();
-      _slack.settle();
-      _surface.settle();
-      _ticker.stop();
-      _moved();
-    }
-  }
-
-  @override
-  void dispose() {
-    _ticker.dispose();
-    phase.dispose();
-    super.dispose();
-  }
-}
-
-@immutable
-class _PourPhase {
-  const _PourPhase({required this.dry, required this.wet});
-
-  final bool dry;
-  final bool wet;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _PourPhase && other.dry == dry && other.wet == wet;
-
-  @override
-  int get hashCode => Object.hash(dry, wet);
-}
-
-class _PourClipper extends CustomClipper<Path> {
-  _PourClipper(this.pour, {required this.liquid}) : super(reclip: pour);
-
-  final _TilePour pour;
-  final bool liquid;
-
-  @override
-  Path getClip(Size size) => pour.region(size, liquid: liquid);
-
-  @override
-  bool shouldReclip(_PourClipper oldClipper) =>
-      oldClipper.pour != pour || oldClipper.liquid != liquid;
-}
-
-class _TileSurfacePainter extends CustomPainter {
-  _TileSurfacePainter(this.pour, this.colors, this.radius)
-    : super(repaint: pour);
-
-  final _TilePour pour;
-  final _TileSurfaceColors colors;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final shape = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(math.min(radius, size.shortestSide / 2)),
-    );
-    final level = pour.level;
-    if (level < 1) canvas.drawRRect(shape, Paint()..color = colors.off);
-    if (level > 0 || pour.surface.abs() > 0.5) {
-      canvas.save();
-      canvas.clipRRect(shape);
-      canvas.drawPath(
-        pour.region(size, liquid: true),
-        Paint()..color = colors.on,
-      );
-      canvas.restore();
-    }
-    final border = Color.lerp(
-      colors.offBorder ?? colors.off.withValues(alpha: 0),
-      colors.onBorder ?? colors.on.withValues(alpha: 0),
-      level,
-    )!;
-    if (border.a > 0) {
-      canvas.drawRRect(
-        shape.deflate(colors.borderWidth / 2),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = colors.borderWidth
-          ..color = border,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_TileSurfacePainter oldDelegate) =>
-      oldDelegate.pour != pour ||
-      oldDelegate.colors != colors ||
-      oldDelegate.radius != radius;
-}
-
 class _TileDetailsButton extends StatefulWidget {
   const _TileDetailsButton({
     required this.label,
     required this.foreground,
     required this.onPressed,
+    this.dimension = 24,
   });
 
   final String label;
   final Color foreground;
   final VoidCallback onPressed;
+  final double dimension;
 
   @override
   State<_TileDetailsButton> createState() => _TileDetailsButtonState();
@@ -993,7 +849,7 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
               border: _focused ? Border.all(color: accent) : null,
             ),
             child: SizedBox.square(
-              dimension: 24,
+              dimension: widget.dimension,
               child: Icon(
                 Icons.chevron_right_rounded,
                 size: 17 * ShadeReferenceGeometry.inverseScaleOf(context),
@@ -1010,8 +866,15 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 /// Compact shade actions. Application-count prose belongs in the overview,
 /// not in quick settings.
 class ShadeActions extends StatelessWidget {
-  const ShadeActions({super.key, required this.onOpenPower});
+  const ShadeActions({
+    super.key,
+    required this.onOpenSettings,
+    required this.onScreenshot,
+    required this.onOpenPower,
+  });
 
+  final VoidCallback onOpenSettings;
+  final VoidCallback onScreenshot;
   final VoidCallback onOpenPower;
 
   @override
@@ -1021,18 +884,20 @@ class ShadeActions extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
-          icon: Icons.edit_rounded,
+          label: context.l10n.quickSettingsScreenshot,
+          icon: Icons.photo_camera_rounded,
+          onPressed: onScreenshot,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 6),
         _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
+          label: context.l10n.settingsApplicationSemanticsLabel,
           icon: Icons.settings_rounded,
+          onPressed: onOpenSettings,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 6),
         _RoundButton(
           label: context.l10n.desktopOpenPowerControls,
-          icon: Icons.more_horiz_rounded,
+          icon: Icons.power_settings_new_rounded,
           onPressed: onOpenPower,
         ),
       ],
@@ -1059,7 +924,7 @@ class _RoundButtonState extends State<_RoundButton> {
     final enabled = widget.onPressed != null;
     final theme = ShellTheme.of(context);
     final accent = theme.accent;
-    final radius = theme.borderRadius(16);
+    final radius = theme.borderRadius(7);
     final surface = DecoratedBox(
       decoration: BoxDecoration(
         color: theme.cardColor(context.shellColors.chip),
@@ -1071,12 +936,12 @@ class _RoundButtonState extends State<_RoundButton> {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: SizedBox(
-        width: 32,
-        height: 32,
+        width: 22,
+        height: 22,
         child: Icon(
           widget.icon,
           color: context.shellColors.panelText,
-          size: 18 * ShadeReferenceGeometry.inverseScaleOf(context),
+          size: 26 * ShadeReferenceGeometry.inverseScaleOf(context),
         ),
       ),
     );

@@ -7561,5 +7561,25 @@
   "audioOutputReady": "Ready",
   "@audioOutputReady": {
     "description": "Audio output selection."
+  },
+  "quickSettingsDarkMode": "Dark mode",
+  "@quickSettingsDarkMode": {
+    "description": "Quick settings tiles."
+  },
+  "quickSettingsAutoBrightness": "Auto brightness",
+  "@quickSettingsAutoBrightness": {
+    "description": "Quick settings tiles."
+  },
+  "quickSettingsFlashlight": "Flashlight",
+  "@quickSettingsFlashlight": {
+    "description": "Quick settings tiles."
+  },
+  "quickSettingsFollowSystem": "Following system",
+  "@quickSettingsFollowSystem": {
+    "description": "Quick settings tiles."
+  },
+  "quickSettingsManual": "Manual",
+  "@quickSettingsManual": {
+    "description": "Quick settings tiles."
   }
 }

@@ -25,6 +25,7 @@ import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
 import '../../state/quick_settings.dart';
+import '../../state/system_toggles.dart';
 import '../connectivity/audio_output_surface.dart';
 import '../../state/reference_shell_presentation.dart';
 import '../../state/reference_shell_profile.dart';
@@ -521,7 +522,6 @@ class _ShadePagerState extends State<_ShadePager>
           return Row(
             children: [
               Expanded(
-                flex: 40,
                 child: _NotificationCenterPage(
                   progress: widget.progress,
                   closed: widget.closed,
@@ -530,7 +530,6 @@ class _ShadePagerState extends State<_ShadePager>
                 ),
               ),
               Expanded(
-                flex: 60,
                 child: _ControlCenterPage(
                   progress: widget.progress,
                   designLayout: true,
@@ -849,18 +848,17 @@ class _ClearAllButton extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
-          child: Text(
-            context.l10n.clipboardClearAll,
-            style: TextStyle(
-              color: context.shellColors.textTertiary,
-              fontSize: 14,
-              height: 1.1,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0,
-              decoration: TextDecoration.none,
-            ),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: context.shellColors.surfaceContainerHigh,
+            borderRadius: context.shellTheme.borderRadius(9),
+          ),
+          child: Icon(
+            Icons.cleaning_services_rounded,
+            size: 17,
+            color: context.shellColors.panelText,
           ),
         ),
       ),
@@ -1040,6 +1038,9 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
         stacked: designLayout,
         onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
       ),
+      autoBrightnessTile: _AutoBrightnessTile(stacked: designLayout),
+      darkModeTile: _DarkModeTile(stacked: designLayout),
+      flashlightTile: _FlashlightTile(stacked: designLayout),
       desktopViewTile: QuickTile(
         icon: Icons.desktop_windows_rounded,
         title: l10n.shellPresentationDesktop,
@@ -1224,43 +1225,43 @@ class _HorizontalRangeCard extends StatelessWidget {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+        padding: const EdgeInsets.fromLTRB(9, 1, 9, 1),
         child: Row(
           children: [
             Icon(
               icon,
-              size: 20 * inverse,
+              size: 15 * inverse,
               color: context.shellColors.panelText,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
                 color: context.shellColors.panelText,
-                fontSize: 14.5,
+                fontSize: 12,
                 height: 1.1,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0,
                 decoration: TextDecoration.none,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: SizedBox(
-                height: 32,
+                height: 22,
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    trackHeight: 4,
+                    trackHeight: 2.5,
                     activeTrackColor: accent,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.18),
                     thumbColor: Colors.white,
                     overlayColor: accent.withValues(alpha: 0.16),
                     thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 5.5,
+                      enabledThumbRadius: 4,
                       elevation: 2,
                     ),
                     overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
+                      overlayRadius: 10,
                     ),
                     trackShape: const RoundedRectSliderTrackShape(),
                   ),
@@ -1274,34 +1275,34 @@ class _HorizontalRangeCard extends StatelessWidget {
               ),
             ),
             if (onSecondaryTap case final open?) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: open,
                 child: Container(
-                  width: 34,
-                  height: 34,
+                  width: 18,
+                  height: 18,
                   decoration: BoxDecoration(
                     color: context.shellColors.surfaceContainerHigh,
-                    borderRadius: theme.borderRadius(8),
+                    borderRadius: theme.borderRadius(6),
                   ),
                   child: Icon(
                     Icons.chevron_right_rounded,
-                    size: 18,
+                    size: 12,
                     color: context.shellColors.panelText,
                   ),
                 ),
               ),
             ],
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             SizedBox(
-              width: 38,
+              width: 30,
               child: Text(
                 '${(clamped * 100).round()}%',
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   color: context.shellColors.textTertiary,
-                  fontSize: 12.5,
+                  fontSize: 11,
                   height: 1.1,
                   letterSpacing: 0,
                   decoration: TextDecoration.none,
@@ -1485,6 +1486,105 @@ class _EmptyNotifications extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DarkModeTile extends ConsumerWidget {
+  const _DarkModeTile({required this.stacked});
+
+  final bool stacked;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final dark = context.shellTheme.brightness == Brightness.dark;
+    return QuickTile(
+      icon: dark ? Icons.dark_mode_rounded : Icons.dark_mode_outlined,
+      title: l10n.quickSettingsDarkMode,
+      subtitle: dark ? l10n.commonOn : l10n.commonOff,
+      active: dark,
+      stacked: stacked,
+      onTap: () {
+        ref
+            .read(shellSettingsProvider.notifier)
+            .setColorSchemePreference(
+              dark
+                  ? DesktopColorSchemePreference.preferLight
+                  : DesktopColorSchemePreference.preferDark,
+            );
+      },
+    );
+  }
+}
+
+class _AutoBrightnessTile extends ConsumerStatefulWidget {
+  const _AutoBrightnessTile({required this.stacked});
+
+  final bool stacked;
+
+  @override
+  ConsumerState<_AutoBrightnessTile> createState() =>
+      _AutoBrightnessTileState();
+}
+
+class _AutoBrightnessTileState extends ConsumerState<_AutoBrightnessTile> {
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(
+      () => ref.read(autoBrightnessProvider.notifier).refresh(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(autoBrightnessProvider);
+    final l10n = context.l10n;
+    return QuickTile(
+      icon: Icons.brightness_auto_rounded,
+      title: l10n.quickSettingsAutoBrightness,
+      subtitle: state.enabled ? l10n.commonOn : l10n.quickSettingsManual,
+      active: state.enabled,
+      busy: state.busy,
+      stacked: widget.stacked,
+      onTap: () => ref.read(autoBrightnessProvider.notifier).toggle(),
+    );
+  }
+}
+
+class _FlashlightTile extends ConsumerStatefulWidget {
+  const _FlashlightTile({required this.stacked});
+
+  final bool stacked;
+
+  @override
+  ConsumerState<_FlashlightTile> createState() => _FlashlightTileState();
+}
+
+class _FlashlightTileState extends ConsumerState<_FlashlightTile> {
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(
+      () => ref.read(flashlightProvider.notifier).refresh(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(flashlightProvider);
+    final l10n = context.l10n;
+    return QuickTile(
+      icon: state.enabled
+          ? Icons.flashlight_on_rounded
+          : Icons.flashlight_off_rounded,
+      title: l10n.quickSettingsFlashlight,
+      subtitle: state.enabled ? l10n.commonOn : l10n.commonOff,
+      active: state.enabled,
+      busy: state.busy,
+      stacked: widget.stacked,
+      onTap: () => ref.read(flashlightProvider.notifier).toggle(),
     );
   }
 }

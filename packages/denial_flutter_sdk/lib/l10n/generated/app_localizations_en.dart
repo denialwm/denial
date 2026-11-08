@@ -5598,4 +5598,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get audioOutputReady => 'Ready';
+
+  @override
+  String get quickSettingsDarkMode => 'Dark mode';
+
+  @override
+  String get quickSettingsAutoBrightness => 'Auto brightness';
+
+  @override
+  String get quickSettingsFlashlight => 'Flashlight';
+
+  @override
+  String get quickSettingsFollowSystem => 'Following system';
+
+  @override
+  String get quickSettingsManual => 'Manual';
 }
