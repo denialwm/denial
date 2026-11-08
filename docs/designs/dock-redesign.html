@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Denial Dock — Redesign</title>
+<style>
+  :root {
+    --accent: #c05a96;
+    --accent-strong: #731a54;
+    --text: #f2f4f8;
+    --muted: rgba(242, 244, 248, 0.62);
+    --faint: rgba(242, 244, 248, 0.34);
+    --hairline: rgba(255, 255, 255, 0.14);
+    --dock: rgba(18, 20, 28, 0.55);
+    --radius-dock: 26px;
+    --radius-icon: 15px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: #101116;
+    color: var(--text);
+    font-family: "Noto Sans SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* ---------- device canvas ---------- */
+  .device {
+    position: relative;
+    width: 1600px;
+    height: 1000px;
+    border-radius: 34px;
+    overflow: hidden;
+    transform-origin: center;
+    background:
+      radial-gradient(1100px 700px at 18% 8%, #2c4a45 0%, transparent 55%),
+      radial-gradient(900px 600px at 88% 90%, #3a3350 0%, transparent 60%),
+      linear-gradient(135deg, #1b2430 0%, #242a38 45%, #2d2733 100%);
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+  }
+  .wallpaper {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(900px 600px at 22% 18%, rgba(139, 213, 163, 0.20), transparent 60%),
+      radial-gradient(700px 500px at 82% 78%, rgba(160, 140, 255, 0.20), transparent 62%),
+      radial-gradient(500px 400px at 60% 30%, rgba(255, 210, 140, 0.08), transparent 70%);
+    filter: blur(10px);
+  }
+
+  /* ---------- status bar ---------- */
+  .statusbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 34px;
+    font-size: 15px;
+    color: var(--muted);
+    z-index: 20;
+  }
+  .statusbar .left { font-weight: 600; letter-spacing: 0.02em; }
+  .statusbar .right { display: flex; align-items: center; gap: 14px; }
+  .battery { display: flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+  .battery .shell {
+    width: 26px; height: 13px; border: 1.5px solid rgba(255,255,255,0.5);
+    border-radius: 4px; padding: 1.5px; position: relative;
+  }
+  .battery .shell::after {
+    content: ""; position: absolute; right: -4px; top: 3px;
+    width: 2.5px; height: 5px; border-radius: 0 2px 2px 0;
+    background: rgba(255,255,255,0.5);
+  }
+  .battery .fill { height: 100%; width: 92%; border-radius: 2px; background: linear-gradient(90deg, var(--accent-strong), var(--accent)); }
+
+  /* ---------- home ---------- */
+  .home-clock {
+    position: absolute; top: 96px; left: 64px;
+    z-index: 5;
+  }
+  .home-clock .time {
+    font-size: 88px; line-height: 0.9; font-weight: 600; letter-spacing: -0.04em;
+  }
+  .home-clock .date {
+    margin-top: 12px; font-size: 18px; color: var(--muted); font-weight: 500;
+  }
+
+  .hint {
+    position: absolute; top: 60px; right: 44px;
+    font-size: 13px; color: var(--faint); letter-spacing: 0.02em;
+  }
+
+  /* ---------- dock ---------- */
+  .dock-wrap {
+    position: absolute; left: 50%; bottom: 28px;
+    transform: translateX(-50%);
+    z-index: 30;
+  }
+  .dock {
+    display: flex; align-items: center; gap: 8px;
+    height: 86px; padding: 0 14px;
+    border-radius: var(--radius-dock);
+    background: var(--dock);
+    border: 1px solid var(--hairline);
+    box-shadow:
+      0 24px 56px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
+  }
+
+  .divider {
+    width: 1px; height: 36px; border-radius: 1px;
+    background: rgba(255, 255, 255, 0.14);
+    margin: 0 5px; flex: none;
+  }
+
+  .dock-item {
+    position: relative;
+    width: 58px; height: 58px;
+    display: grid; place-items: center;
+    border: none; background: none; padding: 0;
+    cursor: pointer;
+    flex: none;
+  }
+  .icon {
+    width: 54px; height: 54px;
+    border-radius: var(--radius-icon);
+    display: grid; place-items: center;
+    position: relative;
+    transition: transform 160ms cubic-bezier(.2,.8,.2,1),
+                box-shadow 160ms ease, background 160ms ease;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
+  }
+  .icon svg { width: 30px; height: 30px; display: block; }
+
+  .dock-item:hover .icon { transform: translateY(-4px) scale(1.045); }
+  .dock-item:active .icon { transform: scale(0.94); }
+
+  .dock-item.all-apps .icon {
+    background: transparent;
+    box-shadow: none;
+    color: var(--text);
+  }
+  .dock-item.all-apps:hover .icon {
+    background: rgba(255, 255, 255, 0.10);
+    box-shadow: none;
+  }
+  .dock-item.all-apps svg { width: 32px; height: 32px; }
+
+  .tile-firefox { background: linear-gradient(145deg, #3a2160, #1c1233); }
+  .tile-files { background: linear-gradient(145deg, #4aa1f5, #1e6fd9); }
+  .tile-qq { background: linear-gradient(145deg, #2c3140, #12151d); }
+  .tile-netease { background: linear-gradient(145deg, #ff6262, #cf222b); }
+  .tile-settings { background: linear-gradient(145deg, #5c6374, #343a47); }
+  .tile-terminal { background: linear-gradient(145deg, #2c3140, #151922); }
+
+  .dock-item.active .icon {
+    box-shadow:
+      0 0 0 1px rgba(192, 90, 150, 0.55),
+      0 12px 28px rgba(115, 26, 84, 0.40);
+  }
+
+  /* running indicator */
+  .run-dot {
+    position: absolute; bottom: -9px; left: 50%;
+    transform: translateX(-50%);
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.85;
+    transition: width 160ms ease, height 160ms ease, opacity 160ms ease;
+  }
+  .dock-item.active .run-dot {
+    width: 16px; height: 3px; border-radius: 999px;
+    opacity: 1;
+  }
+
+  /* tooltip */
+  .label {
+    position: absolute; left: 50%; top: -40px;
+    transform: translate(-50%, 4px);
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: rgba(10, 12, 18, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text);
+    font-size: 12px; line-height: 1;
+    white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+  .dock-item:hover .label { opacity: 1; transform: translate(-50%, 0); }
+
+  /* home indicator */
+  .home-pill {
+    position: absolute; left: 50%; bottom: 9px;
+    transform: translateX(-50%);
+    width: 170px; height: 6px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.30);
+    z-index: 30;
+  }
+
+  /* design note */
+  .note {
+    position: absolute; left: 64px; bottom: 34px;
+    font-size: 12px; color: var(--faint);
+    letter-spacing: 0.02em;
+  }
+
+  .device { transform: scale(var(--scale, 1)); }
+</style>
+</head>
+<body>
+
+<div class="device" id="device">
+  <div class="wallpaper"></div>
+
+  <!-- status bar -->
+  <div class="statusbar">
+    <div class="left">17:26</div>
+    <div class="right">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12a10 10 0 0 1 13 0"/><path d="M9 15.5a5 5 0 0 1 6 0"/><circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none"/>
+      </svg>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="3" y="14" width="3" height="6" rx="1"/><rect x="8" y="10" width="3" height="10" rx="1"/><rect x="13" y="6" width="3" height="14" rx="1"/><rect x="18" y="3" width="3" height="17" rx="1" opacity="0.35"/>
+      </svg>
+      <div class="battery"><div class="shell"><div class="fill"></div></div><span>92%</span></div>
+    </div>
+  </div>
+
+  <!-- home clock -->
+  <div class="home-clock">
+    <div class="time">17:26</div>
+    <div class="date">十一月 8 日 · 星期日</div>
+  </div>
+
+  <div class="hint">Dock · 常驻底部 · hover 上浮 · 点击激活</div>
+
+  <!-- dock -->
+  <div class="dock-wrap">
+    <div class="dock">
+
+      <!-- all apps -->
+      <button class="dock-item all-apps" data-name="全部应用">
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="3" y="3" width="7" height="7" rx="2"/>
+            <rect x="14" y="3" width="7" height="7" rx="2"/>
+            <rect x="3" y="14" width="7" height="7" rx="2"/>
+            <rect x="14" y="14" width="7" height="7" rx="2"/>
+          </svg>
+        </span>
+        <span class="label">全部应用</span>
+      </button>
+
+      <div class="divider"></div>
+
+      <!-- firefox (active) -->
+      <button class="dock-item active" data-name="Firefox">
+        <span class="icon tile-firefox">
+          <svg viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="ff" x1="6" y1="4" x2="26" y2="28" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#ff9a3c"/><stop offset="0.55" stop-color="#ff5b5b"/><stop offset="1" stop-color="#b03df0"/>
+              </linearGradient>
+            </defs>
+            <circle cx="16" cy="16" r="11" fill="url(#ff)"/>
+            <path d="M16 7.5c4.2 2.1 6.6 5.3 6.2 9.2-.4 3.6-3.4 6.4-7.1 6.4-3.4 0-6.2-2.2-6.8-5.4 1.6 1.5 3.6 2.3 5.7 2 2.4-.3 3.9-2 3.8-3.9-.1-1.5-1.3-2.6-2.9-2.6-1.4 0-2.4.8-2.8 2-1-2.6-.2-5.2 1.6-6.8.8-.7 1.6-1 1.6-1Z" fill="#fff" opacity="0.92"/>
+          </svg>
+        </span>
+        <span class="run-dot"></span>
+        <span class="label">Firefox</span>
+      </button>
+
+      <!-- files (running) -->
+      <button class="dock-item" data-name="文件">
+        <span class="icon tile-files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="rgba(255,255,255,0.18)"/>
+            <path d="M3 8h18"/>
+          </svg>
+        </span>
+        <span class="run-dot"></span>
+        <span class="label">文件</span>
+      </button>
+
+      <!-- qq (running) -->
+      <button class="dock-item" data-name="QQ">
+        <span class="icon tile-qq">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M16 5.5c-4.6 0-7.6 3.2-7.6 8.3 0 2.1-.7 3.4-1.5 4.9-.6 1.1-.2 2.1.7 2.2.7.1 1.3-.4 1.8-1.1.7 1.5 1.7 2.4 2.8 2.8-.6.4-1 1-1 1.6 0 1.2 1.4 2.1 3.2 2.1 1.9 0 3.3-.9 3.3-2.1 0-.6-.4-1.2-1-1.6 1.1-.4 2.1-1.3 2.8-2.8.5.7 1.1 1.2 1.8 1.1.9-.1 1.3-1.1.7-2.2-.8-1.5-1.5-2.8-1.5-4.9 0-5.1-3-8.3-7.6-8.3Z" fill="#e9edf5"/>
+            <ellipse cx="12.9" cy="13.4" rx="1.15" ry="1.5" fill="#1a1e27"/>
+            <ellipse cx="19.1" cy="13.4" rx="1.15" ry="1.5" fill="#1a1e27"/>
+            <path d="m14.2 17.2 1.8 1.1 1.8-1.1" stroke="#1a1e27" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9.2 24.4c1.2 1.1 3.6 1.8 6.8 1.8s5.6-.7 6.8-1.8" stroke="#ffb02e" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="run-dot"></span>
+        <span class="label">QQ</span>
+      </button>
+
+      <!-- netease -->
+      <button class="dock-item" data-name="网易云音乐">
+        <span class="icon tile-netease">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10.5" fill="rgba(255,255,255,0.10)"/>
+            <path d="M9.5 16.3a2.2 2.2 0 1 1-1.4-2.1V8.2l6.3-1.4v2l-4.9 1.1v6.4Z" fill="#fff"/>
+          </svg>
+        </span>
+        <span class="label">网易云音乐</span>
+      </button>
+
+      <!-- settings -->
+      <button class="dock-item" data-name="设置">
+        <span class="icon tile-settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#eef1f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3.2"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/>
+          </svg>
+        </span>
+        <span class="label">设置</span>
+      </button>
+
+      <div class="divider"></div>
+
+      <!-- running, not pinned -->
+      <button class="dock-item" data-name="终端">
+        <span class="icon tile-terminal">
+          <span style="font-family: ui-monospace, monospace; font-size: 20px; font-weight: 600; color:#e7ebf3;">&gt;_</span>
+        </span>
+        <span class="run-dot"></span>
+        <span class="label">终端 · 运行中</span>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- home indicator -->
+  <div class="home-pill"></div>
+
+  <div class="note">Dock 参考稿 · 1600 × 1000</div>
+</div>
+
+<script>
+  // Scale the device canvas to fit the window.
+  const device = document.getElementById('device');
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1680, window.innerHeight / 1080);
+    device.style.setProperty('--scale', scale);
+  }
+  window.addEventListener('resize', fit);
+  fit();
+
+  // Click an app: make it the active dock item.
+  const items = [...document.querySelectorAll('.dock-item')];
+  for (const item of items) {
+    item.addEventListener('click', () => {
+      if (item.classList.contains('all-apps')) {
+        item.animate(
+          [{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }],
+          { duration: 180, easing: 'ease-out' }
+        );
+        return;
+      }
+      for (const other of items) other.classList.remove('active');
+      item.classList.add('active');
+    });
+  }
+</script>
+</body>
+</html>

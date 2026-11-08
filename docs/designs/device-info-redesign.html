@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Denial Settings — 此设备</title>
+<style>
+  :root {
+    --accent: #2f9e6f;
+    --accent-soft: rgba(47, 158, 111, 0.13);
+    --bg: #f3f4f8;
+    --card: #ffffff;
+    --sidebar: #eef0f5;
+    --text: #1e2229;
+    --muted: #6f7681;
+    --faint: #9aa1ab;
+    --line: #e6e8ee;
+    --radius-lg: 22px;
+    --radius-md: 16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: #0f1115;
+    color: var(--text);
+    font-family: "Noto Sans SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* ---------- device canvas ---------- */
+  .device {
+    position: relative;
+    width: 1600px;
+    height: 1000px;
+    border-radius: 28px;
+    overflow: hidden;
+    background: var(--bg);
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+    display: grid;
+    grid-template-columns: 288px 1fr;
+    transform-origin: center;
+    transform: scale(var(--scale, 1));
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    background: var(--sidebar);
+    border-right: 1px solid var(--line);
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 10px 18px;
+    font-size: 19px; font-weight: 700;
+  }
+  .brand svg { width: 23px; height: 23px; color: var(--text); }
+  .nav { display: flex; flex-direction: column; gap: 1px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 11px;
+    height: 39px; padding: 0 12px;
+    border-radius: 11px;
+    color: var(--muted);
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .nav-item:hover { background: rgba(30, 34, 41, 0.06); color: var(--text); }
+  .nav-item.selected { background: #dee3ea; color: var(--text); font-weight: 600; }
+  .nav-item svg { width: 17px; height: 17px; flex: none; }
+  .nav-sep { height: 1px; background: var(--line); margin: 9px 12px; }
+  .nav-bottom { margin-top: auto; }
+
+  /* ---------- content ---------- */
+  .content {
+    padding: 28px 38px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: hidden;
+  }
+  .page-title-row { display: flex; align-items: flex-start; justify-content: space-between; }
+  .page-title { font-size: 27px; font-weight: 700; letter-spacing: -0.02em; }
+  .page-sub { margin-top: 5px; color: var(--muted); font-size: 13px; }
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 36px; padding: 0 16px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card); color: var(--text);
+    font-size: 12.5px; font-weight: 500; cursor: pointer;
+  }
+  .copy-btn:hover { background: #f6f7f9; }
+  .copy-btn svg { width: 15px; height: 15px; color: var(--muted); }
+
+  /* ---------- hero ---------- */
+  .hero {
+    display: flex; align-items: center; gap: 28px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 18px 26px;
+  }
+  .device-art {
+    width: 200px; height: 112px; flex: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #18212e 0%, #293443 55%, #1a2330 100%);
+    position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 14px 28px rgba(20, 28, 40, 0.20);
+    display: grid; place-items: center;
+    color: rgba(255, 255, 255, 0.74);
+    font-size: 11px; letter-spacing: 0.22em;
+  }
+  .device-art::after {
+    content: ""; position: absolute; width: 44px; height: 4px; border-radius: 999px;
+    bottom: 8px; left: 50%; transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.28);
+  }
+  .device-art::before {
+    content: ""; position: absolute; inset: 9px; border-radius: 11px;
+    background:
+      radial-gradient(200px 110px at 20% 20%, rgba(47, 158, 111, 0.34), transparent 65%),
+      radial-gradient(200px 130px at 85% 80%, rgba(109, 96, 210, 0.28), transparent 65%);
+  }
+  .hero-info { min-width: 0; }
+  .hero-name { font-size: 31px; font-weight: 750; letter-spacing: -0.03em; }
+  .hero-model { margin-top: 6px; color: var(--muted); font-size: 13.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 11px; border-radius: 999px;
+    background: var(--accent-soft); color: #1f7f58;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .chip.neutral { background: #f0f2f5; color: var(--muted); }
+
+  /* ---------- cards ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 1fr;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px 16px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .card h2 {
+    font-size: 14px; font-weight: 700; letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 svg { width: 17px; height: 17px; color: var(--accent); }
+
+  .rows {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .card .cols { display: flex; gap: 30px; margin-top: 0; }
+  .card .cols .rows { flex: 1; min-width: 0; }
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 14px;
+    padding: 7px 0;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .rows > .row:first-child,
+  .cols .rows > .row:first-child { border-top: none; }
+  .row .k { color: var(--muted); flex: none; }
+  .row .v { text-align: right; font-weight: 550; overflow-wrap: anywhere; }
+  .row .v.mono { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11.5px; font-weight: 500; }
+  .row .v .sub { display: block; color: var(--faint); font-weight: 450; font-size: 11px; margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<div class="device">
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h.01M8 17h.01"/></svg>
+      设置
+    </div>
+    <nav class="nav">
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>你</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>外观</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>语言</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>键盘</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>鼠标和触控板</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h8"/></svg>快捷键</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m8 9 3 3-3 3M13 15h4"/></svg>应用环境</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 1 16 0"/><path d="M12 12l4-3"/><path d="M4 12h2M18 12h2"/></svg>动画</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>桌面布局</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18"/></svg>浮层</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>锁屏</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 5 6v5c0 4.4 2.8 8.4 7 10 4.2-1.6 7-5.6 7-10V6Z"/></svg>权限</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>音频</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>显示器与视频</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M6 15a6 6 0 0 1 12 0"/><path d="M9 18a3 3 0 0 1 6 0"/></svg>网络</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 7 10 10M17 7 7 17"/><path d="M12 3 7 8v6l5 5 5-5V8Z"/></svg>蓝牙</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6 6a8 8 0 1 0 12 0"/></svg>电源</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 6-4 6 4 6M16 6l4 6-4 6"/></svg>开发者</div>
+    </nav>
+    <div class="nav nav-bottom">
+      <div class="nav-sep"></div>
+      <div class="nav-item selected">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M10 18h4"/></svg>
+        此设备
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        关于
+      </div>
+    </div>
+  </aside>
+
+  <!-- content -->
+  <main class="content">
+    <div class="page-title-row">
+      <div>
+        <div class="page-title">此设备</div>
+        <div class="page-sub">设备、系统与硬件信息。</div>
+      </div>
+      <button class="copy-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        复制设备信息
+      </button>
+    </div>
+
+    <section class="hero">
+      <div class="device-art">XIAOMI PAD 5</div>
+      <div class="hero-info">
+        <div class="hero-name">Xiaomi Pad 5</div>
+        <div class="hero-model">nabu · 11 英寸平板 · Snapdragon 860</div>
+        <div class="chips">
+          <span class="chip">Arch Linux ARM</span>
+          <span class="chip">Denial 0.0.0.r381</span>
+          <span class="chip neutral">arm64</span>
+          <span class="chip neutral">平板</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- 硬件 -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>硬件</h2>
+        <div class="rows">
+          <div class="row"><span class="k">SoC</span><span class="v">Snapdragon 860<span class="sub">Qualcomm SM8150</span></span></div>
+          <div class="row"><span class="k">CPU</span><span class="v">8 核 Kryo 4XX<span class="sub">4× Gold + 4× Silver · 2.96 GHz</span></span></div>
+          <div class="row"><span class="k">GPU</span><span class="v">Adreno 640</span></div>
+          <div class="row"><span class="k">内存</span><span class="v">6 GB<span class="sub">5.2 GiB 可用</span></span></div>
+          <div class="row"><span class="k">存储</span><span class="v">128 GB<span class="sub">系统分区可用 54.8 GB</span></span></div>
+          <div class="row"><span class="k">电池</span><span class="v">100% · 充电中<span class="sub">7819 mAh · 健康良好</span></span></div>
+        </div>
+      </section>
+
+      <!-- 系统 -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>系统</h2>
+        <div class="rows">
+          <div class="row"><span class="k">操作系统</span><span class="v">Arch Linux ARM<span class="sub">rolling</span></span></div>
+          <div class="row"><span class="k">内核</span><span class="v mono">7.3.1-2-krjy-krjy</span></div>
+          <div class="row"><span class="k">架构</span><span class="v">arm64</span></div>
+          <div class="row"><span class="k">主机名</span><span class="v mono">alarm</span></div>
+          <div class="row"><span class="k">时区</span><span class="v">Asia/Shanghai<span class="sub">CST · +08:00</span></span></div>
+          <div class="row"><span class="k">运行时间</span><span class="v">5 分钟</span></div>
+        </div>
+      </section>
+
+      <!-- 设备 -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="3"/><path d="M10 18h4"/></svg>设备</h2>
+        <div class="rows">
+          <div class="row"><span class="k">型号</span><span class="v">Xiaomi Pad 5</span></div>
+          <div class="row"><span class="k">代号</span><span class="v mono">nabu</span></div>
+          <div class="row"><span class="k">硬件版本</span><span class="v mono">nabu / MP</span></div>
+          <div class="row"><span class="k">固件</span><span class="v mono">001.2025.09.30</span></div>
+          <div class="row"><span class="k">制造商</span><span class="v">Xiaomi</span></div>
+          <div class="row"><span class="k">设备类型</span><span class="v">平板</span></div>
+        </div>
+      </section>
+
+      <!-- 显示 -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg>显示</h2>
+        <div class="rows">
+          <div class="row"><span class="k">尺寸</span><span class="v">11 英寸</span></div>
+          <div class="row"><span class="k">分辨率</span><span class="v mono">2560 × 1600</span></div>
+          <div class="row"><span class="k">刷新率</span><span class="v">120 Hz</span></div>
+          <div class="row"><span class="k">接口</span><span class="v mono">DSI-1</span></div>
+          <div class="row"><span class="k">缩放</span><span class="v">150%<span class="sub">逻辑 1067 × 1707</span></span></div>
+          <div class="row"><span class="k">当前方向</span><span class="v">竖屏</span></div>
+        </div>
+      </section>
+
+      <!-- 连接 -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 18 0"/><path d="M6 15a6 6 0 0 1 12 0"/><path d="M9 18a3 3 0 0 1 6 0"/></svg>连接</h2>
+        <div class="rows">
+          <div class="row"><span class="k">Wi-Fi</span><span class="v">Xiaomi 17 Pro<span class="sub">wlan0</span></span></div>
+          <div class="row"><span class="k">IP 地址</span><span class="v mono">10.222.7.247</span></div>
+          <div class="row"><span class="k">MAC 地址</span><span class="v mono">36:c3:91:42:ca:61</span></div>
+          <div class="row"><span class="k">蓝牙</span><span class="v">已开启<span class="sub">hci0</span></span></div>
+          <div class="row"><span class="k">USB</span><span class="v">USB-C<span class="sub">无外接设备</span></span></div>
+          <div class="row"><span class="k">以太网</span><span class="v mono">dlh1000</span></div>
+        </div>
+      </section>
+
+      <!-- Denial -->
+      <section class="card">
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6 6a8 8 0 1 0 12 0"/></svg>Denial</h2>
+        <div class="rows">
+          <div class="row"><span class="k">版本</span><span class="v mono">0.0.0.r381.g230986de</span></div>
+          <div class="row"><span class="k">提交</span><span class="v mono">230986d</span></div>
+          <div class="row"><span class="k">Flutter 引擎</span><span class="v mono">r381.g230986de</span></div>
+          <div class="row"><span class="k">插件管理器</span><span class="v mono">r381.g230986de</span></div>
+          <div class="row"><span class="k">会话</span><span class="v">mobile · Wayland</span></div>
+          <div class="row"><span class="k">构建</span><span class="v">本地构建<span class="sub">dirty · aarch64</span></span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+  const device = document.getElementById('device');
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1680, window.innerHeight / 1080);
+    device.style.setProperty('--scale', scale);
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>
