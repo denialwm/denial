@@ -792,46 +792,34 @@ class _NotificationPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ShellTheme.of(context);
-    final glass = theme.transparencyMode == ShellTransparencyMode.glass;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.cardColor(context.shellColors.tileOff),
-        borderRadius: theme.borderRadius(12),
-        border: glass
-            ? null
-            : Border.all(color: context.shellColors.hairlineSoft),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(9, 9, 9, 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Text(
-                  context.l10n.notificationsTitle,
-                  style: TextStyle(
-                    color: context.shellColors.panelText,
-                    fontSize: 20,
-                    height: 1.1,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-                const Spacer(),
-                _ClearAllButton(
-                  onPressed: () => ref
-                      .read(desktopNotificationsProvider.notifier)
-                      .clearAll(),
-                ),
-              ],
+    // Notifications float on the shade glass; only the clear action stays
+    // pinned below them.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(9, 9, 9, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            context.l10n.notificationsTitle,
+            style: TextStyle(
+              color: context.shellColors.panelText,
+              fontSize: 23,
+              height: 1.1,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0,
+              decoration: TextDecoration.none,
             ),
-            const SizedBox(height: 8),
-            Expanded(child: child),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(child: child),
+          const SizedBox(height: 8),
+          Center(
+            child: _ClearAllButton(
+              onPressed: () =>
+                  ref.read(desktopNotificationsProvider.notifier).clearAll(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -851,15 +839,15 @@ class _ClearAllButton extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onPressed,
         child: Container(
-          width: 32,
-          height: 32,
+          width: 28,
+          height: 28,
           decoration: BoxDecoration(
-            color: context.shellColors.surfaceContainerHigh,
-            borderRadius: context.shellTheme.borderRadius(9),
+            shape: BoxShape.circle,
+            border: Border.all(color: context.shellColors.hairline),
           ),
           child: Icon(
-            Icons.cleaning_services_rounded,
-            size: 17,
+            Icons.delete_sweep_rounded,
+            size: 15,
             color: context.shellColors.panelText,
           ),
         ),
@@ -1227,7 +1215,7 @@ class _HorizontalRangeCard extends StatelessWidget {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 1, 6, 1),
+        padding: const EdgeInsets.fromLTRB(4, 1, 4, 1),
         child: Row(
           children: [
             Icon(
@@ -1235,7 +1223,7 @@ class _HorizontalRangeCard extends StatelessWidget {
               size: 14 * inverse,
               color: context.shellColors.panelText,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 3),
             Text(
               label,
               style: TextStyle(
@@ -1247,7 +1235,7 @@ class _HorizontalRangeCard extends StatelessWidget {
                 decoration: TextDecoration.none,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: SizedBox(
                 height: 22,
@@ -1275,31 +1263,37 @@ class _HorizontalRangeCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (onSecondaryTap case final open?) ...[
-              const SizedBox(width: 4),
+            // Slightly more air before the percentage on the brightness row
+            // so both rows end on the same right edge.
+            SizedBox(
+              width: onSecondaryTap == null ? 6 : 5,
+            ),
+            if (onSecondaryTap case final open?)
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: open,
                 child: SizedBox(
-                  width: 24,
-                  height: 24,
+                  width: 12,
+                  height: 12,
                   child: Icon(
                     Icons.chevron_right_rounded,
-                    size: 16,
+                    size: 12,
                     color: context.shellColors.panelText.withValues(alpha: .72),
                   ),
                 ),
               ),
-            ],
-            const SizedBox(width: 4),
+            if (onSecondaryTap != null) const SizedBox(width: 1),
             SizedBox(
-              width: 26,
+              width: 12,
               child: Text(
                 '${(clamped * 100).round()}%',
                 textAlign: TextAlign.right,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.visible,
                 style: TextStyle(
                   color: context.shellColors.textTertiary,
-                  fontSize: 11,
+                  fontSize: 10.5,
                   height: 1.1,
                   letterSpacing: 0,
                   decoration: TextDecoration.none,
