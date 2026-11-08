@@ -228,13 +228,12 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
               child: SettingsControlRow(
                 label: l10n.settingsShellAccentTitle,
                 description: l10n.settingsShellAccentDescription,
-                controlWidth: 520,
+                controlWidth: 360,
                 control: SizedBox(
                   width: double.infinity,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Source, custom colour and the picker read as one line.
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -245,38 +244,49 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
                                 ShellAccentSource.wallpaper,
                                 l10n.settingsShellAccentWallpaper,
                               ),
-                              SettingsChoice(
-                                ShellAccentSource.custom,
-                                l10n.settingsShellAccentCustom,
-                              ),
                             ],
                             onChanged: widget.onAccentSourceChanged,
                           ),
-                          if (widget.settings.accentSource ==
-                              ShellAccentSource.custom) ...[
-                            const SizedBox(width: 10),
-                            SettingsColorButton(
-                              key: settingsAccentColorTriggerKey,
-                              color: widget.settings.customAccentColor,
-                              label: l10n.settingsShellAccentChoose,
-                              onPressed: widget.onOpenAccentPicker,
-                            ),
-                          ],
+                          const SizedBox(width: 10),
+                          SettingsColorButton(
+                            key: settingsAccentColorTriggerKey,
+                            color:
+                                widget.settings.accentSource ==
+                                    ShellAccentSource.wallpaper
+                                ? widget.extractedAccent
+                                : widget.settings.customAccentColor,
+                            label: l10n.settingsShellAccentChoose,
+                            onPressed: () {
+                              // Start from the visible colour so the wheel
+                              // continues what the row shows.
+                              if (widget.settings.accentSource ==
+                                  ShellAccentSource.wallpaper) {
+                                widget.onAccentColorChanged(
+                                  widget.extractedAccent,
+                                );
+                              }
+                              widget.onAccentSourceChanged(
+                                ShellAccentSource.custom,
+                              );
+                              widget.onOpenAccentPicker();
+                            },
+                          ),
                         ],
                       ),
-                      if (widget.settings.accentSource ==
-                          ShellAccentSource.custom) ...[
-                        const SizedBox(height: 10),
-                        _AccentPresets(
-                          selected: widget.settings.customAccentColor,
-                          onSelected: (color) {
-                            widget.onAccentSourceChanged(
-                              ShellAccentSource.custom,
-                            );
-                            widget.onAccentColorChanged(color);
-                          },
-                        ),
-                      ],
+                      const SizedBox(height: 10),
+                      _AccentPresets(
+                        selected:
+                            widget.settings.accentSource ==
+                                ShellAccentSource.wallpaper
+                            ? widget.extractedAccent
+                            : widget.settings.customAccentColor,
+                        onSelected: (color) {
+                          widget.onAccentSourceChanged(
+                            ShellAccentSource.custom,
+                          );
+                          widget.onAccentColorChanged(color);
+                        },
+                      ),
                     ],
                   ),
                 ),
