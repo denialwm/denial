@@ -32,19 +32,21 @@ class _StatusGeometry {
   static const collapsedHeight = ReferenceShellMetrics.statusBarHeight - 18;
   double get expandedTop => math.max(40 * referenceScale, topPadding);
   double get expandedHeight => 18 * referenceScale;
-  double get hitHeight => math.max(
-    topPadding + ReferenceShellMetrics.statusBarHeight,
-    expandedTop + expandedHeight,
-  );
-
   /// The status row at [progress] of the shade, in screen coordinates.
   List<Widget> foreground(
     BuildContext context,
     double progress,
-    Color foreground,
-  ) {
-    final fraction = ColorOsShadeMotion.translationFraction(progress);
-    final color = _statusColorAt(context, foreground, progress);
+    Color foreground, {
+    bool collapsed = false,
+  }) {
+    final fraction = collapsed
+        ? 0.0
+        : ColorOsShadeMotion.translationFraction(progress);
+    final color = _statusColorAt(
+      context,
+      foreground,
+      collapsed ? 1.0 : progress,
+    );
     return [_cluster(fraction, color), ..._clock(context, fraction, color)];
   }
 
@@ -150,6 +152,24 @@ class ShadeStatusBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(referenceShellProvider.notifier);
     final foreground = _statusForeground(context, ref);
+    final statusColorArgb = ref.watch(
+      referenceShellProvider.select(
+        (state) => state.foregroundWindow?.statusColorArgb,
+      ),
+    );
+    // A solid bar keeps the row readable on every wallpaper. With no app
+    // status colour it takes the shell's panel tone; an app that declares one
+    // paints the bar in that colour and the glyphs adapt to it.
+    final overWallpaper = statusColorArgb == null;
+    final rowForeground = overWallpaper
+        ? context.shellColors.panelText
+        : foreground;
+    final barColor = overWallpaper
+        ? context.shellColors.panelBackground
+        : Color.alphaBlend(
+            Color(statusColorArgb),
+            context.shellColors.panelBackground,
+          );
     final progress = shadeProgress ?? const AlwaysStoppedAnimation(0);
     final geometry = _StatusGeometry.of(context);
     final shown = ReferenceShellMetrics.statusBarShown(
@@ -160,7 +180,9 @@ class ShadeStatusBar extends ConsumerWidget {
       left: 0,
       right: 0,
       top: 0,
-      height: geometry.hitHeight,
+      // Only the visible status row pulls the shade down. The rest of the
+      // screen stays touchable for the app underneath.
+      height: geometry.topPadding + ReferenceShellMetrics.statusBarHeight,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onVerticalDragStart: (details) {
@@ -189,13 +211,21 @@ class ShadeStatusBar extends ConsumerWidget {
           child: AnimatedBuilder(
             animation: progress,
             // Only the change to and from closed rebuilds the row.
-            builder: (context, _) => progress.value > 0 || !shown
-                ? const SizedBox.expand()
-                : Stack(
+            builder: (context, _) {
+              final hidden = progress.value > 0 || !shown;
+              if (hidden) return const SizedBox.expand();
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(color: barColor),
+                  Stack(
                     fit: StackFit.expand,
                     clipBehavior: Clip.none,
-                    children: geometry.foreground(context, 0, foreground),
+                    children: geometry.foreground(context, 0, rowForeground),
                   ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -207,9 +237,17 @@ class ShadeStatusBar extends ConsumerWidget {
 /// draws beneath its notifications so they scroll over it. It continues the
 /// status bar exactly, in the same screen coordinates.
 class ShadeHeaderStatusLayer extends ConsumerWidget {
-  const ShadeHeaderStatusLayer({super.key, required this.progress});
+  const ShadeHeaderStatusLayer({
+    super.key,
+    required this.progress,
+    this.collapsed = false,
+  });
 
   final Animation<double> progress;
+
+  /// The split layout keeps a normal status row at the top while the grown
+  /// clock lives inside the control column.
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -228,6 +266,7 @@ class ShadeHeaderStatusLayer extends ConsumerWidget {
                 context,
                 progress.value,
                 foreground,
+                collapsed: collapsed,
               ),
             );
           },

@@ -26,12 +26,11 @@ class ReferenceShellMetrics {
   /// horizontal app switch. The switch animation must travel `width + this`
   /// so the incoming window lands exactly centred.
   static const double appSwitchGap = 18.0;
-  static const double statusBarHeight = 48.0;
+  static const double statusBarHeight = 45.0;
 
-  /// A landscape view shows no status bar: its strip only pulls the shade
-  /// down, and apps use the full height, as deniald configures them.
-  static bool statusBarShown(Size viewSize) =>
-      viewSize.width <= viewSize.height;
+  /// Android tablets keep the status bar in every orientation; apps lay
+  /// out below it. Fullscreen video and games hide it themselves.
+  static bool statusBarShown(Size viewSize) => true;
 
   /// The top of the view an app leaves to the status bar.
   static double appStatusInset(Size viewSize) =>
