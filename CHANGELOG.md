@@ -119,8 +119,9 @@ boundaries may change before 1.0.
 - Minimized mobile windows pause, and on the mobile shell every app stays
   suspended while the session is locked.
 - On the mobile shell the power button only turns the screen off and on.
-- Auto-rotation follows Phonewave's `steinerd` (`org.steinerd.Sensors1`)
-  instead of iio-sensor-proxy.
+- Auto-rotation follows Phonewave's `steinerd` (`org.steinerd.Sensors1`) when
+  it runs, and falls back to iio-sensor-proxy's `net.hadess.SensorProxy`
+  accelerometer on machines which ship the SSC sensors without steinerd.
 - Do not disturb, lock-screen previews, waking the screen for notifications,
   keyboard vibration and fingerprint unlock are keys in the settings
   document; the separate notification-policy file is gone. On a phone,

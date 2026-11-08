@@ -1,11 +1,14 @@
-//! Low-frequency device-orientation input from steinerd.
+//! Low-frequency device-orientation input from the system sensor service.
+//!
+//! Phonewave's steinerd is preferred; iio-sensor-proxy serves the same cardinal
+//! readings on machines which ship the SSC accelerometer without steinerd.
 //!
 //! D-Bus is deliberately isolated on a helper thread. The compositor receives
 //! only already-classified cardinal changes through calloop, so sensor service
 //! activation, reconnects and property reads can never delay a render tick.
 //!
 //! The claim is held only while a panel that follows the sensor is lit: with
-//! the screen off, steinerd stops the accelerometer and the DSP stops sending.
+//! the screen off the claim is released and the DSP stops sending.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,11 +21,99 @@ use smithay::reexports::calloop::channel::{Channel, Sender, channel};
 use tracing::{debug, info, warn};
 use zbus::blocking::Proxy;
 
-const SENSOR_SERVICE: &str = "org.steinerd";
-const SENSOR_PATH: &str = "/org/steinerd";
-const SENSOR_INTERFACE: &str = "org.steinerd.Sensors1";
-const SENSOR: &str = "orientation";
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
+
+/// The bus services which publish the accelerometer, in preference order.
+///
+/// Both name the cardinal edge which points up, so the parsed values and the
+/// applied rotation are shared; only the claim and property names differ.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Service {
+    /// Phonewave, used by the phone shell.
+    Steinerd,
+    /// iio-sensor-proxy, which front-ends the SSC accelerometer on tablets.
+    IioSensorProxy,
+}
+
+impl Service {
+    /// steinerd wins when a machine runs both; it also stays the candidate
+    /// when neither service is on the bus yet, preserving previous behaviour.
+    fn available() -> Self {
+        let steinerd = owns(Self::Steinerd.bus_name());
+        let iio = owns(Self::IioSensorProxy.bus_name());
+        if steinerd || !iio {
+            Self::Steinerd
+        } else {
+            Self::IioSensorProxy
+        }
+    }
+
+    const fn bus_name(self) -> &'static str {
+        match self {
+            Self::Steinerd => "org.steinerd",
+            Self::IioSensorProxy => "net.hadess.SensorProxy",
+        }
+    }
+
+    const fn path(self) -> &'static str {
+        match self {
+            Self::Steinerd => "/org/steinerd",
+            Self::IioSensorProxy => "/net/hadess/SensorProxy",
+        }
+    }
+
+    const fn interface(self) -> &'static str {
+        match self {
+            Self::Steinerd => "org.steinerd.Sensors1",
+            Self::IioSensorProxy => "net.hadess.SensorProxy",
+        }
+    }
+
+    const fn orientation_property(self) -> &'static str {
+        match self {
+            Self::Steinerd => "Orientation",
+            Self::IioSensorProxy => "AccelerometerOrientation",
+        }
+    }
+
+    const fn available_property(self) -> &'static str {
+        match self {
+            Self::Steinerd => "HasOrientation",
+            Self::IioSensorProxy => "HasAccelerometer",
+        }
+    }
+
+    fn claim(self, proxy: &Proxy<'_>) -> zbus::Result<()> {
+        match self {
+            Self::Steinerd => proxy.call::<_, _, ()>("Claim", &("orientation",)),
+            // iio-sensor-proxy asks polkit, which allows any active seat
+            // session, so the compositor's own user may claim the sensor.
+            Self::IioSensorProxy => proxy.call::<_, _, ()>("ClaimAccelerometer", &()),
+        }
+    }
+
+    fn release(self, proxy: &Proxy<'_>) {
+        let _ = match self {
+            Self::Steinerd => proxy.call::<_, _, ()>("Release", &("orientation",)),
+            Self::IioSensorProxy => proxy.call::<_, _, ()>("ReleaseAccelerometer", &()),
+        };
+    }
+}
+
+/// Whether a bus name currently has an owner. A missing system bus reads as
+/// "no owner": the follower then picks the default and retries on reconnect.
+fn owns(name: &str) -> bool {
+    let Ok(connection) = crate::bus::blocking_system() else {
+        return false;
+    };
+    let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
+        return false;
+    };
+    let Ok(name) = zbus::names::BusName::try_from(name) else {
+        return false;
+    };
+    dbus.name_has_owner(name).unwrap_or(false)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Orientation {
@@ -182,7 +273,13 @@ fn monitor_bus(
         Ok(connection) => connection,
         Err(error) => return MonitorResult::Disconnected(error.to_string()),
     };
-    let proxy = match Proxy::new(&connection, SENSOR_SERVICE, SENSOR_PATH, SENSOR_INTERFACE) {
+    let service = Service::available();
+    let proxy = match Proxy::new(
+        &connection,
+        service.bus_name(),
+        service.path(),
+        service.interface(),
+    ) {
         Ok(proxy) => proxy,
         Err(error) => return MonitorResult::Disconnected(error.to_string()),
     };
@@ -194,7 +291,7 @@ fn monitor_bus(
     };
     loop {
         demand.wait_until_wanted();
-        let present = match follow_sensor(&proxy, &mut owners, events, published, demand) {
+        let present = match follow_sensor(service, &proxy, &mut owners, events, published, demand) {
             SensorResult::Closed => return MonitorResult::Closed,
             SensorResult::Unwanted => continue,
             SensorResult::Failed(error) => {
@@ -220,6 +317,7 @@ fn monitor_bus(
 }
 
 fn follow_sensor<O>(
+    service: Service,
     proxy: &Proxy<'_>,
     owners: &mut O,
     events: &Sender<Orientation>,
@@ -232,18 +330,18 @@ where
     let mut changes = future::block_on(
         proxy
             .inner()
-            .receive_property_changed::<String>("Orientation"),
+            .receive_property_changed::<String>(service.orientation_property()),
     );
-    if let Err(error) = proxy.call::<_, _, ()>("Claim", &(SENSOR,)) {
+    if let Err(error) = service.claim(proxy) {
         return SensorResult::Failed(error.to_string());
     }
 
     let has_orientation = proxy
-        .get_property::<bool>("HasOrientation")
+        .get_property::<bool>(service.available_property())
         .unwrap_or(false);
     let initial = if has_orientation {
         proxy
-            .get_property::<String>("Orientation")
+            .get_property::<String>(service.orientation_property())
             .map(|value| Orientation::parse(&value))
             .unwrap_or(Orientation::Undefined)
     } else {
@@ -251,7 +349,7 @@ where
     };
     if publish(events, published, initial).is_err() {
         drop(changes);
-        let _ = proxy.call::<_, _, ()>("Release", &(SENSOR,));
+        service.release(proxy);
         return SensorResult::Closed;
     }
     if initial != Orientation::Undefined {
@@ -295,7 +393,7 @@ where
         }
     };
     drop(changes);
-    let _ = proxy.call::<_, _, ()>("Release", &(SENSOR,));
+    service.release(proxy);
     result
 }
 
