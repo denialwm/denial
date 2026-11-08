@@ -5325,4 +5325,234 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonBack => 'Back';
+
+  @override
+  String get settingsNavigationDevice => 'This device';
+
+  @override
+  String get settingsDeviceTitle => 'This device';
+
+  @override
+  String get settingsDeviceDescription =>
+      'Device, system and hardware information.';
+
+  @override
+  String get settingsDeviceCopy => 'Copy device info';
+
+  @override
+  String get settingsDeviceCopied => 'Copied';
+
+  @override
+  String get settingsDeviceCardHardware => 'Hardware';
+
+  @override
+  String get settingsDeviceCardSystem => 'System';
+
+  @override
+  String get settingsDeviceCardDevice => 'Device';
+
+  @override
+  String get settingsDeviceCardDisplay => 'Display';
+
+  @override
+  String get settingsDeviceCardConnection => 'Connection';
+
+  @override
+  String get settingsDeviceCardDenial => 'Denial';
+
+  @override
+  String get settingsDeviceSoc => 'SoC';
+
+  @override
+  String get settingsDeviceCpu => 'CPU';
+
+  @override
+  String get settingsDeviceGpu => 'GPU';
+
+  @override
+  String get settingsDeviceMemory => 'Memory';
+
+  @override
+  String get settingsDeviceStorage => 'Storage';
+
+  @override
+  String get settingsDeviceBattery => 'Battery';
+
+  @override
+  String get settingsDeviceBatteryCharging => 'Charging';
+
+  @override
+  String get settingsDeviceBatteryDischarging => 'On battery';
+
+  @override
+  String get settingsDeviceBatteryFull => 'Full';
+
+  @override
+  String get settingsDeviceBatteryUnknown => 'Unknown';
+
+  @override
+  String get settingsDeviceOs => 'Operating system';
+
+  @override
+  String get settingsDeviceKernel => 'Kernel';
+
+  @override
+  String get settingsDeviceArchitecture => 'Architecture';
+
+  @override
+  String get settingsDeviceHostname => 'Hostname';
+
+  @override
+  String get settingsDeviceTimezone => 'Time zone';
+
+  @override
+  String get settingsDeviceUptime => 'Uptime';
+
+  @override
+  String get settingsDeviceModel => 'Model';
+
+  @override
+  String get settingsDeviceCodename => 'Codename';
+
+  @override
+  String get settingsDeviceHardwareVersion => 'Hardware version';
+
+  @override
+  String get settingsDeviceFirmware => 'Firmware';
+
+  @override
+  String get settingsDeviceManufacturer => 'Manufacturer';
+
+  @override
+  String get settingsDeviceFormFactor => 'Device type';
+
+  @override
+  String get settingsDeviceFormFactorTablet => 'Tablet';
+
+  @override
+  String get settingsDeviceFormFactorLaptop => 'Laptop';
+
+  @override
+  String get settingsDeviceFormFactorDesktop => 'Desktop';
+
+  @override
+  String get settingsDeviceFormFactorHandheld => 'Handheld';
+
+  @override
+  String get settingsDeviceResolution => 'Resolution';
+
+  @override
+  String get settingsDeviceRefreshRate => 'Refresh rate';
+
+  @override
+  String get settingsDeviceDisplayPort => 'Interface';
+
+  @override
+  String get settingsDeviceScale => 'Scale';
+
+  @override
+  String get settingsDeviceOrientation => 'Orientation';
+
+  @override
+  String get settingsDevicePortrait => 'Portrait';
+
+  @override
+  String get settingsDeviceLandscape => 'Landscape';
+
+  @override
+  String get settingsDeviceWifi => 'Wi-Fi';
+
+  @override
+  String get settingsDeviceIp => 'IP address';
+
+  @override
+  String get settingsDeviceMac => 'MAC address';
+
+  @override
+  String get settingsDeviceBluetooth => 'Bluetooth';
+
+  @override
+  String get settingsDeviceUsb => 'USB';
+
+  @override
+  String get settingsDeviceEthernet => 'Ethernet';
+
+  @override
+  String get settingsDeviceEnabled => 'On';
+
+  @override
+  String get settingsDeviceDisabled => 'Off';
+
+  @override
+  String get settingsDeviceNoExternal => 'No external device';
+
+  @override
+  String get settingsDeviceVersion => 'Version';
+
+  @override
+  String get settingsDeviceCommit => 'Commit';
+
+  @override
+  String get settingsDeviceEngine => 'Flutter engine';
+
+  @override
+  String get settingsDevicePlugins => 'Plugin manager';
+
+  @override
+  String get settingsDeviceSession => 'Session';
+
+  @override
+  String get settingsDeviceBuild => 'Build';
+
+  @override
+  String get settingsDeviceLocalBuild => 'Local build';
+
+  @override
+  String get settingsDeviceUptimeSeconds => 'Less than a minute';
+
+  @override
+  String settingsDeviceCpuDetail(int cores, String clock) {
+    return '$cores cores · up to $clock';
+  }
+
+  @override
+  String settingsDeviceMemoryAvailable(String size) {
+    return '$size available';
+  }
+
+  @override
+  String settingsDeviceStorageFree(String size) {
+    return '$size free';
+  }
+
+  @override
+  String settingsDeviceBatteryDetail(int health, int cycles) {
+    return 'Health $health% · $cycles cycles';
+  }
+
+  @override
+  String settingsDeviceScaleDetail(String percent, int width, int height) {
+    return '$percent% · $width × $height logical';
+  }
+
+  @override
+  String settingsDeviceUptimeDays(int days) {
+    return '$days d';
+  }
+
+  @override
+  String settingsDeviceUptimeHours(int hours) {
+    return '$hours h';
+  }
+
+  @override
+  String settingsDeviceUptimeMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get settingsDeviceNotConnected => 'Not connected';
+
+  @override
+  String get settingsDeviceReleaseBuild => 'Release build';
 }

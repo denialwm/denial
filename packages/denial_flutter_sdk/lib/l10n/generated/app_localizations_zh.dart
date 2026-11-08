@@ -5069,4 +5069,233 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get commonBack => '返回';
+
+  @override
+  String get settingsNavigationDevice => '此设备';
+
+  @override
+  String get settingsDeviceTitle => '此设备';
+
+  @override
+  String get settingsDeviceDescription => '设备、系统与硬件信息。';
+
+  @override
+  String get settingsDeviceCopy => '复制设备信息';
+
+  @override
+  String get settingsDeviceCopied => '已复制';
+
+  @override
+  String get settingsDeviceCardHardware => '硬件';
+
+  @override
+  String get settingsDeviceCardSystem => '系统';
+
+  @override
+  String get settingsDeviceCardDevice => '设备';
+
+  @override
+  String get settingsDeviceCardDisplay => '显示';
+
+  @override
+  String get settingsDeviceCardConnection => '连接';
+
+  @override
+  String get settingsDeviceCardDenial => 'Denial';
+
+  @override
+  String get settingsDeviceSoc => 'SoC';
+
+  @override
+  String get settingsDeviceCpu => 'CPU';
+
+  @override
+  String get settingsDeviceGpu => 'GPU';
+
+  @override
+  String get settingsDeviceMemory => '内存';
+
+  @override
+  String get settingsDeviceStorage => '存储';
+
+  @override
+  String get settingsDeviceBattery => '电池';
+
+  @override
+  String get settingsDeviceBatteryCharging => '充电中';
+
+  @override
+  String get settingsDeviceBatteryDischarging => '使用电池';
+
+  @override
+  String get settingsDeviceBatteryFull => '已充满';
+
+  @override
+  String get settingsDeviceBatteryUnknown => '未知';
+
+  @override
+  String get settingsDeviceOs => '操作系统';
+
+  @override
+  String get settingsDeviceKernel => '内核';
+
+  @override
+  String get settingsDeviceArchitecture => '架构';
+
+  @override
+  String get settingsDeviceHostname => '主机名';
+
+  @override
+  String get settingsDeviceTimezone => '时区';
+
+  @override
+  String get settingsDeviceUptime => '运行时间';
+
+  @override
+  String get settingsDeviceModel => '型号';
+
+  @override
+  String get settingsDeviceCodename => '代号';
+
+  @override
+  String get settingsDeviceHardwareVersion => '硬件版本';
+
+  @override
+  String get settingsDeviceFirmware => '固件';
+
+  @override
+  String get settingsDeviceManufacturer => '制造商';
+
+  @override
+  String get settingsDeviceFormFactor => '设备类型';
+
+  @override
+  String get settingsDeviceFormFactorTablet => '平板';
+
+  @override
+  String get settingsDeviceFormFactorLaptop => '笔记本';
+
+  @override
+  String get settingsDeviceFormFactorDesktop => '桌面';
+
+  @override
+  String get settingsDeviceFormFactorHandheld => '手持设备';
+
+  @override
+  String get settingsDeviceResolution => '分辨率';
+
+  @override
+  String get settingsDeviceRefreshRate => '刷新率';
+
+  @override
+  String get settingsDeviceDisplayPort => '接口';
+
+  @override
+  String get settingsDeviceScale => '缩放';
+
+  @override
+  String get settingsDeviceOrientation => '当前方向';
+
+  @override
+  String get settingsDevicePortrait => '竖屏';
+
+  @override
+  String get settingsDeviceLandscape => '横屏';
+
+  @override
+  String get settingsDeviceWifi => 'Wi-Fi';
+
+  @override
+  String get settingsDeviceIp => 'IP 地址';
+
+  @override
+  String get settingsDeviceMac => 'MAC 地址';
+
+  @override
+  String get settingsDeviceBluetooth => '蓝牙';
+
+  @override
+  String get settingsDeviceUsb => 'USB';
+
+  @override
+  String get settingsDeviceEthernet => '以太网';
+
+  @override
+  String get settingsDeviceEnabled => '已开启';
+
+  @override
+  String get settingsDeviceDisabled => '已关闭';
+
+  @override
+  String get settingsDeviceNoExternal => '无外接设备';
+
+  @override
+  String get settingsDeviceVersion => '版本';
+
+  @override
+  String get settingsDeviceCommit => '提交';
+
+  @override
+  String get settingsDeviceEngine => 'Flutter 引擎';
+
+  @override
+  String get settingsDevicePlugins => '插件管理器';
+
+  @override
+  String get settingsDeviceSession => '会话';
+
+  @override
+  String get settingsDeviceBuild => '构建';
+
+  @override
+  String get settingsDeviceLocalBuild => '本地构建';
+
+  @override
+  String get settingsDeviceUptimeSeconds => '不到 1 分钟';
+
+  @override
+  String settingsDeviceCpuDetail(int cores, String clock) {
+    return '$cores 核 · 最高 $clock';
+  }
+
+  @override
+  String settingsDeviceMemoryAvailable(String size) {
+    return '$size 可用';
+  }
+
+  @override
+  String settingsDeviceStorageFree(String size) {
+    return '可用 $size';
+  }
+
+  @override
+  String settingsDeviceBatteryDetail(int health, int cycles) {
+    return '健康 $health% · 循环 $cycles 次';
+  }
+
+  @override
+  String settingsDeviceScaleDetail(String percent, int width, int height) {
+    return '$percent% · 逻辑 $width × $height';
+  }
+
+  @override
+  String settingsDeviceUptimeDays(int days) {
+    return '$days 天';
+  }
+
+  @override
+  String settingsDeviceUptimeHours(int hours) {
+    return '$hours 小时';
+  }
+
+  @override
+  String settingsDeviceUptimeMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get settingsDeviceNotConnected => '未连接';
+
+  @override
+  String get settingsDeviceReleaseBuild => '发布构建';
 }

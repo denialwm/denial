@@ -179,32 +179,7 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
       eyebrow: l10n.settingsAppearanceSection,
       title: l10n.settingsAppearanceTitle,
       cardSpacing: 20,
-      commands: [
-        PopupMenuButton<String>(
-          tooltip: l10n.settingsAppearanceActions,
-          icon: const Icon(Icons.more_horiz_rounded),
-          onSelected: (action) {
-            switch (action) {
-              case 'appearance':
-                widget.onReset();
-              case 'glass':
-                _resetGlassEffects();
-            }
-          },
-          itemBuilder: (context) => [
-            PopupMenuItem(
-              value: 'appearance',
-              child: Text(l10n.settingsResetAppearance),
-            ),
-            if (widget.settings.transparencyMode == ShellTransparencyMode.glass)
-              PopupMenuItem(
-                key: const ValueKey('settings-glass-reset'),
-                value: 'glass',
-                child: Text(l10n.settingsResetGlassEffects),
-              ),
-          ],
-        ),
-      ],
+      onReset: widget.onReset,
       footer: SettingsErrorNotice(message: _cursorError),
       children: [
         SettingsWallpaperCard(
@@ -423,14 +398,24 @@ class _SettingsAppearancePageState extends State<SettingsAppearancePage> {
             ),
           ),
         ),
-        if (mode == ShellTransparencyMode.glass)
+        if (mode == ShellTransparencyMode.glass) ...[
           SettingsCardPadding(
             child: _GlassControls(
               configuration: widget.settings.glass,
               mobile: widget.mobile,
               onChanged: widget.onGlassChanged,
             ),
-          )
+          ),
+          SettingsCardPadding(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: SettingsTextButton(
+                label: l10n.settingsResetGlassEffects,
+                onPressed: _resetGlassEffects,
+              ),
+            ),
+          ),
+        ]
         else ...[
           if (mode == ShellTransparencyMode.blur)
             SettingsCardPadding(

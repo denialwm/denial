@@ -26,6 +26,7 @@ enum SettingsPageId {
   bluetooth,
   power,
   developer,
+  device,
   about,
 }
 
@@ -51,6 +52,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.bluetooth => context.l10n.settingsNavigationBluetooth,
     SettingsPageId.power => context.l10n.settingsNavigationPower,
     SettingsPageId.developer => context.l10n.settingsNavigationDeveloper,
+    SettingsPageId.device => context.l10n.settingsNavigationDevice,
   };
 
   IconData get icon => switch (this) {
@@ -74,6 +76,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.network => Icons.wifi_rounded,
     SettingsPageId.bluetooth => Icons.bluetooth_rounded,
     SettingsPageId.developer => Icons.code_rounded,
+    SettingsPageId.device => Icons.tablet_android_rounded,
   };
 }
 
@@ -261,7 +264,11 @@ class SettingsNavigation extends StatelessWidget {
         color: context.applicationColors.separator,
       ),
       Padding(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+        child: _destination(context, SettingsPageId.device),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
         child: _destination(context, SettingsPageId.about),
       ),
     ],

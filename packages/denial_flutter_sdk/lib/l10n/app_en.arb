@@ -7168,5 +7168,341 @@
   "commonBack": "Back",
   "@commonBack": {
     "description": "Generic back action."
+  },
+  "settingsNavigationDevice": "This device",
+  "@settingsNavigationDevice": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceTitle": "This device",
+  "@settingsDeviceTitle": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceDescription": "Device, system and hardware information.",
+  "@settingsDeviceDescription": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCopy": "Copy device info",
+  "@settingsDeviceCopy": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCopied": "Copied",
+  "@settingsDeviceCopied": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardHardware": "Hardware",
+  "@settingsDeviceCardHardware": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardSystem": "System",
+  "@settingsDeviceCardSystem": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardDevice": "Device",
+  "@settingsDeviceCardDevice": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardDisplay": "Display",
+  "@settingsDeviceCardDisplay": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardConnection": "Connection",
+  "@settingsDeviceCardConnection": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCardDenial": "Denial",
+  "@settingsDeviceCardDenial": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceSoc": "SoC",
+  "@settingsDeviceSoc": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCpu": "CPU",
+  "@settingsDeviceCpu": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceGpu": "GPU",
+  "@settingsDeviceGpu": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceMemory": "Memory",
+  "@settingsDeviceMemory": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceStorage": "Storage",
+  "@settingsDeviceStorage": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBattery": "Battery",
+  "@settingsDeviceBattery": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBatteryCharging": "Charging",
+  "@settingsDeviceBatteryCharging": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBatteryDischarging": "On battery",
+  "@settingsDeviceBatteryDischarging": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBatteryFull": "Full",
+  "@settingsDeviceBatteryFull": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBatteryUnknown": "Unknown",
+  "@settingsDeviceBatteryUnknown": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceOs": "Operating system",
+  "@settingsDeviceOs": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceKernel": "Kernel",
+  "@settingsDeviceKernel": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceArchitecture": "Architecture",
+  "@settingsDeviceArchitecture": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceHostname": "Hostname",
+  "@settingsDeviceHostname": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceTimezone": "Time zone",
+  "@settingsDeviceTimezone": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceUptime": "Uptime",
+  "@settingsDeviceUptime": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceModel": "Model",
+  "@settingsDeviceModel": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCodename": "Codename",
+  "@settingsDeviceCodename": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceHardwareVersion": "Hardware version",
+  "@settingsDeviceHardwareVersion": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFirmware": "Firmware",
+  "@settingsDeviceFirmware": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceManufacturer": "Manufacturer",
+  "@settingsDeviceManufacturer": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFormFactor": "Device type",
+  "@settingsDeviceFormFactor": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFormFactorTablet": "Tablet",
+  "@settingsDeviceFormFactorTablet": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFormFactorLaptop": "Laptop",
+  "@settingsDeviceFormFactorLaptop": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFormFactorDesktop": "Desktop",
+  "@settingsDeviceFormFactorDesktop": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceFormFactorHandheld": "Handheld",
+  "@settingsDeviceFormFactorHandheld": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceResolution": "Resolution",
+  "@settingsDeviceResolution": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceRefreshRate": "Refresh rate",
+  "@settingsDeviceRefreshRate": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceDisplayPort": "Interface",
+  "@settingsDeviceDisplayPort": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceScale": "Scale",
+  "@settingsDeviceScale": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceOrientation": "Orientation",
+  "@settingsDeviceOrientation": {
+    "description": "Settings · device information page."
+  },
+  "settingsDevicePortrait": "Portrait",
+  "@settingsDevicePortrait": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceLandscape": "Landscape",
+  "@settingsDeviceLandscape": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceWifi": "Wi-Fi",
+  "@settingsDeviceWifi": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceIp": "IP address",
+  "@settingsDeviceIp": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceMac": "MAC address",
+  "@settingsDeviceMac": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBluetooth": "Bluetooth",
+  "@settingsDeviceBluetooth": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceUsb": "USB",
+  "@settingsDeviceUsb": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceEthernet": "Ethernet",
+  "@settingsDeviceEthernet": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceEnabled": "On",
+  "@settingsDeviceEnabled": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceDisabled": "Off",
+  "@settingsDeviceDisabled": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceNoExternal": "No external device",
+  "@settingsDeviceNoExternal": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceVersion": "Version",
+  "@settingsDeviceVersion": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCommit": "Commit",
+  "@settingsDeviceCommit": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceEngine": "Flutter engine",
+  "@settingsDeviceEngine": {
+    "description": "Settings · device information page."
+  },
+  "settingsDevicePlugins": "Plugin manager",
+  "@settingsDevicePlugins": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceSession": "Session",
+  "@settingsDeviceSession": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceBuild": "Build",
+  "@settingsDeviceBuild": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceLocalBuild": "Local build",
+  "@settingsDeviceLocalBuild": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceUptimeSeconds": "Less than a minute",
+  "@settingsDeviceUptimeSeconds": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceCpuDetail": "{cores} cores · up to {clock}",
+  "@settingsDeviceCpuDetail": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "cores": {
+        "type": "int"
+      },
+      "clock": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsDeviceMemoryAvailable": "{size} available",
+  "@settingsDeviceMemoryAvailable": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsDeviceStorageFree": "{size} free",
+  "@settingsDeviceStorageFree": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsDeviceBatteryDetail": "Health {health}% · {cycles} cycles",
+  "@settingsDeviceBatteryDetail": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "health": {
+        "type": "int"
+      },
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDeviceScaleDetail": "{percent}% · {width} × {height} logical",
+  "@settingsDeviceScaleDetail": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      },
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDeviceUptimeDays": "{days} d",
+  "@settingsDeviceUptimeDays": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDeviceUptimeHours": "{hours} h",
+  "@settingsDeviceUptimeHours": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDeviceUptimeMinutes": "{minutes} min",
+  "@settingsDeviceUptimeMinutes": {
+    "description": "Settings · device information page.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDeviceNotConnected": "Not connected",
+  "@settingsDeviceNotConnected": {
+    "description": "Settings · device information page."
+  },
+  "settingsDeviceReleaseBuild": "Release build",
+  "@settingsDeviceReleaseBuild": {
+    "description": "Settings · device information page."
   }
 }

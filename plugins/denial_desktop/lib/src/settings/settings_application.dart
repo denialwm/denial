@@ -25,6 +25,7 @@ import 'widgets/settings_about_page.dart';
 import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
+import 'widgets/settings_device_page.dart';
 import 'widgets/settings_displays_page.dart';
 import 'widgets/settings_environment_page.dart';
 import 'widgets/settings_layout_page.dart';
@@ -597,6 +598,8 @@ class _SettingsPageBody extends ConsumerWidget {
           controller: ref.read(uiDevelopmentProvider.notifier),
           workspaceSetup: ref.watch(uiWorkspaceSetupProvider),
         );
+      case SettingsPageId.device:
+        return const SettingsDevicePage();
       case SettingsPageId.about:
         return const SettingsAboutPage();
     }

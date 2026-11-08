@@ -9501,6 +9501,432 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Back'**
   String get commonBack;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'This device'**
+  String get settingsNavigationDevice;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'This device'**
+  String get settingsDeviceTitle;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Device, system and hardware information.'**
+  String get settingsDeviceDescription;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy device info'**
+  String get settingsDeviceCopy;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied'**
+  String get settingsDeviceCopied;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware'**
+  String get settingsDeviceCardHardware;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get settingsDeviceCardSystem;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Device'**
+  String get settingsDeviceCardDevice;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Display'**
+  String get settingsDeviceCardDisplay;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection'**
+  String get settingsDeviceCardConnection;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial'**
+  String get settingsDeviceCardDenial;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'SoC'**
+  String get settingsDeviceSoc;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'CPU'**
+  String get settingsDeviceCpu;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'GPU'**
+  String get settingsDeviceGpu;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory'**
+  String get settingsDeviceMemory;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage'**
+  String get settingsDeviceStorage;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Battery'**
+  String get settingsDeviceBattery;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Charging'**
+  String get settingsDeviceBatteryCharging;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'On battery'**
+  String get settingsDeviceBatteryDischarging;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Full'**
+  String get settingsDeviceBatteryFull;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get settingsDeviceBatteryUnknown;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Operating system'**
+  String get settingsDeviceOs;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Kernel'**
+  String get settingsDeviceKernel;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Architecture'**
+  String get settingsDeviceArchitecture;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Hostname'**
+  String get settingsDeviceHostname;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Time zone'**
+  String get settingsDeviceTimezone;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Uptime'**
+  String get settingsDeviceUptime;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Model'**
+  String get settingsDeviceModel;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Codename'**
+  String get settingsDeviceCodename;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware version'**
+  String get settingsDeviceHardwareVersion;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Firmware'**
+  String get settingsDeviceFirmware;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Manufacturer'**
+  String get settingsDeviceManufacturer;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Device type'**
+  String get settingsDeviceFormFactor;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Tablet'**
+  String get settingsDeviceFormFactorTablet;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Laptop'**
+  String get settingsDeviceFormFactorLaptop;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop'**
+  String get settingsDeviceFormFactorDesktop;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Handheld'**
+  String get settingsDeviceFormFactorHandheld;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get settingsDeviceResolution;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh rate'**
+  String get settingsDeviceRefreshRate;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface'**
+  String get settingsDeviceDisplayPort;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale'**
+  String get settingsDeviceScale;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Orientation'**
+  String get settingsDeviceOrientation;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get settingsDevicePortrait;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get settingsDeviceLandscape;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Wi-Fi'**
+  String get settingsDeviceWifi;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'IP address'**
+  String get settingsDeviceIp;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'MAC address'**
+  String get settingsDeviceMac;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth'**
+  String get settingsDeviceBluetooth;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'USB'**
+  String get settingsDeviceUsb;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Ethernet'**
+  String get settingsDeviceEthernet;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'On'**
+  String get settingsDeviceEnabled;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get settingsDeviceDisabled;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'No external device'**
+  String get settingsDeviceNoExternal;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get settingsDeviceVersion;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Commit'**
+  String get settingsDeviceCommit;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter engine'**
+  String get settingsDeviceEngine;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugin manager'**
+  String get settingsDevicePlugins;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Session'**
+  String get settingsDeviceSession;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Build'**
+  String get settingsDeviceBuild;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Local build'**
+  String get settingsDeviceLocalBuild;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Less than a minute'**
+  String get settingsDeviceUptimeSeconds;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{cores} cores · up to {clock}'**
+  String settingsDeviceCpuDetail(int cores, String clock);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} available'**
+  String settingsDeviceMemoryAvailable(String size);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} free'**
+  String settingsDeviceStorageFree(String size);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Health {health}% · {cycles} cycles'**
+  String settingsDeviceBatteryDetail(int health, int cycles);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% · {width} × {height} logical'**
+  String settingsDeviceScaleDetail(String percent, int width, int height);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{days} d'**
+  String settingsDeviceUptimeDays(int days);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h'**
+  String settingsDeviceUptimeHours(int hours);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String settingsDeviceUptimeMinutes(int minutes);
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get settingsDeviceNotConnected;
+
+  /// Settings · device information page.
+  ///
+  /// In en, this message translates to:
+  /// **'Release build'**
+  String get settingsDeviceReleaseBuild;
 }
 
 class _AppLocalizationsDelegate
