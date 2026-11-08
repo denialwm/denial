@@ -9957,6 +9957,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Preset colours'**
   String get settingsShellAccentPresets;
+
+  /// Screenshot selection · full-screen action.
+  ///
+  /// In en, this message translates to:
+  /// **'Full screen shot'**
+  String get screenshotFullScreen;
 }
 
 class _AppLocalizationsDelegate

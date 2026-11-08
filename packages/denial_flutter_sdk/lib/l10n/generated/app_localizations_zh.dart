@@ -5313,4 +5313,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShellAccentPresets => '预设颜色';
+
+  @override
+  String get screenshotFullScreen => '全屏截图';
 }

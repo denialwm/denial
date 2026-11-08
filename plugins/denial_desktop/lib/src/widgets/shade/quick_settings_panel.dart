@@ -1,13 +1,24 @@
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:denial_flutter_sdk/popups.dart';
-import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/material.dart'
+    show
+        Colors,
+        Icons,
+        RoundedRectSliderTrackShape,
+        RoundSliderOverlayShape,
+        RoundSliderThumbShape,
+        Slider,
+        SliderTheme;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:denial_flutter_sdk/environment.dart';
+import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
@@ -31,6 +42,7 @@ import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
 import '../connectivity/mobile_data_tile.dart';
 import '../session/power_session_surface.dart';
+import '../../settings/settings_application.dart';
 
 import 'package:denial_flutter_sdk/effects.dart';
 
@@ -58,6 +70,19 @@ WindowBackdropCache? _frostedShadeBackdrop(BuildContext context) =>
 final _blurFraction = Animatable<double>.fromCallback(
   ColorOsShadeMotion.blurFraction,
 );
+
+/// The wide split layout, measured in real logical pixels.
+bool _wideShade(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  return size.width >= 900;
+}
+
+/// The same breakpoint from inside the shade's reference geometry.
+bool _splitShade(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final scale = ShadeReferenceGeometry.scaleOf(context);
+  return size.width * scale >= 900;
+}
 
 EdgeInsets _divideInsets(EdgeInsets insets, double divisor) => EdgeInsets.only(
   left: insets.left / divisor,
@@ -93,7 +118,9 @@ class QuickSettingsShade extends ConsumerWidget {
       ignoring: !active,
       child: ShadeBackdropScene(
         progress: progress,
-        cached: _frostedShadeBackdrop(context) != null,
+        cached:
+            context.shellTheme.backdropBlurEnabled &&
+            _frostedShadeBackdrop(context) != null,
         child: BackdropGroup(
           child: ClipRect(
             child: Stack(
@@ -106,7 +133,10 @@ class QuickSettingsShade extends ConsumerWidget {
                 _FullScreenShade(
                   progress: progress,
                   // Notifications scroll over the status row.
-                  header: ShadeHeaderStatusLayer(progress: progress),
+                  header: ShadeHeaderStatusLayer(
+                    progress: progress,
+                    collapsed: _wideShade(context),
+                  ),
                   child: Focus(
                     autofocus: active,
                     canRequestFocus: active,
@@ -176,7 +206,9 @@ class _FullScreenShade extends StatelessWidget {
         child: background,
       ),
     );
-    final cache = _frostedShadeBackdrop(context);
+    final cache = theme.backdropBlurEnabled
+        ? _frostedShadeBackdrop(context)
+        : null;
     if (cache != null) {
       final fade = progress.drive(_blurFraction);
       return RepaintBoundary(
@@ -253,6 +285,9 @@ class _FullScreenShade extends StatelessWidget {
               blur:
                   !ShadeBackdropScene.sharesBlur(context) &&
                   theme.effectivePanelOpacity < 1.0,
+              // A translucent panel left sharp under an open app is never
+              // acceptable, even when the theme disables backdrop blur.
+              force: !theme.backdropBlurEnabled,
               strength: blur,
               separateChild: true,
               borderRadius: BorderRadius.zero,
@@ -285,7 +320,11 @@ class _ShadeChrome extends StatelessWidget {
     final padding = MediaQuery.paddingOf(context);
     final headerTop = math.max(40.0, padding.top);
     const statusHeight = 18.0;
-    final contentTop = headerTop + statusHeight + ShadeHeaderClock.statusGap;
+    // The split keeps a regular status row (52 px in the redesign) and then
+    // the shade's own top padding (34 px), both in reference units.
+    final contentTop = _splitShade(context)
+        ? 35.0
+        : headerTop + statusHeight + ShadeHeaderClock.statusGap;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -470,6 +509,35 @@ class _ShadePagerState extends State<_ShadePager>
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        // Lay out in reference units, but decide from the real logical size:
+        // a landscape tablet gets the two columns while phones and portrait
+        // screens keep the swipe pager.
+        final logicalWidth = width * ShadeReferenceGeometry.scaleOf(context);
+        final tablet = logicalWidth >= 900;
+        // Side by side only when the width is there; a portrait tablet
+        // swipes between the same two redesigned pages instead.
+        if (tablet && width > constraints.maxHeight) {
+          return Row(
+            children: [
+              Expanded(
+                flex: 40,
+                child: _NotificationCenterPage(
+                  progress: widget.progress,
+                  closed: widget.closed,
+                  active: widget.active,
+                  designLayout: true,
+                ),
+              ),
+              Expanded(
+                flex: 60,
+                child: _ControlCenterPage(
+                  progress: widget.progress,
+                  designLayout: true,
+                ),
+              ),
+            ],
+          );
+        }
         final currentIndex = _index(widget.page, direction);
         _width = width;
         _currentIndex = currentIndex;
@@ -492,11 +560,15 @@ class _ShadePagerState extends State<_ShadePager>
                   child: Offstage(
                     offstage: !isCurrent && _dragFraction == 0,
                     child: page == ShadePage.quickSettings
-                        ? _ControlCenterPage(progress: widget.progress)
+                        ? _ControlCenterPage(
+                            progress: widget.progress,
+                            designLayout: tablet,
+                          )
                         : _NotificationCenterPage(
                             progress: widget.progress,
                             closed: widget.closed,
                             active: widget.active && isCurrent,
+                            designLayout: tablet,
                           ),
                   ),
                 ),
@@ -580,9 +652,13 @@ class _ColorOsReferenceViewport extends StatelessWidget {
 }
 
 class _ControlCenterPage extends StatelessWidget {
-  const _ControlCenterPage({required this.progress});
+  const _ControlCenterPage({required this.progress, this.designLayout = false});
 
   final Animation<double> progress;
+
+  /// Wide split layout: three columns of stacked tiles and card sliders,
+  /// instead of the four-column capsule grid used by the pager.
+  final bool designLayout;
 
   @override
   Widget build(BuildContext context) {
@@ -593,23 +669,28 @@ class _ControlCenterPage extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 0),
         child: Column(
           children: [
-            // The status bar draws the grown clock and date in this block.
             SizedBox(
               height:
                   ShadeHeaderClock.blockHeight *
                   ShadeReferenceGeometry.inverseScaleOf(context),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  // Water, like the tiles: it follows the shade and is
-                  // gone before the shade is.
-                  child: WaterReveal(
-                    progress: progress,
-                    start: 0.4,
-                    span: 0.3,
-                    child: const _ShadeHeaderActions(),
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (designLayout)
+                      Expanded(child: _ShadeClockHeader(progress: progress))
+                    else
+                      const Spacer(),
+                    // Water, like the tiles: it follows the shade and is
+                    // gone before the shade is.
+                    WaterReveal(
+                      progress: progress,
+                      start: 0.4,
+                      span: 0.3,
+                      child: const _ShadeHeaderActions(),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -619,7 +700,10 @@ class _ControlCenterPage extends StatelessWidget {
                 primary: false,
                 padding: const EdgeInsets.fromLTRB(28, 0, 28, 24),
                 child: RepaintBoundary(
-                  child: _QuickSettingsTilesSection(progress: progress),
+                  child: _QuickSettingsTilesSection(
+                    progress: progress,
+                    designLayout: designLayout,
+                  ),
                 ),
               ),
             ),
@@ -636,42 +720,60 @@ class _NotificationCenterPage extends ConsumerWidget {
     required this.progress,
     required this.closed,
     required this.active,
+    this.designLayout = false,
   });
 
   final Animation<double> progress;
   final bool closed;
   final bool active;
 
+  /// Split layout: a rounded panel with a title and a clear-all action,
+  /// starting at the top because the clock lives in the control column.
+  final bool designLayout;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final padding = MediaQuery.paddingOf(context);
+    final inverse = ShadeReferenceGeometry.inverseScaleOf(context);
     final empty = ref.watch(
       desktopNotificationsProvider.select((state) => state.history.isEmpty),
+    );
+    final history = Stack(
+      fit: StackFit.expand,
+      children: [
+        MobileNotificationHistory(
+          progress: progress,
+          closed: closed,
+          active: active,
+        ),
+        if (empty) const _EmptyNotifications(),
+      ],
     );
     return ShadeDismissGesture(
       progress: progress,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 0),
+        padding: EdgeInsets.fromLTRB(
+          padding.left + (designLayout ? 20 * inverse : 0),
+          0,
+          padding.right + (designLayout ? 20 * inverse : 0),
+          0,
+        ),
         child: Column(
           children: [
             SizedBox(
-              height:
-                  ShadeHeaderClock.blockHeight *
-                      ShadeReferenceGeometry.inverseScaleOf(context) +
-                  16,
+              height: designLayout
+                  ? 0
+                  : ShadeHeaderClock.blockHeight * inverse + 16,
             ),
             Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  MobileNotificationHistory(
-                    progress: progress,
-                    closed: closed,
-                    active: active,
-                  ),
-                  if (empty) const _EmptyNotifications(),
-                ],
-              ),
+              child: designLayout
+                  ? WaterReveal(
+                      progress: progress,
+                      start: 0.33,
+                      span: 0.4,
+                      child: _NotificationPanel(child: history),
+                    )
+                  : history,
             ),
             SizedBox(height: math.max(4, padding.bottom)),
           ],
@@ -681,10 +783,144 @@ class _NotificationCenterPage extends ConsumerWidget {
   }
 }
 
-class _QuickSettingsTilesSection extends ConsumerWidget {
-  const _QuickSettingsTilesSection({required this.progress});
+class _NotificationPanel extends ConsumerWidget {
+  const _NotificationPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ShellTheme.of(context);
+    final glass = theme.transparencyMode == ShellTransparencyMode.glass;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.cardColor(context.shellColors.tileOff),
+        borderRadius: theme.borderRadius(12),
+        border: glass
+            ? null
+            : Border.all(color: context.shellColors.hairlineSoft),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(9, 9, 9, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text(
+                  context.l10n.notificationsTitle,
+                  style: TextStyle(
+                    color: context.shellColors.panelText,
+                    fontSize: 20,
+                    height: 1.1,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+                const Spacer(),
+                _ClearAllButton(
+                  onPressed: () => ref
+                      .read(desktopNotificationsProvider.notifier)
+                      .clearAll(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClearAllButton extends StatelessWidget {
+  const _ClearAllButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: context.l10n.notificationsClearAll,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+          child: Text(
+            context.l10n.clipboardClearAll,
+            style: TextStyle(
+              color: context.shellColors.textTertiary,
+              fontSize: 14,
+              height: 1.1,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShadeClockHeader extends ConsumerWidget {
+  const _ShadeClockHeader({required this.progress});
 
   final Animation<double> progress;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = ref.watch(clockProvider).value ?? DateTime.now();
+    final inverse = ShadeReferenceGeometry.inverseScaleOf(context);
+    return WaterReveal(
+      progress: progress,
+      start: 0.36,
+      span: 0.3,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            localizedTime(context, now),
+            style: TextStyle(
+              color: context.shellColors.panelText,
+              fontSize: ShadeHeaderClock.expandedFontSize,
+              height: 0.95,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.5,
+              decoration: TextDecoration.none,
+            ),
+          ),
+          SizedBox(height: ShadeHeaderClock.dateGap * inverse),
+          Text(
+            localizedLongDate(context, now),
+            maxLines: 1,
+            style: TextStyle(
+              color: context.shellColors.textSecondary,
+              fontSize: ShadeHeaderClock.dateFontSize,
+              height: 1,
+              fontWeight: FontWeight.w500,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickSettingsTilesSection extends ConsumerWidget {
+  const _QuickSettingsTilesSection({
+    required this.progress,
+    this.designLayout = false,
+  });
+
+  final Animation<double> progress;
+  final bool designLayout;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -744,6 +980,7 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           active: !rotationLock.locked,
           enabled: !rotationLock.busy,
           busy: rotationLock.busy,
+          stacked: designLayout,
           onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
         ),
       if (recording.available)
@@ -757,6 +994,7 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           active: recording.recording,
           enabled: !recording.busy,
           busy: recording.busy,
+          stacked: designLayout,
           onTap: () => ref.read(screenRecordingProvider.notifier).toggle(),
         ),
       if (singleOutput)
@@ -768,6 +1006,7 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
               : l10n.commonOff,
           active: presentation == ReferenceShellProfile.desktop,
           wide: true,
+          stacked: designLayout,
           onTap: () {
             ref.read(referenceShellProvider.notifier).closeQuickSettings();
             ref.read(referenceShellPresentationProvider.notifier).toggle();
@@ -777,9 +1016,44 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
     return QuickSettingsTiles(
       expansionProgress: progress,
       footerTiles: footerTiles,
-      mobileDataTile: const MobileDataTile(),
-      brightnessControl: const _BrightnessRangeBar(),
-      volumeControl: const _VolumeRangeBar(),
+      designLayout: designLayout,
+      mobileDataTile: MobileDataTile(stacked: designLayout),
+      airplaneTile: _AirplaneModeTile(stacked: designLayout),
+      orientationLockTile: QuickTile(
+        icon: Icons.screen_lock_rotation_rounded,
+        title: l10n.quickSettingsOrientationLock,
+        subtitle: rotationLock.locked ? l10n.commonOn : l10n.commonOff,
+        active: rotationLock.locked,
+        enabled: rotationLock.supported && !rotationLock.busy,
+        busy: rotationLock.busy,
+        stacked: designLayout,
+        onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
+      ),
+      autoRotateTile: QuickTile(
+        icon: Icons.screen_rotation_rounded,
+        title: l10n.quickSettingsAutoRotate,
+        subtitle: rotationLock.locked ? l10n.commonOff : l10n.commonOn,
+        active: !rotationLock.locked,
+        enabled: rotationLock.supported && !rotationLock.busy,
+        busy: rotationLock.busy,
+        stacked: designLayout,
+        onTap: () => ref.read(rotationLockProvider.notifier).toggle(),
+      ),
+      desktopViewTile: QuickTile(
+        icon: Icons.desktop_windows_rounded,
+        title: l10n.shellPresentationDesktop,
+        subtitle: presentation == ReferenceShellProfile.desktop
+            ? l10n.commonOn
+            : l10n.commonOff,
+        active: presentation == ReferenceShellProfile.desktop,
+        stacked: designLayout,
+        onTap: () {
+          ref.read(referenceShellProvider.notifier).closeQuickSettings();
+          ref.read(referenceShellPresentationProvider.notifier).toggle();
+        },
+      ),
+      brightnessControl: _BrightnessRangeBar(horizontal: designLayout),
+      volumeControl: _VolumeRangeBar(horizontal: designLayout),
       wifi:
           networkSnapshot.wirelessEnabled &&
           networkSnapshot.wifiDeviceAvailable,
@@ -821,7 +1095,9 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
 }
 
 class _BrightnessRangeBar extends ConsumerWidget {
-  const _BrightnessRangeBar();
+  const _BrightnessRangeBar({this.horizontal = false});
+
+  final bool horizontal;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -835,23 +1111,38 @@ class _BrightnessRangeBar extends ConsumerWidget {
       ),
     );
     final controller = ref.read(displayBrightnessProvider.notifier);
+    void changed(double value) {
+      if (output != null) controller.setLevel(output, value);
+    }
+
+    void committed(double value) {
+      if (output != null) controller.commitLevel(output, value);
+    }
+
+    if (horizontal) {
+      return _HorizontalRangeCard(
+        icon: Icons.brightness_6_rounded,
+        label: context.l10n.brightnessTitle,
+        value: brightness,
+        onChanged: changed,
+        onChangeEnd: committed,
+      );
+    }
     return LiquidRangeBar(
       iconScale: ShadeReferenceGeometry.inverseScaleOf(context),
       icon: Icons.brightness_6_rounded,
       value: brightness,
       trackColor: context.shellColors.brightnessTrack,
-      onChanged: (value) {
-        if (output != null) controller.setLevel(output, value);
-      },
-      onChangeEnd: (value) {
-        if (output != null) controller.commitLevel(output, value);
-      },
+      onChanged: changed,
+      onChangeEnd: committed,
     );
   }
 }
 
 class _VolumeRangeBar extends ConsumerWidget {
-  const _VolumeRangeBar();
+  const _VolumeRangeBar({this.horizontal = false});
+
+  final bool horizontal;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -859,6 +1150,16 @@ class _VolumeRangeBar extends ConsumerWidget {
       quickSettingsProvider.select((state) => state.volume),
     );
     final controller = ref.read(quickSettingsProvider.notifier);
+    if (horizontal) {
+      return _HorizontalRangeCard(
+        icon: Icons.volume_up_rounded,
+        label: context.l10n.commonVolume,
+        value: volume,
+        onChangeStart: controller.beginVolumeInteraction,
+        onChanged: controller.setDashboardVolume,
+        onChangeEnd: controller.commitDashboardVolume,
+      );
+    }
     return LiquidRangeBar(
       iconScale: ShadeReferenceGeometry.inverseScaleOf(context),
       icon: Icons.volume_up_rounded,
@@ -872,12 +1173,253 @@ class _VolumeRangeBar extends ConsumerWidget {
   }
 }
 
+/// A full-width slider card for the wide split layout: label and percentage
+/// above a rounded track, matching the redesign.
+class _HorizontalRangeCard extends StatelessWidget {
+  const _HorizontalRangeCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.onChangeEnd,
+    this.onChangeStart,
+  });
+
+  final IconData icon;
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+  final VoidCallback? onChangeStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
+    final glass = theme.transparencyMode == ShellTransparencyMode.glass;
+    final inverse = ShadeReferenceGeometry.inverseScaleOf(context);
+    final clamped = value.clamp(0.0, 1.0);
+    final start = onChangeStart;
+    final accent = theme.accentPalette.primary;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.cardColor(context.shellColors.tileOff),
+        borderRadius: theme.borderRadius(10),
+        border: glass
+            ? null
+            : Border.all(color: context.shellColors.hairlineSoft),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20 * inverse,
+              color: context.shellColors.panelText,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: context.shellColors.panelText,
+                fontSize: 14.5,
+                height: 1.1,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+                decoration: TextDecoration.none,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: SizedBox(
+                height: 32,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 4,
+                    activeTrackColor: accent,
+                    inactiveTrackColor: Colors.white.withValues(alpha: 0.18),
+                    thumbColor: Colors.white,
+                    overlayColor: accent.withValues(alpha: 0.16),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5.5,
+                      elevation: 2,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 14,
+                    ),
+                    trackShape: const RoundedRectSliderTrackShape(),
+                  ),
+                  child: Slider(
+                    value: clamped,
+                    onChangeStart: start == null ? null : (_) => start(),
+                    onChanged: onChanged,
+                    onChangeEnd: onChangeEnd,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 38,
+              child: Text(
+                '${(clamped * 100).round()}%',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: context.shellColors.textTertiary,
+                  fontSize: 12.5,
+                  height: 1.1,
+                  letterSpacing: 0,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ShadeHeaderActions extends ConsumerWidget {
   const _ShadeHeaderActions();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ShadeActions(onOpenPower: () => showPowerSessionSurface(ref));
+    return ShadeActions(
+      onOpenPower: () {
+        final openingContext = context;
+        ref.read(referenceShellProvider.notifier).closeQuickSettings();
+        // Let the shade finish sliding away before the panel appears.
+        Future<void>.delayed(const Duration(milliseconds: 260), () {
+          if (openingContext.mounted) showPowerSessionSurface(ref);
+        });
+      },
+      onScreenshot: () {
+        ref.read(referenceShellProvider.notifier).closeQuickSettings();
+        unawaited(ref.read(quickSettingsProvider.notifier).takeScreenshot());
+      },
+      onOpenSettings: () {
+        final shell = ref.read(referenceShellProvider.notifier);
+        shell.closeQuickSettings();
+        for (final window in ref.read(referenceShellProvider).openAppWindows) {
+          if (isDenialSettingsApplicationId(window.appId)) {
+            shell.focusWindow(window);
+            return;
+          }
+        }
+        final environment = ref.read(startupEnvironmentProvider);
+        final binary = environment['DENIAL_SETTINGS_BINARY']?.trim();
+        ref.read(denialBridgeProvider).launchApplication(<String>[
+          binary == null || binary.isEmpty ? 'denial-settings' : binary,
+        ]);
+      },
+    );
+  }
+}
+
+class _AirplaneModeTile extends ConsumerStatefulWidget {
+  const _AirplaneModeTile({this.stacked = false});
+
+  final bool stacked;
+
+  @override
+  ConsumerState<_AirplaneModeTile> createState() => _AirplaneModeTileState();
+}
+
+class _AirplaneModeTileState extends ConsumerState<_AirplaneModeTile> {
+  bool _busy = false;
+  bool _savedWifi = true;
+  bool _savedBluetooth = true;
+  bool _savedMobile = false;
+
+  Future<void> _setRadios({
+    required bool wifi,
+    required bool bluetooth,
+    required bool mobile,
+    required bool hasModem,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      final network = ref.read(networkConnectivityProvider.notifier);
+      final bluetoothController = ref.read(bluetoothProvider.notifier);
+      final mobileService = ref.read(mobileNetworkServiceProvider);
+      final wifiOn = ref
+          .read(networkConnectivityProvider)
+          .snapshot
+          .wirelessEnabled;
+      final bluetoothOn = ref.read(bluetoothProvider).powered;
+      final mobileOn = ref.read(mobileNetworkProvider).value?.enabled ?? false;
+      try {
+        if (wifiOn != wifi) await network.setWirelessEnabled(wifi);
+      } on Object {
+        // Keep switching the other radios when one service is unavailable.
+      }
+      try {
+        if (bluetoothOn != bluetooth) {
+          await bluetoothController.togglePower();
+        }
+      } on Object {
+        // Keep switching the other radios.
+      }
+      if (hasModem) {
+        try {
+          if (mobileOn != mobile) {
+            await mobileService.setEnabled(mobile);
+          }
+        } on Object {
+          // The modem may be busy with a call or a pending transaction.
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final network = ref.watch(networkConnectivityProvider);
+    final bluetooth = ref.watch(bluetoothProvider);
+    final mobile =
+        ref.watch(mobileNetworkProvider).value ?? const MobileNetworkSnapshot();
+    final l10n = context.l10n;
+    final wifiOn =
+        network.snapshot.wirelessEnabled &&
+        network.snapshot.wifiDeviceAvailable;
+    final bluetoothOn = bluetooth.powered && bluetooth.available;
+    final hasModem = mobile.modemPath != null;
+    final mobileOn = mobile.enabled;
+    final active = !wifiOn && !bluetoothOn && (!hasModem || !mobileOn);
+    return QuickTile(
+      icon: active
+          ? Icons.airplanemode_active_rounded
+          : Icons.airplanemode_inactive_rounded,
+      title: l10n.quickSettingsAirplaneMode,
+      subtitle: active ? l10n.commonOn : l10n.commonOff,
+      active: active,
+      enabled: !_busy,
+      busy: _busy,
+      stacked: widget.stacked,
+      onTap: () {
+        if (active) {
+          _setRadios(
+            wifi: _savedWifi,
+            bluetooth: _savedBluetooth,
+            mobile: _savedMobile,
+            hasModem: hasModem,
+          );
+        } else {
+          _savedWifi = wifiOn;
+          _savedBluetooth = bluetoothOn;
+          _savedMobile = mobileOn;
+          _setRadios(
+            wifi: false,
+            bluetooth: false,
+            mobile: false,
+            hasModem: hasModem,
+          );
+        }
+      },
+    );
   }
 }
 

@@ -5571,4 +5571,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShellAccentPresets => 'Preset colours';
+
+  @override
+  String get screenshotFullScreen => 'Full screen shot';
 }

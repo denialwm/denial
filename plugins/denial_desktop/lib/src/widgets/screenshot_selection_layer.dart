@@ -1,4 +1,5 @@
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -160,6 +161,23 @@ class _ScreenshotSelectionSurfaceState
     }
   }
 
+  void _takeFullScreen(Size size) {
+    if (_isTaking) {
+      return;
+    }
+    _pointer = null;
+    final controller = ref.read(screenshotSelectionProvider.notifier);
+    controller.start(const Offset(0, 0));
+    controller.update(Offset(size.width, size.height));
+    controller.complete();
+    setState(() => _takenSelection = Offset.zero & size);
+    _focusNode.unfocus();
+    _take.duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : Motion.screenshotTake;
+    _take.forward(from: 0);
+  }
+
   void _cancel() {
     _pointer = null;
     final requestId = widget.session.requestId;
@@ -201,65 +219,127 @@ class _ScreenshotSelectionSurfaceState
               }
               return MouseRegion(
                 cursor: SystemMouseCursors.precise,
-                child: Listener(
-                  behavior: HitTestBehavior.opaque,
-                  onPointerDown: (event) => _handlePointerDown(event, size),
-                  onPointerMove: (event) => _handlePointerMove(event, size),
-                  onPointerUp: (event) => _handlePointerUp(event, size),
-                  onPointerCancel: _handlePointerCancel,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ExcludeSemantics(
-                        child: Texture(
-                          textureId: widget.session.textureId!,
-                          freeze: true,
-                          filterQuality: FilterQuality.none,
-                        ),
-                      ),
-                      RepaintBoundary(
-                        child: CustomPaint(
-                          painter: _ScreenshotSelectionPainter(
-                            selection: selection,
-                            accent: theme.accent,
-                            radius: theme.scaledRadius(8),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (event) => _handlePointerDown(event, size),
+                      onPointerMove: (event) => _handlePointerMove(event, size),
+                      onPointerUp: (event) => _handlePointerUp(event, size),
+                      onPointerCancel: _handlePointerCancel,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ExcludeSemantics(
+                            child: Texture(
+                              textureId: widget.session.textureId!,
+                              freeze: true,
+                              filterQuality: FilterQuality.none,
+                            ),
                           ),
-                        ),
-                      ),
-                      if (selection case final rect?
-                          when rect.width >= 72 && rect.height >= 44)
-                        Positioned(
-                          left: rect.left + 8,
-                          top: rect.top + 8,
-                          child: IgnorePointer(
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: context.shellColors.surfaceContainerLow,
-                                borderRadius: context.shellTheme.borderRadius(
-                                  8,
-                                ),
+                          RepaintBoundary(
+                            child: CustomPaint(
+                              painter: _ScreenshotSelectionPainter(
+                                selection: selection,
+                                accent: theme.accent,
+                                radius: theme.scaledRadius(8),
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  '${rect.width.round()} × ${rect.height.round()}',
-                                  style: ShellText.base.copyWith(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (selection case final rect?
+                              when rect.width >= 72 && rect.height >= 44)
+                            Positioned(
+                              left: rect.left + 8,
+                              top: rect.top + 8,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color:
+                                        context.shellColors.surfaceContainerLow,
+                                    borderRadius: context.shellTheme
+                                        .borderRadius(8),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    child: Text(
+                                      '${rect.width.round()} × ${rect.height.round()}',
+                                      style: ShellText.base.copyWith(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                    ],
-                  ),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      top: 20,
+                      right: 20,
+                      child: _ScreenshotFullScreenButton(
+                        onPressed: () => _takeFullScreen(size),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScreenshotFullScreenButton extends StatelessWidget {
+  const _ScreenshotFullScreenButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Semantics(
+      button: true,
+      label: l10n.screenshotFullScreen,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onPressed,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: context.shellColors.surfaceContainerLow,
+              borderRadius: context.shellTheme.borderRadius(10),
+              border: Border.all(color: context.shellColors.hairlineSoft),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.fullscreen_rounded,
+                    size: 17,
+                    color: context.shellColors.panelText,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    l10n.screenshotFullScreen,
+                    style: ShellText.base.copyWith(
+                      color: context.shellColors.panelText,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

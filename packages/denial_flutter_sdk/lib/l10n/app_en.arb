@@ -7524,5 +7524,9 @@
   "settingsShellAccentPresets": "Preset colours",
   "@settingsShellAccentPresets": {
     "description": "Appearance settings."
+  },
+  "screenshotFullScreen": "Full screen shot",
+  "@screenshotFullScreen": {
+    "description": "Screenshot selection · full-screen action."
   }
 }
