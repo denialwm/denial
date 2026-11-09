@@ -19,12 +19,15 @@ import '../../settings/widgets/settings_fingerprint_page.dart'
     show fingerprintLabel, fingerprintStatus, isFingerprintError;
 import '../../widgets/connectivity/wifi_detail_surface.dart';
 import '../../widgets/edge_panel_layer.dart';
+import '../../widgets/lock/lock_screen_layer.dart' show PinKeypad;
+import '../mobile/mobile_application_scene.dart'
+    show mobileWallpaperGlassProvider;
 import 'first_user_account.dart';
 
 /// The device's first start: before it has a person's account, the shell
 /// shows this over everything instead of its lock screen and home, and asks
 /// for the language, Wi-Fi, time zone, the person's name, username and
-/// password, a lock PIN, and the device's name. Finishing makes the account;
+/// password, a lock PIN on the lock screen's keypad, and the device's name. Finishing makes the account;
 /// with a PIN and a fingerprint reader it then offers a fingerprint. The
 /// session then starts again as that person. The PIN and the fingerprint may
 /// be skipped. Nothing shows without the session's [firstUserHelperProvider].
@@ -70,12 +73,17 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _passwordAgain = TextEditingController();
-  final _pin = TextEditingController();
-  final _pinAgain = TextEditingController();
   final _deviceName = TextEditingController();
   final _zoneSearch = TextEditingController();
 
   var _step = _Step.language;
+
+  /// The PIN step: digits typed, the first entry while it is typed again,
+  /// and the PIN both entries agreed on; empty sets none.
+  var _pinEntry = '';
+  String? _pinFirst;
+  var _pinChosen = '';
+  var _pinWrong = false;
   SetupLanguage? _language;
   TimeZoneChoices? _zones;
   var _zone = '';
@@ -104,13 +112,7 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     super.initState();
     _name.addListener(_nameChanged);
     _username.addListener(_usernameChanged);
-    for (final field in [
-      _password,
-      _passwordAgain,
-      _pin,
-      _pinAgain,
-      _deviceName,
-    ]) {
+    for (final field in [_password, _passwordAgain, _deviceName]) {
       field.addListener(_clearError);
     }
     _zoneSearch.addListener(() => setState(() {}));
@@ -138,8 +140,6 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _username,
       _password,
       _passwordAgain,
-      _pin,
-      _pinAgain,
       _deviceName,
       _zoneSearch,
     ]) {
@@ -195,7 +195,59 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     setState(() {
       _error = null;
       _step = _Step.values[_step.index - 1];
+      if (_step == _Step.pin) _restartPin();
     });
+  }
+
+  /// The PIN step starts over each time it shows.
+  void _restartPin() {
+    _pinEntry = '';
+    _pinFirst = null;
+    _pinChosen = '';
+    _pinWrong = false;
+  }
+
+  void _pinDigit(int digit) {
+    if (_pinEntry.length >= FirstUserAccount.pinLength) return;
+    setState(() {
+      _error = null;
+      _pinWrong = false;
+      _pinEntry += '$digit';
+      if (_pinEntry.length < FirstUserAccount.pinLength) return;
+      final first = _pinFirst;
+      if (first == null) {
+        _pinFirst = _pinEntry;
+      } else if (first == _pinEntry) {
+        _pinChosen = first;
+        _pinFirst = null;
+        _step = _Step.device;
+      } else {
+        _pinFirst = null;
+        _pinWrong = true;
+        _error = context.l10n.setupPinMismatch;
+      }
+      _pinEntry = '';
+    });
+  }
+
+  void _pinDelete() {
+    if (_pinEntry.isEmpty) return;
+    setState(() => _pinEntry = _pinEntry.substring(0, _pinEntry.length - 1));
+  }
+
+  KeyEventResult _pinKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final digit = int.tryParse(event.character ?? '');
+    if (digit != null && digit >= 0 && digit <= 9) {
+      _pinDigit(digit);
+    } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
+      _pinDelete();
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
   }
 
   void _next() {
@@ -214,15 +266,10 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
           error = l10n.setupPasswordMismatch;
         }
       case _Step.pin:
-        if (_pin.text.isEmpty && _pinAgain.text.isEmpty) {
-          break;
-        } else if (!FirstUserAccount.validPin(_pin.text)) {
-          error = l10n.setupPinRules;
-        } else if (_pin.text != _pinAgain.text) {
-          error = l10n.setupPinMismatch;
-        }
+        // Skipped: no PIN.
+        _restartPin();
       case _Step.device:
-        unawaited(_finish());
+        unawaited(_accountMade ? _start() : _finish());
         return;
       case _Step.fingerprint:
         unawaited(_start());
@@ -232,6 +279,7 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     setState(() {
       _error = error;
       if (error == null) _step = _Step.values[_step.index + 1];
+      if (_step == _Step.pin) _restartPin();
     });
   }
 
@@ -242,7 +290,7 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _busy = true;
       _error = null;
     });
-    final pin = _pin.text;
+    final pin = _pinChosen;
     final result = await makeFirstUser(
       widget.helper,
       FirstUserAccount(
@@ -257,14 +305,23 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     );
     if (!mounted) return;
     switch (result.outcome) {
+      case FirstUserOutcome.madeWithoutPin:
+        // The account stands; the person finishes knowing the PIN is not set.
+        _password.clear();
+        _passwordAgain.clear();
+        _pinChosen = '';
+        setState(() {
+          _accountMade = true;
+          _busy = false;
+          _error = l10n.setupPinNotSet;
+        });
       case FirstUserOutcome.made ||
-          FirstUserOutcome.madeWithoutPin ||
           // Setup stopped after making it: start as it now.
           FirstUserOutcome.exists:
         _accountMade = true;
-        for (final field in [_password, _passwordAgain, _pin, _pinAgain]) {
-          field.clear();
-        }
+        _password.clear();
+        _passwordAgain.clear();
+        _pinChosen = '';
         final reader = ref.read(fingerprintDeviceProvider).value == true;
         if (result.outcome == FirstUserOutcome.made &&
             pin.isNotEmpty &&
@@ -331,26 +388,51 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.shellColors;
     // Kept alive until the account is made, which asks it whether to offer
     // a fingerprint.
     if (!_accountMade) ref.watch(fingerprintDeviceProvider);
+    const margin = EdgeInsets.fromLTRB(24, 32, 24, 24);
+    Widget column(Widget child) => Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: child,
+      ),
+    );
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ShellWallpaper(),
-        ColoredBox(color: colors.overviewScrim),
-        MobileKeyboardViewport(
-          child: SafeArea(
-            minimum: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: _starting ? const _Starting() : _page(context),
+        const _SetupBackdrop(),
+        if (_starting)
+          const Center(child: _Starting())
+        else ...[
+          MobileKeyboardViewport(
+            child: SafeArea(
+              minimum: margin,
+              child: column(
+                Padding(
+                  // The buttons ride on the keyboard below the page.
+                  padding: const EdgeInsets.only(
+                    bottom: _SetupButton.height + 16,
+                  ),
+                  child: _page(context),
+                ),
               ),
             ),
           ),
-        ),
+          SafeArea(
+            minimum: margin,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: column(
+                KeyboardRide(
+                  clearance: MediaQuery.paddingOf(context).bottom
+                      .clamp(margin.bottom, double.infinity),
+                  child: _buttons(context),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -370,18 +452,6 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
         l10n.setupFingerprintTitle,
         l10n.setupFingerprintBody,
       ),
-    };
-    final connected = ref.watch(
-      networkConnectivityProvider.select(
-        (state) => state.snapshot.connectedNetwork != null,
-      ),
-    );
-    final nextLabel = switch (_step) {
-      _Step.wifi when !connected => l10n.setupSkip,
-      _Step.pin when _pin.text.isEmpty && _pinAgain.text.isEmpty =>
-        l10n.setupSkip,
-      _Step.device => l10n.setupFinish,
-      _ => l10n.setupNext,
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -420,26 +490,35 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             ),
           ),
         ],
-        const SizedBox(height: 16),
-        if (_step == _Step.fingerprint)
-          _fingerprintButtons(context)
-        else
-          Row(
-            children: [
-              if (_step.index > 0 && !_accountMade)
-                _SetupButton(
-                  label: l10n.setupBack,
-                  onPressed: _busy ? null : _back,
-                ),
-              const Spacer(),
-              _SetupButton(
-                label: nextLabel,
-                emphasized: true,
-                busy: _busy,
-                onPressed: _canContinue ? _next : null,
-              ),
-            ],
-          ),
+      ],
+    );
+  }
+
+  Widget _buttons(BuildContext context) {
+    if (_step == _Step.fingerprint) return _fingerprintButtons(context);
+    final l10n = context.l10n;
+    final connected = ref.watch(
+      networkConnectivityProvider.select(
+        (state) => state.snapshot.connectedNetwork != null,
+      ),
+    );
+    final nextLabel = switch (_step) {
+      _Step.wifi when !connected => l10n.setupSkip,
+      _Step.pin => l10n.setupSkip,
+      _Step.device => l10n.setupFinish,
+      _ => l10n.setupNext,
+    };
+    return Row(
+      children: [
+        if (_step.index > 0 && !_accountMade)
+          _SetupButton(label: l10n.setupBack, onPressed: _busy ? null : _back),
+        const Spacer(),
+        _SetupButton(
+          label: nextLabel,
+          emphasized: true,
+          busy: _busy,
+          onPressed: _canContinue ? _next : null,
+        ),
       ],
     );
   }
@@ -509,27 +588,37 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
           ],
         );
       case _Step.pin:
-        return ListView(
-          children: [
-            _SetupField(
-              label: l10n.setupPin,
-              controller: _pin,
-              autofocus: true,
-              obscure: true,
-              keyboardType: TextInputType.number,
-              digitsOnly: 6,
-              onSubmitted: _next,
-            ),
-            const SizedBox(height: 16),
-            _SetupField(
-              label: l10n.setupPinAgain,
-              controller: _pinAgain,
-              obscure: true,
-              keyboardType: TextInputType.number,
-              digitsOnly: 6,
-              onSubmitted: _next,
-            ),
-          ],
+        final colors = context.shellColors;
+        return Focus(
+          autofocus: true,
+          onKeyEvent: _pinKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _pinFirst == null ? l10n.setupPin : l10n.setupPinAgain,
+                textAlign: TextAlign.center,
+                style: ShellText.cardTitle.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Center(
+                  child: PinKeypad(
+                    length: FirstUserAccount.pinLength,
+                    filled: _pinEntry.length,
+                    error: _pinWrong,
+                    ink: colors.textPrimary,
+                    deleteLabel: l10n.lockPinDelete,
+                    onDigit: _pinDigit,
+                    onDelete: _pinDelete,
+                    onClear: () => setState(() => _pinEntry = ''),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       case _Step.device:
         return ListView(
@@ -714,6 +803,42 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
   }
 }
 
+/// The wallpaper as the phone's app windows show it: the theme's frosted
+/// glass and window tint, or its opaque background without transparency.
+class _SetupBackdrop extends ConsumerWidget {
+  const _SetupBackdrop();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.shellTheme;
+    final background = context.shellColors.background;
+    return ValueListenableBuilder<FrostedBackdrop?>(
+      valueListenable: ref.watch(mobileWallpaperGlassProvider),
+      builder: (context, backdrop, _) {
+        if (backdrop == null) return ColoredBox(color: background);
+        return WindowBackdropCache(
+          backdrop: backdrop,
+          motion: const AlwaysStoppedAnimation<double>(0),
+          child: Builder(
+            builder: (context) => Stack(
+              fit: StackFit.expand,
+              children: [
+                WindowBackdropSlice(
+                  cache: WindowBackdropCache.maybeOf(context)!,
+                  glass: theme.windowGlassShading,
+                ),
+                ColoredBox(
+                  color: theme.forWindowSurfaces().panelColor(background),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _Starting extends StatelessWidget {
   const _Starting();
 
@@ -787,7 +912,6 @@ class _SetupField extends StatefulWidget {
     this.autofocus = false,
     this.obscure = false,
     this.keyboardType = TextInputType.text,
-    this.digitsOnly,
     this.onSubmitted,
   });
 
@@ -797,9 +921,6 @@ class _SetupField extends StatefulWidget {
   final bool autofocus;
   final bool obscure;
   final TextInputType keyboardType;
-
-  /// Takes only digits, at most this many.
-  final int? digitsOnly;
   final VoidCallback? onSubmitted;
 
   @override
@@ -860,15 +981,9 @@ class _SetupFieldState extends State<_SetupField> {
                   obscureText: widget.obscure,
                   enableSuggestions: false,
                   autocorrect: false,
-                  keyboardType: widget.obscure && widget.digitsOnly == null
+                  keyboardType: widget.obscure
                       ? TextInputType.visiblePassword
                       : widget.keyboardType,
-                  inputFormatters: [
-                    if (widget.digitsOnly case final digits?) ...[
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(digits),
-                    ],
-                  ],
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) => widget.onSubmitted?.call(),
                   style: context.shellTheme.text.base.copyWith(fontSize: 17),
@@ -969,6 +1084,9 @@ class _SetupButton extends StatelessWidget {
     this.busy = false,
   });
 
+  /// Its height, which the page leaves free under itself.
+  static const double height = 48;
+
   final String label;
   final VoidCallback? onPressed;
   final bool emphasized;
@@ -1010,7 +1128,10 @@ class _SetupButton extends StatelessWidget {
                 : Motion.pill,
             opacity: enabled || busy ? 1 : 0.45,
             child: Container(
-              constraints: const BoxConstraints(minWidth: 96, minHeight: 48),
+              constraints: const BoxConstraints(
+                minWidth: 96,
+                minHeight: height,
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 22),
               alignment: Alignment.center,
               decoration: BoxDecoration(

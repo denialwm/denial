@@ -5323,13 +5323,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Six digits unlock the device faster than the password. Skip it to add one later in Settings.';
 
   @override
-  String get setupPin => 'PIN';
+  String get setupPin => 'Choose six digits';
 
   @override
-  String get setupPinAgain => 'PIN again';
+  String get setupPinAgain => 'Enter them again';
 
   @override
-  String get setupPinRules => 'The PIN is six digits.';
+  String get setupPinNotSet =>
+      'The account is ready, but its PIN was not set. Add one in Settings.';
 
   @override
   String get setupPinMismatch => 'The PINs differ.';

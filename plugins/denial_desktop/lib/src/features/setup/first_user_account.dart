@@ -66,8 +66,8 @@ class FirstUserAccount {
 
   static bool validUsername(String value) => _username.hasMatch(value);
 
-  /// What deniald takes for a new PIN.
-  static bool validPin(String value) => RegExp(r'^[0-9]{6}$').hasMatch(value);
+  /// The digits of a new PIN, as deniald takes it.
+  static const int pinLength = 6;
 
   static bool validFullName(String value) =>
       value.trim().isNotEmpty && !value.contains(RegExp(r'[:\n\t]'));

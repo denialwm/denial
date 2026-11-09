@@ -9490,23 +9490,23 @@ abstract class AppLocalizations {
   /// **'Six digits unlock the device faster than the password. Skip it to add one later in Settings.'**
   String get setupPinBody;
 
-  /// First-boot setup: lock PIN field.
+  /// First-boot setup: above the lock PIN keypad, the first entry.
   ///
   /// In en, this message translates to:
-  /// **'PIN'**
+  /// **'Choose six digits'**
   String get setupPin;
 
-  /// First-boot setup: lock PIN confirmation field.
+  /// First-boot setup: above the lock PIN keypad, the confirmation.
   ///
   /// In en, this message translates to:
-  /// **'PIN again'**
+  /// **'Enter them again'**
   String get setupPinAgain;
 
-  /// First-boot setup: the lock PIN is not six digits.
+  /// First-boot setup: the account was made but setting the lock PIN failed.
   ///
   /// In en, this message translates to:
-  /// **'The PIN is six digits.'**
-  String get setupPinRules;
+  /// **'The account is ready, but its PIN was not set. Add one in Settings.'**
+  String get setupPinNotSet;
 
   /// First-boot setup: the two PINs differ.
   ///

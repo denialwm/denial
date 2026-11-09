@@ -5065,13 +5065,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupPinBody => '六位数字比密码解锁更快。可跳过，稍后在设置中添加。';
 
   @override
-  String get setupPin => 'PIN';
+  String get setupPin => '设置六位数字';
 
   @override
-  String get setupPinAgain => '再次输入 PIN';
+  String get setupPinAgain => '再次输入';
 
   @override
-  String get setupPinRules => 'PIN 须为六位数字。';
+  String get setupPinNotSet => '账户已就绪，但未能设置 PIN。请在设置中添加。';
 
   @override
   String get setupPinMismatch => '两次输入的 PIN 不一致。';

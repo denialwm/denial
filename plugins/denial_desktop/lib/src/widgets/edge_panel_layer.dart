@@ -119,6 +119,59 @@ class _MobileKeyboardViewportState
   }
 }
 
+/// Keeps [child], which sits [clearance] above the view's bottom edge, clear
+/// of the keyboard as it slides in: it rides [gap] above the keys while they
+/// would cover it, as an app's composer does, and stays put otherwise. Only
+/// its layer moves; content around it stays in place.
+class KeyboardRide extends ConsumerStatefulWidget {
+  const KeyboardRide({
+    required this.clearance,
+    required this.child,
+    this.gap = 12,
+    super.key,
+  });
+
+  final double clearance;
+  final double gap;
+  final Widget child;
+
+  @override
+  ConsumerState<KeyboardRide> createState() => _KeyboardRideState();
+}
+
+class _KeyboardRideState extends ConsumerState<KeyboardRide> {
+  final _translation = ValueNotifier(Offset.zero);
+  double _panelHeight = 0;
+
+  void _update(double progress) {
+    final keys = _panelHeight * progress + widget.gap - widget.clearance;
+    _translation.value = Offset(0, keys > 0 ? -keys : 0);
+  }
+
+  @override
+  void dispose() {
+    _translation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(
+      referenceShellProvider.select((state) => state.edgePanelDragProgress),
+      (_, progress) => _update(progress),
+    );
+    _panelHeight = ReferenceShellMetrics.edgePanelHeight(
+      MediaQuery.sizeOf(context),
+    );
+    _update(ref.read(referenceShellProvider).edgePanelDragProgress);
+    return CompositedTranslation(
+      translation: _translation,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      child: widget.child,
+    );
+  }
+}
+
 class EdgePanelLayer extends ConsumerStatefulWidget {
   const EdgePanelLayer({super.key});
 
