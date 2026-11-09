@@ -5086,6 +5086,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupFingerprintAdd => '添加指纹';
 
   @override
+  String get setupFingerprintHold => '将手指按住圆圈，直到圆环前进，然后抬起。';
+
+  @override
   String get setupDeviceTitle => '设备名称';
 
   @override

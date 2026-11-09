@@ -1599,6 +1599,7 @@
   "setupFingerprintTitle": "指纹",
   "setupFingerprintBody": "将手指放在传感器上即可解锁。可跳过，稍后在设置中添加。",
   "setupFingerprintAdd": "添加指纹",
+  "setupFingerprintHold": "将手指按住圆圈，直到圆环前进，然后抬起。",
   "setupDeviceTitle": "设备名称",
   "setupDeviceBody": "其他设备通过 Wi-Fi、蓝牙和 USB 看到这个名称。",
   "setupBack": "返回",

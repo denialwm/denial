@@ -715,6 +715,15 @@ fn configured_pam_service() -> String {
 }
 
 fn default_backend() -> Box<dyn AuthenticationBackend> {
+    // The device's first start runs as its setup account, before any person
+    // has one: nothing to lock, so the screen just turns off, without the
+    // lock screen's always-on picture.
+    if std::env::var_os("DENIAL_FIRST_USER_HELPER").is_some() {
+        info!("first-start setup session: it never locks");
+        return Box::new(UnavailableBackend {
+            reason: "The device is being set up.".into(),
+        });
+    }
     match PamBackend::load() {
         Ok(backend) => {
             info!("Denial native authentication connected through PAM");

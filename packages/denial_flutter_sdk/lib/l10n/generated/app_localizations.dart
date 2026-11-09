@@ -9532,6 +9532,12 @@ abstract class AppLocalizations {
   /// **'Add fingerprint'**
   String get setupFingerprintAdd;
 
+  /// First-boot setup: how to touch the sensor under the screen while a finger is added; the circle marks the sensor, the ring is the progress around the fingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold your finger on the circle until the ring moves, then lift it.'**
+  String get setupFingerprintHold;
+
   /// First-boot setup: title of the device name step.
   ///
   /// In en, this message translates to:

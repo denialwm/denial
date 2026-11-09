@@ -275,21 +275,31 @@ Environment=DENIAL_FIRST_USER_HELPER=/usr/lib/phonewave-system/first-user
 
 While the variable holds an absolute path, the shell covers its scene with
 setup instead of the lock screen and home: language, Wi-Fi, time zone, the
-person's name and username, a password and the device's name. The language
-applies to setup at once. Finishing runs, through pkexec,
+person's name and username, a password, a lock PIN and the device's name,
+then a fingerprint where the device has a reader and the person chose a PIN.
+The PIN and the fingerprint may be skipped. The language applies to setup at
+once. The session never locks while the variable is set: there is no account
+to lock yet, so a timed-out screen just turns off, without the lock screen's
+always-on picture. Finishing runs, through pkexec,
 
 ```sh
 HELPER USERNAME FULL_NAME DEVICE_NAME LANGUAGE TIME_ZONE
 ```
 
-with the password as the first line of standard input. `LANGUAGE` is `en` or
-`zh`; an empty `TIME_ZONE` keeps the system's. The helper makes the account,
-password included, in one step, and starts the session again as that account.
-Its exit status: 0 made; 4 made, but
-the device's name, time zone or language failed; 3 an account already exists;
-2 it refused what it was given; anything else the account was not made.
-pkexec's 126 and 127 mean polkit did not allow the helper. Setup shows the
-failure and stays, so the person can change what was refused and finish again.
+with the password as the first line of standard input and the PIN, six
+digits or empty for none, as the second. `LANGUAGE` is `en` or `zh`; an empty
+`TIME_ZONE` keeps the system's. The helper makes the account, password
+included, in one step. Its exit status: 0 made; 4 made, but the device's
+name, time zone or language failed; 5 made, but the PIN was not set; 3 an
+account already exists; 2 it refused what it was given; anything else the
+account was not made. pkexec's 126 and 127 mean polkit did not allow the
+helper. Setup shows the failure and stays, so the person can change what was
+refused and finish again; with status 5 it says so and finishes without the
+PIN.
+
+`HELPER --fingerprint` runs `deniald --fingerprint-settings` for the new
+account, its PIN the key as in Settings, and `HELPER --start` starts the
+session again as that account once setup is done.
 
 The system's polkit rules must let the setup account run the helper and add
 Wi-Fi connections without a password, and the helper must refuse once a

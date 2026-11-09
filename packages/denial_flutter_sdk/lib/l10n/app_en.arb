@@ -6994,6 +6994,8 @@
   "@setupFingerprintBody": {"description": "First-boot setup: what the fingerprint is for; the step may be skipped."},
   "setupFingerprintAdd": "Add fingerprint",
   "@setupFingerprintAdd": {"description": "First-boot setup: starts enrolling the chosen finger."},
+  "setupFingerprintHold": "Hold your finger on the circle until the ring moves, then lift it.",
+  "@setupFingerprintHold": {"description": "First-boot setup: how to touch the sensor under the screen while a finger is added; the circle marks the sensor, the ring is the progress around the fingerprint."},
   "setupDeviceTitle": "Device name",
   "@setupDeviceTitle": {"description": "First-boot setup: title of the device name step."},
   "setupDeviceBody": "Other devices see this name on Wi-Fi, Bluetooth and USB.",

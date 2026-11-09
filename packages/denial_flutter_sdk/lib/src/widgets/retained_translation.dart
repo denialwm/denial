@@ -217,13 +217,15 @@ class _RenderCompositedTranslation extends RenderProxyBox {
       ..transform = Matrix4.translationValues(_applied.dx, _applied.dy, 0);
   }
 
+  /// The box's own bounds move with it: a touch counts where the box shows,
+  /// not where its layout left it.
   @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
     return result.addWithPaintOffset(
       offset: _applied,
       position: position,
       hitTest: (result, transformed) =>
-          super.hitTestChildren(result, position: transformed),
+          super.hitTest(result, position: transformed),
     );
   }
 

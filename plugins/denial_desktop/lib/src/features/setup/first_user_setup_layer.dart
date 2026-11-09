@@ -458,17 +458,19 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
                         ),
                       ),
                     ),
+                    // The whole layer rides, so its bounds follow the
+                    // buttons up and touches reach them over the keyboard.
                     SafeArea(
                       minimum: margin,
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: _maxWidth,
-                          ),
-                          child: KeyboardRide(
-                            clearance: MediaQuery.paddingOf(context).bottom
-                                .clamp(margin.bottom, double.infinity),
+                      child: KeyboardRide(
+                        clearance: MediaQuery.paddingOf(context).bottom
+                            .clamp(margin.bottom, double.infinity),
+                        child: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: _maxWidth,
+                            ),
                             child: SizedBox(
                               height: _SetupButton.height,
                               child: _buttons(context),
@@ -477,6 +479,9 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
                         ),
                       ),
                     ),
+                    if (_step == _Step.fingerprint &&
+                        (_fingerprints?.enrolling ?? false))
+                      const _SensorRing(),
                   ],
                 ),
         ),
@@ -783,6 +788,17 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
           ),
           const SizedBox(height: 24),
           ?statusText,
+          if (!_fingerprintAdded) ...[
+            const SizedBox(height: 6),
+            Text(
+              l10n.setupFingerprintHold,
+              textAlign: TextAlign.center,
+              style: ShellText.base.copyWith(
+                color: colors.textSecondary,
+                fontSize: 15,
+              ),
+            ),
+          ],
           const SizedBox(height: 6),
           Text(
             l10n.fingerprintProgress(session.completed, session.total),
@@ -953,6 +969,39 @@ class _SetupBackdrop extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// The ring around the sensor under the screen while a finger is added, as
+/// Settings draws it, where Denial places the sensor on the panel. Nothing
+/// marks it otherwise while the phone is unlocked.
+class _SensorRing extends ConsumerWidget {
+  const _SensorRing();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sensor = ref.watch(
+      authenticationProvider.select((state) => state.fingerprintSensor),
+    );
+    final size = MediaQuery.sizeOf(context);
+    // Panel fractions in its native portrait orientation.
+    if (sensor == null || size.width > size.height) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      left: sensor.left * size.width,
+      top: sensor.top * size.height,
+      width: sensor.width * size.width,
+      height: sensor.height * size.height,
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: context.shellTheme.accent, width: 3),
+          ),
+        ),
+      ),
     );
   }
 }

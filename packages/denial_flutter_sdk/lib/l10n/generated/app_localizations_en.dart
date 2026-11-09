@@ -5346,6 +5346,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get setupFingerprintAdd => 'Add fingerprint';
 
   @override
+  String get setupFingerprintHold =>
+      'Hold your finger on the circle until the ring moves, then lift it.';
+
+  @override
   String get setupDeviceTitle => 'Device name';
 
   @override
