@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -131,6 +132,56 @@ Future<FirstUserResult> makeFirstUser(
 /// The fingerprint session for the account the helper made.
 FingerprintSettingsSession firstUserFingerprints(String helper) =>
     FingerprintSettingsSession(command: ['pkexec', helper, '--fingerprint']);
+
+/// Where the fingerprint sensor sits under the screen, as fractions of the
+/// panel's width and height in its native orientation, from Denial's
+/// `/etc/denial/fingerprint.json`; null without one. The session tells only
+/// an account that unlocks with a fingerprint where it is, and setup's
+/// account does not.
+Future<Rect?> readFingerprintSensor() async {
+  try {
+    final place = jsonDecode(
+      await File('/etc/denial/fingerprint.json').readAsString(),
+    );
+    if (place is! Map<String, Object?>) return null;
+    double? number(String key) => switch (place[key]) {
+      final num value => value.toDouble(),
+      _ => null,
+    };
+    final (panelWidth, panelHeight) = (
+      number('panel_width'),
+      number('panel_height'),
+    );
+    final (x, y, width, height) = (
+      number('x'),
+      number('y'),
+      number('width'),
+      number('height'),
+    );
+    if (panelWidth == null ||
+        panelHeight == null ||
+        x == null ||
+        y == null ||
+        width == null ||
+        height == null ||
+        panelWidth <= 0 ||
+        panelHeight <= 0 ||
+        width <= 0 ||
+        height <= 0) {
+      return null;
+    }
+    return Rect.fromLTWH(
+      x / panelWidth,
+      y / panelHeight,
+      width / panelWidth,
+      height / panelHeight,
+    );
+  } on IOException {
+    return null;
+  } on FormatException {
+    return null;
+  }
+}
 
 /// Starts the session again as the account the helper made; the helper's
 /// message when it could not.

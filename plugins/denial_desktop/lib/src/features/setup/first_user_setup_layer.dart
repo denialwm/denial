@@ -117,6 +117,10 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
   var _fingerprintPin = '';
   var _finger = 'right-index-finger';
 
+  /// Where the sensor is under the screen, for the ring while a finger is
+  /// added; null without one.
+  Rect? _sensor;
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +138,11 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             _zone = zones.current;
           });
         }
+      }),
+    );
+    unawaited(
+      readFingerprintSensor().then((sensor) {
+        if (mounted) setState(() => _sensor = sensor);
       }),
     );
     unawaited(
@@ -479,9 +488,10 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
                         ),
                       ),
                     ),
-                    if (_step == _Step.fingerprint &&
-                        (_fingerprints?.enrolling ?? false))
-                      const _SensorRing(),
+                    if (_sensor case final sensor?
+                        when _step == _Step.fingerprint &&
+                            (_fingerprints?.enrolling ?? false))
+                      _SensorRing(sensor),
                   ],
                 ),
         ),
@@ -974,19 +984,18 @@ class _SetupBackdrop extends ConsumerWidget {
 }
 
 /// The ring around the sensor under the screen while a finger is added, as
-/// Settings draws it, where Denial places the sensor on the panel. Nothing
-/// marks it otherwise while the phone is unlocked.
-class _SensorRing extends ConsumerWidget {
-  const _SensorRing();
+/// Settings draws it. Nothing marks it otherwise while the phone is
+/// unlocked.
+class _SensorRing extends StatelessWidget {
+  const _SensorRing(this.sensor);
+
+  /// Panel fractions in its native portrait orientation.
+  final Rect sensor;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final sensor = ref.watch(
-      authenticationProvider.select((state) => state.fingerprintSensor),
-    );
+  Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    // Panel fractions in its native portrait orientation.
-    if (sensor == null || size.width > size.height) {
+    if (size.width > size.height) {
       return const SizedBox.shrink();
     }
     return Positioned(
