@@ -1022,5 +1022,7 @@ fn mobile_default_document_seeds_the_mobile_appearance() {
     assert_eq!(appearance["glass"]["appPanelOpacity"], 0.4);
     assert_eq!(appearance["glass"]["blurSigma"], 26.1);
     assert_eq!(appearance["colorSchemePreference"], "preferDark");
+    assert_eq!(mobile["power"]["idleDpmsTimeoutSeconds"], 30);
+    assert!(desktop.get("power").is_none());
     parse_document(serde_json::to_string(&mobile).unwrap().as_bytes()).unwrap();
 }

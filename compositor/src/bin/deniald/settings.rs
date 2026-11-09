@@ -1635,6 +1635,7 @@ fn default_document(mobile: bool) -> (Map<String, Value>, u64, TypedSettings) {
         .insert("systemBarSide".to_owned(), Value::String("top".to_owned()));
     if mobile {
         seed_mobile_appearance(&mut document);
+        seed_mobile_power(&mut document);
     }
     let typed = TypedSettings {
         keyboard,
@@ -1666,6 +1667,15 @@ fn seed_mobile_appearance(document: &mut Map<String, Value>) {
             "appPanelOpacity": 0.4,
             "blurSigma": 26.1,
         }),
+    );
+}
+
+/// A phone's screen goes dark after half a minute, as phones do; a desk's
+/// keeps the shell's quarter hour.
+fn seed_mobile_power(document: &mut Map<String, Value>) {
+    document.insert(
+        "power".to_owned(),
+        serde_json::json!({"idleDpmsTimeoutSeconds": 30}),
     );
 }
 
