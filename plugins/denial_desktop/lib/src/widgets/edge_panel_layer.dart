@@ -49,11 +49,13 @@ class SystemKeyboardLayer extends ConsumerWidget {
   }
 }
 
-/// Moves mobile content within the space left by the software keyboard.
+/// Moves mobile content as the user pans it with the keyboard's right-edge
+/// scroll strip. The keyboard slides in over the content, which stays in
+/// place until the strip lifts it, at most the keyboard's height.
 ///
-/// The keyboard and its right-edge scroll strip must remain stationary, so
-/// every full-screen surface that should follow the user's viewport pan wraps
-/// itself in this boundary instead of duplicating the translation.
+/// The keyboard and its strip must remain stationary, so every full-screen
+/// surface that should follow the pan wraps itself in this boundary instead
+/// of duplicating the translation.
 class MobileKeyboardViewport extends ConsumerStatefulWidget {
   const MobileKeyboardViewport({
     required this.child,
@@ -79,8 +81,7 @@ class _MobileKeyboardViewportState
 
   void _updateTranslation(({double progress, double scroll}) position) {
     final keyboardOffset = _panelHeight * position.progress;
-    final scroll = position.scroll.clamp(0.0, keyboardOffset);
-    _translation.value = Offset(0, -(keyboardOffset - scroll));
+    _translation.value = Offset(0, -position.scroll.clamp(0.0, keyboardOffset));
   }
 
   ({double progress, double scroll}) _position(ReferenceShellState state) => (
@@ -320,9 +321,11 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
       width: ReferenceShellMetrics.edgePanelScrollStripWidth,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        // The content follows the finger: up lifts it from under the
+        // keyboard.
         onVerticalDragUpdate: (details) {
           controller.updateEdgePanelViewportScroll(
-            details.delta.dy * ReferenceShellMetrics.edgePanelScrollMultiplier,
+            -details.delta.dy * ReferenceShellMetrics.edgePanelScrollMultiplier,
             panelHeight,
           );
         },

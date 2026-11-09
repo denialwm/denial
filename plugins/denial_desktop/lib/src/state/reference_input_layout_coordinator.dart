@@ -134,7 +134,7 @@ class ReferenceInputLayoutCoordinator {
     // regions do too, and there is no lifted scene for the strip to pan.
     final appLifted = !state.primaryWindowHandlesKeyboard;
     final contentOffset = edgePanelActive && appLifted
-        ? (edgePanelRect.height - state.edgePanelViewportScroll)
+        ? state.edgePanelViewportScroll
               .clamp(0.0, edgePanelRect.height)
               .toDouble()
         : 0.0;
