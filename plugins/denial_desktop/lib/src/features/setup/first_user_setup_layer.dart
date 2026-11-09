@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart' show CircularProgressIndicator, Icons;
+import 'package:flutter/material.dart'
+    show CircularProgressIndicator, Icons, LinearProgressIndicator;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,8 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 
+import '../../settings/widgets/settings_fingerprint_page.dart'
+    show fingerprintLabel, fingerprintStatus, isFingerprintError;
 import '../../widgets/connectivity/wifi_detail_surface.dart';
 import '../../widgets/edge_panel_layer.dart';
 import 'first_user_account.dart';
@@ -21,9 +24,10 @@ import 'first_user_account.dart';
 /// The device's first start: before it has a person's account, the shell
 /// shows this over everything instead of its lock screen and home, and asks
 /// for the language, Wi-Fi, time zone, the person's name, username and
-/// password, and the device's name. Finishing makes the account; the session
-/// then starts again as that person. Nothing shows without the session's
-/// [firstUserHelperProvider].
+/// password, a lock PIN, and the device's name. Finishing makes the account;
+/// with a PIN and a fingerprint reader it then offers a fingerprint. The
+/// session then starts again as that person. The PIN and the fingerprint may
+/// be skipped. Nothing shows without the session's [firstUserHelperProvider].
 class FirstUserSetupLayer extends ConsumerWidget {
   const FirstUserSetupLayer({super.key});
 
@@ -41,7 +45,16 @@ class FirstUserSetupLayer extends ConsumerWidget {
   }
 }
 
-enum _Step { language, wifi, timeZone, person, password, device }
+enum _Step {
+  language,
+  wifi,
+  timeZone,
+  person,
+  password,
+  pin,
+  device,
+  fingerprint,
+}
 
 class _FirstUserSetup extends ConsumerStatefulWidget {
   const _FirstUserSetup({required this.helper});
@@ -57,6 +70,8 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _passwordAgain = TextEditingController();
+  final _pin = TextEditingController();
+  final _pinAgain = TextEditingController();
   final _deviceName = TextEditingController();
   final _zoneSearch = TextEditingController();
 
@@ -71,14 +86,31 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
 
   String? _error;
   var _busy = false;
-  var _made = false;
+
+  /// The account exists: there is no going back to change it.
+  var _accountMade = false;
+
+  /// The session is starting again as the account.
+  var _starting = false;
+
+  /// The fingerprint step's session, opened by the PIN set a step before,
+  /// which stays here to open it again when it expires.
+  FingerprintSettingsSession? _fingerprints;
+  var _fingerprintPin = '';
+  var _finger = 'right-index-finger';
 
   @override
   void initState() {
     super.initState();
     _name.addListener(_nameChanged);
     _username.addListener(_usernameChanged);
-    for (final field in [_password, _passwordAgain, _deviceName]) {
+    for (final field in [
+      _password,
+      _passwordAgain,
+      _pin,
+      _pinAgain,
+      _deviceName,
+    ]) {
       field.addListener(_clearError);
     }
     _zoneSearch.addListener(() => setState(() {}));
@@ -106,11 +138,14 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _username,
       _password,
       _passwordAgain,
+      _pin,
+      _pinAgain,
       _deviceName,
       _zoneSearch,
     ]) {
       field.dispose();
     }
+    _fingerprints?.dispose();
     super.dispose();
   }
 
@@ -151,11 +186,12 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     _Step.person => _name.text.trim().isNotEmpty && _username.text.isNotEmpty,
     _Step.password => _password.text.isNotEmpty,
     _Step.device => _deviceName.text.trim().isNotEmpty && !_busy,
+    _Step.fingerprint => !_busy,
     _ => true,
   };
 
   void _back() {
-    if (_step.index == 0 || _busy) return;
+    if (_step.index == 0 || _busy || _accountMade) return;
     setState(() {
       _error = null;
       _step = _Step.values[_step.index - 1];
@@ -177,8 +213,19 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
         if (_password.text != _passwordAgain.text) {
           error = l10n.setupPasswordMismatch;
         }
+      case _Step.pin:
+        if (_pin.text.isEmpty && _pinAgain.text.isEmpty) {
+          break;
+        } else if (!FirstUserAccount.validPin(_pin.text)) {
+          error = l10n.setupPinRules;
+        } else if (_pin.text != _pinAgain.text) {
+          error = l10n.setupPinMismatch;
+        }
       case _Step.device:
         unawaited(_finish());
+        return;
+      case _Step.fingerprint:
+        unawaited(_start());
         return;
       default:
     }
@@ -195,39 +242,99 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _busy = true;
       _error = null;
     });
+    final pin = _pin.text;
     final result = await makeFirstUser(
       widget.helper,
       FirstUserAccount(
         username: _username.text,
         fullName: _name.text,
         password: _password.text,
+        pin: pin,
         deviceName: _deviceName.text,
         language: language,
         timeZone: _zone,
       ),
     );
     if (!mounted) return;
+    switch (result.outcome) {
+      case FirstUserOutcome.made ||
+          FirstUserOutcome.madeWithoutPin ||
+          // Setup stopped after making it: start as it now.
+          FirstUserOutcome.exists:
+        _accountMade = true;
+        for (final field in [_password, _passwordAgain, _pin, _pinAgain]) {
+          field.clear();
+        }
+        final reader = ref.read(fingerprintDeviceProvider).value == true;
+        if (result.outcome == FirstUserOutcome.made &&
+            pin.isNotEmpty &&
+            reader) {
+          _fingerprintPin = pin;
+          _fingerprints = firstUserFingerprints(widget.helper)
+            ..addListener(() => setState(() {}))
+            ..authenticate(pin);
+          setState(() {
+            _busy = false;
+            _step = _Step.fingerprint;
+          });
+        } else {
+          await _start();
+        }
+      case FirstUserOutcome.notAllowed:
+        setState(() {
+          _busy = false;
+          _error = l10n.setupNotAllowed;
+        });
+      case FirstUserOutcome.failed:
+        setState(() {
+          _busy = false;
+          _error = l10n.setupFailed(result.message);
+        });
+    }
+  }
+
+  /// Starts the session again as the account; this layer ends with it.
+  Future<void> _start() async {
+    _fingerprints?.dispose();
+    _fingerprints = null;
+    _fingerprintPin = '';
+    setState(() {
+      _busy = true;
+      _error = null;
+      _starting = true;
+    });
+    final failure = await startFirstUser(widget.helper);
+    if (!mounted || failure == null) return;
     setState(() {
       _busy = false;
-      switch (result.outcome) {
-        case FirstUserOutcome.made:
-          // The session ends and starts again as the new account.
-          _made = true;
-          _password.clear();
-          _passwordAgain.clear();
-        case FirstUserOutcome.exists:
-          _error = l10n.setupAccountExists;
-        case FirstUserOutcome.notAllowed:
-          _error = l10n.setupNotAllowed;
-        case FirstUserOutcome.failed:
-          _error = l10n.setupFailed(result.message);
-      }
+      _starting = false;
+      _error = context.l10n.setupStartFailed(failure);
     });
+  }
+
+  bool get _fingerprintAdded {
+    final session = _fingerprints;
+    return session != null &&
+        (session.fingers.isNotEmpty || session.status == 'enroll-completed');
+  }
+
+  void _addFingerprint() {
+    final session = _fingerprints;
+    if (session == null || session.enrolling) return;
+    if (session.authorized) {
+      session.enroll(_finger);
+    } else {
+      // Its five minutes ran out: open it again.
+      session.authenticate(_fingerprintPin);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.shellColors;
+    // Kept alive until the account is made, which asks it whether to offer
+    // a fingerprint.
+    if (!_accountMade) ref.watch(fingerprintDeviceProvider);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -239,7 +346,7 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 480),
-                child: _made ? const _Starting() : _page(context),
+                child: _starting ? const _Starting() : _page(context),
               ),
             ),
           ),
@@ -257,7 +364,12 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _Step.timeZone => (l10n.setupTimeZoneTitle, null),
       _Step.person => (l10n.setupPersonTitle, null),
       _Step.password => (l10n.setupPasswordTitle, l10n.setupPasswordBody),
+      _Step.pin => (l10n.setupPinTitle, l10n.setupPinBody),
       _Step.device => (l10n.setupDeviceTitle, l10n.setupDeviceBody),
+      _Step.fingerprint => (
+        l10n.setupFingerprintTitle,
+        l10n.setupFingerprintBody,
+      ),
     };
     final connected = ref.watch(
       networkConnectivityProvider.select(
@@ -266,6 +378,8 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     );
     final nextLabel = switch (_step) {
       _Step.wifi when !connected => l10n.setupSkip,
+      _Step.pin when _pin.text.isEmpty && _pinAgain.text.isEmpty =>
+        l10n.setupSkip,
       _Step.device => l10n.setupFinish,
       _ => l10n.setupNext,
     };
@@ -307,22 +421,25 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
           ),
         ],
         const SizedBox(height: 16),
-        Row(
-          children: [
-            if (_step.index > 0)
+        if (_step == _Step.fingerprint)
+          _fingerprintButtons(context)
+        else
+          Row(
+            children: [
+              if (_step.index > 0 && !_accountMade)
+                _SetupButton(
+                  label: l10n.setupBack,
+                  onPressed: _busy ? null : _back,
+                ),
+              const Spacer(),
               _SetupButton(
-                label: l10n.setupBack,
-                onPressed: _busy ? null : _back,
+                label: nextLabel,
+                emphasized: true,
+                busy: _busy,
+                onPressed: _canContinue ? _next : null,
               ),
-            const Spacer(),
-            _SetupButton(
-              label: nextLabel,
-              emphasized: true,
-              busy: _busy,
-              onPressed: _canContinue ? _next : null,
-            ),
-          ],
-        ),
+            ],
+          ),
       ],
     );
   }
@@ -391,6 +508,29 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             ),
           ],
         );
+      case _Step.pin:
+        return ListView(
+          children: [
+            _SetupField(
+              label: l10n.setupPin,
+              controller: _pin,
+              autofocus: true,
+              obscure: true,
+              keyboardType: TextInputType.number,
+              digitsOnly: 6,
+              onSubmitted: _next,
+            ),
+            const SizedBox(height: 16),
+            _SetupField(
+              label: l10n.setupPinAgain,
+              controller: _pinAgain,
+              obscure: true,
+              keyboardType: TextInputType.number,
+              digitsOnly: 6,
+              onSubmitted: _next,
+            ),
+          ],
+        );
       case _Step.device:
         return ListView(
           children: [
@@ -402,7 +542,132 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             ),
           ],
         );
+      case _Step.fingerprint:
+        return _fingerprintContent(context);
     }
+  }
+
+  Widget _fingerprintContent(BuildContext context) {
+    final session = _fingerprints;
+    if (session == null) return const SizedBox.shrink();
+    final l10n = context.l10n;
+    final colors = context.shellColors;
+    final accent = ShellTheme.of(context).accent;
+    final status = session.status;
+    final statusText = status == null
+        ? null
+        : Text(
+            fingerprintStatus(
+              context,
+              status,
+              retryMilliseconds: session.retryMilliseconds,
+            ),
+            textAlign: TextAlign.center,
+            style: ShellText.base.copyWith(
+              color: isFingerprintError(status)
+                  ? colors.performanceBad
+                  : colors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          );
+    if (session.enrolling || _fingerprintAdded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 12),
+          Icon(Icons.fingerprint_rounded, size: 88, color: accent),
+          const SizedBox(height: 20),
+          ?statusText,
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: _fingerprintAdded ? 1 : session.completed / session.total,
+              minHeight: 4,
+              color: accent,
+              backgroundColor: colors.hairline,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.fingerprintProgress(session.completed, session.total),
+            textAlign: TextAlign.center,
+            style: ShellText.base.copyWith(color: colors.textSecondary),
+          ),
+        ],
+      );
+    }
+    if (!session.authorized) {
+      // Opening the session with the PIN, or what stopped it.
+      return Center(
+        child:
+            statusText ??
+            SizedBox.square(
+              dimension: 32,
+              child: CircularProgressIndicator(strokeWidth: 3, color: accent),
+            ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          l10n.fingerprintChooseFinger,
+          style: ShellText.cardTitle.copyWith(color: colors.textSecondary),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: ListView.separated(
+            itemCount: fingerprintNames.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 6),
+            itemBuilder: (context, index) {
+              final finger = fingerprintNames[index];
+              return _SetupChoice(
+                label: fingerprintLabel(context, finger),
+                selected: finger == _finger,
+                onTap: () => setState(() => _finger = finger),
+              );
+            },
+          ),
+        ),
+        if (statusText != null) ...[const SizedBox(height: 12), statusText],
+      ],
+    );
+  }
+
+  Widget _fingerprintButtons(BuildContext context) {
+    final l10n = context.l10n;
+    final session = _fingerprints;
+    final added = _fingerprintAdded;
+    final canAdd =
+        session != null &&
+        !session.enrolling &&
+        (session.authorized ||
+            (!session.authenticating && session.status == 'expired'));
+    return Row(
+      children: [
+        if (!added)
+          _SetupButton(label: l10n.setupSkip, onPressed: _busy ? null : _start),
+        const Spacer(),
+        if (added)
+          _SetupButton(
+            label: l10n.setupFinish,
+            emphasized: true,
+            busy: _busy,
+            onPressed: _busy ? null : _start,
+          )
+        else
+          _SetupButton(
+            label: l10n.setupFingerprintAdd,
+            emphasized: true,
+            busy:
+                session != null &&
+                (session.authenticating || session.enrolling),
+            onPressed: canAdd && !_busy ? _addFingerprint : null,
+          ),
+      ],
+    );
   }
 
   Widget _timeZones(BuildContext context) {
@@ -522,6 +787,7 @@ class _SetupField extends StatefulWidget {
     this.autofocus = false,
     this.obscure = false,
     this.keyboardType = TextInputType.text,
+    this.digitsOnly,
     this.onSubmitted,
   });
 
@@ -531,6 +797,9 @@ class _SetupField extends StatefulWidget {
   final bool autofocus;
   final bool obscure;
   final TextInputType keyboardType;
+
+  /// Takes only digits, at most this many.
+  final int? digitsOnly;
   final VoidCallback? onSubmitted;
 
   @override
@@ -591,9 +860,15 @@ class _SetupFieldState extends State<_SetupField> {
                   obscureText: widget.obscure,
                   enableSuggestions: false,
                   autocorrect: false,
-                  keyboardType: widget.obscure
+                  keyboardType: widget.obscure && widget.digitsOnly == null
                       ? TextInputType.visiblePassword
                       : widget.keyboardType,
+                  inputFormatters: [
+                    if (widget.digitsOnly case final digits?) ...[
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(digits),
+                    ],
+                  ],
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) => widget.onSubmitted?.call(),
                   style: context.shellTheme.text.base.copyWith(fontSize: 17),

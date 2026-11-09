@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/applications.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 
 /// The program that makes the first person's account, named by the session
 /// that starts Denial before the system has one (Phonewave's denial-setup
@@ -13,10 +14,13 @@ import 'package:denial_flutter_sdk/applications.dart';
 ///
 /// The program runs through pkexec as
 /// `HELPER USERNAME FULL_NAME DEVICE_NAME LANGUAGE TIME_ZONE`, reads the
-/// password from its first line of input, and once the account exists starts
-/// the session again as it. Its status: 0 made; 4 made, but a system setting
-/// (name, time zone, language) failed; 3 an account already exists; 2 it
-/// refused what it was given; anything else the account was not made.
+/// password from its first line of input and the lock PIN, six digits or
+/// empty, from its second. Its status: 0 made; 4 made, but a system setting
+/// (name, time zone, language) failed; 5 made, but the PIN was not set; 3 an
+/// account already exists; 2 it refused what it was given; anything else the
+/// account was not made. `HELPER --fingerprint` runs the fingerprint session
+/// for that account ([FingerprintSettingsSession]); `HELPER --start` starts
+/// the session again as it.
 final firstUserHelperProvider = Provider<String?>((ref) {
   final helper = ref
       .watch(runtimePathsProvider)
@@ -40,6 +44,7 @@ class FirstUserAccount {
     required this.username,
     required this.fullName,
     required this.password,
+    this.pin = '',
     required this.deviceName,
     required this.language,
     required this.timeZone,
@@ -48,6 +53,9 @@ class FirstUserAccount {
   final String username;
   final String fullName;
   final String password;
+
+  /// The lock PIN; empty sets none.
+  final String pin;
   final String deviceName;
   final SetupLanguage language;
 
@@ -57,6 +65,9 @@ class FirstUserAccount {
   static final _username = RegExp(r'^[a-z][a-z0-9_-]{0,31}$');
 
   static bool validUsername(String value) => _username.hasMatch(value);
+
+  /// What deniald takes for a new PIN.
+  static bool validPin(String value) => RegExp(r'^[0-9]{6}$').hasMatch(value);
 
   static bool validFullName(String value) =>
       value.trim().isNotEmpty && !value.contains(RegExp(r'[:\n\t]'));
@@ -71,7 +82,7 @@ class FirstUserAccount {
   }
 }
 
-enum FirstUserOutcome { made, exists, notAllowed, failed }
+enum FirstUserOutcome { made, madeWithoutPin, exists, notAllowed, failed }
 
 class FirstUserResult {
   const FirstUserResult(this.outcome, [this.message = '']);
@@ -101,17 +112,35 @@ Future<FirstUserResult> makeFirstUser(
   }
   final stderr = process.stderr.transform(utf8.decoder).join();
   unawaited(process.stdout.drain<void>());
-  process.stdin.writeln(account.password);
+  process.stdin
+    ..writeln(account.password)
+    ..writeln(account.pin);
   await process.stdin.close();
   final status = await process.exitCode;
   final message = (await stderr).trim();
   return switch (status) {
     0 || 4 => const FirstUserResult(FirstUserOutcome.made),
+    5 => const FirstUserResult(FirstUserOutcome.madeWithoutPin),
     3 => const FirstUserResult(FirstUserOutcome.exists),
     // pkexec's own: polkit did not allow it.
     126 || 127 => const FirstUserResult(FirstUserOutcome.notAllowed),
     _ => FirstUserResult(FirstUserOutcome.failed, message),
   };
+}
+
+/// The fingerprint session for the account the helper made.
+FingerprintSettingsSession firstUserFingerprints(String helper) =>
+    FingerprintSettingsSession(command: ['pkexec', helper, '--fingerprint']);
+
+/// Starts the session again as the account the helper made; the helper's
+/// message when it could not.
+Future<String?> startFirstUser(String helper) async {
+  try {
+    final result = await Process.run('pkexec', [helper, '--start']);
+    return result.exitCode == 0 ? null : '${result.stderr}'.trim();
+  } on ProcessException catch (error) {
+    return error.message;
+  }
 }
 
 /// The time zones a person picks from, tzdata's own list, and the system's.

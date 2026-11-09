@@ -5316,6 +5316,35 @@ class AppLocalizationsEn extends AppLocalizations {
   String get setupPasswordMismatch => 'The passwords differ.';
 
   @override
+  String get setupPinTitle => 'Lock PIN';
+
+  @override
+  String get setupPinBody =>
+      'Six digits unlock the device faster than the password. Skip it to add one later in Settings.';
+
+  @override
+  String get setupPin => 'PIN';
+
+  @override
+  String get setupPinAgain => 'PIN again';
+
+  @override
+  String get setupPinRules => 'The PIN is six digits.';
+
+  @override
+  String get setupPinMismatch => 'The PINs differ.';
+
+  @override
+  String get setupFingerprintTitle => 'Fingerprint';
+
+  @override
+  String get setupFingerprintBody =>
+      'Unlock with a finger on the sensor. Skip it to add one later in Settings.';
+
+  @override
+  String get setupFingerprintAdd => 'Add fingerprint';
+
+  @override
   String get setupDeviceTitle => 'Device name';
 
   @override
@@ -5338,10 +5367,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get setupStarting => 'Starting…';
 
   @override
-  String get setupAccountExists => 'This device already has an account.';
+  String get setupNotAllowed => 'Setup may not make an account here.';
 
   @override
-  String get setupNotAllowed => 'Setup may not make an account here.';
+  String setupStartFailed(String reason) {
+    return 'The device did not start as your account: $reason';
+  }
 
   @override
   String setupFailed(String reason) {

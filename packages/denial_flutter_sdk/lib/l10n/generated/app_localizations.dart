@@ -9478,6 +9478,60 @@ abstract class AppLocalizations {
   /// **'The passwords differ.'**
   String get setupPasswordMismatch;
 
+  /// First-boot setup: title of the optional lock PIN step.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock PIN'**
+  String get setupPinTitle;
+
+  /// First-boot setup: what the lock PIN is for; the step may be skipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Six digits unlock the device faster than the password. Skip it to add one later in Settings.'**
+  String get setupPinBody;
+
+  /// First-boot setup: lock PIN field.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN'**
+  String get setupPin;
+
+  /// First-boot setup: lock PIN confirmation field.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN again'**
+  String get setupPinAgain;
+
+  /// First-boot setup: the lock PIN is not six digits.
+  ///
+  /// In en, this message translates to:
+  /// **'The PIN is six digits.'**
+  String get setupPinRules;
+
+  /// First-boot setup: the two PINs differ.
+  ///
+  /// In en, this message translates to:
+  /// **'The PINs differ.'**
+  String get setupPinMismatch;
+
+  /// First-boot setup: title of the optional fingerprint step.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get setupFingerprintTitle;
+
+  /// First-boot setup: what the fingerprint is for; the step may be skipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock with a finger on the sensor. Skip it to add one later in Settings.'**
+  String get setupFingerprintBody;
+
+  /// First-boot setup: starts enrolling the chosen finger.
+  ///
+  /// In en, this message translates to:
+  /// **'Add fingerprint'**
+  String get setupFingerprintAdd;
+
   /// First-boot setup: title of the device name step.
   ///
   /// In en, this message translates to:
@@ -9502,7 +9556,7 @@ abstract class AppLocalizations {
   /// **'Next'**
   String get setupNext;
 
-  /// First-boot setup: skips the Wi-Fi step.
+  /// First-boot setup: skips an optional step (Wi-Fi, lock PIN, fingerprint).
   ///
   /// In en, this message translates to:
   /// **'Skip'**
@@ -9520,17 +9574,17 @@ abstract class AppLocalizations {
   /// **'Starting…'**
   String get setupStarting;
 
-  /// First-boot setup: the helper refused because an account exists.
-  ///
-  /// In en, this message translates to:
-  /// **'This device already has an account.'**
-  String get setupAccountExists;
-
   /// First-boot setup: polkit refused the account helper.
   ///
   /// In en, this message translates to:
   /// **'Setup may not make an account here.'**
   String get setupNotAllowed;
+
+  /// First-boot setup: the account exists but the session did not start again as it; reason is the helper's message.
+  ///
+  /// In en, this message translates to:
+  /// **'The device did not start as your account: {reason}'**
+  String setupStartFailed(String reason);
 
   /// First-boot setup: the account helper failed; reason is its message.
   ///

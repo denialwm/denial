@@ -5059,6 +5059,33 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupPasswordMismatch => '两次输入的密码不一致。';
 
   @override
+  String get setupPinTitle => '锁屏 PIN';
+
+  @override
+  String get setupPinBody => '六位数字比密码解锁更快。可跳过，稍后在设置中添加。';
+
+  @override
+  String get setupPin => 'PIN';
+
+  @override
+  String get setupPinAgain => '再次输入 PIN';
+
+  @override
+  String get setupPinRules => 'PIN 须为六位数字。';
+
+  @override
+  String get setupPinMismatch => '两次输入的 PIN 不一致。';
+
+  @override
+  String get setupFingerprintTitle => '指纹';
+
+  @override
+  String get setupFingerprintBody => '将手指放在传感器上即可解锁。可跳过，稍后在设置中添加。';
+
+  @override
+  String get setupFingerprintAdd => '添加指纹';
+
+  @override
   String get setupDeviceTitle => '设备名称';
 
   @override
@@ -5080,10 +5107,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get setupStarting => '正在启动…';
 
   @override
-  String get setupAccountExists => '此设备已有账户。';
+  String get setupNotAllowed => '设置程序无权在此创建账户。';
 
   @override
-  String get setupNotAllowed => '设置程序无权在此创建账户。';
+  String setupStartFailed(String reason) {
+    return '设备未能以你的账户启动：$reason';
+  }
 
   @override
   String setupFailed(String reason) {

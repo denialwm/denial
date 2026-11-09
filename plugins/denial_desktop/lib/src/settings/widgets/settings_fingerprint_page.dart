@@ -46,8 +46,8 @@ class _SettingsFingerprintPageState
       builder: (context, _) {
         final l10n = context.l10n;
         final status = session.status;
-        final error = status != null && _isFingerprintError(status)
-            ? _status(
+        final error = status != null && isFingerprintError(status)
+            ? fingerprintStatus(
                 context,
                 status,
                 retryMilliseconds: session.retryMilliseconds,
@@ -98,7 +98,7 @@ class _SettingsFingerprintPageState
                           Semantics(
                             liveRegion: true,
                             child: Text(
-                              _status(context, session.status!),
+                              fingerprintStatus(context, session.status!),
                               style: TextStyle(
                                 color: context.shellColors.performanceBad,
                               ),
@@ -170,7 +170,7 @@ class _SettingsFingerprintPageState
             if (session.status != null && error == null)
               Semantics(
                 liveRegion: true,
-                child: Text(_status(context, session.status!)),
+                child: Text(fingerprintStatus(context, session.status!)),
               ),
             if (session.enrolling) ...[
               LinearProgressIndicator(value: session.completed / session.total),
@@ -237,7 +237,8 @@ String fingerprintLabel(BuildContext context, String finger) {
   };
 }
 
-String _status(
+/// What a fingerprint session's status says to the person.
+String fingerprintStatus(
   BuildContext context,
   String status, {
   int retryMilliseconds = 0,
@@ -264,9 +265,9 @@ String _status(
   };
 }
 
-// Enrollment prompts remain beside the sensor progress; operation failures are
-// presented by the fixed page footer.
-bool _isFingerprintError(String status) => !const {
+/// Whether a status is a failure rather than an enrollment prompt. Prompts
+/// stay beside the sensor progress; Settings shows failures in its footer.
+bool isFingerprintError(String status) => !const {
   'preparing',
   'started',
   'enroll-stage-passed',

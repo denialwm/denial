@@ -66,6 +66,12 @@ final fingerprintSessionProvider =
 /// The lock PIN opens it; sudo's rule for that one command asks no password.
 /// The PIN travels only through stdin, never argv, environment, or logs.
 class FingerprintSettingsSession extends ChangeNotifier {
+  /// [command] starts the same session another way, as the first start's
+  /// setup does for the account it made; by default sudo starts deniald's.
+  FingerprintSettingsSession({this.command});
+
+  final List<String>? command;
+
   bool authorized = false;
   bool authenticating = false;
   bool enrolling = false;
@@ -93,19 +99,10 @@ class FingerprintSettingsSession extends ChangeNotifier {
     _pin = pin;
     notifyListeners();
     try {
+      final command = this.command ?? _sudoCommand();
       final process = await Process.start(
-        Platform.environment['DENIAL_PRIVILEGE_TOOL']?.trim().isNotEmpty == true
-            ? Platform.environment['DENIAL_PRIVILEGE_TOOL']!.trim()
-            : 'sudo',
-        [
-          '-n',
-          '--',
-          Platform.environment['DENIAL_COMPOSITOR_BINARY']?.trim().isNotEmpty ==
-                  true
-              ? Platform.environment['DENIAL_COMPOSITOR_BINARY']!.trim()
-              : 'deniald',
-          '--fingerprint-settings',
-        ],
+        command.first,
+        command.sublist(1),
         environment: {'LC_ALL': 'C'},
       );
       if (_disposed || generation != _generation) {
@@ -141,6 +138,18 @@ class FingerprintSettingsSession extends ChangeNotifier {
       _fail('unavailable', generation);
     }
   }
+
+  static List<String> _sudoCommand() => [
+    Platform.environment['DENIAL_PRIVILEGE_TOOL']?.trim().isNotEmpty == true
+        ? Platform.environment['DENIAL_PRIVILEGE_TOOL']!.trim()
+        : 'sudo',
+    '-n',
+    '--',
+    Platform.environment['DENIAL_COMPOSITOR_BINARY']?.trim().isNotEmpty == true
+        ? Platform.environment['DENIAL_COMPOSITOR_BINARY']!.trim()
+        : 'deniald',
+    '--fingerprint-settings',
+  ];
 
   @visibleForTesting
   void handleEvent(Map<String, Object?> event) {
