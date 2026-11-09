@@ -231,6 +231,23 @@ fn popups_single_images_and_fully_covered_roots_keep_existing_routes() {
 }
 
 #[test]
+fn a_cover_without_a_current_buffer_shows_what_it_covers() {
+    // Droidloom: a root kept under an opaque full-window child, plus a popup.
+    let plan = firefox_plan();
+    let mut surfaces = vec![
+        surface(1, plan.canvas, [3356, 2260]),
+        surface(2, plan.canvas, [3356, 2260]),
+        surface(3, ClientRect::new(100.0, 100.0, 200.0, 200.0).unwrap(), [400, 400]),
+    ];
+    surfaces[1].opaque = true;
+    let plan = NativeWindowPlan::new(1, plan.canvas, 2.0, &surfaces).unwrap();
+    assert_eq!(plan.layers.len(), 3);
+    assert_eq!(plan.drawn(&[true, true, true]), [false, true, true]);
+    assert_eq!(plan.drawn(&[true, false, true]), [true, false, true]);
+    assert_eq!(plan.drawn(&[true, false, false]), [true, false, false]);
+}
+
+#[test]
 fn allocation_and_input_limits_reject_invalid_client_geometry() {
     let plan = firefox_plan();
     let layers = [

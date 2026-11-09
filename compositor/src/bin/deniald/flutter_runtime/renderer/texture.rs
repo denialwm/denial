@@ -769,6 +769,17 @@ impl ExternalTextureSlot {
                 return true;
             }
         }
+        // Nothing shows yet, so there is no pacing to keep: a newly mapped
+        // surface draws its first buffer in the frame that maps it. Waiting
+        // for the next tick drew it empty, and an opaque one also hid the
+        // surfaces below it, which showed as a black frame.
+        if self.current.is_none() && self.queued.is_none() {
+            self.current = Some(source);
+            self.presentation = self.desired_presentation;
+            self.current_sampled = false;
+            self.earlier_commits = [self.earlier_commits[1], Some(now)];
+            return true;
+        }
         // Preserve one generation on either side of a tick boundary. The
         // immediate successor is stable; only excess lookahead is latest-only.
         // A client that commits three generations within one output interval
@@ -1155,8 +1166,10 @@ mod cache_retirement_tests {
             slot.advance(interval)
         };
         let mut slot = ExternalTextureSlot::default();
+        // The first buffer shows at once; there is nothing to pace against.
         slot.queue(source(1), true, None, at(0));
-        assert!(tick(&mut slot));
+        assert_eq!(generations(&slot), [Some(1), None, None]);
+        assert!(!tick(&mut slot));
 
         // Commits at the output's rate keep the successor through a straddled
         // tick and through missed ones.
