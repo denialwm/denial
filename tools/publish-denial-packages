@@ -24,8 +24,9 @@ GitHub Release.
 
 phone copies the denial-phone Pacman repository that
 tools/denial-phone-repository wrote to phone/. Each part leaves the other's
-files alone, and both leave gapps/, the phones' Google apps package, which
-is uploaded by hand.
+files alone, and both leave gapps/, the phones' Google apps package, and
+images/, the phone images (Phonewave's image/publish), which are uploaded
+by hand.
 
 Files with new names go first; files that keep their name, the repository
 indexes, are swapped in last, all at once. The server keeps the previous
@@ -108,10 +109,10 @@ cp -- "$work/current" "$stage/.manifest"
 
 ssh_command="ssh -i $KEY_FILE -o IdentitiesOnly=yes -o BatchMode=yes"
 ssh_command+=" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS"
-# The release part never sends to, or deletes from, the phone part or gapps/.
+# The release part never sends to, or deletes from, the phone part, gapps/ or images/.
 upload() {
   rsync --rsh="$ssh_command" --recursive --times --chmod=D0755,F0644 \
-    --delay-updates --exclude=/phone/ --exclude=/gapps/ "$@" "$stage/" "$REMOTE"
+    --delay-updates --exclude=/phone/ --exclude=/gapps/ --exclude=/images/ "$@" "$stage/" "$REMOTE"
 }
 
 # The release the server holds now. Without one, nothing is deleted.
