@@ -145,6 +145,7 @@ fi
 /usr/share/applications/dev.denial.Welcome.desktop
 /usr/share/xdg-desktop-portal/denial-portals.conf
 /usr/share/xdg-desktop-portal/portals/denial.portal
+/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules
 %{?runtime_version_path:%{runtime_version_path}}
 
 %files -n denial-flutter-engine

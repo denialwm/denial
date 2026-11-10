@@ -233,7 +233,7 @@ pub(super) fn activate_window(
                 .window_root_surface(window)
                 .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false));
             if resumed && let Some(managed) = ManagedWindow::new(window) {
-                managed.prepare_minimized(false, frontend.windows_covered());
+                managed.prepare_minimized(false, frontend.window_covered(window));
             }
             if resumed {
                 frontend.reconcile_window_layout(window);
@@ -1167,12 +1167,34 @@ fn restore_minimized_window_for_move(state: &mut RuntimeState, window_id: u64) {
         return;
     }
     if let Some(managed) = ManagedWindow::new(&window) {
-        managed.prepare_minimized(false, frontend.windows_covered());
+        managed.prepare_minimized(false, frontend.window_covered(&window));
     }
     state
         .window_events
         .pending
         .push(PendingWindowEvent::Action(window_id, WindowAction::Restore));
+}
+
+/// Shows the calls app's window over the phone's lock screen while one of
+/// its calls stands: restored, running, and the screen woken when it first
+/// shows there.
+#[cfg(feature = "flutter")]
+pub(crate) fn synchronize_over_lock_window(state: &mut RuntimeState) {
+    let app_id = state.over_lock_app();
+    let Some(frontend) = state.wayland.as_mut() else {
+        return;
+    };
+    let Some(window) = frontend.set_over_lock_app(app_id.as_deref()) else {
+        return;
+    };
+    if let Some(window_id) = frontend
+        .window_root_surface(&window)
+        .and_then(|root| frontend.surface_id(&root))
+    {
+        restore_minimized_window_for_move(state, window_id);
+    }
+    state.note_user_activity();
+    state.scene_sync.mark_dirty();
 }
 
 #[cfg(feature = "flutter")]
@@ -2782,7 +2804,7 @@ pub(super) fn apply_managed_minimize(
     let Some((root, covered)) = state.wayland.as_ref().and_then(|frontend| {
         Some((
             frontend.window_root_surface(window)?,
-            frontend.windows_covered(),
+            frontend.window_covered(window),
         ))
     }) else {
         return false;

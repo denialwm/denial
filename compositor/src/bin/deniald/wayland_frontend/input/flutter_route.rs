@@ -278,8 +278,10 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
-            let target = if secure_locked || software_keyboard_touch {
+            let target = if software_keyboard_touch {
                 InputTarget::Flutter
+            } else if secure_locked {
+                state.frontend_mut().locked_input_target(position)
             } else {
                 state.frontend_mut().input_target(position)
             };
@@ -299,7 +301,10 @@ pub(super) fn process_flutter_input_event(
                     false
                 }
                 InputTarget::Client(route) => {
-                    let scene_changed = activate_client_route(state, &route, serial);
+                    // Over the lock screen the keyboard stays with the lock
+                    // screen: a touch does not activate the window.
+                    let scene_changed =
+                        !secure_locked && activate_client_route(state, &route, serial);
                     state.frontend_mut().text_input.note_client_touch();
                     let (focus, location) = route.touch_at(position);
                     let touch = state

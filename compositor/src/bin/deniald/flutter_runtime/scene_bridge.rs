@@ -63,6 +63,7 @@ impl FlutterRuntime {
         self.handler.update_native_window_plans(
             &mut windows,
             &frames,
+            self.device_pixel_ratio,
             &mut self.changed_texture_scratch,
         );
         self.rebuild_texture_output_membership(&windows);

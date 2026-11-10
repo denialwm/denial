@@ -29,6 +29,7 @@ pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 30;
 pub(super) const MIN_WORKSPACE_COUNT: u8 = 2;
 pub(super) const MAX_WORKSPACE_COUNT: u8 = 9;
 pub(super) const DEFAULT_WORKSPACE_COUNT: u8 = 4;
+pub(super) const DEFAULT_CALLS_APP: &str = "org.denialwm.Calls";
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
@@ -787,7 +788,8 @@ impl SettingsManager {
             }
         }
 
-        let (document, revision, typed) = default_document();
+        let (document, revision, typed) =
+            default_document(denial_core::environment::mobile_shell_profile());
         let mut manager = Self {
             application_theming: None,
             rotation_lock_supported: false,
@@ -869,6 +871,18 @@ impl SettingsManager {
             .and_then(|lock| lock.get("fingerprintUnlock"))
             .and_then(Value::as_bool)
             .unwrap_or(true)
+    }
+
+    /// The desktop entry of the calls app, the one app whose call window may
+    /// show over the lock screen while its call notification stands.
+    pub(super) fn calls_app(&self) -> &str {
+        self.document
+            .get("lockScreen")
+            .and_then(Value::as_object)
+            .and_then(|lock| lock.get("callsApp"))
+            .and_then(Value::as_str)
+            .filter(|app| !app.is_empty())
+            .unwrap_or(DEFAULT_CALLS_APP)
     }
 
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
@@ -1114,7 +1128,8 @@ impl SettingsManager {
                 (parsed.document, parsed.typed)
             }
             None => {
-                let (document, _, typed) = default_document();
+                let (document, _, typed) =
+                    default_document(denial_core::environment::mobile_shell_profile());
                 (document, typed)
             }
         };
@@ -1571,7 +1586,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
     })
 }
 
-fn default_document() -> (Map<String, Value>, u64, TypedSettings) {
+fn default_document(mobile: bool) -> (Map<String, Value>, u64, TypedSettings) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
     let mouse = MouseSettings::default();
@@ -1618,6 +1633,10 @@ fn default_document() -> (Map<String, Value>, u64, TypedSettings) {
         .and_then(Value::as_object_mut)
         .expect("default layout is an object")
         .insert("systemBarSide".to_owned(), Value::String("top".to_owned()));
+    if mobile {
+        seed_mobile_appearance(&mut document);
+        seed_mobile_power(&mut document);
+    }
     let typed = TypedSettings {
         keyboard,
         mouse,
@@ -1627,6 +1646,37 @@ fn default_document() -> (Map<String, Value>, u64, TypedSettings) {
         allow_client_cursor_surfaces,
     };
     (document, revision, typed)
+}
+
+/// The mobile shell's tuned look, for new documents only. The shell and the
+/// phone apps read it from the file; their own defaults stay the desktop's.
+fn seed_mobile_appearance(document: &mut Map<String, Value>) {
+    let appearance = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+        .expect("default appearance is an object");
+    appearance.insert("customAccentColor".to_owned(), Value::from(0xFFD0_BCFF_u32));
+    appearance.insert("cornerRadiusScale".to_owned(), Value::from(1.6));
+    appearance.insert("monitorCornerRadiusScale".to_owned(), Value::from(0.4));
+    // All three opacities: the shell seeds missing ones from `opacity`.
+    appearance.insert(
+        "glass".to_owned(),
+        serde_json::json!({
+            "opacity": 0.2,
+            "windowOpacity": 0.5,
+            "appPanelOpacity": 0.4,
+            "blurSigma": 26.1,
+        }),
+    );
+}
+
+/// A phone's screen goes dark after half a minute, as phones do; a desk's
+/// keeps the shell's quarter hour.
+fn seed_mobile_power(document: &mut Map<String, Value>) {
+    document.insert(
+        "power".to_owned(),
+        serde_json::json!({"idleDpmsTimeoutSeconds": 30}),
+    );
 }
 
 fn parse_color_scheme_preference(

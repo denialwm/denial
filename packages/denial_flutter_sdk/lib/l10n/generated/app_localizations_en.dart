@@ -5264,4 +5264,123 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get moveToMonitor => 'Move to monitor';
+
+  @override
+  String get setupWelcome => 'Welcome';
+
+  @override
+  String get setupLanguageBody => 'Choose your language.';
+
+  @override
+  String get setupWifiTitle => 'Wi-Fi';
+
+  @override
+  String get setupWifiBody => 'Connect now, or later from the shade.';
+
+  @override
+  String get setupTimeZoneTitle => 'Time zone';
+
+  @override
+  String get setupTimeZoneSearch => 'Search for a city';
+
+  @override
+  String get setupPersonTitle => 'About you';
+
+  @override
+  String get setupName => 'Your name';
+
+  @override
+  String get setupUsername => 'Username';
+
+  @override
+  String get setupUsernameRules =>
+      'Lowercase letters, digits, - and _, starting with a letter.';
+
+  @override
+  String get setupNameRules => 'Enter a name without a colon.';
+
+  @override
+  String get setupPasswordTitle => 'Password';
+
+  @override
+  String get setupPasswordBody =>
+      'It unlocks the device and allows changes to the system.';
+
+  @override
+  String get setupPassword => 'Password';
+
+  @override
+  String get setupPasswordAgain => 'Password again';
+
+  @override
+  String get setupPasswordMismatch => 'The passwords differ.';
+
+  @override
+  String get setupPinTitle => 'Lock PIN';
+
+  @override
+  String get setupPinBody =>
+      'Six digits unlock the device faster than the password. Skip it to add one later in Settings.';
+
+  @override
+  String get setupPin => 'Choose six digits';
+
+  @override
+  String get setupPinAgain => 'Enter them again';
+
+  @override
+  String get setupPinNotSet =>
+      'The account is ready, but its PIN was not set. Add one in Settings.';
+
+  @override
+  String get setupPinMismatch => 'The PINs differ.';
+
+  @override
+  String get setupFingerprintTitle => 'Fingerprint';
+
+  @override
+  String get setupFingerprintBody =>
+      'Unlock with a finger on the sensor. Skip it to add one later in Settings.';
+
+  @override
+  String get setupFingerprintAdd => 'Add fingerprint';
+
+  @override
+  String get setupFingerprintHold =>
+      'Hold your finger on the circle until the ring moves, then lift it.';
+
+  @override
+  String get setupDeviceTitle => 'Device name';
+
+  @override
+  String get setupDeviceBody =>
+      'Other devices see this name on Wi-Fi, Bluetooth and USB.';
+
+  @override
+  String get setupBack => 'Back';
+
+  @override
+  String get setupNext => 'Next';
+
+  @override
+  String get setupSkip => 'Skip';
+
+  @override
+  String get setupFinish => 'Finish';
+
+  @override
+  String get setupStarting => 'Starting…';
+
+  @override
+  String get setupNotAllowed => 'Setup may not make an account here.';
+
+  @override
+  String setupStartFailed(String reason) {
+    return 'The device did not start as your account: $reason';
+  }
+
+  @override
+  String setupFailed(String reason) {
+    return 'The account was not made: $reason';
+  }
 }

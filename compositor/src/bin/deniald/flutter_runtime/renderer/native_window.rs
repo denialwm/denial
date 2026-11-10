@@ -105,6 +105,8 @@ pub(super) struct NativeWindowLayer {
     pub(super) transform: u32,
     pub(super) opacity: f32,
     pub(super) opaque: bool,
+    /// Destination clipped to the canvas.
+    pub(super) visible: ClientRect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -201,6 +203,7 @@ impl NativeWindowPlan {
         }
         let mut layers = Vec::new();
         let mut opaque_covers = Vec::<ClientRect>::new();
+        let mut contributing = 0;
         for surface in surfaces.iter().rev() {
             if surface.popup_root_surface_id != 0
                 || surface.texture_id == 0
@@ -227,8 +230,10 @@ impl NativeWindowPlan {
             let Some(visible) = destination.intersection(canvas) else {
                 continue;
             };
-            if opaque_covers.iter().any(|cover| cover.contains(visible)) {
-                continue;
+            // Covered layers stay in the plan: a cover without a current
+            // buffer is not drawn, and what it covers shows instead.
+            if !opaque_covers.iter().any(|cover| cover.contains(visible)) {
+                contributing += 1;
             }
             let source = ClientRect::new(
                 surface.texture_source_x,
@@ -253,13 +258,14 @@ impl NativeWindowPlan {
                 transform: surface.transform,
                 opacity: surface.opacity,
                 opaque: surface.opaque,
+                visible,
             });
             if layers.len() > MAX_NATIVE_WINDOW_LAYERS {
                 return None;
             }
         }
         // Preserve the existing zero-copy route for a single contributing image.
-        if layers.len() < 2 {
+        if contributing < 2 {
             return None;
         }
         layers.reverse();
@@ -272,6 +278,25 @@ impl NativeWindowPlan {
             height,
             layers,
         })
+    }
+
+    /// Per layer, whether this frame draws it: it has a current buffer and
+    /// no drawn opaque layer above covers it.
+    pub(super) fn drawn(&self, current: &[bool]) -> Vec<bool> {
+        let mut covers = Vec::<ClientRect>::new();
+        let mut drawn = vec![false; self.layers.len()];
+        for (index, layer) in self.layers.iter().enumerate().rev() {
+            if !current.get(index).copied().unwrap_or(false)
+                || covers.iter().any(|cover| cover.contains(layer.visible))
+            {
+                continue;
+            }
+            drawn[index] = true;
+            if layer.opaque && layer.opacity == 1.0 {
+                covers.push(layer.visible);
+            }
+        }
+        drawn
     }
 
     /// Cropped inputs are published as virtual canvases, so layer sources

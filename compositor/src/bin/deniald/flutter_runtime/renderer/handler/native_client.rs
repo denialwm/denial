@@ -192,10 +192,15 @@ impl FlutterGlHandler {
             "disabled_texture_ids":disabled,"live_allocation_bytes":state.pool.as_ref().map_or(0,|pool|pool.live_bytes())})
     }
 
+    /// `scale` is the engine's device pixel ratio: the merged image replaces
+    /// the surface tree at the resolution Flutter draws it. A root's buffer
+    /// scale says nothing about its subsurfaces, and is 1 for clients that
+    /// size buffers through wp_viewporter.
     pub(in crate::flutter_runtime) fn update_native_window_plans(
         &self,
         windows: &mut [wire::WindowDescription],
         frames: &[ExternalTextureFrame],
+        scale: f64,
         changed: &mut Vec<i64>,
     ) {
         let scene = crate::output_color::scene_encoding();
@@ -216,12 +221,9 @@ impl FlutterGlHandler {
             ) else {
                 continue;
             };
-            let Some(plan) = NativeWindowPlan::new(
-                window.window_id,
-                canvas,
-                f64::from(window.scale_120) / 120.0,
-                &window.surfaces,
-            ) else {
+            let Some(plan) =
+                NativeWindowPlan::new(window.window_id, canvas, scale, &window.surfaces)
+            else {
                 continue;
             };
             if state.disabled.contains(&plan.texture_id) {
@@ -285,16 +287,28 @@ impl FlutterGlHandler {
     }
     /// Plans follow each scene commit at once, while a newly mapped
     /// subsurface's first buffer becomes current only at the next frame
-    /// tick. Until then that layer is not drawn, as in the surface tree.
+    /// tick. Until then that layer is not drawn, as in the surface tree, and
+    /// the layers it covers are drawn instead.
     fn native_snapshot(&self, texture_id: i64) -> Option<NativeSnapshot> {
         let plan = lock(&self.native_clients).registry.get(texture_id)?;
         let sources = lock(&self.external_texture_sources);
+        let slots = plan
+            .plan
+            .layers
+            .iter()
+            .map(|layer| {
+                sources
+                    .get(&layer.texture_id)
+                    .filter(|slot| slot.current.is_some())
+            })
+            .collect::<Vec<_>>();
+        let drawn = plan
+            .plan
+            .drawn(&slots.iter().map(Option::is_some).collect::<Vec<_>>());
         let mut inputs = Vec::with_capacity(plan.plan.layers.len());
         let mut presentations = Vec::with_capacity(plan.plan.layers.len());
-        for layer in &plan.plan.layers {
-            let slot = sources
-                .get(&layer.texture_id)
-                .filter(|slot| slot.current.is_some());
+        for ((layer, slot), drawn) in plan.plan.layers.iter().zip(slots).zip(drawn) {
+            let slot = slot.filter(|_| drawn);
             presentations.push(slot.map(|slot| slot.presentation));
             if let Some(source) = slot.and_then(|slot| slot.current.clone()) {
                 inputs.push((layer.texture_id, source));

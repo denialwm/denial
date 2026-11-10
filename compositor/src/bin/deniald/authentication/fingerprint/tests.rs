@@ -297,6 +297,80 @@ fn reader_answers_only_while_the_lock_screen_offers_it() {
     starts.recv_timeout(Duration::from_secs(2)).unwrap();
 }
 
+fn wait_for_app_event(controller: &AuthenticationController, expected: (u64, AppFingerprintEvent)) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if controller.take_fingerprint_events().contains(&expected) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "missing {expected:?}");
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn application_requests_are_served_only_while_unlocked() {
+    let controller = controller(true);
+    let (started, starts) = mpsc::channel();
+    let (results, result) = mpsc::channel();
+    let shared = Arc::clone(&controller.shared);
+    let worker =
+        thread::spawn(move || run_worker(&shared, &mut ControlledBackend { started, result }));
+    *lock_unpoisoned(&controller.fingerprint_worker) = Some(worker);
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    // While locked the reader serves the lock screen; the request waits.
+    let request = controller.request_fingerprint();
+    results.send(Verification::Match).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while controller.locked() {
+        assert!(Instant::now() < deadline);
+        controller.advance_fingerprint_unlock(Instant::now(), true);
+        thread::yield_now();
+    }
+    assert!(controller.take_fingerprint_events().is_empty());
+    // Unlocked, the reader serves the application and a rejection keeps it.
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    results.send(Verification::NoMatch).unwrap();
+    wait_for_app_event(&controller, (request, AppFingerprintEvent::Rejected));
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    results.send(Verification::Match).unwrap();
+    wait_for_app_event(
+        &controller,
+        (
+            request,
+            AppFingerprintEvent::Done(AppFingerprintResult::Match),
+        ),
+    );
+    assert!(!controller.locked());
+    assert!(starts.recv_timeout(Duration::from_millis(50)).is_err());
+    // A newer request ends the older one; ending it idles the reader.
+    let older = controller.request_fingerprint();
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    let newer = controller.request_fingerprint();
+    wait_for_app_event(
+        &controller,
+        (
+            older,
+            AppFingerprintEvent::Done(AppFingerprintResult::Cancelled),
+        ),
+    );
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    controller.end_fingerprint_request(newer);
+    assert!(starts.recv_timeout(Duration::from_millis(100)).is_err());
+    // A reader that fails before it listens ends the request.
+    let failing = controller.request_fingerprint();
+    starts.recv_timeout(Duration::from_secs(2)).unwrap();
+    results.send(Verification::Unavailable).unwrap();
+    wait_for_app_event(
+        &controller,
+        (
+            failing,
+            AppFingerprintEvent::Done(AppFingerprintResult::Unavailable),
+        ),
+    );
+    assert!(starts.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
 #[test]
 fn armed_reader_is_announced_once_and_stays_marked_between_scans() {
     let controller = controller(true);

@@ -514,7 +514,10 @@ class ShellLockScreenSettings {
     this.clockScale = 1,
     this.showSystemStatus = true,
     this.fingerprintUnlock = true,
+    this.callsApp = defaultCallsApp,
   });
+
+  static const defaultCallsApp = 'org.denialwm.Calls';
 
   final bool useSystemWallpaper;
   final double dimAmount;
@@ -526,6 +529,10 @@ class ShellLockScreenSettings {
   /// itself and keeps the reader unarmed when it is off.
   final bool fingerprintUnlock;
 
+  /// The desktop entry of the calls app. While its call notification stands,
+  /// this app's window shows over the lock screen and takes touch there.
+  final String callsApp;
+
   ShellLockScreenSettings copyWith({
     bool? useSystemWallpaper,
     double? dimAmount,
@@ -533,6 +540,7 @@ class ShellLockScreenSettings {
     double? clockScale,
     bool? showSystemStatus,
     bool? fingerprintUnlock,
+    String? callsApp,
   }) {
     return ShellLockScreenSettings(
       useSystemWallpaper: useSystemWallpaper ?? this.useSystemWallpaper,
@@ -541,6 +549,7 @@ class ShellLockScreenSettings {
       clockScale: clockScale ?? this.clockScale,
       showSystemStatus: showSystemStatus ?? this.showSystemStatus,
       fingerprintUnlock: fingerprintUnlock ?? this.fingerprintUnlock,
+      callsApp: callsApp ?? this.callsApp,
     );
   }
 
@@ -552,7 +561,8 @@ class ShellLockScreenSettings {
         other.blurRadius == blurRadius &&
         other.clockScale == clockScale &&
         other.showSystemStatus == showSystemStatus &&
-        other.fingerprintUnlock == fingerprintUnlock;
+        other.fingerprintUnlock == fingerprintUnlock &&
+        other.callsApp == callsApp;
   }
 
   @override
@@ -563,6 +573,7 @@ class ShellLockScreenSettings {
     clockScale,
     showSystemStatus,
     fingerprintUnlock,
+    callsApp,
   );
 }
 
@@ -1290,6 +1301,9 @@ class ShellSettings {
       if (lockScreen.fingerprintUnlock != before.fingerprintUnlock) {
         section['fingerprintUnlock'] = lockScreen.fingerprintUnlock;
       }
+      if (lockScreen.callsApp != before.callsApp) {
+        section['callsApp'] = lockScreen.callsApp;
+      }
       patch['lockScreen'] = section;
     }
 
@@ -1412,6 +1426,7 @@ class ShellSettings {
         'clockScale': lockScreen.clockScale,
         'showSystemStatus': lockScreen.showSystemStatus,
         'fingerprintUnlock': lockScreen.fingerprintUnlock,
+        'callsApp': lockScreen.callsApp,
       },
       'power': <String, Object>{
         'powerButtonAction': power.powerButtonAction.name,
@@ -1775,6 +1790,11 @@ class ShellSettings {
         fingerprintUnlock: lockJson['fingerprintUnlock'] is bool
             ? lockJson['fingerprintUnlock'] as bool
             : defaults.lockScreen.fingerprintUnlock,
+        callsApp:
+            lockJson['callsApp'] is String &&
+                (lockJson['callsApp'] as String).isNotEmpty
+            ? lockJson['callsApp'] as String
+            : defaults.lockScreen.callsApp,
       ),
       power: ShellPowerSettings(
         powerButtonAction: _enumValue(

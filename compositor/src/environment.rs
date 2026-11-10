@@ -16,6 +16,11 @@ pub fn var(name: &str) -> Result<String, VarError> {
     }
 }
 
+/// Whether this compositor runs the mobile shell (`DENIAL_SHELL_PROFILE=mobile`).
+pub fn mobile_shell_profile() -> bool {
+    var("DENIAL_SHELL_PROFILE").as_deref() == Ok("mobile")
+}
+
 /// Read a Denial boolean flag. The canonical spelling takes precedence.
 pub fn flag(name: &str) -> bool {
     var(name).is_ok_and(|value| parse_flag(&value))

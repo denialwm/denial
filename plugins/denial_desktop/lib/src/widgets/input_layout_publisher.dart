@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/input.dart';
 
+import '../state/over_lock_window.dart';
 import '../state/phone_desk.dart';
 
 class InputLayoutPublisher extends ConsumerStatefulWidget {
@@ -64,6 +65,7 @@ class _InputLayoutPublisherState extends ConsumerState<InputLayoutPublisher> {
       ),
     );
     ref.watch(shellInteractionRegistryProvider);
+    ref.watch(overLockWindowProvider);
     ref.watch(mobilePresentationTopInsetProvider);
     // Beside a desk the phone's regions move into the scene.
     ref.watch(phoneDeskProvider);

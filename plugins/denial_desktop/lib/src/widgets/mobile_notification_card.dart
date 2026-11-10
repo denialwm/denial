@@ -59,7 +59,7 @@ class _MobileNotificationCardState extends State<MobileNotificationCard> {
       groupedBackdrop: widget.groupedBackdrop,
       cachedBackdrop: widget.cachedBackdrop,
       expanded: _expanded,
-      showActions: _expanded,
+      showActions: _expanded || widget.notification.incomingCall,
       previewMode: widget.previewMode,
       onDefaultAction: canOpen ? widget.onDefaultAction : null,
       onAction: widget.interactive ? widget.onAction : null,

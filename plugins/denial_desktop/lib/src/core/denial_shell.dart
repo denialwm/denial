@@ -23,6 +23,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/theme.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
 
+import '../widgets/fingerprint_mark.dart';
 import '../widgets/input_layout_publisher.dart';
 import '../widgets/mobile_screenshot_flash.dart';
 import '../widgets/mobile_volume_hud.dart';
@@ -38,6 +39,7 @@ import 'package:denial_flutter_sdk/shell.dart';
 
 import 'shell_runtime_bindings.dart';
 import 'shell_secure_stage.dart';
+import '../features/setup/first_user_setup_layer.dart';
 import '../widgets/lock/lock_screen_layer.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
@@ -328,10 +330,16 @@ class _ProfileScene extends StatelessWidget {
               ),
             ),
             const MobileSystemOverlayLayer(),
+            // Before the device has a person's account, setup covers all of
+            // the above; the keyboard stays over it.
+            const FirstUserSetupLayer(),
             const SystemKeyboardLayer(),
             // Over everything on the phone, like the lock screen it comes
             // from.
             const UnlockedAmbientDisplay(),
+            // The fingerprint sensor, for the lock screen, the ambient
+            // display and applications alike.
+            const FingerprintMark(),
             // Volume shows over the lock screen too, as on any phone.
             const MobileVolumeHud(),
             // Above everything, the lock screen included.
@@ -370,6 +378,7 @@ class _ProfileScene extends StatelessWidget {
                   ],
                 ),
               ),
+              if (!besidePhone) const FirstUserSetupLayer(),
               if (!besidePhone) const SystemKeyboardLayer(),
             ],
           ),

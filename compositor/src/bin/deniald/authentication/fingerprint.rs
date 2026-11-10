@@ -272,50 +272,80 @@ fn cancelled(shared: &SharedAuthentication, epoch: u64) -> bool {
         || !shared.locked.load(Ordering::Acquire)
 }
 
+/// Whom a scan serves: the lock screen of one lock, or one application
+/// request while the session is unlocked.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Mode {
+    Lock(u64),
+    App(u64),
+}
+
+fn current_mode(shared: &SharedAuthentication, state: &AuthenticationState) -> Option<Mode> {
+    if state.stopping || !state.fingerprint_allowed() {
+        return None;
+    }
+    if shared.locked.load(Ordering::Acquire) {
+        // An application's request waits for the unlock.
+        (state.fingerprint_unlock.is_none() && state.fingerprint_offered)
+            .then_some(Mode::Lock(state.lock_epoch))
+    } else {
+        state.app_request.map(Mode::App)
+    }
+}
+
+fn mode_cancelled(shared: &SharedAuthentication, mode: Mode) -> bool {
+    match mode {
+        Mode::Lock(epoch) => cancelled(shared, epoch),
+        Mode::App(_) => current_mode(shared, &lock_unpoisoned(&shared.state)) != Some(mode),
+    }
+}
+
 pub(super) fn run_worker(
     shared: &Arc<SharedAuthentication>,
     backend: &mut impl FingerprintBackend,
 ) {
-    let mut previous_epoch = None;
+    let mut previous_mode = None;
     let mut unavailable_attempts = 0u32;
     lock_unpoisoned(&shared.state).fingerprint_sensor = sensor_rect();
     loop {
-        let epoch = {
+        let mode = {
             let mut state = lock_unpoisoned(&shared.state);
-            while !state.stopping
-                && (!shared.locked.load(Ordering::Acquire)
-                    || state.fingerprint_unlock.is_some()
-                    || !state.fingerprint_offered
-                    || !state.fingerprint_allowed())
-            {
+            loop {
+                if state.stopping {
+                    return;
+                }
+                if let Some(mode) = current_mode(shared, &state) {
+                    break mode;
+                }
+                publish_wanted(shared, &mut state, false);
                 state = shared
                     .condition
                     .wait(state)
                     .unwrap_or_else(|error| error.into_inner());
             }
-            if state.stopping {
-                return;
-            }
-            state.lock_epoch
         };
-        if previous_epoch != Some(epoch) {
+        if previous_mode != Some(mode) {
             unavailable_attempts = 0;
-            previous_epoch = Some(epoch);
+            previous_mode = Some(mode);
         }
+        publish_wanted(shared, &mut lock_unpoisoned(&shared.state), true);
         let armed_at = Cell::new(None);
         let touch_at = Cell::new(None::<Instant>);
         let result = backend.verify(
             &|| {
                 armed_at.set(Some(Instant::now()));
                 publish_readiness(shared, true);
+                if let Mode::App(request) = mode {
+                    shared.push_app_event(request, AppFingerprintEvent::Ready);
+                }
             },
             &|active| {
-                if active && !cancelled(shared, epoch) {
+                if active && !mode_cancelled(shared, mode) {
                     touch_at.set(Some(Instant::now()));
                 }
-                publish_scanning(shared, active && !cancelled(shared, epoch));
+                publish_scanning(shared, active && !mode_cancelled(shared, mode));
             },
-            &|| cancelled(shared, epoch),
+            &|| mode_cancelled(shared, mode),
             &shared.fingerprint_changed,
         );
         if let Some(touch) = touch_at.get() {
@@ -326,9 +356,19 @@ pub(super) fn run_worker(
             );
         }
         publish_scanning(shared, false);
-        // Between scans the reader is not listening; the lock screen shows
+        // Between scans the reader is not listening; the sensor mark shows
         // that until the next attempt arms it.
         publish_readiness(shared, false);
+        let healthy = armed_at
+            .get()
+            .is_some_and(|armed| armed.elapsed() >= HEALTHY_ARMED);
+        let epoch = match mode {
+            Mode::Lock(epoch) => epoch,
+            Mode::App(request) => {
+                finish_app_scan(shared, request, result, healthy);
+                continue;
+            }
+        };
         if result == Verification::Match && complete_match(shared, epoch) {
             info!("Denial fingerprint validated; waiting for display readiness");
             continue;
@@ -346,10 +386,7 @@ pub(super) fn run_worker(
                 unavailable_attempts = 0;
                 continue;
             }
-            _ if armed_at
-                .get()
-                .is_some_and(|armed| armed.elapsed() >= HEALTHY_ARMED) =>
-            {
+            _ if healthy => {
                 unavailable_attempts = 0;
                 continue;
             }
@@ -367,6 +404,54 @@ pub(super) fn run_worker(
                     && shared.locked.load(Ordering::Acquire)
             })
             .unwrap_or_else(|error| error.into_inner());
+    }
+}
+
+/// A rejected finger keeps the request; a match or a reader that failed
+/// before it listened ends it. A request that ended meanwhile hears nothing.
+fn finish_app_scan(
+    shared: &SharedAuthentication,
+    request: u64,
+    result: Verification,
+    healthy: bool,
+) {
+    let mut state = lock_unpoisoned(&shared.state);
+    if current_mode(shared, &state) != Some(Mode::App(request)) {
+        return;
+    }
+    let event = match result {
+        Verification::NoMatch => {
+            if let Some(haptics) = shared.haptics.get() {
+                haptics.fingerprint_rejected();
+            }
+            shared.push_event(AuthenticationEvent {
+                kind: AuthenticationEventKind::FingerprintFeedback,
+                state: snapshot_locked(shared, &state, Instant::now()),
+                message: "no-match".into(),
+            });
+            AppFingerprintEvent::Rejected
+        }
+        Verification::Match => AppFingerprintEvent::Done(AppFingerprintResult::Match),
+        Verification::Unavailable if !healthy => {
+            AppFingerprintEvent::Done(AppFingerprintResult::Unavailable)
+        }
+        Verification::Unavailable | Verification::Cancelled => return,
+    };
+    if matches!(event, AppFingerprintEvent::Done(_)) {
+        state.app_request = None;
+        info!(?event, "application fingerprint verification ended");
+    }
+    shared.push_app_event(request, event);
+}
+
+/// The shell marks the sensor while the reader serves someone. Only a reader
+/// that has armed is announced, as with readiness.
+fn publish_wanted(shared: &SharedAuthentication, state: &mut AuthenticationState, wanted: bool) {
+    if state.fingerprint_wanted != wanted {
+        state.fingerprint_wanted = wanted;
+        if state.fingerprint_known {
+            shared.push_event(credential_event(shared, state));
+        }
     }
 }
 

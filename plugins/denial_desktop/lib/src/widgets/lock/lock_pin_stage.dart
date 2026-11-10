@@ -768,7 +768,7 @@ class _PinDotsState extends State<_PinDots> {
     final still = MediaQuery.disableAnimationsOf(context);
     final ink = widget.error
         ? ShellTelemetryColors.danger
-        : ShellMediaColors.lightForeground;
+        : _PinInk.of(context);
     return Semantics(
       label: context.l10n.lockPinProgress(widget.filled, widget.length),
       child: ExcludeSemantics(
@@ -949,6 +949,90 @@ class _PinDotPainter extends CustomPainter {
 /// The keys' glass is drawn from the lock backdrop's cached frost, beneath
 /// a snapshot of their labels. A live glass filter shows nothing inside the
 /// fading snapshot, and would appear only once the stage stopped fading.
+/// The keys' and dots' ink: light over the lock screen's darkened backdrop
+/// unless a [PinKeypad] names its own.
+class _PinInk extends InheritedWidget {
+  const _PinInk({required this.color, required super.child});
+
+  final Color color;
+
+  static Color of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_PinInk>()?.color ??
+      ShellMediaColors.lightForeground;
+
+  @override
+  bool updateShouldNotify(_PinInk oldWidget) => color != oldWidget.color;
+}
+
+/// The lock screen's PIN dots and keypad for another place that takes a
+/// PIN, such as setup: the same keys, in [ink], sized to the space given.
+/// Typed digits stay with the caller, which says how many are [filled].
+class PinKeypad extends StatelessWidget {
+  const PinKeypad({
+    super.key,
+    required this.length,
+    required this.filled,
+    required this.ink,
+    required this.deleteLabel,
+    required this.onDigit,
+    required this.onDelete,
+    required this.onClear,
+    this.error = false,
+    this.enabled = true,
+  });
+
+  final int length;
+  final int filled;
+  final Color ink;
+  final String deleteLabel;
+  final ValueChanged<int> onDigit;
+  final VoidCallback onDelete;
+  final VoidCallback onClear;
+  final bool error;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PinInk(
+      color: ink,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Four rows of keys and the dots fill the height at most.
+          final keySize = math
+              .min(constraints.maxWidth * 0.25, constraints.maxHeight * 0.19)
+              .clamp(48.0, 92.0)
+              .toDouble();
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _PinDots(length: length, filled: filled, error: error),
+              SizedBox(height: keySize * 0.3),
+              _PinPad(
+                keySize: keySize,
+                reveal: kAlwaysCompleteAnimation,
+                rise: const AlwaysStoppedAnimation(Offset.zero),
+                scrim: ShellMediaColors.darkness.withValues(alpha: 0.42),
+                enabled: enabled,
+                onDigit: onDigit,
+                leading: SizedBox.square(dimension: keySize),
+                trailing: filled == 0
+                    ? SizedBox.square(dimension: keySize)
+                    : _PinIconKey(
+                        size: keySize,
+                        icon: Icons.backspace_outlined,
+                        label: deleteLabel,
+                        onPressed: onDelete,
+                        onLongPress: onClear,
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _PinPad extends StatelessWidget {
   const _PinPad({
     required this.keySize,
@@ -1120,6 +1204,8 @@ class _PinKeyPressState extends State<_PinKeyPress>
   }
 
   void _release() {
+    // The key that completes a PIN can take its stage away before the lift.
+    if (!mounted) return;
     if (MediaQuery.disableAnimationsOf(context)) {
       _press.value = 0;
     } else {
@@ -1180,9 +1266,8 @@ class _PinDigitKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ink = enabled
-        ? ShellMediaColors.lightForeground
-        : ShellMediaColors.lightForeground.withValues(alpha: 0.38);
+    final foreground = _PinInk.of(context);
+    final ink = enabled ? foreground : foreground.withValues(alpha: 0.38);
     return _PinKeyPress(
       size: size,
       enabled: enabled,
@@ -1191,12 +1276,10 @@ class _PinDigitKey extends StatelessWidget {
       builder: (context, press) => CustomPaint(
         painter: _PinKeyFillPainter(
           press: press,
-          rest: ShellMediaColors.lightForeground.withValues(
+          rest: foreground.withValues(
             alpha: glass ? 0 : (enabled ? 0.11 : 0.06),
           ),
-          pressed: ShellMediaColors.lightForeground.withValues(
-            alpha: glass ? 0.24 : 0.32,
-          ),
+          pressed: foreground.withValues(alpha: glass ? 0.24 : 0.32),
         ),
         child: Center(
           child: Column(
@@ -1252,6 +1335,7 @@ class _PinIconKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ink = _PinInk.of(context);
     return _PinKeyPress(
       size: size,
       enabled: true,
@@ -1261,15 +1345,11 @@ class _PinIconKey extends StatelessWidget {
       builder: (context, press) => CustomPaint(
         painter: _PinKeyFillPainter(
           press: press,
-          rest: ShellMediaColors.lightForeground.withValues(alpha: 0),
-          pressed: ShellMediaColors.lightForeground.withValues(alpha: 0.16),
+          rest: ink.withValues(alpha: 0),
+          pressed: ink.withValues(alpha: 0.16),
         ),
         child: Center(
-          child: Icon(
-            icon,
-            size: size * 0.32,
-            color: ShellMediaColors.lightForeground,
-          ),
+          child: Icon(icon, size: size * 0.32, color: ink),
         ),
       ),
     );
@@ -1289,6 +1369,7 @@ class _PinTextKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ink = _PinInk.of(context);
     return _PinKeyPress(
       size: size,
       enabled: true,
@@ -1297,8 +1378,8 @@ class _PinTextKey extends StatelessWidget {
       builder: (context, press) => CustomPaint(
         painter: _PinKeyFillPainter(
           press: press,
-          rest: ShellMediaColors.lightForeground.withValues(alpha: 0),
-          pressed: ShellMediaColors.lightForeground.withValues(alpha: 0.16),
+          rest: ink.withValues(alpha: 0),
+          pressed: ink.withValues(alpha: 0.16),
         ),
         child: Center(
           child: Text(
@@ -1307,7 +1388,7 @@ class _PinTextKey extends StatelessWidget {
             overflow: TextOverflow.fade,
             softWrap: false,
             style: ShellText.base.copyWith(
-              color: ShellMediaColors.lightForeground,
+              color: ink,
               fontSize: 15,
               fontWeight: FontWeight.w500,
             ),

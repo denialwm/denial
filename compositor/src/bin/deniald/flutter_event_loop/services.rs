@@ -37,6 +37,7 @@ pub(super) fn start_notification_server(
                         let mut queue = notification_dispatch_queue
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        state.note_call_notifications(queue.iter());
                         state.pending_notification_events.extend(queue.drain(..));
                     }
                 },

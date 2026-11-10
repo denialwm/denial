@@ -148,6 +148,7 @@ impl Session<'_, '_> {
         for (output, powered) in power {
             events.output_power_requests.insert(output, powered);
         }
+        crate::fingerprint_verify::service(events);
         if changed {
             frame_scheduler.mark_all_dirty();
             wayland_frontend::reset_all_input_devices(events);

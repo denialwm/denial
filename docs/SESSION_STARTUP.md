@@ -264,6 +264,53 @@ produced a fresh lock frame. This covers sleep requested by Denial, logind idle 
 switches, and external logind clients without flashing the lock screen before
 the display goes black.
 
+## First start
+
+A system that starts Denial before it has a person's account runs the session
+as a system account of its own and names its account helper:
+
+```ini
+Environment=DENIAL_FIRST_USER_HELPER=/usr/lib/phonewave-system/first-user
+```
+
+While the variable holds an absolute path, the shell covers its scene with
+setup instead of the lock screen and home: language, time zone, Wi-Fi, the
+person's name and username, a password, a lock PIN and the device's name,
+then a fingerprint where the device has a reader and the person chose a PIN.
+The PIN and the fingerprint may be skipped. The language applies to setup at
+once. The session never locks while the variable is set: there is no account
+to lock yet, so a timed-out screen just turns off, without the lock screen's
+always-on picture. Finishing runs, through pkexec,
+
+```sh
+HELPER USERNAME FULL_NAME DEVICE_NAME LANGUAGE TIME_ZONE
+```
+
+with the password as the first line of standard input and the PIN, six
+digits or empty for none, as the second. `LANGUAGE` is `en` or `zh`; an empty
+`TIME_ZONE` keeps the system's. The helper makes the account, password
+included, in one step. Its exit status: 0 made; 4 made, but the device's
+name, time zone or language failed; 5 made, but the PIN was not set; 3 an
+account already exists; 2 it refused what it was given; anything else the
+account was not made. pkexec's 126 and 127 mean polkit did not allow the
+helper. Setup shows the failure and stays, so the person can change what was
+refused and finish again; with status 5 it says so and finishes without the
+PIN.
+
+`HELPER --zone TIME_ZONE` runs when the person leaves the time zone step,
+before Wi-Fi shows: it sets the zone, and where the system can, the country
+whose rules the Wi-Fi radios follow. Setup goes on whatever it answers. Each
+touch the reader takes while a finger is added gives a haptic tap, so the
+person knows when to lift.
+
+`HELPER --fingerprint` runs `deniald --fingerprint-settings` for the new
+account, its PIN the key as in Settings, and `HELPER --start` starts the
+session again as that account once setup is done.
+
+The system's polkit rules must let the setup account run the helper and add
+Wi-Fi connections without a password, and the helper must refuse once a
+person's account exists. Without the variable Denial never shows setup.
+
 ## Fingerprint unlock
 
 When fprintd is installed and the session user already has a fingerprint
@@ -299,20 +346,25 @@ invalidate the scan; cleanup stops verification and releases the sensor.
 Fingerprint success also cancels a pending password conversation. Flutter has
 no command that can assert a fingerprint match or bypass the security gate.
 
-Settings shows a Fingerprint section only while fprintd reports a device. It
-initially shows only a sudo password prompt. After password verification it
-offers first-time enrollment or lists enrolled fingers with an Add fingerprint
-button. Enrollment reports scan progress and supports cancellation. Leaving
-the section closes the privileged session and releases any device claim;
-authorization also expires after five minutes.
+Settings shows a Fingerprint section only while fprintd reports a device.
+Changing fingers takes the lock PIN, since Denial's lock screen leaves the
+reader off without one: Settings checks it with `deniald --lock-pin check`,
+the PIN on the helper's input, never in its arguments or logs. Settings then
+claims fprintd's device as the session's user and calls `EnrollStart`,
+`DeleteEnrolledFinger` and `ListEnrolledFingers` itself. The package's polkit
+rule, `/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules`, grants
+`net.reactivated.fprint.device.enroll` to the active local session, so the
+user's own fingers need no account password; another user's still take an
+administrator. Enrollment reports scan progress and supports cancellation.
+Leaving the section releases the device; the PIN is asked again after five
+minutes.
 
-The Settings process launches `sudo -S -k -- deniald --fingerprint-settings`
-over private stdin/stdout pipes. The helper independently verifies the invoking
-user's password through the `sudo` PAM service, including on hosts configured
-with passwordless sudo, before reading any enrolled-finger metadata. It accepts
-only listing, enrollment of a named finger, and cancellation for that user.
-Passwords are never passed in command arguments or logged. Settings requires
-`sudo` in addition to the optional `fprintd` package.
+Where a Gatekeeper keeps the lock PIN (NX809J, below), the reader adds a
+finger only once the PIN is proven to it, which needs root. There Settings
+runs `sudo -n -- deniald --fingerprint-settings` over private stdin/stdout
+pipes instead. The helper checks the PIN itself before reading any
+enrolled-finger metadata, and accepts only listing, enrollment and deletion
+of a named finger, and cancellation, for the invoking user.
 
 The isolated fprintd mock tests run as part of `tools/denial-pc test`. They never
 access the system bus or real fingerprint hardware. For the focused Rust suite:
@@ -323,14 +375,15 @@ DENIAL_FPRINT_TEST_BUS=1 dbus-run-session -- \
   cargo test --locked --features flutter --bin deniald authentication::
 ```
 
-## NX809J native PIN authorization
+## Native PIN authorization
 
-On NX809J, `deniald --lock-pin` uses the socket-activated
-`goodix-gatekeeper-worker` through `/run/nx809j-gatekeeper/worker.sock`.
-The socket is owned by the configured session account and mode 0600; the
-service runs one root worker per connection. Denial checks the server's root
-peer credentials. Install the worker and the device's `nx809j-gatekeeper.socket`
-and `nx809j-gatekeeper@.service` units before enabling the socket.
+Where a phone has a hardware PIN provider, its socket is
+`/run/gatekeeper/worker.sock`, and `deniald --lock-pin` uses it; without the
+socket the PIN stays in software. Phonewave's `goodix-gatekeeper.socket` is
+one: socket-activated, one root `goodix-gatekeeper-worker` per connection,
+the socket mode 0660 for the `gatekeeper` group, which the phone's user is
+in. Denial checks the server's root peer credentials. The enrollment broker
+of `deniald --fingerprint-settings` listens in `/run/fingerprint-enroll`.
 
 The user's existing lock-PIN state file stores a version-2 record containing
 PIN length, enabled state, native namespace 941003, returned secure user ID and
