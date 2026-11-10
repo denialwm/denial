@@ -12,6 +12,8 @@ import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/system_services.dart'
+    show hapticsServiceProvider;
 import 'package:denial_flutter_sdk/tokens.dart';
 
 import '../../settings/widgets/settings_fingerprint_page.dart'
@@ -26,7 +28,7 @@ import 'first_user_account.dart';
 
 /// The device's first start: before it has a person's account, the shell
 /// shows this over everything instead of its lock screen and home, and asks
-/// for the language, Wi-Fi, time zone, the person's name, username and
+/// for the language, time zone, Wi-Fi, the person's name, username and
 /// password, a lock PIN on the lock screen's keypad, and the device's name.
 /// Finishing makes the account; with a PIN and a fingerprint reader it then
 /// offers a fingerprint. The
@@ -57,8 +59,8 @@ const Duration _pageMotion = Duration(milliseconds: 340);
 
 enum _Step {
   language,
-  wifi,
   timeZone,
+  wifi,
   person,
   password,
   pin,
@@ -116,6 +118,9 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
   FingerprintSettingsSession? _fingerprints;
   var _fingerprintPin = '';
   var _finger = 'right-index-finger';
+
+  /// The touches of the finger being added that the reader has taken.
+  var _touchesTaken = 0;
 
   /// Where the sensor is under the screen, for the ring while a finger is
   /// added; null without one.
@@ -205,7 +210,7 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
     _Step.person => _name.text.trim().isNotEmpty && _username.text.isNotEmpty,
     _Step.password => _password.text.isNotEmpty,
     _Step.device => _deviceName.text.trim().isNotEmpty && !_busy,
-    _Step.fingerprint => !_busy,
+    _Step.timeZone || _Step.fingerprint => !_busy,
     _ => true,
   };
 
@@ -289,6 +294,9 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
         if (_password.text != _passwordAgain.text) {
           error = l10n.setupPasswordMismatch;
         }
+      case _Step.timeZone:
+        unawaited(_applyZone());
+        return;
       case _Step.pin:
         // Skipped: no PIN.
         _restartPin();
@@ -304,6 +312,22 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _error = error;
       if (error == null) _show(_Step.values[_step.index + 1]);
       if (_step == _Step.pin) _restartPin();
+    });
+  }
+
+  /// The zone is set before Wi-Fi shows: its country's rules decide which
+  /// networks the radios may find. A phone that could not set it goes on;
+  /// the account's making sets the zone again.
+  Future<void> _applyZone() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    if (_zone.isNotEmpty) await setFirstUserZone(widget.helper, _zone);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _show(_Step.wifi);
     });
   }
 
@@ -351,8 +375,9 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
             pin.isNotEmpty &&
             reader) {
           _fingerprintPin = pin;
+          ref.read(hapticsServiceProvider).prewarm();
           _fingerprints = firstUserFingerprints(widget.helper)
-            ..addListener(() => setState(() {}))
+            ..addListener(_fingerprintChanged)
             ..authenticate(pin);
           setState(() {
             _busy = false;
@@ -391,6 +416,17 @@ class _FirstUserSetupState extends ConsumerState<_FirstUserSetup> {
       _starting = false;
       _error = context.l10n.setupStartFailed(failure);
     });
+  }
+
+  /// A tap for each touch the reader takes: the finger may lift.
+  void _fingerprintChanged() {
+    final session = _fingerprints;
+    if (session == null) return;
+    final taken = session.enrolling || session.status == 'enroll-completed'
+        ? session.completed
+        : 0;
+    if (taken > _touchesTaken) ref.read(hapticsServiceProvider).pulse();
+    setState(() => _touchesTaken = taken);
   }
 
   bool get _fingerprintAdded {

@@ -183,6 +183,17 @@ Future<Rect?> readFingerprintSensor() async {
   }
 }
 
+/// Sets the time zone before the account exists, and with it the country
+/// whose rules the Wi-Fi radios follow; false when the helper could not.
+Future<bool> setFirstUserZone(String helper, String zone) async {
+  try {
+    final result = await Process.run('pkexec', [helper, '--zone', zone]);
+    return result.exitCode == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
 /// Starts the session again as the account the helper made; the helper's
 /// message when it could not.
 Future<String?> startFirstUser(String helper) async {

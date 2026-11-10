@@ -274,7 +274,7 @@ Environment=DENIAL_FIRST_USER_HELPER=/usr/lib/phonewave-system/first-user
 ```
 
 While the variable holds an absolute path, the shell covers its scene with
-setup instead of the lock screen and home: language, Wi-Fi, time zone, the
+setup instead of the lock screen and home: language, time zone, Wi-Fi, the
 person's name and username, a password, a lock PIN and the device's name,
 then a fingerprint where the device has a reader and the person chose a PIN.
 The PIN and the fingerprint may be skipped. The language applies to setup at
@@ -296,6 +296,12 @@ account was not made. pkexec's 126 and 127 mean polkit did not allow the
 helper. Setup shows the failure and stays, so the person can change what was
 refused and finish again; with status 5 it says so and finishes without the
 PIN.
+
+`HELPER --zone TIME_ZONE` runs when the person leaves the time zone step,
+before Wi-Fi shows: it sets the zone, and where the system can, the country
+whose rules the Wi-Fi radios follow. Setup goes on whatever it answers. Each
+touch the reader takes while a finger is added gives a haptic tap, so the
+person knows when to lift.
 
 `HELPER --fingerprint` runs `deniald --fingerprint-settings` for the new
 account, its PIN the key as in Settings, and `HELPER --start` starts the
