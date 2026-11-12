@@ -562,6 +562,8 @@ fn install_surface_readiness_hook(surface: &WlSurface) {
         // surface hooks are Send + Sync, while calloop handles are confined to
         // the compositor thread that executes this hook.
         let loop_handle = state.frontend().loop_handle.clone();
+        #[cfg(feature = "flutter")]
+        state.frontend_mut().note_thawing_commit_arrived(surface);
         let (acquire_point, dmabuf, has_new_buffer) = with_states(surface, |states| {
             let mut syncobj = states.cached_state.get::<DrmSyncobjCachedState>();
             let acquire_point = syncobj.pending().acquire_point.clone();
@@ -1349,8 +1351,9 @@ impl CompositorHandler for RuntimeState {
         #[cfg(feature = "flutter")]
         if let Some(kind) = commit_kind {
             frontend.queue_surface_commit(surface, kind);
-            frontend.thaw_on_visual_commit(surface);
         }
+        #[cfg(feature = "flutter")]
+        frontend.thaw_on_commit(surface, visual_update);
         #[cfg(feature = "flutter")]
         let mut published_surface_commits = None;
         #[cfg(feature = "flutter")]

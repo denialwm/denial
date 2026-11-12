@@ -8,17 +8,24 @@
 //! one. The desktop shell lets minimized windows draw at the output's rate,
 //! and so do windows on a desk next to the phone.
 //!
+//! A restored window that keeps its kept frame for a second reports what its
+//! surfaces committed meanwhile: how many commits arrived, how many applied
+//! and how many applied while it still counted as minimized.
+//!
 //! The phone's lock screen covers every window: all of them are suspended
 //! while the session is locked, so apps stay paused until it unlocks. The
 //! one exception is the calls app's window while its call stands: it shows
 //! over the lock screen and keeps running.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::backend::ObjectId;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+
+use tracing::{info, warn};
 
 use super::WaylandFrontend;
 use super::managed_window::ManagedWindow;
@@ -33,12 +40,41 @@ enum FramePace {
     Paused,
 }
 
+/// How long a restored window may show its kept frame before it reports.
+const THAW_REPORT: Duration = Duration::from_secs(1);
+
+/// A restored window still showing its kept frame, and what its surfaces
+/// committed since it was restored.
+#[derive(Debug)]
+struct Thaw {
+    since: Instant,
+    /// Commits that reached Denial, before any blocker held them.
+    arrived: u32,
+    /// Commits Denial applied.
+    applied: u32,
+    /// Applied commits with new content while the window was minimized.
+    visual_while_minimized: u32,
+    reported: bool,
+}
+
+impl Thaw {
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            arrived: 0,
+            applied: 0,
+            visual_while_minimized: 0,
+            reported: false,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct MinimizedWindows {
     /// Paused windows that asked for a frame callback.
     parked: HashSet<ObjectId>,
     /// Restored windows still showing their kept frame.
-    thawing: HashSet<ObjectId>,
+    thawing: HashMap<ObjectId, Thaw>,
     /// The textures of frozen windows in the scene last built: they keep
     /// their frame without being given a new one.
     kept_textures: Vec<u64>,
@@ -76,13 +112,27 @@ impl WaylandFrontend {
             return;
         }
         if minimized {
-            self.minimized_windows.thawing.remove(root);
+            if let Some(thaw) = self.minimized_windows.thawing.remove(root)
+                && !thaw.reported
+                && thaw.since.elapsed() >= THAW_REPORT
+            {
+                warn!(
+                    surface_id = ?root,
+                    frozen_ms = thaw.since.elapsed().as_millis() as u64,
+                    arrived = thaw.arrived,
+                    applied = thaw.applied,
+                    visual_while_minimized = thaw.visual_while_minimized,
+                    "restored window minimized again while still showing its kept frame"
+                );
+            }
             if self.pending_frame_callback_windows.remove(root) {
                 self.minimized_windows.parked.insert(root.clone());
             }
         } else {
             self.keep_window_on_phone(root);
-            self.minimized_windows.thawing.insert(root.clone());
+            self.minimized_windows
+                .thawing
+                .insert(root.clone(), Thaw::new());
             if self.minimized_windows.parked.remove(root) {
                 self.pending_frame_callback_windows.insert(root.clone());
             }
@@ -181,22 +231,83 @@ impl WaylandFrontend {
     /// Whether the window rooted at `root` shows its kept frame instead of
     /// its committed buffers.
     pub(super) fn window_frozen(&self, root: &ObjectId) -> bool {
-        (self.surface_is_minimized(root) || self.minimized_windows.thawing.contains(root))
+        (self.surface_is_minimized(root) || self.minimized_windows.thawing.contains_key(root))
             && self.root_on_phone(root)
     }
 
-    /// A surface committed new content: a restored window it belongs to
-    /// shows its buffers again from this commit on.
-    pub(super) fn thaw_on_visual_commit(&mut self, surface: &WlSurface) {
+    /// A commit reached a surface, before any blocker holds it.
+    pub(super) fn note_thawing_commit_arrived(&mut self, surface: &WlSurface) {
         if self.minimized_windows.thawing.is_empty() {
             return;
         }
         let Some(root) = self.owning_toplevel_surface(surface) else {
             return;
         };
-        if !self.surface_is_minimized(&root.id()) {
-            self.minimized_windows.thawing.remove(&root.id());
+        let root = root.id();
+        if let Some(thaw) = self.minimized_windows.thawing.get_mut(&root) {
+            thaw.arrived += 1;
+            self.report_long_thaw(&root);
         }
+    }
+
+    /// A surface's commit applied. One with new content makes a restored
+    /// window it belongs to show its buffers again from this commit on.
+    pub(super) fn thaw_on_commit(&mut self, surface: &WlSurface, visual: bool) {
+        if self.minimized_windows.thawing.is_empty() {
+            return;
+        }
+        let Some(root) = self.owning_toplevel_surface(surface) else {
+            return;
+        };
+        let root = root.id();
+        let minimized = self.surface_is_minimized(&root);
+        let Some(thaw) = self.minimized_windows.thawing.get_mut(&root) else {
+            return;
+        };
+        thaw.applied += 1;
+        if !visual {
+            self.report_long_thaw(&root);
+            return;
+        }
+        if minimized {
+            thaw.visual_while_minimized += 1;
+            self.report_long_thaw(&root);
+            return;
+        }
+        let thaw = self
+            .minimized_windows
+            .thawing
+            .remove(&root)
+            .expect("thawing window exists");
+        if thaw.reported {
+            info!(
+                surface_id = ?root,
+                frozen_ms = thaw.since.elapsed().as_millis() as u64,
+                arrived = thaw.arrived,
+                applied = thaw.applied,
+                "restored window shows new frames again"
+            );
+        }
+    }
+
+    fn report_long_thaw(&mut self, root: &ObjectId) {
+        let minimized = self.surface_is_minimized(root);
+        let Some(thaw) = self.minimized_windows.thawing.get_mut(root) else {
+            return;
+        };
+        if thaw.reported || thaw.since.elapsed() < THAW_REPORT {
+            return;
+        }
+        thaw.reported = true;
+        warn!(
+            surface_id = ?root,
+            frozen_ms = thaw.since.elapsed().as_millis() as u64,
+            arrived = thaw.arrived,
+            applied = thaw.applied,
+            visual_while_minimized = thaw.visual_while_minimized,
+            minimized,
+            "restored window still shows its kept frame"
+        );
     }
 
     pub(super) fn clear_kept_textures(&mut self) {
