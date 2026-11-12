@@ -37,6 +37,10 @@ pub(super) struct WindowRecord {
     pub(super) layout_insertion_anchor: Option<ObjectId>,
     pub(super) restored_position: bool,
     pub(super) client_geometry_state_requested: bool,
+    /// The client asked for full screen while on the phone: it gets the whole
+    /// output and the shell hides the status bar over it.
+    #[cfg(feature = "flutter")]
+    pub(super) mobile_fullscreen: bool,
     pub(super) pending_client_sized_placement: Option<PendingClientSizedPlacement>,
     pub(super) pending_auxiliary_toplevel_placement: Option<PendingAuxiliaryToplevelPlacement>,
     pub(super) placed_transient_parent: Option<ObjectId>,

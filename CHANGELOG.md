@@ -100,8 +100,9 @@ boundaries may change before 1.0.
   installed, and the shell's clocks can show 24-hour time.
 - The mobile home screen keeps its own layout for portrait and for landscape,
   and in landscape its cells shrink to fit and the keyboard gets taller rows.
-- In landscape the mobile shell hides its status bar and apps get the full
-  height; a swipe down from the top edge still opens the shade.
+- On the mobile shell an app that asks for full screen gets the whole screen
+  and the status bar steps aside; a swipe down from the top edge still opens
+  the shade.
 - Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
 
 ### Changed
@@ -126,6 +127,9 @@ boundaries may change before 1.0.
   document; the separate notification-policy file is gone. On a phone,
   `idleLockEnabled` turns locking on or off and `screenOffLockDelaySeconds`
   sets how long a dark screen stays unlocked.
+- In landscape the mobile shade shows notifications and quick settings side
+  by side, each a phone wide, and recents is the same row of cards as in
+  portrait.
 
 ### Removed
 
@@ -137,6 +141,8 @@ boundaries may change before 1.0.
 
 - Plugin Manager no longer reports a job as interrupted while its worker is
   still starting.
+- On a large mobile screen the first row of home icons opens again: the
+  closed status bar no longer takes touches below its own height.
 - Logging in to Denial from LightDM no longer drops back to the greeter with
   "libseat did not activate the current TTY session". Display managers that
   start the session before logind activates it are now waited for, also with

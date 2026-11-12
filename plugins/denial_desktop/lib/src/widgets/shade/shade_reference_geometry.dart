@@ -4,11 +4,19 @@ import 'package:flutter/widgets.dart';
 // 480 dpi density, which is exactly 406 2/3 dp.
 const double colorOsReferenceShortSide = 1220 / 3;
 
-/// Maps a viewport to the shared shade reference geometry.
+/// The largest scale of a landscape shade: its columns stay phone-sized
+/// beside Denial's native text however large the screen is.
+const double colorOsLandscapeMaxScale = 1.25;
+
+/// Maps a viewport to the shared shade reference geometry. A portrait shade
+/// spans the width; a landscape one is two phone-wide columns.
 double colorOsShadeScaleForViewport(Size size) {
   final shortSide = size.shortestSide;
   if (!shortSide.isFinite || shortSide <= 0) return 1;
-  return shortSide / colorOsReferenceShortSide;
+  final scale = shortSide / colorOsReferenceShortSide;
+  return size.width > size.height
+      ? (scale < colorOsLandscapeMaxScale ? scale : colorOsLandscapeMaxScale)
+      : scale;
 }
 
 /// Separates ColorOS layout geometry from Denial's native text and glyph size.

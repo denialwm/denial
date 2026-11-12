@@ -206,7 +206,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
 
   void _startRowDrag(DragStartDetails details) {
     final deck = widget.deck;
-    if (!widget.recents || deck.geometry.landscape || deck.length == 0) {
+    if (!widget.recents || deck.length == 0) {
       return;
     }
     if (!deck.row.held) deck.row.grab();
@@ -322,7 +322,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
                         window: window,
                         pose: pose,
                         labelWidth: geometry.card.width,
-                        labelOpacity: geometry.landscape ? null : _labelOpacity,
+                        labelOpacity: _labelOpacity,
                         onOpen: widget.onOpenWindow,
                         onDismissed: widget.onDismissWindow,
                         onMoveToDesk: widget.onMoveWindowToDesk,
@@ -498,10 +498,8 @@ class _DeckCardState extends State<_DeckCard>
               pose: _pose,
               child: WindowSurface(
                 window: widget.window,
-                contentPadding: EdgeInsets.only(
-                  top: ReferenceShellMetrics.appStatusInset(
-                    MediaQuery.sizeOf(context),
-                  ),
+                contentPadding: const EdgeInsets.only(
+                  top: ReferenceShellMetrics.statusBarHeight,
                 ),
               ),
             ),

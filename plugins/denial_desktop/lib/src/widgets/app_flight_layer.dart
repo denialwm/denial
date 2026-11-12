@@ -621,10 +621,8 @@ class _FlightView extends StatelessWidget {
               pose: flight.pose,
               child: WindowSurface(
                 window: window,
-                contentPadding: EdgeInsets.only(
-                  top: ReferenceShellMetrics.appStatusInset(
-                    MediaQuery.sizeOf(context),
-                  ),
+                contentPadding: const EdgeInsets.only(
+                  top: ReferenceShellMetrics.statusBarHeight,
                 ),
               ),
             ),

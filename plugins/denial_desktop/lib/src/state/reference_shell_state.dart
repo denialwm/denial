@@ -243,6 +243,10 @@ class ReferenceShellState {
     return primaryWindow;
   }
 
+  /// The app on screen asked for full screen: the status bar steps aside,
+  /// and its strip only pulls the shade down from the top edge.
+  bool get statusBarHidden => inputWindow?.fullscreen ?? false;
+
   /// What the system Back action acts on, in Android's order: the keyboard
   /// first, then the shade, then recents, then the foreground app.
   MobileBackTarget get backTarget {

@@ -464,12 +464,46 @@ class _ShadePagerState extends State<_ShadePager>
       });
   }
 
+  /// A landscape shade shows both pages at once, notifications at the start
+  /// and the controls at the end, each a phone wide.
+  Widget _buildSideBySide(double width) {
+    final column = math.min(colorOsReferenceShortSide, width / 2);
+    return ShadeDismissGesture(
+      progress: widget.progress,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            width: column,
+            child: _NotificationCenterPage(
+              progress: widget.progress,
+              closed: widget.closed,
+              active: widget.active,
+            ),
+          ),
+          PositionedDirectional(
+            end: 0,
+            top: 0,
+            bottom: 0,
+            width: column,
+            child: _ControlCenterPage(progress: widget.progress),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final direction = Directionality.of(context);
+    final view = MediaQuery.sizeOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        if (view.width > view.height) return _buildSideBySide(width);
         final currentIndex = _index(widget.page, direction);
         _width = width;
         _currentIndex = currentIndex;
