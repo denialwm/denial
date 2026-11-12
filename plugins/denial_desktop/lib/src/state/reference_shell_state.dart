@@ -47,6 +47,7 @@ class ReferenceShellState {
     required this.edgePanelDrag,
     required this.edgePanelDragActive,
     required this.edgePanelViewportScroll,
+    required this.oskShortcuts,
     required this.lockLayerVisible,
     required this.foregroundObjectId,
     required this.launchingObjectId,
@@ -68,6 +69,7 @@ class ReferenceShellState {
       edgePanelDrag: Offset.zero,
       edgePanelDragActive: false,
       edgePanelViewportScroll: 0.0,
+      oskShortcuts: false,
       lockLayerVisible: platform.locked,
       foregroundObjectId: platform.foregroundObjectId,
       launchingObjectId: null,
@@ -132,6 +134,10 @@ class ReferenceShellState {
   final Offset edgePanelDrag;
   final bool edgePanelDragActive;
   final double edgePanelViewportScroll;
+
+  /// A portrait keyboard shows its shortcut keys in a row above the others;
+  /// a landscape one always has them at its sides.
+  final bool oskShortcuts;
   final bool lockLayerVisible;
   final int? foregroundObjectId;
   final int? launchingObjectId;
@@ -171,6 +177,7 @@ class ReferenceShellState {
     Offset? edgePanelDrag,
     bool? edgePanelDragActive,
     double? edgePanelViewportScroll,
+    bool? oskShortcuts,
     bool? lockLayerVisible,
     int? foregroundObjectId,
     bool clearForegroundObjectId = false,
@@ -195,6 +202,7 @@ class ReferenceShellState {
       edgePanelDragActive: edgePanelDragActive ?? this.edgePanelDragActive,
       edgePanelViewportScroll:
           edgePanelViewportScroll ?? this.edgePanelViewportScroll,
+      oskShortcuts: oskShortcuts ?? this.oskShortcuts,
       lockLayerVisible: lockLayerVisible ?? this.lockLayerVisible,
       foregroundObjectId: clearForegroundObjectId
           ? null

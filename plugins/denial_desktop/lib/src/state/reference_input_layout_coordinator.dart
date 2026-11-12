@@ -46,15 +46,18 @@ class ReferenceInputLayoutCoordinator {
     final edgePanelActive =
         state.edgePanelVisible || state.edgePanelDragProgress > 0.0;
     final edgePanelProgress = state.edgePanelDragProgress;
+    final shortcuts = state.oskShortcuts;
     final edgePanelRect = ReferenceShellMetrics.edgePanelRect(
       viewSize,
       edgePanelProgress,
+      shortcuts: shortcuts,
     );
     List<Rect> softwareKeyboardRegions({required bool scrollStripVisible}) =>
         ReferenceShellMetrics.softwareKeyboardRegions(
           viewSize,
           progress: edgePanelProgress,
           scrollStripVisible: scrollStripVisible,
+          shortcuts: shortcuts,
         );
     // The calls app's window over the lock screen takes its touches; the
     // keyboard stays with the lock screen.
@@ -105,6 +108,7 @@ class ReferenceInputLayoutCoordinator {
         viewSize,
         overlay.geometry!.size,
         edgePanelProgress,
+        shortcuts: shortcuts,
       );
       _publishInputLayout(
         viewSize: viewSize,
@@ -164,7 +168,10 @@ class ReferenceInputLayoutCoordinator {
         if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         if (edgePanelRect.height > 0.0) edgePanelRect,
         if (scrollStripVisible)
-          ReferenceShellMetrics.edgePanelScrollStripRect(viewSize),
+          ReferenceShellMetrics.edgePanelScrollStripRect(
+            viewSize,
+            shortcuts: shortcuts,
+          ),
       ] else ...[
         if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         ReferenceShellMetrics.gestureRect(viewSize),

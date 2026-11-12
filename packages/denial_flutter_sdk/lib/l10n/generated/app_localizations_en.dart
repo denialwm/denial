@@ -1101,7 +1101,19 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get oskAlt => 'Alt';
+
+  @override
+  String get oskAltKey => 'ALT';
+
+  @override
   String get oskArrowDown => 'Down';
+
+  @override
+  String get oskArrowLeft => 'Left';
+
+  @override
+  String get oskArrowRight => 'Right';
 
   @override
   String get oskArrowUp => 'Up';
@@ -1113,10 +1125,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get oskCapsLock => 'Caps lock';
 
   @override
+  String get oskControl => 'Control';
+
+  @override
   String get oskControlKey => 'CTRL';
 
   @override
   String get oskEnter => 'Enter';
+
+  @override
+  String get oskEscape => 'Escape';
+
+  @override
+  String get oskEscapeKey => 'ESC';
 
   @override
   String get oskLetters => 'Letters';
@@ -1140,7 +1161,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get oskShift => 'Shift';
 
   @override
+  String get oskShortcutKeys => 'Shortcut keys';
+
+  @override
   String get oskSpace => 'Space';
+
+  @override
+  String get oskTab => 'Tab';
+
+  @override
+  String get oskTabKey => 'TAB';
 
   @override
   String outputBrightnessSemantics(String outputName) {

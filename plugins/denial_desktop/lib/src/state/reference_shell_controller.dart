@@ -1433,6 +1433,13 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     state = state.copyWith(edgePanelViewportScroll: next);
   }
 
+  void setOskShortcuts(bool shown) {
+    if (state.oskShortcuts == shown) {
+      return;
+    }
+    state = state.copyWith(oskShortcuts: shown);
+  }
+
   void startEdgePanelDrag() {
     _edgePanelDismissalSerial = _lastTextInput?.active == true
         ? _lastTextInput!.activationSerial

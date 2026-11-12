@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 import 'package:denial_desktop/src/state/reference_shell_state.dart';
@@ -13,6 +15,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 
+import 'liquid_pill.dart';
 import 'osk/shell_osk_panel.dart';
 import '../state/input_deck.dart';
 
@@ -22,7 +25,11 @@ import 'package:denial_flutter_sdk/effects.dart';
 /// Keeps the software keyboard above applications and shell surfaces,
 /// including the compositor-owned lock screen.
 class SystemKeyboardLayer extends ConsumerWidget {
-  const SystemKeyboardLayer({super.key});
+  const SystemKeyboardLayer({this.hints = false, super.key});
+
+  /// Shows where the opening swipe starts, and the scroll strip's thumb
+  /// while the keyboard is open: the phone's, beside its home pill.
+  final bool hints;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -42,7 +49,7 @@ class SystemKeyboardLayer extends ConsumerWidget {
         enabled: showKeyboard,
         child: IgnorePointer(
           ignoring: !showKeyboard,
-          child: const EdgePanelLayer(),
+          child: EdgePanelLayer(hints: hints),
         ),
       ),
     );
@@ -103,10 +110,14 @@ class _MobileKeyboardViewportState
       referenceShellProvider.select(_position),
       (_, next) => _updateTranslation(next),
     );
+    final shortcuts = ref.watch(
+      referenceShellProvider.select((state) => state.oskShortcuts),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         _panelHeight = ReferenceShellMetrics.edgePanelHeight(
           constraints.biggest,
+          shortcuts: shortcuts,
         );
         _updateTranslation(_position(ref.read(referenceShellProvider)));
         return CompositedTranslation(
@@ -162,6 +173,9 @@ class _KeyboardRideState extends ConsumerState<KeyboardRide> {
     );
     _panelHeight = ReferenceShellMetrics.edgePanelHeight(
       MediaQuery.sizeOf(context),
+      shortcuts: ref.watch(
+        referenceShellProvider.select((state) => state.oskShortcuts),
+      ),
     );
     _update(ref.read(referenceShellProvider).edgePanelDragProgress);
     return CompositedTranslation(
@@ -173,7 +187,9 @@ class _KeyboardRideState extends ConsumerState<KeyboardRide> {
 }
 
 class EdgePanelLayer extends ConsumerStatefulWidget {
-  const EdgePanelLayer({super.key});
+  const EdgePanelLayer({this.hints = false, super.key});
+
+  final bool hints;
 
   @override
   ConsumerState<EdgePanelLayer> createState() => _EdgePanelLayerState();
@@ -206,11 +222,18 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _measure();
+  }
+
+  /// The view or the shortcut row changed the keyboard's height.
+  void _measure() {
+    final state = ref.read(referenceShellProvider);
     _panelHeight = ReferenceShellMetrics.edgePanelHeight(
       MediaQuery.sizeOf(context),
+      shortcuts: state.oskShortcuts,
     );
     _updateTranslation();
-    _reportMotion(ref.read(referenceShellProvider).edgePanelVisible);
+    _reportMotion(state.edgePanelVisible);
   }
 
   @override
@@ -286,6 +309,10 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
       ),
       (_, next) => _onPanelChanged(next),
     );
+    ref.listen(
+      referenceShellProvider.select((state) => state.oskShortcuts),
+      (_, _) => _measure(),
+    );
 
     return SizedBox.expand(
       child: Stack(
@@ -298,7 +325,10 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _EdgePanelScrollStrip(enabled: _scrollReady),
+                  _EdgePanelScrollStrip(
+                    enabled: _scrollReady,
+                    thumb: widget.hints,
+                  ),
                   RetainedTranslation(
                     translation: _translation,
                     child: const _EdgePanelSheet(),
@@ -307,7 +337,7 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
               ),
             ),
           ),
-          const _EdgePanelGestureTarget(),
+          _EdgePanelGestureTarget(pill: widget.hints),
         ],
       ),
     );
@@ -315,14 +345,28 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
 }
 
 class _EdgePanelGestureTarget extends ConsumerWidget {
-  const _EdgePanelGestureTarget();
+  const _EdgePanelGestureTarget({required this.pill});
+
+  /// A pill like the home pill, on the same line, marks where the swipe
+  /// starts: between the home pill's area and the right edge.
+  final bool pill;
+
+  static const double _pillWidth = 48;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final edgePanelVisible = ref.watch(
-      referenceShellProvider.select((state) => state.edgePanelVisible),
+    final (edgePanelVisible, locked) = ref.watch(
+      referenceShellProvider.select(
+        (state) => (state.edgePanelVisible, state.lockLayerVisible),
+      ),
     );
     final controller = ref.read(referenceShellProvider.notifier);
+    final size = MediaQuery.sizeOf(context);
+    final target = ReferenceShellMetrics.edgePanelGestureRect(size);
+    final free = math.max(
+      target.left,
+      ReferenceShellMetrics.gestureRect(size).right,
+    );
     return Positioned(
       right: 0,
       bottom: ReferenceShellMetrics.gestureBottomInset,
@@ -341,7 +385,32 @@ class _EdgePanelGestureTarget extends ConsumerWidget {
               controller.endEdgePanelDrag(details.primaryVelocity ?? 0.0);
             },
             onVerticalDragCancel: () => controller.endEdgePanelDrag(0.0),
-            child: const SizedBox.expand(),
+            child: !pill || edgePanelVisible || locked
+                ? const SizedBox.expand()
+                : Stack(
+                    children: [
+                      Positioned(
+                        left:
+                            (free + size.width) / 2 -
+                            _pillWidth / 2 -
+                            target.left,
+                        bottom:
+                            ReferenceShellMetrics.gesturePillCentre -
+                            ReferenceShellMetrics.gestureBottomInset -
+                            PillLiquid.restThickness / 2,
+                        width: _pillWidth,
+                        height: PillLiquid.restThickness,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: context.shellColors.gesturePill,
+                            borderRadius: BorderRadius.circular(
+                              PillLiquid.restThickness / 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -350,14 +419,25 @@ class _EdgePanelGestureTarget extends ConsumerWidget {
 }
 
 class _EdgePanelScrollStrip extends ConsumerWidget {
-  const _EdgePanelScrollStrip({required this.enabled});
+  const _EdgePanelScrollStrip({required this.enabled, required this.thumb});
 
   final bool enabled;
 
+  /// A see-through thumb that rides under the finger as it lifts the view.
+  final bool thumb;
+
+  static const double _thumbWidth = 5;
+  static const double _thumbLength = 48;
+
+  /// Between the thumb at rest and the keyboard's top edge.
+  static const double _thumbRest = 12;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final edgePanelVisible = ref.watch(
-      referenceShellProvider.select((state) => state.edgePanelVisible),
+    final (edgePanelVisible, shortcuts) = ref.watch(
+      referenceShellProvider.select(
+        (state) => (state.edgePanelVisible, state.oskShortcuts),
+      ),
     );
     if (!edgePanelVisible || !enabled) {
       return const SizedBox.expand();
@@ -365,7 +445,10 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
 
     final controller = ref.read(referenceShellProvider.notifier);
     final size = MediaQuery.sizeOf(context);
-    final panelHeight = ReferenceShellMetrics.edgePanelHeight(size);
+    final panelHeight = ReferenceShellMetrics.edgePanelHeight(
+      size,
+      shortcuts: shortcuts,
+    );
 
     return Positioned(
       top: 0,
@@ -382,8 +465,42 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
             panelHeight,
           );
         },
-        child: const SizedBox.expand(),
+        child: thumb ? const _ScrollThumb() : const SizedBox.expand(),
       ),
+    );
+  }
+}
+
+class _ScrollThumb extends ConsumerWidget {
+  const _ScrollThumb();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scroll = ref.watch(
+      referenceShellProvider.select((state) => state.edgePanelViewportScroll),
+    );
+    return Stack(
+      children: [
+        Positioned(
+          right:
+              (ReferenceShellMetrics.edgePanelScrollStripWidth -
+                  _EdgePanelScrollStrip._thumbWidth) /
+              2,
+          bottom:
+              _EdgePanelScrollStrip._thumbRest +
+              scroll / ReferenceShellMetrics.edgePanelScrollMultiplier,
+          width: _EdgePanelScrollStrip._thumbWidth,
+          height: _EdgePanelScrollStrip._thumbLength,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: context.shellColors.gesturePill.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(
+                _EdgePanelScrollStrip._thumbWidth / 2,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -400,7 +517,13 @@ class _EdgePanelSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(referenceShellProvider.notifier);
     final size = MediaQuery.sizeOf(context);
-    final panelHeight = ReferenceShellMetrics.edgePanelHeight(size);
+    final shortcuts = ref.watch(
+      referenceShellProvider.select((state) => state.oskShortcuts),
+    );
+    final panelHeight = ReferenceShellMetrics.edgePanelHeight(
+      size,
+      shortcuts: shortcuts,
+    );
     final media = MediaQuery.of(context);
 
     return Align(
@@ -442,6 +565,10 @@ class _EdgePanelContent extends ConsumerWidget {
         (settings) => settings.sound.keyboardVibration,
       ),
     );
+    final shortcuts = ref.watch(
+      referenceShellProvider.select((state) => state.oskShortcuts),
+    );
+    final controller = ref.read(referenceShellProvider.notifier);
     final theme = ShellTheme.of(context);
     // The keys sit beside the clipped glass, not in it: key popups rise
     // above the panel's top edge.
@@ -472,6 +599,8 @@ class _EdgePanelContent extends ConsumerWidget {
             child: ShellOskPanel(
               onKeyDown: vibrate ? haptics.pulse : null,
               onKey: (intent) => _sendOskIntent(bridge, intent),
+              shortcuts: shortcuts,
+              onShortcutsChanged: controller.setOskShortcuts,
               textInputStates: bridge.textInputStates,
               predictions: bridge.textPredictions,
               onPredict: (word) => bridge.requestTextPrediction(
@@ -489,14 +618,16 @@ class _EdgePanelContent extends ConsumerWidget {
   }
 
   void _sendOskIntent(DenialBridge bridge, ShellOskKeyIntent intent) {
+    // Alt is held around the key; Ctrl travels with it.
+    if (intent.alt) bridge.pressKeyboardKey('Alt');
     switch (intent.action) {
       case ShellOskKeyAction.text:
         bridge.sendKeyboardText(intent.text ?? '');
       case ShellOskKeyAction.key:
         bridge.sendKeyboardKey(intent.key ?? '', ctrl: intent.ctrl);
       case ShellOskKeyAction.space:
-        if (intent.ctrl) {
-          bridge.sendKeyboardKey(intent.key ?? 'space', ctrl: true);
+        if (intent.ctrl || intent.alt) {
+          bridge.sendKeyboardKey(intent.key ?? 'space', ctrl: intent.ctrl);
         } else {
           bridge.sendKeyboardText(' ');
         }
@@ -507,5 +638,6 @@ class _EdgePanelContent extends ConsumerWidget {
       case ShellOskKeyAction.replace:
         bridge.sendKeyboardReplace(intent.replaced ?? '', intent.text ?? '');
     }
+    if (intent.alt) bridge.releaseKeyboardKey('Alt');
   }
 }

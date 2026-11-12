@@ -1567,9 +1567,25 @@
       }
     }
   },
+  "oskAlt": "Alt",
+  "@oskAlt": {
+    "description": "English UI text for oskAlt."
+  },
+  "oskAltKey": "ALT",
+  "@oskAltKey": {
+    "description": "English UI text for oskAltKey."
+  },
   "oskArrowDown": "Down",
   "@oskArrowDown": {
     "description": "English UI text for oskArrowDown."
+  },
+  "oskArrowLeft": "Left",
+  "@oskArrowLeft": {
+    "description": "English UI text for oskArrowLeft."
+  },
+  "oskArrowRight": "Right",
+  "@oskArrowRight": {
+    "description": "English UI text for oskArrowRight."
   },
   "oskArrowUp": "Up",
   "@oskArrowUp": {
@@ -1583,6 +1599,10 @@
   "@oskCapsLock": {
     "description": "English UI text for oskCapsLock."
   },
+  "oskControl": "Control",
+  "@oskControl": {
+    "description": "English UI text for oskControl."
+  },
   "oskControlKey": "CTRL",
   "@oskControlKey": {
     "description": "English UI text for oskControlKey."
@@ -1590,6 +1610,14 @@
   "oskEnter": "Enter",
   "@oskEnter": {
     "description": "English UI text for oskEnter."
+  },
+  "oskEscape": "Escape",
+  "@oskEscape": {
+    "description": "English UI text for oskEscape."
+  },
+  "oskEscapeKey": "ESC",
+  "@oskEscapeKey": {
+    "description": "English UI text for oskEscapeKey."
   },
   "oskLetters": "Letters",
   "@oskLetters": {
@@ -1619,9 +1647,21 @@
   "@oskShift": {
     "description": "English UI text for oskShift."
   },
+  "oskShortcutKeys": "Shortcut keys",
+  "@oskShortcutKeys": {
+    "description": "English UI text for oskShortcutKeys."
+  },
   "oskSpace": "Space",
   "@oskSpace": {
     "description": "English UI text for oskSpace."
+  },
+  "oskTab": "Tab",
+  "@oskTab": {
+    "description": "English UI text for oskTab."
+  },
+  "oskTabKey": "TAB",
+  "@oskTabKey": {
+    "description": "English UI text for oskTabKey."
   },
   "outputBrightnessSemantics": "{outputName} brightness",
   "@outputBrightnessSemantics": {

@@ -1968,11 +1968,35 @@ abstract class AppLocalizations {
   /// **'{value}'**
   String numberValue(int value);
 
+  /// English UI text for oskAlt.
+  ///
+  /// In en, this message translates to:
+  /// **'Alt'**
+  String get oskAlt;
+
+  /// English UI text for oskAltKey.
+  ///
+  /// In en, this message translates to:
+  /// **'ALT'**
+  String get oskAltKey;
+
   /// English UI text for oskArrowDown.
   ///
   /// In en, this message translates to:
   /// **'Down'**
   String get oskArrowDown;
+
+  /// English UI text for oskArrowLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get oskArrowLeft;
+
+  /// English UI text for oskArrowRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get oskArrowRight;
 
   /// English UI text for oskArrowUp.
   ///
@@ -1992,6 +2016,12 @@ abstract class AppLocalizations {
   /// **'Caps lock'**
   String get oskCapsLock;
 
+  /// English UI text for oskControl.
+  ///
+  /// In en, this message translates to:
+  /// **'Control'**
+  String get oskControl;
+
   /// English UI text for oskControlKey.
   ///
   /// In en, this message translates to:
@@ -2003,6 +2033,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter'**
   String get oskEnter;
+
+  /// English UI text for oskEscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Escape'**
+  String get oskEscape;
+
+  /// English UI text for oskEscapeKey.
+  ///
+  /// In en, this message translates to:
+  /// **'ESC'**
+  String get oskEscapeKey;
 
   /// English UI text for oskLetters.
   ///
@@ -2046,11 +2088,29 @@ abstract class AppLocalizations {
   /// **'Shift'**
   String get oskShift;
 
+  /// English UI text for oskShortcutKeys.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcut keys'**
+  String get oskShortcutKeys;
+
   /// English UI text for oskSpace.
   ///
   /// In en, this message translates to:
   /// **'Space'**
   String get oskSpace;
+
+  /// English UI text for oskTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Tab'**
+  String get oskTab;
+
+  /// English UI text for oskTabKey.
+  ///
+  /// In en, this message translates to:
+  /// **'TAB'**
+  String get oskTabKey;
 
   /// English UI text for outputBrightnessSemantics.
   ///
