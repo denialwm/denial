@@ -126,6 +126,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   /// moves it even while the credential stays shown.
   bool _faceAway = false;
 
+  /// Where the last double tap came down.
+  Offset _doubleTapAt = Offset.zero;
+
   /// Which credential the reveal last showed, so a keypad keeps fading out
   /// after it is dismissed and the password panel never borrows it.
   _LockCredential _revealed = _LockCredential.password;
@@ -365,7 +368,18 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
           onTap: widget.authenticationEnabled && widget.desktop
               ? _showAuthentication
               : null,
-          onDoubleTap: allowsSwipe || docked ? _blankDisplays : null,
+          // Beside a docked pad only the face's background blanks: two
+          // quick digits are not a double tap.
+          onDoubleTapDown: docked
+              ? (details) => _doubleTapAt = details.localPosition
+              : null,
+          onDoubleTap: allowsSwipe
+              ? _blankDisplays
+              : docked
+              ? () {
+                  if (_doubleTapAt.dx < size.width - faceEnd) _blankDisplays();
+                }
+              : null,
           onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
           onPanUpdate: allowsSwipe
               ? (details) => _updateGesture(details.delta, size.height)

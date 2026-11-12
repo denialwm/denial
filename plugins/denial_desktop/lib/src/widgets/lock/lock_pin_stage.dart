@@ -600,7 +600,9 @@ class _PinStageFrame extends StatelessWidget {
                       final compact = constraints.maxHeight < 600;
                       return Column(
                         children: [
-                          Spacer(flex: compact ? 1 : 3),
+                          // Docked, the title and dots sit just above the
+                          // keys.
+                          Spacer(flex: compact || docked ? 1 : 3),
                           FadeSnapshot(
                             opacity: reveal,
                             child: Column(
@@ -658,7 +660,10 @@ class _PinStageFrame extends StatelessWidget {
                               ],
                             ),
                           ),
-                          Spacer(flex: compact ? 1 : 2),
+                          if (docked)
+                            const SizedBox(height: 32)
+                          else
+                            Spacer(flex: compact ? 1 : 2),
                           _PinPad(
                             keySize: keySize,
                             reveal: reveal,
