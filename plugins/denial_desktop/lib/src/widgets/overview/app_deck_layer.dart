@@ -76,6 +76,11 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
   static const double _shortestGlide = 0.3;
   static const double _longestGlide = 1.1;
 
+  /// A release this fast, in logical pixels per second, is a flick and
+  /// reaches at least the next card it heads for: Launcher3's fling
+  /// threshold, 500 dp/s.
+  static const double _flickSpeed = 500;
+
   final _open = ValueNotifier(0.0);
   late final Animation<double> _openAnimation = Animation.fromValueListenable(
     _open,
@@ -219,20 +224,23 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     deck.row.hold(_stretch(position));
   }
 
-  /// A fling coasts on to the card nearest where it would come to rest, or
-  /// runs past the first or last card and bounces back; a slow release
-  /// springs to the nearest card.
+  /// A fling coasts on to the card nearest where it would come to rest, at
+  /// least the next one it heads for, or runs past the first or last card
+  /// and bounces back; a slow release springs to the nearest card.
   void _endRowDrag(DragEndDetails? details) {
     if (!_rowDragging) return;
     _rowDragging = false;
     final deck = widget.deck;
     final row = deck.row;
-    final rate = deck.geometry.rowDelta(
-      details?.velocity.pixelsPerSecond.dx ?? 0,
-      1,
-    );
+    final speed = details?.velocity.pixelsPerSecond.dx ?? 0;
+    final rate = deck.geometry.rowDelta(speed, 1);
     final last = math.max(0, deck.length - 1).toDouble();
     var target = (row.value + rate * _rowFlingProjection).roundToDouble();
+    if (speed.abs() >= _flickSpeed) {
+      target = rate > 0
+          ? math.max(target, row.value.floorToDouble() + 1)
+          : math.min(target, row.value.ceilToDouble() - 1);
+    }
     if (row.glideTime(target, rate) < _shortestGlide) target += rate.sign;
     if (target < 0 || target > last) {
       // Already past the end, the stretch springs back on its own.
@@ -245,11 +253,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     } else if (row.glideTime(target, rate) <= _longestGlide) {
       row.glide(target, rate);
     } else {
-      row.settle(
-        _nearestCard(row.value),
-        ShellSprings.appStrip,
-        velocity: rate,
-      );
+      row.settle(target, ShellSprings.appStrip, velocity: rate);
     }
   }
 

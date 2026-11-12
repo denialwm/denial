@@ -443,10 +443,16 @@ class _AppFlightLayerState extends ConsumerState<AppFlightLayer>
       _ease(grown / 0.3),
     )!;
     final ready = flight.ready.value.clamp(0.0, 1.0);
-    // Out of an icon, the card shows under it in the first stretch and the
-    // icon then gives way. From a plain card it fades in as it grows.
-    final shown = flight.hasIcon ? _ease(grown / 0.14) : _ease(grown / 0.3);
-    final iconCovers = flight.hasIcon ? 1 - _ease((grown - 0.06) / 0.26) : 0.0;
+    // Out of an icon, the card shows under it by the time it is 1.7 times
+    // the icon's size and the icon gives way between 1.3 and 2.6 times,
+    // measured on the icon so it looks the same on any screen. From a plain
+    // card it fades in as it grows.
+    final iconGrowth =
+        rect.shortestSide / math.max(1.0, flight.anchor.shortestSide) - 1;
+    final shown = flight.hasIcon ? _ease(iconGrowth / 0.7) : _ease(grown / 0.3);
+    final iconCovers = flight.hasIcon
+        ? 1 - _ease((iconGrowth - 0.3) / 1.3)
+        : 0.0;
     final waiting = flight.placeholder ? 1 - ready : 0.0;
     final windowShown =
         flight.window != null &&

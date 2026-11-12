@@ -148,6 +148,10 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- A quick flick in mobile recents reaches the next card however short it
+  is; it no longer springs back unless the finger slows before release.
+- An app opening from its icon on a tablet lets the icon go at the size it
+  does on a phone, not several times larger.
 - Plugin Manager no longer reports a job as interrupted while its worker is
   still starting.
 - On a large mobile screen the first row of home icons opens again: the
