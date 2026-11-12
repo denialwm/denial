@@ -133,12 +133,15 @@ boundaries may change before 1.0.
   newer over older, so a swipe crosses them faster. The card in the middle
   follows the finger while newer cards travel faster and older ones slower
   and smaller, so the stack moves as it scrolls.
-- A notification in the mobile shade swipes away toward the start edge only.
+- A notification in the mobile shade or on the lock screen swipes away
+  toward the start edge only.
 - The mobile home screen starts with one page; empty pages after the last
   icon no longer count.
 - A phone or tablet in landscape, or any tablet, locks with the mobile lock
   screen and its PIN pad. The desktop lock screen is for desktop view and a
-  second screen.
+  second screen. In landscape the PIN pad stays up in the last third, beside
+  a larger clock and the notifications, and the fingerprint works until a
+  PIN is being typed.
 
 ### Removed
 
@@ -150,8 +153,8 @@ boundaries may change before 1.0.
 
 - A quick flick in mobile recents reaches the next card however short it
   is; it no longer springs back unless the finger slows before release.
-- An app opening from its icon on a tablet lets the icon go at the size it
-  does on a phone, not several times larger.
+- An app opening from its icon lets the icon go before it is twice its size,
+  on a tablet as on a phone, not several times larger.
 - Plugin Manager no longer reports a job as interrupted while its worker is
   still starting.
 - On a large mobile screen the first row of home icons opens again: the

@@ -12,6 +12,7 @@ class _MobileLockPinStage extends ConsumerStatefulWidget {
     super.key,
     required this.reveal,
     required this.interactive,
+    required this.docked,
     required this.onBegin,
     required this.onCancel,
     required this.onUsePassword,
@@ -22,6 +23,10 @@ class _MobileLockPinStage extends ConsumerStatefulWidget {
 
   /// False once the stage is dismissed, while it still fades out.
   final bool interactive;
+
+  /// In the last third of a landscape lock screen, always up beside the
+  /// face: nothing to cancel back to.
+  final bool docked;
   final VoidCallback onBegin;
   final VoidCallback onCancel;
   final VoidCallback onUsePassword;
@@ -209,6 +214,7 @@ class _MobileLockPinStageState extends ConsumerState<_MobileLockPinStage>
     return _PinStageFrame(
       reveal: widget.reveal,
       interactive: widget.interactive,
+      docked: widget.docked,
       rise: _rise,
       focusNode: _keys,
       onKeyEvent: _handleKey,
@@ -222,7 +228,9 @@ class _MobileLockPinStageState extends ConsumerState<_MobileLockPinStage>
       messageColor: messageColor,
       enabled: _acceptsInput(authentication),
       onDigit: _press,
-      trailing: (keySize) => _filled == 0 || _submitted
+      trailing: (keySize) => widget.docked && _filled == 0 && !_submitted
+          ? SizedBox.square(dimension: keySize)
+          : _filled == 0 || _submitted
           ? _PinTextKey(
               size: keySize,
               label: l10n.commonCancel,
@@ -507,6 +515,7 @@ class _PinStageFrame extends StatelessWidget {
   const _PinStageFrame({
     required this.reveal,
     required this.interactive,
+    this.docked = false,
     required this.rise,
     required this.focusNode,
     required this.onKeyEvent,
@@ -527,6 +536,9 @@ class _PinStageFrame extends StatelessWidget {
 
   final Animation<double> reveal;
   final bool interactive;
+
+  /// In the last third of the screen, over the wallpaper as it is.
+  final bool docked;
   final Animation<Offset> rise;
   final FocusNode focusNode;
   final FocusOnKeyEventCallback onKeyEvent;
@@ -548,15 +560,20 @@ class _PinStageFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final message = this.message;
     final scrim = ShellMediaColors.darkness.withValues(alpha: 0.42);
-    return Positioned.fill(
+    return Positioned(
+      left: docked ? MediaQuery.sizeOf(context).width * 2 / 3 : 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          IgnorePointer(
-            child: CustomPaint(
-              painter: _PinStageScrimPainter(reveal: reveal, color: scrim),
+          if (!docked)
+            IgnorePointer(
+              child: CustomPaint(
+                painter: _PinStageScrimPainter(reveal: reveal, color: scrim),
+              ),
             ),
-          ),
           // The rise moves the layer outside the snapshots: a translation
           // inside one would be frozen at its start for the whole fade, and
           // the stage would jump into place when it ends.
@@ -646,7 +663,7 @@ class _PinStageFrame extends StatelessWidget {
                             keySize: keySize,
                             reveal: reveal,
                             rise: rise,
-                            scrim: scrim,
+                            scrim: docked ? const Color(0x00000000) : scrim,
                             enabled: enabled,
                             onDigit: onDigit,
                             leading:
