@@ -10,7 +10,9 @@
 //!
 //! A restored window that keeps its kept frame for a second reports what its
 //! surfaces committed meanwhile: how many commits arrived, how many applied
-//! and how many applied while it still counted as minimized.
+//! and how many applied while it still counted as minimized. For three
+//! seconds after a restore, each of the window's surfaces reports the
+//! commits it applied and the buffers it published to the scene.
 //!
 //! The phone's lock screen covers every window: all of them are suspended
 //! while the session is locked, so apps stay paused until it unlocks. The
@@ -42,6 +44,27 @@ enum FramePace {
 
 /// How long a restored window may show its kept frame before it reports.
 const THAW_REPORT: Duration = Duration::from_secs(1);
+
+/// How long Denial follows a restored window's surfaces before it reports.
+const RESTORE_WATCH: Duration = Duration::from_secs(3);
+
+/// What one surface of a restored window did since the restore.
+#[derive(Debug, Default)]
+struct SurfaceTally {
+    applied: u32,
+    visual: u32,
+    published: u32,
+}
+
+/// The window restored last, followed for [`RESTORE_WATCH`].
+#[derive(Debug)]
+struct RestoreWatch {
+    root: ObjectId,
+    since: Instant,
+    /// Publishes skipped because the window was frozen.
+    held: u32,
+    surfaces: HashMap<ObjectId, SurfaceTally>,
+}
 
 /// A restored window still showing its kept frame, and what its surfaces
 /// committed since it was restored.
@@ -75,6 +98,8 @@ pub(super) struct MinimizedWindows {
     parked: HashSet<ObjectId>,
     /// Restored windows still showing their kept frame.
     thawing: HashMap<ObjectId, Thaw>,
+    /// The window restored last, while it is followed.
+    watch: Option<RestoreWatch>,
     /// The textures of frozen windows in the scene last built: they keep
     /// their frame without being given a new one.
     kept_textures: Vec<u64>,
@@ -133,6 +158,14 @@ impl WaylandFrontend {
             self.minimized_windows
                 .thawing
                 .insert(root.clone(), Thaw::new());
+            self.report_restore_watch();
+            info!(surface_id = ?root, "window restored");
+            self.minimized_windows.watch = Some(RestoreWatch {
+                root: root.clone(),
+                since: Instant::now(),
+                held: 0,
+                surfaces: HashMap::new(),
+            });
             if self.minimized_windows.parked.remove(root) {
                 self.pending_frame_callback_windows.insert(root.clone());
             }
@@ -253,6 +286,18 @@ impl WaylandFrontend {
     /// A surface's commit applied. One with new content makes a restored
     /// window it belongs to show its buffers again from this commit on.
     pub(super) fn thaw_on_commit(&mut self, surface: &WlSurface, visual: bool) {
+        if let Some(tally) = self.watched_surface(surface) {
+            tally.applied += 1;
+            tally.visual += u32::from(visual);
+        }
+        if self
+            .minimized_windows
+            .watch
+            .as_ref()
+            .is_some_and(|watch| watch.since.elapsed() >= RESTORE_WATCH)
+        {
+            self.report_restore_watch();
+        }
         if self.minimized_windows.thawing.is_empty() {
             return;
         }
@@ -279,13 +324,73 @@ impl WaylandFrontend {
             .thawing
             .remove(&root)
             .expect("thawing window exists");
-        if thaw.reported {
+        info!(
+            surface_id = ?root,
+            by = ?surface.id(),
+            frozen_ms = thaw.since.elapsed().as_millis() as u64,
+            arrived = thaw.arrived,
+            applied = thaw.applied,
+            "restored window shows new frames again"
+        );
+    }
+
+    /// The tally of `surface` when it belongs to the followed window.
+    fn watched_surface(&mut self, surface: &WlSurface) -> Option<&mut SurfaceTally> {
+        let watched = self.minimized_windows.watch.as_ref()?.root.clone();
+        let root = self.owning_toplevel_surface(surface)?;
+        if root.id() != watched {
+            return None;
+        }
+        Some(
+            self.minimized_windows
+                .watch
+                .as_mut()?
+                .surfaces
+                .entry(surface.id())
+                .or_default(),
+        )
+    }
+
+    /// A publish of the window rooted at `root` waited for it to thaw.
+    pub(super) fn note_held_publish(&mut self, root: &ObjectId) {
+        if let Some(watch) = self.minimized_windows.watch.as_mut()
+            && watch.root == *root
+        {
+            watch.held += 1;
+        }
+    }
+
+    /// `surface`'s applied commit reached the scene.
+    pub(super) fn note_published(&mut self, surface: &WlSurface) {
+        if let Some(tally) = self.watched_surface(surface) {
+            tally.published += 1;
+        }
+    }
+
+    fn report_restore_watch(&mut self) {
+        let Some(watch) = self.minimized_windows.watch.take() else {
+            return;
+        };
+        info!(
+            surface_id = ?watch.root,
+            watched_ms = watch.since.elapsed().as_millis() as u64,
+            held = watch.held,
+            minimized = self.surface_is_minimized(&watch.root),
+            frozen = self.window_frozen(&watch.root),
+            surfaces = watch.surfaces.len(),
+            "restored window after the restore"
+        );
+        for (surface, tally) in &watch.surfaces {
+            let stable_id = self.surface_ids.get(surface).copied();
             info!(
-                surface_id = ?root,
-                frozen_ms = thaw.since.elapsed().as_millis() as u64,
-                arrived = thaw.arrived,
-                applied = thaw.applied,
-                "restored window shows new frames again"
+                root = ?watch.root,
+                surface_id = ?surface,
+                stable_id,
+                in_scene = stable_id.is_some_and(|id| self.scene_surface_windows.contains_key(&id)),
+                applied = tally.applied,
+                visual = tally.visual,
+                published = tally.published,
+                "restored window surface"
             );
         }
     }

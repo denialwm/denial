@@ -605,10 +605,10 @@ impl WaylandFrontend {
         // buffers are neither snapshotted nor released early meanwhile.
         if !cursor_fast_path
             && self.mobile_shell
-            && self
-                .owning_toplevel_surface(root)
-                .is_some_and(|toplevel| self.window_frozen(&toplevel.id()))
+            && let Some(toplevel) = self.owning_toplevel_surface(root)
+            && self.window_frozen(&toplevel.id())
         {
+            self.note_held_publish(&toplevel.id());
             return PublishedSurfaceCommits {
                 metadata_changed: false,
                 buffer_surface_ids: std::mem::take(&mut self.published_surface_ids_scratch),
@@ -652,6 +652,7 @@ impl WaylandFrontend {
             let Some(kind) = self.pending_surface_commits.remove(&surface.id()) else {
                 continue;
             };
+            self.note_published(&surface);
             super::presentation::capture_surface_feedback(&surface);
             let current_buffer = with_renderer_surface_state(&surface, |state| {
                 state.buffer().map(|buffer| (**buffer).clone())
