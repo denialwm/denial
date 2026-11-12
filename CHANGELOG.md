@@ -128,8 +128,13 @@ boundaries may change before 1.0.
   `idleLockEnabled` turns locking on or off and `screenOffLockDelaySeconds`
   sets how long a dark screen stays unlocked.
 - In landscape the mobile shade shows notifications and quick settings side
-  by side, each a phone wide, and recents is the same row of cards as in
-  portrait.
+  by side, each one and a half phones wide, and recents is the same row of
+  cards as in portrait.
+- The mobile home screen starts with one page; empty pages after the last
+  icon no longer count.
+- A phone or tablet in landscape, or any tablet, locks with the mobile lock
+  screen and its PIN pad. The desktop lock screen is for desktop view and a
+  second screen.
 
 ### Removed
 

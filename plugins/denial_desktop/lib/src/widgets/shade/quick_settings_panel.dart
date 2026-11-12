@@ -465,9 +465,9 @@ class _ShadePagerState extends State<_ShadePager>
   }
 
   /// A landscape shade shows both pages at once, notifications at the start
-  /// and the controls at the end, each a phone wide.
+  /// and the controls at the end, each one and a half phones wide.
   Widget _buildSideBySide(double width) {
-    final column = math.min(colorOsReferenceShortSide, width / 2);
+    final column = math.min(colorOsReferenceShortSide * 1.5, width / 2);
     return ShadeDismissGesture(
       progress: widget.progress,
       child: Stack(
