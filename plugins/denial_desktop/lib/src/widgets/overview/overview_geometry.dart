@@ -9,6 +9,10 @@ import 'package:denial_flutter_sdk/rendering.dart';
 const double overviewMaxScale = 0.63;
 const double overviewPageSpacing = 16.0;
 
+/// The share of a landscape recents card its neighbours tuck under, so a
+/// swipe across the wide cards moves fewer pixels per app.
+const double overviewLandscapeOverlap = 0.25;
+
 double viewAspectFor(Size size) {
   if (size.width <= 0.0 || size.height <= 0.0) {
     return kPreviewAspect;

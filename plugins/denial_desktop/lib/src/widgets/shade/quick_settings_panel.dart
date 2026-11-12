@@ -48,6 +48,9 @@ import '../../state/phone_desk.dart';
 
 enum ShadePage { notifications, quickSettings }
 
+/// A landscape shade's columns and tiles against a phone's.
+const double _landscapeShadeGrowth = 1.5;
+
 /// The scene's backdrop frosted once, when the translucent shade can show it
 /// in place of live material.
 WindowBackdropCache? _frostedShadeBackdrop(BuildContext context) =>
@@ -467,7 +470,10 @@ class _ShadePagerState extends State<_ShadePager>
   /// A landscape shade shows both pages at once, notifications at the start
   /// and the controls at the end, each one and a half phones wide.
   Widget _buildSideBySide(double width) {
-    final column = math.min(colorOsReferenceShortSide * 1.5, width / 2);
+    final column = math.min(
+      colorOsReferenceShortSide * _landscapeShadeGrowth,
+      width / 2,
+    );
     return ShadeDismissGesture(
       progress: widget.progress,
       child: Stack(
@@ -808,8 +814,11 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           },
         ),
     ];
+    final view = MediaQuery.sizeOf(context);
     return QuickSettingsTiles(
       expansionProgress: progress,
+      // The wider landscape columns get tiles taller in proportion.
+      heightFactor: view.width > view.height ? _landscapeShadeGrowth : 1,
       footerTiles: footerTiles,
       mobileDataTile: const MobileDataTile(),
       brightnessControl: const _BrightnessRangeBar(),

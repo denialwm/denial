@@ -22,7 +22,6 @@ abstract final class QuickSettingsGridMetrics {
   static const double capsule = 62;
   static const double gutter = 14;
   static const double minimumWidth = capsule * 4 + gutter * 3;
-  static const double height = row * 3;
 }
 
 /// The grid of quick-settings tiles. Purely presentational: every value and
@@ -35,6 +34,7 @@ class QuickSettingsTiles extends StatelessWidget {
     this.volumeControl,
     this.expansionProgress,
     this.footerTiles = const [],
+    this.heightFactor = 1,
     required this.wifi,
     required this.wifiSubtitle,
     required this.wifiEnabled,
@@ -62,6 +62,10 @@ class QuickSettingsTiles extends StatelessWidget {
   /// A row below the grid, aligned with its columns: a square tile takes
   /// one column and a wide one two, four columns at most.
   final List<QuickTile> footerTiles;
+
+  /// How much taller than the reference the tiles are; their labels and the
+  /// gaps between rows keep their size.
+  final double heightFactor;
   final bool wifi;
   final String wifiSubtitle;
   final bool wifiEnabled;
@@ -110,8 +114,11 @@ class QuickSettingsTiles extends StatelessWidget {
             .clamp(0.0, 1.0)
             .toDouble();
         final gutter = QuickSettingsGridMetrics.gutter * scale;
-        final capsule = QuickSettingsGridMetrics.capsule * scale;
-        final row = QuickSettingsGridMetrics.row * scale;
+        final capsule = QuickSettingsGridMetrics.capsule * scale * heightFactor;
+        final row =
+            capsule +
+            (QuickSettingsGridMetrics.row - QuickSettingsGridMetrics.capsule) *
+                scale;
         final column = (width - gutter * 3) / 4;
         final pitch = column + gutter;
         final wide = column * 2 + gutter;
@@ -127,9 +134,7 @@ class QuickSettingsTiles extends StatelessWidget {
           footerColumn += tile.wide ? 2 : 1;
         }
         return SizedBox(
-          height: footerTiles.isEmpty
-              ? QuickSettingsGridMetrics.height * scale
-              : footerTop + footerHeight,
+          height: footerTiles.isEmpty ? row * 3 : footerTop + footerHeight,
           child: Stack(
             children: [
               Positioned(
@@ -482,13 +487,15 @@ class _QuickTileState extends State<QuickTile>
     return LayoutBuilder(
       builder: (context, constraints) {
         // Fill the column so the tile's edges line up with the capsules and
-        // sliders around it. A row shorter than the reference scales down.
+        // sliders around it. A row shorter than the reference scales down;
+        // a taller one makes the tile taller above its label.
+        const row = QuickSettingsGridMetrics.row;
         final fit = constraints.hasBoundedHeight
-            ? math.min(
-                1.0,
-                constraints.maxHeight / QuickSettingsGridMetrics.row,
-              )
+            ? math.min(1.0, constraints.maxHeight / row)
             : 1.0;
+        final height = constraints.hasBoundedHeight
+            ? math.max(row, constraints.maxHeight)
+            : row;
         final width = constraints.hasBoundedWidth
             ? constraints.maxWidth / fit
             : QuickSettingsGridMetrics.capsule;
@@ -497,8 +504,14 @@ class _QuickTileState extends State<QuickTile>
           alignment: Alignment.topCenter,
           child: SizedBox(
             width: width,
-            height: QuickSettingsGridMetrics.row,
-            child: _buildSmallContent(off, on, radius, visualScale),
+            height: height,
+            child: _buildSmallContent(
+              off,
+              on,
+              radius,
+              visualScale,
+              height - (row - QuickSettingsGridMetrics.capsule),
+            ),
           ),
         );
       },
@@ -510,11 +523,12 @@ class _QuickTileState extends State<QuickTile>
     _TileInk on,
     double radius,
     double visualScale,
+    double capsule,
   ) {
     return Column(
       children: [
         SizedBox(
-          height: QuickSettingsGridMetrics.capsule,
+          height: capsule,
           width: double.infinity,
           child: _animatedSurface(
             radius: radius,
