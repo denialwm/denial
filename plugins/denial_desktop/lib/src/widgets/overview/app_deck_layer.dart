@@ -151,8 +151,8 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     });
   }
 
-  /// Poses every app from the deck's values, and draws those on screen with
-  /// the one nearest the screen's centre in front.
+  /// Poses every app from the deck's values, and draws those on screen
+  /// newer in front of older, in the same order however the row moves.
   void _update() {
     if (!mounted) return;
     final deck = widget.deck;
@@ -161,20 +161,16 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     widget.onProgressChanged?.call(shown);
     final presenting = deck.presenting.value;
     final geometry = deck.geometry;
-    final drawn = <(int, double)>[];
+    final ids = <int>[];
     if (presenting && !geometry.isEmpty) {
       final screen = geometry.screen;
-      final row = deck.row.value;
       for (final id in deck.order) {
         if (id == deck.hidden || !_windows.containsKey(id)) continue;
-        final slot = deck.slotOf(id);
         final pose = deck.poseOf(id);
         (_poses[id] ??= ValueNotifier(pose)).value = pose;
-        if (pose.rect.overlaps(screen)) drawn.add((id, (slot - row).abs()));
+        if (pose.rect.overlaps(screen)) ids.add(id);
       }
-      drawn.sort((a, b) => b.$2.compareTo(a.$2));
     }
-    final ids = [for (final (id, _) in drawn) id];
     if (presenting != _presenting) {
       widget.onPresentationChanged(presenting);
     }

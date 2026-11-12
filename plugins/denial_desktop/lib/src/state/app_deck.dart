@@ -576,8 +576,8 @@ class DeckGeometry {
   double get _sign => ltr ? 1 : -1;
 
   /// One app's width plus the gap to the next, in logical pixels, with
-  /// recents [open] that far. Landscape cards overlap; the one nearest the
-  /// middle is drawn on top.
+  /// recents [open] that far. Landscape cards overlap, each newer one over
+  /// the older one beside it.
   double strideAt(double open) => lerpDouble(
     size.width + ReferenceShellMetrics.appSwitchGap,
     size.width > size.height

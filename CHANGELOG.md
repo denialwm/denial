@@ -129,8 +129,8 @@ boundaries may change before 1.0.
   sets how long a dark screen stays unlocked.
 - In landscape the mobile shade shows notifications and quick settings side
   by side, each one and a half phones wide, with quick tiles one and a half
-  times as tall. Recents is the same row of cards as in portrait, overlapping
-  so a swipe crosses them faster.
+  times as tall. Recents is the same row of cards as in portrait, overlapping,
+  newer over older, so a swipe crosses them faster.
 - A notification in the mobile shade swipes away toward the start edge only.
 - The mobile home screen starts with one page; empty pages after the last
   icon no longer count.
