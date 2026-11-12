@@ -135,6 +135,11 @@ impl WlrLayerShellHandler for RuntimeState {
         namespace: String,
     ) {
         let frontend = self.frontend_mut();
+        if super::app_scale::leave_apps(surface.wl_surface()) {
+            for entry in &frontend.outputs {
+                entry.output.change_current_state(None, None, None, None);
+            }
+        }
         let output = requested_output
             .as_ref()
             .and_then(Output::from_resource)

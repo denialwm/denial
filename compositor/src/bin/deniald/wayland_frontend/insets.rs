@@ -41,6 +41,7 @@ fn configure_mobile_toplevel(
     size: Size<i32, Logical>,
     fullscreen: bool,
 ) {
+    let size = super::app_scale::client_size(toplevel.wl_surface(), size);
     toplevel.with_pending_state(|pending| {
         pending.size = Some(size);
         if fullscreen {
@@ -72,6 +73,7 @@ pub(super) fn configure_desktop_toplevel(
     size: Size<i32, Logical>,
     state: WindowPlacementState,
 ) {
+    let size = super::app_scale::client_size(toplevel.wl_surface(), size);
     toplevel.with_pending_state(|pending| {
         pending.size = Some(size);
         pending.states.unset(xdg_toplevel::State::Resizing);

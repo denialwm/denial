@@ -482,8 +482,9 @@ impl WaylandFrontend {
             if (target.size != record.geometry.size || record.fullscreen || record.maximized)
                 && let Some(toplevel) = record.window.toplevel()
             {
+                let size = super::app_scale::client_size(toplevel.wl_surface(), target.size);
                 toplevel.with_pending_state(|pending| {
-                    pending.size = Some(target.size);
+                    pending.size = Some(size);
                     if record.fullscreen {
                         pending.fullscreen_output = None;
                     }

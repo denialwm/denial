@@ -243,6 +243,31 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
 }
 
 #[test]
+fn apps_scale_defaults_to_the_screen_and_rejects_out_of_range_values() {
+    let temporary = TemporaryDirectory::new("settings-apps-scale");
+    let mut manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    assert_eq!(manager.apps_scale(), 1.0);
+    let with_scale = |scale: f64| {
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "apps": {"scale": scale}
+        }))
+    };
+    for scale in [0.5, 3.5] {
+        assert!(matches!(
+            manager.prepare_shell_update(manager.revision(), &with_scale(scale)),
+            Err(SettingsError::Document(message)) if message.starts_with("apps.scale")
+        ));
+    }
+    let document = with_scale(2.0);
+    let update = manager
+        .prepare_shell_update(manager.revision(), &document)
+        .unwrap();
+    manager.commit(update).unwrap();
+    assert_eq!(manager.apps_scale(), 2.0);
+}
+
+#[test]
 fn shell_update_rejects_missing_or_unknown_color_scheme() {
     let temporary = TemporaryDirectory::new("settings-color-scheme");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();

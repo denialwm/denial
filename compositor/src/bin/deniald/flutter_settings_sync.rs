@@ -144,6 +144,7 @@ pub(super) fn synchronize_settings(
                     let frontend = events.frontend_mut();
                     let previous_cursor_policy = frontend.settings.allow_client_cursor_surfaces();
                     let previous_cursor_size = frontend.settings.cursor_size();
+                    let previous_apps_scale = frontend.settings.apps_scale();
                     let result = frontend
                         .settings
                         .prepare_shell_update(expected_revision, &document)
@@ -154,9 +155,12 @@ pub(super) fn synchronize_settings(
                     {
                         frontend.queue_cursor_policy_update();
                     }
-                    if result.is_ok() && previous_cursor_size != frontend.settings.cursor_size() {
+                    if result.is_ok()
+                        && (previous_cursor_size != frontend.settings.cursor_size()
+                            || previous_apps_scale != frontend.settings.apps_scale())
+                    {
                         if let Err(error) = frontend.publish_xwayland_settings() {
-                            warn!(%error, "could not update Xwayland cursor settings");
+                            warn!(%error, "could not update Xwayland settings");
                         }
                     }
                     result
@@ -528,6 +532,7 @@ fn synchronize_external_settings(
         previous_touchpad,
         previous_cursor_policy,
         previous_cursor_size,
+        previous_apps_scale,
     ) = {
         let frontend = events.frontend();
         (
@@ -536,6 +541,7 @@ fn synchronize_external_settings(
             frontend.settings.touchpad().clone(),
             frontend.settings.allow_client_cursor_surfaces(),
             frontend.settings.cursor_size(),
+            frontend.settings.apps_scale(),
         )
     };
     let next_keyboard = prepared.keyboard().clone();
@@ -601,10 +607,11 @@ fn synchronize_external_settings(
     if previous_cursor_policy != frontend.settings.allow_client_cursor_surfaces() {
         frontend.queue_cursor_policy_update();
     }
-    if previous_cursor_size != frontend.settings.cursor_size()
+    if (previous_cursor_size != frontend.settings.cursor_size()
+        || previous_apps_scale != frontend.settings.apps_scale())
         && let Err(error) = frontend.publish_xwayland_settings()
     {
-        warn!(%error, "could not update Xwayland cursor settings");
+        warn!(%error, "could not update Xwayland settings");
     }
     // Even unchanged native sections carry the shared document revision.
     frontend.keyboard_configuration_changed = true;
@@ -716,6 +723,7 @@ fn write_settings_document(
 ) -> Result<(u64, String), OutputControlFailure> {
     let previous_cursor_policy = frontend.settings.allow_client_cursor_surfaces();
     let previous_cursor_size = frontend.settings.cursor_size();
+    let previous_apps_scale = frontend.settings.apps_scale();
     frontend
         .settings
         .prepare_shell_update(expected_revision, document)
@@ -724,9 +732,11 @@ fn write_settings_document(
     if previous_cursor_policy != frontend.settings.allow_client_cursor_surfaces() {
         frontend.queue_cursor_policy_update();
     }
-    if previous_cursor_size != frontend.settings.cursor_size() {
+    if previous_cursor_size != frontend.settings.cursor_size()
+        || previous_apps_scale != frontend.settings.apps_scale()
+    {
         if let Err(error) = frontend.publish_xwayland_settings() {
-            warn!(%error, "could not update Xwayland cursor settings");
+            warn!(%error, "could not update Xwayland settings");
         }
     }
     frontend.keyboard_configuration_changed = true;

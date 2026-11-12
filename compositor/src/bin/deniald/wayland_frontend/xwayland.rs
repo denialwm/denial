@@ -68,7 +68,20 @@ struct ActiveXWayland {
     client: Client,
     scale_mode: XWaylandScaleMode,
     scale_120: u32,
+    /// The settings' apps scale, which X11 apps get through their DPI.
+    apps_scale: f64,
     display: u32,
+}
+
+impl ActiveXWayland {
+    /// The scale X11 apps draw at: Xwayland's, times the apps scale.
+    fn app_scale_120(&self) -> u32 {
+        app_scale_120(self.scale_120, self.apps_scale)
+    }
+}
+
+fn app_scale_120(scale_120: u32, apps_scale: f64) -> u32 {
+    (f64::from(scale_120) * apps_scale).round() as u32
 }
 
 impl XWaylandState {
@@ -88,7 +101,11 @@ impl XWaylandState {
         let keyboard_grab_state = XWaylandKeyboardGrabState::new::<RuntimeState>(display_handle);
         let scale_mode = scale_mode_from_environment();
         let scale_120 = scale_for_engine(engine_scale_120, scale_mode);
-        let xwayland_args = ["-dpi".to_owned(), dpi(scale_120).to_string()];
+        let apps_scale = settings.apps_scale();
+        let xwayland_args = [
+            "-dpi".to_owned(),
+            dpi(app_scale_120(scale_120, apps_scale)).to_string(),
+        ];
         let cursor_size = settings.cursor_size();
         let mut environment = vec![(
             OsString::from("XCURSOR_SIZE"),
@@ -153,11 +170,11 @@ impl XWaylandState {
                             .as_mut()
                             .expect("Xwayland became ready after being disabled");
                         if let Err(error) =
-                            publish_settings(&mut xwm, active.scale_120, cursor_size)
+                            publish_settings(&mut xwm, active.app_scale_120(), cursor_size)
                         {
                             error!(%error, "could not publish Xwayland settings");
                         }
-                        publish_resource_dpi(active.display, dpi(active.scale_120));
+                        publish_resource_dpi(active.display, dpi(active.app_scale_120()));
                         active.xwm = Some(xwm);
                         #[cfg(feature = "flutter")]
                         match super::super::xembed_tray::XEmbedTray::start(OsString::from(format!(
@@ -173,7 +190,7 @@ impl XWaylandState {
                             display = %format_args!(":{display_number}"),
                             scale = client_scale(active.scale_120),
                             scale_mode = ?active.scale_mode,
-                            dpi = dpi(active.scale_120),
+                            dpi = dpi(active.app_scale_120()),
                             cursor_size,
                             "Xwayland is ready"
                         );
@@ -205,6 +222,7 @@ impl XWaylandState {
                 client,
                 scale_mode,
                 scale_120,
+                apps_scale,
                 display: xdisplay,
             }),
         })
@@ -511,21 +529,25 @@ impl super::WaylandFrontend {
             .ok_or("Xwayland client is missing compositor state")?
             .compositor_state
             .set_client_scale(client_scale(scale_120));
-        if let Some(xwm) = active.xwm.as_mut() {
-            publish_settings(xwm, scale_120, self.settings.cursor_size())?;
-            publish_resource_dpi(active.display, dpi(scale_120));
-        }
         active.scale_120 = scale_120;
+        let app_scale_120 = active.app_scale_120();
+        if let Some(xwm) = active.xwm.as_mut() {
+            publish_settings(xwm, app_scale_120, self.settings.cursor_size())?;
+            publish_resource_dpi(active.display, dpi(app_scale_120));
+        }
         Ok(true)
     }
 
     #[cfg(feature = "flutter")]
     pub(crate) fn publish_xwayland_settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let cursor_size = self.settings.cursor_size();
-        if let Some(active) = self.xwayland.active.as_mut()
-            && let Some(xwm) = active.xwm.as_mut()
-        {
-            publish_settings(xwm, active.scale_120, cursor_size)?;
+        if let Some(active) = self.xwayland.active.as_mut() {
+            active.apps_scale = self.settings.apps_scale();
+            let app_scale_120 = active.app_scale_120();
+            if let Some(xwm) = active.xwm.as_mut() {
+                publish_settings(xwm, app_scale_120, cursor_size)?;
+                publish_resource_dpi(active.display, dpi(app_scale_120));
+            }
         }
         Ok(())
     }

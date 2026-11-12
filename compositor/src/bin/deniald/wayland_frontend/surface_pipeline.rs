@@ -500,7 +500,7 @@ impl WaylandFrontend {
 
     pub(super) fn client_preferred_scale(surface: &WlSurface, output_scale: f64) -> f64 {
         let client_scale = xwayland::surface_client_scale(surface)
-            .unwrap_or(1.0)
+            .unwrap_or_else(|| super::app_scale::factor(surface).recip())
             .max(f64::EPSILON);
         (output_scale / client_scale).max(1.0)
     }
@@ -1379,7 +1379,10 @@ impl WaylandFrontend {
                     PopupKind::InputMethod(_) => 0,
                 };
                 let popup_origin = saturating_point_sub(
-                    saturating_point_add(content.loc, popup_location),
+                    saturating_point_add(
+                        content.loc,
+                        super::app_scale::logical_point(&surface, popup_location),
+                    ),
                     popup.geometry().loc,
                 );
                 self.append_surface_tree(

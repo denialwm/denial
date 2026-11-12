@@ -59,6 +59,8 @@ const DEFAULT_MOUSE_SPEED: f64 = 0.0;
 const MIN_CURSOR_SIZE: u32 = 16;
 pub(super) const DEFAULT_CURSOR_SIZE: u32 = 32;
 const MAX_CURSOR_SIZE: u32 = 64;
+/// How much larger than the screen's scale apps may be drawn.
+const APPS_SCALE: std::ops::RangeInclusive<f64> = 1.0..=3.0;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // This is a backend policy, not a literal GTK_IM_MODULE value. GTK's Wayland
 // backend chooses its built-in input context automatically; Denial publishes
@@ -844,6 +846,13 @@ impl SettingsManager {
         parse_cursor_size(&self.document).unwrap_or(DEFAULT_CURSOR_SIZE)
     }
 
+    /// How much larger than the screen's scale apps are drawn: Wayland apps
+    /// but Droidloom, from their next start, and X11 apps through their DPI.
+    /// The shell keeps the screen's scale.
+    pub(super) fn apps_scale(&self) -> f64 {
+        parse_apps_scale(&self.document).unwrap_or(1.0)
+    }
+
     pub(super) fn keyboard_resize_step(&self) -> super::keyboard_resize::ResizeStep {
         parse_keyboard_resize_step(&self.document).unwrap_or_default()
     }
@@ -982,6 +991,7 @@ impl SettingsManager {
         let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
         let allow_client_cursor_surfaces = parse_allow_client_cursor_surfaces(&incoming)?;
         parse_cursor_size(&incoming)?;
+        parse_apps_scale(&incoming)?;
         parse_window_layout_kind(&incoming)?;
         parse_keyboard_resize_step(&incoming)?;
         parse_scrolling_layout_wheel_settings(&incoming)?;
@@ -1489,6 +1499,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         DEFAULT_CURSOR_SIZE
     };
     set_cursor_size(&mut document, cursor_size)?;
+    parse_apps_scale(&document)?;
     let had_window_layout = document
         .get("layout")
         .and_then(Value::as_object)
@@ -1785,6 +1796,26 @@ fn parse_cursor_size(document: &Map<String, Value>) -> Result<u32, SettingsError
         )));
     }
     Ok(value.round() as u32)
+}
+
+fn parse_apps_scale(document: &Map<String, Value>) -> Result<f64, SettingsError> {
+    let Some(value) = document
+        .get("apps")
+        .and_then(Value::as_object)
+        .and_then(|apps| apps.get("scale"))
+    else {
+        return Ok(1.0);
+    };
+    value
+        .as_f64()
+        .filter(|scale| APPS_SCALE.contains(scale))
+        .ok_or_else(|| {
+            SettingsError::Document(format!(
+                "apps.scale must be a number from {} to {}",
+                APPS_SCALE.start(),
+                APPS_SCALE.end()
+            ))
+        })
 }
 
 fn set_cursor_size(

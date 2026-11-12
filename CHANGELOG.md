@@ -8,6 +8,11 @@ boundaries may change before 1.0.
 
 ### Added
 
+- An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened
+  after a change draw that many times larger than the screen's scale, at full
+  sharpness; X11 apps follow through their DPI. The shell and Droidloom keep
+  the screen's scale, and so do clients that make layer surfaces, such as
+  panels.
 - Packages for ARM64 (AArch64). The Pacman, APT and DNF repositories carry
   `denial`, `denial-flutter-engine` and `denial-plugin-manager` for ARM64
   beside x86-64, and each machine downloads only its own architecture. The

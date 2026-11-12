@@ -20,6 +20,7 @@ use smithay::xwayland::xwm::{WmWindowType, X11Surface};
 #[cfg(feature = "xwayland")]
 use tracing::warn;
 
+use super::app_scale::client_size;
 use super::{KeyboardFocusTarget, WindowIdentity};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -362,6 +363,7 @@ impl<'a> ManagedWindow<'a> {
                 if !toplevel.wl_surface().is_alive() {
                     return false;
                 }
+                let target_size = target_size.map(|size| client_size(toplevel.wl_surface(), size));
                 let changed = toplevel.with_pending_state(|pending| match request {
                     ClientStateRequestKind::Maximize => {
                         let mut changed = pending.states.set(xdg_toplevel::State::Maximized);
@@ -491,9 +493,10 @@ impl<'a> ManagedWindow<'a> {
     pub(super) fn prepare_shell_geometry(&self, target: Rectangle<i32, Logical>) {
         match self.protocol {
             ManagedWindowProtocol::Xdg(toplevel) => {
+                let size = client_size(toplevel.wl_surface(), target.size);
                 toplevel.with_pending_state(|pending| {
                     pending.states.unset(xdg_toplevel::State::Resizing);
-                    pending.size = Some(target.size);
+                    pending.size = Some(size);
                 });
                 send_paced_resize_configure(toplevel, false);
             }
@@ -512,6 +515,7 @@ impl<'a> ManagedWindow<'a> {
         match self.protocol {
             ManagedWindowProtocol::Xdg(toplevel) => {
                 let client_maximized = toplevel_has_state(toplevel, xdg_toplevel::State::Maximized);
+                let size = client_size(toplevel.wl_surface(), target.size);
                 let state_changed = toplevel.with_pending_state(|pending| {
                     pending.states.unset(xdg_toplevel::State::Resizing);
                     let changed = if maximized {
@@ -519,7 +523,7 @@ impl<'a> ManagedWindow<'a> {
                     } else {
                         pending.states.unset(xdg_toplevel::State::Maximized)
                     };
-                    pending.size = Some(target.size);
+                    pending.size = Some(size);
                     changed
                 });
                 if toplevel.is_initial_configure_sent()
@@ -542,6 +546,7 @@ impl<'a> ManagedWindow<'a> {
     pub(super) fn prepare_restore_size(&self, size: Size<i32, Logical>, force: bool) {
         match self.protocol {
             ManagedWindowProtocol::Xdg(toplevel) => {
+                let size = client_size(toplevel.wl_surface(), size);
                 toplevel.with_pending_state(|pending| pending.size = Some(size));
                 if toplevel.is_initial_configure_sent() {
                     send_paced_resize_configure(toplevel, force);
@@ -556,6 +561,7 @@ impl<'a> ManagedWindow<'a> {
         if let ManagedWindowProtocol::Xdg(toplevel) = self.protocol
             && toplevel.wl_surface().is_alive()
         {
+            let size = client_size(toplevel.wl_surface(), size);
             toplevel.with_pending_state(|pending| {
                 if finished {
                     pending.states.unset(xdg_toplevel::State::Resizing);
@@ -577,13 +583,14 @@ impl<'a> ManagedWindow<'a> {
     pub(super) fn prepare_layout_preview(&self, target: Rectangle<i32, Logical>, finished: bool) {
         match self.protocol {
             ManagedWindowProtocol::Xdg(toplevel) if toplevel.wl_surface().is_alive() => {
+                let size = client_size(toplevel.wl_surface(), target.size);
                 toplevel.with_pending_state(|pending| {
                     if finished {
                         pending.states.unset(xdg_toplevel::State::Resizing);
                     } else {
                         pending.states.set(xdg_toplevel::State::Resizing);
                     }
-                    pending.size = Some(target.size);
+                    pending.size = Some(size);
                 });
                 send_paced_resize_configure(toplevel, false);
             }
@@ -664,8 +671,9 @@ impl<'a> ManagedWindow<'a> {
     pub(super) fn reassert_geometry_target(&self, target: Rectangle<i32, Logical>, exact: bool) {
         match self.protocol {
             ManagedWindowProtocol::Xdg(toplevel) => {
+                let size = client_size(toplevel.wl_surface(), target.size);
                 toplevel.with_pending_state(|pending| {
-                    prepare_geometry_reassertion(pending, target.size, exact);
+                    prepare_geometry_reassertion(pending, size, exact);
                 });
                 if toplevel.is_initial_configure_sent() {
                     send_paced_resize_configure(toplevel, true);
