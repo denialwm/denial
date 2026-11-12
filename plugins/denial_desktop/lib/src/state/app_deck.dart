@@ -580,11 +580,23 @@ class DeckGeometry {
   /// the older one beside it.
   double strideAt(double open) => lerpDouble(
     size.width + ReferenceShellMetrics.appSwitchGap,
-    size.width > size.height
+    _landscape
         ? card.width * (1 - overviewLandscapeOverlap)
         : card.width + overviewPageSpacing,
     open.clamp(0.0, 1.0),
   )!;
+
+  bool get _landscape => size.width > size.height;
+
+  /// Where the app [along] the row from the screen lies, in strides, with
+  /// recents [open] that far. Landscape recents is a stack: the middle card
+  /// moves with the finger, newer ones faster and older ones slower, so the
+  /// cards move against each other as the row scrolls.
+  double _carousel(double along, double open) {
+    if (!_landscape) return along;
+    const k = overviewLandscapeSpread;
+    return lerpDouble(along, (math.exp(k * along) - 1) / k, open)!;
+  }
 
   /// Finger travel that lifts an app from the screen into its card: the
   /// app's bottom edge stays under the finger. From home, a fixed share of
@@ -619,7 +631,6 @@ class DeckGeometry {
     final p = open.clamp(0.0, 1.0);
     final h = homeward.clamp(0.0, 1.0);
     final along = slot - row;
-    final offset = along * _sign;
     final leave = along.clamp(0.0, 1.0) * 2 - 1;
     final away = leave * h * size.width * _sign;
     final aside =
@@ -627,11 +638,21 @@ class DeckGeometry {
         along.clamp(-1.0, 1.0) *
         size.width *
         _sign;
-    final app = Rect.lerp(
+    var app = Rect.lerp(
       screen,
       card,
       p,
-    )!.shift(Offset(offset * strideAt(p), 0));
+    )!.shift(Offset(_carousel(along, p) * _sign * strideAt(p), 0));
+    if (_landscape) {
+      // Cards beside the middle one sit a little deeper and come forward
+      // as they reach it.
+      final depth = 1 - overviewLandscapeDepth * p * math.min(1.0, along.abs());
+      app = Rect.fromCenter(
+        center: app.center,
+        width: app.width * depth,
+        height: app.height * depth,
+      );
+    }
     // Sliding apps round their corners as soon as they leave the screen's
     // edges, and square them again as they come to rest.
     final apart = ((row - row.roundToDouble()).abs() * 8).clamp(0.0, 1.0);

@@ -13,6 +13,14 @@ const double overviewPageSpacing = 16.0;
 /// swipe across the wide cards moves fewer pixels per app.
 const double overviewLandscapeOverlap = 0.25;
 
+/// How fast landscape recents cards travel against their place in the row:
+/// the card in the middle moves with the finger, each newer one faster,
+/// spreading out, each older one slower, bunching up beneath.
+const double overviewLandscapeSpread = 0.35;
+
+/// How much smaller a landscape recents card beside the middle one is.
+const double overviewLandscapeDepth = 0.08;
+
 double viewAspectFor(Size size) {
   if (size.width <= 0.0 || size.height <= 0.0) {
     return kPreviewAspect;
