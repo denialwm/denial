@@ -151,6 +151,8 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Qt and other Xlib apps under Xwayland are scaled: Denial also sets
+  `Xft.dpi` in the X resources, which they read instead of XSETTINGS.
 - A quick flick in mobile recents reaches the next card however short it
   is; it no longer springs back unless the finger slows before release.
 - An app opening from its icon lets the icon go before it is twice its size,
