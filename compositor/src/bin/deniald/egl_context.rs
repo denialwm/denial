@@ -88,10 +88,11 @@ pub fn create_screencopy_context(shared: &EGLContext) -> Result<EGLContext, Box<
             shared,
             attributes,
             requirements,
-            // Capture is best-effort client work. Keep scanout composition on
-            // the high-priority context so a slow readback cannot invert the
-            // compositor's scheduling priority.
-            ContextPriority::Low,
+            // Capture reads buffers the compositor draws into next, so the
+            // kernel makes the next frame wait for the capture job. At a
+            // lower priority a client that keeps the GPU busy starves that
+            // job and composition stops with it.
+            ContextPriority::High,
         )
     })
 }
