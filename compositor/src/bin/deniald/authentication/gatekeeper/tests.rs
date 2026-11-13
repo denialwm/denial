@@ -46,6 +46,23 @@ fn enrollment_transports_secret_bytes_only_in_private_body() {
     assert_eq!(&d.request[48..], b"123456");
 }
 #[test]
+fn reset_sends_the_account_password_then_the_pin() {
+    let mut d = response(0, 0, 0, 123, &[4, 5, 6]);
+    let (sid, handle) = exchange(&mut d, 4, None, 0, b"secret", b"123456").unwrap();
+    assert_eq!((sid, handle), (123, vec![4, 5, 6]));
+    assert_eq!(u32_at(&d.request, 8), 4);
+    assert_eq!(u64_at(&d.request, 24), 0);
+    assert_eq!(u32_at(&d.request, 32), 0);
+    assert_eq!(u32_at(&d.request, 36), 6);
+    assert_eq!(u32_at(&d.request, 40), 6);
+    assert_eq!(&d.request[48..], b"secret123456");
+    let mut wrong = response(-libc::EACCES, -1, 0, 0, &[]);
+    assert!(matches!(
+        exchange(&mut wrong, 4, None, 0, b"wrong", b"123456"),
+        Err(Failure::Rejected)
+    ));
+}
+#[test]
 fn token_is_bound_to_fresh_challenge_and_credential() {
     let c = Credential {
         uid: UID,
