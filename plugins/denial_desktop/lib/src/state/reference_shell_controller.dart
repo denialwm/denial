@@ -758,9 +758,9 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       );
       return;
     }
-    // The app in front flies into its icon from wherever the deck has it;
-    // the rest of the deck settles away.
-    final front = state.foregroundWindow?.objectId;
+    // The app in front flies into its icon from wherever the deck has it,
+    // with any window riding on its card; the rest of the deck settles away.
+    final front = state.deckAppOf(state.foregroundObjectId);
     if (front != null) _deck.sendHome(front, openRate: rate);
     _deck.open.settle(
       0,
