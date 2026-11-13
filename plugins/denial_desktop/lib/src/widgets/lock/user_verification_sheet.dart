@@ -265,81 +265,89 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
                 : l10n.userVerificationAsksPin(app),
             ShellMediaColors.lightForegroundSecondary,
           );
+    // The app underneath gets no touch or key while the sheet is up.
     return Positioned.fill(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // The app behind stays visible, dimmed, and takes no touches.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-            child: _usePassword
-                ? IgnorePointer(
-                    child: CustomPaint(
-                      painter: _PinStageScrimPainter(
-                        reveal: _shown,
-                        color: ShellMediaColors.darkness.withValues(
-                          alpha: 0.42,
+      child: ShellInputRegion(
+        debugLabel: 'User verification',
+        active: _open,
+        pointerPolicy: ShellPointerPolicy.fullScene,
+        keyboardPolicy: ShellKeyboardPolicy.capture,
+        compositorPolicy: ShellCompositorPolicy.exclusive,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // The app behind stays visible, dimmed, and takes no touches.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: _usePassword
+                  ? IgnorePointer(
+                      child: CustomPaint(
+                        painter: _PinStageScrimPainter(
+                          reveal: _shown,
+                          color: ShellMediaColors.darkness.withValues(
+                            alpha: 0.42,
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                : null,
-          ),
-          if (_usePassword)
-            _UserVerificationPasswordPanel(
-              reveal: _shown,
-              rise: _rise,
-              title: title,
-              message: message,
-              error: _wrong || waiting,
-              controller: _password,
-              focusNode: _field,
-              enabled: _acceptsInput,
-              onSubmit: _submitPassword,
-              onCancel: _cancel,
-              onUsePin: request.pinAllowed ? () => _switch(false) : null,
-            )
-          else
-            _PinStageFrame(
-              reveal: _shown,
-              interactive: _open,
-              rise: _rise,
-              focusNode: _keys,
-              onKeyEvent: _handleKey,
-              icon: Icons.lock_rounded,
-              title: title,
-              shakeOffset: _shakeOffset,
-              length: request.pinLength,
-              filled: _filled,
-              error: _wrong,
-              message: message,
-              messageColor: messageColor,
-              enabled: _acceptsInput,
-              onDigit: _press,
-              trailing: (keySize) => _busy
-                  ? SizedBox.square(dimension: keySize)
-                  : _filled == 0
-                  ? _PinTextKey(
-                      size: keySize,
-                      label: l10n.commonCancel,
-                      onPressed: _cancel,
-                    )
-                  : _PinIconKey(
-                      size: keySize,
-                      icon: Icons.backspace_outlined,
-                      label: l10n.lockPinDelete,
-                      onPressed: _delete,
-                      onLongPress: _clear,
-                    ),
-              link: request.passwordAllowed
-                  ? _PinLink(
-                      label: l10n.lockUsePassword,
-                      onPressed: () => _switch(true),
                     )
                   : null,
             ),
-        ],
+            if (_usePassword)
+              _UserVerificationPasswordPanel(
+                reveal: _shown,
+                rise: _rise,
+                title: title,
+                message: message,
+                error: _wrong || waiting,
+                controller: _password,
+                focusNode: _field,
+                enabled: _acceptsInput,
+                onSubmit: _submitPassword,
+                onCancel: _cancel,
+                onUsePin: request.pinAllowed ? () => _switch(false) : null,
+              )
+            else
+              _PinStageFrame(
+                reveal: _shown,
+                interactive: _open,
+                rise: _rise,
+                focusNode: _keys,
+                onKeyEvent: _handleKey,
+                icon: Icons.lock_rounded,
+                title: title,
+                shakeOffset: _shakeOffset,
+                length: request.pinLength,
+                filled: _filled,
+                error: _wrong,
+                message: message,
+                messageColor: messageColor,
+                enabled: _acceptsInput,
+                onDigit: _press,
+                trailing: (keySize) => _busy
+                    ? SizedBox.square(dimension: keySize)
+                    : _filled == 0
+                    ? _PinTextKey(
+                        size: keySize,
+                        label: l10n.commonCancel,
+                        onPressed: _cancel,
+                      )
+                    : _PinIconKey(
+                        size: keySize,
+                        icon: Icons.backspace_outlined,
+                        label: l10n.lockPinDelete,
+                        onPressed: _delete,
+                        onLongPress: _clear,
+                      ),
+                link: request.passwordAllowed
+                    ? _PinLink(
+                        label: l10n.lockUsePassword,
+                        onPressed: () => _switch(true),
+                      )
+                    : null,
+              ),
+          ],
+        ),
       ),
     );
   }
