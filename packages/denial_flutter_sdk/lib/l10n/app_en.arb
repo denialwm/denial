@@ -7062,6 +7062,8 @@
   "@userVerificationAsksPin": {"description": "Line under the title of the screen-lock sheet while it shows the PIN keypad.", "placeholders": {"applicationName": {"type": "String"}}},
   "userVerificationAsksPassword": "{applicationName} asks for your password",
   "@userVerificationAsksPassword": {"description": "Line under the title of the screen-lock sheet while it asks for the account password.", "placeholders": {"applicationName": {"type": "String"}}},
+  "userVerificationAsksFingerprint": "{applicationName} asks for your fingerprint",
+  "@userVerificationAsksFingerprint": {"description": "Line on the screen-lock sheet while it waits for a finger on the sensor, above the button to the PIN or password.", "placeholders": {"applicationName": {"type": "String"}}},
   "userVerificationWrongPassword": "Wrong password",
   "@userVerificationWrongPassword": {"description": "Shown on the screen-lock sheet after a rejected account password."},
   "userVerificationConfirm": "Confirm",

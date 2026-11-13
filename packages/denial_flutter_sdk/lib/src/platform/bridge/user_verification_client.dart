@@ -11,6 +11,7 @@ final class DenialUserVerification {
     required this.id,
     required this.pinLength,
     required this.passwordAllowed,
+    required this.fingerprint,
     required this.app,
     required this.title,
     required this.description,
@@ -21,6 +22,10 @@ final class DenialUserVerification {
   /// The PIN's length; 0 when the sheet cannot ask for the PIN.
   final int pinLength;
   final bool passwordAllowed;
+
+  /// The client also verifies a fingerprint for this prompt: the sheet
+  /// starts folded behind a button to the PIN or password.
+  final bool fingerprint;
 
   /// Who asks; may be empty.
   final String app;
@@ -48,6 +53,11 @@ final class DenialUserVerificationRejected extends DenialUserVerificationEvent {
   final Duration retry;
 }
 
+/// The fingerprint gave way: a folded sheet opens on the PIN or password.
+final class DenialUserVerificationOpened extends DenialUserVerificationEvent {
+  const DenialUserVerificationOpened(super.id);
+}
+
 /// The sheet is done: [accepted] when the credential proved the user.
 final class DenialUserVerificationClosed extends DenialUserVerificationEvent {
   const DenialUserVerificationClosed(super.id, {required this.accepted});
@@ -63,6 +73,7 @@ final class BridgeUserVerificationClient {
   static const int _show = 1;
   static const int _rejected = 2;
   static const int _close = 3;
+  static const int _open = 4;
   static const int _credential = 1;
   static const int _cancel = 2;
   static const int _sync = 3;
@@ -84,8 +95,8 @@ final class BridgeUserVerificationClient {
     );
     final id = data.getUint32(1, Endian.little);
     switch (data.getUint8(0)) {
-      case _show when data.lengthInBytes >= 7:
-        var offset = 7;
+      case _show when data.lengthInBytes >= 8:
+        var offset = 8;
         String? text() {
           if (offset + 2 > bytes.length) return null;
           final length = data.getUint16(offset, Endian.little);
@@ -109,6 +120,7 @@ final class BridgeUserVerificationClient {
               id: id,
               pinLength: data.getUint8(5),
               passwordAllowed: data.getUint8(6) != 0,
+              fingerprint: data.getUint8(7) != 0,
               app: app,
               title: title,
               description: description,
@@ -126,6 +138,8 @@ final class BridgeUserVerificationClient {
         _events.add(
           DenialUserVerificationClosed(id, accepted: data.getUint8(5) != 0),
         );
+      case _open when data.lengthInBytes == 5:
+        _events.add(DenialUserVerificationOpened(id));
     }
     return null;
   }

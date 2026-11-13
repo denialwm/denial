@@ -9676,6 +9676,12 @@ abstract class AppLocalizations {
   /// **'{applicationName} asks for your password'**
   String userVerificationAsksPassword(String applicationName);
 
+  /// Line on the screen-lock sheet while it waits for a finger on the sensor, above the button to the PIN or password.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} asks for your fingerprint'**
+  String userVerificationAsksFingerprint(String applicationName);
+
   /// Shown on the screen-lock sheet after a rejected account password.
   ///
   /// In en, this message translates to:

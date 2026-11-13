@@ -15,6 +15,7 @@ export 'src/platform/bridge/user_verification_client.dart'
         DenialUserVerificationEvent,
         DenialUserVerificationShown,
         DenialUserVerificationRejected,
+        DenialUserVerificationOpened,
         DenialUserVerificationClosed;
 export 'src/platform/denial_bridge_models.dart'
     show

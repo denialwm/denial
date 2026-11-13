@@ -5428,6 +5428,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String userVerificationAsksFingerprint(String applicationName) {
+    return '$applicationName asks for your fingerprint';
+  }
+
+  @override
   String get userVerificationWrongPassword => 'Wrong password';
 
   @override

@@ -39,6 +39,7 @@
     <enum name="credential">
       <entry name="pin" value="1" summary="the lock PIN"/>
       <entry name="password" value="2" summary="the account password"/>
+      <entry name="fingerprint" value="4" summary="the client also verifies a fingerprint for this prompt"/>
     </enum>
     <request name="destroy" type="destructor">
       <description summary="destroy the verifier">
@@ -52,6 +53,13 @@
         says what the client can check. The sheet offers the PIN when the
         client allows it and the user has one, else the password; the user
         may always switch to the password when the client allows it.
+
+        With fingerprint, the client runs a denial_fingerprint_verifier_v1
+        verification for the same prompt, and the sheet first offers only a
+        button to the PIN or password beside the sensor Denial marks. It
+        opens when the user taps it, or once a verification of this client
+        ends without a match. A match does not close the sheet: the client
+        destroys it.
       </description>
       <arg name="id" type="new_id" interface="denial_user_verification_v1"/>
       <arg name="app" type="string"/>

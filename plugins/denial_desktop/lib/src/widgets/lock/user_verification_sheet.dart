@@ -7,6 +7,11 @@ part of 'lock_screen_layer.dart';
 /// deniald hands what the user types to the client that asked, which checks
 /// it and answers; the sheet only shows the answer. It waits while the
 /// session is locked.
+///
+/// When the client also takes a fingerprint, the sheet starts folded: a
+/// small card says so, over the sensor the shell marks, with a button to
+/// the PIN or password. It opens when the user takes that button, types a
+/// digit, or the fingerprint gives way.
 class UserVerificationSheet extends ConsumerStatefulWidget {
   const UserVerificationSheet({super.key});
 
@@ -46,6 +51,7 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
   /// The sheet showing, kept while it fades out.
   DenialUserVerification? _request;
   bool _open = false;
+  bool _folded = false;
   bool _usePassword = false;
   bool _busy = false;
   bool _wrong = false;
@@ -88,6 +94,7 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
         setState(() {
           _request = request;
           _open = true;
+          _folded = request.fingerprint;
           _usePassword = !request.pinAllowed;
           _busy = false;
           _wrong = false;
@@ -98,6 +105,9 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
       case DenialUserVerificationRejected(:final id, :final retry)
           when id == _request?.id && _open:
         _rejected(retry);
+      case DenialUserVerificationOpened(:final id)
+          when id == _request?.id && _open:
+        _unfold();
       case DenialUserVerificationClosed(:final id) when id == _request?.id:
         _close();
       default:
@@ -227,6 +237,29 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
     }
   }
 
+  void _unfold() {
+    if (!_folded) return;
+    setState(() => _folded = false);
+    if (_usePassword) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _usePassword) _field.requestFocus();
+      });
+    }
+  }
+
+  /// A digit typed on the folded sheet is the PIN's first.
+  KeyEventResult _handleFoldedKey(FocusNode node, KeyEvent event) =>
+      _handlePinKey(
+        event,
+        onDigit: (digit) {
+          if (_usePassword) return;
+          _unfold();
+          _press(digit);
+        },
+        onDelete: () {},
+        onCancel: _cancel,
+      );
+
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) => _handlePinKey(
     event,
     onDigit: _press,
@@ -280,20 +313,34 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {},
-              child: _usePassword
+              child: _usePassword || _folded
                   ? IgnorePointer(
                       child: CustomPaint(
                         painter: _PinStageScrimPainter(
                           reveal: _shown,
                           color: ShellMediaColors.darkness.withValues(
-                            alpha: 0.42,
+                            alpha: _folded ? 0.24 : 0.42,
                           ),
                         ),
                       ),
                     )
                   : null,
             ),
-            if (_usePassword)
+            if (_folded)
+              _UserVerificationFingerprintPanel(
+                reveal: _shown,
+                rise: _rise,
+                focusNode: _keys,
+                onKeyEvent: _handleFoldedKey,
+                title: title,
+                message: l10n.userVerificationAsksFingerprint(app),
+                switchLabel: _usePassword
+                    ? l10n.lockUsePassword
+                    : l10n.lockUsePin,
+                onSwitch: _unfold,
+                onCancel: _cancel,
+              )
+            else if (_usePassword)
               _UserVerificationPasswordPanel(
                 reveal: _shown,
                 rise: _rise,
@@ -347,6 +394,120 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
                     : null,
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The folded sheet: a card at the top, clear of the sensor the shell marks
+/// near the bottom, with the way to the PIN or password.
+class _UserVerificationFingerprintPanel extends StatelessWidget {
+  const _UserVerificationFingerprintPanel({
+    required this.reveal,
+    required this.rise,
+    required this.focusNode,
+    required this.onKeyEvent,
+    required this.title,
+    required this.message,
+    required this.switchLabel,
+    required this.onSwitch,
+    required this.onCancel,
+  });
+
+  final Animation<double> reveal;
+  final Animation<Offset> rise;
+  final FocusNode focusNode;
+  final FocusOnKeyEventCallback onKeyEvent;
+  final String title;
+  final String message;
+  final String switchLabel;
+  final VoidCallback onSwitch;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Positioned.fill(
+      child: Focus(
+        focusNode: focusNode,
+        autofocus: true,
+        onKeyEvent: onKeyEvent,
+        child: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: CompositedTranslation(
+              translation: rise,
+              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+              child: FadeSnapshot(
+                opacity: reveal,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: context.shellColors.surfaceContainerLow,
+                      borderRadius: context.shellTheme.borderRadius(24),
+                      border: Border.all(color: context.shellColors.hairline),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.fingerprint_rounded,
+                                size: 24,
+                                color: context.shellColors.textSecondary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: ShellText.base.copyWith(
+                                    fontSize: 21,
+                                    height: 1.15,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                              ),
+                              _MobileLockCancelButton(
+                                label: l10n.commonCancel,
+                                onPressed: onCancel,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              message,
+                              style: ShellText.base.copyWith(
+                                color: context.shellColors.textSecondary,
+                                fontSize: 13,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Center(
+                            child: _PinLink(
+                              label: switchLabel,
+                              onPressed: onSwitch,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

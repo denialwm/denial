@@ -5,18 +5,25 @@
 //! user typed back here; it goes to the asking client alone, which checks it
 //! and answers. Nothing here judges a credential or unlocks anything.
 //!
+//! A client that also verifies a fingerprint for the prompt gets the sheet
+//! folded behind a button to the PIN or password; it opens when the user
+//! taps it, or when that client's fingerprint verification ends without a
+//! match.
+//!
 //! The shell's channel carries little-endian records. To the shell:
-//! `1 id:u32 pin_length:u8 password:u8 (len:u16 utf8){app, title,
-//! description}` shows a sheet, `2 id:u32 retry_ms:u32` asks again, `3 id:u32
-//! accepted:u8` closes it. From the shell: `1 id:u32 kind:u8 secret...` is
+//! `1 id:u32 pin_length:u8 password:u8 fingerprint:u8 (len:u16 utf8){app,
+//! title, description}` shows a sheet, `2 id:u32 retry_ms:u32` asks again,
+//! `3 id:u32 accepted:u8` closes it, `4 id:u32` opens a folded sheet. From
+//! the shell: `1 id:u32 kind:u8 secret...` is
 //! what the user typed, `2 id:u32` the user closed the sheet, `3` the shell
 //! started and wants the sheet showing, if any.
 
 use std::collections::VecDeque;
 use std::ffi::CStr;
 
+use smithay::reexports::wayland_server::backend::ClientId;
 use smithay::reexports::wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New,
+    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
 use tracing::{info, warn};
 
@@ -27,6 +34,9 @@ pub(super) const CHANNEL: &CStr = c"denial/user_verification";
 const SHOW: u8 = 1;
 const REJECTED: u8 = 2;
 const CLOSE: u8 = 3;
+const OPEN: u8 = 4;
+/// Where the show record keeps whether the sheet waits for a fingerprint.
+const FOLDED_AT: usize = 7;
 const CREDENTIAL: u8 = 1;
 const CANCEL: u8 = 2;
 const SYNC: u8 = 3;
@@ -69,10 +79,18 @@ use protocol::server::denial_user_verifier_v1::{
     self as verifier, Credential, DenialUserVerifierV1,
 };
 
+/// The sheet showing: its request, the client's object and the record that
+/// shows it again to a restarted shell.
+struct Sheet {
+    id: u32,
+    resource: DenialUserVerificationV1,
+    show: Vec<u8>,
+}
+
 /// The sheet showing, and the records for the shell.
 #[derive(Default)]
 pub(super) struct Verifications {
-    current: Option<(u32, DenialUserVerificationV1, Vec<u8>)>,
+    current: Option<Sheet>,
     next: u32,
     outgoing: VecDeque<Vec<u8>>,
 }
@@ -86,18 +104,35 @@ impl Verifications {
         }
     }
 
+    fn is_current(&self, id: u32) -> bool {
+        self.current.as_ref().is_some_and(|sheet| sheet.id == id)
+    }
+
     fn close(&mut self, id: u32, accepted: bool) {
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|(current, ..)| *current == id)
-        {
+        if self.is_current(id) {
             self.current = None;
             let mut record = vec![CLOSE];
             record.extend_from_slice(&id.to_le_bytes());
             record.push(u8::from(accepted));
             self.send(record);
         }
+    }
+
+    /// A fingerprint verification of `client` ended without a match: its
+    /// folded sheet opens on the PIN or password.
+    pub(super) fn fingerprint_ended(&mut self, client: &ClientId) {
+        let Some(sheet) = self.current.as_mut() else {
+            return;
+        };
+        if sheet.show[FOLDED_AT] == 0
+            || sheet.resource.client().map(|c| c.id()) != Some(client.clone())
+        {
+            return;
+        }
+        sheet.show[FOLDED_AT] = 0;
+        let mut record = vec![OPEN];
+        record.extend_from_slice(&sheet.id.to_le_bytes());
+        self.send(record);
     }
 }
 
@@ -153,10 +188,10 @@ impl Dispatch<DenialUserVerifierV1, ()> for RuntimeState {
                 verifications.next = verifications.next.wrapping_add(1).max(1);
                 let request = verifications.next;
                 let resource = init.init(id, request);
-                if let Some((older, resource, _)) = verifications.current.take() {
-                    resource.cancelled();
+                if let Some(older) = verifications.current.take() {
+                    older.resource.cancelled();
                     let mut record = vec![CLOSE];
-                    record.extend_from_slice(&older.to_le_bytes());
+                    record.extend_from_slice(&older.id.to_le_bytes());
                     record.push(0);
                     verifications.send(record);
                 }
@@ -174,6 +209,7 @@ impl Dispatch<DenialUserVerifierV1, ()> for RuntimeState {
                 record.extend_from_slice(&request.to_le_bytes());
                 record.push(pin_length.min(u32::from(u8::MAX)) as u8);
                 record.push(u8::from(password));
+                record.push(u8::from(credentials & Credential::Fingerprint as u32 != 0));
                 text(&mut record, &app);
                 text(&mut record, &title);
                 text(&mut record, &description);
@@ -183,7 +219,11 @@ impl Dispatch<DenialUserVerifierV1, ()> for RuntimeState {
                     "client user verification requested"
                 );
                 verifications.send(record.clone());
-                verifications.current = Some((request, resource, record));
+                verifications.current = Some(Sheet {
+                    id: request,
+                    resource,
+                    show: record,
+                });
             }
             verifier::Request::Destroy => {}
         }
@@ -204,11 +244,7 @@ impl Dispatch<DenialUserVerificationV1, u32> for RuntimeState {
         match request {
             verification::Request::Accepted => verifications.close(*data, true),
             verification::Request::Rejected { retry_ms } => {
-                if verifications
-                    .current
-                    .as_ref()
-                    .is_some_and(|(current, ..)| current == data)
-                {
+                if verifications.is_current(*data) {
                     let mut record = vec![REJECTED];
                     record.extend_from_slice(&data.to_le_bytes());
                     record.extend_from_slice(&retry_ms.to_le_bytes());
@@ -238,19 +274,16 @@ fn receive(verifications: &mut Verifications, record: &[u8]) {
     };
     match record.first() {
         Some(&SYNC) if record.len() == 1 => {
-            if let Some((_, _, show)) = &verifications.current {
-                let show = show.clone();
+            if let Some(sheet) = &verifications.current {
+                let show = sheet.show.clone();
                 verifications.send(show);
             }
         }
         Some(&CANCEL) if record.len() == 5 => {
-            if verifications
-                .current
-                .as_ref()
-                .is_some_and(|(current, ..)| Some(*current) == id(record))
-                && let Some((_, resource, _)) = verifications.current.take()
+            if id(record).is_some_and(|id| verifications.is_current(id))
+                && let Some(sheet) = verifications.current.take()
             {
-                resource.cancelled();
+                sheet.resource.cancelled();
             }
         }
         Some(&CREDENTIAL) if (7..=6 + MAX_SECRET).contains(&record.len()) => {
@@ -259,14 +292,14 @@ fn receive(verifications: &mut Verifications, record: &[u8]) {
                 PASSWORD => Credential::Password,
                 _ => return,
             };
-            let Some((current, resource, _)) = &verifications.current else {
+            let Some(sheet) = &verifications.current else {
                 return;
             };
-            if id(record) != Some(*current) {
+            if id(record) != Some(sheet.id) {
                 return;
             }
             match std::str::from_utf8(&record[6..]) {
-                Ok(secret) => resource.credential(kind, secret.to_owned()),
+                Ok(secret) => sheet.resource.credential(kind, secret.to_owned()),
                 Err(_) => warn!("rejected a credential that is not UTF-8"),
             }
         }
