@@ -14,6 +14,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'app_deck.dart';
 import 'reference_shell_state.dart';
 import 'input_deck.dart';
+import 'left_app.dart';
 import 'over_lock_window.dart';
 import 'phone_desk.dart';
 import 'phone_desk_input.dart';
@@ -110,19 +111,30 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     ];
   }
 
+  /// Apps kept running behind a window opened over them, such as their
+  /// dialog; see [leaveApps].
+  Set<int> _heldBehind = const <int>{};
+
   /// On the phone, an app the user left, by going home or for another app,
   /// is minimized: Denial suspends it, stops its frames and keeps showing its
   /// last one. Recents alone leaves the app in front, as does the lock
-  /// screen; focusing it again restores it.
+  /// screen; focusing it again restores it. An app left for its own dialog
+  /// runs on until the dialog is no longer in front.
   void _minimizeLeftApp(int? previous, ReferenceShellState next) {
-    if (!_automaticSoftwareKeyboard ||
-        previous == null ||
-        previous == next.foregroundObjectId) {
-      return;
+    if (!_automaticSoftwareKeyboard) return;
+    final windows = next.openAppWindowsByObjectId;
+    final left = leaveApps(
+      previous: previous,
+      front: next.foregroundObjectId,
+      held: _heldBehind,
+      parentOf: (id) => windows[id]?.transientParentObjectId,
+    );
+    _heldBehind = left.held;
+    for (final id in left.minimize) {
+      final window = windows[id];
+      if (window == null || window.minimized) continue;
+      _bridge.minimizeWindow(window);
     }
-    final window = next.openAppWindowsByObjectId[previous];
-    if (window == null || window.minimized) return;
-    _bridge.minimizeWindow(window);
   }
 
   @override
@@ -339,6 +351,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     _liftCaught = false;
     _dismissedIds.clear();
     _recent.clear();
+    _heldBehind = const <int>{};
     _quickSettingsDragStartedOpen = false;
     _quickSettingsDragMoved = false;
     _edgePanelDragStartedOpen = false;
