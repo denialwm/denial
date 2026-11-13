@@ -90,7 +90,10 @@ class MobileAppDeckLayer extends ConsumerWidget {
       deck: controller.deck,
       // The phone's apps; beside a desk the desk's stay off the deck.
       windows: ref.watch(
-        referenceShellProvider.select((state) => state.openAppWindows),
+        referenceShellProvider.select((state) => state.deckApps),
+      ),
+      windowsOver: ref.watch(
+        referenceShellProvider.select((state) => state.deckWindowsByApp),
       ),
       recents: recents,
       backdrop: backdrop,

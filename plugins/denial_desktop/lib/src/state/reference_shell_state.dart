@@ -291,6 +291,63 @@ class ReferenceShellState {
 
   int get openAppWindowCount => openAppWindows.length;
 
+  /// The phone's apps as the deck shows them, one card each: a window opened
+  /// over an open app, such as a dialog Android runs in a task of its own,
+  /// rides on that app's card.
+  List<DenialWindow> get deckApps {
+    final open = openAppWindowsByObjectId;
+    bool rides(DenialWindow window) =>
+        open.containsKey(window.transientParentObjectId);
+    if (!openAppWindows.any(rides)) return openAppWindows;
+    return [
+      for (final window in openAppWindows)
+        if (!rides(window)) window,
+    ];
+  }
+
+  Map<int, DenialWindow> get deckAppsByObjectId => {
+    for (final window in deckApps) window.objectId: window,
+  };
+
+  /// The app whose card shows window [objectId]: its farthest open parent,
+  /// or itself.
+  int? deckAppOf(int? objectId) {
+    final open = openAppWindowsByObjectId;
+    if (objectId == null || !open.containsKey(objectId)) return null;
+    var id = objectId;
+    // Parents form a tree; the bound only guards a broken one.
+    for (var depth = 0; depth < 16; depth++) {
+      final parent = open[id]?.transientParentObjectId;
+      if (parent == null || !open.containsKey(parent)) break;
+      id = parent;
+    }
+    return id;
+  }
+
+  /// The windows riding on app [objectId]'s card, in stacking order.
+  List<DenialWindow> deckWindowsOver(int objectId) => [
+    for (final window in openAppWindows)
+      if (window.objectId != objectId && deckAppOf(window.objectId) == objectId)
+        window,
+  ];
+
+  /// The windows riding on each app's card, by app; empty while none does.
+  Map<int, List<DenialWindow>> get deckWindowsByApp {
+    final apps = deckApps;
+    if (identical(apps, openAppWindows)) return const {};
+    return {
+      for (final app in apps)
+        if (deckWindowsOver(app.objectId) case final over when over.isNotEmpty)
+          app.objectId: over,
+    };
+  }
+
+  /// The window a card brings to the front: the newest one riding on it, so
+  /// an app comes back with its dialog, or the app.
+  DenialWindow? deckFocusOf(int objectId) =>
+      deckWindowsOver(objectId).lastOrNull ??
+      openAppWindowsByObjectId[objectId];
+
   /// A sideways swipe of the bottom gesture has an app to bring in.
   bool get canSwitchApps {
     // An opening app's flight holds the gesture.
@@ -301,7 +358,7 @@ class ReferenceShellState {
         edgePanelDragProgress > 0.0) {
       return false;
     }
-    return openAppWindowCount > (foregroundWindow == null ? 0 : 1);
+    return deckApps.length > (foregroundWindow == null ? 0 : 1);
   }
 
   DenialWindow? adjacentOpenAppWindow(int direction) {
