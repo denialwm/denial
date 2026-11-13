@@ -23,6 +23,7 @@ class MobilePrimaryWindowLayer extends ConsumerWidget {
       referenceShellProvider.select(
         (state) => (
           window: state.primaryWindow,
+          behind: state.windowsBehindPrimary,
           homeActive: state.homeTransitionActive,
         ),
       ),
@@ -55,6 +56,7 @@ class MobilePrimaryWindowLayer extends ConsumerWidget {
             padding: EdgeInsets.only(top: topInset),
             child: MobilePrimaryWindowStage(
               currentWindow: window,
+              behind: visual.behind,
               opacity: hidden ? 0.0 : 1.0,
             ),
           ),

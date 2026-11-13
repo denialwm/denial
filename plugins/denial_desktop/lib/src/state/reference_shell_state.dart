@@ -238,6 +238,22 @@ class ReferenceShellState {
     return foregroundWindow;
   }
 
+  /// The open apps the primary window opened over, the farthest first. A
+  /// dialog Android runs in a task of its own shows them through its gaps.
+  List<DenialWindow> get windowsBehindPrimary {
+    var parent = primaryWindow?.transientParentObjectId;
+    if (parent == null) return const <DenialWindow>[];
+    final behind = <DenialWindow>[];
+    // Parents form a tree; the bound only guards a broken one.
+    for (var depth = 0; parent != null && depth < 16; depth++) {
+      final window = windowByObjectId(parent);
+      if (window == null) break;
+      if (window.isUserApp && !window.minimized) behind.insert(0, window);
+      parent = window.transientParentObjectId;
+    }
+    return behind;
+  }
+
   /// The foreground app lays itself out around the on-screen keyboard
   /// (denial-insets-v1 keyboard inset), so the shell does not lift it.
   bool get primaryWindowHandlesKeyboard =>
