@@ -48,6 +48,9 @@ import '../../state/phone_desk.dart';
 
 enum ShadePage { notifications, quickSettings }
 
+/// A landscape shade's columns and tiles against a phone's.
+const double _landscapeShadeGrowth = 1.5;
+
 /// The scene's backdrop frosted once, when the translucent shade can show it
 /// in place of live material.
 WindowBackdropCache? _frostedShadeBackdrop(BuildContext context) =>
@@ -464,12 +467,49 @@ class _ShadePagerState extends State<_ShadePager>
       });
   }
 
+  /// A landscape shade shows both pages at once, notifications at the start
+  /// and the controls at the end, each one and a half phones wide.
+  Widget _buildSideBySide(double width) {
+    final column = math.min(
+      colorOsReferenceShortSide * _landscapeShadeGrowth,
+      width / 2,
+    );
+    return ShadeDismissGesture(
+      progress: widget.progress,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            width: column,
+            child: _NotificationCenterPage(
+              progress: widget.progress,
+              closed: widget.closed,
+              active: widget.active,
+            ),
+          ),
+          PositionedDirectional(
+            end: 0,
+            top: 0,
+            bottom: 0,
+            width: column,
+            child: _ControlCenterPage(progress: widget.progress),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final direction = Directionality.of(context);
+    final view = MediaQuery.sizeOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        if (view.width > view.height) return _buildSideBySide(width);
         final currentIndex = _index(widget.page, direction);
         _width = width;
         _currentIndex = currentIndex;
@@ -774,8 +814,11 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           },
         ),
     ];
+    final view = MediaQuery.sizeOf(context);
     return QuickSettingsTiles(
       expansionProgress: progress,
+      // The wider landscape columns get tiles taller in proportion.
+      heightFactor: view.width > view.height ? _landscapeShadeGrowth : 1,
       footerTiles: footerTiles,
       mobileDataTile: const MobileDataTile(),
       brightnessControl: const _BrightnessRangeBar(),

@@ -36,10 +36,20 @@ use protocol::server::denial_keyboard_inset_v1::{self, DenialKeyboardInsetV1};
 #[path = "insets/tests.rs"]
 mod tests;
 
-fn configure_mobile_toplevel(toplevel: &ToplevelSurface, size: Size<i32, Logical>) {
+fn configure_mobile_toplevel(
+    toplevel: &ToplevelSurface,
+    size: Size<i32, Logical>,
+    fullscreen: bool,
+) {
+    let size = super::app_scale::client_size(toplevel.wl_surface(), size);
     toplevel.with_pending_state(|pending| {
         pending.size = Some(size);
-        pending.states.unset(xdg_toplevel::State::Fullscreen);
+        if fullscreen {
+            pending.states.set(xdg_toplevel::State::Fullscreen);
+        } else {
+            pending.states.unset(xdg_toplevel::State::Fullscreen);
+            pending.fullscreen_output = None;
+        }
         pending.states.unset(xdg_toplevel::State::Maximized);
         // Mobile clients fill their assigned rectangle, including dialogs and
         // clients managing their own insets. Leave unrelated state bits alone.
@@ -63,6 +73,7 @@ pub(super) fn configure_desktop_toplevel(
     size: Size<i32, Logical>,
     state: WindowPlacementState,
 ) {
+    let size = super::app_scale::client_size(toplevel.wl_surface(), size);
     toplevel.with_pending_state(|pending| {
         pending.size = Some(size);
         pending.states.unset(xdg_toplevel::State::Resizing);
@@ -107,7 +118,7 @@ fn initial_desktop_geometry(
 
 /// Matches the mobile status bar's logical height. Output scaling is applied
 /// by the ordinary client configure/viewport and native texture projection.
-/// A landscape output shows no status bar, so its windows get no inset.
+/// A full-screen window gets no inset: the shell hides the bar over it.
 pub(super) const MOBILE_STATUS_INSET: i32 = 48;
 
 struct SelfManagedInsets;
@@ -328,6 +339,14 @@ impl WaylandFrontend {
                 .collect::<Vec<_>>();
             self.mobile_shell = false;
             for window in &windows {
+                if let Some(record) = self
+                    .window_root_surface(window)
+                    .and_then(|root| self.window_record_for_surface_mut(&root.id()))
+                {
+                    record.mobile_fullscreen = false;
+                }
+            }
+            for window in &windows {
                 let Some(root) = self.window_root_surface(window) else {
                     continue;
                 };
@@ -408,7 +427,7 @@ impl WaylandFrontend {
             .or_else(|| self.phone_output())
             .map(|output| output.logical_geometry)
             .or_else(|| self.fallback_output_geometry())?;
-        let top = if self_managed(&root) || geometry.size.w > geometry.size.h {
+        let top = if self_managed(&root) || self.mobile_fullscreen(&root) {
             0
         } else {
             MOBILE_STATUS_INSET.min((geometry.size.h - 1).max(0))
@@ -418,12 +437,38 @@ impl WaylandFrontend {
         Some(geometry)
     }
 
+    fn mobile_fullscreen(&self, root: &WlSurface) -> bool {
+        self.window_record_for_surface(&root.id())
+            .is_some_and(|record| record.mobile_fullscreen)
+    }
+
+    /// A phone window's own full-screen request: it fills the output, or
+    /// returns below the status bar.
+    pub(super) fn set_mobile_fullscreen(&mut self, window: &Window, fullscreen: bool) -> bool {
+        if self.mobile_window_geometry(window).is_none() {
+            return false;
+        }
+        let Some(record) = self
+            .window_root_surface(window)
+            .and_then(|root| self.ensure_window_record_for_surface(&root.id()))
+        else {
+            return false;
+        };
+        record.mobile_fullscreen = fullscreen;
+        self.configure_mobile_window(window);
+        true
+    }
+
     pub(super) fn configure_mobile_window(&mut self, window: &Window) {
         let Some(target) = self.mobile_window_geometry(window) else {
             return;
         };
         if let Some(toplevel) = window.toplevel() {
-            configure_mobile_toplevel(toplevel, target.size);
+            configure_mobile_toplevel(
+                toplevel,
+                target.size,
+                self.mobile_fullscreen(toplevel.wl_surface()),
+            );
         }
         // An unchanged geometry target can still need a state-only configure.
         // Avoid rewriting geometry/authority when only XDG state has changed.

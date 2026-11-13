@@ -46,15 +46,18 @@ class ReferenceInputLayoutCoordinator {
     final edgePanelActive =
         state.edgePanelVisible || state.edgePanelDragProgress > 0.0;
     final edgePanelProgress = state.edgePanelDragProgress;
+    final shortcuts = state.oskShortcuts;
     final edgePanelRect = ReferenceShellMetrics.edgePanelRect(
       viewSize,
       edgePanelProgress,
+      shortcuts: shortcuts,
     );
     List<Rect> softwareKeyboardRegions({required bool scrollStripVisible}) =>
         ReferenceShellMetrics.softwareKeyboardRegions(
           viewSize,
           progress: edgePanelProgress,
           scrollStripVisible: scrollStripVisible,
+          shortcuts: shortcuts,
         );
     // The calls app's window over the lock screen takes its touches; the
     // keyboard stays with the lock screen.
@@ -105,6 +108,7 @@ class ReferenceInputLayoutCoordinator {
         viewSize,
         overlay.geometry!.size,
         edgePanelProgress,
+        shortcuts: shortcuts,
       );
       _publishInputLayout(
         viewSize: viewSize,
@@ -154,9 +158,9 @@ class ReferenceInputLayoutCoordinator {
         interactions.capturesFullScene;
     final scrollStripVisible =
         state.edgePanelVisible && (shellOwnsCanvas || appLifted);
-    // A landscape view shows no status bar, so over an app its strip lets
-    // touches through and claims only a pull down from the top edge.
-    final statusEdge = !ReferenceShellMetrics.statusBarShown(viewSize);
+    // Over a full-screen app the status strip lets touches through and
+    // claims only a pull down from the top edge.
+    final statusEdge = state.statusBarHidden;
     final shellRegions = <Rect>[
       if (shellOwnsCanvas)
         canvas
@@ -164,7 +168,10 @@ class ReferenceInputLayoutCoordinator {
         if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         if (edgePanelRect.height > 0.0) edgePanelRect,
         if (scrollStripVisible)
-          ReferenceShellMetrics.edgePanelScrollStripRect(viewSize),
+          ReferenceShellMetrics.edgePanelScrollStripRect(
+            viewSize,
+            shortcuts: shortcuts,
+          ),
       ] else ...[
         if (!statusEdge) ReferenceShellMetrics.statusRect(viewSize),
         ReferenceShellMetrics.gestureRect(viewSize),
@@ -176,7 +183,7 @@ class ReferenceInputLayoutCoordinator {
           region.shift(-_sceneOrigin).intersect(canvas),
     ];
 
-    // Back swipes and landscape pull-downs start over the app and are handed
+    // Back swipes and full-screen pull-downs start over the app and are handed
     // to the shell's strips once they move inward. Elsewhere the shell owns
     // the whole canvas.
     final edgeSwipeRegions = shellRegions.contains(canvas)

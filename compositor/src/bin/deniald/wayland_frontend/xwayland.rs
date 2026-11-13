@@ -68,7 +68,20 @@ struct ActiveXWayland {
     client: Client,
     scale_mode: XWaylandScaleMode,
     scale_120: u32,
+    /// The settings' apps scale, which X11 apps get through their DPI.
+    apps_scale: f64,
     display: u32,
+}
+
+impl ActiveXWayland {
+    /// The scale X11 apps draw at: Xwayland's, times the apps scale.
+    fn app_scale_120(&self) -> u32 {
+        app_scale_120(self.scale_120, self.apps_scale)
+    }
+}
+
+fn app_scale_120(scale_120: u32, apps_scale: f64) -> u32 {
+    (f64::from(scale_120) * apps_scale).round() as u32
 }
 
 impl XWaylandState {
@@ -88,7 +101,11 @@ impl XWaylandState {
         let keyboard_grab_state = XWaylandKeyboardGrabState::new::<RuntimeState>(display_handle);
         let scale_mode = scale_mode_from_environment();
         let scale_120 = scale_for_engine(engine_scale_120, scale_mode);
-        let xwayland_args = ["-dpi".to_owned(), dpi(scale_120).to_string()];
+        let apps_scale = settings.apps_scale();
+        let xwayland_args = [
+            "-dpi".to_owned(),
+            dpi(app_scale_120(scale_120, apps_scale)).to_string(),
+        ];
         let cursor_size = settings.cursor_size();
         let mut environment = vec![(
             OsString::from("XCURSOR_SIZE"),
@@ -153,10 +170,11 @@ impl XWaylandState {
                             .as_mut()
                             .expect("Xwayland became ready after being disabled");
                         if let Err(error) =
-                            publish_settings(&mut xwm, active.scale_120, cursor_size)
+                            publish_settings(&mut xwm, active.app_scale_120(), cursor_size)
                         {
                             error!(%error, "could not publish Xwayland settings");
                         }
+                        publish_resource_dpi(active.display, dpi(active.app_scale_120()));
                         active.xwm = Some(xwm);
                         #[cfg(feature = "flutter")]
                         match super::super::xembed_tray::XEmbedTray::start(OsString::from(format!(
@@ -172,7 +190,7 @@ impl XWaylandState {
                             display = %format_args!(":{display_number}"),
                             scale = client_scale(active.scale_120),
                             scale_mode = ?active.scale_mode,
-                            dpi = dpi(active.scale_120),
+                            dpi = dpi(active.app_scale_120()),
                             cursor_size,
                             "Xwayland is ready"
                         );
@@ -204,6 +222,7 @@ impl XWaylandState {
                 client,
                 scale_mode,
                 scale_120,
+                apps_scale,
                 display: xdisplay,
             }),
         })
@@ -425,6 +444,72 @@ pub(super) fn publish_settings(
     xwm.set_xsettings(settings.into_iter())
 }
 
+/// Qt's and Xlib's X11 clients take their DPI from `Xft.dpi` in the root
+/// window's RESOURCE_MANAGER, not from XSETTINGS, so it carries the same DPI.
+/// Written from a thread of its own: Xwayland may be waiting on this
+/// compositor while the connection is made.
+fn publish_resource_dpi(display_number: u32, dpi: u32) {
+    let spawned = std::thread::Builder::new()
+        .name("denial-x11-resources".into())
+        .spawn(move || {
+            if let Err(error) = set_resource_dpi(display_number, dpi) {
+                warn!(
+                    %error,
+                    display_number, "could not publish Xft.dpi to X11 resources"
+                );
+            }
+        });
+    if let Err(error) = spawned {
+        warn!(%error, "could not start the X11 resources thread");
+    }
+}
+
+fn set_resource_dpi(
+    display: u32,
+    dpi: u32,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, PropMode};
+    use x11rb::wrapper::ConnectionExt as _;
+
+    let (connection, screen) = x11rb::connect(Some(&format!(":{display}")))?;
+    let root = connection.setup().roots[screen].root;
+    let current = connection
+        .get_property(
+            false,
+            root,
+            AtomEnum::RESOURCE_MANAGER,
+            AtomEnum::STRING,
+            0,
+            u32::MAX / 4,
+        )?
+        .reply()?;
+    let resources = with_resource_dpi(&String::from_utf8_lossy(&current.value), dpi);
+    connection.change_property8(
+        PropMode::REPLACE,
+        root,
+        AtomEnum::RESOURCE_MANAGER,
+        AtomEnum::STRING,
+        resources.as_bytes(),
+    )?;
+    connection.flush()?;
+    Ok(())
+}
+
+/// The resources with `Xft.dpi` set to `dpi`, others kept as they are.
+fn with_resource_dpi(resources: &str, dpi: u32) -> String {
+    let mut merged = String::with_capacity(resources.len() + 16);
+    for line in resources
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("Xft.dpi:"))
+    {
+        merged.push_str(line);
+        merged.push('\n');
+    }
+    merged.push_str(&format!("Xft.dpi:\t{dpi}\n"));
+    merged
+}
+
 impl super::WaylandFrontend {
     pub(super) fn set_xwayland_scale(
         &mut self,
@@ -444,20 +529,25 @@ impl super::WaylandFrontend {
             .ok_or("Xwayland client is missing compositor state")?
             .compositor_state
             .set_client_scale(client_scale(scale_120));
-        if let Some(xwm) = active.xwm.as_mut() {
-            publish_settings(xwm, scale_120, self.settings.cursor_size())?;
-        }
         active.scale_120 = scale_120;
+        let app_scale_120 = active.app_scale_120();
+        if let Some(xwm) = active.xwm.as_mut() {
+            publish_settings(xwm, app_scale_120, self.settings.cursor_size())?;
+            publish_resource_dpi(active.display, dpi(app_scale_120));
+        }
         Ok(true)
     }
 
     #[cfg(feature = "flutter")]
     pub(crate) fn publish_xwayland_settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let cursor_size = self.settings.cursor_size();
-        if let Some(active) = self.xwayland.active.as_mut()
-            && let Some(xwm) = active.xwm.as_mut()
-        {
-            publish_settings(xwm, active.scale_120, cursor_size)?;
+        if let Some(active) = self.xwayland.active.as_mut() {
+            active.apps_scale = self.settings.apps_scale();
+            let app_scale_120 = active.app_scale_120();
+            if let Some(xwm) = active.xwm.as_mut() {
+                publish_settings(xwm, app_scale_120, cursor_size)?;
+                publish_resource_dpi(active.display, dpi(app_scale_120));
+            }
         }
         Ok(())
     }
@@ -1273,7 +1363,16 @@ impl XwmHandler for RuntimeState {
 
 #[cfg(test)]
 mod tests {
-    use super::initial_map_activates;
+    use super::{initial_map_activates, with_resource_dpi};
+
+    #[test]
+    fn resource_dpi_replaces_its_line_and_keeps_the_others() {
+        assert_eq!(with_resource_dpi("", 144), "Xft.dpi:\t144\n");
+        assert_eq!(
+            with_resource_dpi("Xcursor.size:\t32\nXft.dpi:\t96\n", 192),
+            "Xcursor.size:\t32\nXft.dpi:\t192\n"
+        );
+    }
 
     #[test]
     fn override_redirect_mapping_does_not_take_activation() {

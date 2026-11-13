@@ -333,7 +333,7 @@ class _ProfileScene extends StatelessWidget {
             // Before the device has a person's account, setup covers all of
             // the above; the keyboard stays over it.
             const FirstUserSetupLayer(),
-            const SystemKeyboardLayer(),
+            const SystemKeyboardLayer(hints: true),
             // Over everything on the phone, like the lock screen it comes
             // from.
             const UnlockedAmbientDisplay(),

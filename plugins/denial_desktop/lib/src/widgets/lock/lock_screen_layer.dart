@@ -1,4 +1,5 @@
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
+import 'package:denial_desktop/src/state/reference_shell_presentation.dart';
 import 'package:denial_desktop/src/state/reference_shell_profile.dart';
 
 import 'dart:async' show StreamSubscription, Timer;
@@ -235,7 +236,8 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
   @override
   Widget build(BuildContext context) {
     final layout = ref.watch(sceneDisplayLayoutProvider(ShellPart.of(context)));
-    final shellProfile = ref.watch(referenceShellProfileProvider);
+    // The shell as shown: a tablet in desktop view locks like a desktop.
+    final shellProfile = ref.watch(referenceShellPresentationProvider);
     final animateEntrance = ref.watch(
       shellSettingsProvider.select(
         (settings) => settings.animations.animateLockScreen,
@@ -268,9 +270,10 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
               )
               .where((entry) => !entry.rect.isEmpty)
               .toList(growable: false);
+          // A phone or tablet keeps its own face, with the PIN pad, in
+          // either orientation; a desk or a second screen gets the desktop's.
           final desktop =
               shellProfile == ReferenceShellProfile.desktop ||
-              canvas.width >= 900 ||
               outputs.length > 1;
           late final Widget scene;
           if (outputs.length <= 1) {

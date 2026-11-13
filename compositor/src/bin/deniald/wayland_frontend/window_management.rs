@@ -2659,6 +2659,23 @@ pub(super) fn apply_managed_client_state_request(
     request: ManagedClientStateRequest,
 ) -> bool {
     #[cfg(feature = "flutter")]
+    {
+        let fullscreen = match request {
+            ManagedClientStateRequest::Fullscreen(_) => Some(true),
+            ManagedClientStateRequest::Unfullscreen => Some(false),
+            _ => None,
+        };
+        if let Some(fullscreen) = fullscreen
+            && state
+                .frontend_mut()
+                .set_mobile_fullscreen(window, fullscreen)
+        {
+            state.scene_sync.mark_dirty();
+            return true;
+        }
+    }
+
+    #[cfg(feature = "flutter")]
     if let Some(exact) = state
         .wayland
         .as_ref()

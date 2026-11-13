@@ -32,10 +32,12 @@ class _StatusGeometry {
   static const collapsedHeight = ReferenceShellMetrics.statusBarHeight - 18;
   double get expandedTop => math.max(40 * referenceScale, topPadding);
   double get expandedHeight => 18 * referenceScale;
-  double get hitHeight => math.max(
-    topPadding + ReferenceShellMetrics.statusBarHeight,
-    expandedTop + expandedHeight,
-  );
+
+  /// The closed bar's strip; the open shade's header row reaches lower.
+  double get closedHitHeight =>
+      topPadding + ReferenceShellMetrics.statusBarHeight;
+  double get openHitHeight =>
+      math.max(closedHitHeight, expandedTop + expandedHeight);
 
   /// The status row at [progress] of the shade, in screen coordinates.
   List<Widget> foreground(
@@ -139,7 +141,7 @@ Color _statusColorAt(BuildContext context, Color foreground, double progress) {
 ///
 /// While the shade is open, the shade draws the whole row beneath its
 /// notifications through [ShadeHeaderStatusLayer]; the bar keeps only its
-/// drag surface. A landscape view shows no bar, only that surface.
+/// drag surface. Over a full-screen app the bar shows nothing either.
 class ShadeStatusBar extends ConsumerWidget {
   const ShadeStatusBar({super.key, this.shadeProgress, this.onDragStart});
 
@@ -152,15 +154,19 @@ class ShadeStatusBar extends ConsumerWidget {
     final foreground = _statusForeground(context, ref);
     final progress = shadeProgress ?? const AlwaysStoppedAnimation(0);
     final geometry = _StatusGeometry.of(context);
-    final shown = ReferenceShellMetrics.statusBarShown(
-      MediaQuery.sizeOf(context),
+    final hidden = ref.watch(
+      referenceShellProvider.select((state) => state.statusBarHidden),
+    );
+    // A closed shade's strip ends with the bar, above home's first row.
+    final open = ref.watch(
+      referenceShellProvider.select((state) => state.quickSettingsEngaged),
     );
 
     return Positioned(
       left: 0,
       right: 0,
       top: 0,
-      height: geometry.hitHeight,
+      height: open ? geometry.openHitHeight : geometry.closedHitHeight,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onVerticalDragStart: (details) {
@@ -189,7 +195,7 @@ class ShadeStatusBar extends ConsumerWidget {
           child: AnimatedBuilder(
             animation: progress,
             // Only the change to and from closed rebuilds the row.
-            builder: (context, _) => progress.value > 0 || !shown
+            builder: (context, _) => progress.value > 0 || hidden
                 ? const SizedBox.expand()
                 : Stack(
                     fit: StackFit.expand,

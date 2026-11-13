@@ -20,28 +20,43 @@ class ShellOskKeyIntent {
     this.text,
     this.key,
     this.ctrl = false,
+    this.alt = false,
     this.replaced,
   });
 
   const ShellOskKeyIntent.text(String value)
     : this._(action: ShellOskKeyAction.text, text: value);
 
-  const ShellOskKeyIntent.key(String value, {bool ctrl = false})
-    : this._(action: ShellOskKeyAction.key, key: value, ctrl: ctrl);
+  const ShellOskKeyIntent.key(
+    String value, {
+    bool ctrl = false,
+    bool alt = false,
+  }) : this._(action: ShellOskKeyAction.key, key: value, ctrl: ctrl, alt: alt);
 
-  const ShellOskKeyIntent.space({bool ctrl = false})
+  const ShellOskKeyIntent.space({bool ctrl = false, bool alt = false})
     : this._(
         action: ShellOskKeyAction.space,
         text: ' ',
         key: 'space',
         ctrl: ctrl,
+        alt: alt,
       );
 
-  const ShellOskKeyIntent.backspace({bool ctrl = false})
-    : this._(action: ShellOskKeyAction.backspace, key: 'BackSpace', ctrl: ctrl);
+  const ShellOskKeyIntent.backspace({bool ctrl = false, bool alt = false})
+    : this._(
+        action: ShellOskKeyAction.backspace,
+        key: 'BackSpace',
+        ctrl: ctrl,
+        alt: alt,
+      );
 
-  const ShellOskKeyIntent.enter({bool ctrl = false})
-    : this._(action: ShellOskKeyAction.enter, key: 'Return', ctrl: ctrl);
+  const ShellOskKeyIntent.enter({bool ctrl = false, bool alt = false})
+    : this._(
+        action: ShellOskKeyAction.enter,
+        key: 'Return',
+        ctrl: ctrl,
+        alt: alt,
+      );
 
   /// Replaces [replaced], the text just before the cursor, with [text].
   const ShellOskKeyIntent.replace(String replaced, String text)
@@ -51,6 +66,7 @@ class ShellOskKeyIntent {
   final String? text;
   final String? key;
   final bool ctrl;
+  final bool alt;
   final String? replaced;
 }
 
@@ -86,6 +102,11 @@ class ShellOskWordRequest {
 /// With [predictions] the panel shows suggestions for the word being typed
 /// above the keys, corrects a mistyped word when a space or punctuation
 /// follows it, and undoes that correction on the next Backspace.
+///
+/// Esc, Tab, Ctrl, Alt and the four arrows sit at the sides of a landscape
+/// panel, and in a row above the keys of a portrait one while [shortcuts];
+/// a key at the strip's right end shows and hides that row. Ctrl and Alt
+/// hold for the next key; Backspace and the arrows repeat while held.
 class ShellOskPanel extends StatefulWidget {
   const ShellOskPanel({
     super.key,
@@ -94,6 +115,8 @@ class ShellOskPanel extends StatefulWidget {
     this.textInputStates,
     this.predictions,
     this.onPredict,
+    this.shortcuts = false,
+    this.onShortcutsChanged,
   });
 
   final ValueChanged<ShellOskKeyIntent>? onKey;
@@ -108,6 +131,10 @@ class ShellOskPanel extends StatefulWidget {
   /// Answers to [onPredict]. Without them the panel has no strip.
   final Stream<DenialTextPrediction>? predictions;
   final ValueChanged<ShellOskWordRequest>? onPredict;
+
+  /// A portrait panel shows its row of shortcut keys.
+  final bool shortcuts;
+  final ValueChanged<bool>? onShortcutsChanged;
 
   @override
   State<ShellOskPanel> createState() => _ShellOskPanelState();
@@ -194,6 +221,11 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
   /// Shift was set by automatic capitals, which may also clear it.
   bool _shiftAutomatic = false;
   bool _ctrlArmed = false;
+  bool _altArmed = false;
+
+  /// Ctrl shows on the symbols key, which a long press armed it from: no
+  /// Ctrl key is on screen.
+  bool _ctrlOnSymbols = true;
   Duration? _lastShiftDown;
   Timer? _repeat;
 
@@ -296,6 +328,7 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     _typed = '';
     _typedFromStart = true;
     _ctrlArmed = false;
+    _altArmed = false;
     _undo = null;
     _wordTouches.clear();
     _wordManualCapital = false;
@@ -559,20 +592,30 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     if (_accentsFor(key.spec).isNotEmpty) {
       touch.longPress = Timer(_longPress, () => _openAccents(touch));
     }
-    switch (key.spec.control) {
+    final control = key.spec.control;
+    if (control != null && key.spec.repeats) {
+      touch.done = true;
+      // A key with Ctrl or Alt acts once.
+      final repeat = !_ctrlArmed && !_altArmed;
+      _handleControl(control);
+      if (repeat) {
+        _repeat?.cancel();
+        _repeat = Timer(_repeatDelay, () {
+          _repeat = Timer.periodic(
+            _repeatInterval,
+            (_) => _handleControl(control),
+          );
+        });
+      }
+      return true;
+    }
+    switch (control) {
       case _OskControl.shift:
         touch.done = true;
         _tapShift(time);
-      case _OskControl.backspace:
+      case _OskControl.ctrl || _OskControl.alt:
         touch.done = true;
-        final repeat = !_ctrlArmed;
-        _backspace();
-        if (repeat) {
-          _repeat?.cancel();
-          _repeat = Timer(_repeatDelay, () {
-            _repeat = Timer.periodic(_repeatInterval, (_) => _backspace());
-          });
-        }
+        _handleControl(control!);
       case _OskControl.symbols:
         touch.longPress = Timer(_longPress, () => _armCtrl(touch));
       default:
@@ -640,7 +683,7 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
 
   void _release(_Touch touch) {
     touch.longPress?.cancel();
-    if (touch.key.spec.control == _OskControl.backspace) {
+    if (touch.key.spec.repeats) {
       _repeat?.cancel();
       _repeat = null;
     }
@@ -665,13 +708,13 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
   /// the keys look different.
   /// A correction survives only until the next action.
   void _update(VoidCallback change) {
-    final before = (_layer, _shift, _ctrlArmed);
+    final before = (_layer, _shift, _ctrlArmed, _altArmed);
     final undo = _undo;
     change();
     if (identical(_undo, undo)) _undo = null;
     _updateAutoShift();
     _wordChanged();
-    if ((_layer, _shift, _ctrlArmed) != before) setState(() {});
+    if ((_layer, _shift, _ctrlArmed, _altArmed) != before) setState(() {});
   }
 
   void _commit(_OskKeySpec spec, {_Touch? touch}) {
@@ -681,13 +724,11 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
       return;
     }
     final capital = _shift != _Shift.off;
-    final named = _ctrlArmed ? spec.namedKey(capital: capital) : null;
+    final named = _ctrlArmed || _altArmed
+        ? spec.namedKey(capital: capital)
+        : null;
     if (named != null) {
-      widget.onKey?.call(ShellOskKeyIntent.key(named, ctrl: true));
-      _update(() {
-        _ctrlArmed = false;
-        _forgetTyped();
-      });
+      _sendCursorKey(_modifiedKey(named));
       return;
     }
     final accents = touch?.accents;
@@ -733,6 +774,8 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     switch (control) {
       case _OskControl.shift:
         _tapShift(null);
+      case _OskControl.symbols when _ctrlArmed && _ctrlOnSymbols:
+        _toggleModifier(_OskControl.ctrl);
       case _OskControl.symbols:
         _setLayer(_OskLayer.numbers);
       case _OskControl.extraSymbols:
@@ -745,11 +788,38 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
         _backspace();
       case _OskControl.enter:
         _sendTyped(const ShellOskKeyIntent.enter(), '\n');
+      case _OskControl.ctrl || _OskControl.alt:
+        _toggleModifier(control);
+      case _OskControl.escape:
+        _sendCursorKey(_modifiedKey('Escape'));
+      case _OskControl.tab:
+        _sendCursorKey(_modifiedKey('Tab'));
       case _OskControl.arrowUp:
-        _sendCursorKey(ShellOskKeyIntent.key('Up', ctrl: _ctrlArmed));
+        _sendCursorKey(_modifiedKey('Up'));
       case _OskControl.arrowDown:
-        _sendCursorKey(ShellOskKeyIntent.key('Down', ctrl: _ctrlArmed));
+        _sendCursorKey(_modifiedKey('Down'));
+      case _OskControl.arrowLeft:
+        _sendCursorKey(_modifiedKey('Left'));
+      case _OskControl.arrowRight:
+        _sendCursorKey(_modifiedKey('Right'));
     }
+  }
+
+  ShellOskKeyIntent _modifiedKey(String key) =>
+      ShellOskKeyIntent.key(key, ctrl: _ctrlArmed, alt: _altArmed);
+
+  /// Ctrl or Alt holds for the next key, or lets go. Shift starts over: a
+  /// capital typed after it is Shift with the modifier.
+  void _toggleModifier(_OskControl control) {
+    setState(() {
+      if (control == _OskControl.ctrl) {
+        _ctrlArmed = !_ctrlArmed;
+      } else {
+        _altArmed = !_altArmed;
+      }
+      _shift = _Shift.off;
+      _shiftAutomatic = false;
+    });
   }
 
   void _tapShift(Duration? time) {
@@ -767,8 +837,10 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
   }
 
   void _backspace() {
-    if (_ctrlArmed) {
-      _sendCursorKey(const ShellOskKeyIntent.backspace(ctrl: true));
+    if (_ctrlArmed || _altArmed) {
+      _sendCursorKey(
+        ShellOskKeyIntent.backspace(ctrl: _ctrlArmed, alt: _altArmed),
+      );
       return;
     }
     final undo = _undo;
@@ -802,17 +874,16 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
       _layer = layer;
       _shift = _Shift.off;
       _shiftAutomatic = false;
-      _ctrlArmed = false;
     });
   }
 
-  /// Space or Enter: typed text, or a Ctrl shortcut while Ctrl is armed.
+  /// Space or Enter: typed text, or a shortcut while Ctrl or Alt is armed.
   void _sendTyped(ShellOskKeyIntent intent, String text) {
-    if (_ctrlArmed) {
+    if (_ctrlArmed || _altArmed) {
       _sendCursorKey(
         intent.action == ShellOskKeyAction.space
-            ? const ShellOskKeyIntent.space(ctrl: true)
-            : const ShellOskKeyIntent.enter(ctrl: true),
+            ? ShellOskKeyIntent.space(ctrl: _ctrlArmed, alt: _altArmed)
+            : ShellOskKeyIntent.enter(ctrl: _ctrlArmed, alt: _altArmed),
       );
       return;
     }
@@ -824,6 +895,11 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     widget.onKey?.call(intent);
     _update(() {
       _ctrlArmed = false;
+      _altArmed = false;
+      if (_shift == _Shift.once) {
+        _shift = _Shift.off;
+        _shiftAutomatic = false;
+      }
       _forgetTyped();
     });
   }
@@ -836,11 +912,20 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     _OskLayer.symbols => _extraSymbolRows,
   };
 
+  void _toggleShortcuts() {
+    widget.onKeyDown?.call();
+    widget.onShortcutsChanged?.call(!widget.shortcuts);
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = _rows;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     final suggestions = widget.predictions == null ? null : _strip;
+    final view = MediaQuery.sizeOf(context);
+    final atSides = ReferenceShellMetrics.oskShortcutsAtSides(view);
+    final shortcutRow = widget.shortcuts && !atSides;
+    _ctrlOnSymbols = !atSides && !shortcutRow;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -865,9 +950,16 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
         final maxRowHeight = rows.length <= 4
             ? (compact ? 78.0 : 88.0)
             : (compact ? 70.0 : 76.0);
+        // The panel grew by the shortcut row; the other rows keep their size.
+        final shortcutSpace = shortcutRow
+            ? ReferenceShellMetrics.oskShortcutRowExtent
+            : 0.0;
         // Rows always fit the panel, however short a landscape view makes it.
         final rowHeight =
-            ((size.height - padding.vertical - rowGap * (rows.length - 1)) /
+            ((size.height -
+                        padding.vertical -
+                        shortcutSpace -
+                        rowGap * (rows.length - 1)) /
                     (rows.length + (rows.length - 1) * (_tallRow - 1)))
                 .clamp(0.0, maxRowHeight)
                 .toDouble();
@@ -878,6 +970,16 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
           keyGap: keyGap,
           rowGap: rowGap,
           rowHeight: rowHeight,
+          topRow: shortcutRow ? _shortcutRow : null,
+          topRowHeight: shortcutSpace - rowGap,
+          // The letters about as wide as upright, the shortcuts at the
+          // sides as on a laptop.
+          sides: atSides
+              ? (
+                  keys: math.min(view.shortestSide, size.width * 0.6),
+                  side: (rowHeight * 1.1).clamp(44.0, 76.0).toDouble(),
+                )
+              : null,
         );
 
         final keys = Listener(
@@ -901,6 +1003,8 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
                                 spec: key.spec,
                                 shift: _shift,
                                 ctrlArmed: _ctrlArmed,
+                                altArmed: _altArmed,
+                                ctrlOnSymbols: _ctrlOnSymbols,
                                 pressed: _pressed.contains(key.spec),
                                 onActivate: () => _commit(key.spec),
                               ),
@@ -931,8 +1035,12 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
               height: stripHeight,
               child: ValueListenableBuilder<List<String>>(
                 valueListenable: suggestions,
-                builder: (context, words, _) =>
-                    _SuggestionStrip(words: words, onSelected: _pickSuggestion),
+                builder: (context, words, _) => _SuggestionStrip(
+                  words: words,
+                  onSelected: _pickSuggestion,
+                  shortcuts: atSides ? null : widget.shortcuts,
+                  onShortcuts: _toggleShortcuts,
+                ),
               ),
             ),
             keys,
@@ -1062,12 +1170,18 @@ class _PlacedKey {
 class _OskGeometry {
   const _OskGeometry._(
     this.rows,
+    this.shortcuts,
     this.slideMargin,
     this.size,
     this.pitch,
     this.rowPitch,
   );
 
+  /// [topRow] goes [topRowHeight] tall above the rows. With [sides] the
+  /// rows are [sides].keys wide in the middle, and the shortcut keys stand
+  /// in blocks three [sides].side keys wide at the edges, beside the two
+  /// bottom rows: Esc and Tab over Ctrl and Alt on the left, the arrows as
+  /// an inverted T on the right.
   factory _OskGeometry.layout(
     List<_OskRowData> data, {
     required Size size,
@@ -1075,50 +1189,101 @@ class _OskGeometry {
     required double keyGap,
     required double rowGap,
     required double rowHeight,
+    _OskRowData? topRow,
+    double topRowHeight = 0,
+    ({double keys, double side})? sides,
   }) {
     final count = data.length;
     double heightOf(int index) =>
         index == count - 1 ? rowHeight : rowHeight * _tallRow;
-    var y =
+    final top =
         size.height -
         padding.bottom -
         rowGap * (count - 1) -
         List.generate(count, heightOf).fold(0.0, (sum, h) => sum + h);
     final inner = size.width - padding.horizontal;
+    final block = sides == null ? 0.0 : sides.side * 3 + keyGap * 2;
+    final keysWidth = sides == null
+        ? inner
+        : math.min(sides.keys, inner - 2 * (block + keyGap * 2));
+    final keysLeft = sides == null
+        ? padding.left
+        : padding.left + (inner - keysWidth) / 2;
+    // A touch between a side block and the rows goes to the nearer.
+    final leftEdge = sides == null
+        ? 0.0
+        : (padding.left + block + keysLeft) / 2;
+    final rightEdge = sides == null
+        ? size.width
+        : (keysLeft + keysWidth + size.width - padding.right - block) / 2;
+
     final rows = <List<_PlacedKey>>[];
+    final shortcuts = <_PlacedKey>[];
+    var y = top;
     for (var index = 0; index < count; index++) {
       final row = data[index];
       final height = heightOf(index);
-      final hitTop = index == 0 ? 0.0 : y - rowGap / 2;
+      final hitTop = index == 0 && topRow == null ? 0.0 : y - rowGap / 2;
       final hitBottom = index == count - 1
           ? size.height
           : y + height + rowGap / 2;
-      final inset = math.min(row.sideInset, inner * 0.08);
-      final flex = row.keys.fold<int>(0, (sum, key) => sum + key.flex);
-      final unit = (inner - 2 * inset - keyGap * (row.keys.length - 1)) / flex;
-      var x = padding.left + inset;
-      final placed = <_PlacedKey>[];
-      for (var column = 0; column < row.keys.length; column++) {
-        final spec = row.keys[column];
-        final width = unit * spec.flex;
-        placed.add(
-          _PlacedKey(
-            spec,
-            Rect.fromLTWH(x, y, width, height),
-            Rect.fromLTRB(
-              column == 0 ? 0.0 : x - keyGap / 2,
-              hitTop,
-              column == row.keys.length - 1
-                  ? size.width
-                  : x + width + keyGap / 2,
-              hitBottom,
+      rows.add(
+        _placeRow(
+          row.keys,
+          left: keysLeft,
+          width: keysWidth,
+          inset: math.min(row.sideInset, keysWidth * 0.08),
+          y: y,
+          height: height,
+          keyGap: keyGap,
+          hit: Rect.fromLTRB(leftEdge, hitTop, rightEdge, hitBottom),
+        ),
+      );
+      if (sides != null && index >= count - 2) {
+        final upper = index == count - 2;
+        final hit = Rect.fromLTRB(0, hitTop, leftEdge, hitBottom);
+        shortcuts
+          ..addAll(
+            _placeRow(
+              upper ? const [_escapeKey, _tabKey] : const [_ctrlKey, _altKey],
+              left: padding.left,
+              width: block,
+              inset: 0,
+              y: y,
+              height: height,
+              keyGap: keyGap,
+              hit: hit,
             ),
-          ),
-        );
-        x += width + keyGap;
+          )
+          ..addAll(
+            _placeRow(
+              upper ? const [_upKey] : const [_leftKey, _downKey, _rightKey],
+              left: size.width - padding.right - block,
+              width: block,
+              // Up stands over Down, its touches across the block.
+              inset: upper ? sides.side + keyGap : 0,
+              y: y,
+              height: height,
+              keyGap: keyGap,
+              hit: Rect.fromLTRB(rightEdge, hitTop, size.width, hitBottom),
+            ),
+          );
       }
-      rows.add(placed);
       y += height + rowGap;
+    }
+    if (topRow != null) {
+      shortcuts.addAll(
+        _placeRow(
+          topRow.keys,
+          left: padding.left,
+          width: inner,
+          inset: 0,
+          y: top - rowGap - topRowHeight,
+          height: topRowHeight,
+          keyGap: keyGap,
+          hit: Rect.fromLTRB(0, 0, size.width, top - rowGap / 2),
+        ),
+      );
     }
     // A finger must leave its key by a quarter key before it slides on.
     final slideMargin = rows.isEmpty || rows.first.isEmpty
@@ -1131,10 +1296,49 @@ class _OskGeometry {
     final rowPitch = rows.length < 2 || rows[1].isEmpty || rows[0].isEmpty
         ? rowHeight + rowGap
         : rows[1].first.rect.top - rows[0].first.rect.top;
-    return _OskGeometry._(rows, slideMargin, size, pitch, rowPitch);
+    return _OskGeometry._(rows, shortcuts, slideMargin, size, pitch, rowPitch);
+  }
+
+  /// One row of [keys] across [width] from [left], less [inset] each side;
+  /// touches reach out to [hit]'s sides and span its height.
+  static List<_PlacedKey> _placeRow(
+    List<_OskKeySpec> keys, {
+    required double left,
+    required double width,
+    required double inset,
+    required double y,
+    required double height,
+    required double keyGap,
+    required Rect hit,
+  }) {
+    final flex = keys.fold<int>(0, (sum, key) => sum + key.flex);
+    final unit = (width - 2 * inset - keyGap * (keys.length - 1)) / flex;
+    var x = left + inset;
+    final placed = <_PlacedKey>[];
+    for (var column = 0; column < keys.length; column++) {
+      final spec = keys[column];
+      final keyWidth = unit * spec.flex;
+      placed.add(
+        _PlacedKey(
+          spec,
+          Rect.fromLTWH(x, y, keyWidth, height),
+          Rect.fromLTRB(
+            column == 0 ? hit.left : x - keyGap / 2,
+            hit.top,
+            column == keys.length - 1 ? hit.right : x + keyWidth + keyGap / 2,
+            hit.bottom,
+          ),
+        ),
+      );
+      x += keyWidth + keyGap;
+    }
+    return placed;
   }
 
   final List<List<_PlacedKey>> rows;
+
+  /// The shortcut keys, in their row or at the sides.
+  final List<_PlacedKey> shortcuts;
   final double slideMargin;
   final Size size;
 
@@ -1142,9 +1346,12 @@ class _OskGeometry {
   final double pitch;
   final double rowPitch;
 
-  Iterable<_PlacedKey> get keys => rows.expand((row) => row);
+  Iterable<_PlacedKey> get keys => [...rows.expand((row) => row), ...shortcuts];
 
   _PlacedKey? keyAt(Offset position) {
+    for (final key in shortcuts) {
+      if (key.hit.contains(position)) return key;
+    }
     for (final row in rows) {
       if (row.isEmpty) continue;
       final band = row.first.hit;
@@ -1164,6 +1371,8 @@ class _OskKeyCap extends StatelessWidget {
     required this.spec,
     required this.shift,
     required this.ctrlArmed,
+    required this.altArmed,
+    required this.ctrlOnSymbols,
     required this.pressed,
     required this.onActivate,
   });
@@ -1171,6 +1380,8 @@ class _OskKeyCap extends StatelessWidget {
   final _OskKeySpec spec;
   final _Shift shift;
   final bool ctrlArmed;
+  final bool altArmed;
+  final bool ctrlOnSymbols;
   final bool pressed;
 
   /// Types the key for assistive technology, which has no touch.
@@ -1181,7 +1392,12 @@ class _OskKeyCap extends StatelessWidget {
     final control = spec.control;
     final theme = context.shellTheme;
     final accent = ShellTheme.of(context).accent;
-    final selected = spec.isSelected(shift: shift, ctrlArmed: ctrlArmed);
+    final selected = spec.isSelected(
+      shift: shift,
+      ctrlArmed: ctrlArmed,
+      altArmed: altArmed,
+      ctrlOnSymbols: ctrlOnSymbols,
+    );
     final capital = shift != _Shift.off;
     var background = selected
         ? theme.accentPalette.container
@@ -1226,36 +1442,46 @@ class _OskKeyCap extends StatelessWidget {
               ? _OskKeyLabel(
                   label: spec.labelText(
                     capital: capital,
-                    ctrlArmed: ctrlArmed,
+                    ctrlArmed: ctrlArmed && ctrlOnSymbols,
                     l10n: context.l10n,
                   ),
                   color: foreground,
-                  isWide: spec.flex >= 28,
+                  size: spec.isShortcut
+                      ? _OskLabelSize.shortcut
+                      : spec.flex >= 28
+                      ? _OskLabelSize.wide
+                      : _OskLabelSize.key,
                 )
-              : Icon(icon, color: foreground, size: 30),
+              : Icon(icon, color: foreground, size: spec.isShortcut ? 26 : 30),
         ),
       ),
     );
   }
 }
 
+enum _OskLabelSize { key, wide, shortcut }
+
 class _OskKeyLabel extends StatelessWidget {
   const _OskKeyLabel({
     required this.label,
     required this.color,
-    required this.isWide,
+    required this.size,
   });
 
   final String label;
   final Color color;
-  final bool isWide;
+  final _OskLabelSize size;
 
   @override
   Widget build(BuildContext context) {
     final style = ShellText.cardTitle.copyWith(
       color: color,
-      fontSize: isWide ? 22.5 : 25,
-      fontWeight: isWide ? FontWeight.w700 : FontWeight.w600,
+      fontSize: switch (size) {
+        _OskLabelSize.key => 25,
+        _OskLabelSize.wide => 22.5,
+        _OskLabelSize.shortcut => 17,
+      },
+      fontWeight: size == _OskLabelSize.key ? FontWeight.w600 : FontWeight.w700,
       height: 1,
     );
 
@@ -1372,12 +1598,23 @@ class _KeyPopup extends StatelessWidget {
   }
 }
 
-/// Three suggestions, the one a space commits in the middle.
+/// Three suggestions, the one a space commits in the middle, and at the
+/// right end the key that shows and hides the shortcut row, lit while it
+/// shows; none where [shortcuts] is null.
 class _SuggestionStrip extends StatelessWidget {
-  const _SuggestionStrip({required this.words, required this.onSelected});
+  const _SuggestionStrip({
+    required this.words,
+    required this.onSelected,
+    required this.shortcuts,
+    required this.onShortcuts,
+  });
 
   final List<String> words;
   final ValueChanged<String>? onSelected;
+  final bool? shortcuts;
+  final VoidCallback onShortcuts;
+
+  static const double _toggleWidth = 56;
 
   @override
   Widget build(BuildContext context) {
@@ -1388,8 +1625,11 @@ class _SuggestionStrip extends StatelessWidget {
       height: 26,
       child: ColoredBox(color: context.shellColors.hairline),
     );
+    final shortcuts = this.shortcuts;
     return Row(
       children: [
+        // The middle suggestion stays over the space bar.
+        if (shortcuts != null) const SizedBox(width: _toggleWidth),
         for (var index = 0; index < slots.length; index++) ...[
           if (index > 0) divider,
           Expanded(
@@ -1419,7 +1659,59 @@ class _SuggestionStrip extends StatelessWidget {
             ),
           ),
         ],
+        if (shortcuts != null)
+          _ShortcutsToggle(
+            width: _toggleWidth,
+            shown: shortcuts,
+            onTap: onShortcuts,
+          ),
       ],
+    );
+  }
+}
+
+class _ShortcutsToggle extends StatelessWidget {
+  const _ShortcutsToggle({
+    required this.width,
+    required this.shown,
+    required this.onTap,
+  });
+
+  final double width;
+  final bool shown;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.shellTheme.accentPalette;
+    return Semantics(
+      button: true,
+      toggled: shown,
+      label: context.l10n.oskShortcutKeys,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          width: width,
+          child: Center(
+            child: Container(
+              width: 44,
+              height: 40,
+              decoration: BoxDecoration(
+                color: shown ? accent.container : null,
+                borderRadius: context.shellTheme.borderRadius(12),
+              ),
+              child: Icon(
+                Icons.terminal_rounded,
+                size: 24,
+                color: shown
+                    ? accent.onContainer
+                    : context.shellColors.textSecondary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1434,8 +1726,14 @@ enum _OskControl {
   space,
   backspace,
   enter,
+  escape,
+  tab,
+  ctrl,
+  alt,
   arrowUp,
   arrowDown,
+  arrowLeft,
+  arrowRight,
 }
 
 class _OskRowData {
@@ -1469,6 +1767,29 @@ class _OskKeySpec {
 
   bool get showsPopup => control == null;
 
+  /// Acts as the finger lands and again and again while it stays.
+  bool get repeats => switch (control) {
+    _OskControl.backspace ||
+    _OskControl.arrowUp ||
+    _OskControl.arrowDown ||
+    _OskControl.arrowLeft ||
+    _OskControl.arrowRight => true,
+    _ => false,
+  };
+
+  /// One of the shortcut keys, smaller than the letters.
+  bool get isShortcut => switch (control) {
+    _OskControl.escape ||
+    _OskControl.tab ||
+    _OskControl.ctrl ||
+    _OskControl.alt ||
+    _OskControl.arrowUp ||
+    _OskControl.arrowDown ||
+    _OskControl.arrowLeft ||
+    _OskControl.arrowRight => true,
+    _ => false,
+  };
+
   /// Types when the next finger lands, without waiting for its own lift.
   bool get rollsOver => control == null || control == _OskControl.space;
 
@@ -1494,6 +1815,18 @@ class _OskKeySpec {
     if (control == _OskControl.letters) {
       return l10n.oskLettersKey;
     }
+    switch (control) {
+      case _OskControl.escape:
+        return l10n.oskEscapeKey;
+      case _OskControl.tab:
+        return l10n.oskTabKey;
+      case _OskControl.ctrl:
+        return l10n.oskControlKey;
+      case _OskControl.alt:
+        return l10n.oskAltKey;
+      default:
+        break;
+    }
     return outputText(capital: capital);
   }
 
@@ -1510,8 +1843,14 @@ class _OskKeySpec {
       _OskControl.space => l10n.oskSpace,
       _OskControl.backspace => l10n.oskBackspace,
       _OskControl.enter => l10n.oskEnter,
+      _OskControl.escape => l10n.oskEscape,
+      _OskControl.tab => l10n.oskTab,
+      _OskControl.ctrl => l10n.oskControl,
+      _OskControl.alt => l10n.oskAlt,
       _OskControl.arrowUp => l10n.oskArrowUp,
       _OskControl.arrowDown => l10n.oskArrowDown,
+      _OskControl.arrowLeft => l10n.oskArrowLeft,
+      _OskControl.arrowRight => l10n.oskArrowRight,
       null => labelText(
         capital: shift != _Shift.off,
         ctrlArmed: false,
@@ -1527,8 +1866,12 @@ class _OskKeySpec {
         _OskControl.space => 'space',
         _OskControl.backspace => 'BackSpace',
         _OskControl.enter => 'Return',
+        _OskControl.escape => 'Escape',
+        _OskControl.tab => 'Tab',
         _OskControl.arrowUp => 'Up',
         _OskControl.arrowDown => 'Down',
+        _OskControl.arrowLeft => 'Left',
+        _OskControl.arrowRight => 'Right',
         _ => null,
       };
     }
@@ -1538,7 +1881,8 @@ class _OskKeySpec {
       return null;
     }
     if (isLetter) {
-      return text.toLowerCase();
+      // A capital is the letter with Shift.
+      return capital ? text.toUpperCase() : text;
     }
     return switch (text) {
       ',' => 'comma',
@@ -1556,9 +1900,19 @@ class _OskKeySpec {
     };
   }
 
-  bool isSelected({required _Shift shift, required bool ctrlArmed}) {
-    return (control == _OskControl.shift && shift != _Shift.off) ||
-        (control == _OskControl.symbols && ctrlArmed);
+  bool isSelected({
+    required _Shift shift,
+    required bool ctrlArmed,
+    required bool altArmed,
+    required bool ctrlOnSymbols,
+  }) {
+    return switch (control) {
+      _OskControl.shift => shift != _Shift.off,
+      _OskControl.symbols => ctrlArmed && ctrlOnSymbols,
+      _OskControl.ctrl => ctrlArmed,
+      _OskControl.alt => altArmed,
+      _ => false,
+    };
   }
 }
 
@@ -1665,21 +2019,13 @@ const _numberRows = [
   ]),
   _OskRowData([
     _OskKeySpec.control(_OskControl.letters, flex: 17),
-    _OskKeySpec.control(
-      _OskControl.arrowUp,
-      icon: Icons.keyboard_arrow_up_rounded,
-      flex: 10,
-    ),
+    _OskKeySpec.text(',', flex: 10),
     _OskKeySpec.control(
       _OskControl.space,
       icon: Icons.space_bar_rounded,
       flex: 46,
     ),
-    _OskKeySpec.control(
-      _OskControl.arrowDown,
-      icon: Icons.keyboard_arrow_down_rounded,
-      flex: 10,
-    ),
+    _OskKeySpec.text('.', flex: 10),
     _OskKeySpec.control(
       _OskControl.enter,
       icon: Icons.keyboard_return_rounded,
@@ -1729,3 +2075,39 @@ const _extraSymbolRows = [
     ),
   ]),
 ];
+
+const _escapeKey = _OskKeySpec.control(_OskControl.escape, flex: 10);
+const _tabKey = _OskKeySpec.control(_OskControl.tab, flex: 10);
+const _ctrlKey = _OskKeySpec.control(_OskControl.ctrl, flex: 10);
+const _altKey = _OskKeySpec.control(_OskControl.alt, flex: 10);
+const _leftKey = _OskKeySpec.control(
+  _OskControl.arrowLeft,
+  icon: Icons.keyboard_arrow_left_rounded,
+  flex: 10,
+);
+const _upKey = _OskKeySpec.control(
+  _OskControl.arrowUp,
+  icon: Icons.keyboard_arrow_up_rounded,
+  flex: 10,
+);
+const _downKey = _OskKeySpec.control(
+  _OskControl.arrowDown,
+  icon: Icons.keyboard_arrow_down_rounded,
+  flex: 10,
+);
+const _rightKey = _OskKeySpec.control(
+  _OskControl.arrowRight,
+  icon: Icons.keyboard_arrow_right_rounded,
+  flex: 10,
+);
+
+const _shortcutRow = _OskRowData([
+  _escapeKey,
+  _tabKey,
+  _ctrlKey,
+  _altKey,
+  _leftKey,
+  _upKey,
+  _downKey,
+  _rightKey,
+]);

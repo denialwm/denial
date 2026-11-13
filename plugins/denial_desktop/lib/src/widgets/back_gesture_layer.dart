@@ -76,6 +76,7 @@ class _MobileBackGestureLayerState extends ConsumerState<MobileBackGestureLayer>
         (state) => (
           enabled: state.backTarget != MobileBackTarget.none,
           keyboard: state.edgePanelVisible,
+          shortcuts: state.oskShortcuts,
         ),
       ),
     );
@@ -83,7 +84,11 @@ class _MobileBackGestureLayerState extends ConsumerState<MobileBackGestureLayer>
     final strips = ReferenceShellMetrics.backGestureRects(
       size,
       bottom: shell.keyboard
-          ? size.height - ReferenceShellMetrics.edgePanelHeight(size)
+          ? size.height -
+                ReferenceShellMetrics.edgePanelHeight(
+                  size,
+                  shortcuts: shell.shortcuts,
+                )
           : null,
     );
     final colors = context.shellColors;

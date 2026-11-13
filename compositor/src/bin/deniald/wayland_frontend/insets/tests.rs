@@ -117,7 +117,7 @@ impl Fixture {
     }
 
     fn configure(&mut self, size: (i32, i32)) -> Vec<Vec<u32>> {
-        configure_mobile_toplevel(self.toplevel(), size.into());
+        configure_mobile_toplevel(self.toplevel(), size.into(), false);
         self.events()
     }
 
@@ -211,6 +211,20 @@ fn initial_configure_sets_exact_size_and_all_tiled_edges() {
     let event = configure_event(&events);
     assert_eq!(&event[2..5], &[360, 752, 16]);
     assert_eq!(&event[5..], &EDGES.map(|edge| edge as u32));
+}
+
+#[test]
+fn full_screen_request_is_kept_and_its_release_clears_it() {
+    let mut fixture = Fixture::new(2);
+    fixture.configure((1600, 2261));
+    configure_mobile_toplevel(fixture.toplevel(), (1600, 2261).into(), true);
+    let events = fixture.events();
+    let event = configure_event(&events);
+    assert!(event[5..].contains(&(xdg_toplevel::State::Fullscreen as u32)));
+    let events = fixture.configure((1600, 2213));
+    let event = configure_event(&events);
+    assert_eq!(&event[2..4], &[1600, 2213]);
+    assert!(!event[5..].contains(&(xdg_toplevel::State::Fullscreen as u32)));
 }
 
 #[test]
@@ -315,7 +329,7 @@ fn dialog_keeps_parent_and_receives_mobile_states_and_size() {
     fixture.request(7, 1, &[4]); // xdg_toplevel.set_parent
     let dialog = fixture.toplevel();
     assert_eq!(dialog.parent().as_ref(), Some(parent.wl_surface()));
-    configure_mobile_toplevel(dialog, (360, 752).into());
+    configure_mobile_toplevel(dialog, (360, 752).into(), false);
     assert_eq!(dialog.parent().as_ref(), Some(parent.wl_surface()));
     let events = fixture.events();
     let event = events.iter().find(|event| event[0] == 7).unwrap();

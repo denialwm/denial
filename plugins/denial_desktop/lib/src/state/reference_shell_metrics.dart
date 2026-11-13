@@ -10,11 +10,19 @@ class ReferenceShellMetrics {
   /// Upward drag over which the home pill rises to its full lift.
   static const double gesturePillLiftTravel = 280.0;
   static const double edgePanelGestureWidth = 220.0;
-  static const double edgePanelGestureHeight = 18.0;
+  static const double edgePanelGestureHeight = 28.0;
+
+  /// From the view's bottom edge to the middle of the home pill, whose line
+  /// the keyboard's pill shares.
+  static const double gesturePillCentre = 12.0;
 
   /// The keyboard's suggestion strip, on top of the keys.
   static const double oskSuggestionStripHeight = 64.0;
   static const double edgePanelKeysMaxHeight = 338.0;
+
+  /// The row of shortcut keys a portrait keyboard can show above its keys,
+  /// with the gap under it.
+  static const double oskShortcutRowExtent = 52.0;
   static const double edgePanelMaxHeight =
       edgePanelKeysMaxHeight + oskSuggestionStripHeight;
   static const double edgePanelOpenDistance = 86.0;
@@ -27,15 +35,6 @@ class ReferenceShellMetrics {
   /// so the incoming window lands exactly centred.
   static const double appSwitchGap = 18.0;
   static const double statusBarHeight = 48.0;
-
-  /// A landscape view shows no status bar: its strip only pulls the shade
-  /// down, and apps use the full height, as deniald configures them.
-  static bool statusBarShown(Size viewSize) =>
-      viewSize.width <= viewSize.height;
-
-  /// The top of the view an app leaves to the status bar.
-  static double appStatusInset(Size viewSize) =>
-      statusBarShown(viewSize) ? statusBarHeight : 0.0;
 
   static const double statusDragHeight = statusBarHeight;
   static const double quickSettingsPanelHeight = 488.0;
@@ -67,27 +66,43 @@ class ReferenceShellMetrics {
     );
   }
 
-  static double edgePanelHeight(Size viewSize) {
+  /// A landscape keyboard has its shortcut keys at its sides.
+  static bool oskShortcutsAtSides(Size viewSize) =>
+      viewSize.width > viewSize.height;
+
+  /// [shortcuts]: a portrait keyboard shows its row of shortcut keys.
+  static double edgePanelHeight(Size viewSize, {required bool shortcuts}) {
     if (viewSize.height <= 0.0) {
       return 0.0;
     }
-    // The keys take 30% of the view, 40% of a landscape one; the suggestion
-    // strip adds to that.
-    final share = viewSize.width > viewSize.height ? 0.40 : 0.30;
+    // The keys take 30% of the view, 40% of a landscape one; the shortcut
+    // row and the suggestion strip add to that.
+    final landscape = oskShortcutsAtSides(viewSize);
+    final share = landscape ? 0.40 : 0.30;
     final keys = (viewSize.height * share).clamp(0.0, edgePanelKeysMaxHeight);
-    return (keys + oskSuggestionStripHeight)
+    final row = shortcuts && !landscape ? oskShortcutRowExtent : 0.0;
+    return (keys + row + oskSuggestionStripHeight)
         .clamp(0.0, viewSize.height)
         .toDouble();
   }
 
-  static Rect edgePanelRect(Size viewSize, double progress) {
-    final height = edgePanelHeight(viewSize) * progress.clamp(0.0, 1.0);
+  static Rect edgePanelRect(
+    Size viewSize,
+    double progress, {
+    required bool shortcuts,
+  }) {
+    final height =
+        edgePanelHeight(viewSize, shortcuts: shortcuts) *
+        progress.clamp(0.0, 1.0);
     return Rect.fromLTWH(0, viewSize.height - height, viewSize.width, height);
   }
 
-  static Rect edgePanelScrollStripRect(Size viewSize) {
+  static Rect edgePanelScrollStripRect(
+    Size viewSize, {
+    required bool shortcuts,
+  }) {
     final width = edgePanelScrollStripWidth.clamp(0.0, viewSize.width);
-    final panelHeight = edgePanelHeight(viewSize);
+    final panelHeight = edgePanelHeight(viewSize, shortcuts: shortcuts);
     return Rect.fromLTWH(
       viewSize.width - width,
       0,
@@ -100,15 +115,17 @@ class ReferenceShellMetrics {
     Size viewSize, {
     required double progress,
     required bool scrollStripVisible,
+    required bool shortcuts,
   }) {
-    final panel = edgePanelRect(viewSize, progress);
+    final panel = edgePanelRect(viewSize, progress, shortcuts: shortcuts);
     return <Rect>[
       // The opening swipe belongs to the keyboard too: keep the current
       // editor focused before any part of the keyboard is on screen.
       if (!scrollStripVisible)
         edgePanelGestureRect(viewSize).intersect(Offset.zero & viewSize),
       if (panel.height > 0.0) panel,
-      if (scrollStripVisible) edgePanelScrollStripRect(viewSize),
+      if (scrollStripVisible)
+        edgePanelScrollStripRect(viewSize, shortcuts: shortcuts),
     ];
   }
 
@@ -147,9 +164,14 @@ class ReferenceShellMetrics {
   static Rect systemOverlayRect(
     Size viewSize,
     Size surface,
-    double keyboardProgress,
-  ) {
-    final bottom = edgePanelRect(viewSize, keyboardProgress).top;
+    double keyboardProgress, {
+    required bool shortcuts,
+  }) {
+    final bottom = edgePanelRect(
+      viewSize,
+      keyboardProgress,
+      shortcuts: shortcuts,
+    ).top;
     final top = statusBarHeight.clamp(0.0, bottom).toDouble();
     return Rect.fromLTWH(
       (viewSize.width - surface.width) / 2.0,

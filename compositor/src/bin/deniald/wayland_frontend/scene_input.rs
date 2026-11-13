@@ -129,18 +129,22 @@ impl WaylandFrontend {
     ) -> Option<(ClientSurface, Point<f64, Logical>)> {
         self.layer_surface_under(position, &[WlrLayer::Overlay, WlrLayer::Top])
             .or_else(|| {
-                self.space
-                    .element_under(position)
-                    .and_then(|(window, location)| {
-                        window
-                            .surface_under(position - location.to_f64(), WindowSurfaceType::ALL)
-                            .map(|(surface, offset)| {
-                                (
-                                    surface.into(),
-                                    saturating_point_add(offset, location).to_f64(),
-                                )
-                            })
-                    })
+                // Not Space::element_under: it places popups by their
+                // client's offsets, which app_scale makes another unit.
+                self.space.elements().rev().find_map(|window| {
+                    let location = saturating_point_sub(
+                        self.space.element_location(window)?,
+                        window.geometry().loc,
+                    );
+                    window_surface_under(window, position - location.to_f64()).map(
+                        |(surface, offset)| {
+                            (
+                                surface.into(),
+                                saturating_point_add(offset, location).to_f64(),
+                            )
+                        },
+                    )
+                })
             })
             .or_else(|| {
                 self.layer_surface_under(position, &[WlrLayer::Bottom, WlrLayer::Background])
@@ -453,25 +457,28 @@ impl WaylandFrontend {
             return;
         };
         let window_geometry = self.space.element_geometry(window).unwrap_or_default();
+        // The positioner and the popup offsets are in the client's units.
+        let factor = super::app_scale::factor(&root);
+        let logical = |point| super::app_scale::scale_point(point, factor);
         let parent_offset = get_popup_toplevel_coords(&popup_kind);
         let positioner = popup.with_pending_state(|state| state.positioner);
         let desired_geometry = positioner.get_geometry();
         let anchor = saturating_point_add(
-            saturating_point_add(
-                saturating_point_add(window_geometry.loc, parent_offset),
-                positioner.anchor_rect.loc,
-            ),
-            Point::from((
-                positioner.anchor_rect.size.w / 2,
-                positioner.anchor_rect.size.h / 2,
+            window_geometry.loc,
+            logical(saturating_point_add(
+                saturating_point_add(parent_offset, positioner.anchor_rect.loc),
+                Point::from((
+                    positioner.anchor_rect.size.w / 2,
+                    positioner.anchor_rect.size.h / 2,
+                )),
             )),
         );
         let desired_global = Rectangle::new(
             saturating_point_add(
-                saturating_point_add(window_geometry.loc, parent_offset),
-                desired_geometry.loc,
+                window_geometry.loc,
+                logical(saturating_point_add(parent_offset, desired_geometry.loc)),
             ),
-            desired_geometry.size,
+            super::app_scale::scale_size(desired_geometry.size, factor),
         );
         let output_geometry = choose_popup_output(
             self.outputs
@@ -488,12 +495,51 @@ impl WaylandFrontend {
         if let Some(mobile) = self.mobile_window_geometry(window) {
             target = mobile;
         }
-        target.loc = saturating_point_sub(
-            saturating_point_sub(target.loc, parent_offset),
-            window_geometry.loc,
+        let target = Rectangle::new(
+            saturating_point_sub(
+                super::app_scale::scale_point(
+                    saturating_point_sub(target.loc, window_geometry.loc),
+                    factor.recip(),
+                ),
+                parent_offset,
+            ),
+            super::app_scale::scale_size(target.size, factor.recip()),
         );
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
     }
+}
+
+/// The surface of `window` under `point`, relative to where it is drawn:
+/// Window::surface_under with its popups placed in logical pixels.
+fn window_surface_under(
+    window: &Window,
+    point: Point<f64, Logical>,
+) -> Option<(WlSurface, Point<i32, Logical>)> {
+    let Some(toplevel) = window.toplevel() else {
+        return window.surface_under(point, WindowSurfaceType::ALL);
+    };
+    let root = toplevel.wl_surface();
+    for (popup, location) in PopupManager::popups_for_surface(root) {
+        let offset = saturating_point_sub(
+            saturating_point_add(
+                window.geometry().loc,
+                super::app_scale::logical_point(root, location),
+            ),
+            popup.geometry().loc,
+        );
+        if let Some(under) = smithay::desktop::utils::under_from_surface_tree(
+            popup.wl_surface(),
+            point,
+            offset,
+            WindowSurfaceType::ALL,
+        ) {
+            return Some(under);
+        }
+    }
+    window.surface_under(
+        point,
+        WindowSurfaceType::ALL.difference(WindowSurfaceType::POPUP),
+    )
 }

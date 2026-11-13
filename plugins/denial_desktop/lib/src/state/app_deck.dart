@@ -218,7 +218,6 @@ class AppDeck extends ChangeNotifier {
     final next = geometry
         .pose(
           slot,
-          length,
           open: open.value + openRate * step,
           row: row.value + row.velocity * step,
           homeward: homeward.value + homeward.velocity * step,
@@ -242,7 +241,6 @@ class AppDeck extends ChangeNotifier {
   /// Where the deck draws [objectId] now.
   WindowPose poseOf(int objectId) => geometry.pose(
     slotOf(objectId),
-    length,
     open: open.value,
     row: row.value,
     homeward: homeward.value,
@@ -574,19 +572,31 @@ class DeckGeometry {
   final Rect card;
 
   bool get isEmpty => size.isEmpty;
-  bool get landscape => size.width > size.height;
   Rect get screen => Offset.zero & size;
   double get _sign => ltr ? 1 : -1;
 
   /// One app's width plus the gap to the next, in logical pixels, with
-  /// recents [open] that far.
+  /// recents [open] that far. Landscape cards overlap, each newer one over
+  /// the older one beside it.
   double strideAt(double open) => lerpDouble(
     size.width + ReferenceShellMetrics.appSwitchGap,
-    landscape
-        ? size.width + ReferenceShellMetrics.appSwitchGap
+    _landscape
+        ? card.width * (1 - overviewLandscapeOverlap)
         : card.width + overviewPageSpacing,
     open.clamp(0.0, 1.0),
   )!;
+
+  bool get _landscape => size.width > size.height;
+
+  /// Where the app [along] the row from the screen lies, in strides, with
+  /// recents [open] that far. Landscape recents is a stack: the middle card
+  /// moves with the finger, newer ones faster and older ones slower, so the
+  /// cards move against each other as the row scrolls.
+  double _carousel(double along, double open) {
+    if (!_landscape) return along;
+    const k = overviewLandscapeSpread;
+    return lerpDouble(along, (math.exp(k * along) - 1) / k, open)!;
+  }
 
   /// Finger travel that lifts an app from the screen into its card: the
   /// app's bottom edge stays under the finger. From home, a fixed share of
@@ -601,7 +611,7 @@ class DeckGeometry {
   /// A row change in apps as finger travel, in logical pixels.
   double rowTravel(double apps, double open) => -apps * _sign * strideAt(open);
 
-  /// The app at [slot] of [count], with recents [open] that far, the screen
+  /// The app at [slot], with recents [open] that far, the screen
   /// at [row] along the row, recents [homeward] that far and the other apps
   /// [attached] that far.
   ///
@@ -612,8 +622,7 @@ class DeckGeometry {
   /// left on screen. Detached, the apps beside the middle one wait a screen
   /// further out.
   WindowPose pose(
-    double slot,
-    int count, {
+    double slot, {
     required double open,
     required double row,
     required double homeward,
@@ -622,23 +631,27 @@ class DeckGeometry {
     final p = open.clamp(0.0, 1.0);
     final h = homeward.clamp(0.0, 1.0);
     final along = slot - row;
-    final offset = along * _sign;
-    final leave = landscape ? -1.0 : along.clamp(0.0, 1.0) * 2 - 1;
+    final leave = along.clamp(0.0, 1.0) * 2 - 1;
     final away = leave * h * size.width * _sign;
     final aside =
         (1 - attached.clamp(0.0, 1.0)) *
         along.clamp(-1.0, 1.0) *
         size.width *
         _sign;
-    final Rect app;
-    if (landscape) {
-      app = Rect.lerp(
-        screen,
-        _gridRect(slot, count),
-        p,
-      )!.shift(Offset(offset * strideAt(0) * (1 - p), 0));
-    } else {
-      app = Rect.lerp(screen, card, p)!.shift(Offset(offset * strideAt(p), 0));
+    var app = Rect.lerp(
+      screen,
+      card,
+      p,
+    )!.shift(Offset(_carousel(along, p) * _sign * strideAt(p), 0));
+    if (_landscape) {
+      // Cards beside the middle one sit a little deeper and come forward
+      // as they reach it.
+      final depth = 1 - overviewLandscapeDepth * p * math.min(1.0, along.abs());
+      app = Rect.fromCenter(
+        center: app.center,
+        width: app.width * depth,
+        height: app.height * depth,
+      );
     }
     // Sliding apps round their corners as soon as they leave the screen's
     // edges, and square them again as they come to rest.
@@ -648,25 +661,6 @@ class DeckGeometry {
       switchRadius * apart,
     );
     return WindowPose(app.shift(Offset(away + aside, 0)), appRadius);
-  }
-
-  /// Landscape recents is a grid, newest app first.
-  Rect _gridRect(double slot, int count) {
-    if (count <= 0) return card;
-    final layout = landscapeOverviewLayoutFor(
-      viewSize: size,
-      padding: padding,
-      itemCount: count,
-      aspect: viewAspectFor(size),
-    );
-    final cell = (count - 1 - slot).clamp(0.0, count - 1.0);
-    final before = cell.floor();
-    final after = cell.ceil();
-    return Rect.lerp(
-      layout.previewRectAt(before),
-      layout.previewRectAt(after),
-      cell - before,
-    )!;
   }
 
   @override

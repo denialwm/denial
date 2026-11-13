@@ -309,6 +309,7 @@ fn shell_text_key_stroke(character: char) -> Option<ShellKeyStroke> {
 fn shell_named_key_stroke(key: &str) -> Option<ShellKeyStroke> {
     let (evdev_keycode, shift) = match key {
         "Escape" => (1, false),
+        "Alt" => (56, false),
         "BackSpace" | "Backspace" => (14, false),
         "Tab" => (15, false),
         "Return" | "Enter" => (28, false),
@@ -398,8 +399,8 @@ pub(super) fn inject_shell_key_transition(
     const XKB_KEYCODE_OFFSET: u32 = 8;
 
     // Held modified keys require explicit modifier ownership. The OSK uses
-    // this lifecycle only for unmodified Backspace; complete modified taps
-    // continue through inject_shell_key_stroke().
+    // this lifecycle for unmodified Backspace and to hold Alt around a key;
+    // complete modified taps continue through inject_shell_key_stroke().
     if stroke.shift {
         return false;
     }

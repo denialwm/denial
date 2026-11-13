@@ -8,6 +8,11 @@ boundaries may change before 1.0.
 
 ### Added
 
+- An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened
+  after a change draw that many times larger than the screen's scale, at full
+  sharpness; X11 apps follow through their DPI. The shell and Droidloom keep
+  the screen's scale, and so do clients that make layer surfaces, such as
+  panels.
 - Packages for ARM64 (AArch64). The Pacman, APT and DNF repositories carry
   `denial`, `denial-flutter-engine` and `denial-plugin-manager` for ARM64
   beside x86-64, and each machine downloads only its own architecture. The
@@ -100,8 +105,9 @@ boundaries may change before 1.0.
   installed, and the shell's clocks can show 24-hour time.
 - The mobile home screen keeps its own layout for portrait and for landscape,
   and in landscape its cells shrink to fit and the keyboard gets taller rows.
-- In landscape the mobile shell hides its status bar and apps get the full
-  height; a swipe down from the top edge still opens the shade.
+- On the mobile shell an app that asks for full screen gets the whole screen
+  and the status bar steps aside; a swipe down from the top edge still opens
+  the shade.
 - Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
 
 ### Changed
@@ -126,6 +132,21 @@ boundaries may change before 1.0.
   document; the separate notification-policy file is gone. On a phone,
   `idleLockEnabled` turns locking on or off and `screenOffLockDelaySeconds`
   sets how long a dark screen stays unlocked.
+- In landscape the mobile shade shows notifications and quick settings side
+  by side, each one and a half phones wide, with quick tiles one and a half
+  times as tall. Recents is the same row of cards as in portrait, overlapping,
+  newer over older, so a swipe crosses them faster. The card in the middle
+  follows the finger while newer cards travel faster and older ones slower
+  and smaller, so the stack moves as it scrolls.
+- A notification in the mobile shade or on the lock screen swipes away
+  toward the start edge only.
+- The mobile home screen starts with one page; empty pages after the last
+  icon no longer count.
+- A phone or tablet in landscape, or any tablet, locks with the mobile lock
+  screen and its PIN pad. The desktop lock screen is for desktop view and a
+  second screen. In landscape the PIN pad stays up in the last third, beside
+  a larger clock and the notifications, and the fingerprint works until a
+  PIN is being typed.
 
 ### Removed
 
@@ -135,8 +156,16 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Qt and other Xlib apps under Xwayland are scaled: Denial also sets
+  `Xft.dpi` in the X resources, which they read instead of XSETTINGS.
+- A quick flick in mobile recents reaches the next card however short it
+  is; it no longer springs back unless the finger slows before release.
+- An app opening from its icon lets the icon go before it is twice its size,
+  on a tablet as on a phone, not several times larger.
 - Plugin Manager no longer reports a job as interrupted while its worker is
   still starting.
+- On a large mobile screen the first row of home icons opens again: the
+  closed status bar no longer takes touches below its own height.
 - Logging in to Denial from LightDM no longer drops back to the greeter with
   "libseat did not activate the current TTY session". Display managers that
   start the session before logind activates it are now waited for, also with

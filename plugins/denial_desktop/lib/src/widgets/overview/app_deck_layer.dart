@@ -76,6 +76,11 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
   static const double _shortestGlide = 0.3;
   static const double _longestGlide = 1.1;
 
+  /// A release this fast, in logical pixels per second, is a flick and
+  /// reaches at least the next card it heads for: Launcher3's fling
+  /// threshold, 500 dp/s.
+  static const double _flickSpeed = 500;
+
   final _open = ValueNotifier(0.0);
   late final Animation<double> _openAnimation = Animation.fromValueListenable(
     _open,
@@ -151,8 +156,8 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     });
   }
 
-  /// Poses every app from the deck's values, and draws those on screen with
-  /// the one nearest the screen's centre in front.
+  /// Poses every app from the deck's values, and draws those on screen
+  /// newer in front of older, in the same order however the row moves.
   void _update() {
     if (!mounted) return;
     final deck = widget.deck;
@@ -161,20 +166,16 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     widget.onProgressChanged?.call(shown);
     final presenting = deck.presenting.value;
     final geometry = deck.geometry;
-    final drawn = <(int, double)>[];
+    final ids = <int>[];
     if (presenting && !geometry.isEmpty) {
       final screen = geometry.screen;
-      final row = deck.row.value;
       for (final id in deck.order) {
         if (id == deck.hidden || !_windows.containsKey(id)) continue;
-        final slot = deck.slotOf(id);
         final pose = deck.poseOf(id);
         (_poses[id] ??= ValueNotifier(pose)).value = pose;
-        if (pose.rect.overlaps(screen)) drawn.add((id, (slot - row).abs()));
+        if (pose.rect.overlaps(screen)) ids.add(id);
       }
-      drawn.sort((a, b) => b.$2.compareTo(a.$2));
     }
-    final ids = [for (final (id, _) in drawn) id];
     if (presenting != _presenting) {
       widget.onPresentationChanged(presenting);
     }
@@ -206,7 +207,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
 
   void _startRowDrag(DragStartDetails details) {
     final deck = widget.deck;
-    if (!widget.recents || deck.geometry.landscape || deck.length == 0) {
+    if (!widget.recents || deck.length == 0) {
       return;
     }
     if (!deck.row.held) deck.row.grab();
@@ -223,20 +224,23 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     deck.row.hold(_stretch(position));
   }
 
-  /// A fling coasts on to the card nearest where it would come to rest, or
-  /// runs past the first or last card and bounces back; a slow release
-  /// springs to the nearest card.
+  /// A fling coasts on to the card nearest where it would come to rest, at
+  /// least the next one it heads for, or runs past the first or last card
+  /// and bounces back; a slow release springs to the nearest card.
   void _endRowDrag(DragEndDetails? details) {
     if (!_rowDragging) return;
     _rowDragging = false;
     final deck = widget.deck;
     final row = deck.row;
-    final rate = deck.geometry.rowDelta(
-      details?.velocity.pixelsPerSecond.dx ?? 0,
-      1,
-    );
+    final speed = details?.velocity.pixelsPerSecond.dx ?? 0;
+    final rate = deck.geometry.rowDelta(speed, 1);
     final last = math.max(0, deck.length - 1).toDouble();
     var target = (row.value + rate * _rowFlingProjection).roundToDouble();
+    if (speed.abs() >= _flickSpeed) {
+      target = rate > 0
+          ? math.max(target, row.value.floorToDouble() + 1)
+          : math.min(target, row.value.ceilToDouble() - 1);
+    }
     if (row.glideTime(target, rate) < _shortestGlide) target += rate.sign;
     if (target < 0 || target > last) {
       // Already past the end, the stretch springs back on its own.
@@ -249,11 +253,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     } else if (row.glideTime(target, rate) <= _longestGlide) {
       row.glide(target, rate);
     } else {
-      row.settle(
-        _nearestCard(row.value),
-        ShellSprings.appStrip,
-        velocity: rate,
-      );
+      row.settle(target, ShellSprings.appStrip, velocity: rate);
     }
   }
 
@@ -322,7 +322,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
                         window: window,
                         pose: pose,
                         labelWidth: geometry.card.width,
-                        labelOpacity: geometry.landscape ? null : _labelOpacity,
+                        labelOpacity: _labelOpacity,
                         onOpen: widget.onOpenWindow,
                         onDismissed: widget.onDismissWindow,
                         onMoveToDesk: widget.onMoveWindowToDesk,
@@ -498,10 +498,8 @@ class _DeckCardState extends State<_DeckCard>
               pose: _pose,
               child: WindowSurface(
                 window: widget.window,
-                contentPadding: EdgeInsets.only(
-                  top: ReferenceShellMetrics.appStatusInset(
-                    MediaQuery.sizeOf(context),
-                  ),
+                contentPadding: const EdgeInsets.only(
+                  top: ReferenceShellMetrics.statusBarHeight,
                 ),
               ),
             ),

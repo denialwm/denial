@@ -967,7 +967,7 @@ impl Dispatch<ZwpTextInputManagerV3, ()> for RuntimeState {
 impl Dispatch<ZwpTextInputV3, TextInputUserData> for RuntimeState {
     fn request(
         state: &mut Self,
-        _client: &Client,
+        client: &Client,
         resource: &ZwpTextInputV3,
         request: zwp_text_input_v3::Request,
         data: &TextInputUserData,
@@ -1015,15 +1015,21 @@ impl Dispatch<ZwpTextInputV3, TextInputUserData> for RuntimeState {
                 y,
                 width,
                 height,
-            } => sessions.set_cursor_rectangle(
-                &id,
-                CursorRectangle {
-                    x,
-                    y,
-                    width,
-                    height,
-                },
-            ),
+            } => {
+                let rectangle = super::app_scale::logical_rectangle(
+                    client,
+                    Rectangle::new((x, y).into(), (width, height).into()),
+                );
+                sessions.set_cursor_rectangle(
+                    &id,
+                    CursorRectangle {
+                        x: rectangle.loc.x,
+                        y: rectangle.loc.y,
+                        width: rectangle.size.w,
+                        height: rectangle.size.h,
+                    },
+                )
+            }
             zwp_text_input_v3::Request::Commit => {
                 let effect = sessions.commit(&id);
                 if matches!(effect, CommitEffect::Activated | CommitEffect::Updated) {

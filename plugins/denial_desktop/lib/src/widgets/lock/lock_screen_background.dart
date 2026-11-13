@@ -298,6 +298,7 @@ class _LockClockBlock extends StatelessWidget {
     required this.scale,
     required this.showSystemStatus,
     this.caption,
+    this.endInset = 0,
     this.parts = const {
       HomeClockPart.time,
       HomeClockPart.date,
@@ -312,6 +313,9 @@ class _LockClockBlock extends StatelessWidget {
 
   /// A line over the date.
   final String? caption;
+
+  /// Mobile: room kept free at the right edge, for a docked PIN pad.
+  final double endInset;
 
   /// Mobile draws the time under the wallpaper's subject and the date and
   /// battery row over it, as two blocks with the same layout.
@@ -333,7 +337,7 @@ class _LockClockBlock extends StatelessWidget {
     final reserve = desktop ? 0.0 : height;
     return Positioned(
       left: horizontalInset,
-      right: desktop ? size.width * 0.48 : 0,
+      right: desktop ? size.width * 0.48 : endInset,
       top: top - reserve,
       height: height + reserve,
       child: Padding(
@@ -647,10 +651,17 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
 /// unless the lock screen settings hide them. They slide with the face and
 /// let drags through to the swipe; a tap asks for the PIN, then opens.
 class _LockNotifications extends ConsumerWidget {
-  const _LockNotifications({required this.scale, required this.onOpen});
+  const _LockNotifications({
+    required this.scale,
+    required this.docked,
+    required this.onOpen,
+  });
 
   /// The clock's scale, which moves its lower edge.
   final double scale;
+
+  /// Beside a docked PIN pad: the first two thirds, down to near the bottom.
+  final bool docked;
 
   /// The tapped group's key.
   final ValueChanged<String> onOpen;
@@ -679,10 +690,10 @@ class _LockNotifications extends ConsumerWidget {
     final padding = MediaQuery.viewPaddingOf(context);
     return Positioned(
       left: padding.left,
-      right: padding.right,
+      right: docked ? size.width / 3 : padding.right,
       top: clockBottom + metrics.visual(24),
       // The fingerprint ring and the swipe pill keep the lower part.
-      bottom: size.height * 0.3,
+      bottom: size.height * (docked ? 0.08 : 0.3),
       child: ClipRect(
         child: SingleChildScrollView(
           physics: const NeverScrollableScrollPhysics(),
@@ -699,12 +710,12 @@ class _LockNotifications extends ConsumerWidget {
                     metrics.visual(MobileNotificationCard.horizontalMargin),
                     metrics.visual(MobileNotificationMetrics.rowSpacing),
                   ),
-                  // Swiped aside, it leaves the history; a swipe up
-                  // still opens the phone.
+                  // Swiped toward the start edge, it leaves the history; a
+                  // swipe up still opens the phone.
                   child: Dismissible(
                     key: ValueKey(group.key),
                     direction: group.clearable
-                        ? DismissDirection.horizontal
+                        ? DismissDirection.endToStart
                         : DismissDirection.none,
                     confirmDismiss: (_) async {
                       // The controller drops the rows when it can.

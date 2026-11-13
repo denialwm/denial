@@ -409,8 +409,10 @@ class _HistoryNotification extends StatelessWidget {
       ),
       child: Dismissible(
         key: ValueKey(notification.id),
+        // Toward the start edge only: in a landscape shade the other way
+        // runs across the controls column and stays in view.
         direction: clearable
-            ? DismissDirection.horizontal
+            ? DismissDirection.endToStart
             : DismissDirection.none,
         onUpdate: (_) => NotificationShadeList.invalidateOcclusion(context),
         confirmDismiss: (_) async {

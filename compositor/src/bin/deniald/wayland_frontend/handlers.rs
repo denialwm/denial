@@ -21,7 +21,7 @@ use smithay::wayland::xdg_activation::{
 };
 use std::collections::HashSet;
 use std::os::fd::OwnedFd;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
@@ -184,6 +184,7 @@ impl WaylandClientBudget {
     pub(super) fn try_reserve_client(self: &Arc<Self>) -> Option<DenialClientState> {
         try_reserve(&self.clients, MAX_WAYLAND_CLIENTS).then(|| DenialClientState {
             compositor_state: CompositorClientState::default(),
+            apps_scale: AtomicU64::new(1.0_f64.to_bits()),
             budget: Some(Arc::clone(self)),
             surfaces: Mutex::new(HashSet::new()),
             reservation_live: AtomicBool::new(true),
@@ -266,6 +267,8 @@ pub(super) struct DenialClientState {
     pub(super) peer_pid: Option<i32>,
     pub(super) peer_uid: Option<u32>,
     compositor_state: CompositorClientState,
+    /// `f64` bits of the scale this client draws apps at; see `app_scale`.
+    apps_scale: AtomicU64,
     budget: Option<Arc<WaylandClientBudget>>,
     surfaces: Mutex<HashSet<ObjectId>>,
     reservation_live: AtomicBool,
@@ -275,6 +278,7 @@ impl Default for DenialClientState {
     fn default() -> Self {
         Self {
             compositor_state: CompositorClientState::default(),
+            apps_scale: AtomicU64::new(1.0_f64.to_bits()),
             budget: None,
             surfaces: Mutex::new(HashSet::new()),
             reservation_live: AtomicBool::new(true),
@@ -285,6 +289,16 @@ impl Default for DenialClientState {
 }
 
 impl DenialClientState {
+    /// Draws this client `scale` times larger than the screen's scale.
+    pub(super) fn set_apps_scale(&self, scale: f64) {
+        self.apps_scale.store(scale.to_bits(), Ordering::Release);
+        self.compositor_state.set_client_scale(scale.recip());
+    }
+
+    pub(super) fn apps_scale(&self) -> f64 {
+        f64::from_bits(self.apps_scale.load(Ordering::Acquire))
+    }
+
     fn try_register_surface(&self, surface: ObjectId) -> bool {
         let mut surfaces = self
             .surfaces
@@ -562,6 +576,8 @@ fn install_surface_readiness_hook(surface: &WlSurface) {
         // surface hooks are Send + Sync, while calloop handles are confined to
         // the compositor thread that executes this hook.
         let loop_handle = state.frontend().loop_handle.clone();
+        #[cfg(feature = "flutter")]
+        state.frontend_mut().note_thawing_commit_arrived(surface);
         let (acquire_point, dmabuf, has_new_buffer) = with_states(surface, |states| {
             let mut syncobj = states.cached_state.get::<DrmSyncobjCachedState>();
             let acquire_point = syncobj.pending().acquire_point.clone();
@@ -1186,6 +1202,7 @@ impl CompositorHandler for RuntimeState {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
+        super::app_scale::convert_committed(surface);
         let synchronized = is_sync_subsurface(surface);
         super::color_management::note_committed_color(
             surface,
@@ -1349,8 +1366,9 @@ impl CompositorHandler for RuntimeState {
         #[cfg(feature = "flutter")]
         if let Some(kind) = commit_kind {
             frontend.queue_surface_commit(surface, kind);
-            frontend.thaw_on_visual_commit(surface);
         }
+        #[cfg(feature = "flutter")]
+        frontend.thaw_on_commit(surface, visual_update);
         #[cfg(feature = "flutter")]
         let mut published_surface_commits = None;
         #[cfg(feature = "flutter")]

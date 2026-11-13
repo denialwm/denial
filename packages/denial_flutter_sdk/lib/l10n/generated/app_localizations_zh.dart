@@ -1062,7 +1062,19 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get oskAlt => 'Alt';
+
+  @override
+  String get oskAltKey => 'ALT';
+
+  @override
   String get oskArrowDown => '下';
+
+  @override
+  String get oskArrowLeft => '左';
+
+  @override
+  String get oskArrowRight => '右';
 
   @override
   String get oskArrowUp => '上';
@@ -1074,10 +1086,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get oskCapsLock => '大写锁定';
 
   @override
+  String get oskControl => 'Ctrl';
+
+  @override
   String get oskControlKey => 'CTRL';
 
   @override
   String get oskEnter => 'Enter';
+
+  @override
+  String get oskEscape => 'Esc';
+
+  @override
+  String get oskEscapeKey => 'ESC';
 
   @override
   String get oskLetters => '字母';
@@ -1101,7 +1122,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get oskShift => 'Shift';
 
   @override
+  String get oskShortcutKeys => '快捷键';
+
+  @override
   String get oskSpace => '空格';
+
+  @override
+  String get oskTab => 'Tab';
+
+  @override
+  String get oskTabKey => 'TAB';
 
   @override
   String outputBrightnessSemantics(String outputName) {

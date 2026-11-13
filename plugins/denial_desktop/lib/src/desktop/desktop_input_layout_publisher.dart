@@ -58,6 +58,7 @@ class _DesktopInputLayoutPublisherState
           state.windowSnapshotSequence,
           state.edgePanelVisible,
           state.edgePanelDragProgress,
+          state.oskShortcuts,
           state.launchTransitionActive,
         ),
       ),
@@ -151,6 +152,7 @@ class _DesktopInputLayoutPublisherState
               !deckActive,
           visible: !deckActive && shell.edgePanelVisible,
           progress: deckActive ? 0 : shell.edgePanelDragProgress,
+          shortcuts: shell.oskShortcuts,
         ),
       );
       if (_lastSource?.hasSameInputsAs(source) ?? false) {
@@ -181,6 +183,7 @@ class _DesktopInputLayoutPublisherState
             viewSize,
             progress: source.softwareKeyboard.progress,
             scrollStripVisible: source.softwareKeyboard.visible,
+            shortcuts: source.softwareKeyboard.shortcuts,
           )
         : const <Rect>[];
 
@@ -679,7 +682,8 @@ class _DesktopInputLayoutSource {
   final DisplayLayout? displayLayout;
   final Rect? phoneRect;
   final DesktopWindowLayout windowLayout;
-  final ({bool enabled, bool visible, double progress}) softwareKeyboard;
+  final ({bool enabled, bool visible, double progress, bool shortcuts})
+  softwareKeyboard;
 
   bool hasSameInputsAs(_DesktopInputLayoutSource other) {
     return desktopVisible == other.desktopVisible &&

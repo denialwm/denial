@@ -20,7 +20,7 @@ class HomeGridLayout {
   static int columns = 4;
 
   static const double gridGap = 22;
-  static const int minPages = 2;
+  static const int minPages = 1;
 
   /// Tile content is fixed-size (92px icon + label ~= 131 tall), so cells
   /// gain nothing from growing: cap their footprint and let wide panels get
@@ -52,7 +52,14 @@ class HomeGridLayout {
     if (pageSize <= 0) {
       return minPages;
     }
-    return math.max(minPages, (slots.length / pageSize).ceil());
+    // Pages run to the last cell an item covers: empty slots after it make
+    // no page of their own.
+    var end = 0;
+    for (var index = 0; index < slots.length; index += 1) {
+      final item = slots[index];
+      if (item != null) end = math.max(end, cellsFor(index, item).last + 1);
+    }
+    return math.max(minPages, (end / pageSize).ceil());
   }
 
   /// Every application on the grid, folder contents included, in slot order.

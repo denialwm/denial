@@ -729,7 +729,8 @@ impl WaylandFrontend {
         let target = self.apply_restored_window_state(window, restored.geometry, restored.state);
         #[cfg(not(feature = "flutter"))]
         let target = restored.geometry;
-        toplevel.with_pending_state(|pending| pending.size = Some(target.size));
+        let size = super::app_scale::client_size(toplevel.wl_surface(), target.size);
+        toplevel.with_pending_state(|pending| pending.size = Some(size));
         let authority = if restored.state.maximized || restored.state.fullscreen {
             WindowGeometryAuthority::Shell
         } else {
@@ -1005,7 +1006,9 @@ impl WaylandFrontend {
             // maximum useful bounds at the same time; this lets clients make
             // that decision before attaching their first buffer without any
             // compositor-specific protocol or shell-geometry guesswork.
-            toplevel.with_pending_state(|pending| pending.bounds = toplevel_bounds);
+            let bounds = toplevel_bounds
+                .map(|bounds| super::app_scale::client_bounds(toplevel.wl_surface(), bounds));
+            toplevel.with_pending_state(|pending| pending.bounds = bounds);
         }
         #[cfg(feature = "flutter")]
         if let Some(root_surface) = self.window_root_surface(window) {

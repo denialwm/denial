@@ -30,8 +30,10 @@ class MobileSystemOverlayLayer extends ConsumerWidget {
     final overlay = ref.watch(
       referenceShellProvider.select((state) => state.systemOverlay),
     );
-    final keyboard = ref.watch(
-      referenceShellProvider.select((state) => state.edgePanelDragProgress),
+    final (keyboard, shortcuts) = ref.watch(
+      referenceShellProvider.select(
+        (state) => (state.edgePanelDragProgress, state.oskShortcuts),
+      ),
     );
     final displayLayout = ref.watch(
       sceneDisplayLayoutProvider(ShellPart.of(context)),
@@ -48,6 +50,7 @@ class MobileSystemOverlayLayer extends ConsumerWidget {
             viewSize,
             overlay.geometry!.size,
             keyboard,
+            shortcuts: shortcuts,
           );
     return IgnorePointer(
       child: ValueListenableBuilder<FrostedBackdrop?>(
