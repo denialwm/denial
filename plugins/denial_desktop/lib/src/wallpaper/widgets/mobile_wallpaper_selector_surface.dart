@@ -602,7 +602,7 @@ class _MobileWallpaperTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Below the status bar strip: at 18 px the close button could not be
-    // tapped on the Ace 3.
+    // tapped on the 12R.
     final top =
         MediaQuery.viewPaddingOf(context).top +
         ReferenceShellMetrics.statusBarHeight +
