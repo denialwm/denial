@@ -8,10 +8,11 @@ part of 'lock_screen_layer.dart';
 /// it and answers; the sheet only shows the answer. It waits while the
 /// session is locked.
 ///
-/// When the client also takes a fingerprint, the sheet starts folded: a
-/// small card says so, over the sensor the shell marks, with a button to
-/// the PIN or password. It opens when the user takes that button, types a
-/// digit, or the fingerprint gives way.
+/// When the client also takes a fingerprint, the sheet starts folded: only
+/// a button to the PIN or password, under the sensor's ring. Taking it, or
+/// typing a digit, opens the sheet and tells the client, which stops the
+/// fingerprint; the fingerprint giving way opens it too. A tap elsewhere
+/// cancels.
 class UserVerificationSheet extends ConsumerStatefulWidget {
   const UserVerificationSheet({super.key});
 
@@ -237,6 +238,15 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
     }
   }
 
+  /// The user turned to the PIN or password; the client then stops the
+  /// fingerprint.
+  void _choose() {
+    final request = _request;
+    if (!_folded || request == null) return;
+    ref.read(denialBridgeProvider).openUserVerification(request.id);
+    _unfold();
+  }
+
   void _unfold() {
     if (!_folded) return;
     setState(() => _folded = false);
@@ -253,7 +263,7 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
         event,
         onDigit: (digit) {
           if (_usePassword) return;
-          _unfold();
+          _choose();
           _press(digit);
         },
         onDelete: () {},
@@ -312,7 +322,7 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
             // The app behind stays visible, dimmed, and takes no touches.
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () {},
+              onTap: _folded ? _cancel : () {},
               child: _usePassword || _folded
                   ? IgnorePointer(
                       child: CustomPaint(
@@ -327,18 +337,12 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
                   : null,
             ),
             if (_folded)
-              _UserVerificationFingerprintPanel(
+              _UserVerificationFingerprintLink(
                 reveal: _shown,
-                rise: _rise,
                 focusNode: _keys,
                 onKeyEvent: _handleFoldedKey,
-                title: title,
-                message: l10n.userVerificationAsksFingerprint(app),
-                switchLabel: _usePassword
-                    ? l10n.lockUsePassword
-                    : l10n.lockUsePin,
-                onSwitch: _unfold,
-                onCancel: _cancel,
+                label: _usePassword ? l10n.lockUsePassword : l10n.lockUsePin,
+                onPressed: _choose,
               )
             else if (_usePassword)
               _UserVerificationPasswordPanel(
@@ -400,114 +404,56 @@ class _UserVerificationSheetState extends ConsumerState<UserVerificationSheet>
   }
 }
 
-/// The folded sheet: a card at the top, clear of the sensor the shell marks
-/// near the bottom, with the way to the PIN or password.
-class _UserVerificationFingerprintPanel extends StatelessWidget {
-  const _UserVerificationFingerprintPanel({
+/// The folded sheet: the way to the PIN or password, under the ring the
+/// shell draws on the fingerprint sensor.
+class _UserVerificationFingerprintLink extends ConsumerWidget {
+  const _UserVerificationFingerprintLink({
     required this.reveal,
-    required this.rise,
     required this.focusNode,
     required this.onKeyEvent,
-    required this.title,
-    required this.message,
-    required this.switchLabel,
-    required this.onSwitch,
-    required this.onCancel,
+    required this.label,
+    required this.onPressed,
   });
 
   final Animation<double> reveal;
-  final Animation<Offset> rise;
   final FocusNode focusNode;
   final FocusOnKeyEventCallback onKeyEvent;
-  final String title;
-  final String message;
-  final String switchLabel;
-  final VoidCallback onSwitch;
-  final VoidCallback onCancel;
+  final String label;
+  final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sensor = ref.watch(
+      authenticationProvider.select((state) => state.fingerprintSensor),
+    );
     return Positioned.fill(
       child: Focus(
         focusNode: focusNode,
         autofocus: true,
         onKeyEvent: onKeyEvent,
-        child: SafeArea(
-          minimum: const EdgeInsets.fromLTRB(18, 12, 18, 22),
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: CompositedTranslation(
-              translation: rise,
-              devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-              child: FadeSnapshot(
-                opacity: reveal,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: context.shellColors.surfaceContainerLow,
-                      borderRadius: context.shellTheme.borderRadius(24),
-                      border: Border.all(color: context.shellColors.hairline),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.fingerprint_rounded,
-                                size: 24,
-                                color: context.shellColors.textSecondary,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  style: ShellText.base.copyWith(
-                                    fontSize: 21,
-                                    height: 1.15,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: -0.3,
-                                  ),
-                                ),
-                              ),
-                              _MobileLockCancelButton(
-                                label: l10n.commonCancel,
-                                onPressed: onCancel,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              message,
-                              style: ShellText.base.copyWith(
-                                color: context.shellColors.textSecondary,
-                                fontSize: 13,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Center(
-                            child: _PinLink(
-                              label: switchLabel,
-                              onPressed: onSwitch,
-                            ),
-                          ),
-                        ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final center = fingerprintMarkCenter(sensor, constraints.biggest);
+            return Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: center.dy + fingerprintMarkReach + 20,
+                  child: Center(
+                    child: FadeSnapshot(
+                      opacity: reveal,
+                      child: _PinLink(
+                        label: label,
+                        onPressed: onPressed,
+                        color: ShellMediaColors.lightForeground,
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
+              ],
+            );
+          },
         ),
       ),
     );

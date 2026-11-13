@@ -1623,7 +1623,6 @@
   "userVerificationTitle": "确认是你本人",
   "userVerificationAsksPin": "{applicationName} 需要你的 PIN 码",
   "userVerificationAsksPassword": "{applicationName} 需要你的密码",
-  "userVerificationAsksFingerprint": "{applicationName} 需要验证你的指纹",
   "userVerificationWrongPassword": "密码错误",
   "userVerificationConfirm": "确认"
 }

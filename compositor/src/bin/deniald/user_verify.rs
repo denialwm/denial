@@ -6,17 +6,17 @@
 //! and answers. Nothing here judges a credential or unlocks anything.
 //!
 //! A client that also verifies a fingerprint for the prompt gets the sheet
-//! folded behind a button to the PIN or password; it opens when the user
-//! taps it, or when that client's fingerprint verification ends without a
-//! match.
+//! folded behind a button to the PIN or password. When the user takes it,
+//! the client hears `opened` and stops its fingerprint verification; when
+//! that verification ends without a match, the sheet opens by itself.
 //!
 //! The shell's channel carries little-endian records. To the shell:
 //! `1 id:u32 pin_length:u8 password:u8 fingerprint:u8 (len:u16 utf8){app,
 //! title, description}` shows a sheet, `2 id:u32 retry_ms:u32` asks again,
 //! `3 id:u32 accepted:u8` closes it, `4 id:u32` opens a folded sheet. From
-//! the shell: `1 id:u32 kind:u8 secret...` is
-//! what the user typed, `2 id:u32` the user closed the sheet, `3` the shell
-//! started and wants the sheet showing, if any.
+//! the shell: `1 id:u32 kind:u8 secret...` is what the user typed, `2
+//! id:u32` the user closed the sheet, `3` the shell started and wants the
+//! sheet showing, if any, `4 id:u32` the user opened a folded sheet.
 
 use std::collections::VecDeque;
 use std::ffi::CStr;
@@ -40,6 +40,7 @@ const FOLDED_AT: usize = 7;
 const CREDENTIAL: u8 = 1;
 const CANCEL: u8 = 2;
 const SYNC: u8 = 3;
+const OPENED: u8 = 4;
 const PIN: u8 = 1;
 const PASSWORD: u8 = 2;
 /// Bounds every text the client sends, so a record stays small.
@@ -301,6 +302,15 @@ fn receive(verifications: &mut Verifications, record: &[u8]) {
             match std::str::from_utf8(&record[6..]) {
                 Ok(secret) => sheet.resource.credential(kind, secret.to_owned()),
                 Err(_) => warn!("rejected a credential that is not UTF-8"),
+            }
+        }
+        Some(&OPENED) if record.len() == 5 => {
+            let Some(sheet) = verifications.current.as_mut() else {
+                return;
+            };
+            if id(record) == Some(sheet.id) && sheet.show[FOLDED_AT] != 0 {
+                sheet.show[FOLDED_AT] = 0;
+                sheet.resource.opened();
             }
         }
         _ => warn!("rejected a malformed user verification record from the shell"),

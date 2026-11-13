@@ -15,10 +15,11 @@ gatekeeper provider and the password with PAM) and answers.
   `cancelled`. A newer request, from any client, ends the older with
   `cancelled`. `fingerprint` in the mask says the client also runs a
   fingerprint verification (`denial-fingerprint-verify-v1`) for the same
-  prompt: the sheet starts folded, a small card at the top with a button to
-  the PIN or password, and opens when the user takes it, types a digit, or
-  a fingerprint verification of that client ends without a match. A match
-  leaves closing the sheet to the client.
+  prompt: the sheet starts folded, only a button to the PIN or password
+  under the sensor's ring. Taking it, or typing a digit, opens the sheet and
+  sends `opened`, so the client stops its fingerprint verification; the
+  sheet also opens when such a verification ends without a match. A tap
+  elsewhere cancels. A match leaves closing the sheet to the client.
 - `credential(kind, secret)` carries what the user typed, each time they
   submit.
 - `rejected(retry_ms)` says it did not prove the user. The sheet shakes and
@@ -36,4 +37,4 @@ and description, each a `u16` length and UTF-8, shows the sheet (`pin_length`
 again; `3 id:u32 accepted:u8` closes it; `4 id:u32` opens a folded sheet.
 From the shell: `1 id:u32 kind:u8 secret` is what the user typed (kind 1 PIN,
 2 password), `2 id:u32` the user cancelled, `3` asks for the sheet showing,
-after the shell starts. deniald wipes each record from the shell once handled.
+after the shell starts, `4 id:u32` the user opened a folded sheet. deniald wipes each record from the shell once handled.

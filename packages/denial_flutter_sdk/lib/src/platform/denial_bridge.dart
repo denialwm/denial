@@ -546,6 +546,9 @@ class DenialBridge {
   /// The user closed sheet [id].
   void cancelUserVerification(int id) => _userVerification.cancel(id);
 
+  /// The user turned from the fingerprint to sheet [id]'s PIN or password.
+  void openUserVerification(int id) => _userVerification.open(id);
+
   /// Asks for the sheet showing, after the shell started.
   void syncUserVerification() => _userVerification.sync();
 

@@ -56,10 +56,11 @@
 
         With fingerprint, the client runs a denial_fingerprint_verifier_v1
         verification for the same prompt, and the sheet first offers only a
-        button to the PIN or password beside the sensor Denial marks. It
-        opens when the user taps it, or once a verification of this client
-        ends without a match. A match does not close the sheet: the client
-        destroys it.
+        button to the PIN or password under the sensor Denial marks. When
+        the user takes it the sheet opens and sends opened; the client then
+        ends its fingerprint verification. The sheet also opens once a
+        verification of this client ends without a match. A match does not
+        close the sheet: the client destroys it.
       </description>
       <arg name="id" type="new_id" interface="denial_user_verification_v1"/>
       <arg name="app" type="string"/>
@@ -95,6 +96,12 @@
       </description>
       <arg name="kind" type="uint" enum="denial_user_verifier_v1.credential"/>
       <arg name="secret" type="string"/>
+    </event>
+    <event name="opened">
+      <description summary="the user turned from the fingerprint">
+        Only for a sheet asked with fingerprint: the user chose the PIN or
+        password over it, and the client stops its fingerprint verification.
+      </description>
     </event>
     <event name="cancelled">
       <description summary="the user closed the sheet, or a newer one replaced it"/>

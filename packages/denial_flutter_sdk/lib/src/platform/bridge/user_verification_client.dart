@@ -77,6 +77,7 @@ final class BridgeUserVerificationClient {
   static const int _credential = 1;
   static const int _cancel = 2;
   static const int _sync = 3;
+  static const int _opened = 4;
   static const int _pin = 1;
   static const int _password = 2;
 
@@ -160,6 +161,15 @@ final class BridgeUserVerificationClient {
   void cancel(int id) {
     final data = ByteData(5)
       ..setUint8(0, _cancel)
+      ..setUint32(1, id, Endian.little);
+    _send(data);
+  }
+
+  /// The user turned from the fingerprint to the PIN or password; the
+  /// client stops its fingerprint verification.
+  void open(int id) {
+    final data = ByteData(5)
+      ..setUint8(0, _opened)
       ..setUint32(1, id, Endian.little);
     _send(data);
   }

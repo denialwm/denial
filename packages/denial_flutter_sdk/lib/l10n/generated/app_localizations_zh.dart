@@ -5166,11 +5166,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String userVerificationAsksFingerprint(String applicationName) {
-    return '$applicationName 需要验证你的指纹';
-  }
-
-  @override
   String get userVerificationWrongPassword => '密码错误';
 
   @override

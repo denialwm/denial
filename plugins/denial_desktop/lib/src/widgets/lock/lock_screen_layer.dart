@@ -48,6 +48,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart'
 
 import '../../state/notification_groups.dart';
 import '../edge_panel_layer.dart';
+import '../fingerprint_mark.dart';
 import '../mobile_ui_metrics.dart';
 import '../notification_banner.dart';
 
