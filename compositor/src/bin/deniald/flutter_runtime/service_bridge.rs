@@ -197,6 +197,17 @@ impl FlutterRuntime {
         Ok(())
     }
 
+    pub fn take_user_verification_records(&mut self) -> VecDeque<Vec<u8>> {
+        std::mem::take(&mut self.pending_user_verification)
+    }
+
+    pub fn send_user_verification(&mut self, record: &[u8]) -> Result<(), Box<dyn Error>> {
+        self.host()
+            .engine()
+            .send_platform_message(crate::user_verify::CHANNEL, record)?;
+        Ok(())
+    }
+
     pub fn take_mouse_cursor_request(&mut self) -> Option<&'static str> {
         self.mouse_cursor.take_request()
     }

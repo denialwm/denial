@@ -10,14 +10,35 @@ use std::path::{Path, PathBuf};
 
 pub(super) const UID: u32 = 941003;
 const HANDLE_MAX: usize = 4096;
-const PROVIDER_SOCKET: &str = "/run/gatekeeper/worker.sock";
+/// A hardware provider, such as a Goodix phone's TEE; its fingerprint
+/// reader also wants the PIN proven before it adds a finger.
+const HARDWARE_SOCKET: &str = "/run/gatekeeper/worker.sock";
+/// Phonewave's software provider, root's, for phones without hardware one.
+const SOFTWARE_SOCKET: &str = "/run/gatekeeper/software.sock";
 const ENROLL_DIRECTORY: &str = "/run/fingerprint-enroll";
 const ENROLL_SOCKET: &str = "/run/fingerprint-enroll/enroll.sock";
 const LIMIT: Duration = Duration::from_secs(25);
 
-/// The phone has a hardware PIN provider: its socket is there.
+fn listening(path: &str) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
+}
+
+/// The phone's PIN provider: a hardware one where it has one.
+fn provider() -> Option<&'static str> {
+    [HARDWARE_SOCKET, SOFTWARE_SOCKET]
+        .into_iter()
+        .find(|path| listening(path))
+}
+
+/// The phone has a PIN provider: its socket is there.
 pub(super) fn enabled() -> bool {
-    fs::symlink_metadata(PROVIDER_SOCKET).is_ok_and(|meta| meta.file_type().is_socket())
+    provider().is_some()
+}
+
+/// The provider is the phone's hardware, whose reader adds a finger only
+/// once the PIN is proven to it.
+pub(super) fn hardware() -> bool {
+    listening(HARDWARE_SOCKET)
 }
 
 pub(super) struct Credential {
@@ -124,7 +145,8 @@ fn call(
     password: &[u8],
     desired: &[u8],
 ) -> Result<(u64, Vec<u8>), Failure> {
-    let mut stream = UnixStream::connect(PROVIDER_SOCKET).map_err(|_| Failure::Unavailable)?;
+    let mut stream = UnixStream::connect(provider().ok_or(Failure::Unavailable)?)
+        .map_err(|_| Failure::Unavailable)?;
     root_peer(&stream).map_err(|_| Failure::Unavailable)?;
     stream
         .set_read_timeout(Some(LIMIT))

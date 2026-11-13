@@ -63,6 +63,7 @@ part 'lock_authentication_panels.dart';
 part 'lock_pin_stage.dart';
 part 'lock_screen_background.dart';
 part 'lock_screen_pane.dart';
+part 'user_verification_sheet.dart';
 
 /// The lock screen's always-on picture on the phone while the session stays
 /// unlocked: beside a desk the phone goes dark without locking. It stays

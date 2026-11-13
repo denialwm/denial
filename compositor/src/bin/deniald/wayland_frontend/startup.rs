@@ -59,6 +59,8 @@ impl WaylandFrontend {
         #[cfg(feature = "flutter")]
         crate::fingerprint_verify::init(&display_handle);
         #[cfg(feature = "flutter")]
+        crate::user_verify::init(&display_handle);
+        #[cfg(feature = "flutter")]
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
         #[cfg(feature = "flutter")]
         let idle_notifier = idle_notify::new(&display_handle, loop_handle.clone());

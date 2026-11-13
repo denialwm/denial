@@ -5413,4 +5413,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String setupFailed(String reason) {
     return 'The account was not made: $reason';
   }
+
+  @override
+  String get userVerificationTitle => 'Confirm it’s you';
+
+  @override
+  String userVerificationAsksPin(String applicationName) {
+    return '$applicationName asks for your PIN';
+  }
+
+  @override
+  String userVerificationAsksPassword(String applicationName) {
+    return '$applicationName asks for your password';
+  }
+
+  @override
+  String get userVerificationWrongPassword => 'Wrong password';
+
+  @override
+  String get userVerificationConfirm => 'Confirm';
 }

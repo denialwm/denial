@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_user_verify_v1">
+  <copyright>
+    Copyright 2026 Denial contributors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="denial_user_verifier_v1" version="1">
+    <description summary="ask the user to prove who they are">
+      A client asks Denial to show its own sheet for the session user's PIN
+      or account password, as a phone does for an application that asks for
+      the screen lock. Denial draws the sheet over everything and hands what
+      the user typed to the asking client alone. Denial does not judge it:
+      the client checks the credential with whatever it trusts and answers
+      with accepted or rejected.
+
+      The sheet shows only on the session's unlocked desktop; while the
+      session is locked, a pending verification waits. One verification
+      shows at a time: a newer one, from any client, ends the older with
+      cancelled.
+    </description>
+    <enum name="credential">
+      <entry name="pin" value="1" summary="the lock PIN"/>
+      <entry name="password" value="2" summary="the account password"/>
+    </enum>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the verifier">
+        Existing verifications are unaffected.
+      </description>
+    </request>
+    <request name="verify">
+      <description summary="show the sheet">
+        app names who asks, such as an application's name; title and
+        description are what it asked with, and may be empty. credentials
+        says what the client can check. The sheet offers the PIN when the
+        client allows it and the user has one, else the password; the user
+        may always switch to the password when the client allows it.
+      </description>
+      <arg name="id" type="new_id" interface="denial_user_verification_v1"/>
+      <arg name="app" type="string"/>
+      <arg name="title" type="string"/>
+      <arg name="description" type="string"/>
+      <arg name="credentials" type="uint" summary="credential values or'ed together"/>
+    </request>
+  </interface>
+
+  <interface name="denial_user_verification_v1" version="1">
+    <description summary="one sheet asking for a credential">
+      After cancelled the object is inert and the client destroys it.
+      Destroying it closes the sheet.
+    </description>
+    <request name="destroy" type="destructor">
+      <description summary="close the sheet"/>
+    </request>
+    <request name="accepted">
+      <description summary="the credential proved the user">
+        The sheet closes. The client destroys the object.
+      </description>
+    </request>
+    <request name="rejected">
+      <description summary="the credential did not prove the user">
+        The sheet asks again, after retry_ms milliseconds when that is not
+        zero.
+      </description>
+      <arg name="retry_ms" type="uint"/>
+    </request>
+    <event name="credential">
+      <description summary="what the user typed">
+        The sheet waits for accepted or rejected.
+      </description>
+      <arg name="kind" type="uint" enum="denial_user_verifier_v1.credential"/>
+      <arg name="secret" type="string"/>
+    </event>
+    <event name="cancelled">
+      <description summary="the user closed the sheet, or a newer one replaced it"/>
+    </event>
+  </interface>
+</protocol>

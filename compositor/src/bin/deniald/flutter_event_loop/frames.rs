@@ -149,6 +149,7 @@ impl Session<'_, '_> {
             events.output_power_requests.insert(output, powered);
         }
         crate::fingerprint_verify::service(events);
+        crate::user_verify::service(flutter, events);
         if changed {
             frame_scheduler.mark_all_dirty();
             wayland_frontend::reset_all_input_devices(events);

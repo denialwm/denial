@@ -5151,4 +5151,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String setupFailed(String reason) {
     return '未能创建账户：$reason';
   }
+
+  @override
+  String get userVerificationTitle => '确认是你本人';
+
+  @override
+  String userVerificationAsksPin(String applicationName) {
+    return '$applicationName 需要你的 PIN 码';
+  }
+
+  @override
+  String userVerificationAsksPassword(String applicationName) {
+    return '$applicationName 需要你的密码';
+  }
+
+  @override
+  String get userVerificationWrongPassword => '密码错误';
+
+  @override
+  String get userVerificationConfirm => '确认';
 }

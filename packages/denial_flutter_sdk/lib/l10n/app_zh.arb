@@ -1619,5 +1619,10 @@
   "setupStarting": "正在启动…",
   "setupStartFailed": "设备未能以你的账户启动：{reason}",
   "setupNotAllowed": "设置程序无权在此创建账户。",
-  "setupFailed": "未能创建账户：{reason}"
+  "setupFailed": "未能创建账户：{reason}",
+  "userVerificationTitle": "确认是你本人",
+  "userVerificationAsksPin": "{applicationName} 需要你的 PIN 码",
+  "userVerificationAsksPassword": "{applicationName} 需要你的密码",
+  "userVerificationWrongPassword": "密码错误",
+  "userVerificationConfirm": "确认"
 }

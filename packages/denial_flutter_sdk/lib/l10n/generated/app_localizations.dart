@@ -9657,6 +9657,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The account was not made: {reason}'**
   String setupFailed(String reason);
+
+  /// Title of the sheet an application opens to ask for the screen lock, when it gives no title of its own.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it’s you'**
+  String get userVerificationTitle;
+
+  /// Line under the title of the screen-lock sheet while it shows the PIN keypad.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} asks for your PIN'**
+  String userVerificationAsksPin(String applicationName);
+
+  /// Line under the title of the screen-lock sheet while it asks for the account password.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} asks for your password'**
+  String userVerificationAsksPassword(String applicationName);
+
+  /// Shown on the screen-lock sheet after a rejected account password.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password'**
+  String get userVerificationWrongPassword;
+
+  /// Submits the account password on the screen-lock sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get userVerificationConfirm;
 }
 
 class _AppLocalizationsDelegate

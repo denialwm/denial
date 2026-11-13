@@ -71,6 +71,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) fingerprint_verifications: fingerprint_verify::Verifications,
     #[cfg(feature = "flutter")]
+    pub(super) user_verifications: user_verify::Verifications,
+    #[cfg(feature = "flutter")]
     pub(super) screen_off_touch: screen_off_touch::Filter,
     #[cfg(feature = "flutter")]
     pub(super) wifi_power_save: wifi_power_save::WifiPowerSave,

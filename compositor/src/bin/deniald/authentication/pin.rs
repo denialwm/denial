@@ -221,6 +221,25 @@ impl PinStore {
         Ok(length)
     }
 
+    /// Enrolls `pin`, just proven against a record that keeps its own hash,
+    /// with the phone's PIN provider, and keeps the provider's record in its
+    /// place. The old record stays when anything fails.
+    fn move_to_provider(&self, pin: &[u8]) {
+        let moved = (|| -> io::Result<u32> {
+            let _change = self.change_lock()?;
+            let record = self.load_record()?;
+            if !record.is_some_and(|record| record.native.is_none() && record.enabled) {
+                return Err(io::ErrorKind::AlreadyExists.into());
+            }
+            let credential = gatekeeper::enroll(None, &[], pin).map_err(io::Error::other)?;
+            self.save_credential(pin.len() as u32, &credential)
+        })();
+        match moved {
+            Ok(_) => info!("the lock PIN moved to the phone's PIN provider"),
+            Err(error) => warn!(%error, "the lock PIN stays in its own record"),
+        }
+    }
+
     pub(super) fn enrollment_credential(&self) -> io::Result<gatekeeper::Credential> {
         self.load()?.and_then(|r| r.native).ok_or_else(|| {
             io::Error::new(
@@ -356,8 +375,11 @@ fn fill_random(bytes: &mut [u8]) -> io::Result<()> {
 
 /// One PIN attempt: the shell answers a numeric prompt, the record decides,
 /// and PAM account policy still runs exactly as it does for fingerprints.
+/// A PIN the record keeps itself moves to the phone's PIN provider once it
+/// is typed right.
 pub(super) fn authenticate(
     record: &PinRecord,
+    store: Option<&PinStore>,
     backend: &dyn AuthenticationBackend,
     conversation: &mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
     cancelled: &dyn Fn() -> bool,
@@ -366,6 +388,11 @@ pub(super) fn authenticate(
         return BackendResult::Cancelled;
     };
     let matched = record.verify(response.as_bytes());
+    if matched && record.native.is_none() && gatekeeper::enabled() {
+        if let Some(store) = store {
+            store.move_to_provider(response.as_bytes());
+        }
+    }
     response.clear();
     if cancelled() {
         return BackendResult::Cancelled;
@@ -488,6 +515,10 @@ fn status_event(store: &PinStore) -> Value {
             "event": "status",
             "length": record.as_ref().filter(|record| record.enabled).map_or(0, |record| record.length()),
             "requires_current_pin": record.as_ref().is_some_and(|record| record.native.is_some()),
+            // Fingers are added through Denial's root session, which proves
+            // the PIN to the reader.
+            "fingerprint_authorization": gatekeeper::hardware()
+                && record.as_ref().is_some_and(|record| record.native.is_some()),
         }),
         Err(error) => {
             eprintln!("lock PIN record: {error}");

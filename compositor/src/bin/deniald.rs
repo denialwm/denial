@@ -33,6 +33,9 @@ mod fingerprint_presentation;
 #[path = "deniald/fingerprint_verify.rs"]
 mod fingerprint_verify;
 #[cfg(feature = "flutter")]
+#[path = "deniald/user_verify.rs"]
+mod user_verify;
+#[cfg(feature = "flutter")]
 #[path = "deniald/flutter_event_loop.rs"]
 mod flutter_event_loop;
 #[cfg(feature = "flutter")]
