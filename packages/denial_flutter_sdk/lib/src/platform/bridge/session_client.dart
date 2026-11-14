@@ -40,6 +40,7 @@ final class BridgeSessionClient {
   static const int _logoutCommand = 3;
   static const int _screenshotPreparedCommand = 4;
   static const int _cancelScreenshotCommand = 5;
+  static const int _restartCommand = 6;
   static const int _systemCommandHeaderBytes = 1 + 8 + 4;
   static const int _maxSystemCommandBytes = 64 * 1024;
   static const int _maxSystemCommandArguments = 64;
@@ -357,6 +358,10 @@ final class BridgeSessionClient {
   /// This is deliberately not a process launch: deniald terminates its own
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _sendSystemCommand(_logoutCommand);
+
+  /// Asks the native compositor to end this session the same way and start
+  /// Denial again: the session launcher runs it anew.
+  bool requestRestart() => _sendSystemCommand(_restartCommand);
 
   /// Publishes the shell's fully resolved accent to deniald. Standalone
   /// Denial clients deliberately cannot author compositor theme state.

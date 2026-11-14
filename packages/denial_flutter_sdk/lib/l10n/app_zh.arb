@@ -1647,5 +1647,10 @@
   "homeEditorSharedRow": "固定底栏",
   "homeEditorSharedRowDetail": "切换页面时底栏保持不变",
   "homeEditorDone": "完成",
-  "homeDrawerSemantics": "所有应用"
+  "homeDrawerSemantics": "所有应用",
+  "powerActionRestartDenial": "重启 Denial",
+  "powerActionRestartDenialDescription": "重新启动 Denial；打开的应用会关闭",
+  "powerConfirmRestartDenialTitle": "重启 Denial？",
+  "powerConfirmRestartDenialBody": "打开的应用会关闭，Denial 将重新启动。",
+  "mobilePowerTapToRestartDenial": "再次点按以重启 Denial。打开的应用会关闭。"
 }

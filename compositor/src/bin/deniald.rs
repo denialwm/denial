@@ -430,6 +430,9 @@ fn main() {
         eprintln!("deniald: fatal error: {error}");
         std::process::abort();
     }
+    if lifecycle::restart_requested() {
+        std::process::exit(lifecycle::RESTART_EXIT_STATUS);
+    }
 }
 
 fn denial_main() -> Result<(), Box<dyn Error>> {

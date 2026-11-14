@@ -129,6 +129,10 @@ impl FlutterRuntime {
         self.system_commands.take_logout_requested()
     }
 
+    pub fn take_restart_requested(&mut self) -> bool {
+        self.system_commands.take_restart_requested()
+    }
+
     pub fn take_application_launch(&mut self) -> Option<system_command::PendingApplicationLaunch> {
         self.system_commands.take_application_launch()
     }

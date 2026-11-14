@@ -57,6 +57,12 @@ if mode == 'crash':
 if mode == 'wait':
     record('ready:' + str(os.getpid()))
     signal.pause()
+if mode == 'restart':
+    # Ask for one restart, then exit normally.
+    marker = os.environ['TEST_EVENTS'] + '.restarted'
+    if not os.path.exists(marker):
+        open(marker, 'w').close()
+        sys.exit(75)
 sys.exit(int(os.environ.get('TEST_STATUS', '0')))
 ''')
 
@@ -142,6 +148,11 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
         assert not log and 'missing ' in result.stderr
         if packaged:
             run(command + ['--check'], env, events, 1)
+        command, env, events = fixture(f'{kind}-restart', packaged)
+        env['TEST_MODE'] = 'restart'
+        result, log = run(command, env, events, 0)
+        assert log.count('launch:') == 2, log
+        assert 'restarting Denial' in result.stderr, result.stderr
         command, env, events = fixture(f'{kind}-crash', packaged)
         env['TEST_MODE'] = 'crash'
         result, log = run(command, env, events, 137)
@@ -172,7 +183,7 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
                 pass
             if process.poll() is None:
                 process.communicate(timeout=5)
-        print(f'PASS: {kind} launcher handles startup failure, normal exit, crash, stdin, and termination')
+        print(f'PASS: {kind} launcher handles startup failure, normal exit, restart, crash, stdin, and termination')
 
     command, env, events = fixture('mismatched-load-failure', mismatch=True)
     env['TEST_STATUS'] = '1'

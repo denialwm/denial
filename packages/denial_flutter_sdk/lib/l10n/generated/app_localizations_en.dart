@@ -5504,4 +5504,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeDrawerSemantics => 'All apps';
+
+  @override
+  String get powerActionRestartDenial => 'Restart Denial';
+
+  @override
+  String get powerActionRestartDenialDescription =>
+      'Start Denial again; open apps close';
+
+  @override
+  String get powerConfirmRestartDenialTitle => 'Restart Denial?';
+
+  @override
+  String get powerConfirmRestartDenialBody =>
+      'Open apps close and Denial starts again.';
+
+  @override
+  String get mobilePowerTapToRestartDenial =>
+      'Tap again to restart Denial. Open apps close.';
 }

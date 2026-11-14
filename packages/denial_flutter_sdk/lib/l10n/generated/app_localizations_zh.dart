@@ -5240,4 +5240,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get homeDrawerSemantics => '所有应用';
+
+  @override
+  String get powerActionRestartDenial => '重启 Denial';
+
+  @override
+  String get powerActionRestartDenialDescription => '重新启动 Denial；打开的应用会关闭';
+
+  @override
+  String get powerConfirmRestartDenialTitle => '重启 Denial？';
+
+  @override
+  String get powerConfirmRestartDenialBody => '打开的应用会关闭，Denial 将重新启动。';
+
+  @override
+  String get mobilePowerTapToRestartDenial => '再次点按以重启 Denial。打开的应用会关闭。';
 }

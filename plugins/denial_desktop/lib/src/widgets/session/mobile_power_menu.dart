@@ -15,9 +15,10 @@ import 'package:denial_flutter_sdk/system_services.dart'
     show hapticsServiceProvider;
 import 'package:denial_flutter_sdk/tokens.dart';
 
-/// The phone's power menu: lock, restart and power off as round buttons on
-/// one glass island. Restart and power off ask for a second tap on the same
-/// button, which lights up and says so.
+/// The phone's power menu: lock, restart Denial, restart and power off as
+/// round buttons on one glass island. All but lock ask for a second tap on
+/// the same button, which lights up and says so. Restarting Denial is left
+/// out while locked: Denial starts unlocked.
 void showMobilePowerMenu(WidgetRef ref) {
   final controller = ref.read(sessionPowerProvider.notifier);
   // A confirmation left from a menu closed while it asked starts over.
@@ -42,6 +43,7 @@ class _MobilePowerMenu extends ConsumerWidget {
 
   static const List<SessionPowerAction> _actions = [
     SessionPowerAction.lock,
+    SessionPowerAction.restartDenial,
     SessionPowerAction.reboot,
     SessionPowerAction.powerOff,
   ];
@@ -65,10 +67,17 @@ class _MobilePowerMenu extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(sessionPowerProvider);
+    final locked = ref.watch(
+      shellControllerProvider.select((shell) => shell.locked),
+    );
+    final actions = locked
+        ? _actions.where((action) => action != SessionPowerAction.restartDenial)
+        : _actions;
     final theme = ShellTheme.of(context);
     final l10n = context.l10n;
     final armed = state.confirmationAction;
     final note = switch (armed) {
+      SessionPowerAction.restartDenial => l10n.mobilePowerTapToRestartDenial,
       SessionPowerAction.reboot => l10n.mobilePowerTapToRestart,
       SessionPowerAction.powerOff => l10n.mobilePowerTapToPowerOff,
       _ when state.error != null => l10n.powerSessionRequestError,
@@ -106,7 +115,7 @@ class _MobilePowerMenu extends ConsumerWidget {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          for (final (index, action) in _actions.indexed) ...[
+                          for (final (index, action) in actions.indexed) ...[
                             if (index > 0) const SizedBox(width: 22),
                             _MobilePowerButton(
                               action: action,
@@ -205,6 +214,7 @@ class _MobilePowerButtonState extends State<_MobilePowerButton> {
         : Motion.tile;
     final label = switch (widget.action) {
       SessionPowerAction.lock => l10n.powerActionLock,
+      SessionPowerAction.restartDenial => l10n.powerActionRestartDenial,
       SessionPowerAction.reboot => l10n.powerActionRestart,
       _ => l10n.powerActionPowerOff,
     };
@@ -260,6 +270,7 @@ class _MobilePowerButtonState extends State<_MobilePowerButton> {
 
   static IconData _icon(SessionPowerAction action) => switch (action) {
     SessionPowerAction.lock => Icons.lock_rounded,
+    SessionPowerAction.restartDenial => Icons.refresh_rounded,
     SessionPowerAction.reboot => Icons.restart_alt_rounded,
     _ => Icons.power_settings_new_rounded,
   };

@@ -668,6 +668,11 @@ impl Session<'_, '_> {
                 info!("Flutter requested session logout");
                 return Ok(());
             }
+            if self.flutter.take_restart_requested() {
+                info!("Flutter requested a Denial restart");
+                crate::lifecycle::request_restart();
+                return Ok(());
+            }
             if self.events.flutter_channel_closed {
                 return Err("Flutter callback channel closed while the engine was running".into());
             }

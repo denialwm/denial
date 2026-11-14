@@ -9825,6 +9825,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'All apps'**
   String get homeDrawerSemantics;
+
+  /// Power action that starts Denial again in the same session, closing open apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart Denial'**
+  String get powerActionRestartDenial;
+
+  /// What the Restart Denial power action does.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Denial again; open apps close'**
+  String get powerActionRestartDenialDescription;
+
+  /// Title of the confirmation before Denial restarts.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart Denial?'**
+  String get powerConfirmRestartDenialTitle;
+
+  /// Body of the confirmation before Denial restarts.
+  ///
+  /// In en, this message translates to:
+  /// **'Open apps close and Denial starts again.'**
+  String get powerConfirmRestartDenialBody;
+
+  /// Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to restart Denial. Open apps close.'**
+  String get mobilePowerTapToRestartDenial;
 }
 
 class _AppLocalizationsDelegate

@@ -139,6 +139,8 @@ failures return nonzero.
 For an actual session launch, status 1 is reported as status 2 so SDDM treats
 the failure as an ended session and restarts its greeter. The original status
 is recorded in the session log. Validation commands retain their exit status.
+When the compositor exits with status 75, its shell asked for Denial to restart:
+the launcher starts it again in the same session instead of exiting.
 .SH SEE ALSO
 .BR deniald (1),
 .BR denialctl (1)

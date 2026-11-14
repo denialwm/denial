@@ -4,7 +4,23 @@
 //! makes duplicate/out-of-order notifications harmless and leaves the actual
 //! pause/resume work on the compositor thread.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+/// The exit status that asks `denial-session` to start Denial again.
+pub(super) const RESTART_EXIT_STATUS: i32 = 75;
+
+static RESTART_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// The session ends to start again: the normal teardown runs, then the
+/// process exits with [RESTART_EXIT_STATUS].
+pub(super) fn request_restart() {
+    RESTART_REQUESTED.store(true, Ordering::Release);
+}
+
+pub(super) fn restart_requested() -> bool {
+    RESTART_REQUESTED.load(Ordering::Acquire)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ShutdownReason {

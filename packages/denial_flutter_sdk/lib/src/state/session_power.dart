@@ -13,6 +13,9 @@ import 'notifier_lifecycle.dart';
 enum SessionPowerAction {
   lock,
   logout,
+
+  /// Starts Denial again in the same session; open apps close.
+  restartDenial,
   suspend,
   hibernate,
   reboot,
@@ -20,6 +23,7 @@ enum SessionPowerAction {
 
   bool get requiresConfirmation =>
       this == SessionPowerAction.logout ||
+      this == SessionPowerAction.restartDenial ||
       this == SessionPowerAction.reboot ||
       this == SessionPowerAction.powerOff;
 
@@ -177,6 +181,8 @@ abstract interface class SessionRuntimeBackend {
   void lock();
 
   bool requestLogout();
+
+  bool requestRestart();
 }
 
 class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
@@ -193,6 +199,9 @@ class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
 
   @override
   bool requestLogout() => _bridge.requestLogout();
+
+  @override
+  bool requestRestart() => _bridge.requestRestart();
 }
 
 final sessionRuntimeBackendProvider = Provider<SessionRuntimeBackend>((ref) {
@@ -338,16 +347,21 @@ class SessionPowerController extends Notifier<SessionPowerState>
           if (isBuildGenerationActive(generation)) {
             state = state.copyWith(clearBusyAction: true);
           }
-        case SessionPowerAction.logout:
-          if (!_runtime.requestLogout()) {
-            throw const LogindActionUnavailableException(
-              'The compositor did not accept the logout request',
+        case SessionPowerAction.logout || SessionPowerAction.restartDenial:
+          final accepted = action == SessionPowerAction.logout
+              ? _runtime.requestLogout()
+              : _runtime.requestRestart();
+          if (!accepted) {
+            throw LogindActionUnavailableException(
+              action == SessionPowerAction.logout
+                  ? 'The compositor did not accept the logout request'
+                  : 'The compositor did not accept the restart request',
             );
           }
           _logoutTimer?.cancel();
           _logoutTimer = Timer(_logoutWatchdog, () {
             if (!isBuildGenerationActive(generation) ||
-                state.busyAction != SessionPowerAction.logout) {
+                state.busyAction != action) {
               return;
             }
             state = state.copyWith(

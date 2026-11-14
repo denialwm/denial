@@ -7119,5 +7119,15 @@
   "homeEditorDone": "Done",
   "@homeEditorDone": {"description": "Home page editor: button that closes the editor."},
   "homeDrawerSemantics": "All apps",
-  "@homeDrawerSemantics": {"description": "Accessibility label of the full-screen app drawer."}
+  "@homeDrawerSemantics": {"description": "Accessibility label of the full-screen app drawer."},
+  "powerActionRestartDenial": "Restart Denial",
+  "@powerActionRestartDenial": {"description": "Power action that starts Denial again in the same session, closing open apps."},
+  "powerActionRestartDenialDescription": "Start Denial again; open apps close",
+  "@powerActionRestartDenialDescription": {"description": "What the Restart Denial power action does."},
+  "powerConfirmRestartDenialTitle": "Restart Denial?",
+  "@powerConfirmRestartDenialTitle": {"description": "Title of the confirmation before Denial restarts."},
+  "powerConfirmRestartDenialBody": "Open apps close and Denial starts again.",
+  "@powerConfirmRestartDenialBody": {"description": "Body of the confirmation before Denial restarts."},
+  "mobilePowerTapToRestartDenial": "Tap again to restart Denial. Open apps close.",
+  "@mobilePowerTapToRestartDenial": {"description": "Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial."}
 }

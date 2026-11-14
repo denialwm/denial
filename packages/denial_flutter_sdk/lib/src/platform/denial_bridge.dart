@@ -609,6 +609,9 @@ class DenialBridge {
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _session.requestLogout();
 
+  /// Ends the session like [requestLogout] and starts Denial again.
+  bool requestRestart() => _session.requestRestart();
+
   Future<DenialOutputConfiguration> readOutputConfiguration() =>
       _displays.readOutputConfiguration();
 
