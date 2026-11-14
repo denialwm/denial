@@ -51,7 +51,7 @@ class _ClockModule extends StatelessWidget {
 /// A compact battery gauge whose cell fills with the wallpaper accent. The
 /// charging bolt is drawn inside the cell, leaving the module calm and
 /// readable without spending horizontal space on a second status icon.
-class _BatteryActionCard extends StatefulWidget {
+class _BatteryActionCard extends StatelessWidget {
   const _BatteryActionCard({
     required this.accent,
     required this.status,
@@ -63,27 +63,53 @@ class _BatteryActionCard extends StatefulWidget {
   final VoidCallback onPressed;
 
   @override
-  State<_BatteryActionCard> createState() => _BatteryActionCardState();
+  Widget build(BuildContext context) {
+    final capacity = status.capacity ?? 0;
+    final state = status.charging ? 'charging' : 'discharging';
+    final statusLabel = context.pluginStrings.batteryLine(state, capacity);
+    return _SystemBarButton(
+      key: systemBarBatteryButtonKey,
+      accent: accent,
+      label: '${context.pluginStrings.batteryTitle}, $statusLabel',
+      onPressed: onPressed,
+      child: _BatteryModule(accent: accent, status: status),
+    );
+  }
 }
 
-class _BatteryActionCardState extends State<_BatteryActionCard> {
+/// A bar card that acts on a tap or click, lit while hovered or focused.
+class _SystemBarButton extends StatefulWidget {
+  const _SystemBarButton({
+    super.key,
+    required this.accent,
+    required this.label,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final WallpaperAccent accent;
+  final String label;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  State<_SystemBarButton> createState() => _SystemBarButtonState();
+}
+
+class _SystemBarButtonState extends State<_SystemBarButton> {
   var _hovered = false;
   var _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    final capacity = widget.status.capacity ?? 0;
-    final state = widget.status.charging ? 'charging' : 'discharging';
-    final statusLabel = context.pluginStrings.batteryLine(state, capacity);
     return Semantics(
       button: true,
-      label: '${context.pluginStrings.batteryTitle}, $statusLabel',
+      label: widget.label,
       onTap: widget.onPressed,
       child: ExcludeSemantics(
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            key: systemBarBatteryButtonKey,
             borderRadius: context.shellTheme.borderRadius(999),
             mouseCursor: context.presentationServices.linkCursor,
             splashFactory: NoSplash.splashFactory,
@@ -97,10 +123,7 @@ class _BatteryActionCardState extends State<_BatteryActionCard> {
               accent: widget.accent,
               highlighted: _hovered || _focused,
               focused: _focused,
-              child: _BatteryModule(
-                accent: widget.accent,
-                status: widget.status,
-              ),
+              child: widget.child,
             ),
           ),
         ),

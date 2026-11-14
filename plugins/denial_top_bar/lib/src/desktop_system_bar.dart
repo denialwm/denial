@@ -22,12 +22,14 @@ part 'desktop_workspace_indicator.dart';
 /// accent. Cards cluster at the trailing edge of the strip and spring in one
 /// after another when the bar mounts.
 const systemBarBatteryButtonKey = ValueKey<String>('system-bar-battery-button');
+const systemBarClockButtonKey = ValueKey<String>('system-bar-clock-button');
 
 class _DesktopSystemBarContent extends ConsumerWidget {
   const _DesktopSystemBarContent({
     required this.monitorId,
     required this.side,
     required this.onOpenPowerSettings,
+    required this.onOpenDashboard,
   });
 
   static const double _edgePadding = 8.0;
@@ -37,6 +39,7 @@ class _DesktopSystemBarContent extends ConsumerWidget {
   final int monitorId;
   final PanelEdge side;
   final VoidCallback onOpenPowerSettings;
+  final VoidCallback onOpenDashboard;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -127,8 +130,11 @@ class _DesktopSystemBarContent extends ConsumerWidget {
           key: const ValueKey('system-bar-clock'),
           index: 0,
           horizontal: horizontal,
-          child: _SystemBarCard(
+          child: _SystemBarButton(
+            key: systemBarClockButtonKey,
             accent: accent,
+            label: context.pluginStrings.openDashboard,
+            onPressed: onOpenDashboard,
             child: _ClockStatusModule(accent: accent),
           ),
         ),
@@ -227,6 +233,7 @@ class DesktopSystemBar extends StatelessWidget {
       monitorId: monitorId,
       side: side,
       onOpenPowerSettings: services.openPowerSettings,
+      onOpenDashboard: services.openDashboard,
     ),
   );
 }
