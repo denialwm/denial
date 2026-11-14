@@ -42,8 +42,8 @@ class HomeGridGeometry {
     this.sharedBottomRow = false,
   }) : bottomRowTop = bottomRowTop ?? (rows - 1) * (tileSize.height + gap);
 
-  /// The grid for a pager of [size]. Wide panels get more columns rather
-  /// than larger cells; rows fill the height but [rowGap] above the bottom
+  /// The grid for a pager of [size]. Wide panels get more columns and rows
+  /// rather than larger cells; rows fill the height but [rowGap] above the bottom
   /// row, which sits at the bottom of [size] with any height left over
   /// above it.
   factory HomeGridGeometry.forViewport(
@@ -60,20 +60,30 @@ class HomeGridGeometry {
     // cap (phone tiles never reach it and keep the tuned aspect). A short
     // panel shrinks cells until its rows fit, down to the icon and label.
     final rowsHeight = size.height - rowGap;
-    final fittingHeight =
-        (rowsHeight - gap * (HomeGridLayout.minRows - 1)) /
-        HomeGridLayout.minRows;
-    final tileHeight = math.max(
-      HomeGridLayout.minTileHeight,
-      math.min(
-        math.min(
-          tileWidth / HomeTileMetrics.cellAspectRatio,
-          HomeGridLayout.maxTileHeight,
-        ),
-        fittingHeight,
-      ),
-    );
-    final rows = HomeGridLayout.rowsForHeight(rowsHeight, tileHeight);
+    final phoneHeight = tileWidth / HomeTileMetrics.cellAspectRatio;
+    final double tileHeight;
+    final int rows;
+    if (phoneHeight > HomeGridLayout.maxTileHeight) {
+      // Tablet-wide cells: as many rows of icon and label as the height
+      // takes, sharing what is left over.
+      rows = HomeGridLayout.rowsForHeight(
+        rowsHeight,
+        HomeGridLayout.minTileHeight,
+      );
+      tileHeight = math.max(
+        HomeGridLayout.minTileHeight,
+        (rowsHeight - gap * (rows - 1)) / rows,
+      );
+    } else {
+      final fittingHeight =
+          (rowsHeight - gap * (HomeGridLayout.minRows - 1)) /
+          HomeGridLayout.minRows;
+      tileHeight = math.max(
+        HomeGridLayout.minTileHeight,
+        math.min(phoneHeight, fittingHeight),
+      );
+      rows = HomeGridLayout.rowsForHeight(rowsHeight, tileHeight);
+    }
     return HomeGridGeometry(
       columns: columns,
       rows: rows,

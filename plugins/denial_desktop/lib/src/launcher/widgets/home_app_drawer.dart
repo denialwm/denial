@@ -117,7 +117,11 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
               onNotification: _scrolled,
               child: GridView.builder(
                 controller: _scroll,
-                physics: const ClampingScrollPhysics(),
+                // A list shorter than the screen still takes the pull that
+                // closes the sheet.
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
                 padding: EdgeInsets.fromLTRB(
                   20,
                   padding.top + 72,

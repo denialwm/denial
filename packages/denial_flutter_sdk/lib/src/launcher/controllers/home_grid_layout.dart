@@ -35,12 +35,15 @@ class HomeGridLayout {
   /// more columns/rows instead. Phone-width viewports stay at 4 columns
   /// with uncapped-equivalent sizes.
   static const double maxTileWidth = 224;
+
+  /// Cells a phone's aspect would make taller than this are tablet cells:
+  /// they take the icon and label's height and the panel gets more rows.
   static const double maxTileHeight = 240;
 
   /// A cell never gets shorter than its icon and label.
   static const double minTileHeight = 131;
   static const int minRows = 3;
-  static const int maxRows = 7;
+  static const int maxRows = 16;
 
   /// Column count so tiles stay at or under [maxTileWidth].
   static int columnsForViewport(double width) {
