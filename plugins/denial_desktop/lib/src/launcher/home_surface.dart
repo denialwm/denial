@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker, TickerCallback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:denial_flutter_sdk/applications.dart';
@@ -55,7 +56,6 @@ class HomeSurface extends ConsumerStatefulWidget {
 }
 
 class _HomeSurfaceState extends ConsumerState<HomeSurface>
-    with SingleTickerProviderStateMixin
     implements HomeGridHost, HomeInteractions {
   static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(0, 66, 0, 4);
 
@@ -94,9 +94,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   /// The page editor is open.
   bool _editing = false;
 
-  /// 0 closed, 1 open: the drawer follows the finger between.
-  late final _drawer = AnimationController(
-    vsync: this,
+  /// 0 closed, 1 open: the drawer follows the finger between. Its ticks
+  /// outlast home's muted tickers, so it slides away under recents.
+  final _drawer = AnimationController(
+    vsync: const _UnmutedTickers(),
     duration: const Duration(milliseconds: 320),
   );
 
@@ -699,6 +700,14 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
       ),
     );
   }
+}
+
+/// Tickers that run whatever [TickerMode] says.
+class _UnmutedTickers implements TickerProvider {
+  const _UnmutedTickers();
+
+  @override
+  Ticker createTicker(TickerCallback onTick) => Ticker(onTick);
 }
 
 /// A double tap on home's empty background locks the device and blanks the
