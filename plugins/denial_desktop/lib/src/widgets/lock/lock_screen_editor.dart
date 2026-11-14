@@ -108,15 +108,21 @@ class _LockScreenEditorLayerState extends ConsumerState<LockScreenEditorLayer> {
   }
 
   void _scaleUpdate(ScaleUpdateDetails details) {
+    // A pinch only resizes: the clock stays where it is, centred or not.
+    if (details.pointerCount > 1) {
+      setState(
+        () => _scale = (_startScale * details.scale)
+            .clamp(
+              ShellLockScreenSettings.minimumTabletClockScale,
+              ShellLockScreenSettings.maximumTabletClockScale,
+            )
+            .toDouble(),
+      );
+      return;
+    }
     final size = _size;
     final area = _face(size).area;
     final raw = _dragCenter + details.focalPointDelta;
-    final scale = (_startScale * details.scale)
-        .clamp(
-          ShellLockScreenSettings.minimumTabletClockScale,
-          ShellLockScreenSettings.maximumTabletClockScale,
-        )
-        .toDouble();
     // The face keeps the clock inside the area; the finger's centre is
     // held there too.
     final held = _MobileFace.tablet(
@@ -125,7 +131,7 @@ class _LockScreenEditorLayerState extends ConsumerState<LockScreenEditorLayer> {
       padReserved: true,
       clockX: (raw.dx - area.left) / area.width,
       clockY: raw.dy / size.height,
-      scale: scale,
+      scale: _scale,
     );
     _dragCenter = held.clock.center;
     final snapped = (_dragCenter.dx - area.center.dx).abs() < _snapDistance;
@@ -135,7 +141,6 @@ class _LockScreenEditorLayerState extends ConsumerState<LockScreenEditorLayer> {
       _snapped = snapped;
       _clockX = snapped ? 0.5 : x;
       _clockY = y;
-      _scale = scale;
     });
   }
 
@@ -244,8 +249,10 @@ class _LockScreenEditorLayerState extends ConsumerState<LockScreenEditorLayer> {
           ),
         ),
       // Anywhere over the face moves the clock: one finger drags it, two
-      // pinch it.
+      // pinch it. Keyed, so the guide line coming and going does not
+      // replace it and end the drag.
       Positioned.fromRect(
+        key: const ValueKey<String>('lock-editor-gestures'),
         rect: face.area,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
