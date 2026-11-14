@@ -289,17 +289,17 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       });
     }
     final pinMode = widget.authenticationEnabled && _pinMode(authentication);
-    // A landscape mobile lock opens by a swipe too; the PIN pad then comes up
-    // in its last third, beside the clock and notifications, which come back
-    // home instead of sliding away.
+    // A landscape mobile lock keeps its last third for the PIN pad: the clock
+    // and notifications stay in the first two. It opens by a swipe too; the
+    // pad then comes up in its third and the face comes back home instead of
+    // sliding away.
     final viewSize = MediaQuery.sizeOf(context);
-    final docked =
+    final padReserved =
         !widget.desktop &&
-        widget.authenticationEnabled &&
-        _authenticationVisible &&
         pinMode &&
         !simPending &&
         viewSize.width > viewSize.height;
+    final docked = padReserved && _authenticationVisible;
     // Mobile follows the user: a cancelled attempt that deniald has not
     // closed yet must not hold the keypad up or block the next swipe.
     final credentialShown =
@@ -347,7 +347,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
         ? ref.watch(gpuUsageProvider)
         : const <GpuLoad>[];
     final clockScale =
-        lockSettings.clockScale * (docked ? _dockedClockGrowth : 1.0);
+        lockSettings.clockScale * (padReserved ? _dockedClockGrowth : 1.0);
     final clock = HomeClockInfo.fromShell(
       now: now,
       locale: ref.watch(clockLocaleProvider),
@@ -359,7 +359,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
         final size = constraints.biggest;
         _height = size.height;
         // The pad's third, which the face leaves free.
-        final faceEnd = docked ? size.width / 3 : 0.0;
+        final faceEnd = padReserved ? size.width / 3 : 0.0;
         // Mobile opens only by swiping up; a stray touch leaves the clock,
         // and a double tap turns the screen off, as on home.
         // The face can be caught again while it is still sliding home.
@@ -457,6 +457,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   child: _LockSwipePill(
                     face: _face,
                     fadeDistance: _dragDistance(size.height) * _unlockThreshold,
+                    endInset: faceEnd,
                   ),
                 ),
               ],
@@ -499,11 +500,11 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                           children: [
                             _LockNotifications(
                               scale: clockScale,
-                              docked: docked,
+                              padReserved: padReserved,
                               onOpen: _openAfterUnlock,
                             ),
                             // The docked pad shows its own lock.
-                            if (!docked) const _LockGlyph(),
+                            if (!docked) _LockGlyph(endInset: faceEnd),
                           ],
                         ),
                       ),

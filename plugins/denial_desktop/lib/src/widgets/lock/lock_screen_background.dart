@@ -371,15 +371,18 @@ class _LockClockBlock extends StatelessWidget {
 
 /// The lock glyph centred near the top of the mobile face.
 class _LockGlyph extends StatelessWidget {
-  const _LockGlyph();
+  const _LockGlyph({this.endInset = 0.0});
 
   static const double _size = 26.0;
+
+  /// Room kept free at the right edge, for the PIN pad.
+  final double endInset;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
       left: 0,
-      right: 0,
+      right: endInset,
       top: MediaQuery.sizeOf(context).height / 16 - _size / 2,
       child: const Center(
         child: Icon(
@@ -396,10 +399,17 @@ class _LockGlyph extends StatelessWidget {
 /// centred where it sits. It stays put and fades out as the face is swiped
 /// away.
 class _LockSwipePill extends StatelessWidget {
-  const _LockSwipePill({required this.face, required this.fadeDistance});
+  const _LockSwipePill({
+    required this.face,
+    required this.fadeDistance,
+    this.endInset = 0.0,
+  });
 
   final ValueListenable<Offset> face;
   final double fadeDistance;
+
+  /// Room kept free at the right edge, for the PIN pad.
+  final double endInset;
 
   @override
   Widget build(BuildContext context) {
@@ -407,7 +417,7 @@ class _LockSwipePill extends StatelessWidget {
     // its hit area.
     return Positioned(
       left: 0,
-      right: 0,
+      right: endInset,
       bottom: ReferenceShellMetrics.gestureBottomInset,
       height: ReferenceShellMetrics.gestureHitHeight,
       child: Padding(
@@ -653,15 +663,19 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
 class _LockNotifications extends ConsumerWidget {
   const _LockNotifications({
     required this.scale,
-    required this.docked,
+    required this.padReserved,
     required this.onOpen,
   });
 
   /// The clock's scale, which moves its lower edge.
   final double scale;
 
-  /// Beside a docked PIN pad: the first two thirds, down to near the bottom.
-  final bool docked;
+  /// Beside the PIN pad's third: the first two thirds, narrowed on both
+  /// sides, down to near the bottom.
+  final bool padReserved;
+
+  /// The share of the first two thirds left free on each side.
+  static const double _reservedSideMargin = 0.08;
 
   /// The tapped group's key.
   final ValueChanged<String> onOpen;
@@ -688,12 +702,14 @@ class _LockNotifications extends ConsumerWidget {
     final clockBottom = clockTop + clockHeight * (1 + scale) / 2;
     final metrics = MobileUiMetrics.of(context);
     final padding = MediaQuery.viewPaddingOf(context);
+    final faceWidth = size.width * 2 / 3;
+    final sideMargin = padReserved ? faceWidth * _reservedSideMargin : 0.0;
     return Positioned(
-      left: padding.left,
-      right: docked ? size.width / 3 : padding.right,
+      left: padding.left + sideMargin,
+      right: padReserved ? size.width / 3 + sideMargin : padding.right,
       top: clockBottom + metrics.visual(24),
       // The fingerprint ring and the swipe pill keep the lower part.
-      bottom: size.height * (docked ? 0.08 : 0.3),
+      bottom: size.height * (padReserved ? 0.08 : 0.3),
       child: ClipRect(
         child: SingleChildScrollView(
           physics: const NeverScrollableScrollPhysics(),
