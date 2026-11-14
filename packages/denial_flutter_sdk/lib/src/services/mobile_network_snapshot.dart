@@ -67,7 +67,12 @@ class MobileNetworkSnapshot {
 
   /// The network generation: '2G' to '5G', empty when not registered.
   final String technology;
-  bool get showCellular => simPresence != MobileSimPresence.absent;
+
+  /// Cellular shows once a modem has been seen or a SIM proven, and hides on
+  /// a confirmed absent SIM. A device without a modem never shows it.
+  bool get showCellular =>
+      (modemPath != null || simPresence == MobileSimPresence.present) &&
+      simPresence != MobileSimPresence.absent;
   bool get cellularWorking =>
       simPresence == MobileSimPresence.present &&
       !locked &&

@@ -44,7 +44,19 @@ void main() {
     () {
       const initial = MobileNetworkSnapshot();
       expect(initial.simPresence, MobileSimPresence.unknown);
-      expect(initial.showCellular, isTrue);
+      // No modem seen yet: a device without one never shows cellular.
+      expect(initial.showCellular, isFalse);
+      expect(initial.unavailable().showCellular, isFalse);
+      expect(
+        snapshot(presence: MobileSimPresence.unknown).showCellular,
+        isTrue,
+      );
+      expect(
+        snapshot(presence: MobileSimPresence.unknown)
+            .unavailable()
+            .showCellular,
+        isTrue,
+      );
       expect(initial.cellularWorking, isFalse);
       expect(initial.unavailable().simPresence, MobileSimPresence.unknown);
       expect(presence(sim: null, state: 0, lock: 0), MobileSimPresence.unknown);
