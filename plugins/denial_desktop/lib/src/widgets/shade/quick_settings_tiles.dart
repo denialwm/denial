@@ -1024,8 +1024,13 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 /// Compact shade actions. Application-count prose belongs in the overview,
 /// not in quick settings.
 class ShadeActions extends StatelessWidget {
-  const ShadeActions({super.key, required this.onOpenPower});
+  const ShadeActions({
+    super.key,
+    required this.onOpenSettings,
+    required this.onOpenPower,
+  });
 
+  final VoidCallback onOpenSettings;
   final VoidCallback onOpenPower;
 
   @override
@@ -1035,13 +1040,9 @@ class ShadeActions extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
-          icon: Icons.edit_rounded,
-        ),
-        const SizedBox(width: 12),
-        _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
+          label: context.l10n.settingsShortcutActionOpenSettings,
           icon: Icons.settings_rounded,
+          onPressed: onOpenSettings,
         ),
         const SizedBox(width: 12),
         _RoundButton(
