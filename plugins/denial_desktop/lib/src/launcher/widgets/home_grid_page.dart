@@ -24,9 +24,12 @@ class HomeGridPage extends StatelessWidget {
   final int page;
   final HomeGridGeometry geometry;
 
-  /// Only the page's bottom row: a shared one, which stays put over the
-  /// pages. A page leaves out a shared bottom row.
+  /// Only the shared bottom row, which stays put over the pages; a page
+  /// otherwise leaves it out.
   final bool bottomRow;
+
+  bool _shared(int index) =>
+      geometry.sharedBottomRow && geometry.inBottomRow(index);
 
   @override
   Widget build(BuildContext context) {
@@ -43,10 +46,7 @@ class HomeGridPage extends StatelessWidget {
                     geometry.pageSize,
                     columns: geometry.columns,
                   ) &&
-                  (bottomRow ||
-                      !geometry.sharedBottomRow ||
-                      !geometry.inBottomRow(index)) &&
-                  (!bottomRow || geometry.inBottomRow(index)))
+                  _shared(index) == bottomRow)
             HomeSlidingTile(
               key: ValueKey(item.id),
               rect: geometry.itemRect(index, item),

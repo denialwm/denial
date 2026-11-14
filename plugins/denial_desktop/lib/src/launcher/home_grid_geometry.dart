@@ -43,9 +43,9 @@ class HomeGridGeometry {
   }) : bottomRowTop = bottomRowTop ?? (rows - 1) * (tileSize.height + gap);
 
   /// The grid for a pager of [size]. Wide panels get more columns and rows
-  /// rather than larger cells; rows fill the height but [rowGap] above the bottom
-  /// row, which sits at the bottom of [size] with any height left over
-  /// above it.
+  /// rather than larger cells; rows fill the height but [rowGap] above the
+  /// bottom row, which sits at the bottom of [size] with any height left
+  /// over above it.
   factory HomeGridGeometry.forViewport(
     Size size, {
     required double inset,
@@ -56,16 +56,16 @@ class HomeGridGeometry {
     final columns = HomeGridLayout.columnsForViewport(width);
     const gap = HomeGridLayout.gridGap;
     final tileWidth = (width - gap * (columns - 1)) / columns;
-    // Cell content is fixed-size, so height must not follow width past its
-    // cap (phone tiles never reach it and keep the tuned aspect). A short
-    // panel shrinks cells until its rows fit, down to the icon and label.
+    // Cell content is fixed-size. Phone cells keep the tuned aspect, and a
+    // short panel shrinks them until its rows fit, down to the icon and
+    // label; cells that aspect would make taller than the cap are a
+    // tablet's, which takes rows of icon and label instead.
     final rowsHeight = size.height - rowGap;
     final phoneHeight = tileWidth / HomeTileMetrics.cellAspectRatio;
     final double tileHeight;
     final int rows;
     if (phoneHeight > HomeGridLayout.maxTileHeight) {
-      // Tablet-wide cells: as many rows of icon and label as the height
-      // takes, sharing what is left over.
+      // As many rows as the height takes, sharing what is left over.
       rows = HomeGridLayout.rowsForHeight(
         rowsHeight,
         HomeGridLayout.minTileHeight,

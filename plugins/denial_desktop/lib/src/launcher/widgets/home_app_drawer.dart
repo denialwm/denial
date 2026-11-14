@@ -52,7 +52,7 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
   /// The list was at its top and the finger moved down: the finger holds
   /// the sheet, and the list stays still, until it lifts.
   bool _pulling = false;
-  VelocityTracker? _velocity;
+  late VelocityTracker _velocity;
 
   late final _physics = _SheetPullPhysics(pulling: () => _pulling);
 
@@ -65,14 +65,13 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
   void _down(PointerDownEvent event) {
     if (_pointer != null) return;
     _pointer = event.pointer;
-    _pulling = false;
     _velocity = VelocityTracker.withKind(event.kind)
       ..addPosition(event.timeStamp, event.position);
   }
 
   void _move(PointerMoveEvent event) {
     if (event.pointer != _pointer) return;
-    _velocity?.addPosition(event.timeStamp, event.position);
+    _velocity.addPosition(event.timeStamp, event.position);
     if (!_pulling &&
         event.delta.dy > 0 &&
         _scroll.hasClients &&
@@ -87,30 +86,29 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
     _pointer = null;
     if (!_pulling) return;
     _pulling = false;
-    final velocity = event is PointerUpEvent
-        ? _velocity?.getVelocity().pixelsPerSecond.dy ?? 0
-        : 0.0;
-    widget.onDragEnd(velocity);
+    widget.onDragEnd(
+      event is PointerUpEvent ? _velocity.getVelocity().pixelsPerSecond.dy : 0,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
     final padding = MediaQuery.viewPaddingOf(context);
-    final apps = widget.apps.toList()
-      ..sort(
-        (a, b) => HomeAppTile.nameOf(
-          context,
-          a,
-        ).toLowerCase().compareTo(HomeAppTile.nameOf(context, b).toLowerCase()),
-      );
+    final names = {
+      for (final app in widget.apps)
+        app: HomeAppTile.nameOf(context, app).toLowerCase(),
+    };
+    final apps = names.keys.toList()
+      ..sort((a, b) => names[a]!.compareTo(names[b]!));
     return AnimatedBuilder(
       animation: widget.openness,
       builder: (context, sheet) {
         final openness = widget.openness.value;
-        // No fade: glass under an opacity layer has nothing to blur.
-        return IgnorePointer(
-          ignoring: openness == 0,
+        // No fade: glass under an opacity layer has nothing to blur. Closed,
+        // it paints nothing, yet a finger that pulled it down holds it.
+        return Offstage(
+          offstage: openness == 0,
           child: FractionalTranslation(
             translation: Offset(0, 1 - openness),
             child: sheet,

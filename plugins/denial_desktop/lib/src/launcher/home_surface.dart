@@ -85,7 +85,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   /// The press that dismissed a resize frame does nothing else.
   bool _swallowTap = false;
 
-  /// A press held this long on the background opens the page editor.
+  /// A press held still on the background opens the page editor; moving
+  /// farther than this cancels it.
   static const double _holdSlop = 18;
   Timer? _backgroundHold;
   Offset _holdStart = Offset.zero;
@@ -146,7 +147,12 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
     _taps.reset();
     _backgroundHold?.cancel();
     _drawerDragging = false;
-    _drawer.value = 0;
+    // Still on screen, as under the recents gesture: the drawer slides away.
+    if (widget.active) {
+      _animateDrawer(0);
+    } else {
+      _drawer.value = 0;
+    }
     if (_editing) setState(() => _editing = false);
     resize.exit();
     drag.abandon();
@@ -450,13 +456,18 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
         : downVelocity > _drawerFlick
         ? false
         : _drawer.value > 0.4;
+    _animateDrawer(open ? 1 : 0);
+  }
+
+  void _animateDrawer(double target) {
+    if (_drawer.value == target) return;
     unawaited(
       _drawer.animateTo(
-        open ? 1 : 0,
+        target,
         curve: Curves.easeOutCubic,
         duration: MediaQuery.disableAnimationsOf(context)
             ? Duration.zero
-            : const Duration(milliseconds: 320),
+            : _drawer.duration,
       ),
     );
   }

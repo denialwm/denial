@@ -129,6 +129,9 @@ class _HomePagerState extends State<HomePager> {
                       HomePager.dotsReservedHeight) /
                   2;
 
+        final pageCount = slots == null
+            ? 0
+            : HomeGridLayout.pageCount(slots, geometry.pageSize, widget.pages);
         final Widget content;
         if (slots == null) {
           content = HomeEmptyState(
@@ -137,11 +140,6 @@ class _HomePagerState extends State<HomePager> {
                 : context.l10n.commonLoading,
           );
         } else {
-          final pageCount = HomeGridLayout.pageCount(
-            slots,
-            geometry.pageSize,
-            widget.pages,
-          );
           final pager = ValueListenableBuilder<_PagerMode>(
             valueListenable: _mode!,
             builder: (context, mode, _) => PageView.builder(
@@ -190,13 +188,7 @@ class _HomePagerState extends State<HomePager> {
                 top: dotsTop,
                 left: 0,
                 right: 0,
-                child: _HomePageDots(
-                  count: HomeGridLayout.pageCount(
-                    slots,
-                    geometry.pageSize,
-                    widget.pages,
-                  ),
-                ),
+                child: _HomePageDots(count: pageCount),
               ),
           ],
         );
