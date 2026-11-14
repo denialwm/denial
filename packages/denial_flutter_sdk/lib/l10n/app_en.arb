@@ -7081,5 +7081,21 @@
   "userVerificationWrongPassword": "Wrong password",
   "@userVerificationWrongPassword": {"description": "Shown on the screen-lock sheet after a rejected account password."},
   "userVerificationConfirm": "Confirm",
-  "@userVerificationConfirm": {"description": "Submits the account password on the screen-lock sheet."}
+  "@userVerificationConfirm": {"description": "Submits the account password on the screen-lock sheet."},
+  "lockEditorHint": "Drag the clock to move it, pinch it to resize",
+  "@lockEditorHint": {"description": "Hint at the top of the tablet lock screen editor."},
+  "lockEditorSwapSides": "Swap sides",
+  "@lockEditorSwapSides": {"description": "Lock screen editor button that moves the PIN pad to the other side."},
+  "lockEditorReset": "Reset",
+  "@lockEditorReset": {"description": "Lock screen editor button that puts the clock and PIN pad back where they start."},
+  "lockEditorCancel": "Cancel",
+  "@lockEditorCancel": {"description": "Lock screen editor button that closes it without saving."},
+  "lockEditorDone": "Done",
+  "@lockEditorDone": {"description": "Lock screen editor button that saves the layout and closes."},
+  "lockEditorPinPad": "PIN pad",
+  "@lockEditorPinPad": {"description": "Label on the placeholder for the PIN pad in the lock screen editor."},
+  "lockEditorNotifications": "Notifications",
+  "@lockEditorNotifications": {"description": "Label on the outline where notifications show, in the lock screen editor."},
+  "lockEditorPortrait": "Turn the tablet to landscape to edit the lock screen",
+  "@lockEditorPortrait": {"description": "Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited."}
 }

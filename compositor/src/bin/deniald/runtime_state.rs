@@ -250,6 +250,9 @@ impl RuntimeState {
                         ShellControlCommand::OpenWallpaper => {
                             self.queue_shell_action(wire::ShellAction::Wallpaper, None)
                         }
+                        ShellControlCommand::EditLockScreen => {
+                            self.queue_shell_action(wire::ShellAction::LockScreenEditor, None)
+                        }
                     }
                     Ok(())
                 };

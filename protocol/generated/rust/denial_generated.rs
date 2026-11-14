@@ -797,10 +797,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 18;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 19;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 19] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 20] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -820,6 +820,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 19] = [
   ShellActionKind::FocusUp,
   ShellActionKind::FocusDown,
   ShellActionKind::ScreenshotCaptured,
+  ShellActionKind::LockScreenEditor,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -846,9 +847,10 @@ impl ShellActionKind {
   pub const FocusUp: Self = Self(16);
   pub const FocusDown: Self = Self(17);
   pub const ScreenshotCaptured: Self = Self(18);
+  pub const LockScreenEditor: Self = Self(19);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 18;
+  pub const ENUM_MAX: u8 = 19;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -869,6 +871,7 @@ impl ShellActionKind {
     Self::FocusUp,
     Self::FocusDown,
     Self::ScreenshotCaptured,
+    Self::LockScreenEditor,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -892,6 +895,7 @@ impl ShellActionKind {
       Self::FocusUp => Some("FocusUp"),
       Self::FocusDown => Some("FocusDown"),
       Self::ScreenshotCaptured => Some("ScreenshotCaptured"),
+      Self::LockScreenEditor => Some("LockScreenEditor"),
       _ => None,
     }
   }

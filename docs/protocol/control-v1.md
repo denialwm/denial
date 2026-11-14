@@ -294,6 +294,15 @@ queued the shell action; the wallpaper selector remains rendered and owned by
 the desktop shell. Shell commands are rejected while the secure session is
 locked.
 
+The phone Settings app opens the tablet lock screen editor the same way:
+
+```json
+{"version":1,"id":13,"method":"shell.lockScreen.edit"}
+```
+
+The mobile shell shows the editor over everything and writes the result to the
+settings document's `lockScreen` section; the desktop shell ignores it.
+
 ## Audio and brightness
 
 System controls remain owned by Denial's persistent native PulseAudio and

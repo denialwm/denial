@@ -5183,4 +5183,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get userVerificationConfirm => '确认';
+
+  @override
+  String get lockEditorHint => '拖动时钟来移动，双指缩放来调整大小';
+
+  @override
+  String get lockEditorSwapSides => '交换两侧';
+
+  @override
+  String get lockEditorReset => '重置';
+
+  @override
+  String get lockEditorCancel => '取消';
+
+  @override
+  String get lockEditorDone => '完成';
+
+  @override
+  String get lockEditorPinPad => 'PIN 键盘';
+
+  @override
+  String get lockEditorNotifications => '通知';
+
+  @override
+  String get lockEditorPortrait => '将平板横置以编辑锁屏';
 }

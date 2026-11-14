@@ -578,6 +578,7 @@ pub(super) type ShellControlReply = Result<(), OutputControlFailure>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ShellControlCommand {
     OpenWallpaper,
+    EditLockScreen,
 }
 
 #[derive(Debug)]
@@ -1630,6 +1631,9 @@ fn handle_connection(
         }
         "shell.wallpaper.open" => {
             queue_shell_control(request.id, ShellControlCommand::OpenWallpaper, events)
+        }
+        "shell.lockScreen.edit" => {
+            queue_shell_control(request.id, ShellControlCommand::EditLockScreen, events)
         }
         "settings.document.get" => {
             queue_settings(request.id, SettingsControlCommand::ReadDocument, events)

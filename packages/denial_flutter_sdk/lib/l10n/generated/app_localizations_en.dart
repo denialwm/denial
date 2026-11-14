@@ -5445,4 +5445,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get userVerificationConfirm => 'Confirm';
+
+  @override
+  String get lockEditorHint => 'Drag the clock to move it, pinch it to resize';
+
+  @override
+  String get lockEditorSwapSides => 'Swap sides';
+
+  @override
+  String get lockEditorReset => 'Reset';
+
+  @override
+  String get lockEditorCancel => 'Cancel';
+
+  @override
+  String get lockEditorDone => 'Done';
+
+  @override
+  String get lockEditorPinPad => 'PIN pad';
+
+  @override
+  String get lockEditorNotifications => 'Notifications';
+
+  @override
+  String get lockEditorPortrait =>
+      'Turn the tablet to landscape to edit the lock screen';
 }

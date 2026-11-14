@@ -124,6 +124,8 @@ final class BridgeEventsClient {
           wire.ShellActionKind.FocusDown => DenialShellAction.focusDown,
           wire.ShellActionKind.ScreenshotCaptured =>
             DenialShellAction.screenshotCaptured,
+          wire.ShellActionKind.LockScreenEditor =>
+            DenialShellAction.lockScreenEditor,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(

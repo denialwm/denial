@@ -9711,6 +9711,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Confirm'**
   String get userVerificationConfirm;
+
+  /// Hint at the top of the tablet lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the clock to move it, pinch it to resize'**
+  String get lockEditorHint;
+
+  /// Lock screen editor button that moves the PIN pad to the other side.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap sides'**
+  String get lockEditorSwapSides;
+
+  /// Lock screen editor button that puts the clock and PIN pad back where they start.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get lockEditorReset;
+
+  /// Lock screen editor button that closes it without saving.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get lockEditorCancel;
+
+  /// Lock screen editor button that saves the layout and closes.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get lockEditorDone;
+
+  /// Label on the placeholder for the PIN pad in the lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN pad'**
+  String get lockEditorPinPad;
+
+  /// Label on the outline where notifications show, in the lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get lockEditorNotifications;
+
+  /// Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn the tablet to landscape to edit the lock screen'**
+  String get lockEditorPortrait;
 }
 
 class _AppLocalizationsDelegate

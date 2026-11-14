@@ -104,7 +104,9 @@ enum ShellActionKind : ubyte {
   FocusUp = 16,
   FocusDown = 17,
   // A full-screen screenshot was just captured; the shell may show it.
-  ScreenshotCaptured = 18
+  ScreenshotCaptured = 18,
+  // Settings asked for the tablet lock screen editor.
+  LockScreenEditor = 19
 }
 
 enum KeyboardCommandKind : ubyte {

@@ -291,6 +291,177 @@ class _DesktopPerformanceMetric extends StatelessWidget {
   }
 }
 
+/// Where the mobile lock face lays out its clock and notifications. A phone
+/// and a portrait tablet keep the clock near the top, centred. A landscape
+/// tablet keeps a third for the PIN pad on the side the user chose and puts
+/// the clock where the user placed it in the rest, at the tablet's own size.
+class _MobileFace {
+  const _MobileFace._({
+    required this.area,
+    required this.pad,
+    required this.clock,
+    required this.scale,
+    required this.tablet,
+  });
+
+  factory _MobileFace.of(
+    Size size,
+    ShellLockScreenSettings settings, {
+    required bool padReserved,
+  }) {
+    if (!isTablet(size)) {
+      final top = math.max(48.0, size.height * 0.25 - 96.0);
+      final height = math.min(250.0, size.height * 0.34);
+      return _MobileFace._(
+        area: Offset.zero & size,
+        pad: null,
+        clock: Rect.fromLTWH(0, top, size.width, height),
+        scale: settings.clockScale,
+        tablet: false,
+      );
+    }
+    return _MobileFace.tablet(
+      size,
+      padSide: settings.tabletPadSide,
+      padReserved: padReserved,
+      clockX: settings.tabletClockX,
+      clockY: settings.tabletClockY,
+      scale: settings.tabletClockScale,
+    );
+  }
+
+  factory _MobileFace.tablet(
+    Size size, {
+    required LockPadSide padSide,
+    required bool padReserved,
+    required double clockX,
+    required double clockY,
+    required double scale,
+  }) {
+    final third = size.width / 3;
+    final pad = !padReserved
+        ? null
+        : padSide == LockPadSide.left
+        ? Rect.fromLTWH(0, 0, third, size.height)
+        : Rect.fromLTWH(size.width - third, 0, third, size.height);
+    final area = pad == null
+        ? Offset.zero & size
+        : padSide == LockPadSide.left
+        ? Rect.fromLTRB(third, 0, size.width, size.height)
+        : Rect.fromLTRB(0, 0, size.width - third, size.height);
+    final s = scale
+        .clamp(
+          ShellLockScreenSettings.minimumTabletClockScale,
+          ShellLockScreenSettings.maximumTabletClockScale,
+        )
+        .toDouble();
+    final block = Size(
+      math.min(area.width, _tabletClockWidth),
+      math.min(250.0, size.height * 0.34),
+    );
+    final halfWidth = block.width * s / 2;
+    final halfHeight = block.height * s / 2;
+    final x = _within(
+      area.left + clockX * area.width,
+      area.left + halfWidth,
+      area.right - halfWidth,
+    );
+    // The lock glyph keeps the top; the date and battery row sit above
+    // the time.
+    final y = _within(
+      clockY * size.height,
+      size.height / 16 + 30.0 + _detailsAbove * s + halfHeight,
+      size.height * 0.95 - halfHeight,
+    );
+    return _MobileFace._(
+      area: area,
+      pad: pad,
+      clock: Rect.fromCenter(
+        center: Offset(x, y),
+        width: block.width,
+        height: block.height,
+      ),
+      scale: s,
+      tablet: true,
+    );
+  }
+
+  /// A landscape screen whose shorter side is a tablet's.
+  static bool isTablet(Size size) =>
+      size.width > size.height && size.shortestSide >= 600.0;
+
+  /// The tablet clock block's width before scaling: wide enough for the
+  /// time and date at any size.
+  static const double _tabletClockWidth = 480.0;
+
+  /// About how far the date and battery row reach above the time block.
+  static const double _detailsAbove = 90.0;
+
+  static double _within(double value, double low, double high) =>
+      low > high ? (low + high) / 2 : value.clamp(low, high).toDouble();
+
+  /// Where the clock and notifications go: the whole screen, or the part
+  /// beside the PIN pad.
+  final Rect area;
+
+  /// The PIN pad's third, when the lock keeps one.
+  final Rect? pad;
+
+  /// The time block before [scale], which scales it about its centre.
+  final Rect clock;
+  final double scale;
+  final bool tablet;
+
+  double get clockBottom => clock.center.dy + clock.height * scale / 2;
+
+  /// The top of the date and battery row above the time.
+  double get clockReach =>
+      clock.center.dy - clock.height * scale / 2 - _detailsAbove * scale;
+
+  /// Where notifications go, and whether that is above the clock. A
+  /// phone's go under the clock, down to the fingerprint ring. A tablet's
+  /// take the area narrowed on both sides, under the clock down to near the
+  /// bottom, or above it when more room is there.
+  (Rect, bool) notifications(
+    Size size, {
+    required double gap,
+    required EdgeInsets padding,
+  }) {
+    final sideMargin = tablet ? area.width * _tabletSideMargin : 0.0;
+    var top = clockBottom + gap;
+    var bottom = size.height * (tablet ? 0.92 : 0.7);
+    var above = false;
+    if (tablet) {
+      final aboveTop = size.height / 16 + 30.0;
+      final aboveBottom = clockReach - gap;
+      if (aboveBottom - aboveTop > bottom - top) {
+        above = true;
+        top = aboveTop;
+        bottom = aboveBottom;
+      }
+    }
+    return (
+      Rect.fromLTRB(
+        math.max(padding.left, area.left + sideMargin),
+        top,
+        math.min(size.width - padding.right, area.right - sideMargin),
+        math.max(top, bottom),
+      ),
+      above,
+    );
+  }
+
+  /// The share of a tablet's area notifications leave free on each side.
+  static const double _tabletSideMargin = 0.08;
+
+  /// The clock's centre as fractions of the area's width and the screen's
+  /// height, as the settings keep it.
+  (double, double) clockFractions(Size size) => (
+    area.width > 0 ? (clock.center.dx - area.left) / area.width : 0.5,
+    size.height > 0 ? clock.center.dy / size.height : 0.5,
+  );
+}
+
 class _LockClockBlock extends StatelessWidget {
   const _LockClockBlock({
     required this.clock,
@@ -298,7 +469,7 @@ class _LockClockBlock extends StatelessWidget {
     required this.scale,
     required this.showSystemStatus,
     this.caption,
-    this.endInset = 0,
+    this.block,
     this.parts = const {
       HomeClockPart.time,
       HomeClockPart.date,
@@ -314,8 +485,8 @@ class _LockClockBlock extends StatelessWidget {
   /// A line over the date.
   final String? caption;
 
-  /// Mobile: room kept free at the right edge, for a docked PIN pad.
-  final double endInset;
+  /// Mobile: the time block, from [_MobileFace.clock].
+  final Rect? block;
 
   /// Mobile draws the time under the wallpaper's subject and the date and
   /// battery row over it, as two blocks with the same layout.
@@ -324,22 +495,24 @@ class _LockClockBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final top = desktop
-        ? math.max(72.0, size.height * 0.22)
-        : math.max(48.0, size.height * 0.25 - 96.0);
-    final horizontalInset = desktop ? math.max(48.0, size.width * 0.065) : 0.0;
-    final height = desktop
-        ? math.min(280.0, size.height * 0.36)
-        : math.min(250.0, size.height * 0.34);
+    final block =
+        this.block ??
+        Rect.fromLTRB(
+          math.max(48.0, size.width * 0.065),
+          math.max(72.0, size.height * 0.22),
+          size.width * 0.52,
+          math.max(72.0, size.height * 0.22) +
+              math.min(280.0, size.height * 0.36),
+        );
 
     // Mobile stretches the time upward with the date on top, painted above
     // the block, which reserves room for them.
-    final reserve = desktop ? 0.0 : height;
+    final reserve = desktop ? 0.0 : block.height;
     return Positioned(
-      left: horizontalInset,
-      right: desktop ? size.width * 0.48 : endInset,
-      top: top - reserve,
-      height: height + reserve,
+      left: block.left,
+      width: block.width,
+      top: block.top - reserve,
+      height: block.height + reserve,
       child: Padding(
         padding: EdgeInsets.only(top: reserve),
         child: Transform.scale(
@@ -371,18 +544,18 @@ class _LockClockBlock extends StatelessWidget {
 
 /// The lock glyph centred near the top of the mobile face.
 class _LockGlyph extends StatelessWidget {
-  const _LockGlyph({this.endInset = 0.0});
+  const _LockGlyph({required this.area});
 
   static const double _size = 26.0;
 
-  /// Room kept free at the right edge, for the PIN pad.
-  final double endInset;
+  /// The part of the screen it centres in.
+  final Rect area;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left: 0,
-      right: endInset,
+      left: area.left,
+      width: area.width,
       top: MediaQuery.sizeOf(context).height / 16 - _size / 2,
       child: const Center(
         child: Icon(
@@ -402,22 +575,22 @@ class _LockSwipePill extends StatelessWidget {
   const _LockSwipePill({
     required this.face,
     required this.fadeDistance,
-    this.endInset = 0.0,
+    required this.area,
   });
 
   final ValueListenable<Offset> face;
   final double fadeDistance;
 
-  /// Room kept free at the right edge, for the PIN pad.
-  final double endInset;
+  /// The part of the screen it centres in.
+  final Rect area;
 
   @override
   Widget build(BuildContext context) {
     // BottomGestureHandle centres the navigation pill below the top 20 px of
     // its hit area.
     return Positioned(
-      left: 0,
-      right: endInset,
+      left: area.left,
+      width: area.width,
       bottom: ReferenceShellMetrics.gestureBottomInset,
       height: ReferenceShellMetrics.gestureHitHeight,
       child: Padding(
@@ -661,21 +834,10 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
 /// unless the lock screen settings hide them. They slide with the face and
 /// let drags through to the swipe; a tap asks for the PIN, then opens.
 class _LockNotifications extends ConsumerWidget {
-  const _LockNotifications({
-    required this.scale,
-    required this.padReserved,
-    required this.onOpen,
-  });
+  const _LockNotifications({required this.face, required this.onOpen});
 
-  /// The clock's scale, which moves its lower edge.
-  final double scale;
-
-  /// Beside the PIN pad's third: the first two thirds, narrowed on both
-  /// sides, down to near the bottom.
-  final bool padReserved;
-
-  /// The share of the first two thirds left free on each side.
-  static const double _reservedSideMargin = 0.08;
+  /// Where they go: [_MobileFace.notifications].
+  final _MobileFace face;
 
   /// The tapped group's key.
   final ValueChanged<String> onOpen;
@@ -695,29 +857,24 @@ class _LockNotifications extends ConsumerWidget {
     if (groups.isEmpty) {
       return const SizedBox.shrink();
     }
-    // The same block _LockClockBlock lays the mobile time out in.
-    final size = MediaQuery.sizeOf(context);
-    final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
-    final clockHeight = math.min(250.0, size.height * 0.34);
-    final clockBottom = clockTop + clockHeight * (1 + scale) / 2;
     final metrics = MobileUiMetrics.of(context);
-    final padding = MediaQuery.viewPaddingOf(context);
-    final faceWidth = size.width * 2 / 3;
-    final sideMargin = padReserved ? faceWidth * _reservedSideMargin : 0.0;
-    return Positioned(
-      left: padding.left + sideMargin,
-      right: padReserved ? size.width / 3 + sideMargin : padding.right,
-      top: clockBottom + metrics.visual(24),
-      // The fingerprint ring and the swipe pill keep the lower part.
-      bottom: size.height * (padReserved ? 0.08 : 0.3),
+    final (rect, above) = face.notifications(
+      MediaQuery.sizeOf(context),
+      gap: metrics.visual(24),
+      padding: MediaQuery.viewPaddingOf(context),
+    );
+    return Positioned.fromRect(
+      rect: rect,
       child: ClipRect(
         child: SingleChildScrollView(
           physics: const NeverScrollableScrollPhysics(),
+          // Above the clock, the newest card sits next to it.
+          reverse: above,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final group in groups)
+              for (final group in above ? groups.reversed : groups)
                 Padding(
                   key: ValueKey(group.key),
                   padding: EdgeInsets.fromLTRB(

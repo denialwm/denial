@@ -12,7 +12,7 @@ class _MobileLockPinStage extends ConsumerStatefulWidget {
     super.key,
     required this.reveal,
     required this.interactive,
-    required this.docked,
+    this.dock,
     required this.onBegin,
     required this.onCancel,
     required this.onUsePassword,
@@ -24,9 +24,9 @@ class _MobileLockPinStage extends ConsumerStatefulWidget {
   /// False once the stage is dismissed, while it still fades out.
   final bool interactive;
 
-  /// In the last third of a landscape lock screen, always up beside the
-  /// face: nothing to cancel back to.
-  final bool docked;
+  /// A third of a landscape tablet's lock screen, where the pad stays up
+  /// beside the face: nothing to cancel back to.
+  final Rect? dock;
   final VoidCallback onBegin;
   final VoidCallback onCancel;
   final VoidCallback onUsePassword;
@@ -214,7 +214,7 @@ class _MobileLockPinStageState extends ConsumerState<_MobileLockPinStage>
     return _PinStageFrame(
       reveal: widget.reveal,
       interactive: widget.interactive,
-      docked: widget.docked,
+      dock: widget.dock,
       rise: _rise,
       focusNode: _keys,
       onKeyEvent: _handleKey,
@@ -513,7 +513,7 @@ class _PinStageFrame extends StatelessWidget {
   const _PinStageFrame({
     required this.reveal,
     required this.interactive,
-    this.docked = false,
+    this.dock,
     required this.rise,
     required this.focusNode,
     required this.onKeyEvent,
@@ -535,8 +535,8 @@ class _PinStageFrame extends StatelessWidget {
   final Animation<double> reveal;
   final bool interactive;
 
-  /// In the last third of the screen, over the wallpaper as it is.
-  final bool docked;
+  /// The third of the screen it stays in, over the wallpaper as it is.
+  final Rect? dock;
   final Animation<Offset> rise;
   final FocusNode focusNode;
   final FocusOnKeyEventCallback onKeyEvent;
@@ -558,10 +558,13 @@ class _PinStageFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final message = this.message;
     final scrim = ShellMediaColors.darkness.withValues(alpha: 0.42);
+    final dock = this.dock;
+    final docked = dock != null;
     return Positioned(
-      left: docked ? MediaQuery.sizeOf(context).width * 2 / 3 : 0,
+      left: dock?.left ?? 0,
       top: 0,
-      right: 0,
+      width: dock?.width,
+      right: docked ? null : 0,
       bottom: 0,
       child: Stack(
         fit: StackFit.expand,

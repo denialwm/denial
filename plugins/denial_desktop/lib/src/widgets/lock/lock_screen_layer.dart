@@ -2,7 +2,7 @@ import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
 import 'package:denial_desktop/src/state/reference_shell_presentation.dart';
 import 'package:denial_desktop/src/state/reference_shell_profile.dart';
 
-import 'dart:async' show StreamSubscription, Timer;
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show File;
 import 'dart:math' as math;
@@ -62,6 +62,7 @@ import '../../state/reference_shell_controller.dart';
 
 part 'lock_authentication_panels.dart';
 part 'lock_pin_stage.dart';
+part 'lock_screen_editor.dart';
 part 'lock_screen_background.dart';
 part 'lock_screen_pane.dart';
 part 'user_verification_sheet.dart';
@@ -418,11 +419,13 @@ class _AmbientVeilPainter extends CustomPainter {
 /// and the scene behind it, lit beside the clock, melt into the black below
 /// instead of ending at the screen's edge.
 class _AmbientFalloffPainter extends CustomPainter {
-  _AmbientFalloffPainter({required this.ambient, required this.clockScale})
+  _AmbientFalloffPainter({required this.ambient, required this.clockBottom})
     : super(repaint: ambient);
 
   final Animation<double> ambient;
-  final double clockScale;
+
+  /// The clock's lower edge, from [_MobileFace.clockBottom].
+  final double clockBottom;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -430,10 +433,6 @@ class _AmbientFalloffPainter extends CustomPainter {
     if (alpha <= 0.0) {
       return;
     }
-    // The clock's lower edge, as _LockClockBlock lays it out.
-    final clockTop = math.max(48.0, size.height * 0.25 - 96.0);
-    final clockHeight = math.min(250.0, size.height * 0.34);
-    final clockBottom = clockTop + clockHeight * (1.0 + clockScale) / 2;
     final start = (clockBottom / size.height).clamp(0.0, 1.0);
     final end = math.max(start, 0.85);
     const black = Color(0xFF000000);
@@ -463,5 +462,5 @@ class _AmbientFalloffPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _AmbientFalloffPainter oldDelegate) =>
-      oldDelegate.ambient != ambient || oldDelegate.clockScale != clockScale;
+      oldDelegate.ambient != ambient || oldDelegate.clockBottom != clockBottom;
 }

@@ -19,6 +19,7 @@ import 'package:denial_flutter_sdk/wallpaper.dart';
 
 import '../../wallpaper/widgets/mobile_wallpaper_selector_layer.dart';
 import '../../widgets/connectivity/bluetooth_detail_surface.dart';
+import '../../widgets/lock/lock_screen_layer.dart' show LockScreenEditorLayer;
 import '../../widgets/notification_banner.dart';
 import '../../widgets/system_level_hud.dart';
 import '../mobile/mobile_application_scene.dart';
@@ -63,6 +64,7 @@ class DenialShellApp extends StatelessWidget {
           overlays: <Widget>[
             NotificationBannerLayer(mobile: true),
             MobileWallpaperSelectorLayer(),
+            LockScreenEditorLayer(),
             MobileFrameTimingOverlay(),
             GlassBenchmarkLayer(),
           ],

@@ -1628,5 +1628,13 @@
   "userVerificationAsksPin": "{applicationName} 需要你的 PIN 码",
   "userVerificationAsksPassword": "{applicationName} 需要你的密码",
   "userVerificationWrongPassword": "密码错误",
-  "userVerificationConfirm": "确认"
+  "userVerificationConfirm": "确认",
+  "lockEditorHint": "拖动时钟来移动，双指缩放来调整大小",
+  "lockEditorSwapSides": "交换两侧",
+  "lockEditorReset": "重置",
+  "lockEditorCancel": "取消",
+  "lockEditorDone": "完成",
+  "lockEditorPinPad": "PIN 键盘",
+  "lockEditorNotifications": "通知",
+  "lockEditorPortrait": "将平板横置以编辑锁屏"
 }

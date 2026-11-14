@@ -82,9 +82,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   static const Duration _snapDuration = Duration(milliseconds: 210);
   static const Duration _revealDuration = Duration(milliseconds: 340);
 
-  /// How much larger the clock is beside a docked PIN pad.
-  static const double _dockedClockGrowth = 1.25;
-
   /// Mobile: the clock, notifications and swipe pill move as one face. The
   /// finger drags it, and it slides off the top while a credential is asked
   /// for. Updates move its layers only.
@@ -133,9 +130,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   /// after it is dismissed and the password panel never borrows it.
   _LockCredential _revealed = _LockCredential.password;
 
-  /// Whether that credential came up docked, so a dismissed pad fades out
+  /// Where that credential came up docked, so a dismissed pad fades out
   /// where it was.
-  bool _revealedDocked = false;
+  Rect? _revealedDock;
 
   /// What deniald last heard: the reader answers only on the fingerprint
   /// face. Null until this pane has said it, and again after a new lock.
@@ -289,16 +286,15 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       });
     }
     final pinMode = widget.authenticationEnabled && _pinMode(authentication);
-    // A landscape mobile lock keeps its last third for the PIN pad: the clock
-    // and notifications stay in the first two. It opens by a swipe too; the
-    // pad then comes up in its third and the face comes back home instead of
-    // sliding away.
-    final viewSize = MediaQuery.sizeOf(context);
+    // A landscape tablet lock keeps a third for the PIN pad, on the side the
+    // user chose: the clock and notifications stay in the rest. It opens by
+    // a swipe too; the pad then comes up in its third and the face comes
+    // back home instead of sliding away.
     final padReserved =
         !widget.desktop &&
         pinMode &&
         !simPending &&
-        viewSize.width > viewSize.height;
+        _MobileFace.isTablet(MediaQuery.sizeOf(context));
     final docked = padReserved && _authenticationVisible;
     // Mobile follows the user: a cancelled attempt that deniald has not
     // closed yet must not hold the keypad up or block the next swipe.
@@ -308,7 +304,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
             widget.authenticationEnabled &&
             _authenticationVisible);
     if (credentialShown) {
-      _revealedDocked = docked;
       _revealed = simPending
           ? _LockCredential.sim
           : pinMode
@@ -346,8 +341,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     final gpus = widget.desktop && lockSettings.showSystemStatus
         ? ref.watch(gpuUsageProvider)
         : const <GpuLoad>[];
-    final clockScale =
-        lockSettings.clockScale * (padReserved ? _dockedClockGrowth : 1.0);
     final clock = HomeClockInfo.fromShell(
       now: now,
       locale: ref.watch(clockLocaleProvider),
@@ -358,8 +351,12 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       builder: (context, constraints) {
         final size = constraints.biggest;
         _height = size.height;
-        // The pad's third, which the face leaves free.
-        final faceEnd = padReserved ? size.width / 3 : 0.0;
+        final face = _MobileFace.of(
+          size,
+          lockSettings,
+          padReserved: padReserved,
+        );
+        if (credentialShown) _revealedDock = docked ? face.pad : null;
         // Mobile opens only by swiping up; a stray touch leaves the clock,
         // and a double tap turns the screen off, as on home.
         // The face can be caught again while it is still sliding home.
@@ -384,7 +381,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
               ? _blankDisplays
               : docked
               ? () {
-                  if (_doubleTapAt.dx < size.width - faceEnd) _blankDisplays();
+                  if (!face.pad!.contains(_doubleTapAt)) _blankDisplays();
                 }
               : null,
           onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
@@ -410,9 +407,11 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                     _LockClockBlock(
                       clock: clock,
                       desktop: widget.desktop,
-                      scale: clockScale,
+                      scale: widget.desktop
+                          ? lockSettings.clockScale
+                          : face.scale,
                       showSystemStatus: lockSettings.showSystemStatus,
-                      endInset: faceEnd,
+                      block: widget.desktop ? null : face.clock,
                       parts: widget.desktop
                           ? const {
                               HomeClockPart.time,
@@ -431,7 +430,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 CustomPaint(
                   painter: _AmbientFalloffPainter(
                     ambient: widget.ambient,
-                    clockScale: clockScale,
+                    clockBottom: face.clockBottom,
                   ),
                 ),
               ],
@@ -457,7 +456,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                   child: _LockSwipePill(
                     face: _face,
                     fadeDistance: _dragDistance(size.height) * _unlockThreshold,
-                    endInset: faceEnd,
+                    area: face.area,
                   ),
                 ),
               ],
@@ -471,9 +470,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                       _LockClockBlock(
                         clock: clock,
                         desktop: false,
-                        scale: clockScale,
+                        scale: face.scale,
                         showSystemStatus: lockSettings.showSystemStatus,
-                        endInset: faceEnd,
+                        block: face.clock,
                         // The phone is dark but the desk keeps the session.
                         caption: widget.ambientOnly
                             ? context.l10n.lockDesktopModeEnabled
@@ -485,9 +484,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         child: _LockClockBlock(
                           clock: clock,
                           desktop: false,
-                          scale: clockScale,
+                          scale: face.scale,
                           showSystemStatus: lockSettings.showSystemStatus,
-                          endInset: faceEnd,
+                          block: face.clock,
                           parts: const {HomeClockPart.status},
                         ),
                       ),
@@ -499,12 +498,11 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                           fit: StackFit.expand,
                           children: [
                             _LockNotifications(
-                              scale: clockScale,
-                              padReserved: padReserved,
+                              face: face,
                               onOpen: _openAfterUnlock,
                             ),
                             // The docked pad shows its own lock.
-                            if (!docked) _LockGlyph(endInset: faceEnd),
+                            if (!docked) _LockGlyph(area: face.area),
                           ],
                         ),
                       ),
@@ -549,14 +547,14 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               if (revealed == _LockCredential.pin)
                 _AmbientHidden(
-                  opacity: _revealedDocked
+                  opacity: _revealedDock != null
                       ? _ambientHidden
                       : kAlwaysCompleteAnimation,
                   child: _MobileLockPinStage(
                     key: const ValueKey<String>('mobile-lock-pin-stage'),
                     reveal: _pinStageReveal,
                     interactive: credentialShown,
-                    docked: _revealedDocked,
+                    dock: _revealedDock,
                     onBegin: () =>
                         ref.read(authenticationProvider.notifier).begin(),
                     onCancel: _cancelAuthentication,
