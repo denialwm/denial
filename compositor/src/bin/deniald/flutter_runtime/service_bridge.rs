@@ -197,6 +197,15 @@ impl FlutterRuntime {
         Ok(())
     }
 
+    /// Asks the shell for its power menu, as a held power button does.
+    pub fn send_power_menu(&mut self) -> Result<(), Box<dyn Error>> {
+        self.host().engine().send_platform_message(
+            idle_policy::DISPLAY_POWER_CHANNEL,
+            &[idle_policy::DISPLAY_POWER_MENU],
+        )?;
+        Ok(())
+    }
+
     pub fn take_user_verification_records(&mut self) -> VecDeque<Vec<u8>> {
         std::mem::take(&mut self.pending_user_verification)
     }

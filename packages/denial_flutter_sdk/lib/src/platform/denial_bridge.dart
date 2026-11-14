@@ -88,6 +88,7 @@ class DenialBridge {
       'denial/software_dimming_state': _brightness.handleSoftwareDimmingState,
       denialUiDevelopmentStateChannel: _session.handleDevelopmentState,
       BridgeSessionClient.ambientDisplayChannel: _session.handleAmbientDisplay,
+      BridgeSessionClient.displayPowerChannel: _session.handleDisplayPower,
       BridgeUserVerificationClient.channel: _userVerification.handleMessage,
     });
   }
@@ -494,6 +495,7 @@ class DenialBridge {
   /// Configures the compositor-owned lock, DPMS, and suspend idle policy.
   void setIdlePolicy({
     required PowerButtonAction powerButtonAction,
+    required PowerButtonLongPressAction powerButtonLongPressAction,
     required bool lockEnabled,
     required Duration lockTimeout,
     required bool dpmsEnabled,
@@ -504,6 +506,7 @@ class DenialBridge {
     Duration? lockAfterScreenOff,
   }) => _session.setIdlePolicy(
     powerButtonAction: powerButtonAction,
+    powerButtonLongPressAction: powerButtonLongPressAction,
     lockEnabled: lockEnabled,
     lockTimeout: lockTimeout,
     dpmsEnabled: dpmsEnabled,
@@ -529,6 +532,9 @@ class DenialBridge {
 
   /// The last of [ambientDisplay].
   bool get ambientDisplayActive => _session.ambientDisplayActive;
+
+  /// The power button was held: deniald asks the shell for its power menu.
+  Stream<void> get powerMenuRequests => _session.powerMenuRequests;
 
   void ambientDisplayReady() => _session.ambientDisplayReady();
 

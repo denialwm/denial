@@ -1533,6 +1533,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPowerButtonPowerOff => 'Power off';
 
   @override
+  String get settingsPowerButtonLongPress => 'Long press';
+
+  @override
+  String get settingsPowerButtonLongPressDescription =>
+      'Choose what happens when you hold the power button. Phones always show the power menu.';
+
+  @override
+  String get settingsPowerButtonLongPressNothing => 'Do nothing';
+
+  @override
+  String get settingsPowerButtonLongPressMenu => 'Show the power menu';
+
+  @override
   String get settingsAutomaticLockToggle => 'Lock automatically';
 
   @override

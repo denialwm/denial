@@ -1806,6 +1806,7 @@ fn process_input_event(
                 key_event.device().sysname(),
                 key_event.state() == KeyState::Pressed,
                 chords,
+                std::time::Instant::now(),
             );
             return false;
         }

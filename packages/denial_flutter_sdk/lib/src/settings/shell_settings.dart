@@ -581,6 +581,7 @@ class ShellLockScreenSettings {
 class ShellPowerSettings {
   const ShellPowerSettings({
     this.powerButtonAction = PowerButtonAction.powerOff,
+    this.powerButtonLongPressAction = PowerButtonLongPressAction.nothing,
     this.idleLockEnabled = true,
     this.idleLockTimeoutSeconds = 16 * 60,
     this.idleDpmsEnabled = true,
@@ -599,6 +600,9 @@ class ShellPowerSettings {
   static const int maximumScreenOffLockDelaySeconds = 60 * 60;
 
   final PowerButtonAction powerButtonAction;
+
+  /// The desktop's long press; the mobile shell always opens the power menu.
+  final PowerButtonLongPressAction powerButtonLongPressAction;
   final bool idleLockEnabled;
   final int idleLockTimeoutSeconds;
   final bool idleDpmsEnabled;
@@ -614,6 +618,7 @@ class ShellPowerSettings {
 
   ShellPowerSettings copyWith({
     PowerButtonAction? powerButtonAction,
+    PowerButtonLongPressAction? powerButtonLongPressAction,
     bool? idleLockEnabled,
     int? idleLockTimeoutSeconds,
     bool? idleDpmsEnabled,
@@ -625,6 +630,8 @@ class ShellPowerSettings {
   }) {
     return ShellPowerSettings(
       powerButtonAction: powerButtonAction ?? this.powerButtonAction,
+      powerButtonLongPressAction:
+          powerButtonLongPressAction ?? this.powerButtonLongPressAction,
       idleLockEnabled: idleLockEnabled ?? this.idleLockEnabled,
       idleLockTimeoutSeconds:
           idleLockTimeoutSeconds ?? this.idleLockTimeoutSeconds,
@@ -644,6 +651,7 @@ class ShellPowerSettings {
   bool operator ==(Object other) {
     return other is ShellPowerSettings &&
         other.powerButtonAction == powerButtonAction &&
+        other.powerButtonLongPressAction == powerButtonLongPressAction &&
         other.idleLockEnabled == idleLockEnabled &&
         other.idleLockTimeoutSeconds == idleLockTimeoutSeconds &&
         other.idleDpmsEnabled == idleDpmsEnabled &&
@@ -657,6 +665,7 @@ class ShellPowerSettings {
   @override
   int get hashCode => Object.hash(
     powerButtonAction,
+    powerButtonLongPressAction,
     idleLockEnabled,
     idleLockTimeoutSeconds,
     idleDpmsEnabled,
@@ -1313,6 +1322,11 @@ class ShellSettings {
       if (power.powerButtonAction != before.powerButtonAction) {
         section['powerButtonAction'] = power.powerButtonAction.name;
       }
+      if (power.powerButtonLongPressAction !=
+          before.powerButtonLongPressAction) {
+        section['powerButtonLongPressAction'] =
+            power.powerButtonLongPressAction.name;
+      }
       if (power.idleLockEnabled != before.idleLockEnabled) {
         section['idleLockEnabled'] = power.idleLockEnabled;
       }
@@ -1430,6 +1444,7 @@ class ShellSettings {
       },
       'power': <String, Object>{
         'powerButtonAction': power.powerButtonAction.name,
+        'powerButtonLongPressAction': power.powerButtonLongPressAction.name,
         'idleLockEnabled': power.idleLockEnabled,
         'idleLockTimeoutSeconds': power.idleLockTimeoutSeconds,
         'idleDpmsEnabled': power.idleDpmsEnabled,
@@ -1801,6 +1816,11 @@ class ShellSettings {
           PowerButtonAction.values,
           powerJson['powerButtonAction'],
           defaults.power.powerButtonAction,
+        ),
+        powerButtonLongPressAction: _enumValue(
+          PowerButtonLongPressAction.values,
+          powerJson['powerButtonLongPressAction'],
+          defaults.power.powerButtonLongPressAction,
         ),
         idleLockEnabled: powerJson['idleLockEnabled'] is bool
             ? powerJson['idleLockEnabled'] as bool

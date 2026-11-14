@@ -2742,6 +2742,30 @@ abstract class AppLocalizations {
   /// **'Power off'**
   String get settingsPowerButtonPowerOff;
 
+  /// Label for what holding the power button does.
+  ///
+  /// In en, this message translates to:
+  /// **'Long press'**
+  String get settingsPowerButtonLongPress;
+
+  /// Description of the power button long-press selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what happens when you hold the power button. Phones always show the power menu.'**
+  String get settingsPowerButtonLongPressDescription;
+
+  /// Power button long-press action that does nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Do nothing'**
+  String get settingsPowerButtonLongPressNothing;
+
+  /// Power button long-press action that opens the power and session menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Show the power menu'**
+  String get settingsPowerButtonLongPressMenu;
+
   /// Toggle for automatically locking the session after inactivity.
   ///
   /// In en, this message translates to:

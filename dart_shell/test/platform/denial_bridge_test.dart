@@ -182,6 +182,7 @@ void main() {
       try {
         bridge.setIdlePolicy(
           powerButtonAction: PowerButtonAction.hibernate,
+          powerButtonLongPressAction: PowerButtonLongPressAction.powerMenu,
           lockEnabled: true,
           lockTimeout: const Duration(minutes: 5),
           dpmsEnabled: true,
@@ -195,10 +196,10 @@ void main() {
         final data = packet;
         expect(data, isNotNull);
         expect(data!.lengthInBytes, 32);
-        expect(data.getUint8(0), 3);
+        expect(data.getUint8(0), 5);
         expect(data.getUint8(1), 0x03);
         expect(data.getUint8(2), 3);
-        expect(data.getUint8(3), 2);
+        expect(data.getUint8(3), 0x12);
         expect(data.buffer.asUint8List(4, 4), everyElement(0));
         expect(data.getUint64(8, Endian.little), 5 * 60 * 1000);
         expect(data.getUint64(16, Endian.little), 10 * 60 * 1000);

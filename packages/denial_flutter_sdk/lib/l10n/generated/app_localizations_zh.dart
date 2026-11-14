@@ -1479,6 +1479,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPowerButtonPowerOff => '关机';
 
   @override
+  String get settingsPowerButtonLongPress => '长按';
+
+  @override
+  String get settingsPowerButtonLongPressDescription =>
+      '选择按住电源按钮时执行的操作。手机始终显示电源菜单。';
+
+  @override
+  String get settingsPowerButtonLongPressNothing => '无操作';
+
+  @override
+  String get settingsPowerButtonLongPressMenu => '显示电源菜单';
+
+  @override
   String get settingsAutomaticLockToggle => '自动锁定';
 
   @override

@@ -2148,6 +2148,22 @@
   "@settingsPowerButtonPowerOff": {
     "description": "Power button action that powers off the system."
   },
+  "settingsPowerButtonLongPress": "Long press",
+  "@settingsPowerButtonLongPress": {
+    "description": "Label for what holding the power button does."
+  },
+  "settingsPowerButtonLongPressDescription": "Choose what happens when you hold the power button. Phones always show the power menu.",
+  "@settingsPowerButtonLongPressDescription": {
+    "description": "Description of the power button long-press selector."
+  },
+  "settingsPowerButtonLongPressNothing": "Do nothing",
+  "@settingsPowerButtonLongPressNothing": {
+    "description": "Power button long-press action that does nothing."
+  },
+  "settingsPowerButtonLongPressMenu": "Show the power menu",
+  "@settingsPowerButtonLongPressMenu": {
+    "description": "Power button long-press action that opens the power and session menu."
+  },
   "settingsAutomaticLockToggle": "Lock automatically",
   "@settingsAutomaticLockToggle": {
     "description": "Toggle for automatically locking the session after inactivity."

@@ -21,7 +21,9 @@ const PACKET_BYTES: usize = 32;
 const LEGACY_CONFIGURATION_PACKET_VERSION: u8 = 1;
 const SUSPEND_MODE_CONFIGURATION_PACKET_VERSION: u8 = 2;
 const POWER_BUTTON_CONFIGURATION_PACKET_VERSION: u8 = 3;
-const PACKET_VERSION: u8 = 4;
+const SCREEN_OFF_LOCK_PACKET_VERSION: u8 = 4;
+/// Version 4 with the long press in the high nibble of the power button byte.
+const PACKET_VERSION: u8 = 5;
 const LOCK_ENABLED: u8 = 1 << 0;
 const DPMS_ENABLED: u8 = 1 << 1;
 const SUSPEND_ENABLED: u8 = 1 << 2;
@@ -29,6 +31,11 @@ const SCREEN_OFF_LOCK_ENABLED: u8 = 1 << 3;
 const ENABLED_MASK: u8 = LOCK_ENABLED | DPMS_ENABLED | SUSPEND_ENABLED;
 const DISPLAY_POWER_OFF: u8 = 1;
 const DISPLAY_POWER_ON: u8 = 2;
+/// From deniald to the shell on the display power channel: the power button
+/// was held, so the shell opens its power menu.
+pub(super) const DISPLAY_POWER_MENU: u8 = 3;
+/// How long the power button is held before it counts as a long press.
+const LONG_PRESS: Duration = Duration::from_millis(500);
 const MAX_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const LOCK_AFTER_DPMS_DELAY: Duration = Duration::from_secs(5);
 
@@ -45,6 +52,9 @@ pub(super) struct IdlePolicyConfiguration {
     pub(super) suspend_timeout: Option<Duration>,
     pub(super) suspend_mode: SuspendMode,
     pub(super) power_button_action: PowerButtonAction,
+    /// What holding the power button does on the desktop. The mobile shell
+    /// always opens its power menu.
+    pub(super) power_button_long_press: PowerButtonLongPress,
     /// How long a session stays unlocked once its screen goes dark, by the
     /// power button or by the idle timeout. None locks at once on the power
     /// button, unless idle locking is off too, and leaves idle locking to
@@ -79,6 +89,40 @@ impl PowerButtonAction {
             Self::Suspend => Some("Suspend"),
             Self::Hibernate => Some("Hibernate"),
             Self::PowerOff => Some("PowerOff"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum PowerButtonLongPress {
+    #[default]
+    Nothing = 0,
+    PowerMenu = 1,
+    Suspend = 2,
+    Hibernate = 3,
+    PowerOff = 4,
+}
+
+impl PowerButtonLongPress {
+    fn decode(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Nothing),
+            1 => Some(Self::PowerMenu),
+            2 => Some(Self::Suspend),
+            3 => Some(Self::Hibernate),
+            4 => Some(Self::PowerOff),
+            _ => None,
+        }
+    }
+
+    /// The system action this long press asks logind for, if any.
+    pub(super) fn system_action(self) -> Option<PowerButtonAction> {
+        match self {
+            Self::Nothing | Self::PowerMenu => None,
+            Self::Suspend => Some(PowerButtonAction::Suspend),
+            Self::Hibernate => Some(PowerButtonAction::Hibernate),
+            Self::PowerOff => Some(PowerButtonAction::PowerOff),
         }
     }
 }
@@ -128,6 +172,7 @@ pub(super) enum IdlePolicyPacketError {
     InvalidFlags(u8),
     InvalidSuspendMode(u8),
     InvalidPowerButtonAction(u8),
+    InvalidPowerButtonLongPress(u8),
     NonZeroReservedBytes,
     ZeroTimeout(&'static str),
     TimeoutTooLarge {
@@ -166,6 +211,12 @@ impl fmt::Display for IdlePolicyPacketError {
                 write!(
                     formatter,
                     "idle policy packet has invalid power button action {action}"
+                )
+            }
+            Self::InvalidPowerButtonLongPress(action) => {
+                write!(
+                    formatter,
+                    "idle policy packet has invalid power button long press {action}"
                 )
             }
             Self::NonZeroReservedBytes => {
@@ -245,6 +296,7 @@ pub(super) fn decode_configuration(
     }
     let mut lock_after_screen_off = None;
     let mut enabled_mask = ENABLED_MASK;
+    let mut power_button_long_press = PowerButtonLongPress::Nothing;
     let (suspend_mode, power_button_action) = match packet[0] {
         LEGACY_CONFIGURATION_PACKET_VERSION => {
             if packet[2..8].iter().any(|byte| *byte != 0) {
@@ -273,7 +325,14 @@ pub(super) fn decode_configuration(
                     .ok_or(IdlePolicyPacketError::InvalidPowerButtonAction(packet[3]))?,
             )
         }
-        PACKET_VERSION => {
+        version @ (SCREEN_OFF_LOCK_PACKET_VERSION | PACKET_VERSION) => {
+            let mut button = packet[3];
+            if version == PACKET_VERSION {
+                power_button_long_press = PowerButtonLongPress::decode(button >> 4).ok_or(
+                    IdlePolicyPacketError::InvalidPowerButtonLongPress(button >> 4),
+                )?;
+                button &= 0x0f;
+            }
             enabled_mask |= SCREEN_OFF_LOCK_ENABLED;
             let milliseconds = u32::from_le_bytes(
                 packet[4..8]
@@ -289,8 +348,8 @@ pub(super) fn decode_configuration(
             (
                 SuspendMode::decode(packet[2])
                     .ok_or(IdlePolicyPacketError::InvalidSuspendMode(packet[2]))?,
-                PowerButtonAction::decode(packet[3])
-                    .ok_or(IdlePolicyPacketError::InvalidPowerButtonAction(packet[3]))?,
+                PowerButtonAction::decode(button)
+                    .ok_or(IdlePolicyPacketError::InvalidPowerButtonAction(button))?,
             )
         }
         version => return Err(IdlePolicyPacketError::UnsupportedVersion(version)),
@@ -317,6 +376,7 @@ pub(super) fn decode_configuration(
         suspend_timeout: (flags & SUSPEND_ENABLED != 0).then_some(suspend_timeout),
         suspend_mode,
         power_button_action,
+        power_button_long_press,
         lock_after_screen_off,
     })
 }
@@ -364,6 +424,9 @@ pub(super) struct PowerButton {
     /// Volume Down's press went to a screenshot, so its release does too.
     volume_down_taken: bool,
     screenshot_requested: bool,
+    /// When the press still held becomes a long press. It counts only while
+    /// its toggle still waits for the release.
+    long_press_at: Option<Instant>,
 }
 
 /// Where a Volume Down transition goes.
@@ -381,19 +444,24 @@ pub(super) enum VolumeDownRoute {
 }
 
 impl PowerButton {
-    pub(super) fn note_key(&mut self, device: &str, pressed: bool, chords: bool) {
+    pub(super) fn note_key(&mut self, device: &str, pressed: bool, chords: bool, now: Instant) {
         if pressed {
             if self.held_devices.insert(device.to_owned()) {
                 if chords && self.volume_down_held {
                     self.screenshot_requested = true;
                     // A press that still waits never reaches the seat.
                     self.volume_down_taken = std::mem::take(&mut self.volume_down_held_back);
+                    self.long_press_at = None;
                 } else {
                     self.toggle_pending = !self.toggle_pending;
+                    self.long_press_at = now.checked_add(LONG_PRESS);
                 }
             }
         } else {
             self.held_devices.remove(device);
+            if self.held_devices.is_empty() {
+                self.long_press_at = None;
+            }
         }
     }
 
@@ -415,6 +483,7 @@ impl PowerButton {
         if !self.held_devices.is_empty() {
             // Power's toggle waits for its release; the chord cancels it.
             self.toggle_pending = false;
+            self.long_press_at = None;
             self.screenshot_requested = true;
             self.volume_down_taken = true;
             return VolumeDownRoute::Take;
@@ -431,6 +500,36 @@ impl PowerButton {
 
     pub(super) fn remove_device(&mut self, device: &str) {
         self.held_devices.remove(device);
+        if self.held_devices.is_empty() {
+            self.long_press_at = None;
+        }
+    }
+
+    /// Whether the button has been held long enough while its toggle waited
+    /// for the release. The long press takes the toggle: the release does
+    /// nothing.
+    pub(super) fn take_long_press(&mut self, now: Instant) -> bool {
+        let Some(at) = self.long_press_at else {
+            return false;
+        };
+        if !self.toggle_pending {
+            // The press already acted, as a dark screen wakes at once.
+            self.long_press_at = None;
+            return false;
+        }
+        if now < at {
+            return false;
+        }
+        self.long_press_at = None;
+        self.toggle_pending = false;
+        true
+    }
+
+    pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        match self.long_press_at {
+            Some(at) if self.toggle_pending => timeout.min(at.saturating_duration_since(now)),
+            _ => timeout,
+        }
     }
 
     /// The toggle a press asked for. With `wait_for_release` it comes only
@@ -498,6 +597,10 @@ impl IdlePolicy {
         self.configuration.power_button_action
     }
 
+    pub(super) fn power_button_long_press(&self) -> PowerButtonLongPress {
+        self.configuration.power_button_long_press
+    }
+
     /// Follows a desk joining the phone (`phone` names the phone's panel) or
     /// leaving it. Returns whether to lock: the phone's panel went dark at the
     /// desk without locking, and it is now the only screen.
@@ -552,7 +655,8 @@ impl IdlePolicy {
         }
         if phone.dpms_triggered
             || !powered
-            || timeout.is_none_or(|timeout| now.saturating_duration_since(phone.last_touch) < timeout)
+            || timeout
+                .is_none_or(|timeout| now.saturating_duration_since(phone.last_touch) < timeout)
         {
             return None;
         }

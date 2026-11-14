@@ -1,6 +1,7 @@
 import 'package:denial_desktop/src/state/notification_groups.dart';
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/widgets/notification_open.dart';
+import 'package:denial_desktop/src/widgets/session/power_session_surface.dart';
 
 import 'dart:async';
 
@@ -47,6 +48,8 @@ class ShellRuntimeBindings extends ConsumerStatefulWidget {
 }
 
 class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
+  StreamSubscription<void>? _powerMenuRequests;
+
   @override
   void didUpdateWidget(ShellRuntimeBindings oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -79,6 +82,22 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
       (_, accent) => _scheduleAccentSync(accent),
       fireImmediately: true,
     );
+    // deniald asks for the power menu when the power button is held. The
+    // lock screen keeps its own face.
+    _powerMenuRequests = ref
+        .read(denialBridgeProvider)
+        .powerMenuRequests
+        .listen((_) {
+          if (mounted && !ref.read(referenceShellProvider).lockLayerVisible) {
+            showPowerSessionSurface(ref);
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_powerMenuRequests?.cancel());
+    super.dispose();
   }
 
   @override
@@ -168,6 +187,7 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
           .read(denialBridgeProvider)
           .setIdlePolicy(
             powerButtonAction: power.powerButtonAction,
+            powerButtonLongPressAction: power.powerButtonLongPressAction,
             // A phone locks a set time after its screen goes dark, or never.
             // Beside a desk, the desk's idle timeout locks both screens.
             lockEnabled:

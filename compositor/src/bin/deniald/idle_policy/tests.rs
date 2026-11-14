@@ -15,6 +15,7 @@ fn configuration(
         suspend_timeout,
         suspend_mode: SuspendMode::SystemDefault,
         power_button_action: PowerButtonAction::Dpms,
+        power_button_long_press: PowerButtonLongPress::Nothing,
         lock_after_screen_off: None,
     }
 }
@@ -99,10 +100,10 @@ fn packet_is_versioned_bounded_ordered_and_preserves_optional_actions() {
         Err(IdlePolicyPacketError::InvalidSuspendMode(99))
     ));
     selected_mode[2] = SuspendMode::SystemDefault as u8;
-    selected_mode[3] = 99;
+    selected_mode[3] = 9;
     assert!(matches!(
         decode_configuration(&selected_mode),
-        Err(IdlePolicyPacketError::InvalidPowerButtonAction(99))
+        Err(IdlePolicyPacketError::InvalidPowerButtonAction(9))
     ));
     assert!(matches!(
         decode_configuration(&packet(0, 0, 1, 1)),
@@ -120,6 +121,77 @@ fn packet_is_versioned_bounded_ordered_and_preserves_optional_actions() {
             milliseconds,
         }) if milliseconds == too_large
     ));
+}
+
+#[test]
+fn version_five_packs_the_long_press_over_the_power_button_action() {
+    let mut packet = packet(0, 1, 1, 1);
+    packet[3] = (PowerButtonLongPress::PowerMenu as u8) << 4 | PowerButtonAction::Suspend as u8;
+    let configuration = decode_configuration(&packet).unwrap();
+    assert_eq!(
+        configuration.power_button_action,
+        PowerButtonAction::Suspend
+    );
+    assert_eq!(
+        configuration.power_button_long_press,
+        PowerButtonLongPress::PowerMenu
+    );
+    packet[3] = 5 << 4;
+    assert!(matches!(
+        decode_configuration(&packet),
+        Err(IdlePolicyPacketError::InvalidPowerButtonLongPress(5))
+    ));
+    // Version 4 has no long press: its high nibble is the action's.
+    packet[0] = SCREEN_OFF_LOCK_PACKET_VERSION;
+    packet[3] = 1 << 4;
+    assert!(matches!(
+        decode_configuration(&packet),
+        Err(IdlePolicyPacketError::InvalidPowerButtonAction(0x10))
+    ));
+    packet[3] = PowerButtonAction::PowerOff as u8;
+    assert_eq!(
+        decode_configuration(&packet)
+            .unwrap()
+            .power_button_long_press,
+        PowerButtonLongPress::Nothing
+    );
+}
+
+#[test]
+fn held_power_button_is_a_long_press_only_while_its_toggle_waits() {
+    let start = Instant::now();
+    let mut button = PowerButton::default();
+    button.note_key("pmic", true, true, start);
+    assert!(!button.take_toggle(true));
+    assert!(!button.take_long_press(start + LONG_PRESS / 2));
+    assert_eq!(
+        button.limit_dispatch_timeout(start, Duration::from_secs(1)),
+        LONG_PRESS
+    );
+    assert!(button.take_long_press(start + LONG_PRESS));
+    button.note_key("pmic", false, true, start + LONG_PRESS * 2);
+    assert!(!button.take_toggle(true), "the long press took the release");
+
+    // A short press still toggles on release.
+    button.note_key("pmic", true, true, start);
+    button.note_key("pmic", false, true, start + LONG_PRESS / 2);
+    assert!(!button.take_long_press(start + LONG_PRESS));
+    assert!(button.take_toggle(true));
+
+    // A press that acted at once, as on a dark screen, holds no long press.
+    button.note_key("pmic", true, false, start);
+    assert!(button.take_toggle(false));
+    assert!(!button.take_long_press(start + LONG_PRESS));
+    assert_eq!(
+        button.limit_dispatch_timeout(start, Duration::from_secs(1)),
+        Duration::from_secs(1)
+    );
+
+    // Volume Down makes it a screenshot, never a long press.
+    button.note_key("pmic", false, false, start);
+    button.note_key("pmic", true, true, start);
+    assert_eq!(button.note_volume_down(true, true), VolumeDownRoute::Take);
+    assert!(!button.take_long_press(start + LONG_PRESS));
 }
 
 #[test]
@@ -151,15 +223,15 @@ fn power_button_system_actions_map_to_logind_methods() {
 #[test]
 fn power_button_toggles_once_per_press_and_consumes_release() {
     let mut button = PowerButton::default();
-    button.note_key("pmic", true, false);
+    button.note_key("pmic", true, false, Instant::now());
     assert!(button.take_toggle(false));
-    button.note_key("pmic", true, false);
-    button.note_key("pmic", false, false);
+    button.note_key("pmic", true, false, Instant::now());
+    button.note_key("pmic", false, false, Instant::now());
     assert!(!button.take_toggle(false));
-    button.note_key("pmic", true, false);
+    button.note_key("pmic", true, false, Instant::now());
     assert!(button.take_toggle(false));
     button.remove_device("pmic");
-    button.note_key("pmic", true, false);
+    button.note_key("pmic", true, false, Instant::now());
     assert!(button.take_toggle(false));
 }
 
@@ -167,8 +239,8 @@ fn power_button_toggles_once_per_press_and_consumes_release() {
 fn two_power_presses_in_one_dispatch_leave_power_unchanged() {
     let mut button = PowerButton::default();
     for _ in 0..2 {
-        button.note_key("pmic", true, false);
-        button.note_key("pmic", false, false);
+        button.note_key("pmic", true, false, Instant::now());
+        button.note_key("pmic", false, false, Instant::now());
     }
     assert!(!button.take_toggle(false));
 }
@@ -176,11 +248,11 @@ fn two_power_presses_in_one_dispatch_leave_power_unchanged() {
 #[test]
 fn power_then_volume_down_takes_a_screenshot_instead_of_the_toggle() {
     let mut button = PowerButton::default();
-    button.note_key("pmic", true, true);
+    button.note_key("pmic", true, true, Instant::now());
     assert!(!button.take_toggle(true), "waits for the release");
     assert_eq!(button.note_volume_down(true, true), VolumeDownRoute::Take);
     assert!(button.take_screenshot());
-    button.note_key("pmic", false, true);
+    button.note_key("pmic", false, true, Instant::now());
     assert!(!button.take_toggle(true));
     assert_eq!(button.note_volume_down(false, true), VolumeDownRoute::Take);
     assert!(!button.take_screenshot());
@@ -193,13 +265,13 @@ fn volume_down_then_power_takes_a_screenshot_and_no_volume_step() {
         button.note_volume_down(true, true),
         VolumeDownRoute::HoldBack
     );
-    button.note_key("pmic", true, true);
+    button.note_key("pmic", true, true, Instant::now());
     assert!(button.take_screenshot());
     assert!(
         !button.take_held_volume_down(),
         "the press never reaches the seat"
     );
-    button.note_key("pmic", false, true);
+    button.note_key("pmic", false, true, Instant::now());
     assert!(!button.take_toggle(true));
     assert_eq!(button.note_volume_down(false, true), VolumeDownRoute::Take);
 }
@@ -234,9 +306,9 @@ fn held_back_volume_down_is_delivered_when_power_does_not_follow() {
         VolumeDownRoute::HoldBack
     );
     assert!(button.take_held_volume_down());
-    button.note_key("pmic", true, true);
+    button.note_key("pmic", true, true, Instant::now());
     assert!(button.take_screenshot());
-    button.note_key("pmic", false, true);
+    button.note_key("pmic", false, true, Instant::now());
     assert_eq!(
         button.note_volume_down(false, true),
         VolumeDownRoute::Deliver
@@ -246,13 +318,13 @@ fn held_back_volume_down_is_delivered_when_power_does_not_follow() {
 #[test]
 fn power_alone_toggles_on_release_with_chords_and_volume_stays_volume() {
     let mut button = PowerButton::default();
-    button.note_key("pmic", true, true);
-    button.note_key("pmic", false, true);
+    button.note_key("pmic", true, true, Instant::now());
+    button.note_key("pmic", false, true, Instant::now());
     assert!(button.take_toggle(true));
     assert!(!button.take_screenshot());
 
     // Without chords, Volume Down never waits or joins Power.
-    button.note_key("pmic", true, false);
+    button.note_key("pmic", true, false, Instant::now());
     assert_eq!(
         button.note_volume_down(true, false),
         VolumeDownRoute::Deliver
@@ -841,7 +913,11 @@ fn power_button_beside_a_desk_toggles_only_the_phone_and_never_locks() {
     );
     assert!(!off.lock);
     // Typing at the desk does not light the phone again.
-    assert!(policy.note_activity(now + Duration::from_secs(1)).is_empty());
+    assert!(
+        policy
+            .note_activity(now + Duration::from_secs(1))
+            .is_empty()
+    );
     let on = policy.toggle_now([(output(1), false), (output(2), true)], now);
     assert_eq!(
         on.power_requests,

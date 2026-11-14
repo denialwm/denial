@@ -511,6 +511,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setPowerButtonLongPressAction(PowerButtonLongPressAction value) {
+    _update(
+      state.copyWith(
+        power: state.power.copyWith(powerButtonLongPressAction: value),
+      ),
+    );
+  }
+
   void setDoNotDisturb(bool value) {
     _update(
       state.copyWith(

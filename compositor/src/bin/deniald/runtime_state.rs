@@ -169,6 +169,9 @@ pub(super) struct RuntimeState {
     /// Power plus Volume Down asked for a full-screen screenshot.
     #[cfg(feature = "flutter")]
     pub(super) screenshot_requested: bool,
+    /// The power button was held: the shell opens its power menu.
+    #[cfg(feature = "flutter")]
+    pub(super) power_menu_requested: bool,
     #[cfg(feature = "flutter")]
     pub(super) text_prediction: Option<text_prediction::TextPredictionService>,
     #[cfg(feature = "flutter")]
