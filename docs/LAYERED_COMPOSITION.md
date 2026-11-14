@@ -86,11 +86,16 @@ until it changes.
   slice to a retained `DenialSlice` texture when its display list changed,
   then draws entries in order with `PaintWindow`, `DrawImage` or a backdrop
   `SaveLayer`, and presents one backing store.
-- A slice renders as the output's root pass would draw it, with the output
-  target's sample count (single-sample on Denial outputs), so layered and
-  direct frames match. Its storage is only the color texture (4 bytes per
-  pixel); depth/stencil, and MSAA color where the output uses it, are created
-  for each render and released with it, as the root pass's are.
+- A slice renders as a direct frame would draw it, with the sample count of
+  the pass its content lands in, so layered and direct frames match: the
+  output target's (single-sample on Denial outputs), or multisampled inside an
+  open material, whose save layer a direct frame draws multisampled. On GLES
+  a single-sample slice is stored bottom-up and renders without Impeller's
+  offscreen vertex flip, as the output's FBO does; flipped rows break
+  pixel-centre ties the other way and moved half-pixel edges by a row. Its
+  storage is only the color texture (4 bytes per pixel); depth/stencil, and
+  MSAA color where the pass uses it, are created for each render and released
+  with it, as the root pass's are.
 - A slice renders into the top-left corner of its slot's storage while the
   slice fits in at most twice its area, since each re-render clears the whole
   storage. Otherwise the slot takes the smallest such storage that another
