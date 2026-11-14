@@ -5216,4 +5216,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get mobilePowerMenuSemantics => '电源菜单';
+
+  @override
+  String get homeEditorAddPage => '添加页面';
+
+  @override
+  String get homeEditorRemovePage => '移除页面';
+
+  @override
+  String get homeEditorDrawer => '应用抽屉';
+
+  @override
+  String get homeEditorDrawerDetail => '在主屏幕上滑查看所有应用';
+
+  @override
+  String get homeEditorSharedRow => '固定底栏';
+
+  @override
+  String get homeEditorSharedRowDetail => '切换页面时底栏保持不变';
+
+  @override
+  String get homeEditorDone => '完成';
+
+  @override
+  String get homeDrawerSemantics => '所有应用';
 }

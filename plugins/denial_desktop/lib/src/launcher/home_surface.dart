@@ -8,6 +8,8 @@ import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
+import 'package:denial_flutter_sdk/system_services.dart'
+    show hapticsServiceProvider;
 
 import '../state/reference_shell_controller.dart';
 import 'home_drag_controller.dart';
@@ -17,9 +19,12 @@ import 'home_interactions.dart';
 import 'home_launch.dart';
 import 'home_pager.dart';
 import 'home_resize_controller.dart';
+import 'widgets/home_app_drawer.dart';
 import 'widgets/home_backdrop.dart';
 import 'widgets/home_drag_layer.dart';
 import 'widgets/home_folder_panel.dart';
+import 'widgets/home_grid_page.dart';
+import 'widgets/home_page_editor.dart';
 import 'widgets/home_resize_frame.dart';
 
 /// The mobile home screen: paged apps, folders and widgets over the
@@ -50,6 +55,7 @@ class HomeSurface extends ConsumerStatefulWidget {
 }
 
 class _HomeSurfaceState extends ConsumerState<HomeSurface>
+    with SingleTickerProviderStateMixin
     implements HomeGridHost, HomeInteractions {
   static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(0, 66, 0, 4);
 
@@ -79,6 +85,26 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   /// The press that dismissed a resize frame does nothing else.
   bool _swallowTap = false;
 
+  /// A press held this long on the background opens the page editor.
+  static const double _holdSlop = 18;
+  Timer? _backgroundHold;
+  Offset _holdStart = Offset.zero;
+
+  /// The page editor is open.
+  bool _editing = false;
+
+  /// 0 closed, 1 open: the drawer follows the finger between.
+  late final _drawer = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+
+  /// A swipe up on home moves the drawer.
+  bool _drawerDragging = false;
+
+  /// Opening or closing faster than this decides on release.
+  static const double _drawerFlick = 600;
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +131,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   @override
   void dispose() {
     _locator.detach(_iconFor);
+    _backgroundHold?.cancel();
+    _drawer.dispose();
     drag.dispose();
     resize.dispose();
     folders.dispose();
@@ -116,6 +144,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
     _pointer = null;
     _heldWidget = null;
     _taps.reset();
+    _backgroundHold?.cancel();
+    _drawerDragging = false;
+    _drawer.value = 0;
+    if (_editing) setState(() => _editing = false);
     resize.exit();
     drag.abandon();
   }
@@ -213,6 +245,11 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
     unawaited(launchHomeApp(context, ref, app, iconRect));
   }
 
+  void _launchFromDrawer(HomeGridItem app, Rect iconRect) {
+    launch(app, iconRect);
+    _drawer.value = 0;
+  }
+
   @override
   void openFolder(HomeGridItem folder, Rect iconRect) {
     if (_swallowTap || drag.active) return;
@@ -255,15 +292,33 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
     }
     final onBackground =
         !_swallowTap &&
+        !_editing &&
+        _drawer.value == 0 &&
         !resize.active &&
         folders.open.value == null &&
         !_onItem(event.position);
     _taps.down(event, onBackground: onBackground);
+    _backgroundHold?.cancel();
+    if (onBackground) {
+      _holdStart = event.position;
+      _backgroundHold = Timer(HomeSlidingTile.holdDuration, _openEditor);
+    }
+  }
+
+  void _openEditor() {
+    _backgroundHold = null;
+    if (!mounted || grid == null || _geometry == null) return;
+    ref.read(hapticsServiceProvider).pulse();
+    _taps.reset();
+    setState(() => _editing = true);
   }
 
   void _pointerMove(PointerMoveEvent event) {
     if (event.pointer != _pointer) return;
     _taps.move(event);
+    if ((event.position - _holdStart).distance > _holdSlop) {
+      _backgroundHold?.cancel();
+    }
     final held = _heldWidget;
     if (held != null &&
         !drag.active &&
@@ -285,6 +340,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
     if (event.pointer != _pointer) return;
     _pointer = null;
     _heldWidget = null;
+    _backgroundHold?.cancel();
     if (drag.active) {
       drag.move(event.position);
       drag.end(cancelled: event is PointerCancelEvent);
@@ -338,13 +394,118 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
       return;
     }
     final last =
-        HomeGridLayout.pageCountForSlots(grid.slots, geometry.pageSize) - 1;
+        HomeGridLayout.pageCount(grid.slots, geometry.pageSize, grid.pages) - 1;
     if (grid.page > last) {
       // The last page emptied: return to the one before it.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) gridController.setPage(last);
       });
     }
+    // Rows are known now: items the bottom row cannot take move up.
+    if (!identical(HomeGridLayout.conform(grid.slots), grid.slots)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) gridController.conform();
+      });
+    }
+  }
+
+  // Drawer -------------------------------------------------------------------
+
+  bool get _drawerAllowed =>
+      (grid?.drawer ?? false) &&
+      !_editing &&
+      !drag.active &&
+      !resize.active &&
+      folders.open.value == null;
+
+  void _drawerDragStart(DragStartDetails details) {
+    _drawerDragging = _drawerAllowed;
+    if (_drawerDragging) {
+      _backgroundHold?.cancel();
+      _drawer.stop();
+    }
+  }
+
+  void _drawerDragUpdate(DragUpdateDetails details) {
+    if (!_drawerDragging) return;
+    _moveDrawer(details.delta.dy);
+  }
+
+  void _drawerDragEnd(DragEndDetails details) {
+    if (!_drawerDragging) return;
+    _drawerDragging = false;
+    _settleDrawer(details.velocity.pixelsPerSecond.dy);
+  }
+
+  /// Moves the drawer [down] logical pixels.
+  void _moveDrawer(double down) {
+    final height = context.size?.height ?? 0;
+    if (height <= 0) return;
+    _drawer.value -= down / height;
+  }
+
+  void _settleDrawer(double downVelocity) {
+    final open = downVelocity < -_drawerFlick
+        ? true
+        : downVelocity > _drawerFlick
+        ? false
+        : _drawer.value > 0.4;
+    unawaited(
+      _drawer.animateTo(
+        open ? 1 : 0,
+        curve: Curves.easeOutCubic,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 320),
+      ),
+    );
+  }
+
+  // Page editor --------------------------------------------------------------
+
+  void _closeEditor() {
+    if (_editing) setState(() => _editing = false);
+  }
+
+  void _openPage(int page) {
+    _closeEditor();
+    if (_pages.hasClients) _pages.jumpToPage(page);
+  }
+
+  void _removePage(int page) {
+    final geometry = _geometry;
+    if (geometry == null) return;
+    gridController.removePage(page, geometry.pageSize);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final shown = grid?.page;
+      if (mounted && shown != null && _pages.hasClients) {
+        _pages.jumpToPage(shown);
+      }
+    });
+  }
+
+  Widget _editor() {
+    final grid = this.grid;
+    final geometry = _geometry;
+    if (grid == null || geometry == null) return const SizedBox.shrink();
+    return HomePageEditor(
+      slots: grid.slots,
+      geometry: geometry,
+      pageCount: HomeGridLayout.pageCount(
+        grid.slots,
+        geometry.pageSize,
+        grid.pages,
+      ),
+      page: grid.page,
+      drawer: grid.drawer,
+      sharedBottomRow: grid.sharedBottomRow,
+      onOpenPage: _openPage,
+      onAddPage: () => gridController.addPage(geometry.pageSize),
+      onRemovePage: _removePage,
+      onDrawer: gridController.setDrawer,
+      onSharedBottomRow: gridController.setSharedBottomRow,
+      onDone: _closeEditor,
+    );
   }
 
   /// The icon a window transition starts or ends on: in the open folder, or
@@ -373,11 +534,9 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
       }
     }
 
-    final start = grid.page * geometry.pageSize;
-    for (var index = start; index < start + geometry.pageSize; index++) {
-      if (index >= grid.slots.length) break;
+    for (var index = 0; index < grid.slots.length; index++) {
       final item = grid.slots[index];
-      if (item == null) continue;
+      if (item == null || !geometry.shows(index, grid.page)) continue;
       if ((item.isApp && shows(item)) ||
           (item.isFolder && item.folderApps.any(shows))) {
         return HomeIconTarget(
@@ -396,15 +555,22 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   Widget? _content;
   List<HomeGridItem?>? _contentSlots;
   bool? _contentError;
+  ({int pages, bool shared})? _contentPages;
 
   /// The same grid widget while its slots hold: visibility, interactivity and
   /// opacity changes then rebuild only the wrappers above it, not each tile.
-  Widget _contentFor(List<HomeGridItem?>? slots, bool hasError) {
+  Widget _contentFor(
+    List<HomeGridItem?>? slots,
+    bool hasError,
+    ({int pages, bool shared}) pages,
+  ) {
     if (_content == null ||
         !identical(slots, _contentSlots) ||
-        hasError != _contentError) {
+        hasError != _contentError ||
+        pages != _contentPages) {
       _contentSlots = slots;
       _contentError = hasError;
+      _contentPages = pages;
       _content = HomeInteractionScope(
         interactions: this,
         child: Stack(
@@ -415,6 +581,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
               child: HomePager(
                 slots: slots,
                 hasError: hasError,
+                pages: pages.pages,
+                sharedBottomRow: pages.shared,
                 controller: _pages,
                 viewportKey: _viewportKey,
                 onLayout: _layout,
@@ -440,11 +608,39 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
   Widget build(BuildContext context) {
     final contents = ref.watch(
       homeGridControllerProvider.select(
-        (value) => (slots: value.asData?.value.slots, hasError: value.hasError),
+        (value) => (
+          slots: value.asData?.value.slots,
+          hasError: value.hasError,
+          pages: value.asData?.value.pages ?? 0,
+          shared: value.asData?.value.sharedBottomRow ?? false,
+          drawer: value.asData?.value.drawer ?? false,
+        ),
       ),
     );
+    // The editor reads the whole grid while it is open.
+    if (_editing) ref.watch(homeGridControllerProvider);
     final opacity = widget.contentOpacity;
-    final content = _contentFor(contents.slots, contents.hasError);
+    final grid = _contentFor(contents.slots, contents.hasError, (
+      pages: contents.pages,
+      shared: contents.shared,
+    ));
+    // The editor shows the pages itself.
+    final shown = AnimatedOpacity(
+      opacity: _editing ? 0 : 1,
+      duration: const Duration(milliseconds: 200),
+      child: IgnorePointer(ignoring: _editing, child: grid),
+    );
+    final content = contents.drawer
+        ? GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: _drawerDragStart,
+            onVerticalDragUpdate: _drawerDragUpdate,
+            onVerticalDragEnd: _drawerDragEnd,
+            onVerticalDragCancel: () => _drawerDragging = false,
+            child: shown,
+          )
+        : shown;
+    final apps = contents.drawer ? this.grid?.apps : null;
     return Offstage(
       offstage: !widget.active,
       child: TickerMode(
@@ -466,6 +662,25 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface>
                   content
                 else
                   FadeSnapshot(opacity: opacity, child: content),
+                if (apps != null && _geometry != null)
+                  HomeAppDrawer(
+                    openness: _drawer,
+                    apps: apps,
+                    columns: _geometry!.columns,
+                    onLaunch: _launchFromDrawer,
+                    onDrag: _moveDrawer,
+                    onDragEnd: _settleDrawer,
+                  ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _editing
+                      ? HomeInteractionScope(
+                          key: const ValueKey('home-page-editor'),
+                          interactions: this,
+                          child: _editor(),
+                        )
+                      : const SizedBox.shrink(),
+                ),
               ],
             ),
           ),

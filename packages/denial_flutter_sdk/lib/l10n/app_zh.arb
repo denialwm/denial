@@ -1639,5 +1639,13 @@
   "lockEditorPortrait": "将平板横置以编辑锁屏",
   "mobilePowerTapToRestart": "再次点按以重启",
   "mobilePowerTapToPowerOff": "再次点按以关机",
-  "mobilePowerMenuSemantics": "电源菜单"
+  "mobilePowerMenuSemantics": "电源菜单",
+  "homeEditorAddPage": "添加页面",
+  "homeEditorRemovePage": "移除页面",
+  "homeEditorDrawer": "应用抽屉",
+  "homeEditorDrawerDetail": "在主屏幕上滑查看所有应用",
+  "homeEditorSharedRow": "固定底栏",
+  "homeEditorSharedRowDetail": "切换页面时底栏保持不变",
+  "homeEditorDone": "完成",
+  "homeDrawerSemantics": "所有应用"
 }

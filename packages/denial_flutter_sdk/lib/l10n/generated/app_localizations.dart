@@ -9777,6 +9777,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Power menu'**
   String get mobilePowerMenuSemantics;
+
+  /// Home page editor: the card that adds an empty launcher page.
+  ///
+  /// In en, this message translates to:
+  /// **'Add page'**
+  String get homeEditorAddPage;
+
+  /// Home page editor: accessibility label of the button on a page that removes it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove page'**
+  String get homeEditorRemovePage;
+
+  /// Home page editor: switch that turns the app drawer on.
+  ///
+  /// In en, this message translates to:
+  /// **'App drawer'**
+  String get homeEditorDrawer;
+
+  /// Home page editor: what the app drawer switch does.
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe up on home to see every app'**
+  String get homeEditorDrawerDetail;
+
+  /// Home page editor: switch that keeps the bottom row of icons the same on every page.
+  ///
+  /// In en, this message translates to:
+  /// **'Fixed bottom row'**
+  String get homeEditorSharedRow;
+
+  /// Home page editor: what the fixed bottom row switch does.
+  ///
+  /// In en, this message translates to:
+  /// **'The bottom row stays put when you change page'**
+  String get homeEditorSharedRowDetail;
+
+  /// Home page editor: button that closes the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get homeEditorDone;
+
+  /// Accessibility label of the full-screen app drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'All apps'**
+  String get homeDrawerSemantics;
 }
 
 class _AppLocalizationsDelegate

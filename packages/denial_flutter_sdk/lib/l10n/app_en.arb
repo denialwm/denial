@@ -7103,5 +7103,21 @@
   "mobilePowerTapToPowerOff": "Tap again to power off",
   "@mobilePowerTapToPowerOff": {"description": "Mobile power menu: shown after Power off is tapped once; a second tap shuts the phone down."},
   "mobilePowerMenuSemantics": "Power menu",
-  "@mobilePowerMenuSemantics": {"description": "Accessibility label of the mobile power menu."}
+  "@mobilePowerMenuSemantics": {"description": "Accessibility label of the mobile power menu."},
+  "homeEditorAddPage": "Add page",
+  "@homeEditorAddPage": {"description": "Home page editor: the card that adds an empty launcher page."},
+  "homeEditorRemovePage": "Remove page",
+  "@homeEditorRemovePage": {"description": "Home page editor: accessibility label of the button on a page that removes it."},
+  "homeEditorDrawer": "App drawer",
+  "@homeEditorDrawer": {"description": "Home page editor: switch that turns the app drawer on."},
+  "homeEditorDrawerDetail": "Swipe up on home to see every app",
+  "@homeEditorDrawerDetail": {"description": "Home page editor: what the app drawer switch does."},
+  "homeEditorSharedRow": "Fixed bottom row",
+  "@homeEditorSharedRow": {"description": "Home page editor: switch that keeps the bottom row of icons the same on every page."},
+  "homeEditorSharedRowDetail": "The bottom row stays put when you change page",
+  "@homeEditorSharedRowDetail": {"description": "Home page editor: what the fixed bottom row switch does."},
+  "homeEditorDone": "Done",
+  "@homeEditorDone": {"description": "Home page editor: button that closes the editor."},
+  "homeDrawerSemantics": "All apps",
+  "@homeDrawerSemantics": {"description": "Accessibility label of the full-screen app drawer."}
 }

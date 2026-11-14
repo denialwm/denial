@@ -5479,4 +5479,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get mobilePowerMenuSemantics => 'Power menu';
+
+  @override
+  String get homeEditorAddPage => 'Add page';
+
+  @override
+  String get homeEditorRemovePage => 'Remove page';
+
+  @override
+  String get homeEditorDrawer => 'App drawer';
+
+  @override
+  String get homeEditorDrawerDetail => 'Swipe up on home to see every app';
+
+  @override
+  String get homeEditorSharedRow => 'Fixed bottom row';
+
+  @override
+  String get homeEditorSharedRowDetail =>
+      'The bottom row stays put when you change page';
+
+  @override
+  String get homeEditorDone => 'Done';
+
+  @override
+  String get homeDrawerSemantics => 'All apps';
 }

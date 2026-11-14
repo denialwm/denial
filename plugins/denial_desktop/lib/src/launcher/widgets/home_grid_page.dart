@@ -17,11 +17,16 @@ class HomeGridPage extends StatelessWidget {
     required this.slots,
     required this.page,
     required this.geometry,
+    this.bottomRow = false,
   });
 
   final List<HomeGridItem?> slots;
   final int page;
   final HomeGridGeometry geometry;
+
+  /// Only the page's bottom row: a shared one, which stays put over the
+  /// pages. A page leaves out a shared bottom row.
+  final bool bottomRow;
 
   @override
   Widget build(BuildContext context) {
@@ -33,11 +38,15 @@ class HomeGridPage extends StatelessWidget {
         for (var index = start; index < end && index < slots.length; index++)
           if (slots[index] case final item?
               when HomeGridLayout.itemFitsInPage(
-                index,
-                item,
-                geometry.pageSize,
-                columns: geometry.columns,
-              ))
+                    index,
+                    item,
+                    geometry.pageSize,
+                    columns: geometry.columns,
+                  ) &&
+                  (bottomRow ||
+                      !geometry.sharedBottomRow ||
+                      !geometry.inBottomRow(index)) &&
+                  (!bottomRow || geometry.inBottomRow(index)))
             HomeSlidingTile(
               key: ValueKey(item.id),
               rect: geometry.itemRect(index, item),

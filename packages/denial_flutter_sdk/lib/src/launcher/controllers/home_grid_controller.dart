@@ -44,21 +44,51 @@ final homeClockProvider = Provider<HomeClockInfo>((ref) {
 }, isAutoDispose: true);
 
 class HomeGridState {
-  HomeGridState({required List<HomeGridItem?> slots, this.page = 0})
-    : slots = List.unmodifiable(slots);
+  HomeGridState({
+    required List<HomeGridItem?> slots,
+    this.page = 0,
+    this.pages = 0,
+    this.drawer = false,
+    this.sharedBottomRow = false,
+  }) : slots = List.unmodifiable(slots);
 
-  HomeGridState._({required this.slots, required this.page});
+  HomeGridState._({
+    required this.slots,
+    required this.page,
+    required this.pages,
+    required this.drawer,
+    required this.sharedBottomRow,
+  });
 
   final List<HomeGridItem?> slots;
   final int page;
 
+  /// Pages the user made in the shown orientation; home shows more when its
+  /// items need them ([HomeGridLayout.pageCount]).
+  final int pages;
+
+  /// A swipe up on home opens every app in a drawer.
+  final bool drawer;
+
+  /// The first page's bottom row shows on every page.
+  final bool sharedBottomRow;
+
   /// Every application on the grid, folder contents included.
   Iterable<HomeGridItem> get apps => HomeGridLayout.appsIn(slots);
 
-  HomeGridState copyWith({List<HomeGridItem?>? slots, int? page}) {
+  HomeGridState copyWith({
+    List<HomeGridItem?>? slots,
+    int? page,
+    int? pages,
+    bool? drawer,
+    bool? sharedBottomRow,
+  }) {
     return HomeGridState._(
       slots: slots == null ? this.slots : List.unmodifiable(slots),
       page: page ?? this.page,
+      pages: pages ?? this.pages,
+      drawer: drawer ?? this.drawer,
+      sharedBottomRow: sharedBottomRow ?? this.sharedBottomRow,
     );
   }
 }
@@ -87,6 +117,9 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
 
   /// Every orientation's saved layout, the shown one as of its last save.
   Map<HomeOrientation, List<HomeLayoutSlot?>> _layouts = {};
+
+  /// Pages the user made in each orientation.
+  Map<HomeOrientation, int> _pages = {};
 
   @override
   Future<HomeGridState> build() async {
@@ -135,17 +168,24 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         localApps,
         savedLayout,
       );
+      final loaded = HomeGridState(
+        slots: slots,
+        pages: orientation == null ? 0 : saved.pages[orientation] ?? 0,
+        drawer: saved.drawer,
+        sharedBottomRow: saved.sharedBottomRow,
+      );
       if (!_isBuildActive(generation)) {
-        return HomeGridState(slots: slots);
+        return loaded;
       }
       _orientation = orientation;
       _layouts = {...saved.layouts};
+      _pages = {...saved.pages};
       _lastDesktopRefresh = DateTime.now();
       if (_savedLayoutNeedsRefresh(apps, localApps, savedLayout, slots)) {
-        _save(slots);
+        _save(slots, state: loaded);
       }
       unawaited(_startDesktopRefreshTriggers(generation, appsRepository));
-      return HomeGridState(slots: slots);
+      return loaded;
     } on Object catch (error, stackTrace) {
       Error.throwWithStackTrace(error, stackTrace);
     }
@@ -334,6 +374,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     }
 
     _layouts[shown] = _layoutOf(current.slots);
+    _pages[shown] = current.pages;
     final saved = _layouts[orientation];
     final slots = saved == null
         ? HomeGridLayout.reflowSlots(current.slots, pageSize)
@@ -342,7 +383,67 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
             ref.read(localFlutterApplicationRegistryProvider).applications,
             saved,
           );
-    state = AsyncData(current.copyWith(slots: slots));
+    state = AsyncData(
+      current.copyWith(slots: slots, pages: _pages[orientation] ?? 0),
+    );
+    _save(slots);
+  }
+
+  /// Moves items the bottom row's rules leave out, once the grid knows its
+  /// rows ([HomeGridLayout.rows]).
+  void conform() {
+    _update((slots) {
+      final next = HomeGridLayout.conform(slots);
+      return identical(next, slots) ? null : next;
+    });
+  }
+
+  /// Adds an empty page after the last.
+  void addPage(int pageSize) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final pages =
+        HomeGridLayout.pageCount(current.slots, pageSize, current.pages) + 1;
+    state = AsyncData(current.copyWith(pages: pages));
+    _save(current.slots);
+  }
+
+  /// Removes [page]; its items move to the next free cells.
+  void removePage(int page, int pageSize) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final count = HomeGridLayout.pageCount(
+      current.slots,
+      pageSize,
+      current.pages,
+    );
+    if (count <= 1 || page < 0 || page >= count) return;
+    final slots = HomeGridLayout.removePage(current.slots, page, pageSize);
+    state = AsyncData(
+      current.copyWith(
+        slots: slots,
+        pages: count - 1,
+        page: current.page.clamp(0, count - 2),
+      ),
+    );
+    _save(slots);
+  }
+
+  void setDrawer(bool drawer) {
+    final current = state.asData?.value;
+    if (current == null || current.drawer == drawer) return;
+    state = AsyncData(current.copyWith(drawer: drawer));
+    _save(current.slots);
+  }
+
+  /// Shares the first page's bottom row; items in the other pages' bottom
+  /// rows move up to free cells.
+  void setSharedBottomRow(bool shared) {
+    final current = state.asData?.value;
+    if (current == null || current.sharedBottomRow == shared) return;
+    HomeGridLayout.sharedBottomRow = shared;
+    final slots = HomeGridLayout.conform(current.slots);
+    state = AsyncData(current.copyWith(slots: slots, sharedBottomRow: shared));
     _save(slots);
   }
 
@@ -486,20 +587,30 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     _save(slots);
   }
 
-  /// Saves [slots] as the shown orientation's layout, beside the others.
-  void _save(List<HomeGridItem?> slots) {
+  /// Saves [slots] as the shown orientation's layout, beside the others,
+  /// with the pages and choices of [state] (the current one by default).
+  void _save(List<HomeGridItem?> slots, {HomeGridState? state}) {
+    final shown = state ?? this.state.asData?.value;
     final layout = _layoutOf(slots);
     final orientation = _orientation;
     if (orientation != null) {
       _layouts[orientation] = layout;
+      if (shown != null) _pages[orientation] = shown.pages;
     }
     unawaited(
       ref
           .read(homeLayoutRepositoryProvider)
           .saveLayouts(
-            orientation == null
-                ? HomeSavedLayouts(unassigned: layout)
-                : HomeSavedLayouts(layouts: {..._layouts}),
+            HomeSavedLayouts(
+              layouts: orientation == null ? const {} : {..._layouts},
+              unassigned: orientation == null ? layout : null,
+              pages: {
+                for (final MapEntry(:key, :value) in _pages.entries)
+                  if (value > 0) key: value,
+              },
+              drawer: shown?.drawer ?? false,
+              sharedBottomRow: shown?.sharedBottomRow ?? false,
+            ),
           ),
     );
   }

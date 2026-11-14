@@ -308,7 +308,6 @@ class HomeDragController {
     Rect tile,
   ) {
     final item = drag.item;
-    final pageStart = grid.page * geometry.pageSize;
     int? best;
     var bestOverlap = 0.0;
     var bestDistance = double.infinity;
@@ -318,7 +317,7 @@ class HomeDragController {
         column <= geometry.columns - item.colSpan;
         column += 1
       ) {
-        final index = pageStart + row * geometry.columns + column;
+        final index = geometry.indexAt(grid.page, row, column);
         final candidate = geometry.rectAt(
           index,
           colSpan: item.colSpan,
@@ -366,10 +365,11 @@ class HomeDragController {
         target!.index,
       );
       final displaced = partner == null ? null : grid.slots[partner];
-      // Only a partner on the same page can show where it goes.
+      // Only a partner shown with the dragged tile's place can show where
+      // it goes.
       if (displaced != null &&
-          partner! ~/ geometry.pageSize ==
-              current.source ~/ geometry.pageSize) {
+          geometry.shows(partner!, grid.page) &&
+          geometry.shows(current.source, grid.page)) {
         displacedId = displaced.id;
         displacement =
             geometry.rectAt(current.source).topLeft -
@@ -504,7 +504,7 @@ class HomeDragController {
     final grid = _host.grid;
     if (grid == null) return null;
     final index = grid.slots.indexWhere((slot) => slot?.id == item.id);
-    if (index < 0 || index ~/ geometry.pageSize != grid.page) {
+    if (index < 0 || !geometry.shows(index, grid.page)) {
       return null;
     }
     final rect = geometry.itemRect(index, item);

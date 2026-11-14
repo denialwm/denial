@@ -31,18 +31,27 @@ abstract final class HomeTileMetrics {
 /// current page settled in it.
 @immutable
 class HomeGridGeometry {
-  const HomeGridGeometry({
+  HomeGridGeometry({
     required this.columns,
     required this.rows,
     required this.tileSize,
     required this.inset,
     this.orientation = HomeOrientation.portrait,
     this.gap = HomeGridLayout.gridGap,
-  });
+    double? bottomRowTop,
+    this.sharedBottomRow = false,
+  }) : bottomRowTop = bottomRowTop ?? (rows - 1) * (tileSize.height + gap);
 
   /// The grid for a pager of [size]. Wide panels get more columns rather
-  /// than larger cells; rows fill the height.
-  factory HomeGridGeometry.forViewport(Size size, {required double inset}) {
+  /// than larger cells; rows fill the height but [rowGap] above the bottom
+  /// row, which sits at the bottom of [size] with any height left over
+  /// above it.
+  factory HomeGridGeometry.forViewport(
+    Size size, {
+    required double inset,
+    double rowGap = 0,
+    bool sharedBottomRow = false,
+  }) {
     final width = size.width - inset * 2;
     final columns = HomeGridLayout.columnsForViewport(width);
     const gap = HomeGridLayout.gridGap;
@@ -50,8 +59,9 @@ class HomeGridGeometry {
     // Cell content is fixed-size, so height must not follow width past its
     // cap (phone tiles never reach it and keep the tuned aspect). A short
     // panel shrinks cells until its rows fit, down to the icon and label.
+    final rowsHeight = size.height - rowGap;
     final fittingHeight =
-        (size.height - gap * (HomeGridLayout.minRows - 1)) /
+        (rowsHeight - gap * (HomeGridLayout.minRows - 1)) /
         HomeGridLayout.minRows;
     final tileHeight = math.max(
       HomeGridLayout.minTileHeight,
@@ -63,14 +73,22 @@ class HomeGridGeometry {
         fittingHeight,
       ),
     );
+    final rows = HomeGridLayout.rowsForHeight(rowsHeight, tileHeight);
     return HomeGridGeometry(
       columns: columns,
-      rows: HomeGridLayout.rowsForHeight(size.height, tileHeight),
+      rows: rows,
       tileSize: Size(tileWidth, tileHeight),
       inset: inset,
       orientation: size.width > size.height
           ? HomeOrientation.landscape
           : HomeOrientation.portrait,
+      bottomRowTop: rows < 2
+          ? 0
+          : math.max(
+              (rows - 1) * (tileHeight + gap) + rowGap,
+              size.height - tileHeight,
+            ),
+      sharedBottomRow: sharedBottomRow && rows >= 2,
     );
   }
 
@@ -85,12 +103,24 @@ class HomeGridGeometry {
   final HomeOrientation orientation;
   final double gap;
 
+  /// Where the bottom row starts: at the bottom of the viewport, apart from
+  /// the rows above it ([HomeGridLayout.inBottomRow]).
+  final double bottomRowTop;
+
+  /// The first page's bottom row shows on every page.
+  final bool sharedBottomRow;
+
   int get pageSize => columns * rows;
   double get stepX => tileSize.width + gap;
   double get stepY => tileSize.height + gap;
   double get width =>
       inset * 2 + columns * tileSize.width + (columns - 1) * gap;
-  double get height => rows * tileSize.height + (rows - 1) * gap;
+  double get height => bottomRowTop + tileSize.height;
+
+  /// The rows above the bottom row, where taller widgets fit.
+  int get upperRows => rows < 2 ? rows : rows - 1;
+
+  double _rowTop(int row) => row == rows - 1 ? bottomRowTop : row * stepY;
 
   /// The bounds of [colSpan] x [rowSpan] cells anchored at [index], on
   /// whichever page holds it.
@@ -98,11 +128,26 @@ class HomeGridGeometry {
     final local = index % pageSize;
     return Rect.fromLTWH(
       inset + (local % columns) * stepX,
-      (local ~/ columns) * stepY,
+      _rowTop(local ~/ columns),
       colSpan * tileSize.width + (colSpan - 1) * gap,
       rowSpan * tileSize.height + (rowSpan - 1) * gap,
     );
   }
+
+  /// The cell at [row] and [column] as [page] shows it: a shared bottom row
+  /// is the first page's.
+  int indexAt(int page, int row, int column) =>
+      (sharedBottomRow && row == rows - 1 ? 0 : page) * pageSize +
+      row * columns +
+      column;
+
+  bool inBottomRow(int index) =>
+      rows >= 2 && (index % pageSize) ~/ columns == rows - 1;
+
+  /// Whether [page] shows the item anchored at [index].
+  bool shows(int index, int page) =>
+      index ~/ pageSize == page ||
+      (sharedBottomRow && index < pageSize && inBottomRow(index));
 
   Rect itemRect(int index, HomeGridItem item) =>
       rectAt(index, colSpan: item.colSpan, rowSpan: item.rowSpan);
@@ -110,11 +155,17 @@ class HomeGridGeometry {
   /// The cell of [page] under [point], or null outside the grid.
   int? cellAt(Offset point, int page) {
     final column = ((point.dx - inset + gap / 2) / stepX).floor();
-    final row = ((point.dy + gap / 2) / stepY).floor();
-    if (column < 0 || column >= columns || row < 0 || row >= rows) {
+    final bottom = rows >= 2 && point.dy >= bottomRowTop - gap / 2;
+    final row = bottom
+        ? (point.dy < bottomRowTop + tileSize.height + gap / 2 ? rows - 1 : -1)
+        : ((point.dy + gap / 2) / stepY).floor();
+    if (column < 0 ||
+        column >= columns ||
+        row < 0 ||
+        row >= (bottom ? rows : upperRows)) {
       return null;
     }
-    return page * pageSize + row * columns + column;
+    return indexAt(page, row, column);
   }
 
   @override
@@ -125,9 +176,19 @@ class HomeGridGeometry {
       other.tileSize == tileSize &&
       other.inset == inset &&
       other.orientation == orientation &&
-      other.gap == gap;
+      other.gap == gap &&
+      other.bottomRowTop == bottomRowTop &&
+      other.sharedBottomRow == sharedBottomRow;
 
   @override
-  int get hashCode =>
-      Object.hash(columns, rows, tileSize, inset, orientation, gap);
+  int get hashCode => Object.hash(
+    columns,
+    rows,
+    tileSize,
+    inset,
+    orientation,
+    gap,
+    bottomRowTop,
+    sharedBottomRow,
+  );
 }
