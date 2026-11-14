@@ -127,6 +127,9 @@ class HomeGridGeometry {
       inset * 2 + columns * tileSize.width + (columns - 1) * gap;
   double get height => bottomRowTop + tileSize.height;
 
+  /// The height a page's own items take: a shared bottom row is no page's.
+  double get pageHeight => sharedBottomRow ? upperRows * stepY - gap : height;
+
   /// The rows above the bottom row, where taller widgets fit.
   int get upperRows => rows < 2 ? rows : rows - 1;
 

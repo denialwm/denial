@@ -52,7 +52,7 @@ class HomePageEditor extends StatelessWidget {
     final l10n = context.l10n;
     // Cards keep the grid's shape at about half the screen's height.
     final cardHeight = math.min(size.height * 0.46, 620.0);
-    final cardWidth = cardHeight * geometry.width / geometry.height;
+    final cardWidth = cardHeight * geometry.width / geometry.pageHeight;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onDone,
@@ -132,7 +132,7 @@ class HomePageEditor extends StatelessWidget {
   }
 }
 
-/// A page as home shows it, a shared bottom row included.
+/// A page's own items as home shows them.
 class _PageThumbnail extends StatelessWidget {
   const _PageThumbnail({
     required this.slots,
@@ -150,20 +150,8 @@ class _PageThumbnail extends StatelessWidget {
       child: FittedBox(
         child: SizedBox(
           width: geometry.width,
-          height: geometry.height,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              HomeGridPage(slots: slots, page: page, geometry: geometry),
-              if (geometry.sharedBottomRow)
-                HomeGridPage(
-                  slots: slots,
-                  page: 0,
-                  geometry: geometry,
-                  bottomRow: true,
-                ),
-            ],
-          ),
+          height: geometry.pageHeight,
+          child: HomeGridPage(slots: slots, page: page, geometry: geometry),
         ),
       ),
     );
