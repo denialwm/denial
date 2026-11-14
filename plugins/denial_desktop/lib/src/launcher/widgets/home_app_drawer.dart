@@ -1,5 +1,5 @@
+import 'package:flutter/gestures.dart' show VelocityTracker;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import 'package:denial_flutter_sdk/applications.dart';
 import 'package:denial_flutter_sdk/effects.dart';
@@ -13,8 +13,8 @@ import 'home_tiles.dart';
 
 /// Every app on home, folders opened, by name, in a full-screen glass sheet
 /// that rises from the bottom as [openness] goes from 0 to 1. Pulled down
-/// from the top of its list, it follows the finger and [onDrag] and
-/// [onDragEnd] report it.
+/// from the top of its list, it follows the finger up and down until the
+/// finger lifts, and [onDrag] and [onDragEnd] report it.
 class HomeAppDrawer extends StatefulWidget {
   const HomeAppDrawer({
     super.key,
@@ -46,8 +46,15 @@ class HomeAppDrawer extends StatefulWidget {
 class _HomeAppDrawerState extends State<HomeAppDrawer> {
   final _scroll = ScrollController();
 
-  /// The list is at its top and the finger pulls the sheet instead.
+  /// The finger that moves the list, or the sheet once it pulls.
+  int? _pointer;
+
+  /// The list was at its top and the finger moved down: the finger holds
+  /// the sheet, and the list stays still, until it lifts.
   bool _pulling = false;
+  VelocityTracker? _velocity;
+
+  late final _physics = _SheetPullPhysics(pulling: () => _pulling);
 
   @override
   void dispose() {
@@ -55,29 +62,35 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
     super.dispose();
   }
 
-  bool _scrolled(ScrollNotification notification) {
-    if (notification.depth != 0) return false;
-    switch (notification) {
-      case OverscrollNotification(:final overscroll, :final dragDetails)
-          when dragDetails != null && overscroll < 0:
-        _pulling = true;
-        widget.onDrag(-overscroll);
-      case ScrollUpdateNotification(:final scrollDelta?, :final dragDetails)
-          when _pulling && dragDetails != null:
-        // Back up while the sheet is down: the sheet rises before the list
-        // scrolls.
-        widget.onDrag(-scrollDelta);
-        if (widget.openness.value < 1) _scroll.jumpTo(0);
-      case ScrollEndNotification(:final dragDetails) when _pulling:
-        _pulling = false;
-        widget.onDragEnd(dragDetails?.velocity.pixelsPerSecond.dy ?? 0);
-      case UserScrollNotification(direction: ScrollDirection.idle)
-          when _pulling:
-        _pulling = false;
-        widget.onDragEnd(0);
-      default:
+  void _down(PointerDownEvent event) {
+    if (_pointer != null) return;
+    _pointer = event.pointer;
+    _pulling = false;
+    _velocity = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+  }
+
+  void _move(PointerMoveEvent event) {
+    if (event.pointer != _pointer) return;
+    _velocity?.addPosition(event.timeStamp, event.position);
+    if (!_pulling &&
+        event.delta.dy > 0 &&
+        _scroll.hasClients &&
+        _scroll.position.pixels <= _scroll.position.minScrollExtent) {
+      _pulling = true;
     }
-    return false;
+    if (_pulling) widget.onDrag(event.delta.dy);
+  }
+
+  void _up(PointerEvent event) {
+    if (event.pointer != _pointer) return;
+    _pointer = null;
+    if (!_pulling) return;
+    _pulling = false;
+    final velocity = event is PointerUpEvent
+        ? _velocity?.getVelocity().pixelsPerSecond.dy ?? 0
+        : 0.0;
+    widget.onDragEnd(velocity);
   }
 
   @override
@@ -95,11 +108,12 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
       animation: widget.openness,
       builder: (context, sheet) {
         final openness = widget.openness.value;
+        // No fade: glass under an opacity layer has nothing to blur.
         return IgnorePointer(
           ignoring: openness == 0,
           child: FractionalTranslation(
             translation: Offset(0, 1 - openness),
-            child: Opacity(opacity: openness.clamp(0.0, 1.0), child: sheet),
+            child: sheet,
           ),
         );
       },
@@ -113,15 +127,14 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
           // Dark like the wallpaper under home: the labels are white.
           child: ColoredBox(
             color: ShellMediaColors.darkness.withValues(alpha: 0.55),
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _scrolled,
+            child: Listener(
+              onPointerDown: _down,
+              onPointerMove: _move,
+              onPointerUp: _up,
+              onPointerCancel: _up,
               child: GridView.builder(
                 controller: _scroll,
-                // A list shorter than the screen still takes the pull that
-                // closes the sheet.
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: ClampingScrollPhysics(),
-                ),
+                physics: _physics,
                 padding: EdgeInsets.fromLTRB(
                   20,
                   padding.top + 72,
@@ -147,6 +160,31 @@ class _HomeAppDrawerState extends State<HomeAppDrawer> {
       ),
     );
   }
+}
+
+/// The list's scrolling, held still while the finger pulls the sheet. A
+/// list shorter than the screen still takes the drag.
+class _SheetPullPhysics extends ClampingScrollPhysics {
+  const _SheetPullPhysics({required this.pulling, super.parent});
+
+  final bool Function() pulling;
+
+  @override
+  _SheetPullPhysics applyTo(ScrollPhysics? ancestor) =>
+      _SheetPullPhysics(pulling: pulling, parent: buildParent(ancestor));
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) => true;
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) =>
+      pulling() ? 0 : super.applyPhysicsToUserOffset(position, offset);
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) => pulling() ? null : super.createBallisticSimulation(position, velocity);
 }
 
 class _DrawerTile extends StatelessWidget {
