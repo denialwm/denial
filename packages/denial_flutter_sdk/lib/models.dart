@@ -85,7 +85,11 @@ export 'src/models/output_configuration.dart'
         canonicalizeOutputScale,
         outputScaleBase;
 export 'src/models/power_button_action.dart'
-    show PowerButtonAction, PowerButtonActionWireValue;
+    show
+        PowerButtonAction,
+        PowerButtonActionWireValue,
+        PowerButtonLongPressAction,
+        PowerButtonLongPressActionWireValue;
 export 'src/models/power_profile.dart' show PowerProfile;
 export 'src/models/shell_clock_info.dart' show ShellClockInfo;
 export 'src/models/shell_popup_placement.dart'

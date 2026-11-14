@@ -8,6 +8,7 @@ import '../models/denial_window_snapshot.dart';
 import '../platform/denial_bridge.dart';
 import '../platform/denial_bridge_provider.dart';
 import 'authentication.dart';
+import 'front_after_close.dart';
 import 'notifier_lifecycle.dart';
 import 'shell_state.dart';
 
@@ -153,12 +154,20 @@ class ShellController extends Notifier<ShellState>
       return;
     }
     _hasLoadedWindowSnapshot = true;
+    final successor = foregroundStillVisible
+        ? null
+        : frontAfterClose(
+            state.windowByObjectId(state.foregroundObjectId),
+            windows,
+          );
     state = state.copyWith(
       windows: windows,
       layerSurfaces: layerSurfaces,
       windowSnapshotSequence: snapshot.sequence,
-      clearForegroundObjectId: !foregroundStillVisible,
+      foregroundObjectId: successor?.objectId,
+      clearForegroundObjectId: !foregroundStillVisible && successor == null,
     );
+    if (successor != null) _bridge.focusWindow(successor);
   }
 }
 

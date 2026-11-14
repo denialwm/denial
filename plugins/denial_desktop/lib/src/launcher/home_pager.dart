@@ -17,6 +17,8 @@ class HomePager extends StatefulWidget {
     super.key,
     required this.slots,
     required this.hasError,
+    required this.pages,
+    required this.sharedBottomRow,
     required this.controller,
     required this.viewportKey,
     required this.onLayout,
@@ -26,6 +28,12 @@ class HomePager extends StatefulWidget {
   /// Null while the grid loads.
   final List<HomeGridItem?>? slots;
   final bool hasError;
+
+  /// Pages the user made: [HomeGridLayout.pageCount].
+  final int pages;
+
+  /// The first page's bottom row stays put while the pages move.
+  final bool sharedBottomRow;
   final PageController controller;
 
   /// Marks the grid viewport, whose coordinates [HomeGridGeometry] uses.
@@ -95,13 +103,14 @@ class _HomePagerState extends State<HomePager> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final geometry = HomeGridGeometry.forViewport(
-          Size(
-            constraints.maxWidth,
-            constraints.maxHeight - HomePager.dotsReservedHeight,
-          ),
+          constraints.biggest,
           inset: HomePager.inset,
+          rowGap: HomePager.dotsReservedHeight,
+          sharedBottomRow: widget.sharedBottomRow,
         );
         HomeGridLayout.columns = geometry.columns;
+        HomeGridLayout.rows = geometry.rows;
+        HomeGridLayout.sharedBottomRow = geometry.sharedBottomRow;
         widget.onLayout(geometry);
 
         final slots = widget.slots;
@@ -109,16 +118,20 @@ class _HomePagerState extends State<HomePager> {
           0.0,
           HomePager._rowVisualHeight,
         );
-        final visualHeight =
-            (geometry.rows - 1) * geometry.stepY + rowVisualHeight;
-        final dotsTop =
-            visualHeight +
-            (constraints.maxHeight -
-                        visualHeight -
-                        HomePager.dotsReservedHeight)
-                    .clamp(0.0, double.infinity) /
-                3;
+        // Between the rows above and the bottom row, which sits at the
+        // bottom of the screen.
+        final upperBottom =
+            (geometry.upperRows - 1) * geometry.stepY + rowVisualHeight;
+        final dotsTop = geometry.rows < 2
+            ? upperBottom
+            : (upperBottom +
+                      geometry.bottomRowTop -
+                      HomePager.dotsReservedHeight) /
+                  2;
 
+        final pageCount = slots == null
+            ? 0
+            : HomeGridLayout.pageCount(slots, geometry.pageSize, widget.pages);
         final Widget content;
         if (slots == null) {
           content = HomeEmptyState(
@@ -127,11 +140,7 @@ class _HomePagerState extends State<HomePager> {
                 : context.l10n.commonLoading,
           );
         } else {
-          final pageCount = HomeGridLayout.pageCountForSlots(
-            slots,
-            geometry.pageSize,
-          );
-          content = ValueListenableBuilder<_PagerMode>(
+          final pager = ValueListenableBuilder<_PagerMode>(
             valueListenable: _mode!,
             builder: (context, mode, _) => PageView.builder(
               controller: widget.controller,
@@ -147,6 +156,20 @@ class _HomePagerState extends State<HomePager> {
               itemBuilder: (context, page) => _page(page, slots, geometry),
             ),
           );
+          content = geometry.sharedBottomRow
+              ? Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    pager,
+                    HomeGridPage(
+                      slots: slots,
+                      page: 0,
+                      geometry: geometry,
+                      bottomRow: true,
+                    ),
+                  ],
+                )
+              : pager;
         }
 
         return Stack(
@@ -165,12 +188,7 @@ class _HomePagerState extends State<HomePager> {
                 top: dotsTop,
                 left: 0,
                 right: 0,
-                child: _HomePageDots(
-                  count: HomeGridLayout.pageCountForSlots(
-                    slots,
-                    geometry.pageSize,
-                  ),
-                ),
+                child: _HomePageDots(count: pageCount),
               ),
           ],
         );

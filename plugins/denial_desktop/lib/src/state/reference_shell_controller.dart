@@ -14,6 +14,7 @@ import 'package:denial_flutter_sdk/state.dart';
 import 'app_deck.dart';
 import 'reference_shell_state.dart';
 import 'input_deck.dart';
+import 'left_app.dart';
 import 'over_lock_window.dart';
 import 'phone_desk.dart';
 import 'phone_desk_input.dart';
@@ -85,9 +86,9 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   final List<int> _recent = <int>[];
 
   void _noteRecent(ReferenceShellState next) {
-    final open = next.openAppWindowsByObjectId;
+    final open = next.deckAppsByObjectId;
     _recent.removeWhere((id) => !open.containsKey(id));
-    final front = next.foregroundObjectId;
+    final front = next.deckAppOf(next.foregroundObjectId);
     if (front != null &&
         open.containsKey(front) &&
         _recent.lastOrNull != front) {
@@ -101,28 +102,39 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   /// front come first, in the compositor's order.
   List<int> _recencyOrder() {
     final rank = {for (final (index, id) in _recent.indexed) id: index};
-    final apps = [for (final window in state.openAppWindows) window.objectId];
+    final apps = [for (final window in state.deckApps) window.objectId];
     return [
       for (final id in apps)
         if (!rank.containsKey(id)) id,
       for (final id in _recent)
-        if (state.openAppWindowsByObjectId.containsKey(id)) id,
+        if (state.deckAppsByObjectId.containsKey(id)) id,
     ];
   }
+
+  /// Apps kept running behind a window opened over them, such as their
+  /// dialog; see [leaveApps].
+  Set<int> _heldBehind = const <int>{};
 
   /// On the phone, an app the user left, by going home or for another app,
   /// is minimized: Denial suspends it, stops its frames and keeps showing its
   /// last one. Recents alone leaves the app in front, as does the lock
-  /// screen; focusing it again restores it.
+  /// screen; focusing it again restores it. An app left for its own dialog
+  /// runs on until the dialog is no longer in front.
   void _minimizeLeftApp(int? previous, ReferenceShellState next) {
-    if (!_automaticSoftwareKeyboard ||
-        previous == null ||
-        previous == next.foregroundObjectId) {
-      return;
+    if (!_automaticSoftwareKeyboard) return;
+    final windows = next.openAppWindowsByObjectId;
+    final left = leaveApps(
+      previous: previous,
+      front: next.foregroundObjectId,
+      held: _heldBehind,
+      parentOf: (id) => windows[id]?.transientParentObjectId,
+    );
+    _heldBehind = left.held;
+    for (final id in left.minimize) {
+      final window = windows[id];
+      if (window == null || window.minimized) continue;
+      _bridge.minimizeWindow(window);
     }
-    final window = next.openAppWindowsByObjectId[previous];
-    if (window == null || window.minimized) return;
-    _bridge.minimizeWindow(window);
   }
 
   @override
@@ -339,6 +351,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     _liftCaught = false;
     _dismissedIds.clear();
     _recent.clear();
+    _heldBehind = const <int>{};
     _quickSettingsDragStartedOpen = false;
     _quickSettingsDragMoved = false;
     _edgePanelDragStartedOpen = false;
@@ -664,7 +677,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       final caught = _hold == _DeckHold.open
           ? _liftCaught
           : _deck.presenting.value;
-      final front = _deck.indexOf(state.foregroundWindow?.objectId);
+      final front = _deck.indexOf(state.deckAppOf(state.foregroundObjectId));
       _endFingerGesture();
       if (front == null) _takeFromHome(lift: true);
       if (front == null && !_deck.presenting.value) _deck.enterFromHome();
@@ -745,9 +758,9 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       );
       return;
     }
-    // The app in front flies into its icon from wherever the deck has it;
-    // the rest of the deck settles away.
-    final front = state.foregroundWindow?.objectId;
+    // The app in front flies into its icon from wherever the deck has it,
+    // with any window riding on its card; the rest of the deck settles away.
+    final front = state.deckAppOf(state.foregroundObjectId);
     if (front != null) _deck.sendHome(front, openRate: rate);
     _deck.open.settle(
       0,
@@ -828,11 +841,16 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   }
 
   /// A card swiped away in recents: the row closes its gap at once, and the
-  /// app closes. Recents with no app left closes for home.
+  /// app closes with the windows riding on its card. Recents with no app left
+  /// closes for home.
   void dismissFromRecents(DenialWindow window) {
+    final riding = state.deckWindowsOver(window.objectId);
     _dismissedIds.add(window.objectId);
     _deck.reorder(_presentedOrder(), ShellSprings.appStrip);
     if (_deck.length == 0) closeOverview();
+    for (final over in riding.reversed) {
+      _platform.closeWindow(over);
+    }
     _platform.closeWindow(window);
   }
 
@@ -842,7 +860,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   void openFromRecents(DenialWindow window) {
     final index = _deck.indexOf(window.objectId);
     if (index == null || !window.isUserApp) return;
-    focusWindow(window);
+    focusWindow(state.deckFocusOf(window.objectId) ?? window);
   }
 
   void focusWindow(DenialWindow window) {
@@ -876,7 +894,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   void _activateWindowInShell(DenialWindow window) {
     _endFingerGesture();
     // A deck in motion brings the app to fill the screen from where it is.
-    final index = _deck.indexOf(window.objectId);
+    final index = _deck.indexOf(state.deckAppOf(window.objectId));
     if (_deck.presenting.value && index != null) {
       _deck.row.settle(index.toDouble(), ShellSprings.appStrip);
       _deck.open.settle(0, ShellSprings.recentsClose);
@@ -1081,25 +1099,25 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   /// it comes to the front now, while the row is still on its way.
   void _showRowApp(int index) {
     final id = index >= 0 && index < _deck.length ? _deck.order[index] : null;
-    if (id == state.foregroundObjectId) return;
+    if (id == state.deckAppOf(state.foregroundObjectId)) return;
     if (id == null) {
       state = state.copyWith(clearForegroundObjectId: true);
       return;
     }
-    final window = state.openAppWindowsByObjectId[id];
+    final window = state.deckFocusOf(id);
     if (window == null) return;
     _backgroundLaunchAppIds.remove(
       AppLaunchRequest.normalizeAppId(window.appId),
     );
     final order = _deck.order;
-    final open = state.openAppWindowsByObjectId;
+    final open = state.deckAppsByObjectId;
     state = state.copyWith(
       // Raising each app the row reaches must not reorder the row.
       appSwitchOrder:
           order.length == open.length && order.every(open.containsKey)
           ? order
           : null,
-      foregroundObjectId: id,
+      foregroundObjectId: window.objectId,
       clearLaunchingObjectId: true,
     );
     _holdAppSwitchOrder();
@@ -1112,7 +1130,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   void _arrangeDeck() {
     if (_deck.presenting.value) return;
     final current = state;
-    final open = current.openAppWindowsByObjectId;
+    final open = current.deckAppsByObjectId;
     final source =
         _appSwitchOrderMatchesOpenApps() && current.appSwitchOrder.isNotEmpty
         ? current.appSwitchOrder
@@ -1121,21 +1139,23 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
       for (final id in source)
         if (open.containsKey(id) && !_dismissedIds.contains(id)) id,
     ];
-    final front = order.indexOf(current.foregroundObjectId ?? -1);
+    final front = order.indexOf(
+      current.deckAppOf(current.foregroundObjectId) ?? -1,
+    );
     _deck.arrange(order, rowAt: (front < 0 ? order.length : front).toDouble());
   }
 
   /// The row while the deck presents: its own order, without the apps that
   /// closed, and new apps at the end.
   List<int> _presentedOrder() {
-    final open = state.openAppWindowsByObjectId;
+    final open = state.deckAppsByObjectId;
     final kept = [
       for (final id in _deck.order)
         if (open.containsKey(id) && !_dismissedIds.contains(id)) id,
     ];
     return [
       ...kept,
-      for (final window in state.openAppWindows)
+      for (final window in state.deckApps)
         if (!kept.contains(window.objectId) &&
             !_dismissedIds.contains(window.objectId))
           window.objectId,
@@ -1177,7 +1197,7 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
 
   bool _appSwitchOrderMatchesOpenApps() {
     final order = state.appSwitchOrder;
-    final open = state.openAppWindowsByObjectId;
+    final open = state.deckAppsByObjectId;
     return order.length == open.length && order.every(open.containsKey);
   }
 

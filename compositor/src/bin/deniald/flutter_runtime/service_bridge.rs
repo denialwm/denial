@@ -129,6 +129,10 @@ impl FlutterRuntime {
         self.system_commands.take_logout_requested()
     }
 
+    pub fn take_restart_requested(&mut self) -> bool {
+        self.system_commands.take_restart_requested()
+    }
+
     pub fn take_application_launch(&mut self) -> Option<system_command::PendingApplicationLaunch> {
         self.system_commands.take_application_launch()
     }
@@ -194,6 +198,26 @@ impl FlutterRuntime {
         self.host()
             .engine()
             .send_platform_message(ambient_display::CHANNEL, &[command])?;
+        Ok(())
+    }
+
+    /// Asks the shell for its power menu, as a held power button does.
+    pub fn send_power_menu(&mut self) -> Result<(), Box<dyn Error>> {
+        self.host().engine().send_platform_message(
+            idle_policy::DISPLAY_POWER_CHANNEL,
+            &[idle_policy::DISPLAY_POWER_MENU],
+        )?;
+        Ok(())
+    }
+
+    pub fn take_user_verification_records(&mut self) -> VecDeque<Vec<u8>> {
+        std::mem::take(&mut self.pending_user_verification)
+    }
+
+    pub fn send_user_verification(&mut self, record: &[u8]) -> Result<(), Box<dyn Error>> {
+        self.host()
+            .engine()
+            .send_platform_message(crate::user_verify::CHANNEL, record)?;
         Ok(())
     }
 

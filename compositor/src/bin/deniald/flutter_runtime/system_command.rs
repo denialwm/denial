@@ -39,6 +39,7 @@ const TAKE_SCREENSHOT: u8 = 2;
 const LOGOUT: u8 = 3;
 const SCREENSHOT_PREPARED: u8 = 4;
 const CANCEL_SCREENSHOT: u8 = 5;
+const RESTART: u8 = 6;
 
 // Never pass connection selectors inherited from a parent/nested compositor
 // to applications. WAYLAND_DISPLAY is installed explicitly below; all other
@@ -105,6 +106,7 @@ enum Request {
     ScreenshotPrepared(NonZeroU64),
     CancelScreenshot(NonZeroU64),
     Logout,
+    Restart,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -276,6 +278,7 @@ pub struct SystemCommandHandler {
     output_control_socket: Option<OsString>,
     pending_application_launches: VecDeque<PendingApplicationLaunch>,
     logout_requested: bool,
+    restart_requested: bool,
     screenshot_requested: Option<ScreenshotRequest>,
     screenshot_prepared: Option<NonZeroU64>,
     screenshot_cancelled: Option<NonZeroU64>,
@@ -293,6 +296,7 @@ impl SystemCommandHandler {
             output_control_socket,
             pending_application_launches: VecDeque::new(),
             logout_requested: false,
+            restart_requested: false,
             screenshot_requested: None,
             screenshot_prepared: None,
             screenshot_cancelled: None,
@@ -320,6 +324,10 @@ impl SystemCommandHandler {
                 self.logout_requested = true;
                 info!("Flutter shell requested session logout");
             }
+            Request::Restart => {
+                self.restart_requested = true;
+                info!("Flutter shell requested a Denial restart");
+            }
             Request::Screenshot(request) => {
                 self.screenshot_requested = Some(request);
                 debug!(?request, "Flutter shell requested an atlas screenshot");
@@ -344,6 +352,10 @@ impl SystemCommandHandler {
 
     pub fn take_logout_requested(&mut self) -> bool {
         std::mem::take(&mut self.logout_requested)
+    }
+
+    pub fn take_restart_requested(&mut self) -> bool {
+        std::mem::take(&mut self.restart_requested)
     }
 
     pub(super) fn take_application_launch(&mut self) -> Option<PendingApplicationLaunch> {
@@ -611,6 +623,12 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
                 return Err(DecodeError::UnexpectedLaunchMetadata);
             }
             Ok(Request::Logout)
+        }
+        RESTART => {
+            if request_id != 0 || !arguments.is_empty() {
+                return Err(DecodeError::UnexpectedLaunchMetadata);
+            }
+            Ok(Request::Restart)
         }
         SCREENSHOT_PREPARED | CANCEL_SCREENSHOT => {
             if !arguments.is_empty() {

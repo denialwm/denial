@@ -71,6 +71,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) fingerprint_verifications: fingerprint_verify::Verifications,
     #[cfg(feature = "flutter")]
+    pub(super) user_verifications: user_verify::Verifications,
+    #[cfg(feature = "flutter")]
     pub(super) screen_off_touch: screen_off_touch::Filter,
     #[cfg(feature = "flutter")]
     pub(super) wifi_power_save: wifi_power_save::WifiPowerSave,
@@ -167,6 +169,9 @@ pub(super) struct RuntimeState {
     /// Power plus Volume Down asked for a full-screen screenshot.
     #[cfg(feature = "flutter")]
     pub(super) screenshot_requested: bool,
+    /// The power button was held: the shell opens its power menu.
+    #[cfg(feature = "flutter")]
+    pub(super) power_menu_requested: bool,
     #[cfg(feature = "flutter")]
     pub(super) text_prediction: Option<text_prediction::TextPredictionService>,
     #[cfg(feature = "flutter")]
@@ -244,6 +249,9 @@ impl RuntimeState {
                     match request.command {
                         ShellControlCommand::OpenWallpaper => {
                             self.queue_shell_action(wire::ShellAction::Wallpaper, None)
+                        }
+                        ShellControlCommand::EditLockScreen => {
+                            self.queue_shell_action(wire::ShellAction::LockScreenEditor, None)
                         }
                     }
                     Ok(())

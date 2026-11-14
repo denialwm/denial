@@ -823,6 +823,7 @@ String _actionLabel(SessionPowerAction action, AppLocalizations l10n) =>
     switch (action) {
       SessionPowerAction.lock => l10n.powerActionLock,
       SessionPowerAction.logout => l10n.powerActionLogOut,
+      SessionPowerAction.restartDenial => l10n.powerActionRestartDenial,
       SessionPowerAction.suspend => l10n.powerActionSuspend,
       SessionPowerAction.hibernate => l10n.powerActionHibernate,
       SessionPowerAction.reboot => l10n.powerActionRestart,
@@ -833,6 +834,8 @@ String _actionSubtitle(SessionPowerAction action, AppLocalizations l10n) =>
     switch (action) {
       SessionPowerAction.lock => l10n.powerActionLockDescription,
       SessionPowerAction.logout => l10n.powerActionLogOutDescription,
+      SessionPowerAction.restartDenial =>
+        l10n.powerActionRestartDenialDescription,
       SessionPowerAction.suspend => l10n.powerActionSuspendDescription,
       SessionPowerAction.hibernate => l10n.powerActionHibernateDescription,
       SessionPowerAction.reboot => l10n.powerActionRestartDescription,
@@ -842,6 +845,7 @@ String _actionSubtitle(SessionPowerAction action, AppLocalizations l10n) =>
 IconData _actionIcon(SessionPowerAction action) => switch (action) {
   SessionPowerAction.lock => Icons.lock_rounded,
   SessionPowerAction.logout => Icons.logout_rounded,
+  SessionPowerAction.restartDenial => Icons.refresh_rounded,
   SessionPowerAction.suspend => Icons.bedtime_rounded,
   SessionPowerAction.hibernate => Icons.ac_unit_rounded,
   SessionPowerAction.reboot => Icons.restart_alt_rounded,
@@ -851,6 +855,7 @@ IconData _actionIcon(SessionPowerAction action) => switch (action) {
 String _confirmationTitle(SessionPowerAction action, AppLocalizations l10n) =>
     switch (action) {
       SessionPowerAction.logout => l10n.powerConfirmLogOutTitle,
+      SessionPowerAction.restartDenial => l10n.powerConfirmRestartDenialTitle,
       SessionPowerAction.reboot => l10n.powerConfirmRestartTitle,
       SessionPowerAction.powerOff => l10n.powerConfirmPowerOffTitle,
       _ => _actionLabel(action, l10n),
@@ -859,6 +864,7 @@ String _confirmationTitle(SessionPowerAction action, AppLocalizations l10n) =>
 String _confirmationBody(SessionPowerAction action, AppLocalizations l10n) =>
     switch (action) {
       SessionPowerAction.logout => l10n.powerConfirmLogOutBody,
+      SessionPowerAction.restartDenial => l10n.powerConfirmRestartDenialBody,
       SessionPowerAction.reboot => l10n.powerConfirmRestartBody,
       SessionPowerAction.powerOff => l10n.powerConfirmPowerOffBody,
       _ => '',

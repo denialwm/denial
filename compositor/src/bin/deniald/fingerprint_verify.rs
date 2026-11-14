@@ -4,12 +4,14 @@
 //! an Android app asks for its biometric prompt. The authentication worker
 //! serves the newest request while the session is unlocked and the shell
 //! marks the sensor, exactly as on the lock screen. A match answers only the
-//! asking client; it never unlocks anything.
+//! asking client; it never unlocks anything. A verification that ends any
+//! other way opens the client's screen-lock sheet folded behind it.
 
 use std::collections::HashMap;
 
+use smithay::reexports::wayland_server::backend::ClientId;
 use smithay::reexports::wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New,
+    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
 use tracing::info;
 
@@ -108,7 +110,7 @@ impl Dispatch<DenialFingerprintVerifierV1, ()> for RuntimeState {
 impl Dispatch<DenialFingerprintVerificationV1, u64> for RuntimeState {
     fn request(
         state: &mut Self,
-        _client: &Client,
+        client: &Client,
         _resource: &DenialFingerprintVerificationV1,
         request: verification::Request,
         data: &u64,
@@ -116,29 +118,32 @@ impl Dispatch<DenialFingerprintVerificationV1, u64> for RuntimeState {
         _init: &mut DataInit<'_, Self>,
     ) {
         match request {
-            verification::Request::Destroy => end(state, *data),
+            verification::Request::Destroy => end(state, *data, &client.id()),
         }
     }
 
     fn destroyed(
         state: &mut Self,
-        _client: smithay::reexports::wayland_server::backend::ClientId,
+        client: ClientId,
         _resource: &DenialFingerprintVerificationV1,
         data: &u64,
     ) {
-        end(state, *data);
+        end(state, *data, &client);
     }
 }
 
-fn end(state: &mut RuntimeState, request: u64) {
+/// The client gave up a verification still pending.
+fn end(state: &mut RuntimeState, request: u64, client: &ClientId) {
     if state
         .fingerprint_verifications
         .pending
         .remove(&request)
         .is_some()
-        && let Some(authentication) = &state.authentication
     {
-        authentication.end_fingerprint_request(request);
+        if let Some(authentication) = &state.authentication {
+            authentication.end_fingerprint_request(request);
+        }
+        state.user_verifications.fingerprint_ended(client);
     }
 }
 
@@ -161,7 +166,13 @@ pub(super) fn service(state: &mut RuntimeState) {
                     AppFingerprintResult::Unavailable => verification::Outcome::Unavailable,
                     AppFingerprintResult::Cancelled => verification::Outcome::Cancelled,
                 });
+                let client = resource.client().map(|client| client.id());
                 pending.remove(&request);
+                if !matches!(result, AppFingerprintResult::Match)
+                    && let Some(client) = client
+                {
+                    state.user_verifications.fingerprint_ended(&client);
+                }
             }
         }
     }

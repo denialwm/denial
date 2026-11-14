@@ -1479,6 +1479,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPowerButtonPowerOff => '关机';
 
   @override
+  String get settingsPowerButtonLongPress => '长按';
+
+  @override
+  String get settingsPowerButtonLongPressDescription =>
+      '选择按住电源按钮时执行的操作。手机始终显示电源菜单。';
+
+  @override
+  String get settingsPowerButtonLongPressNothing => '无操作';
+
+  @override
+  String get settingsPowerButtonLongPressMenu => '显示电源菜单';
+
+  @override
   String get settingsAutomaticLockToggle => '自动锁定';
 
   @override
@@ -5151,4 +5164,95 @@ class AppLocalizationsZh extends AppLocalizations {
   String setupFailed(String reason) {
     return '未能创建账户：$reason';
   }
+
+  @override
+  String get userVerificationTitle => '确认是你本人';
+
+  @override
+  String userVerificationAsksPin(String applicationName) {
+    return '$applicationName 需要你的 PIN 码';
+  }
+
+  @override
+  String userVerificationAsksPassword(String applicationName) {
+    return '$applicationName 需要你的密码';
+  }
+
+  @override
+  String get userVerificationWrongPassword => '密码错误';
+
+  @override
+  String get userVerificationConfirm => '确认';
+
+  @override
+  String get lockEditorHint => '拖动时钟来移动，双指缩放来调整大小';
+
+  @override
+  String get lockEditorSwapSides => '交换两侧';
+
+  @override
+  String get lockEditorReset => '重置';
+
+  @override
+  String get lockEditorCancel => '取消';
+
+  @override
+  String get lockEditorDone => '完成';
+
+  @override
+  String get lockEditorPinPad => 'PIN 键盘';
+
+  @override
+  String get lockEditorNotifications => '通知';
+
+  @override
+  String get lockEditorPortrait => '将平板横置以编辑锁屏';
+
+  @override
+  String get mobilePowerTapToRestart => '再次点按以重启';
+
+  @override
+  String get mobilePowerTapToPowerOff => '再次点按以关机';
+
+  @override
+  String get mobilePowerMenuSemantics => '电源菜单';
+
+  @override
+  String get homeEditorAddPage => '添加页面';
+
+  @override
+  String get homeEditorRemovePage => '移除页面';
+
+  @override
+  String get homeEditorDrawer => '应用抽屉';
+
+  @override
+  String get homeEditorDrawerDetail => '在主屏幕上滑查看所有应用';
+
+  @override
+  String get homeEditorSharedRow => '固定底栏';
+
+  @override
+  String get homeEditorSharedRowDetail => '切换页面时底栏保持不变';
+
+  @override
+  String get homeEditorDone => '完成';
+
+  @override
+  String get homeDrawerSemantics => '所有应用';
+
+  @override
+  String get powerActionRestartDenial => '重启 Denial';
+
+  @override
+  String get powerActionRestartDenialDescription => '重新启动 Denial；打开的应用会关闭';
+
+  @override
+  String get powerConfirmRestartDenialTitle => '重启 Denial？';
+
+  @override
+  String get powerConfirmRestartDenialBody => '打开的应用会关闭，Denial 将重新启动。';
+
+  @override
+  String get mobilePowerTapToRestartDenial => '再次点按以重启 Denial。打开的应用会关闭。';
 }

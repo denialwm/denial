@@ -223,7 +223,7 @@ impl Drop for SecureString {
     }
 }
 
-fn erase_bytes(bytes: &mut [u8]) {
+pub(super) fn erase_bytes(bytes: &mut [u8]) {
     for byte in bytes {
         // SAFETY: byte is a valid unique pointer into the owned secret buffer.
         unsafe { ptr::write_volatile(byte, 0) };
@@ -1510,7 +1510,7 @@ fn run_authentication_worker(
         let cancellation_shared = Arc::clone(shared);
         let cancelled = move || authentication_cancelled(&cancellation_shared, work.generation);
         let result = match pin.as_ref().filter(|_| !work.password_only) {
-            Some(pin) => pin::authenticate(pin, backend, &mut conversation, &cancelled),
+            Some(pin) => pin::authenticate(pin, pin_store, backend, &mut conversation, &cancelled),
             None if !work.password_only && credential_free(shared, pin_store) => {
                 BackendResult::Success
             }
@@ -1570,6 +1570,14 @@ fn run_authentication_worker(
 fn credential_free(shared: &SharedAuthentication, store: Option<&pin::PinStore>) -> bool {
     lock_unpoisoned(&shared.state).account_credential == lock_capability::Capability::Unavailable
         && store.is_none_or(|store| matches!(store.load(), Ok(None)))
+}
+
+/// The length of the session user's lock PIN, 0 without one, for a sheet
+/// that asks for it outside the lock screen.
+pub(super) fn configured_pin_length() -> u32 {
+    pin::PinStore::for_current_user()
+        .and_then(|store| store.load().ok().flatten())
+        .map_or(0, |record| record.length())
 }
 
 /// An unreadable record falls back to the password and never blocks unlock.

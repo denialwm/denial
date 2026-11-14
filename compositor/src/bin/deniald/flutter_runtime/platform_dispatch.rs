@@ -231,6 +231,13 @@ impl FlutterRuntime {
             } else {
                 warn!("rejected malformed always-on display message from Flutter");
             }
+        } else if message.channel.as_bytes() == crate::user_verify::CHANNEL.to_bytes() {
+            if self.pending_user_verification.len() < MAX_PENDING_USER_VERIFICATION {
+                self.pending_user_verification
+                    .push_back(message.data.to_vec());
+            } else {
+                warn!("dropped excess user verification record from Flutter");
+            }
         } else if message.channel.as_bytes() == WINDOW_CLOSE_COMPLETE_CHANNEL.to_bytes() {
             match decode_window_close_complete(&message.data) {
                 Some(window_id) => {

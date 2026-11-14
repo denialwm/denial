@@ -505,6 +505,9 @@ class ShellOverlaySettings {
       Object.hash(launcher, dashboard, notifications, systemHud);
 }
 
+/// Which side of a tablet's landscape lock screen keeps the PIN pad.
+enum LockPadSide { left, right }
+
 @immutable
 class ShellLockScreenSettings {
   const ShellLockScreenSettings({
@@ -515,9 +518,20 @@ class ShellLockScreenSettings {
     this.showSystemStatus = true,
     this.fingerprintUnlock = true,
     this.callsApp = defaultCallsApp,
+    this.tabletPadSide = LockPadSide.right,
+    this.tabletClockX = 0.5,
+    this.tabletClockY = defaultTabletClockY,
+    this.tabletClockScale = defaultTabletClockScale,
   });
 
   static const defaultCallsApp = 'org.denialwm.Calls';
+
+  /// Where a tablet's clock sits by default: a little above a third of the
+  /// screen, as on a phone.
+  static const double defaultTabletClockY = 0.27;
+  static const double defaultTabletClockScale = 1.25;
+  static const double minimumTabletClockScale = 0.6;
+  static const double maximumTabletClockScale = 1.8;
 
   final bool useSystemWallpaper;
   final double dimAmount;
@@ -533,6 +547,18 @@ class ShellLockScreenSettings {
   /// this app's window shows over the lock screen and takes touch there.
   final String callsApp;
 
+  /// A tablet in landscape keeps a third of its lock screen for the PIN pad,
+  /// on this side; the clock and notifications use the other two thirds.
+  final LockPadSide tabletPadSide;
+
+  /// The centre of a tablet's clock, as fractions of the width beside the
+  /// pad and of the screen's height. The lock screen keeps the clock inside.
+  final double tabletClockX;
+  final double tabletClockY;
+
+  /// The size of a tablet's clock; phones use [clockScale].
+  final double tabletClockScale;
+
   ShellLockScreenSettings copyWith({
     bool? useSystemWallpaper,
     double? dimAmount,
@@ -541,6 +567,10 @@ class ShellLockScreenSettings {
     bool? showSystemStatus,
     bool? fingerprintUnlock,
     String? callsApp,
+    LockPadSide? tabletPadSide,
+    double? tabletClockX,
+    double? tabletClockY,
+    double? tabletClockScale,
   }) {
     return ShellLockScreenSettings(
       useSystemWallpaper: useSystemWallpaper ?? this.useSystemWallpaper,
@@ -550,6 +580,10 @@ class ShellLockScreenSettings {
       showSystemStatus: showSystemStatus ?? this.showSystemStatus,
       fingerprintUnlock: fingerprintUnlock ?? this.fingerprintUnlock,
       callsApp: callsApp ?? this.callsApp,
+      tabletPadSide: tabletPadSide ?? this.tabletPadSide,
+      tabletClockX: tabletClockX ?? this.tabletClockX,
+      tabletClockY: tabletClockY ?? this.tabletClockY,
+      tabletClockScale: tabletClockScale ?? this.tabletClockScale,
     );
   }
 
@@ -562,7 +596,11 @@ class ShellLockScreenSettings {
         other.clockScale == clockScale &&
         other.showSystemStatus == showSystemStatus &&
         other.fingerprintUnlock == fingerprintUnlock &&
-        other.callsApp == callsApp;
+        other.callsApp == callsApp &&
+        other.tabletPadSide == tabletPadSide &&
+        other.tabletClockX == tabletClockX &&
+        other.tabletClockY == tabletClockY &&
+        other.tabletClockScale == tabletClockScale;
   }
 
   @override
@@ -574,6 +612,10 @@ class ShellLockScreenSettings {
     showSystemStatus,
     fingerprintUnlock,
     callsApp,
+    tabletPadSide,
+    tabletClockX,
+    tabletClockY,
+    tabletClockScale,
   );
 }
 
@@ -581,6 +623,7 @@ class ShellLockScreenSettings {
 class ShellPowerSettings {
   const ShellPowerSettings({
     this.powerButtonAction = PowerButtonAction.powerOff,
+    this.powerButtonLongPressAction = PowerButtonLongPressAction.nothing,
     this.idleLockEnabled = true,
     this.idleLockTimeoutSeconds = 16 * 60,
     this.idleDpmsEnabled = true,
@@ -599,6 +642,9 @@ class ShellPowerSettings {
   static const int maximumScreenOffLockDelaySeconds = 60 * 60;
 
   final PowerButtonAction powerButtonAction;
+
+  /// The desktop's long press; the mobile shell always opens the power menu.
+  final PowerButtonLongPressAction powerButtonLongPressAction;
   final bool idleLockEnabled;
   final int idleLockTimeoutSeconds;
   final bool idleDpmsEnabled;
@@ -614,6 +660,7 @@ class ShellPowerSettings {
 
   ShellPowerSettings copyWith({
     PowerButtonAction? powerButtonAction,
+    PowerButtonLongPressAction? powerButtonLongPressAction,
     bool? idleLockEnabled,
     int? idleLockTimeoutSeconds,
     bool? idleDpmsEnabled,
@@ -625,6 +672,8 @@ class ShellPowerSettings {
   }) {
     return ShellPowerSettings(
       powerButtonAction: powerButtonAction ?? this.powerButtonAction,
+      powerButtonLongPressAction:
+          powerButtonLongPressAction ?? this.powerButtonLongPressAction,
       idleLockEnabled: idleLockEnabled ?? this.idleLockEnabled,
       idleLockTimeoutSeconds:
           idleLockTimeoutSeconds ?? this.idleLockTimeoutSeconds,
@@ -644,6 +693,7 @@ class ShellPowerSettings {
   bool operator ==(Object other) {
     return other is ShellPowerSettings &&
         other.powerButtonAction == powerButtonAction &&
+        other.powerButtonLongPressAction == powerButtonLongPressAction &&
         other.idleLockEnabled == idleLockEnabled &&
         other.idleLockTimeoutSeconds == idleLockTimeoutSeconds &&
         other.idleDpmsEnabled == idleDpmsEnabled &&
@@ -657,6 +707,7 @@ class ShellPowerSettings {
   @override
   int get hashCode => Object.hash(
     powerButtonAction,
+    powerButtonLongPressAction,
     idleLockEnabled,
     idleLockTimeoutSeconds,
     idleDpmsEnabled,
@@ -1304,6 +1355,18 @@ class ShellSettings {
       if (lockScreen.callsApp != before.callsApp) {
         section['callsApp'] = lockScreen.callsApp;
       }
+      if (lockScreen.tabletPadSide != before.tabletPadSide) {
+        section['tabletPadSide'] = lockScreen.tabletPadSide.name;
+      }
+      if (lockScreen.tabletClockX != before.tabletClockX) {
+        section['tabletClockX'] = lockScreen.tabletClockX;
+      }
+      if (lockScreen.tabletClockY != before.tabletClockY) {
+        section['tabletClockY'] = lockScreen.tabletClockY;
+      }
+      if (lockScreen.tabletClockScale != before.tabletClockScale) {
+        section['tabletClockScale'] = lockScreen.tabletClockScale;
+      }
       patch['lockScreen'] = section;
     }
 
@@ -1312,6 +1375,11 @@ class ShellSettings {
       final section = <String, Object?>{};
       if (power.powerButtonAction != before.powerButtonAction) {
         section['powerButtonAction'] = power.powerButtonAction.name;
+      }
+      if (power.powerButtonLongPressAction !=
+          before.powerButtonLongPressAction) {
+        section['powerButtonLongPressAction'] =
+            power.powerButtonLongPressAction.name;
       }
       if (power.idleLockEnabled != before.idleLockEnabled) {
         section['idleLockEnabled'] = power.idleLockEnabled;
@@ -1427,9 +1495,14 @@ class ShellSettings {
         'showSystemStatus': lockScreen.showSystemStatus,
         'fingerprintUnlock': lockScreen.fingerprintUnlock,
         'callsApp': lockScreen.callsApp,
+        'tabletPadSide': lockScreen.tabletPadSide.name,
+        'tabletClockX': lockScreen.tabletClockX,
+        'tabletClockY': lockScreen.tabletClockY,
+        'tabletClockScale': lockScreen.tabletClockScale,
       },
       'power': <String, Object>{
         'powerButtonAction': power.powerButtonAction.name,
+        'powerButtonLongPressAction': power.powerButtonLongPressAction.name,
         'idleLockEnabled': power.idleLockEnabled,
         'idleLockTimeoutSeconds': power.idleLockTimeoutSeconds,
         'idleDpmsEnabled': power.idleDpmsEnabled,
@@ -1795,12 +1868,40 @@ class ShellSettings {
                 (lockJson['callsApp'] as String).isNotEmpty
             ? lockJson['callsApp'] as String
             : defaults.lockScreen.callsApp,
+        tabletPadSide: _enumValue(
+          LockPadSide.values,
+          lockJson['tabletPadSide'],
+          defaults.lockScreen.tabletPadSide,
+        ),
+        tabletClockX: _number(
+          lockJson['tabletClockX'],
+          defaults.lockScreen.tabletClockX,
+          0,
+          1,
+        ),
+        tabletClockY: _number(
+          lockJson['tabletClockY'],
+          defaults.lockScreen.tabletClockY,
+          0,
+          1,
+        ),
+        tabletClockScale: _number(
+          lockJson['tabletClockScale'],
+          defaults.lockScreen.tabletClockScale,
+          ShellLockScreenSettings.minimumTabletClockScale,
+          ShellLockScreenSettings.maximumTabletClockScale,
+        ),
       ),
       power: ShellPowerSettings(
         powerButtonAction: _enumValue(
           PowerButtonAction.values,
           powerJson['powerButtonAction'],
           defaults.power.powerButtonAction,
+        ),
+        powerButtonLongPressAction: _enumValue(
+          PowerButtonLongPressAction.values,
+          powerJson['powerButtonLongPressAction'],
+          defaults.power.powerButtonLongPressAction,
         ),
         idleLockEnabled: powerJson['idleLockEnabled'] is bool
             ? powerJson['idleLockEnabled'] as bool

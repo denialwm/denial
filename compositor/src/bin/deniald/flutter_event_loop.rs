@@ -410,6 +410,7 @@ impl Session<'_, '_> {
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout(now));
         timeout = background.limit_dispatch_timeout(now, timeout);
         timeout = events.idle_policy.limit_dispatch_timeout(now, timeout);
+        timeout = events.power_button.limit_dispatch_timeout(now, timeout);
         timeout = events.dpms_topology.limit_dispatch_timeout(now, timeout);
         timeout = events.ambient_display.limit_dispatch_timeout(now, timeout);
         if let Some(expiry) = events
@@ -658,8 +659,18 @@ impl Session<'_, '_> {
                     },
                 )
             });
+            if std::mem::take(&mut self.events.power_menu_requested)
+                && let Err(error) = self.flutter.send_power_menu()
+            {
+                warn!(%error, "could not ask the shell for its power menu");
+            }
             if self.flutter.take_logout_requested() {
                 info!("Flutter requested session logout");
+                return Ok(());
+            }
+            if self.flutter.take_restart_requested() {
+                info!("Flutter requested a Denial restart");
+                crate::lifecycle::request_restart();
                 return Ok(());
             }
             if self.events.flutter_channel_closed {

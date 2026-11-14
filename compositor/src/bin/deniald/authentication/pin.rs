@@ -3,7 +3,8 @@
 //! always offers the password next to the PIN, and outside the lock screen
 //! the PIN only proves itself to Settings, to change it or the fingerprints.
 //! Settings asks for the account password only to set the first PIN, or one
-//! forgotten, and to turn PIN unlock off.
+//! forgotten, and to turn PIN unlock off. A hardware provider's PIN is the
+//! exception: only the current PIN replaces it.
 //! Fingerprint unlock needs a PIN: without a record the reader stays off.
 //!
 //! NX809J records contain the opaque Gatekeeper handle and SID; other devices
@@ -221,6 +222,25 @@ impl PinStore {
         Ok(length)
     }
 
+    /// Enrolls `pin`, just proven against a record that keeps its own hash,
+    /// with the phone's PIN provider, and keeps the provider's record in its
+    /// place. The old record stays when anything fails.
+    fn move_to_provider(&self, pin: &[u8]) {
+        let moved = (|| -> io::Result<u32> {
+            let _change = self.change_lock()?;
+            let record = self.load_record()?;
+            if !record.is_some_and(|record| record.native.is_none() && record.enabled) {
+                return Err(io::ErrorKind::AlreadyExists.into());
+            }
+            let credential = gatekeeper::enroll(None, &[], pin).map_err(io::Error::other)?;
+            self.save_credential(pin.len() as u32, &credential)
+        })();
+        match moved {
+            Ok(_) => info!("the lock PIN moved to the phone's PIN provider"),
+            Err(error) => warn!(%error, "the lock PIN stays in its own record"),
+        }
+    }
+
     pub(super) fn enrollment_credential(&self) -> io::Result<gatekeeper::Credential> {
         self.load()?.and_then(|r| r.native).ok_or_else(|| {
             io::Error::new(
@@ -258,6 +278,22 @@ impl PinStore {
             Err(gatekeeper::Failure::Throttled(ms)) => {
                 Ok(json!({"event": "rate-limited", "retry_ms": ms}))
             }
+            Err(error) => Err(io::Error::other(error)),
+        }
+    }
+
+    /// Sets `desired` with the account password, which the software
+    /// provider checks again as root.
+    fn reset_native(&self, password: &SecureString, desired: &SecureString) -> io::Result<Value> {
+        let _change = self.change_lock()?;
+        if !valid_new_pin(desired.as_bytes()) {
+            return Ok(json!({"event": "invalid-pin"}));
+        }
+        match gatekeeper::reset(password.as_bytes(), desired.as_bytes()) {
+            Ok(credential) => Ok(
+                json!({"event": "saved", "length": self.save_credential(desired.as_bytes().len() as u32, &credential)?}),
+            ),
+            Err(gatekeeper::Failure::Rejected) => Ok(json!({"event": "authentication-failed"})),
             Err(error) => Err(io::Error::other(error)),
         }
     }
@@ -356,8 +392,11 @@ fn fill_random(bytes: &mut [u8]) -> io::Result<()> {
 
 /// One PIN attempt: the shell answers a numeric prompt, the record decides,
 /// and PAM account policy still runs exactly as it does for fingerprints.
+/// A PIN the record keeps itself moves to the phone's PIN provider once it
+/// is typed right.
 pub(super) fn authenticate(
     record: &PinRecord,
+    store: Option<&PinStore>,
     backend: &dyn AuthenticationBackend,
     conversation: &mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
     cancelled: &dyn Fn() -> bool,
@@ -366,6 +405,11 @@ pub(super) fn authenticate(
         return BackendResult::Cancelled;
     };
     let matched = record.verify(response.as_bytes());
+    if matched && record.native.is_none() && gatekeeper::enabled() {
+        if let Some(store) = store {
+            store.move_to_provider(response.as_bytes());
+        }
+    }
     response.clear();
     if cancelled() {
         return BackendResult::Cancelled;
@@ -384,8 +428,9 @@ pub(super) fn authenticate(
 
 /// `deniald --lock-pin`: Settings runs this as the session user. Secrets come
 /// one per stdin line and never through argv, the environment or JSON:
-/// `status`; `set` + password + new PIN (+ current PIN for an existing native
-/// credential); a native credential is never reset using the account password;
+/// `status`; `set` + password + new PIN (+ current PIN for a hardware
+/// provider's credential, which the account password never resets; the
+/// software provider resets with the password, checked again as root);
 /// `change` + current PIN + new PIN; `check` + PIN, before the fingerprints
 /// change; `clear` + password.
 pub(crate) fn run_settings() -> Result<(), Box<dyn Error>> {
@@ -412,7 +457,9 @@ pub(crate) fn run_settings() -> Result<(), Box<dyn Error>> {
                 json!({"event": "cleared"})
             } else {
                 let desired = secret("PIN input closed")?;
-                if let Some(record) = store.load_record()?.filter(|r| r.native.is_some()) {
+                if gatekeeper::enabled() && !gatekeeper::hardware() {
+                    store.reset_native(&password, &desired)?
+                } else if let Some(record) = store.load_record()?.filter(|r| r.native.is_some()) {
                     store.change_native(
                         &record,
                         secret("current PIN input closed")?.as_bytes(),
@@ -487,7 +534,12 @@ fn status_event(store: &PinStore) -> Value {
         Ok(record) => json!({
             "event": "status",
             "length": record.as_ref().filter(|record| record.enabled).map_or(0, |record| record.length()),
-            "requires_current_pin": record.as_ref().is_some_and(|record| record.native.is_some()),
+            "requires_current_pin": gatekeeper::hardware()
+                && record.as_ref().is_some_and(|record| record.native.is_some()),
+            // Fingers are added through Denial's root session, which proves
+            // the PIN to the reader.
+            "fingerprint_authorization": gatekeeper::hardware()
+                && record.as_ref().is_some_and(|record| record.native.is_some()),
         }),
         Err(error) => {
             eprintln!("lock PIN record: {error}");

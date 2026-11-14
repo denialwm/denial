@@ -449,11 +449,18 @@ terminate_denial() {
 trap 'denial_exit_status=$?; stop_graphical_session; finish_denial_session "$denial_exit_status"' EXIT
 trap terminate_denial HUP INT TERM
 
-"$DENIALD" "${denial_args[@]}" "$@" <&0 &
-denial_pid=$!
-set +e
-wait "$denial_pid"
-denial_status=$?
-set -e
-denial_pid=''
+# deniald exits with this status to be started again in the same session.
+readonly DENIAL_RESTART_STATUS=75
+
+while true; do
+  "$DENIALD" "${denial_args[@]}" "$@" <&0 &
+  denial_pid=$!
+  set +e
+  wait "$denial_pid"
+  denial_status=$?
+  set -e
+  denial_pid=''
+  [[ "$denial_status" == "$DENIAL_RESTART_STATUS" ]] || break
+  printf 'denial-session: restarting Denial\n' >&2
+done
 exit "$denial_status"

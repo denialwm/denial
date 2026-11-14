@@ -2148,6 +2148,22 @@
   "@settingsPowerButtonPowerOff": {
     "description": "Power button action that powers off the system."
   },
+  "settingsPowerButtonLongPress": "Long press",
+  "@settingsPowerButtonLongPress": {
+    "description": "Label for what holding the power button does."
+  },
+  "settingsPowerButtonLongPressDescription": "Choose what happens when you hold the power button. Phones always show the power menu.",
+  "@settingsPowerButtonLongPressDescription": {
+    "description": "Description of the power button long-press selector."
+  },
+  "settingsPowerButtonLongPressNothing": "Do nothing",
+  "@settingsPowerButtonLongPressNothing": {
+    "description": "Power button long-press action that does nothing."
+  },
+  "settingsPowerButtonLongPressMenu": "Show the power menu",
+  "@settingsPowerButtonLongPressMenu": {
+    "description": "Power button long-press action that opens the power and session menu."
+  },
   "settingsAutomaticLockToggle": "Lock automatically",
   "@settingsAutomaticLockToggle": {
     "description": "Toggle for automatically locking the session after inactivity."
@@ -7055,5 +7071,63 @@
   "setupStartFailed": "The device did not start as your account: {reason}",
   "@setupStartFailed": {"description": "First-boot setup: the account exists but the session did not start again as it; reason is the helper's message.", "placeholders": {"reason": {"type": "String"}}},
   "setupFailed": "The account was not made: {reason}",
-  "@setupFailed": {"description": "First-boot setup: the account helper failed; reason is its message.", "placeholders": {"reason": {"type": "String"}}}
+  "@setupFailed": {"description": "First-boot setup: the account helper failed; reason is its message.", "placeholders": {"reason": {"type": "String"}}},
+  "userVerificationTitle": "Confirm it’s you",
+  "@userVerificationTitle": {"description": "Title of the sheet an application opens to ask for the screen lock, when it gives no title of its own."},
+  "userVerificationAsksPin": "{applicationName} asks for your PIN",
+  "@userVerificationAsksPin": {"description": "Line under the title of the screen-lock sheet while it shows the PIN keypad.", "placeholders": {"applicationName": {"type": "String"}}},
+  "userVerificationAsksPassword": "{applicationName} asks for your password",
+  "@userVerificationAsksPassword": {"description": "Line under the title of the screen-lock sheet while it asks for the account password.", "placeholders": {"applicationName": {"type": "String"}}},
+  "userVerificationWrongPassword": "Wrong password",
+  "@userVerificationWrongPassword": {"description": "Shown on the screen-lock sheet after a rejected account password."},
+  "userVerificationConfirm": "Confirm",
+  "@userVerificationConfirm": {"description": "Submits the account password on the screen-lock sheet."},
+  "lockEditorHint": "Drag the clock to move it, pinch it to resize",
+  "@lockEditorHint": {"description": "Hint at the top of the tablet lock screen editor."},
+  "lockEditorSwapSides": "Swap sides",
+  "@lockEditorSwapSides": {"description": "Lock screen editor button that moves the PIN pad to the other side."},
+  "lockEditorReset": "Reset",
+  "@lockEditorReset": {"description": "Lock screen editor button that puts the clock and PIN pad back where they start."},
+  "lockEditorCancel": "Cancel",
+  "@lockEditorCancel": {"description": "Lock screen editor button that closes it without saving."},
+  "lockEditorDone": "Done",
+  "@lockEditorDone": {"description": "Lock screen editor button that saves the layout and closes."},
+  "lockEditorPinPad": "PIN pad",
+  "@lockEditorPinPad": {"description": "Label on the placeholder for the PIN pad in the lock screen editor."},
+  "lockEditorNotifications": "Notifications",
+  "@lockEditorNotifications": {"description": "Label on the outline where notifications show, in the lock screen editor."},
+  "lockEditorPortrait": "Turn the tablet to landscape to edit the lock screen",
+  "@lockEditorPortrait": {"description": "Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited."},
+  "mobilePowerTapToRestart": "Tap again to restart",
+  "@mobilePowerTapToRestart": {"description": "Mobile power menu: shown after Restart is tapped once; a second tap restarts the phone."},
+  "mobilePowerTapToPowerOff": "Tap again to power off",
+  "@mobilePowerTapToPowerOff": {"description": "Mobile power menu: shown after Power off is tapped once; a second tap shuts the phone down."},
+  "mobilePowerMenuSemantics": "Power menu",
+  "@mobilePowerMenuSemantics": {"description": "Accessibility label of the mobile power menu."},
+  "homeEditorAddPage": "Add page",
+  "@homeEditorAddPage": {"description": "Home page editor: the card that adds an empty launcher page."},
+  "homeEditorRemovePage": "Remove page",
+  "@homeEditorRemovePage": {"description": "Home page editor: accessibility label of the button on a page that removes it."},
+  "homeEditorDrawer": "App drawer",
+  "@homeEditorDrawer": {"description": "Home page editor: switch that turns the app drawer on."},
+  "homeEditorDrawerDetail": "Swipe up on home to see every app",
+  "@homeEditorDrawerDetail": {"description": "Home page editor: what the app drawer switch does."},
+  "homeEditorSharedRow": "Fixed bottom row",
+  "@homeEditorSharedRow": {"description": "Home page editor: switch that keeps the bottom row of icons the same on every page."},
+  "homeEditorSharedRowDetail": "The bottom row stays put when you change page",
+  "@homeEditorSharedRowDetail": {"description": "Home page editor: what the fixed bottom row switch does."},
+  "homeEditorDone": "Done",
+  "@homeEditorDone": {"description": "Home page editor: button that closes the editor."},
+  "homeDrawerSemantics": "All apps",
+  "@homeDrawerSemantics": {"description": "Accessibility label of the full-screen app drawer."},
+  "powerActionRestartDenial": "Restart Denial",
+  "@powerActionRestartDenial": {"description": "Power action that starts Denial again in the same session, closing open apps."},
+  "powerActionRestartDenialDescription": "Start Denial again; open apps close",
+  "@powerActionRestartDenialDescription": {"description": "What the Restart Denial power action does."},
+  "powerConfirmRestartDenialTitle": "Restart Denial?",
+  "@powerConfirmRestartDenialTitle": {"description": "Title of the confirmation before Denial restarts."},
+  "powerConfirmRestartDenialBody": "Open apps close and Denial starts again.",
+  "@powerConfirmRestartDenialBody": {"description": "Body of the confirmation before Denial restarts."},
+  "mobilePowerTapToRestartDenial": "Tap again to restart Denial. Open apps close.",
+  "@mobilePowerTapToRestartDenial": {"description": "Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial."}
 }

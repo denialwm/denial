@@ -197,7 +197,39 @@ pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut Runtim
         .as_ref()
         .is_some_and(|frontend| frontend.mobile_shell());
     let lit = power_button_screen_lit(phone, scanouts, events);
-    if !events.power_button.take_toggle(mobile && lit) {
+    // Holding the button opens the mobile shell's power menu; on the desktop
+    // it does what the user chose, nothing unless asked.
+    let long_press = if mobile {
+        idle_policy::PowerButtonLongPress::PowerMenu
+    } else {
+        events.idle_policy.power_button_long_press()
+    };
+    let has_long_press = long_press != idle_policy::PowerButtonLongPress::Nothing;
+    if has_long_press && events.power_button.take_long_press(Instant::now()) {
+        if let Some(action) = long_press.system_action() {
+            if events
+                .system_controls
+                .as_ref()
+                .is_some_and(|controls| controls.power_button_action(action))
+            {
+                info!(
+                    ?action,
+                    "power button long press requested system power action"
+                );
+            } else {
+                warn!(?action, "could not request power-button long-press action");
+            }
+        } else {
+            events.power_menu_requested = true;
+            info!("power button long press requested the power menu");
+        }
+        return;
+    }
+    // A lit screen acts on release while a long press can still come.
+    if !events
+        .power_button
+        .take_toggle(lit && (mobile || has_long_press))
+    {
         return;
     }
     let action = events.idle_policy.power_button_action();

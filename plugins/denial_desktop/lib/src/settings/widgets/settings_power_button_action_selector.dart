@@ -50,3 +50,53 @@ class SettingsPowerButtonActionSelector extends StatelessWidget {
     );
   }
 }
+
+class SettingsPowerButtonLongPressSelector extends StatelessWidget {
+  const SettingsPowerButtonLongPressSelector({
+    required this.value,
+    required this.hibernateAvailable,
+    required this.onChanged,
+    super.key,
+  });
+
+  final PowerButtonLongPressAction value;
+  final bool hibernateAvailable;
+  final ValueChanged<PowerButtonLongPressAction> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return SettingsSelect<PowerButtonLongPressAction>(
+      label: l10n.settingsPowerButtonLongPress,
+      description: l10n.settingsPowerButtonLongPressDescription,
+      value: value,
+      choices: <SettingsChoice<PowerButtonLongPressAction>>[
+        SettingsChoice<PowerButtonLongPressAction>(
+          PowerButtonLongPressAction.nothing,
+          l10n.settingsPowerButtonLongPressNothing,
+        ),
+        SettingsChoice<PowerButtonLongPressAction>(
+          PowerButtonLongPressAction.powerMenu,
+          l10n.settingsPowerButtonLongPressMenu,
+        ),
+        SettingsChoice<PowerButtonLongPressAction>(
+          PowerButtonLongPressAction.suspend,
+          l10n.settingsPowerButtonSuspend,
+        ),
+        if (hibernateAvailable || value == PowerButtonLongPressAction.hibernate)
+          SettingsChoice<PowerButtonLongPressAction>(
+            PowerButtonLongPressAction.hibernate,
+            hibernateAvailable
+                ? l10n.settingsPowerButtonHibernate
+                : l10n.settingsPowerButtonHibernateUnavailable,
+            enabled: hibernateAvailable,
+          ),
+        SettingsChoice<PowerButtonLongPressAction>(
+          PowerButtonLongPressAction.powerOff,
+          l10n.settingsPowerButtonPowerOff,
+        ),
+      ],
+      onChanged: onChanged,
+    );
+  }
+}

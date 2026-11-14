@@ -64,6 +64,7 @@ export 'src/settings/shell_settings.dart'
         ClipboardTrayEdge,
         DesktopColorSchemePreference,
         DesktopWindowLayout,
+        LockPadSide,
         MinimizedWindowPlacement,
         ScrollingLayoutWheelUpDirection,
         ShellAccentSource,

@@ -19,6 +19,14 @@ class HomeGridLayout {
   /// by the home surface) so pages stay full-bleed instead of overflowing rows.
   static int columns = 4;
 
+  /// Row count of the shown layout, set with [columns]; 0 before the first
+  /// layout, when the bottom row keeps no rules yet.
+  static int rows = 0;
+
+  /// The first page's bottom row shows on every page, so the other pages
+  /// keep theirs free.
+  static bool sharedBottomRow = false;
+
   static const double gridGap = 22;
   static const int minPages = 1;
 
@@ -27,12 +35,15 @@ class HomeGridLayout {
   /// more columns/rows instead. Phone-width viewports stay at 4 columns
   /// with uncapped-equivalent sizes.
   static const double maxTileWidth = 224;
+
+  /// Cells a phone's aspect would make taller than this are tablet cells:
+  /// they take the icon and label's height and the panel gets more rows.
   static const double maxTileHeight = 240;
 
   /// A cell never gets shorter than its icon and label.
   static const double minTileHeight = 131;
   static const int minRows = 3;
-  static const int maxRows = 7;
+  static const int maxRows = 16;
 
   /// Column count so tiles stay at or under [maxTileWidth].
   static int columnsForViewport(double width) {
@@ -47,6 +58,11 @@ class HomeGridLayout {
     final rows = ((height + gridGap) / (tileHeight + gridGap) + 1e-6).floor();
     return rows.clamp(1, maxRows).toInt();
   }
+
+  /// The pages home shows: those its items need, and at least the [pages]
+  /// the user made.
+  static int pageCount(List<HomeGridItem?> slots, int pageSize, int pages) =>
+      math.max(pageCountForSlots(slots, pageSize), pages);
 
   static int pageCountForSlots(List<HomeGridItem?> slots, int pageSize) {
     if (pageSize <= 0) {
@@ -105,10 +121,11 @@ class HomeGridLayout {
       }
 
       final placed = placeItemAt(slots, index, item);
-      if (identical(placed, slots)) {
-        continue;
-      }
-      slots = placed;
+      // A cell the bottom row's rules or another item take: the next free
+      // one, so a folder keeps its apps.
+      slots = identical(placed, slots)
+          ? placeItemAfter(slots, index, item)
+          : placed;
       used
         ..add(item.id)
         ..addAll(item.apps.map((app) => app.id));
@@ -239,7 +256,7 @@ class HomeGridLayout {
     int index,
     HomeGridItem item,
   ) {
-    if (!itemFitsAtColumn(item, index)) {
+    if (!itemFitsAtColumn(item, index) || !_allowed(index, item)) {
       return slots;
     }
 
@@ -268,7 +285,7 @@ class HomeGridLayout {
   ) {
     var next = [...slots];
     for (var index = math.max(0, startIndex); ; index += 1) {
-      if (!itemFitsAtColumn(item, index)) {
+      if (!itemFitsAtColumn(item, index) || !_allowed(index, item)) {
         continue;
       }
       final cells = cellsFor(index, item);
@@ -285,16 +302,87 @@ class HomeGridLayout {
   /// The first free cell for a single-cell item at or after [index] on its
   /// page, else anywhere after it.
   static int freeCellNear(List<HomeGridItem?> slots, int index, int pageSize) {
+    bool free(int cell) =>
+        anchorForCell(cell, slots) == null && _singleAllowed(cell);
     final pageStart = index - index % pageSize;
     for (var cell = index; cell < pageStart + pageSize; cell += 1) {
-      if (anchorForCell(cell, slots) == null) return cell;
+      if (free(cell)) return cell;
     }
     for (var cell = pageStart; cell < index; cell += 1) {
-      if (anchorForCell(cell, slots) == null) return cell;
+      if (free(cell)) return cell;
     }
     for (var cell = pageStart + pageSize; ; cell += 1) {
-      if (anchorForCell(cell, slots) == null) return cell;
+      if (free(cell)) return cell;
     }
+  }
+
+  /// Whether [cell] is in a bottom row, which sits apart at the bottom of
+  /// the screen.
+  static bool inBottomRow(int cell) =>
+      rows >= 2 && (cell % (columns * rows)) ~/ columns == rows - 1;
+
+  /// Whether a single-cell item may take [cell]: with [sharedBottomRow],
+  /// only the first page's bottom row takes items.
+  static bool _singleAllowed(int cell) =>
+      !sharedBottomRow || cell < columns * rows || !inBottomRow(cell);
+
+  /// Whether [item] anchored at [index] keeps the bottom row's rules: only
+  /// single-row items go there.
+  static bool _allowed(int index, HomeGridItem item) {
+    if (rows < 2) return true;
+    for (final cell in cellsFor(index, item)) {
+      if (inBottomRow(cell) && (item.rowSpan > 1 || !_singleAllowed(cell))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// [slots] with each item the bottom row's rules leave out moved to the
+  /// next cell that takes it; [slots] itself when every item keeps them.
+  static List<HomeGridItem?> conform(List<HomeGridItem?> slots) {
+    var next = slots;
+    for (var index = 0; index < slots.length; index += 1) {
+      final item = slots[index];
+      if (item == null || _allowed(index, item)) continue;
+      next = placeItemAfter([...next]..[index] = null, index, item);
+    }
+    return next;
+  }
+
+  /// [slots] without [page]: later pages move back one, and the page's
+  /// items go to the next free cells from where it was. With
+  /// [sharedBottomRow] the first page's bottom row stays.
+  static List<HomeGridItem?> removePage(
+    List<HomeGridItem?> slots,
+    int page,
+    int pageSize,
+  ) {
+    final start = page * pageSize;
+    final end = math.min(start + pageSize, slots.length);
+    if (start >= slots.length) return slots;
+    final kept = <int, HomeGridItem>{};
+    final displaced = <HomeGridItem>[];
+    for (var index = start; index < end; index += 1) {
+      final item = slots[index];
+      if (item == null) continue;
+      if (sharedBottomRow && page == 0 && inBottomRow(index)) {
+        kept[index] = item;
+      } else {
+        displaced.add(item);
+      }
+    }
+    var next = [...slots.sublist(0, start), ...slots.sublist(end)];
+    for (final MapEntry(key: index, value: item) in kept.entries) {
+      final placed = placeItemAt(next, index, item);
+      next = identical(placed, next)
+          ? placeItemAfter(next, start, item)
+          : placed;
+    }
+    for (final item in displaced) {
+      next = placeItemAfter(next, start, item);
+    }
+    return next;
   }
 
   static bool itemFitsAtColumn(HomeGridItem item, int index) {
@@ -374,7 +462,7 @@ class HomeGridLayout {
     int pageSize, {
     required Set<int> ignoreAnchors,
   }) {
-    if (!itemFitsInPage(index, item, pageSize)) {
+    if (!itemFitsInPage(index, item, pageSize) || !_allowed(index, item)) {
       return false;
     }
 

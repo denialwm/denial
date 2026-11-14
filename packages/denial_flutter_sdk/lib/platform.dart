@@ -9,6 +9,14 @@ export 'src/platform/authentication_protocol.dart'
     show AuthenticationPromptStyle;
 export 'src/platform/denial_bridge.dart'
     show DenialBridge, DenialOutputControlException;
+export 'src/platform/bridge/user_verification_client.dart'
+    show
+        DenialUserVerification,
+        DenialUserVerificationEvent,
+        DenialUserVerificationShown,
+        DenialUserVerificationRejected,
+        DenialUserVerificationOpened,
+        DenialUserVerificationClosed;
 export 'src/platform/denial_bridge_models.dart'
     show
         DenialAudioDevice,

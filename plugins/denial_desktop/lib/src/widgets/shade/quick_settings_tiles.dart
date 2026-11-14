@@ -1024,8 +1024,13 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 /// Compact shade actions. Application-count prose belongs in the overview,
 /// not in quick settings.
 class ShadeActions extends StatelessWidget {
-  const ShadeActions({super.key, required this.onOpenPower});
+  const ShadeActions({
+    super.key,
+    required this.onOpenSettings,
+    required this.onOpenPower,
+  });
 
+  final VoidCallback onOpenSettings;
   final VoidCallback onOpenPower;
 
   @override
@@ -1035,18 +1040,14 @@ class ShadeActions extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
-          icon: Icons.edit_rounded,
-        ),
-        const SizedBox(width: 12),
-        _RoundButton(
-          label: context.l10n.quickSettingsSettingsUnavailable,
+          label: context.l10n.settingsShortcutActionOpenSettings,
           icon: Icons.settings_rounded,
+          onPressed: onOpenSettings,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 16),
         _RoundButton(
           label: context.l10n.desktopOpenPowerControls,
-          icon: Icons.more_horiz_rounded,
+          icon: Icons.power_settings_new_rounded,
           onPressed: onOpenPower,
         ),
       ],
@@ -1073,7 +1074,7 @@ class _RoundButtonState extends State<_RoundButton> {
     final enabled = widget.onPressed != null;
     final theme = ShellTheme.of(context);
     final accent = theme.accent;
-    final radius = theme.borderRadius(16);
+    final radius = theme.borderRadius(24);
     final surface = DecoratedBox(
       decoration: BoxDecoration(
         color: theme.cardColor(context.shellColors.chip),
@@ -1085,12 +1086,12 @@ class _RoundButtonState extends State<_RoundButton> {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: SizedBox(
-        width: 32,
-        height: 32,
+        width: 48,
+        height: 48,
         child: Icon(
           widget.icon,
           color: context.shellColors.panelText,
-          size: 18 * ShadeReferenceGeometry.inverseScaleOf(context),
+          size: 27 * ShadeReferenceGeometry.inverseScaleOf(context),
         ),
       ),
     );

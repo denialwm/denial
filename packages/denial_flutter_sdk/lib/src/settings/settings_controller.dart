@@ -493,6 +493,30 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  /// A tablet's landscape lock screen, as its editor leaves it.
+  void setTabletLockLayout({
+    required LockPadSide padSide,
+    required double clockX,
+    required double clockY,
+    required double clockScale,
+  }) {
+    _update(
+      state.copyWith(
+        lockScreen: state.lockScreen.copyWith(
+          tabletPadSide: padSide,
+          tabletClockX: clockX.clamp(0, 1).toDouble(),
+          tabletClockY: clockY.clamp(0, 1).toDouble(),
+          tabletClockScale: clockScale
+              .clamp(
+                ShellLockScreenSettings.minimumTabletClockScale,
+                ShellLockScreenSettings.maximumTabletClockScale,
+              )
+              .toDouble(),
+        ),
+      ),
+    );
+  }
+
   void setIdleDpmsEnabled(bool value) {
     _update(
       state.copyWith(power: state.power.copyWith(idleDpmsEnabled: value)),
@@ -508,6 +532,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   void setPowerButtonAction(PowerButtonAction value) {
     _update(
       state.copyWith(power: state.power.copyWith(powerButtonAction: value)),
+    );
+  }
+
+  void setPowerButtonLongPressAction(PowerButtonLongPressAction value) {
+    _update(
+      state.copyWith(
+        power: state.power.copyWith(powerButtonLongPressAction: value),
+      ),
     );
   }
 

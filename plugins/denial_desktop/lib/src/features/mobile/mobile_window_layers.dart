@@ -23,6 +23,7 @@ class MobilePrimaryWindowLayer extends ConsumerWidget {
       referenceShellProvider.select(
         (state) => (
           window: state.primaryWindow,
+          behind: state.windowsBehindPrimary,
           homeActive: state.homeTransitionActive,
         ),
       ),
@@ -55,6 +56,7 @@ class MobilePrimaryWindowLayer extends ConsumerWidget {
             padding: EdgeInsets.only(top: topInset),
             child: MobilePrimaryWindowStage(
               currentWindow: window,
+              behind: visual.behind,
               opacity: hidden ? 0.0 : 1.0,
             ),
           ),
@@ -88,7 +90,10 @@ class MobileAppDeckLayer extends ConsumerWidget {
       deck: controller.deck,
       // The phone's apps; beside a desk the desk's stay off the deck.
       windows: ref.watch(
-        referenceShellProvider.select((state) => state.openAppWindows),
+        referenceShellProvider.select((state) => state.deckApps),
+      ),
+      windowsOver: ref.watch(
+        referenceShellProvider.select((state) => state.deckWindowsByApp),
       ),
       recents: recents,
       backdrop: backdrop,

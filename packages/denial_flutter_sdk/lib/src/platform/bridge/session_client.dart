@@ -17,7 +17,8 @@ final class BridgeSessionClient {
   final BridgeContext _context;
   static const String _hapticsChannel = 'denial/haptics';
   static const String _idlePolicyChannel = 'denial/idle_policy';
-  static const String _displayPowerChannel = 'denial/display_power';
+  static const String displayPowerChannel = 'denial/display_power';
+  static const int _powerMenuRequest = 3;
   static const String _systemCommandChannel = 'denial/system_command';
   static const String ambientDisplayChannel = 'denial/ambient_display';
   static const int _ambientEnter = 1;
@@ -39,6 +40,7 @@ final class BridgeSessionClient {
   static const int _logoutCommand = 3;
   static const int _screenshotPreparedCommand = 4;
   static const int _cancelScreenshotCommand = 5;
+  static const int _restartCommand = 6;
   static const int _systemCommandHeaderBytes = 1 + 8 + 4;
   static const int _maxSystemCommandBytes = 64 * 1024;
   static const int _maxSystemCommandArguments = 64;
@@ -47,12 +49,15 @@ final class BridgeSessionClient {
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<bool> _ambientDisplay =
       StreamController<bool>.broadcast(sync: true);
+  final StreamController<void> _powerMenuRequests =
+      StreamController<void>.broadcast(sync: true);
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
 
   /// Configures the compositor-owned lock, DPMS, and suspend idle policy.
   void setIdlePolicy({
     required PowerButtonAction powerButtonAction,
+    required PowerButtonLongPressAction powerButtonLongPressAction,
     required bool lockEnabled,
     required Duration lockTimeout,
     required bool dpmsEnabled,
@@ -82,10 +87,13 @@ final class BridgeSessionClient {
         (suspendEnabled ? 4 : 0) |
         (lockAfterScreenOff != null ? 8 : 0);
     final data = ByteData(32)
-      ..setUint8(0, 4)
+      ..setUint8(0, 5)
       ..setUint8(1, flags)
       ..setUint8(2, suspendMode.wireValue)
-      ..setUint8(3, powerButtonAction.wireValue)
+      ..setUint8(
+        3,
+        powerButtonAction.wireValue | powerButtonLongPressAction.wireValue << 4,
+      )
       ..setUint32(4, screenOffMilliseconds, Endian.little)
       ..setUint64(8, lockMilliseconds, Endian.little)
       ..setUint64(16, dpmsMilliseconds, Endian.little)
@@ -106,7 +114,7 @@ final class BridgeSessionClient {
   void _sendDisplayPower(int command) {
     final data = ByteData(1)..setUint8(0, command);
     _context.platform
-        .send(_displayPowerChannel, data)
+        .send(displayPowerChannel, data)
         ?.catchError((Object _) => null);
   }
 
@@ -129,6 +137,19 @@ final class BridgeSessionClient {
       case _ambientLeave:
         _ambientDisplayActive = false;
         _ambientDisplay.add(false);
+    }
+    return null;
+  }
+
+  /// The power button was held: the shell opens its power menu.
+  Stream<void> get powerMenuRequests => _powerMenuRequests.stream;
+
+  Future<ByteData?> handleDisplayPower(ByteData? data) async {
+    if (data != null &&
+        data.lengthInBytes == 1 &&
+        data.getUint8(0) == _powerMenuRequest &&
+        !_powerMenuRequests.isClosed) {
+      _powerMenuRequests.add(null);
     }
     return null;
   }
@@ -338,6 +359,10 @@ final class BridgeSessionClient {
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _sendSystemCommand(_logoutCommand);
 
+  /// Asks the native compositor to end this session the same way and start
+  /// Denial again: the session launcher runs it anew.
+  bool requestRestart() => _sendSystemCommand(_restartCommand);
+
   /// Publishes the shell's fully resolved accent to deniald. Standalone
   /// Denial clients deliberately cannot author compositor theme state.
   void publishThemeAccent(int argb) {
@@ -430,5 +455,6 @@ final class BridgeSessionClient {
   void dispose() {
     unawaited(_uiDevelopmentStates.close());
     unawaited(_ambientDisplay.close());
+    unawaited(_powerMenuRequests.close());
   }
 }

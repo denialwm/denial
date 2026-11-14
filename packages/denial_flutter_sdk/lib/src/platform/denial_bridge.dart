@@ -31,6 +31,14 @@ export 'bridge/input_deck_client.dart' show InputDeckSnapshot;
 import 'bridge/platform_transport.dart';
 import 'bridge/session_client.dart';
 import 'bridge/settings_document_client.dart';
+import 'bridge/user_verification_client.dart';
+export 'bridge/user_verification_client.dart'
+    show
+        DenialUserVerification,
+        DenialUserVerificationEvent,
+        DenialUserVerificationShown,
+        DenialUserVerificationRejected,
+        DenialUserVerificationClosed;
 import 'bridge/windows_client.dart';
 import 'denial_bridge_models.dart';
 import 'denial_wire.dart' as wire;
@@ -61,6 +69,7 @@ class DenialBridge {
     _brightness = BridgeBrightnessClient(_context);
     _audio = BridgeAudioClient(_context);
     _session = BridgeSessionClient(_context);
+    _userVerification = BridgeUserVerificationClient(_context);
     _events = BridgeEventsClient(
       _context,
       _windows,
@@ -79,6 +88,8 @@ class DenialBridge {
       'denial/software_dimming_state': _brightness.handleSoftwareDimmingState,
       denialUiDevelopmentStateChannel: _session.handleDevelopmentState,
       BridgeSessionClient.ambientDisplayChannel: _session.handleAmbientDisplay,
+      BridgeSessionClient.displayPowerChannel: _session.handleDisplayPower,
+      BridgeUserVerificationClient.channel: _userVerification.handleMessage,
     });
   }
   final bool useControlSocket;
@@ -93,6 +104,7 @@ class DenialBridge {
   late final BridgeBrightnessClient _brightness;
   late final BridgeAudioClient _audio;
   late final BridgeSessionClient _session;
+  late final BridgeUserVerificationClient _userVerification;
   late final BridgeEventsClient _events;
 
   Stream<DenialWindowEvent> get windowEvents => _windows.windowEvents;
@@ -483,6 +495,7 @@ class DenialBridge {
   /// Configures the compositor-owned lock, DPMS, and suspend idle policy.
   void setIdlePolicy({
     required PowerButtonAction powerButtonAction,
+    required PowerButtonLongPressAction powerButtonLongPressAction,
     required bool lockEnabled,
     required Duration lockTimeout,
     required bool dpmsEnabled,
@@ -493,6 +506,7 @@ class DenialBridge {
     Duration? lockAfterScreenOff,
   }) => _session.setIdlePolicy(
     powerButtonAction: powerButtonAction,
+    powerButtonLongPressAction: powerButtonLongPressAction,
     lockEnabled: lockEnabled,
     lockTimeout: lockTimeout,
     dpmsEnabled: dpmsEnabled,
@@ -519,7 +533,30 @@ class DenialBridge {
   /// The last of [ambientDisplay].
   bool get ambientDisplayActive => _session.ambientDisplayActive;
 
+  /// The power button was held: deniald asks the shell for its power menu.
+  Stream<void> get powerMenuRequests => _session.powerMenuRequests;
+
   void ambientDisplayReady() => _session.ambientDisplayReady();
+
+  /// Sheets clients ask for to prove the user, and what became of them.
+  Stream<DenialUserVerificationEvent> get userVerifications =>
+      _userVerification.events;
+
+  /// Sends what the user typed on sheet [id] to the client that asked.
+  void submitUserVerification(
+    int id, {
+    required bool pin,
+    required String secret,
+  }) => _userVerification.submit(id, pin: pin, secret: secret);
+
+  /// The user closed sheet [id].
+  void cancelUserVerification(int id) => _userVerification.cancel(id);
+
+  /// The user turned from the fingerprint to sheet [id]'s PIN or password.
+  void openUserVerification(int id) => _userVerification.open(id);
+
+  /// Asks for the sheet showing, after the shell started.
+  void syncUserVerification() => _userVerification.sync();
 
   int queryUiDevelopmentState() => _session.queryUiDevelopmentState();
 
@@ -571,6 +608,9 @@ class DenialBridge {
   /// This is deliberately not a process launch: deniald terminates its own
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _session.requestLogout();
+
+  /// Ends the session like [requestLogout] and starts Denial again.
+  bool requestRestart() => _session.requestRestart();
 
   Future<DenialOutputConfiguration> readOutputConfiguration() =>
       _displays.readOutputConfiguration();

@@ -310,6 +310,7 @@ impl FlutterRuntime {
             pending_idle_policy: None,
             pending_display_power: None,
             pending_ambient_display_ready: false,
+            pending_user_verification: VecDeque::new(),
             pending_vm_service_uri: None,
             generation,
             scheduled_tasks: BinaryHeap::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),

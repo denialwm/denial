@@ -22,6 +22,9 @@ enum DenialShellAction {
 
   /// deniald captured a full-screen screenshot (Power plus Volume Down).
   screenshotCaptured,
+
+  /// Settings asked for the tablet lock screen editor.
+  lockScreenEditor,
 }
 
 class DenialShellActionEvent {

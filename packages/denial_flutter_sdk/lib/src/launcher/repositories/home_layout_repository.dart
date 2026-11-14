@@ -5,9 +5,26 @@ import '../models/home_grid_item.dart';
 
 /// The saved home layouts.
 class HomeSavedLayouts {
-  const HomeSavedLayouts({this.layouts = const {}, this.unassigned});
+  const HomeSavedLayouts({
+    this.layouts = const {},
+    this.unassigned,
+    this.pages = const {},
+    this.drawer = false,
+    this.sharedBottomRow = false,
+  });
 
   final Map<HomeOrientation, List<HomeLayoutSlot?>> layouts;
+
+  /// Pages the user added in each orientation, empty ones included. Home
+  /// shows at least as many pages as its items need.
+  final Map<HomeOrientation, int> pages;
+
+  /// A swipe up on home opens every app in a drawer.
+  final bool drawer;
+
+  /// The bottom row of the first page shows on every page; the other pages
+  /// leave their bottom row free.
+  final bool sharedBottomRow;
 
   /// A layout not yet shown in any orientation, as in files from before
   /// orientations: it belongs to whichever orientation home shows first.
@@ -36,12 +53,21 @@ class HomeLayoutRepository {
           rawSlots.map(_decodeSlot).toList(growable: false),
         _ => null,
       };
+      final pages = decoded['pages'];
       return HomeSavedLayouts(
         layouts: {
           for (final orientation in HomeOrientation.values)
             orientation: ?read(orientation.name),
         },
         unassigned: read('slots'),
+        pages: {
+          if (pages is Map)
+            for (final orientation in HomeOrientation.values)
+              if (pages[orientation.name] case final int count when count > 0)
+                orientation: count,
+        },
+        drawer: decoded['drawer'] == true,
+        sharedBottomRow: decoded['sharedBottomRow'] == true,
       );
     } on Object {
       return const HomeSavedLayouts();
@@ -54,10 +80,17 @@ class HomeLayoutRepository {
     try {
       final file = await _paths.layoutFile();
       final payload = jsonEncode({
-        'version': 4,
+        'version': 5,
         for (final MapEntry(:key, :value) in saved.layouts.entries)
           key.name: encode(value),
         if (saved.unassigned case final slots?) 'slots': encode(slots),
+        if (saved.pages.isNotEmpty)
+          'pages': {
+            for (final MapEntry(:key, :value) in saved.pages.entries)
+              key.name: value,
+          },
+        'drawer': saved.drawer,
+        'sharedBottomRow': saved.sharedBottomRow,
       });
       await file.writeAsString('$payload\n', flush: true);
     } on Object {

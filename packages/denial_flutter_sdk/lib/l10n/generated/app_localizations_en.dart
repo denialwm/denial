@@ -1533,6 +1533,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPowerButtonPowerOff => 'Power off';
 
   @override
+  String get settingsPowerButtonLongPress => 'Long press';
+
+  @override
+  String get settingsPowerButtonLongPressDescription =>
+      'Choose what happens when you hold the power button. Phones always show the power menu.';
+
+  @override
+  String get settingsPowerButtonLongPressNothing => 'Do nothing';
+
+  @override
+  String get settingsPowerButtonLongPressMenu => 'Show the power menu';
+
+  @override
   String get settingsAutomaticLockToggle => 'Lock automatically';
 
   @override
@@ -5413,4 +5426,100 @@ class AppLocalizationsEn extends AppLocalizations {
   String setupFailed(String reason) {
     return 'The account was not made: $reason';
   }
+
+  @override
+  String get userVerificationTitle => 'Confirm it’s you';
+
+  @override
+  String userVerificationAsksPin(String applicationName) {
+    return '$applicationName asks for your PIN';
+  }
+
+  @override
+  String userVerificationAsksPassword(String applicationName) {
+    return '$applicationName asks for your password';
+  }
+
+  @override
+  String get userVerificationWrongPassword => 'Wrong password';
+
+  @override
+  String get userVerificationConfirm => 'Confirm';
+
+  @override
+  String get lockEditorHint => 'Drag the clock to move it, pinch it to resize';
+
+  @override
+  String get lockEditorSwapSides => 'Swap sides';
+
+  @override
+  String get lockEditorReset => 'Reset';
+
+  @override
+  String get lockEditorCancel => 'Cancel';
+
+  @override
+  String get lockEditorDone => 'Done';
+
+  @override
+  String get lockEditorPinPad => 'PIN pad';
+
+  @override
+  String get lockEditorNotifications => 'Notifications';
+
+  @override
+  String get lockEditorPortrait =>
+      'Turn the tablet to landscape to edit the lock screen';
+
+  @override
+  String get mobilePowerTapToRestart => 'Tap again to restart';
+
+  @override
+  String get mobilePowerTapToPowerOff => 'Tap again to power off';
+
+  @override
+  String get mobilePowerMenuSemantics => 'Power menu';
+
+  @override
+  String get homeEditorAddPage => 'Add page';
+
+  @override
+  String get homeEditorRemovePage => 'Remove page';
+
+  @override
+  String get homeEditorDrawer => 'App drawer';
+
+  @override
+  String get homeEditorDrawerDetail => 'Swipe up on home to see every app';
+
+  @override
+  String get homeEditorSharedRow => 'Fixed bottom row';
+
+  @override
+  String get homeEditorSharedRowDetail =>
+      'The bottom row stays put when you change page';
+
+  @override
+  String get homeEditorDone => 'Done';
+
+  @override
+  String get homeDrawerSemantics => 'All apps';
+
+  @override
+  String get powerActionRestartDenial => 'Restart Denial';
+
+  @override
+  String get powerActionRestartDenialDescription =>
+      'Start Denial again; open apps close';
+
+  @override
+  String get powerConfirmRestartDenialTitle => 'Restart Denial?';
+
+  @override
+  String get powerConfirmRestartDenialBody =>
+      'Open apps close and Denial starts again.';
+
+  @override
+  String get mobilePowerTapToRestartDenial =>
+      'Tap again to restart Denial. Open apps close.';
 }

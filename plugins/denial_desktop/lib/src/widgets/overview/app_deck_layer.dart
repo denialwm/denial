@@ -30,6 +30,7 @@ class AppDeckLayer extends StatefulWidget {
     super.key,
     required this.deck,
     required this.windows,
+    this.windowsOver = const <int, List<DenialWindow>>{},
     required this.recents,
     this.backdrop,
     required this.onPresentationChanged,
@@ -44,6 +45,9 @@ class AppDeckLayer extends StatefulWidget {
 
   /// The open apps.
   final List<DenialWindow> windows;
+
+  /// The windows drawn over an app on its card, such as its dialog, by app.
+  final Map<int, List<DenialWindow>> windowsOver;
 
   /// Recents is open or opening, and takes touches.
   final bool recents;
@@ -320,6 +324,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
                       _DeckCard(
                         key: ValueKey<int>(id),
                         window: window,
+                        over: widget.windowsOver[id] ?? const <DenialWindow>[],
                         pose: pose,
                         labelWidth: geometry.card.width,
                         labelOpacity: _labelOpacity,
@@ -343,6 +348,7 @@ class _DeckCard extends StatefulWidget {
   const _DeckCard({
     super.key,
     required this.window,
+    required this.over,
     required this.pose,
     required this.labelWidth,
     required this.labelOpacity,
@@ -352,6 +358,9 @@ class _DeckCard extends StatefulWidget {
   });
 
   final DenialWindow window;
+
+  /// Windows opened over the app, such as its dialog, drawn over it.
+  final List<DenialWindow> over;
   final ValueListenable<WindowPose> pose;
   final double labelWidth;
 
@@ -496,12 +505,28 @@ class _DeckCardState extends State<_DeckCard>
             motion: _pose,
             child: PosedWindow(
               pose: _pose,
-              child: WindowSurface(
-                window: widget.window,
-                contentPadding: const EdgeInsets.only(
-                  top: ReferenceShellMetrics.statusBarHeight,
-                ),
-              ),
+              child: widget.over.isEmpty
+                  ? WindowSurface(
+                      window: widget.window,
+                      contentPadding: const EdgeInsets.only(
+                        top: ReferenceShellMetrics.statusBarHeight,
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        for (final window in [widget.window, ...widget.over])
+                          WindowSurface(
+                            key: ValueKey<int>(window.objectId),
+                            window: window,
+                            // Glass would hide the app beneath.
+                            applyBackdrop: window == widget.window,
+                            contentPadding: const EdgeInsets.only(
+                              top: ReferenceShellMetrics.statusBarHeight,
+                            ),
+                          ),
+                      ],
+                    ),
             ),
           ),
         ),

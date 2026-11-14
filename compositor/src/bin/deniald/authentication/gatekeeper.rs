@@ -10,14 +10,50 @@ use std::path::{Path, PathBuf};
 
 pub(super) const UID: u32 = 941003;
 const HANDLE_MAX: usize = 4096;
-const PROVIDER_SOCKET: &str = "/run/gatekeeper/worker.sock";
+/// A hardware provider, such as a Goodix phone's TEE; its fingerprint
+/// reader also wants the PIN proven before it adds a finger.
+const HARDWARE_SOCKET: &str = "/run/gatekeeper/worker.sock";
+/// Phonewave's software provider, root's, for phones without hardware one.
+const SOFTWARE_SOCKET: &str = "/run/gatekeeper/software.sock";
 const ENROLL_DIRECTORY: &str = "/run/fingerprint-enroll";
 const ENROLL_SOCKET: &str = "/run/fingerprint-enroll/enroll.sock";
 const LIMIT: Duration = Duration::from_secs(25);
 
-/// The phone has a hardware PIN provider: its socket is there.
+/// A provider's socket this process may connect to. Right after an upgrade
+/// the user joins the provider's group only from their next session; until
+/// then the PIN keeps its own record.
+fn listening(path: &str) -> bool {
+    let Ok(c_path) = std::ffi::CString::new(path) else {
+        return false;
+    };
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_socket())
+        // SAFETY: a NUL-terminated path; faccessat only reads it.
+        && unsafe {
+            libc::faccessat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                libc::R_OK | libc::W_OK,
+                libc::AT_EACCESS,
+            )
+        } == 0
+}
+
+/// The phone's PIN provider: a hardware one where it has one.
+fn provider() -> Option<&'static str> {
+    [HARDWARE_SOCKET, SOFTWARE_SOCKET]
+        .into_iter()
+        .find(|path| listening(path))
+}
+
+/// The phone has a PIN provider: its socket is there.
 pub(super) fn enabled() -> bool {
-    fs::symlink_metadata(PROVIDER_SOCKET).is_ok_and(|meta| meta.file_type().is_socket())
+    provider().is_some()
+}
+
+/// The provider is the phone's hardware, whose reader adds a finger only
+/// once the PIN is proven to it.
+pub(super) fn hardware() -> bool {
+    listening(HARDWARE_SOCKET)
 }
 
 pub(super) struct Credential {
@@ -124,7 +160,18 @@ fn call(
     password: &[u8],
     desired: &[u8],
 ) -> Result<(u64, Vec<u8>), Failure> {
-    let mut stream = UnixStream::connect(PROVIDER_SOCKET).map_err(|_| Failure::Unavailable)?;
+    let socket = provider().ok_or(Failure::Unavailable)?;
+    call_at(socket, op, current, challenge, password, desired)
+}
+fn call_at(
+    socket: &str,
+    op: u32,
+    current: Option<&Credential>,
+    challenge: u64,
+    password: &[u8],
+    desired: &[u8],
+) -> Result<(u64, Vec<u8>), Failure> {
+    let mut stream = UnixStream::connect(socket).map_err(|_| Failure::Unavailable)?;
     root_peer(&stream).map_err(|_| Failure::Unavailable)?;
     stream
         .set_read_timeout(Some(LIMIT))
@@ -234,6 +281,20 @@ pub(super) fn enroll(
         password,
         desired,
     )?;
+    Ok(Credential {
+        uid: UID,
+        sid,
+        handle,
+    })
+}
+/// Sets the PIN with the account password, which the software provider
+/// checks itself as root: for a forgotten PIN, or one turned back on. A
+/// hardware provider has no such way; its PIN changes only with itself.
+pub(super) fn reset(account_password: &[u8], desired: &[u8]) -> Result<Credential, Failure> {
+    if hardware() || !listening(SOFTWARE_SOCKET) {
+        return Err(Failure::Unavailable);
+    }
+    let (sid, handle) = call_at(SOFTWARE_SOCKET, 4, None, 0, account_password, desired)?;
     Ok(Credential {
         uid: UID,
         sid,

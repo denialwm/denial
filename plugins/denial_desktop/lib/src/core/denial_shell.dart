@@ -333,6 +333,8 @@ class _ProfileScene extends StatelessWidget {
             // Before the device has a person's account, setup covers all of
             // the above; the keyboard stays over it.
             const FirstUserSetupLayer(),
+            // A PIN or password an application asks for, under the keyboard.
+            const UserVerificationSheet(),
             const SystemKeyboardLayer(hints: true),
             // Over everything on the phone, like the lock screen it comes
             // from.
@@ -379,6 +381,7 @@ class _ProfileScene extends StatelessWidget {
                 ),
               ),
               if (!besidePhone) const FirstUserSetupLayer(),
+              if (!besidePhone) const UserVerificationSheet(),
               if (!besidePhone) const SystemKeyboardLayer(),
             ],
           ),

@@ -36,6 +36,9 @@ const settingsSuspendModeKey = ValueKey<String>('settings-suspend-mode');
 const settingsPowerButtonActionKey = ValueKey<String>(
   'settings-power-button-action',
 );
+const settingsPowerButtonLongPressKey = ValueKey<String>(
+  'settings-power-button-long-press',
+);
 
 class SettingsPowerPage extends ConsumerWidget {
   const SettingsPowerPage({
@@ -48,6 +51,7 @@ class SettingsPowerPage extends ConsumerWidget {
     required this.onSuspendTimeoutChanged,
     required this.onSuspendModeChanged,
     required this.onPowerButtonActionChanged,
+    required this.onPowerButtonLongPressActionChanged,
     required this.onReset,
     super.key,
   });
@@ -61,6 +65,8 @@ class SettingsPowerPage extends ConsumerWidget {
   final ValueChanged<int> onSuspendTimeoutChanged;
   final ValueChanged<SuspendMode> onSuspendModeChanged;
   final ValueChanged<PowerButtonAction> onPowerButtonActionChanged;
+  final ValueChanged<PowerButtonLongPressAction>
+  onPowerButtonLongPressActionChanged;
   final VoidCallback onReset;
 
   @override
@@ -96,11 +102,23 @@ class SettingsPowerPage extends ConsumerWidget {
             SettingsSection(
               title: l10n.settingsPowerButtonTitle,
               leading: _PowerButtonIcon(accent: ShellTheme.of(context).accent),
-              child: SettingsPowerButtonActionSelector(
-                key: settingsPowerButtonActionKey,
-                value: settings.powerButtonAction,
-                hibernateAvailable: hibernateAvailable,
-                onChanged: onPowerButtonActionChanged,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SettingsPowerButtonActionSelector(
+                    key: settingsPowerButtonActionKey,
+                    value: settings.powerButtonAction,
+                    hibernateAvailable: hibernateAvailable,
+                    onChanged: onPowerButtonActionChanged,
+                  ),
+                  const SizedBox(height: 12),
+                  SettingsPowerButtonLongPressSelector(
+                    key: settingsPowerButtonLongPressKey,
+                    value: settings.powerButtonLongPressAction,
+                    hibernateAvailable: hibernateAvailable,
+                    onChanged: onPowerButtonLongPressActionChanged,
+                  ),
+                ],
               ),
             ),
             _idlePolicySection(context, suspendModes),

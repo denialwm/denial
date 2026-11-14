@@ -22,15 +22,7 @@ bool openNotification(WidgetRef ref, int notificationId) {
     return notifications.invokeDefaultAction(notificationId);
   }
   if (notification.desktopEntry.isEmpty) return false;
-  unawaited(
-    _openApp(
-      notification.desktopEntry,
-      repository: ref.read(desktopAppsRepositoryProvider),
-      launcher: ref.read(appLauncherProvider),
-      shell: ref.read(referenceShellProvider.notifier),
-      windows: ref.read(referenceShellProvider).allOpenAppWindows,
-    ),
-  );
+  openApplication(ref, notification.desktopEntry);
   if (notification.resident) {
     notifications.hideBanner(notificationId);
   } else {
@@ -58,6 +50,19 @@ void openLockNotification(WidgetRef ref) {
   } else {
     openNotification(ref, group.newest.notification.id);
   }
+}
+
+/// Focuses the app [desktopEntry] names, or starts it.
+void openApplication(WidgetRef ref, String desktopEntry) {
+  unawaited(
+    _openApp(
+      desktopEntry,
+      repository: ref.read(desktopAppsRepositoryProvider),
+      launcher: ref.read(appLauncherProvider),
+      shell: ref.read(referenceShellProvider.notifier),
+      windows: ref.read(referenceShellProvider).allOpenAppWindows,
+    ),
+  );
 }
 
 Future<void> _openApp(

@@ -30,7 +30,8 @@ import 'package:denial_flutter_sdk/tokens.dart';
 import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
 import '../connectivity/mobile_data_tile.dart';
-import '../session/power_session_surface.dart';
+import '../notification_open.dart';
+import '../session/mobile_power_menu.dart';
 
 import 'package:denial_flutter_sdk/effects.dart';
 
@@ -920,9 +921,18 @@ class _ShadeHeaderActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ShadeActions(onOpenPower: () => showPowerSessionSurface(ref));
+    return ShadeActions(
+      onOpenSettings: () {
+        ref.read(referenceShellProvider.notifier).closeQuickSettings();
+        openApplication(ref, _phoneSettingsApp);
+      },
+      onOpenPower: () => showMobilePowerMenu(ref),
+    );
   }
 }
+
+/// The phone's own Settings app, never the desktop one.
+const _phoneSettingsApp = 'org.denialwm.Settings';
 
 class _EmptyNotifications extends StatelessWidget {
   const _EmptyNotifications();

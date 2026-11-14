@@ -480,7 +480,7 @@ fn output_control_mode(
 }
 
 /// Logical pixels per inch on handheld panels: the density the mobile shell and
-/// desktop clients were tuned at (scale 2 on the 450 ppi Ace 3 and Edge 70), so
+/// desktop clients were tuned at (scale 2 on the 450 ppi 12R and Edge 70), so
 /// layouts keep one physical size on every panel.
 const HANDHELD_LOGICAL_PPI: f64 = 225.0;
 /// Density scales are rounded to quarter steps, which keeps sizes within a few
@@ -1049,7 +1049,7 @@ mod tests {
         let scale = |pixels: (f64, f64), mm: (f64, f64)| {
             density_scale_120(pixels.0.hypot(pixels.1), mm.0.hypot(mm.1))
         };
-        // OnePlus Ace 3, Motorola Edge 70, OnePlus Pad 4.
+        // OnePlus 12R, Motorola Edge 70, OnePlus Pad 4.
         assert_eq!(scale((1264.0, 2780.0), (71.0, 157.0)), 240);
         assert_eq!(scale((1220.0, 2712.0), (69.0, 154.0)), 240);
         assert_eq!(scale((3392.0, 2400.0), (274.0, 193.0)), 180);

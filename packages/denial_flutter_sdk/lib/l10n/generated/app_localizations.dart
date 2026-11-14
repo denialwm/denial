@@ -2742,6 +2742,30 @@ abstract class AppLocalizations {
   /// **'Power off'**
   String get settingsPowerButtonPowerOff;
 
+  /// Label for what holding the power button does.
+  ///
+  /// In en, this message translates to:
+  /// **'Long press'**
+  String get settingsPowerButtonLongPress;
+
+  /// Description of the power button long-press selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what happens when you hold the power button. Phones always show the power menu.'**
+  String get settingsPowerButtonLongPressDescription;
+
+  /// Power button long-press action that does nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Do nothing'**
+  String get settingsPowerButtonLongPressNothing;
+
+  /// Power button long-press action that opens the power and session menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Show the power menu'**
+  String get settingsPowerButtonLongPressMenu;
+
   /// Toggle for automatically locking the session after inactivity.
   ///
   /// In en, this message translates to:
@@ -9657,6 +9681,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The account was not made: {reason}'**
   String setupFailed(String reason);
+
+  /// Title of the sheet an application opens to ask for the screen lock, when it gives no title of its own.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it’s you'**
+  String get userVerificationTitle;
+
+  /// Line under the title of the screen-lock sheet while it shows the PIN keypad.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} asks for your PIN'**
+  String userVerificationAsksPin(String applicationName);
+
+  /// Line under the title of the screen-lock sheet while it asks for the account password.
+  ///
+  /// In en, this message translates to:
+  /// **'{applicationName} asks for your password'**
+  String userVerificationAsksPassword(String applicationName);
+
+  /// Shown on the screen-lock sheet after a rejected account password.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password'**
+  String get userVerificationWrongPassword;
+
+  /// Submits the account password on the screen-lock sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get userVerificationConfirm;
+
+  /// Hint at the top of the tablet lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the clock to move it, pinch it to resize'**
+  String get lockEditorHint;
+
+  /// Lock screen editor button that moves the PIN pad to the other side.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap sides'**
+  String get lockEditorSwapSides;
+
+  /// Lock screen editor button that puts the clock and PIN pad back where they start.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get lockEditorReset;
+
+  /// Lock screen editor button that closes it without saving.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get lockEditorCancel;
+
+  /// Lock screen editor button that saves the layout and closes.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get lockEditorDone;
+
+  /// Label on the placeholder for the PIN pad in the lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'PIN pad'**
+  String get lockEditorPinPad;
+
+  /// Label on the outline where notifications show, in the lock screen editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get lockEditorNotifications;
+
+  /// Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn the tablet to landscape to edit the lock screen'**
+  String get lockEditorPortrait;
+
+  /// Mobile power menu: shown after Restart is tapped once; a second tap restarts the phone.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to restart'**
+  String get mobilePowerTapToRestart;
+
+  /// Mobile power menu: shown after Power off is tapped once; a second tap shuts the phone down.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to power off'**
+  String get mobilePowerTapToPowerOff;
+
+  /// Accessibility label of the mobile power menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Power menu'**
+  String get mobilePowerMenuSemantics;
+
+  /// Home page editor: the card that adds an empty launcher page.
+  ///
+  /// In en, this message translates to:
+  /// **'Add page'**
+  String get homeEditorAddPage;
+
+  /// Home page editor: accessibility label of the button on a page that removes it.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove page'**
+  String get homeEditorRemovePage;
+
+  /// Home page editor: switch that turns the app drawer on.
+  ///
+  /// In en, this message translates to:
+  /// **'App drawer'**
+  String get homeEditorDrawer;
+
+  /// Home page editor: what the app drawer switch does.
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe up on home to see every app'**
+  String get homeEditorDrawerDetail;
+
+  /// Home page editor: switch that keeps the bottom row of icons the same on every page.
+  ///
+  /// In en, this message translates to:
+  /// **'Fixed bottom row'**
+  String get homeEditorSharedRow;
+
+  /// Home page editor: what the fixed bottom row switch does.
+  ///
+  /// In en, this message translates to:
+  /// **'The bottom row stays put when you change page'**
+  String get homeEditorSharedRowDetail;
+
+  /// Home page editor: button that closes the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get homeEditorDone;
+
+  /// Accessibility label of the full-screen app drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'All apps'**
+  String get homeDrawerSemantics;
+
+  /// Power action that starts Denial again in the same session, closing open apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart Denial'**
+  String get powerActionRestartDenial;
+
+  /// What the Restart Denial power action does.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Denial again; open apps close'**
+  String get powerActionRestartDenialDescription;
+
+  /// Title of the confirmation before Denial restarts.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart Denial?'**
+  String get powerConfirmRestartDenialTitle;
+
+  /// Body of the confirmation before Denial restarts.
+  ///
+  /// In en, this message translates to:
+  /// **'Open apps close and Denial starts again.'**
+  String get powerConfirmRestartDenialBody;
+
+  /// Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to restart Denial. Open apps close.'**
+  String get mobilePowerTapToRestartDenial;
 }
 
 class _AppLocalizationsDelegate

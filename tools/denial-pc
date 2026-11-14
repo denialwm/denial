@@ -1335,17 +1335,23 @@ run_compositor() {
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
 
-    systemd-cat --identifier=deniald "$BINARY" \
-        --device "$drm_device" \
-        --output-config "$OUTPUT_CONFIG" \
-        --wayland \
-        "${xwayland_arguments[@]}" \
-        "${polkit_arguments[@]}" \
-        --flutter-bundle "$BUNDLE" <&0 &
-    DENIAL_SESSION_PID=$!
-    local status=0
-    wait "$DENIAL_SESSION_PID" || status=$?
-    DENIAL_SESSION_PID=''
+    # deniald exits with 75 to be started again in the same session.
+    local status
+    while true; do
+        systemd-cat --identifier=deniald "$BINARY" \
+            --device "$drm_device" \
+            --output-config "$OUTPUT_CONFIG" \
+            --wayland \
+            "${xwayland_arguments[@]}" \
+            "${polkit_arguments[@]}" \
+            --flutter-bundle "$BUNDLE" <&0 &
+        DENIAL_SESSION_PID=$!
+        status=0
+        wait "$DENIAL_SESSION_PID" || status=$?
+        DENIAL_SESSION_PID=''
+        [[ "$status" == 75 ]] || break
+        printf 'denial-pc: restarting Denial\n' >&2
+    done
     exit "$status"
 }
 

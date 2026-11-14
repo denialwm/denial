@@ -153,6 +153,7 @@ const MAX_PLATFORM_TASKS_PER_DISPATCH: usize = 256;
 const INITIAL_PLATFORM_TASK_BATCH_CAPACITY: usize = 64;
 const MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES: usize = 1024;
 const MAX_PENDING_AUDIO_REQUESTS: usize = 128;
+const MAX_PENDING_USER_VERIFICATION: usize = 16;
 const MAX_PENDING_BRIGHTNESS_REQUESTS: usize = 128;
 const MAX_PENDING_SOFTWARE_DIMMING_REQUESTS: usize = 128;
 const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
@@ -546,6 +547,7 @@ pub struct FlutterRuntime {
     pending_idle_policy: Option<idle_policy::IdlePolicyConfiguration>,
     pending_display_power: Option<idle_policy::DisplayPowerRequest>,
     pending_ambient_display_ready: bool,
+    pending_user_verification: VecDeque<Vec<u8>>,
     pending_vm_service_uri: Option<String>,
     generation: u64,
     scheduled_tasks: BinaryHeap<QueuedPlatformTask>,

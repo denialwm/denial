@@ -129,7 +129,7 @@ pub(crate) fn run() -> Result<(), Box<dyn Error>> {
                     emit(json!({"event":"error","code":"already-enrolled"}))?;
                     continue;
                 }
-                let authorization = if gatekeeper::enabled() {
+                let authorization = if gatekeeper::hardware() {
                     let credential = match store.enrollment_credential() {
                         Ok(credential) => credential,
                         Err(_) => {

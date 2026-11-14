@@ -148,6 +148,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       case DenialShellAction.screenshotCaptured:
         // The mobile shell's flash; the desktop shows nothing.
         break;
+      case DenialShellAction.lockScreenEditor:
+        // The tablet lock screen editor belongs to the mobile shell.
+        break;
       case DenialShellAction.clientPointerPressed:
         dismissOpenSystemTrayMenu(ref);
       case DenialShellAction.wallpaper:

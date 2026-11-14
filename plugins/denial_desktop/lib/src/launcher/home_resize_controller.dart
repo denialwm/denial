@@ -110,7 +110,7 @@ class HomeResizeController {
           rect.top + span(item.minRowSpan, geometry.tileSize.height),
           rect.top +
               span(
-                (geometry.rows - _startRow).clamp(1, item.maxRowSpan),
+                (geometry.upperRows - _startRow).clamp(1, item.maxRowSpan),
                 geometry.tileSize.height,
               ),
         ),

@@ -15,6 +15,7 @@ Flutter channels are outside this inventory.
 | `denial/audio_streams_state` | Native → Dart | bounded length-prefixed packet | Application stream identities, names, level, and mute state |
 | `denial/authentication` | Dart → native | bounded `DAUT` packet | Synchronize, lock, begin, respond to, or cancel a native PAM attempt |
 | `denial/authentication_state` | Native → Dart | bounded `DAUT` packet | Authoritative lock state, PAM prompts, results, retry cooldown, and advisory fingerprint feedback |
+| `denial/user_verification` | Bidirectional | bounded little-endian records | Show, reject or close a client's PIN or password sheet; return what the user typed or that they cancelled (`user-verify-v1.md`) |
 | `denial/lock_frame` | Bidirectional | UTF-8 decimal token (`StringCodec`); `sync` query | Prepare a settled lock layout while KMS remains off, then acknowledge the current wake token after layout |
 | `denial/clipboard` | Dart → native → reply | bounded `DCLP` request / `DCLS` response | Search/read clipboard history and activate, pin, delete, clear, or pause it |
 | `denial/clipboard_state` | Native → Dart | bounded `DCLS` snapshot | Authoritative, lock-redacted clipboard-history metadata |

@@ -560,6 +560,9 @@ class _AppFlightLayerState extends ConsumerState<AppFlightLayer>
 
   @override
   Widget build(BuildContext context) {
+    final riding = ref.watch(
+      referenceShellProvider.select((state) => state.deckWindowsByApp),
+    );
     if (_flights.isEmpty) return const SizedBox.expand();
     final glass = WindowBackdropCache.maybeOf(context);
     final shading = ShellTheme.of(context).windowGlassShading;
@@ -581,6 +584,8 @@ class _AppFlightLayerState extends ConsumerState<AppFlightLayer>
                 },
                 child: _FlightView(
                   flight: flight,
+                  over:
+                      riding[flight.window?.objectId] ?? const <DenialWindow>[],
                   glass: glass == null
                       ? FadeTransition(
                           opacity: flight.glassFade,
@@ -606,9 +611,16 @@ class _AppFlightLayerState extends ConsumerState<AppFlightLayer>
 /// the glass was without fading the window itself, which would allocate a
 /// layer for a rectangle that changes every frame.
 class _FlightView extends StatelessWidget {
-  const _FlightView({required this.flight, required this.glass});
+  const _FlightView({
+    required this.flight,
+    required this.over,
+    required this.glass,
+  });
 
   final _Flight flight;
+
+  /// Windows riding on the flying app's card, such as its dialog.
+  final List<DenialWindow> over;
 
   /// The new app's glass, drawn in place under the card's clip.
   final Widget glass;
@@ -625,12 +637,28 @@ class _FlightView extends StatelessWidget {
             motion: flight.pose,
             child: PosedWindow(
               pose: flight.pose,
-              child: WindowSurface(
-                window: window,
-                contentPadding: const EdgeInsets.only(
-                  top: ReferenceShellMetrics.statusBarHeight,
-                ),
-              ),
+              child: over.isEmpty
+                  ? WindowSurface(
+                      window: window,
+                      contentPadding: const EdgeInsets.only(
+                        top: ReferenceShellMetrics.statusBarHeight,
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        for (final shown in [window, ...over])
+                          WindowSurface(
+                            key: ValueKey<int>(shown.objectId),
+                            window: shown,
+                            // Glass would hide the app beneath.
+                            applyBackdrop: shown == window,
+                            contentPadding: const EdgeInsets.only(
+                              top: ReferenceShellMetrics.statusBarHeight,
+                            ),
+                          ),
+                      ],
+                    ),
             ),
           ),
         if (flight.placeholder)

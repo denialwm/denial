@@ -4,6 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 
+const double _markRadius = 13.0;
+
+/// How far the ring reaches from its center, scanning included.
+const double fingerprintMarkReach = _markRadius * 1.35;
+
+/// Where [FingerprintMark] draws its ring in a layout of [size]. Sensor
+/// fractions follow the panel's native portrait orientation; in landscape
+/// the mark falls back to the bottom edge.
+Offset fingerprintMarkCenter(Rect? sensor, Size size) =>
+    sensor != null && size.height >= size.width
+    ? Offset(sensor.center.dx * size.width, sensor.center.dy * size.height)
+    : Offset(size.width / 2, size.height * 0.88);
+
 /// Marks the fingerprint sensor whenever the reader listens for someone: the
 /// lock screen, the ambient display or an application that asked for a
 /// fingerprint. On an under-display sensor the ring sits on the sensor,
@@ -110,7 +123,6 @@ class _FingerprintMarkPainter extends CustomPainter {
   /// Panel fractions in the panel's native orientation.
   final Rect? sensor;
 
-  static const double _radius = 13.0;
   static const double _stroke = 2.0;
 
   @override
@@ -119,12 +131,7 @@ class _FingerprintMarkPainter extends CustomPainter {
     if (alpha <= 0.0) {
       return;
     }
-    final sensor = this.sensor;
-    // Sensor fractions follow the panel's native portrait orientation; in
-    // landscape the mark falls back to the bottom edge.
-    final center = sensor != null && size.height >= size.width
-        ? Offset(sensor.center.dx * size.width, sensor.center.dy * size.height)
-        : Offset(size.width / 2, size.height * 0.88);
+    final center = fingerprintMarkCenter(sensor, size);
     final ink = Color.lerp(
       ShellTelemetryColors.danger,
       ShellMediaColors.lightForeground,
@@ -132,7 +139,7 @@ class _FingerprintMarkPainter extends CustomPainter {
     )!;
     canvas.drawCircle(
       center,
-      _radius * (1.0 + 0.35 * scanning.value),
+      _markRadius * (1.0 + 0.35 * scanning.value),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _stroke
