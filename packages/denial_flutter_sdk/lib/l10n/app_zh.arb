@@ -1636,5 +1636,8 @@
   "lockEditorDone": "完成",
   "lockEditorPinPad": "PIN 键盘",
   "lockEditorNotifications": "通知",
-  "lockEditorPortrait": "将平板横置以编辑锁屏"
+  "lockEditorPortrait": "将平板横置以编辑锁屏",
+  "mobilePowerTapToRestart": "再次点按以重启",
+  "mobilePowerTapToPowerOff": "再次点按以关机",
+  "mobilePowerMenuSemantics": "电源菜单"
 }

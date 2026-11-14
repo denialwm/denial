@@ -1,6 +1,9 @@
 import 'package:denial_desktop/src/state/notification_groups.dart';
 import 'package:denial_desktop/src/state/reference_shell_controller.dart';
 import 'package:denial_desktop/src/widgets/notification_open.dart';
+import 'package:denial_desktop/src/state/reference_shell_presentation.dart';
+import 'package:denial_desktop/src/state/reference_shell_profile.dart';
+import 'package:denial_desktop/src/widgets/session/mobile_power_menu.dart';
 import 'package:denial_desktop/src/widgets/session/power_session_surface.dart';
 
 import 'dart:async';
@@ -88,7 +91,13 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
         .read(denialBridgeProvider)
         .powerMenuRequests
         .listen((_) {
-          if (mounted && !ref.read(referenceShellProvider).lockLayerVisible) {
+          if (!mounted || ref.read(referenceShellProvider).lockLayerVisible) {
+            return;
+          }
+          if (ref.read(referenceShellPresentationProvider) ==
+              ReferenceShellProfile.mobile) {
+            showMobilePowerMenu(ref);
+          } else {
             showPowerSessionSurface(ref);
           }
         });

@@ -5207,4 +5207,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get lockEditorPortrait => '将平板横置以编辑锁屏';
+
+  @override
+  String get mobilePowerTapToRestart => '再次点按以重启';
+
+  @override
+  String get mobilePowerTapToPowerOff => '再次点按以关机';
+
+  @override
+  String get mobilePowerMenuSemantics => '电源菜单';
 }

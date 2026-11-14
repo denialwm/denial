@@ -31,7 +31,7 @@ import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
 import '../connectivity/mobile_data_tile.dart';
 import '../notification_open.dart';
-import '../session/power_session_surface.dart';
+import '../session/mobile_power_menu.dart';
 
 import 'package:denial_flutter_sdk/effects.dart';
 
@@ -926,7 +926,7 @@ class _ShadeHeaderActions extends ConsumerWidget {
         ref.read(referenceShellProvider.notifier).closeQuickSettings();
         openApplication(ref, _phoneSettingsApp);
       },
-      onOpenPower: () => showPowerSessionSurface(ref),
+      onOpenPower: () => showMobilePowerMenu(ref),
     );
   }
 }

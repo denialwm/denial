@@ -9759,6 +9759,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Turn the tablet to landscape to edit the lock screen'**
   String get lockEditorPortrait;
+
+  /// Mobile power menu: shown after Restart is tapped once; a second tap restarts the phone.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to restart'**
+  String get mobilePowerTapToRestart;
+
+  /// Mobile power menu: shown after Power off is tapped once; a second tap shuts the phone down.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap again to power off'**
+  String get mobilePowerTapToPowerOff;
+
+  /// Accessibility label of the mobile power menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Power menu'**
+  String get mobilePowerMenuSemantics;
 }
 
 class _AppLocalizationsDelegate

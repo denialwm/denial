@@ -7097,5 +7097,11 @@
   "lockEditorNotifications": "Notifications",
   "@lockEditorNotifications": {"description": "Label on the outline where notifications show, in the lock screen editor."},
   "lockEditorPortrait": "Turn the tablet to landscape to edit the lock screen",
-  "@lockEditorPortrait": {"description": "Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited."}
+  "@lockEditorPortrait": {"description": "Shown by the lock screen editor while the tablet is upright: only the landscape layout can be edited."},
+  "mobilePowerTapToRestart": "Tap again to restart",
+  "@mobilePowerTapToRestart": {"description": "Mobile power menu: shown after Restart is tapped once; a second tap restarts the phone."},
+  "mobilePowerTapToPowerOff": "Tap again to power off",
+  "@mobilePowerTapToPowerOff": {"description": "Mobile power menu: shown after Power off is tapped once; a second tap shuts the phone down."},
+  "mobilePowerMenuSemantics": "Power menu",
+  "@mobilePowerMenuSemantics": {"description": "Accessibility label of the mobile power menu."}
 }

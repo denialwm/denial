@@ -5470,4 +5470,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get lockEditorPortrait =>
       'Turn the tablet to landscape to edit the lock screen';
+
+  @override
+  String get mobilePowerTapToRestart => 'Tap again to restart';
+
+  @override
+  String get mobilePowerTapToPowerOff => 'Tap again to power off';
+
+  @override
+  String get mobilePowerMenuSemantics => 'Power menu';
 }
