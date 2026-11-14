@@ -228,9 +228,7 @@ class _MobileLockPinStageState extends ConsumerState<_MobileLockPinStage>
       messageColor: messageColor,
       enabled: _acceptsInput(authentication),
       onDigit: _press,
-      trailing: (keySize) => widget.docked && _filled == 0 && !_submitted
-          ? SizedBox.square(dimension: keySize)
-          : _filled == 0 || _submitted
+      trailing: (keySize) => _filled == 0 || _submitted
           ? _PinTextKey(
               size: keySize,
               label: l10n.commonCancel,

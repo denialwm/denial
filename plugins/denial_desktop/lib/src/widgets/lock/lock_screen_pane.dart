@@ -133,6 +133,10 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   /// after it is dismissed and the password panel never borrows it.
   _LockCredential _revealed = _LockCredential.password;
 
+  /// Whether that credential came up docked, so a dismissed pad fades out
+  /// where it was.
+  bool _revealedDocked = false;
+
   /// What deniald last heard: the reader answers only on the fingerprint
   /// face. Null until this pane has said it, and again after a new lock.
   bool? _fingerprintOffered;
@@ -285,23 +289,26 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       });
     }
     final pinMode = widget.authenticationEnabled && _pinMode(authentication);
-    // A landscape mobile lock keeps the PIN pad up in its last third, beside
-    // the clock and notifications; nothing slides away.
+    // A landscape mobile lock opens by a swipe too; the PIN pad then comes up
+    // in its last third, beside the clock and notifications, which come back
+    // home instead of sliding away.
     final viewSize = MediaQuery.sizeOf(context);
     final docked =
         !widget.desktop &&
+        widget.authenticationEnabled &&
+        _authenticationVisible &&
         pinMode &&
         !simPending &&
         viewSize.width > viewSize.height;
     // Mobile follows the user: a cancelled attempt that deniald has not
     // closed yet must not hold the keypad up or block the next swipe.
     final credentialShown =
-        docked ||
         simPending ||
         (!widget.desktop &&
             widget.authenticationEnabled &&
             _authenticationVisible);
     if (credentialShown) {
+      _revealedDocked = docked;
       _revealed = simPending
           ? _LockCredential.sim
           : pinMode
@@ -541,12 +548,14 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 ),
               if (revealed == _LockCredential.pin)
                 _AmbientHidden(
-                  opacity: docked ? _ambientHidden : kAlwaysCompleteAnimation,
+                  opacity: _revealedDocked
+                      ? _ambientHidden
+                      : kAlwaysCompleteAnimation,
                   child: _MobileLockPinStage(
                     key: const ValueKey<String>('mobile-lock-pin-stage'),
                     reveal: _pinStageReveal,
                     interactive: credentialShown,
-                    docked: docked,
+                    docked: _revealedDocked,
                     onBegin: () =>
                         ref.read(authenticationProvider.notifier).begin(),
                     onCancel: _cancelAuthentication,
