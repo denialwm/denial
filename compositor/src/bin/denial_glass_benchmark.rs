@@ -309,6 +309,7 @@ impl ScanoutCopy {
             size,
             shader,
             desktop_gl::CopyColor::default(),
+            None,
         )
         .map_err(|error| format!("worker scanout shader copy failed: {error:#x}").into())
     }

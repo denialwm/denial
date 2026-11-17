@@ -1652,7 +1652,8 @@ impl BufferHandler for RuntimeState {
     fn buffer_destroyed(&mut self, _buffer: &wl_buffer::WlBuffer) {
         // Clients may destroy a buffer once it is released, including SHM
         // buffers that deniald releases right after snapshotting them. The
-        // surface keeps those contents, so it stays buffered.
+        // surface keeps those contents, so it stays buffered. Republishing
+        // the scene also drops the renderer's binding of a destroyed dma-buf.
         self.scene_sync.mark_dirty();
     }
 }

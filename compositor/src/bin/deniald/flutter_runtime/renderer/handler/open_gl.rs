@@ -156,7 +156,7 @@ impl FlutterGlHandler {
                     }
                     let binding = Arc::new(CachedTextureBinding {
                         binding: Some(ExternalTextureBinding {
-                            dmabuf_image: Some((dmabuf.clone(), image as usize)),
+                            dmabuf_image: Some(image as usize),
                             _owned_shm: owned_shm.clone(),
                             _owned_native: owned_native.clone(),
                             texture: name,
@@ -170,7 +170,7 @@ impl FlutterGlHandler {
                     } else if owned_shm.is_some() {
                         self.cache_shm_binding(texture_id, source_generation, Arc::clone(&binding));
                     } else {
-                        self.cache_dmabuf_binding(texture_id, dmabuf, Arc::clone(&binding));
+                        self.cache_dmabuf_binding(texture_id, &dmabuf, Arc::clone(&binding));
                     }
                     // An insertion can evict an inactive LRU entry. Its Drop
                     // only queued GL objects, and this callback owns a current
@@ -674,7 +674,7 @@ impl OpenGlHandler for FlutterGlHandler {
                     self.render_audit.as_ref(),
                     RenderAuditStage::PresentBlit,
                 );
-                self.blit_to_scanout(framebuffer)
+                self.blit_to_scanout(framebuffer, frame.buffer_damage)
             };
             if !blit_ok {
                 if let Some(gpu_timing) = &self.gpu_timing {
@@ -1079,7 +1079,79 @@ impl OpenGlHandler for FlutterGlHandler {
 }
 
 impl FlutterGlHandler {
+    /// The render audit's memory record: every texture and renderbuffer this
+    /// handler allocated storage for. Imported buffers are counted, not
+    /// sized: their storage belongs to the client or to the output pool.
+    fn report_texture_memory(&self) {
+        let (depth_stencils, depth_stencil_bytes, targets) = {
+            let targets = lock(&self.targets);
+            let mut outputs = Vec::new();
+            let mut bytes = 0u64;
+            for target in targets.iter() {
+                if !outputs.contains(&target.output_id) {
+                    outputs.push(target.output_id);
+                    // DEPTH24_STENCIL8, one per output.
+                    bytes += u64::from(target.size.width) * u64::from(target.size.height) * 4;
+                }
+            }
+            (outputs.len(), bytes, targets.len())
+        };
+        let (graded_windows, graded_textures, graded_bytes, graded_sizes, looks) = {
+            let grades = lock(&self.window_grades);
+            let mut textures = 0usize;
+            let mut bytes = 0u64;
+            let mut sizes = Vec::new();
+            for graded in grades.graded.values() {
+                let copies = 1 + graded.spares.len();
+                let pixel = if graded.float { 8 } else { 4 };
+                textures += copies;
+                bytes += (graded.size.0 * graded.size.1 * pixel * copies) as u64;
+                sizes.push(format!(
+                    "{}x{}x{copies}{}",
+                    graded.size.0,
+                    graded.size.1,
+                    if graded.float { "f" } else { "" }
+                ));
+            }
+            (
+                grades.graded.len(),
+                textures,
+                bytes,
+                sizes.join(","),
+                grades.looks.len(),
+            )
+        };
+        let (uploaded_textures, uploaded_bytes) = {
+            let cache = lock(&self.shm_texture_cache);
+            cache
+                .values()
+                .fold((0usize, 0u64), |(count, bytes), binding| {
+                    (count + 1, bytes + binding.uploaded_bytes())
+                })
+        };
+        info!(
+            target: "deniald::render_audit",
+            source = "textures",
+            output_targets = targets,
+            depth_stencils,
+            depth_stencil_bytes,
+            graded_windows,
+            graded_textures,
+            graded_bytes,
+            graded_sizes = %graded_sizes,
+            looks,
+            uploaded_textures,
+            uploaded_bytes,
+            "Compositor texture memory audit"
+        );
+    }
+
     fn collect_gpu_timings(&self) {
+        if let Some(audit) = &self.render_audit
+            && lock(audit).texture_report_due()
+        {
+            self.report_texture_memory();
+        }
         let Some(gpu_timing) = &self.gpu_timing else {
             return;
         };

@@ -103,6 +103,7 @@ pub(super) struct GlApi {
     pub(super) delete_renderbuffers: unsafe extern "system" fn(i32, *const u32),
     pub(super) get_integer_v: unsafe extern "system" fn(u32, *mut i32),
     pub(super) viewport: unsafe extern "system" fn(i32, i32, i32, i32),
+    pub(super) scissor: unsafe extern "system" fn(i32, i32, i32, i32),
     pub(super) get_error: unsafe extern "system" fn() -> u32,
     pub(super) flush: unsafe extern "system" fn(),
     pub(super) finish: unsafe extern "system" fn(),
@@ -243,6 +244,7 @@ impl GlApi {
             ),
             get_integer_v: symbol!("glGetIntegerv", unsafe extern "system" fn(u32, *mut i32)),
             viewport: symbol!("glViewport", unsafe extern "system" fn(i32, i32, i32, i32)),
+            scissor: symbol!("glScissor", unsafe extern "system" fn(i32, i32, i32, i32)),
             get_error: symbol!("glGetError", unsafe extern "system" fn() -> u32),
             flush: symbol!("glFlush", unsafe extern "system" fn()),
             finish: symbol!("glFinish", unsafe extern "system" fn()),
@@ -269,6 +271,19 @@ pub(super) struct GlTarget {
     pub(super) gamut: Option<[f32; 9]>,
     /// SDR white in cd/m² when the copy encodes PQ, else 0.
     pub(super) pq_white: f32,
+    /// What the scanout buffer was last copied with; `None` before its
+    /// first copy.
+    pub(super) copied: Option<CopyState>,
+}
+
+/// The color state of a copy to scanout. A scanout buffer is its scene
+/// target seen through this state, so a copy with the same state only has to
+/// cover what Flutter repainted in the scene target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CopyState {
+    pub(super) look_generation: u64,
+    pub(super) look_texture: u32,
+    pub(super) corrected: bool,
 }
 
 impl GlTarget {
@@ -617,6 +632,9 @@ pub(super) struct Conversion {
 /// Copy a completed scene into its scanout target with the current GLES context.
 /// The compositor and render-node-only profiler share this exact command stream.
 /// The caller must keep every target/program alive and the owning context current.
+///
+/// `area` limits the copy to those `[x, y, width, height]` pixel rectangles of
+/// the target, counted from its first row; `None` copies the whole target.
 pub(super) fn copy_to_scanout(
     gl: GlApi,
     render_texture: u32,
@@ -624,6 +642,7 @@ pub(super) fn copy_to_scanout(
     size: PixelSize,
     shader_blit: ShaderBlit,
     color: CopyColor,
+    area: Option<&[[i32; 4]]>,
 ) -> Result<(), u32> {
     // The raster commands and this draw share one GLES context, so command
     // ordering makes the completed scene texture available without
@@ -711,7 +730,24 @@ pub(super) fn copy_to_scanout(
             (gl.uniform_matrix_3fv)(shader_blit.gamut_uniform, 1, gl::FALSE, gamut.as_ptr());
         }
         (gl.uniform_1f)(shader_blit.pq_white_uniform, color.pq_white);
-        (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
+        match area {
+            None => (gl.draw_arrays)(gl::TRIANGLES, 0, 3),
+            Some(rects) => {
+                let mut previous_scissor = [0; 4];
+                (gl.get_integer_v)(gl::SCISSOR_BOX, previous_scissor.as_mut_ptr());
+                (gl.enable)(gl::SCISSOR_TEST);
+                for &[x, y, width, height] in rects {
+                    (gl.scissor)(x, y, width, height);
+                    (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
+                }
+                (gl.scissor)(
+                    previous_scissor[0],
+                    previous_scissor[1],
+                    previous_scissor[2],
+                    previous_scissor[3],
+                );
+            }
+        }
     }
     // SAFETY: the same render context remains current after the copy.
     let draw_error = unsafe { (gl.get_error)() };

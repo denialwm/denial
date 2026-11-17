@@ -131,6 +131,7 @@ EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
 ENGINE_TEST_STORE="${DENIAL_PC_ENGINE_TEST_STORE:-$CACHE_HOME/denial/engine-test}"
 ENGINE_TEST_CURRENT="$ENGINE_TEST_STORE/current"
 ENGINE_TEST_NEXT="$ENGINE_TEST_STORE/next-session"
+RENDER_AUDIT_NEXT="$BUILD_ROOT/render-audit-next-session"
 ENGINE_TEST_SOURCE_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-$CANONICAL_FLUTTER_SOURCE}"
 ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_ROOT/engine/src/out/denial_host_release}"
 SESSION_ENGINE_SHA256=""
@@ -235,6 +236,8 @@ Commands:
                     Cancel a pending one-shot engine test
   engine-test-session
                     Run the staged engine test (normally invoked by a display manager)
+  audit-arm         Turn the render audit on for the next development login only
+  audit-cancel      Cancel a pending one-shot render audit
   doctor            Show prerequisites and built artifact state
   install-session   Add the display-manager entry and Denial portal routing
   install-settings-entry
@@ -1404,10 +1407,32 @@ cancel_engine_test() {
     fi
 }
 
+arm_render_audit() {
+    mkdir -p -- "$(dirname -- "$RENDER_AUDIT_NEXT")"
+    : > "$RENDER_AUDIT_NEXT"
+    printf 'Armed the render audit for the next Denial development login only.\n'
+    printf 'Its records go to the journal: journalctl -t deniald\n'
+}
+
+cancel_render_audit() {
+    if [[ -e "$RENDER_AUDIT_NEXT" ]]; then
+        rm -f -- "$RENDER_AUDIT_NEXT"
+        printf 'Cancelled the pending one-shot render audit.\n'
+    else
+        printf 'No one-shot render audit is armed.\n'
+    fi
+}
+
 run_display_manager_session() {
     install_settings_desktop_entry
     install_welcome_desktop_entries
     install_plugin_manager_desktop_entry
+    # The flag is consumed before deniald starts, so later logins run
+    # without the audit's overhead.
+    if [[ -e "$RENDER_AUDIT_NEXT" ]]; then
+        rm -f -- "$RENDER_AUDIT_NEXT"
+        export DENIAL_RENDER_AUDIT=1
+    fi
     if [[ ! -e "$ENGINE_TEST_NEXT" && ! -L "$ENGINE_TEST_NEXT" ]]; then
         run_session
         return
@@ -1889,6 +1914,8 @@ case "${1:-}" in
     engine-test-arm) arm_engine_test ;;
     engine-test-cancel) cancel_engine_test ;;
     engine-test-session) run_engine_test_session ;;
+    audit-arm) arm_render_audit ;;
+    audit-cancel) cancel_render_audit ;;
     doctor) doctor ;;
     install-session) install_session ;;
     install-settings-entry) install_settings_desktop_entry ;;

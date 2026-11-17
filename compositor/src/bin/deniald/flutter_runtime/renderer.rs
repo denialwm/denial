@@ -17,7 +17,7 @@ pub(super) mod native_window;
 pub(super) mod native_window_gl;
 
 use gl_resources::{
-    ContextBinding, Conversion, CopyColor, GlApi, GlTarget, ShaderBlit, copy_to_scanout,
+    ContextBinding, Conversion, CopyColor, CopyState, GlApi, GlTarget, ShaderBlit, copy_to_scanout,
     create_look_texture, create_shader_blit, delete_look_texture, destroy_depth_stencils,
     destroy_shader_blit, destroy_targets, render_view, replace_desktop_look,
 };

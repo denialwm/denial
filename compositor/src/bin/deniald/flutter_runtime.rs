@@ -30,7 +30,7 @@ use denial_flutter_engine::{
     ScheduledTask, sys,
 };
 use sha2::{Digest, Sha256};
-use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::backend::allocator::dmabuf::{Dmabuf, WeakDmabuf};
 use smithay::backend::allocator::{Buffer as AllocatorBuffer, Fourcc, Modifier};
 use smithay::backend::egl::display::EGLDisplayHandle;
 use smithay::backend::egl::fence::EGLFence;
@@ -96,7 +96,7 @@ mod scene_bridge;
 #[path = "flutter_runtime/service_bridge.rs"]
 mod service_bridge;
 
-use damage::DamageRegion;
+use damage::{DamageRegion, MAX_DAMAGE_RECTS};
 pub use event_pipeline::RuntimeEvent;
 use event_pipeline::{
     CoalescedInbox, CoalescedWakeup, PendingPlatformTask, PlatformTaskBudget, PlatformTaskPermit,
@@ -135,6 +135,8 @@ const WINDOW_CLOSE_COMPLETE_CHANNEL: &CStr = c"denial/window_close_complete";
 const CURSOR_PRESENTED_CHANNEL: &CStr = c"denial/cursor_presented";
 const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
+// A client's live swapchain. Bindings of buffers the client destroyed are
+// dropped as their buffer goes, not by this bound.
 const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
 const MAX_CACHED_SHM_BINDINGS: usize = 32;
 // SHM revisions own distinct GPU uploads. Unlike rotating dma-bufs, old
@@ -165,6 +167,7 @@ const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
 /// whenever a tooltip subsurface unmaps.
 const NATIVE_TEXTURE_RETIREMENT_GRACE: Duration = Duration::from_millis(500);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
+const TEXTURE_REPORT_INTERVAL: Duration = Duration::from_secs(5);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
 const OUTPUT_ROTATION_ANIMATION_DURATION: Duration = Duration::from_millis(300);
 const OUTPUT_ROTATION_RESIZE_PROGRESS: f64 = 0.78;
