@@ -65,6 +65,20 @@ terminal. `tools/denial-pc audit-arm` turns the audit on for the next such
 login only, `audit-cancel` withdraws it, and the records are in the journal
 (`journalctl -t deniald`).
 
+A phone starts Denial from `denial.service`. Turn the audit on until the next
+reboot with a runtime drop-in, and read the records of the running process:
+
+```sh
+ssh HOST 'mkdir -p /run/systemd/system/denial.service.d &&
+  printf "[Service]\nEnvironment=DENIAL_RENDER_AUDIT=1\n" \
+    > /run/systemd/system/denial.service.d/render-audit.conf &&
+  systemctl daemon-reload && systemctl restart denial.service'
+ssh HOST 'journalctl _PID=$(pgrep -x deniald) -o cat | grep "Denial live textures" | tail -1'
+```
+
+Remove the file, reload and restart to turn it off. The engine's records are
+written when a frame is drawn: a still or blanked screen adds none.
+
 Without `DENIAL_RENDER_AUDIT`, Denial creates no report timers, timing sample
 vectors, Flutter timing callback, or damage-summary strings. Audit mode retains
 every timing sample for one second and sorts those samples for percentiles. It
