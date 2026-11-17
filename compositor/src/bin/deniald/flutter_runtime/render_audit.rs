@@ -72,6 +72,7 @@ fn percentile_us(values: &[Duration], percentile: usize) -> f64 {
 #[derive(Debug)]
 pub(super) struct RenderDamageAudit {
     interval_started: Instant,
+    textures_reported: Instant,
     presented_outputs: u64,
     empty_transactions: u64,
     frame_rects: u64,
@@ -122,6 +123,7 @@ impl RenderDamageAudit {
     pub(super) fn new() -> Self {
         Self {
             interval_started: Instant::now(),
+            textures_reported: Instant::now(),
             presented_outputs: 0,
             empty_transactions: 0,
             frame_rects: 0,
@@ -205,6 +207,15 @@ impl RenderDamageAudit {
             self.raster_transaction
                 .record(now.saturating_duration_since(started_at));
         }
+    }
+
+    /// True once per texture report interval.
+    pub(super) fn texture_report_due(&mut self) -> bool {
+        if self.textures_reported.elapsed() < TEXTURE_REPORT_INTERVAL {
+            return false;
+        }
+        self.textures_reported = Instant::now();
+        true
     }
 
     pub(super) fn record_gpu_timing(

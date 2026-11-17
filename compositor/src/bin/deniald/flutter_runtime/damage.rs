@@ -4,7 +4,7 @@ use denial_flutter_engine::sys;
 // bounded if a pathological sequence produces many disjoint rectangles. Once
 // the cap is reached, pairwise compaction may repaint extra pixels but can
 // never miss damage.
-const MAX_DAMAGE_RECTS: usize = 32;
+pub(super) const MAX_DAMAGE_RECTS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DamageRect {
@@ -160,6 +160,22 @@ impl DamageRegion {
 
     pub(super) fn write_flutter(&self, output: &mut Vec<sys::FlutterRect>) {
         output.extend(self.as_slice().iter().copied().map(DamageRect::as_flutter));
+    }
+
+    /// Writes each rectangle as whole pixels, `[left, top, width, height]`,
+    /// grown to cover every pixel it touches, and returns how many it wrote.
+    pub(super) fn write_pixel_rects(&self, output: &mut [[i32; 4]; MAX_DAMAGE_RECTS]) -> usize {
+        for (pixels, rect) in output.iter_mut().zip(self.as_slice()) {
+            let left = rect.left.floor() as i32;
+            let top = rect.top.floor() as i32;
+            *pixels = [
+                left,
+                top,
+                rect.right.ceil() as i32 - left,
+                rect.bottom.ceil() as i32 - top,
+            ];
+        }
+        self.len
     }
 
     pub(super) fn rect_count(&self) -> usize {
@@ -329,5 +345,42 @@ impl DamageRegion {
 
     fn as_slice(&self) -> &[DamageRect] {
         &self.rects[..self.len]
+    }
+}
+
+#[cfg(test)]
+mod pixel_rect_tests {
+    use super::*;
+
+    fn rect(left: f64, top: f64, right: f64, bottom: f64) -> sys::FlutterRect {
+        sys::FlutterRect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[test]
+    fn pixel_rects_cover_every_touched_pixel_inside_the_target() {
+        let mut region = DamageRegion::empty(100, 50);
+        region.replace_from_flutter(&[
+            rect(10.25, 4.0, 20.5, 8.75),
+            rect(90.0, 40.0, 140.0, 70.0),
+            rect(30.0, 30.0, 30.0, 35.0),
+        ]);
+        let mut pixels = [[0; 4]; MAX_DAMAGE_RECTS];
+        let count = region.write_pixel_rects(&mut pixels);
+        assert_eq!(&pixels[..count], [[10, 4, 11, 5], [90, 40, 10, 10]]);
+    }
+
+    #[test]
+    fn full_and_empty_regions_write_the_target_or_nothing() {
+        let mut pixels = [[0; 4]; MAX_DAMAGE_RECTS];
+        let full = DamageRegion::full(100, 50);
+        assert_eq!(full.write_pixel_rects(&mut pixels), 1);
+        assert_eq!(pixels[0], [0, 0, 100, 50]);
+        let empty = DamageRegion::empty(100, 50);
+        assert_eq!(empty.write_pixel_rects(&mut pixels), 0);
     }
 }

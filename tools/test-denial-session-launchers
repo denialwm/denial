@@ -51,6 +51,7 @@ def terminate(signum, frame):
     sys.exit(143)
 signal.signal(signal.SIGTERM, terminate)
 record('launch:' + sys.stdin.readline().strip())
+record('args:' + ' '.join(sys.argv[1:]))
 mode = os.environ.get('TEST_MODE', 'exit')
 if mode == 'crash':
     os.kill(os.getpid(), signal.SIGKILL)
@@ -184,6 +185,72 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
             if process.poll() is None:
                 process.communicate(timeout=5)
         print(f'PASS: {kind} launcher handles startup failure, normal exit, restart, crash, stdin, and termination')
+
+    def display_fixture(name):
+        command, env, events = fixture(name, packaged=True)
+        root = base / name / 'devices'
+        (root / 'sys/class/drm').mkdir(parents=True)
+        (root / 'dev/dri/by-path').mkdir(parents=True)
+        del env['DENIAL_DRM_DEVICE']
+        env['DENIAL_DEVICE_ROOT'] = str(root)
+        return command, env, events, root
+
+    def add_card(root, name, device, connected):
+        card = root / 'sys/class/drm' / name
+        card.mkdir()
+        if connected:
+            (card.parent / f'{name}-DSI-1').mkdir()
+            (card.parent / f'{name}-DSI-1/status').write_text('connected\n')
+        (root / 'dev/dri' / name).symlink_to(device)
+
+    def launch_later(command, env, events, appear):
+        process = subprocess.Popen(command, env=env, stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True)
+        time.sleep(0.6)
+        assert process.poll() is None, process.communicate()
+        appear()
+        output, error = process.communicate('session-stdin\n', timeout=10)
+        assert process.returncode == 0, error
+        return error, events.read_text()
+
+    # A GPU card without outputs is there first; the display card follows.
+    command, env, events, root = display_fixture('late-display')
+    add_card(root, 'card1', '/dev/zero', connected=False)
+    error, log = launch_later(command, env, events,
+                              lambda: add_card(root, 'card0', '/dev/null', connected=True))
+    assert 'waiting up to 30 s for the display' in error, error
+    assert 'display ready after' in error, error
+    assert 'args:--device /dev/null ' in log, log
+
+    # A configured display path that appears late.
+    command, env, events, root = display_fixture('late-configured-display')
+    link = root / 'dev/dri/by-path/platform-display-card'
+    env['DENIAL_DRM_DEVICE'] = str(link)
+    error, log = launch_later(command, env, events, lambda: link.symlink_to('/dev/null'))
+    assert 'display ready after' in error, error
+    assert 'args:--device /dev/null ' in log, log
+
+    # No display within the limit: choose from what is present.
+    command, env, events, root = display_fixture('no-display')
+    add_card(root, 'card1', '/dev/zero', connected=False)
+    env['DENIAL_DISPLAY_WAIT'] = '1'
+    result, log = run(command, env, events, 0)
+    assert 'no display after 1 s; choosing from what is present' in result.stderr
+    assert 'args:--device /dev/zero ' in log, log
+
+    # A display already present starts without waiting.
+    command, env, events, root = display_fixture('display-present')
+    add_card(root, 'card0', '/dev/null', connected=True)
+    result, log = run(command, env, events, 0)
+    assert 'waiting' not in result.stderr, result.stderr
+    assert 'args:--device /dev/null ' in log, log
+
+    command, env, events, root = display_fixture('bad-display-wait')
+    env['DENIAL_DISPLAY_WAIT'] = 'soon'
+    result, log = run(command, env, events, 2)
+    assert 'DENIAL_DISPLAY_WAIT must be whole seconds' in result.stderr and not log
+    print('PASS: packaged launcher waits a bounded time for a late display')
 
     command, env, events = fixture('mismatched-load-failure', mismatch=True)
     env['TEST_STATUS'] = '1'

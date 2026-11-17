@@ -146,7 +146,10 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     raster_sampled_feedback: Mutex<Vec<crate::surface_feedback::SurfaceFeedback>>,
     sampled_buffer_release_fence: Mutex<Option<OwnedFd>>,
     sampled_buffer_batch_pool: Arc<SampledBufferBatchPool>,
-    dmabuf_texture_cache: Mutex<PartitionedRecencyCache<i64, Dmabuf, Arc<CachedTextureBinding>>>,
+    /// Keyed weakly: an entry whose buffer is gone can never be sampled
+    /// again, and only pins the storage the client meant to free.
+    dmabuf_texture_cache:
+        Mutex<PartitionedRecencyCache<i64, WeakDmabuf, Arc<CachedTextureBinding>>>,
     shm_texture_cache: Mutex<RecencyCache<(i64, u64), Arc<CachedTextureBinding>>>,
     retired_external_bindings: Arc<RetiredExternalBindingQueue>,
     retired_external_binding_scratch: Mutex<Vec<ExternalTextureBinding>>,
@@ -271,6 +274,7 @@ impl FlutterGlHandler {
                     },
                     gamut: pool.color.map(|color| color.matrix),
                     pq_white: pool.color.map_or(0.0, |color| color.pq_white),
+                    copied: None,
                 };
                 let import_error;
                 // SAFETY: a compatible GLES context is current and all output
@@ -957,17 +961,34 @@ impl FlutterGlHandler {
         texture_id: i64,
         dmabuf: &Dmabuf,
     ) -> Option<Arc<CachedTextureBinding>> {
-        lock(&self.dmabuf_texture_cache).get_by(&texture_id, |cached| cached == dmabuf)
+        let dmabuf = dmabuf.weak();
+        lock(&self.dmabuf_texture_cache).get_by(&texture_id, |cached| *cached == dmabuf)
     }
 
     pub(in crate::flutter_runtime) fn cache_dmabuf_binding(
         &self,
         texture_id: i64,
-        dmabuf: Dmabuf,
+        dmabuf: &Dmabuf,
         binding: Arc<CachedTextureBinding>,
     ) {
-        let retired = lock(&self.dmabuf_texture_cache).insert(texture_id, dmabuf, binding);
+        let retired = {
+            let mut cache = lock(&self.dmabuf_texture_cache);
+            // A buffer destroyed while it was still shown is gone only once
+            // its surface shows another one, which no destruction announces.
+            let gone = cache.remove_where(WeakDmabuf::is_gone);
+            (gone, cache.insert(texture_id, dmabuf.weak(), binding))
+        };
         drop(retired);
+    }
+
+    /// Drops the bindings of client buffers that no longer exist. Nothing
+    /// can sample them again, and each keeps its EGLImage, and with it the
+    /// buffer's memory, until the cache bound pushes it out.
+    pub(in crate::flutter_runtime) fn drop_gone_dmabuf_bindings(&self) {
+        let gone = lock(&self.dmabuf_texture_cache).remove_where(WeakDmabuf::is_gone);
+        // As for an evicted binding: GL deletion waits for the next callback
+        // with the render context current.
+        drop(gone);
     }
 
     pub(in crate::flutter_runtime) fn cached_shm_binding(
@@ -1195,7 +1216,14 @@ impl FlutterGlHandler {
         }
     }
 
-    pub(in crate::flutter_runtime) fn blit_to_scanout(&self, render_framebuffer: u32) -> bool {
+    /// Copies a presented scene target to its scanout buffer. `repainted` is
+    /// the frame's buffer damage: what Flutter repainted in the scene target
+    /// since this pair was last presented.
+    pub(in crate::flutter_runtime) fn blit_to_scanout(
+        &self,
+        render_framebuffer: u32,
+        repainted: &[sys::FlutterRect],
+    ) -> bool {
         let target = lock(&self.targets)
             .iter()
             .find(|target| target.render_framebuffer == render_framebuffer)
@@ -1231,6 +1259,31 @@ impl FlutterGlHandler {
         let shader_blit = *shader_blit;
         drop(shader_blit_slot);
 
+        // The switch compares a display with and without correction; a PQ
+        // display always needs its BT.2020 matrix.
+        let gamut = target
+            .gamut
+            .filter(|_| target.pq_white > 0.0 || crate::output_color::correction_enabled());
+        let state = CopyState {
+            look_generation: shader_blit.look_generation,
+            look_texture: shader_blit.look_texture,
+            corrected: gamut.is_some(),
+        };
+        // The rest of the scanout buffer still shows its scene target unless
+        // the buffer is new or the color state moved since its last copy.
+        let same_state = lock(&self.targets)
+            .iter_mut()
+            .find(|target| target.render_framebuffer == render_framebuffer)
+            .is_some_and(|target| target.copied.replace(state) == Some(state));
+        let mut region = DamageRegion::empty(target.size.width, target.size.height);
+        region.replace_from_flutter(repainted);
+        let mut rects = [[0; 4]; MAX_DAMAGE_RECTS];
+        let count = region.write_pixel_rects(&mut rects);
+        let area = (same_state && !region.is_full()).then(|| &rects[..count]);
+        if area.is_some_and(<[_]>::is_empty) {
+            return true;
+        }
+
         if let Err(error) = copy_to_scanout(
             self.gl,
             target.render_texture,
@@ -1241,14 +1294,18 @@ impl FlutterGlHandler {
                 look: shader_blit.look_texture,
                 alpha: 0,
                 convert: None,
-                // The switch compares a display with and without correction;
-                // a PQ display always needs its BT.2020 matrix.
-                gamut: target
-                    .gamut
-                    .filter(|_| target.pq_white > 0.0 || crate::output_color::correction_enabled()),
+                gamut,
                 pq_white: target.pq_white,
             },
+            area,
         ) {
+            // The buffer may hold part of this copy.
+            if let Some(target) = lock(&self.targets)
+                .iter_mut()
+                .find(|target| target.render_framebuffer == render_framebuffer)
+            {
+                target.copied = None;
+            }
             error!(
                 framebuffer = render_framebuffer,
                 scanout_framebuffer = target.scanout_framebuffer,
@@ -1405,6 +1462,7 @@ impl FlutterGlHandler {
                     gamut: None,
                     pq_white: 0.0,
                 },
+                None,
             )
         } else {
             Err(status)
@@ -1576,7 +1634,7 @@ impl FlutterGlHandler {
                 if binding.texture != 0 {
                     (self.gl.delete_textures)(1, &binding.texture);
                 }
-                if let Some((_dmabuf, image)) = binding.dmabuf_image
+                if let Some(image) = binding.dmabuf_image
                     && image != 0
                 {
                     egl_ffi::egl::DestroyImageKHR(

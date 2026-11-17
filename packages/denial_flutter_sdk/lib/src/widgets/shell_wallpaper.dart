@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -16,9 +18,17 @@ import '../wallpaper/wallpaper.dart';
 import '../wallpaper/widgets/wallpaper_image.dart';
 
 class ShellWallpaper extends ConsumerWidget {
-  const ShellWallpaper({super.key, this.onPainted});
+  const ShellWallpaper({
+    super.key,
+    this.onPainted,
+    this.coveredOutputs = const <String>{},
+  });
 
   static const String assetPath = defaultShellWallpaperAsset;
+
+  /// Names of the outputs a client's own wallpaper covers, such as a live
+  /// wallpaper. They are painted black and their picture is not loaded.
+  final Set<String> coveredOutputs;
 
   /// Called from paint whenever the wallpaper repaints, with the boundary
   /// that holds it, for a consumer that captures the wallpaper.
@@ -74,6 +84,7 @@ class ShellWallpaper extends ConsumerWidget {
                   outputs: outputs,
                   spanRect: spanRect,
                   spanPixelSize: spanPixelSize,
+                  coveredOutputs: coveredOutputs,
                 ),
                 if (animateOutgoing)
                   TweenAnimationBuilder<double>(
@@ -99,6 +110,7 @@ class ShellWallpaper extends ConsumerWidget {
                       outputs: outputs,
                       spanRect: spanRect,
                       spanPixelSize: spanPixelSize,
+                      coveredOutputs: coveredOutputs,
                     ),
                   ),
               ],
@@ -229,12 +241,16 @@ class WallpaperScene extends StatelessWidget {
     required this.outputs,
     required this.spanRect,
     required this.spanPixelSize,
+    this.coveredOutputs = const <String>{},
   });
 
   final WallpaperAssignment assignment;
   final List<DisplayOutput> outputs;
   final Rect spanRect;
   final Size spanPixelSize;
+
+  /// Outputs painted black instead of their picture.
+  final Set<String> coveredOutputs;
 
   @override
   Widget build(BuildContext context) {
@@ -258,16 +274,23 @@ class WallpaperScene extends StatelessWidget {
         for (final output in outputs)
           Positioned.fromRect(
             rect: output.logicalRect,
-            child: _WallpaperImage(
-              key: ValueKey<String>('wallpaper-image-output-${output.name}'),
-              resource: assignment.forOutput(output.name),
-              targetPixelSize: output.pixelSize,
-              alignment: Alignment(
-                assignment.alignmentForOutput(output.name).x,
-                assignment.alignmentForOutput(output.name).y,
-              ),
-              zoom: assignment.zoomForOutput(output.name),
-            ),
+            child: coveredOutputs.contains(output.name)
+                ? ColoredBox(
+                    key: ValueKey<String>('wallpaper-covered-${output.name}'),
+                    color: const Color(0xff000000),
+                  )
+                : _WallpaperImage(
+                    key: ValueKey<String>(
+                      'wallpaper-image-output-${output.name}',
+                    ),
+                    resource: assignment.forOutput(output.name),
+                    targetPixelSize: output.pixelSize,
+                    alignment: Alignment(
+                      assignment.alignmentForOutput(output.name).x,
+                      assignment.alignmentForOutput(output.name).y,
+                    ),
+                    zoom: assignment.zoomForOutput(output.name),
+                  ),
           ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)
           Positioned.fromRect(
@@ -278,7 +301,8 @@ class WallpaperScene extends StatelessWidget {
             ),
           ),
         for (final output in outputs)
-          if (assignment.darknessForOutput(output.name) > 0.0)
+          if (!coveredOutputs.contains(output.name) &&
+              assignment.darknessForOutput(output.name) > 0.0)
             Positioned.fromRect(
               rect: output.logicalRect,
               child: _WallpaperDarknessLayer(
@@ -331,54 +355,186 @@ class _WallpaperImage extends StatefulWidget {
 }
 
 class _WallpaperImageState extends State<_WallpaperImage> {
-  late ImageProvider<Object> _provider;
+  /// How long a wallpaper stays unchanged before its screen-sized copy is
+  /// drawn. Until then it is painted from the decoded picture, which follows
+  /// an alignment or zoom being changed at once.
+  static const Duration _settleDelay = Duration(milliseconds: 400);
+
+  late final ImageStreamListener _listener = ImageStreamListener(
+    _sourceLoaded,
+    onError: _sourceFailed,
+  );
   WallpaperImageCacheLease? _cacheLease;
+  ImageStream? _stream;
+
+  /// The decoded picture, held only until the screen-sized copy exists.
+  ImageInfo? _source;
+  ScreenWallpaperLease? _screen;
+  Timer? _settle;
+  ScreenWallpaperKey? _settlingKey;
+  bool _failed = false;
+
+  ScreenWallpaperKey? get _key {
+    final size = widget.targetPixelSize;
+    if (!size.width.isFinite ||
+        !size.height.isFinite ||
+        size.width <= 0.0 ||
+        size.height <= 0.0) {
+      return null;
+    }
+    return ScreenWallpaperKey(
+      resource: widget.resource,
+      width: size.width.ceil(),
+      height: size.height.ceil(),
+      alignment: widget.alignment,
+      zoom: widget.zoom,
+    );
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final provider = wallpaperImageProvider(
-      widget.resource,
-      targetPixelSize: widget._decodeSize,
-    );
-    final configuration = createLocalImageConfiguration(context);
-    final currentLease = _cacheLease;
-    if (currentLease == null ||
-        currentLease.provider != provider ||
-        currentLease.configuration != configuration) {
-      currentLease?.release();
-      _provider = provider;
-      _cacheLease = WallpaperImageCacheLease(provider, configuration);
-    }
+    _update();
   }
 
   @override
   void didUpdateWidget(covariant _WallpaperImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final provider = wallpaperImageProvider(
-      widget.resource,
-      targetPixelSize: widget._decodeSize,
-    );
-    if (provider == _provider) {
-      return;
-    }
-    _cacheLease?.release();
-    _provider = provider;
-    _cacheLease = WallpaperImageCacheLease(
-      provider,
-      createLocalImageConfiguration(context),
-    );
+    _update();
   }
 
   @override
   void dispose() {
-    _cacheLease?.release();
+    _settle?.cancel();
+    _releaseSource();
+    _screen?.release();
     super.dispose();
+  }
+
+  void _update() {
+    final key = _key;
+    if (key != null && _screen?.key != key) {
+      final drawn = ScreenWallpaperLease.find(key);
+      if (drawn != null) {
+        _screen?.release();
+        _screen = drawn;
+      }
+    }
+    if (key == null || _screen?.key != key) {
+      _loadSource();
+    }
+    if (_source != null && key != _settlingKey) {
+      _restartSettle();
+    }
+  }
+
+  void _loadSource() {
+    final provider = wallpaperImageProvider(
+      widget.resource,
+      targetPixelSize: widget._decodeSize,
+    );
+    final configuration = createLocalImageConfiguration(context);
+    final lease = _cacheLease;
+    if (lease != null &&
+        lease.provider == provider &&
+        lease.configuration == configuration) {
+      return;
+    }
+    // The picture decoded before stays on screen until this one arrives.
+    _stream?.removeListener(_listener);
+    lease?.release();
+    _failed = false;
+    _cacheLease = WallpaperImageCacheLease(provider, configuration);
+    _stream = provider.resolve(configuration)..addListener(_listener);
+  }
+
+  void _releaseSource() {
+    _stream?.removeListener(_listener);
+    _stream = null;
+    _cacheLease?.release();
+    _cacheLease = null;
+    _source?.dispose();
+    _source = null;
+  }
+
+  void _sourceLoaded(ImageInfo source, bool synchronousCall) {
+    setState(() {
+      _source?.dispose();
+      _source = source;
+      _failed = false;
+    });
+    _restartSettle();
+  }
+
+  void _sourceFailed(Object exception, StackTrace? stackTrace) {
+    setState(() => _failed = true);
+  }
+
+  void _restartSettle() {
+    _settlingKey = _key;
+    _settle?.cancel();
+    _settle = Timer(_settleDelay, _settled);
+  }
+
+  Future<void> _settled() async {
+    _settle = null;
+    final key = _key;
+    final source = _source;
+    if (key == null || source == null) {
+      return;
+    }
+    if (_screen?.key == key) {
+      setState(_releaseSource);
+      return;
+    }
+    final ui.Image image;
+    try {
+      image = await drawScreenWallpaper(source.image, key);
+    } on Object {
+      // The decoded picture keeps being painted.
+      return;
+    }
+    if (!mounted || _key != key || _settle != null) {
+      image.dispose();
+      return;
+    }
+    setState(() {
+      _screen?.release();
+      _screen = ScreenWallpaperLease.adopt(key, image);
+      _releaseSource();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final image = _image();
+    final screen = _screen;
+    if (screen != null && screen.key == _key) {
+      return _screenImage(screen);
+    }
+    if (_failed) {
+      return Image(
+        image: wallpaperImageProvider(
+          WallpaperResource.defaultWallpaper,
+          targetPixelSize: widget.targetPixelSize,
+        ),
+        fit: BoxFit.cover,
+        alignment: widget.alignment,
+        filterQuality: FilterQuality.low,
+        excludeFromSemantics: true,
+      );
+    }
+    final source = _source;
+    if (source == null) {
+      // The wallpaper shown before stays until the next one is decoded.
+      return screen == null ? const SizedBox.expand() : _screenImage(screen);
+    }
+    final image = RawImage(
+      image: source.image,
+      scale: source.scale,
+      fit: BoxFit.cover,
+      alignment: widget.alignment,
+      filterQuality: FilterQuality.low,
+    );
     if (widget.zoom == 1.0) {
       return image;
     }
@@ -391,24 +547,11 @@ class _WallpaperImageState extends State<_WallpaperImage> {
     );
   }
 
-  Widget _image() {
-    return Image(
-      image: _provider,
-      fit: BoxFit.cover,
-      alignment: widget.alignment,
+  Widget _screenImage(ScreenWallpaperLease screen) {
+    return RawImage(
+      image: screen.image,
+      fit: BoxFit.fill,
       filterQuality: FilterQuality.low,
-      gaplessPlayback: true,
-      excludeFromSemantics: true,
-      errorBuilder: (context, error, stackTrace) => Image(
-        image: wallpaperImageProvider(
-          WallpaperResource.defaultWallpaper,
-          targetPixelSize: widget.targetPixelSize,
-        ),
-        fit: BoxFit.cover,
-        alignment: widget.alignment,
-        filterQuality: FilterQuality.low,
-        excludeFromSemantics: true,
-      ),
     );
   }
 }

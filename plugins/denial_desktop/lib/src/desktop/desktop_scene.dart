@@ -26,6 +26,7 @@ import '../widgets/desktop_visibility_transition.dart';
 import '../widgets/desktop_window_reveal.dart';
 import '../widgets/desktop_window_switcher.dart';
 import '../widgets/shell_frame_time_overlay.dart';
+import 'desktop_covered_outputs.dart';
 import 'desktop_held_layers.dart';
 import 'desktop_home_layout.dart';
 import 'desktop_minimize_layer_handoff.dart';
@@ -393,6 +394,31 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
             setState(() {});
           },
         );
+  }
+
+  List<DenialWindow>? _coveredOutputsSurfaces;
+  DisplayLayout? _coveredOutputsLayout;
+  Set<String> _coveredOutputs = const <String>{};
+
+  /// Outputs whose wallpaper a client's background surface covers.
+  Set<String> _cachedCoveredOutputs(
+    List<DenialWindow> layerSurfaces,
+    DisplayLayout? displayLayout,
+  ) {
+    if (!identical(_coveredOutputsSurfaces, layerSurfaces) ||
+        !identical(_coveredOutputsLayout, displayLayout)) {
+      _coveredOutputsSurfaces = layerSurfaces;
+      _coveredOutputsLayout = displayLayout;
+      final covered = desktopOutputsCoveredByBackground(
+        layerSurfaces,
+        displayLayout,
+      );
+      // The same set keeps the wallpaper from rebuilding.
+      if (!setEquals(covered, _coveredOutputs)) {
+        _coveredOutputs = covered;
+      }
+    }
+    return _coveredOutputs;
   }
 
   /// Layer surfaces held by windows, which are drawn in their window's slot
@@ -875,7 +901,9 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ShellWallpaper(),
+        ShellWallpaper(
+          coveredOutputs: _cachedCoveredOutputs(layerSurfaces, displayLayout),
+        ),
         // A held layer is drawn in its window's slot instead.
         for (final surface in layerSurfaces)
           if (!surface.isHeld &&

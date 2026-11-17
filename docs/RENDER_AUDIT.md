@@ -60,6 +60,25 @@ DENIAL_RENDER_AUDIT=1 tools/denial-pc session 2>&1 \
   | rg --line-buffered 'render_audit'
 ```
 
+A display manager starts the `Denial (development)` session without a
+terminal. `tools/denial-pc audit-arm` turns the audit on for the next such
+login only, `audit-cancel` withdraws it, and the records are in the journal
+(`journalctl -t deniald`).
+
+A phone starts Denial from `denial.service`. Turn the audit on until the next
+reboot with a runtime drop-in, and read the records of the running process:
+
+```sh
+ssh HOST 'mkdir -p /run/systemd/system/denial.service.d &&
+  printf "[Service]\nEnvironment=DENIAL_RENDER_AUDIT=1\n" \
+    > /run/systemd/system/denial.service.d/render-audit.conf &&
+  systemctl daemon-reload && systemctl restart denial.service'
+ssh HOST 'journalctl _PID=$(pgrep -x deniald) -o cat | grep "Denial live textures" | tail -1'
+```
+
+Remove the file, reload and restart to turn it off. The engine's records are
+written when a frame is drawn: a still or blanked screen adds none.
+
 Without `DENIAL_RENDER_AUDIT`, Denial creates no report timers, timing sample
 vectors, Flutter timing callback, or damage-summary strings. Audit mode retains
 every timing sample for one second and sorts those samples for percentiles. It
@@ -193,6 +212,26 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
 - `per_output_timing` keeps mixed-refresh results separate. For each output it
   reports physical presentation-interval p50/p95/p99/max, deadline-to-display
   p99, target lateness p99, and the exact missed-vblank count.
+
+Two records, every five seconds, say where GPU memory is held:
+
+- `source=textures` ("Compositor texture memory audit") counts the storage
+  the compositor's Flutter renderer allocated itself: one depth/stencil
+  renderbuffer per output, the graded copies of windows with a color
+  conversion or a look (`graded_sizes` lists each as
+  `WIDTHxHEIGHTxCOPIES`, `f` for half float), the look tables, and the
+  textures uploaded from shared-memory buffers. Imported client and output
+  buffers are not sized: their storage is not the renderer's.
+- `Denial live textures` (engine) lists every texture and renderbuffer
+  Impeller owns storage for, grouped by label, size, pixel format and sample
+  count, largest group first. Bytes are every mip level times the sample
+  count; a driver's hidden multisample storage is not included.
+- `Denial static picture cache` (engine) lists the cached pictures, such as
+  window shadows: the counters (`collected` for entries whose picture is
+  gone, `stale_keys` for entries their picture left behind, `evictions` for
+  entries the budget pushed out), then one item per entry with its picture
+  id, scale, pixel alignment, size and bytes. `idle` counts cache draws since
+  the entry was last used, `behind` the draws of its own picture since then.
 
 ## Autonomous external-texture damage
 

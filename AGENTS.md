@@ -178,3 +178,10 @@ its rules.
   refresh the Nix locks with `tools/denial-nix refresh-engine-lock`,
   `refresh-pub-locks` and `verify-locks`. Every locked fork commit must exist
   on its remote before Denial is pushed.
+- After a lock advance, run `tools/denial-pc bundle`: the `Denial
+  (development)` login loads the development bundle's own copy of the
+  engine, replaced only when the bundle is built. Then check that
+  `dart_shell/build/linux/x64/release/bundle/lib/libflutter_engine.so` has
+  the sha256 in
+  `prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256`.
+  The running session keeps its engine until the next login.

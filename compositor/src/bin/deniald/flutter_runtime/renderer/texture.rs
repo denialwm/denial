@@ -48,8 +48,10 @@ impl Drop for ExternalTextureResourcePermit {
 }
 
 pub(in crate::flutter_runtime) struct ExternalTextureBinding {
-    // The dma-buf file descriptors must remain live for the EGLImage lifetime.
-    pub(in crate::flutter_runtime) dmabuf_image: Option<(Dmabuf, usize)>,
+    // The EGLImage of an imported dma-buf. It owns its own reference to the
+    // storage; holding the client's `Dmabuf` here as well would keep a
+    // buffer the client destroyed alive for as long as the binding is cached.
+    pub(in crate::flutter_runtime) dmabuf_image: Option<usize>,
     pub(in crate::flutter_runtime) texture: u32,
     // Cached EGL imports also pin compositor-owned mapped backing storage.
     pub(in crate::flutter_runtime) _owned_shm: Option<ShmTextureFrame>,
@@ -86,6 +88,17 @@ pub(in crate::flutter_runtime) struct CachedTextureBinding {
 impl CachedTextureBinding {
     fn texture(&self) -> u32 {
         self.binding.as_ref().map_or(0, |binding| binding.texture)
+    }
+
+    /// Bytes of the texture an uploaded shared-memory frame fills; zero for
+    /// an imported buffer, which owns no storage of its own.
+    pub(in crate::flutter_runtime) fn uploaded_bytes(&self) -> u64 {
+        self.binding
+            .as_ref()
+            .and_then(|binding| binding._owned_shm.as_ref())
+            .map_or(0, |frame| {
+                u64::from(frame.width()) * u64::from(frame.height()) * 4
+            })
     }
 }
 
@@ -312,6 +325,10 @@ impl<K: Eq, V: Clone> RecencyCache<K, V> {
     pub(in crate::flutter_runtime) fn drain(&mut self) -> Vec<V> {
         self.entries.drain(..).map(|entry| entry.value).collect()
     }
+
+    pub(in crate::flutter_runtime) fn values(&self) -> impl Iterator<Item = &V> {
+        self.entries.iter().map(|entry| &entry.value)
+    }
 }
 
 /// Independent bounded buffer rings keyed by Flutter external-texture ID.
@@ -359,6 +376,17 @@ impl<O: Eq + Hash, K: Eq, V: Clone> PartitionedRecencyCache<O, K, V> {
         self.partitions
             .remove(owner)
             .map_or_else(Vec::new, |mut partition| partition.drain())
+    }
+
+    /// Removes every matching entry of every owner.
+    pub(in crate::flutter_runtime) fn remove_where(
+        &mut self,
+        mut predicate: impl FnMut(&K) -> bool,
+    ) -> Vec<V> {
+        self.partitions
+            .values_mut()
+            .flat_map(|partition| partition.remove_where(&mut predicate))
+            .collect()
     }
 
     pub(in crate::flutter_runtime) fn drain(&mut self) -> Vec<V> {
@@ -1287,6 +1315,68 @@ mod cache_retirement_tests {
         assert_eq!(pending[0].texture, 41);
         pending.clear(); // Stand-in GL reclamation releases its permit.
         assert_eq!(budget.live.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn dmabuf_binding_leaves_the_cache_with_its_client_buffer() {
+        use smithay::backend::allocator::{Fourcc, Modifier, dmabuf::DmabufFlags};
+
+        // Identity-only handles: nothing here reaches EGL.
+        let buffer = || {
+            let mut builder = Dmabuf::builder(
+                (64, 64),
+                Fourcc::Argb8888,
+                Modifier::Linear,
+                DmabufFlags::empty(),
+            );
+            let fd: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+            assert!(builder.add_plane(fd, 0, 64 * 4));
+            builder.build().unwrap()
+        };
+        let retirements = Arc::new(RetiredExternalBindingQueue::new());
+        let budget = Arc::new(ExternalTextureResourceBudget::default());
+        let binding = |texture| {
+            Arc::new(CachedTextureBinding {
+                binding: Some(ExternalTextureBinding {
+                    dmabuf_image: Some(1),
+                    _owned_shm: None,
+                    _owned_native: None,
+                    texture,
+                    _resource_permit: budget.try_acquire().unwrap(),
+                }),
+                retirements: Arc::clone(&retirements),
+            })
+        };
+        let mut cache = PartitionedRecencyCache::new(MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE);
+        let (destroyed, shown, other_window) = (buffer(), buffer(), buffer());
+        cache.insert(1, destroyed.weak(), binding(41));
+        cache.insert(1, shown.weak(), binding(42));
+        cache.insert(2, other_window.weak(), binding(43));
+
+        // Every buffer is alive: nothing leaves, whatever its age.
+        assert!(cache.remove_where(WeakDmabuf::is_gone).is_empty());
+
+        // The cache alone must not keep a client buffer alive.
+        let gone = destroyed.weak();
+        drop(destroyed);
+        assert!(gone.is_gone());
+        drop(cache.remove_where(WeakDmabuf::is_gone));
+        let retired = lock(&retirements.bindings);
+        assert_eq!(retired.len(), 1);
+        assert_eq!(retired[0].texture, 41);
+        drop(retired);
+
+        let shown_key = shown.weak();
+        let other_key = other_window.weak();
+        assert!(cache.get_by(&1, |key| *key == gone).is_none());
+        assert_eq!(
+            cache.get_by(&1, |key| *key == shown_key).unwrap().texture(),
+            42
+        );
+        assert_eq!(
+            cache.get_by(&2, |key| *key == other_key).unwrap().texture(),
+            43
+        );
     }
 
     #[test]

@@ -115,6 +115,9 @@ impl FlutterRuntime {
         // for multi-window scenes.
         self.handler
             .set_external_texture_sources(frames.drain(..), &mut self.changed_texture_scratch);
+        // A destroyed client buffer republishes the scene, so this runs once
+        // per destruction and not on the buffer-only path of every commit.
+        self.handler.drop_gone_dmabuf_bindings();
         self.stage_changed_textures();
         for texture_id in &desired {
             if self.registered_external_textures.insert(*texture_id) {

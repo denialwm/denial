@@ -101,6 +101,149 @@ class _WallpaperImageCacheLeases {
   }
 }
 
+/// The part of a decoded wallpaper its screen shows: [BoxFit.cover] placed by
+/// [alignment], then enlarged by [zoom] about the same point.
+Rect wallpaperSourceRect({
+  required Size imageSize,
+  required Size screenSize,
+  required Alignment alignment,
+  double zoom = 1.0,
+}) {
+  final covered = applyBoxFit(BoxFit.cover, imageSize, screenSize).source;
+  final shown = alignment.inscribe(covered, Offset.zero & imageSize);
+  if (zoom <= 1.0) {
+    return shown;
+  }
+  return alignment.inscribe(shown.size / zoom, shown);
+}
+
+/// One wallpaper as one screen shows it.
+@immutable
+class ScreenWallpaperKey {
+  const ScreenWallpaperKey({
+    required this.resource,
+    required this.width,
+    required this.height,
+    required this.alignment,
+    required this.zoom,
+  });
+
+  final WallpaperResource resource;
+
+  /// The screen's size in physical pixels.
+  final int width;
+  final int height;
+  final Alignment alignment;
+  final double zoom;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScreenWallpaperKey &&
+      other.resource == resource &&
+      other.width == width &&
+      other.height == height &&
+      other.alignment == alignment &&
+      other.zoom == zoom;
+
+  @override
+  int get hashCode => Object.hash(resource, width, height, alignment, zoom);
+}
+
+/// Draws the part of [source] that [key]'s screen shows, at that screen's
+/// size. The decoded picture can be far larger than the screen: a wide
+/// picture on an upright screen keeps every column the screen never shows.
+@internal
+Future<ui.Image> drawScreenWallpaper(
+  ui.Image source,
+  ScreenWallpaperKey key,
+) async {
+  final screen = Size(key.width.toDouble(), key.height.toDouble());
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawImageRect(
+    source,
+    wallpaperSourceRect(
+      imageSize: Size(source.width.toDouble(), source.height.toDouble()),
+      screenSize: screen,
+      alignment: key.alignment,
+      zoom: key.zoom,
+    ),
+    Offset.zero & screen,
+    Paint()..filterQuality = FilterQuality.low,
+  );
+  final picture = recorder.endRecording();
+  try {
+    return await picture.toImage(key.width, key.height);
+  } finally {
+    picture.dispose();
+  }
+}
+
+class _ScreenWallpaper {
+  _ScreenWallpaper(this.image);
+
+  final ui.Image image;
+  int users = 1;
+}
+
+/// A hold on a wallpaper drawn at its screen's size. Every scene showing the
+/// same wallpaper on the same screen shares one copy, which is disposed once
+/// the last scene lets go of it.
+@internal
+class ScreenWallpaperLease {
+  ScreenWallpaperLease._(this.key, this.image);
+
+  static final Map<ScreenWallpaperKey, _ScreenWallpaper> _drawn =
+      <ScreenWallpaperKey, _ScreenWallpaper>{};
+
+  final ScreenWallpaperKey key;
+  final ui.Image image;
+  bool _released = false;
+
+  /// The copy already drawn for [key], or null.
+  static ScreenWallpaperLease? find(ScreenWallpaperKey key) {
+    final drawn = _drawn[key];
+    if (drawn == null) {
+      return null;
+    }
+    drawn.users += 1;
+    return ScreenWallpaperLease._(key, drawn.image);
+  }
+
+  /// Makes [image] the copy for [key]; when another scene drew one first,
+  /// [image] is disposed and that one is shared.
+  static ScreenWallpaperLease adopt(ScreenWallpaperKey key, ui.Image image) {
+    final drawn = find(key);
+    if (drawn != null) {
+      image.dispose();
+      return drawn;
+    }
+    _drawn[key] = _ScreenWallpaper(image);
+    return ScreenWallpaperLease._(key, image);
+  }
+
+  void release() {
+    if (_released) {
+      return;
+    }
+    _released = true;
+    final drawn = _drawn[key];
+    if (drawn == null) {
+      return;
+    }
+    drawn.users -= 1;
+    if (drawn.users > 0) {
+      return;
+    }
+    // A scene taking this wallpaper over in the same build keeps it.
+    scheduleMicrotask(() {
+      if (drawn.users == 0 && identical(_drawn[key], drawn)) {
+        _drawn.remove(key);
+        drawn.image.dispose();
+      }
+    });
+  }
+}
+
 ImageProvider<Object> _rawWallpaperImageProvider(WallpaperResource resource) {
   return switch (resource.kind) {
     WallpaperResourceKind.asset => AssetImage(resource.path),
