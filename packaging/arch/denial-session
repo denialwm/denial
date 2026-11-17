@@ -189,6 +189,11 @@ validate_output_state() {
     || die "output state directory must be writable for persistent display changes: $parent"
 }
 
+# Tests point this at a fixture holding sys/class/drm and dev/dri.
+readonly DEVICE_ROOT="${DENIAL_DEVICE_ROOT:-}"
+readonly DRM_SYSFS="$DEVICE_ROOT/sys/class/drm"
+readonly DRM_DEVFS="$DEVICE_ROOT/dev/dri"
+
 card_has_connected_output() {
   local sys_card="$1"
   local status
@@ -204,7 +209,7 @@ card_has_connected_output() {
 card_device() {
   local sys_card="$1"
   local name="${sys_card##*/}"
-  local device="/dev/dri/$name"
+  local device="$DRM_DEVFS/$name"
   [[ -c "$device" ]] || return 1
   readlink -f -- "$device"
 }
@@ -213,7 +218,7 @@ automatic_drm_device() {
   local sys_card
   local boot_vga
 
-  for sys_card in /sys/class/drm/card[0-9]*; do
+  for sys_card in "$DRM_SYSFS"/card[0-9]*; do
     [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
     boot_vga="$sys_card/device/boot_vga"
     if [[ -r "$boot_vga" ]] \
@@ -224,7 +229,7 @@ automatic_drm_device() {
     fi
   done
 
-  for sys_card in /sys/class/drm/card[0-9]*; do
+  for sys_card in "$DRM_SYSFS"/card[0-9]*; do
     [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
     if card_has_connected_output "$sys_card"; then
       card_device "$sys_card"
@@ -232,7 +237,7 @@ automatic_drm_device() {
     fi
   done
 
-  for sys_card in /sys/class/drm/card[0-9]*; do
+  for sys_card in "$DRM_SYSFS"/card[0-9]*; do
     [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
     boot_vga="$sys_card/device/boot_vga"
     if [[ -r "$boot_vga" ]] && [[ "$(< "$boot_vga")" == 1 ]]; then
@@ -241,7 +246,7 @@ automatic_drm_device() {
     fi
   done
 
-  for sys_card in /sys/class/drm/card[0-9]*; do
+  for sys_card in "$DRM_SYSFS"/card[0-9]*; do
     [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
     if card_device "$sys_card"; then
       return
@@ -264,7 +269,7 @@ resolve_drm_device() {
   fi
 
   automatic_drm_device \
-    || die 'no usable DRM card was found below /sys/class/drm'
+    || die "no usable DRM card was found below $DRM_SYSFS"
 }
 
 resolve_render_device() {
@@ -278,10 +283,56 @@ resolve_render_device() {
   printf '%s\n' "$resolved"
 }
 
+# A display driver can finish probing after the session starts. Until it does,
+# the screen's card is missing, or only a GPU card without outputs exists, and
+# the choice below would fail or pick that GPU card.
+display_present() {
+  local sys_card
+  local found=1
+  if [[ -n "${DENIAL_DRM_DEVICE:-}" ]]; then
+    [[ -c "$DENIAL_DRM_DEVICE" ]] || return 1
+  else
+    for sys_card in "$DRM_SYSFS"/card[0-9]*; do
+      [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
+      if card_has_connected_output "$sys_card" \
+        && card_device "$sys_card" >/dev/null; then
+        found=0
+        break
+      fi
+    done
+    [[ "$found" == 0 ]] || return 1
+  fi
+  [[ -z "${DENIAL_RENDER_DEVICE:-}" || -c "$DENIAL_RENDER_DEVICE" ]]
+}
+
+# Waits at most DENIAL_DISPLAY_WAIT seconds for the display, then chooses from
+# whatever is present.
+wait_for_display() {
+  local limit="${DENIAL_DISPLAY_WAIT:-30}"
+  local ticks=0
+  [[ "$limit" =~ ^[0-9]+$ ]] \
+    || die "DENIAL_DISPLAY_WAIT must be whole seconds, got: $limit"
+  if display_present || [[ "$limit" == 0 ]]; then
+    return 0
+  fi
+  printf 'denial-session: waiting up to %s s for the display\n' "$limit" >&2
+  while (( ticks < limit * 5 )); do
+    sleep 0.2
+    ticks=$((ticks + 1))
+    if display_present; then
+      printf 'denial-session: display ready after %d.%d s\n' \
+        $((ticks / 5)) $((ticks % 5 * 2)) >&2
+      return 0
+    fi
+  done
+  printf 'denial-session: no display after %s s; choosing from what is present\n' \
+    "$limit" >&2
+}
+
 drm_kernel_driver() {
   local device="$1"
   local driver
-  driver="$(readlink -f -- "/sys/class/drm/${device##*/}/device/driver" 2>/dev/null)" \
+  driver="$(readlink -f -- "$DRM_SYSFS/${device##*/}/device/driver" 2>/dev/null)" \
     || return 1
   [[ -n "$driver" ]] || return 1
   printf '%s\n' "${driver##*/}"
@@ -329,6 +380,9 @@ validate_output_state "$output_config"
 if [[ "${1:-}" == --print-output-config ]]; then
   printf '%s\n' "$output_config"
   exit 0
+fi
+if [[ "${1:-}" != --check ]]; then
+  wait_for_display
 fi
 drm_device="$(resolve_drm_device)"
 render_device="$(resolve_render_device)"

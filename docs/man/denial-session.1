@@ -51,11 +51,21 @@ All other arguments are forwarded to
 Root-owned shell-compatible machine configuration. Supported overrides include
 .BR DENIAL_DRM_DEVICE ,
 .BR DENIAL_RENDER_DEVICE ,
+.BR DENIAL_DISPLAY_WAIT ,
 .BR DENIAL_SHELL_PROFILE ,
 .BR LIBGL_ALWAYS_SOFTWARE ,
 .BR QT_QPA_PLATFORMTHEME ,
 and
 .BR DENIAL_FLUTTER_BUNDLE .
+.PP
+A display driver can finish loading after the session starts. Before choosing
+a display, the launcher waits up to
+.B DENIAL_DISPLAY_WAIT
+seconds (default 30) for a card with a connected screen, or for the configured
+display and render devices to exist, then chooses from what is present. 0 never
+waits.
+.B \-\-check
+does not wait.
 .PP
 The former
 .B DENIA_*
