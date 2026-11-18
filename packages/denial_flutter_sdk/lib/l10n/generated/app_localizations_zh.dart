@@ -4609,10 +4609,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get pluginsUpdated => 'Denial 已更新。';
 
   @override
-  String get pluginsFailureEngine =>
-      '已应用的插件已保存，但当前会话使用了不同的 Flutter 引擎。请使用引擎匹配的 Denial 会话重新加载插件。';
-
-  @override
   String get pluginsFailureVersion =>
       '已保存的插件是为其他 Denial 版本构建的。请使用与当前安装版本匹配的构建工具重新构建。';
 

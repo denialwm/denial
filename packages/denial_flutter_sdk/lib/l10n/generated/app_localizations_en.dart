@@ -4837,10 +4837,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pluginsUpdated => 'Denial was updated.';
 
   @override
-  String get pluginsFailureEngine =>
-      'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.';
-
-  @override
   String get pluginsFailureVersion =>
       'Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.';
 

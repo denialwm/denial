@@ -138,98 +138,28 @@ void main() {
     );
   });
 
-  test(
-    'build rejects stale selection and changed app inputs before running tools',
-    () async {
-      final store = ManagerStore(Directory(p.join(root.path, 'state')));
-      final packages = Directory(
-        p.join(store.root.path, 'candidates/test/packages'),
-      )..createSync(recursive: true);
-      final app = File(
-        p.join(store.root.path, 'candidates/test/app/lib/main.dart'),
-      );
-      app.parent.createSync(recursive: true);
-      app.writeAsStringSync('void main() {}');
-      final plan = {
-        'status': 'planned',
-        'selectionRevision': 0,
-        'inputDigest': treeDigest(packages),
-        'applicationInputs': {'lib/main.dart': fileDigest(app.path)},
-      };
-      final builder = CompositionBuilder(
-        store,
-        run: (executable, arguments, {workingDirectory, onOutput}) async =>
-            throw StateError('Must not invoke tools for an invalid plan'),
-      );
-      store.write('candidates/test/plan.json', {
-        ...plan,
-        'selectionRevision': 1,
-      });
-      Future<Object?> build() => builder.build(
+  test('a candidate is built once, before any tool runs twice', () async {
+    final store = ManagerStore(Directory(p.join(root.path, 'state')));
+    final builder = CompositionBuilder(
+      store,
+      run: (executable, arguments, {workingDirectory, onOutput}) async =>
+          throw StateError('Must not invoke tools for a built candidate'),
+    );
+    store.write('candidates/test/plan.json', {'status': 'built'});
+    await expectLater(
+      builder.build(
         'test',
         engineRoot: '/unused',
         engineTarget: 'denial_host_release',
         platform: 'linux-x64',
-      );
-      await expectLater(
-        build(),
-        throwsA(
-          isA<CompositionException>().having(
-            (e) => e.message,
-            'message',
-            contains('Selection changed'),
-          ),
+      ),
+      throwsA(
+        isA<CompositionException>().having(
+          (e) => e.message,
+          'message',
+          contains('already built'),
         ),
-      );
-      store.write('candidates/test/plan.json', plan);
-      app.writeAsStringSync('void main() { throw 0; }');
-      await expectLater(
-        build(),
-        throwsA(
-          isA<CompositionException>().having(
-            (e) => e.message,
-            'message',
-            contains('application input'),
-          ),
-        ),
-      );
-      expect(store.read('active.json'), isEmpty);
-      // A source cache or asset can change without changing generated Dart or
-      // pubspec.lock. Neither may silently enter a previously reviewed build.
-      app.writeAsStringSync('void main() {}');
-      final cache = Directory(p.join(root.path, 'pub-cache'))..createSync();
-      final dependency = File(p.join(cache.path, 'library.dart'))
-        ..writeAsStringSync('const value = 1;');
-      final appRoot = Directory(p.dirname(app.parent.path));
-      store.write('candidates/test/plan.json', {
-        ...plan,
-        'applicationDigest': treeDigest(appRoot),
-        'resolvedInputs': {
-          'dependency': {'root': cache.path, 'digest': treeDigest(cache)},
-        },
-      });
-      dependency.writeAsStringSync('const value = 2;');
-      await expectLater(
-        build(),
-        throwsA(
-          isA<CompositionException>().having(
-            (e) => e.message,
-            'message',
-            contains('Resolved package dependency changed'),
-          ),
-        ),
-      );
-      File(p.join(appRoot.path, 'added-asset')).writeAsStringSync('new asset');
-      await expectLater(
-        build(),
-        throwsA(
-          isA<CompositionException>().having(
-            (e) => e.message,
-            'message',
-            contains('application inputs or assets changed'),
-          ),
-        ),
-      );
-    },
-  );
+      ),
+    );
+  });
 }

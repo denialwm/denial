@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
+# The plugin manager of this checkout: `tools/denial-plugins status` says what
+# runs and what to do next (docs/PLUGIN_MANAGER.md).
 set -euo pipefail
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/denial/pc-build}"
-# The Dart SDK the manager was built with, whose compiler the build kit attests.
+backend="$BUILD_ROOT/plugin-manager/denial-plugins"
+if [[ ! -x "$backend" ]]; then
+    printf '%s\n' \
+        'denial-plugins: the plugin manager of this checkout is not built yet.' \
+        'Build it once: tools/denial-pc plugin-manager' >&2
+    exit 1
+fi
+# A build kit runs the Dart it finds first on PATH.
 if [[ -d "$BUILD_ROOT/plugin-manager/dart-bin" ]]; then
     PATH="$BUILD_ROOT/plugin-manager/dart-bin:$PATH"
 fi
-exec "$BUILD_ROOT/plugin-manager/denial-plugins" "$@"
+exec "$backend" "$@"

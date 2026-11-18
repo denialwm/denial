@@ -194,8 +194,6 @@ void main() {
         'selectionRevision': null,
       });
       store.write('selection.json', {...store.selection, 'revision': 9});
-      // Building is not blocked by the newer saved selection.
-      requireCurrentPlan(store, store.read('candidates/rebuilt/plan.json'));
       Map<String, Object?> native = {
         'active_mode': 'official_optimized',
         'plugin_healthy': false,
@@ -226,7 +224,6 @@ void main() {
       };
       await activation.activate('rebuilt');
       expect(transitions, [bundle]);
-      expect(store.read('active.json')['id'], 'rebuilt');
     });
 
     test('the quiet wait ends early when the user chose otherwise', () async {

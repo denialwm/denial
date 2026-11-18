@@ -82,15 +82,18 @@ confirm a new `deniald` is running.
 
 - `tools/denial-pc refresh` reloads an active composition's existing bundle and
   does not apply checkout edits. To apply them, run
-  `tools/denial-pc plugin-manager`, then `tools/denial-plugins plan`,
-  `build ID` and `activate ID` with the returned candidate ID, keeping the
-  selection. Verify the candidate contains the fix, `plugin_healthy` is true
-  and the compositor maps the candidate's `libapp.so`. No session restart is
-  needed.
-- For a combined compositor and shell update, activate the rebuilt plugin
-  candidate before asking the user to log out, when the running engine allows
-  it. Activation persists the selection for the next login; building alone does
-  not select it.
+  `tools/denial-plugins apply`: it compiles the checkout as it is on disk and
+  switches the shell, keeping the selection. No session restart is needed.
+  `tools/denial-plugins status` says what runs, why, and what to run next.
+  Build the manager once with `tools/denial-pc plugin-manager`, and again only
+  after changing the manager itself.
+- Plugins built from the checkout load across commits, edits and engine
+  rebuilds; the engine is proven by starting the shell, never compared first
+  (`docs/PLUGIN_MANAGER.md`, section 22). A deniald older than the manager
+  asks for one logout and login.
+- For a combined compositor and shell update, apply before asking the user to
+  log out, when the running deniald allows it. Applying persists the selection
+  for the next login.
 
 ## Test-device deployment failures: no automatic rollback
 

@@ -43,7 +43,7 @@ DevTools. This guide uses release compilation and Apply, so it does not require
 that package or a debug/profile engine. See [UI development](UI_DEVELOPMENT.md)
 for that separate workflow and the current engine-generation availability.
 
-Prepare the kit synchronously:
+Prepare the build tools once:
 
 ```sh
 denial-plugins prepare
@@ -55,34 +55,35 @@ the built-in selection only if no selection has previously been initialized.
 Do not run Flutter tools directly from the package-managed `/usr/lib` directory;
 Flutter writes cache locks and metadata.
 
-The examples below use Bash and `jq` to read the paths already recorded by the
-manager. Run this in the terminal you will use for development:
+`prepare` prints where the tools are. The examples below use Bash and `jq` to
+read them. Run this in the terminal you will use for development:
 
 ```sh
-DENIAL_PLUGIN_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/denial/plugins"
-DENIAL_PLUGIN_FLUTTER="$(jq -er '.flutter' "$DENIAL_PLUGIN_STATE/configuration.json")"
-DENIAL_PLUGIN_RUNTIME="$(jq -er '.runtime' "$DENIAL_PLUGIN_STATE/configuration.json")"
+DENIAL_PLUGIN_TOOLS="$(denial-plugins prepare)"
+DENIAL_PLUGIN_FLUTTER="$(jq -er '.flutter' <<<"$DENIAL_PLUGIN_TOOLS")"
+DENIAL_PLUGIN_RUNTIME="$(jq -er '.runtime' <<<"$DENIAL_PLUGIN_TOOLS")"
 DENIAL_PLUGIN_FLUTTER_ROOT="$(dirname "$(dirname "$DENIAL_PLUGIN_FLUTTER")")"
-DENIAL_PLUGIN_DART="$(command -v dart)"
-DENIAL_PLUGIN_DART_ROOT="$(jq -er '."dart-sdk"' "$DENIAL_PLUGIN_STATE/configuration.json")"
+DENIAL_PLUGIN_DART_ROOT="$(jq -er '."dart-sdk"' <<<"$DENIAL_PLUGIN_TOOLS")"
+DENIAL_PLUGIN_DART="$DENIAL_PLUGIN_DART_ROOT/bin/dart"
 ```
 
 These are terminal variables used by the examples, not Plugin Manager settings
-or required infrastructure overrides. Alternatively, copy the `flutter` and
-`runtime` values printed by `prepare` into those two variables and derive the
-other paths as above. Use the matching pair from the same prepared kit.
+or required infrastructure overrides. Use the matching pair from the same
+`prepare` output.
 
-If you work from a Denial source checkout, first run these commands from its
-root, outside the sandbox:
+If you work from a Denial source checkout, build its plugin manager once, from
+the checkout's root and outside the sandbox:
 
 ```sh
 tools/denial-pc plugin-manager
-tools/denial-plugins prepare
 ```
 
-Then use the same path-reading commands above. For manager commands throughout
-this guide, use `tools/denial-plugins` from that checkout instead of the installed
-`denial-plugins`. No plugin-project creation/setup command is required.
+Then use `tools/denial-plugins` from that checkout instead of the installed
+`denial-plugins` throughout this guide, including for the path-reading commands
+above. A checkout has no kit: its plugin manager compiles with the checkout's
+own Flutter tool and engine output, and reads the SDK and the built-in plugins
+from the checkout as they are. No plugin-project creation/setup command is
+required.
 
 ## 2. Create the package
 
@@ -702,88 +703,93 @@ itself, through `DenialBridge.holdPet` and `DenialBridge.carryPet`.
 
 ## Install a local plugin and apply edits
 
-Inspect the existing selection first, then add your project by absolute path:
+Look at what runs first, then add your project by its folder:
 
 ```sh
 denial-plugins status
-denial-plugins --local add "$HOME/Projects/example_plugin"
+denial-plugins add "$HOME/Projects/example_plugin"
+denial-plugins apply
 ```
 
-`add` selects the package. Preserve unrelated choices; do not reset to defaults
-as a setup step. In the GUI, choose Plugins → Add plugin, expand Local development,
-enable Use a local development checkout, enter the directory, and click Find
-plugins. Choose the package, click Add plugin, then Apply. A surface/action needs
-a compatible selected consumer; leave the reference desktop enabled when using
-the example above.
+`status` says in plain lines what runs, why, and the one command to run next.
+`add` selects the package and `apply` builds the selection and switches the
+desktop to it; nothing changes on screen before `apply`. Preserve unrelated
+choices; do not reset to defaults as a setup step. In the GUI, choose Plugins →
+Add plugin, expand Local development, enable Use a local development checkout,
+enter the directory, and click Find plugins. Choose the package, click Add
+plugin, then Apply. A surface/action needs a compatible selected consumer;
+leave the reference desktop enabled when using the example above.
 
-To compile without activating, then explicitly apply the result:
+| Command | Does |
+| --- | --- |
+| `denial-plugins status` | What runs now, why, and what to do next |
+| `denial-plugins list` | Plugins you can use, and which are on |
+| `denial-plugins add PLUGIN` | Turn a plugin on: a name from `list`, a folder, or a Git URL |
+| `denial-plugins remove PLUGIN` | Turn a plugin off |
+| `denial-plugins apply` | Build your selection and switch the desktop to it |
+| `denial-plugins undo` | Go back to the plugins that ran before |
+| `denial-plugins off` | Use the standard desktop; your selection is kept |
 
-```sh
-denial-plugins plan
-# Replace CANDIDATE_ID with the id returned by plan.
-denial-plugins build CANDIDATE_ID
-denial-plugins activate CANDIDATE_ID
-```
+Every command prints JSON instead of text with `--json`.
 
-Wait for each command to succeed before running the next. Planning snapshots your
-local source and uses the installed SDK pair, resolves dependencies through Pub,
-checks constraints and typed contributions, and generates the composition.
-Build compiles a new release bundle. Activate requests native-controlled shell
-replacement. A changed selection invalidates an older plan.
+Apply snapshots your local source and uses the installed SDK pair, resolves
+dependencies through Pub, checks constraints and typed contributions, generates
+the composition, compiles a release bundle and asks Denial to replace the
+shell. The command returns when the new shell has shown its first frame, or
+with the reason it did not; Denial then keeps the desktop it was running.
 
-For the combined operation, use Apply in Plugins or submit a background job:
-
-```sh
-denial-plugins submit apply
-denial-plugins status
-```
-
-`submit` returns a job ID before completion. Inspect `status` until that job
-succeeds or fails; `denial-plugins job-details JOB_ID` returns its diagnostic/log.
-Do not submit a dependent operation while the previous job is running.
-
-Edit your original project and repeat plan/build/activate or Apply. Local source
-edits are captured on each plan; ordinary planning preserves resolved Git and Pub
-pins. This is an AOT rebuild of the selected shell composition, not plugin hot
-reload. Build failures leave the active bundle running. Native startup checks and
-packaged-shell recovery protect activation; they do not prove plugin correctness.
+Edit your project and run `denial-plugins apply` again. Local source edits are
+captured on each apply; ordinary applying preserves resolved Git and Pub pins.
+This is an AOT rebuild of the selected shell composition, not plugin hot
+reload. Build failures leave the active bundle running. Native startup checks
+and standard-desktop recovery protect activation; they do not prove plugin
+correctness.
 
 Plugin-only changes use live shell refresh without rebuilding or restarting Rust.
 A change needing a new native capability can require an initial native update;
-an older compositor may report that logout/login is needed. Follow `AGENTS.md`
+an older compositor reports that logout/login is needed. Follow `AGENTS.md`
 for that session transition. Never overwrite a library mapped by a live process.
+
+Plugins also applies in the background, so the window can be closed meanwhile:
+`denial-plugins submit apply` returns a job ID, `status` shows its stage and
+`denial-plugins job-details JOB_ID` its log.
 
 ### Changes inside the Denial checkout
 
-Run `tools/denial-pc` and `tools/denial-plugins` outside the sandbox. When editing
-Denial's SDK, runtime, or bundled plugins, prepare matching build inputs first:
+Run `tools/denial-pc` and `tools/denial-plugins` outside the sandbox. After
+editing Denial's SDK, runtime, or bundled plugins:
 
 ```sh
-tools/denial-pc plugin-manager
-tools/denial-plugins plan
-# Replace CANDIDATE_ID with the id returned by plan.
-tools/denial-plugins build CANDIDATE_ID
-tools/denial-plugins activate CANDIDATE_ID
+tools/denial-plugins apply
 ```
 
-Read the prepared tool paths again and refresh your local authoring paths after
-the kit changes. Editing `dart_shell/lib/main.dart` alone cannot change the
-generated entry point of an active Plugin Manager composition.
-`tools/denial-pc refresh` reloads its existing bundle; it does not compile checkout
-edits into it. Edit canonical source, never generated workspaces, kit snapshots,
-or sealed candidates.
+The checkout is read as it is on disk, so there is nothing to prepare between
+edits. `tools/denial-pc plugin-manager` is needed again only after changing the
+plugin manager itself (`packages/denial_plugin_manager`, `plugin_manager_app`).
 
-### Build-input provenance
+Plugins built from a checkout load in that checkout's development session
+across commits, edits and engine rebuilds, engine tests included. When an
+engine change is too large for them, the shell does not start: Denial keeps
+the desktop it was running and `tools/denial-plugins status` shows its error.
+Apply again to compile against the new engine.
 
-`denial-pc plugin-manager` selects explicit **development** provenance when
-using the canonical local Flutter/Skia trees. The kit records their actual HEADs
-and SHA-256 hashes of tracked/untracked dirty inputs, Denial's source state,
-release GN arguments, engine ELF architecture/build ID/checksum, generated
-`dart:ui` declarations, Dart frontend and exact release compiler input hashes.
-Flutter's real framework revision is preserved; the unchanged source lock is
-retained only as CI/release reference metadata, not development source authority.
-The generated runtime checksum describes the copied development engine; no
-committed checksum or source metadata is rewritten.
+Editing `dart_shell/lib/main.dart` alone cannot change the generated entry
+point of an active Plugin Manager composition. `tools/denial-pc refresh`
+reloads its existing bundle; it does not compile checkout edits into it. Edit
+canonical source, never generated workspaces or sealed candidates.
+
+### The build kit of a package
+
+Packages install the plugin build tools as a kit:
+`/usr/lib/denial/plugin-build-kit`. `tools/stage-denial-runtime` prepares it
+while staging a package, also from a checkout that itself needs none. A kit
+built from the canonical local Flutter/Skia trees records **development**
+provenance: their actual HEADs and SHA-256 hashes of tracked/untracked dirty
+inputs, Denial's source state, release GN arguments, engine ELF
+architecture/build ID/checksum, generated `dart:ui` declarations, Dart frontend
+and exact release compiler input hashes. Flutter's real framework revision is
+preserved; the unchanged source lock is retained only as CI/release reference
+metadata. No committed checksum or source metadata is rewritten.
 
 For a separately requested kit-only operation with an already prepared native
 release graph, run (x86-64 example):
@@ -802,11 +808,10 @@ source/compiler movement while copying. Relocated Flutter and Skia roots must
 both be declared with the existing source-root environment variables. A stale
 graph requires a scoped prerequisite decision, not a full distribution build.
 
-Composition compilation verifies this explicit identity and compiler inventory,
-including the exact Dart frontend, instead of claiming a dirty fork matches the
-lock. The source identity is preserved in the sealed candidate and remains
-subject to native installed-source, engine-hash and startup-health gates. These
-hashes identify inputs; they are not signatures or proof that plugins are safe.
+The kit's identity is what a package's plugins are built for: Denial loads a
+composition whose identity equals the installed one and rebuilds any other.
+These hashes identify inputs; they are not signatures or proof that plugins
+are safe.
 
 The default `--provenance locked-release` path keeps the existing source-lock
 and committed release-engine checks, including the Nix packager's explicit
@@ -849,14 +854,14 @@ The CLI equivalent for a package at the repository root is:
 ```sh
 denial-plugins status
 denial-plugins add https://example.org/example_plugin.git
-denial-plugins submit apply
+denial-plugins apply
 ```
 
 For a package under `packages/example_plugin`, optionally at a chosen Git ref:
 
 ```sh
 denial-plugins --path packages/example_plugin --ref PLUGIN_REF add https://example.org/plugins.git
-denial-plugins submit apply
+denial-plugins apply
 ```
 
 The published taskbar is a concrete collection example:
@@ -869,7 +874,7 @@ Before applying, disable the top bar or explicitly choose one `ShellWorkArea`
 provider: both bars reserve native window space through that exclusive contract.
 Preserve the reference desktop and other unrelated selections.
 
-Wait for the Apply job to finish and inspect its status as above. Plugin Manager
+Plugin Manager
 supplies the installed SDK pair before Pub resolution, validates the package
 constraints and providers, and compiles/activates the full selection. Required
 plugin dependencies follow their Pub declarations. The catalog is optional for
@@ -879,19 +884,19 @@ Ordinary Apply retains exact Git commits and resolved dependencies. Deliberately
 advance them with:
 
 ```sh
-denial-plugins submit update
+denial-plugins apply --update
 ```
 
 To remove the example from the composition:
 
 ```sh
 denial-plugins remove example_plugin
-denial-plugins submit apply
+denial-plugins apply
 ```
 
 Resolve any dependent-plugin requirements before applying removal. A user can
-request the previous working composition with `denial-plugins submit revert`, or
-the packaged recovery shell with `denial-plugins submit restore`.
+go back to the plugins that ran before with `denial-plugins undo`, or to the
+standard desktop with `denial-plugins off`.
 
 ## Validate changes
 

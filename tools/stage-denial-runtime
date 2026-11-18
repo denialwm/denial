@@ -101,9 +101,12 @@ fi
   || die "package version is not portable to Debian and RPM: $package_version"
 build_identity="${REQUESTED_BUILD_IDENTITY:-$package_version}"
 
+# Packages install the plugin build kit, which a development checkout does
+# not otherwise prepare.
 DENIAL_BUILD_VERSION="$build_identity" \
 DENIAL_PC_BUNDLE="$BUNDLE" \
 DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
+DENIAL_PC_PLUGIN_BUILD_KIT_REQUIRED=1 \
   "$ROOT/tools/denial-pc" build
 
 [[ -x "$BINARY" ]] || die "missing compositor: $BINARY"

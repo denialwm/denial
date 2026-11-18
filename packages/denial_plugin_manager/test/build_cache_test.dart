@@ -10,9 +10,7 @@ void main() {
   late ManagerStore store;
   late String flutter;
   late String engineRoot;
-  late String checksum;
   var compilations = 0;
-  var versionRevision = 'revision';
 
   File put(String relative, String text) {
     final file = File(p.join(root.path, relative));
@@ -26,16 +24,7 @@ void main() {
     store = ManagerStore(Directory(p.join(root.path, 'state')));
     flutter = put('flutter/bin/flutter', 'launcher').path;
     engineRoot = p.join(root.path, 'engine');
-    final engine = put(
-      'runtime/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so',
-      'pinned engine',
-    );
-    checksum = fileDigest(engine.path);
-    put(
-      'runtime/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256',
-      checksum,
-    );
-    put('engine/out/release/libflutter_engine.so', 'pinned engine');
+    put('engine/out/release/libflutter_engine.so', 'the engine');
     for (final file in [
       'gen_snapshot',
       'font-subset',
@@ -77,7 +66,6 @@ void main() {
     });
     config.writeAsStringSync(jsonEncode(packages));
     compilations = 0;
-    versionRevision = 'revision';
   });
   tearDown(() {
     Process.runSync('chmod', ['-R', 'u+w', root.path]);
@@ -85,37 +73,21 @@ void main() {
   });
 
   void plan(String id, {String asset = 'asset'}) {
-    final packages = Directory(
-      p.join(store.root.path, 'candidates/$id/packages'),
-    )..createSync(recursive: true);
-    final main = put(
-      'state/candidates/$id/app/lib/main.dart',
-      'void main() {}',
-    );
+    Directory(p.join(store.root.path, 'candidates/$id/packages'))
+        .createSync(recursive: true);
+    put('state/candidates/$id/app/lib/main.dart', 'void main() {}');
     put('state/candidates/$id/app/assets/icon', asset);
+    put('state/candidates/$id/app/pubspec.lock', 'locked');
     store.write('candidates/$id/plan.json', {
       'id': id,
       'status': 'planned',
       'selectionRevision': 0,
-      'inputDigest': treeDigest(packages),
-      'applicationInputs': {'lib/main.dart': fileDigest(main.path)},
-      'applicationDigest': treeDigest(main.parent.parent),
-      'resolvedInputs': <String, Object?>{},
       'flutterGeneration': 'generation',
+      'flutterVersion': {'frameworkRevision': 'revision'},
       'flutter': flutter,
-      'engineSourceLock': {
-        'flutter': {'revision': 'revision'},
-      },
       'runtimeRoot': p.join(root.path, 'runtime'),
-      'releaseEngineChecksums': {'linux-x64': checksum},
       'compositionKey': contentKey({'main': 'void main() {}', 'asset': asset}),
-      'sourceIdentity': {'source': 'release'},
-    });
-    put('state/candidates/$id/app/pubspec.lock', 'locked');
-    // The lock is a build input too.
-    store.write('candidates/$id/plan.json', {
-      ...store.read('candidates/$id/plan.json'),
-      'applicationDigest': treeDigest(main.parent.parent),
+      'sourceIdentity': {'schema': 1, 'development': '/checkout'},
     });
   }
 
@@ -123,9 +95,6 @@ void main() {
       CompositionBuilder(
         store,
         run: (executable, arguments, {workingDirectory, onOutput}) async {
-          if (executable == flutter && arguments.first == '--version') {
-            return jsonEncode({'frameworkRevision': versionRevision});
-          }
           if (executable == flutter && arguments.first == 'assemble') {
             compilations++;
             final output = arguments
@@ -198,121 +167,48 @@ void main() {
     );
   });
 
-  void developmentPlan(String id) {
-    plan(id);
-    versionRevision = 'a' * 40;
-    put('engine/out/release/flutter_linux/header.h', 'header');
-    put('engine/out/release/libflutter_linux_gtk.so', 'GTK engine');
-    put('flutter/bin/cache/pkg/sky_engine/lib/ui.dart', 'Denial dart:ui');
-    put('flutter/bin/cache/dart-sdk/version', '3.13.4');
-    final frontend = put(
-      'flutter/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot',
-      'frontend',
-    );
-    const inputs = [
-      'gen_snapshot',
-      'font-subset',
-      'impellerc',
-      'icudtl.dat',
-      'flutter_patched_sdk',
-      'flutter_linux',
-      'libflutter_linux_gtk.so',
-      'shader_lib',
-      'gen/const_finder.dart.snapshot',
-    ];
-    final identity = {
-      'build_provenance': {
+  test(
+    'the bundle carries the shell and what it was built for, never an engine',
+    () async {
+      plan('one');
+      final result = await build('one');
+      final bundle = Directory(result['bundle']! as String);
+      expect(
+        bundle
+            .listSync(recursive: true)
+            .whereType<File>()
+            .map((file) => p.relative(file.path, from: bundle.path))
+            .toSet(),
+        {
+          'denial-plugin-bundle.json',
+          'lib/libapp.so',
+          'data/flutter_assets/icon',
+        },
+      );
+      final manifest = result['manifest']! as Map;
+      expect(manifest['source_identity'], {
         'schema': 1,
-        'mode': 'development',
-        'platform': 'linux-x64',
-        'engine_target': 'release',
-        'args_gn_sha256': 'b' * 64,
-        'engine_build_id': 'c' * 40,
-        'engine_sha256': checksum,
-        'framework_revision': versionRevision,
-        'sources': {
-          for (final name in ['flutter', 'skia', 'denial'])
-            name: {
-              'path': '/canonical/$name',
-              'revision': versionRevision,
-              'dirty_sha256': name == 'flutter' ? 'd' * 64 : null,
-            },
-        },
-        'compiler_inputs': {
-          for (final name in inputs)
-            name:
-                Directory(p.join(engineRoot, 'out/release', name)).existsSync()
-                ? treeDigest(Directory(p.join(engineRoot, 'out/release', name)))
-                : fileDigest(p.join(engineRoot, 'out/release', name)),
-        },
-        'sky_engine_sha256': treeDigest(
-          Directory(p.join(root.path, 'flutter/bin/cache/pkg/sky_engine')),
-        ),
-        'dart_sdk_version': '3.13.4',
-        'frontend_server_sha256': fileDigest(frontend.path),
-      },
-    };
-    store.write('candidates/$id/plan.json', {
-      ...store.read('candidates/$id/plan.json'),
-      'sourceIdentity': identity,
-    });
-    put('runtime/.denial-ui-source.json', jsonEncode(identity));
-  }
+        'development': '/checkout',
+      });
+      expect(manifest['framework_revision'], 'revision');
+      // Informational: deniald uses it only to explain a failed start.
+      expect(
+        manifest['engine_sha256'],
+        fileDigest(p.join(engineRoot, 'out/release/libflutter_engine.so')),
+      );
+      await expectLater(build('one'), throwsA(isA<CompositionException>()));
+      expect(compilations, 1);
+    },
+  );
 
-  test('legacy/release revision verification remains strict', () async {
-    plan('locked');
-    versionRevision = 'different';
-    await expectLater(build('locked'), throwsA(isA<CompositionException>()));
-    expect(compilations, 0);
-  });
-
-  test('explicit development identity compiles an ahead/dirty fork', () async {
-    developmentPlan('dev');
-    final result = await build('dev');
-    expect((result['manifest'] as Map)['framework_revision'], 'a' * 40);
-    expect(
-      (result['manifest'] as Map)['source_identity'],
-      store.read('candidates/dev/plan.json')['sourceIdentity'],
-    );
+  test('an engine rebuilt with the same compilers reuses the build', () async {
+    plan('first');
+    await build('first');
+    put('engine/out/release/libflutter_engine.so', 'the engine, rebuilt');
+    plan('again');
+    expect((await build('again'))['reused'], true);
     expect(compilations, 1);
   });
-
-  for (final changed in [
-    'gen_snapshot',
-    'flutter_patched_sdk/kernel',
-    'sky_engine',
-    'frontend',
-    'marker',
-    'revision',
-    'mode',
-  ]) {
-    test('development rejects changed $changed before assembly', () async {
-      developmentPlan('changed');
-      switch (changed) {
-        case 'sky_engine':
-          put('flutter/bin/cache/pkg/sky_engine/lib/ui.dart', 'upstream UI');
-        case 'frontend':
-          put(
-            'flutter/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot',
-            'other frontend',
-          );
-        case 'marker':
-          put('runtime/.denial-ui-source.json', '{}');
-        case 'revision':
-          versionRevision = 'e' * 40;
-        case 'mode':
-          final value = store.read('candidates/changed/plan.json');
-          ((value['sourceIdentity'] as Map)['build_provenance']
-                  as Map)['mode'] =
-              'ignore';
-          store.write('candidates/changed/plan.json', value);
-        default:
-          put('engine/out/release/$changed', 'other input');
-      }
-      await expectLater(build('changed'), throwsA(isA<CompositionException>()));
-      expect(compilations, 0);
-    });
-  }
 
   test(
     'damaged output and a cache index pointing at another composition miss',
@@ -327,11 +223,11 @@ void main() {
       Process.runSync('chmod', ['-R', 'u+w', bundle.path]);
       File(p.join(bundle.path, 'data/flutter_assets/icon'))
           .writeAsStringSync('damaged');
-      expect(BuildCache(store).lookup(key, checksum), isNull);
+      expect(BuildCache(store).lookup(key), isNull);
       plan('second', asset: 'other');
       await build('second');
       store.write('cache/builds/$key.json', {'id': 'second'});
-      expect(BuildCache(store).lookup(key, checksum), isNull);
+      expect(BuildCache(store).lookup(key), isNull);
     },
   );
 
@@ -355,11 +251,6 @@ void main() {
     plan('first');
     await build('first');
     final bundle = p.join(store.root.path, 'candidates/first/bundle');
-    store.write('active.json', {
-      'id': 'first',
-      'bundle': bundle,
-      'previous': 'before',
-    });
     plan('again');
     await build('again');
     final calls = <List<String>>[];
@@ -378,7 +269,7 @@ void main() {
     expect(calls, [
       ['--json', 'ui', 'status'],
     ]);
-    expect(store.read('active.json')['id'], 'first');
-    expect(store.read('active.json')['previous'], 'before');
+    // deniald itself says it runs this build; the manager keeps no record.
+    expect(store.file('active.json').existsSync(), isFalse);
   });
 }

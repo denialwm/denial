@@ -61,18 +61,19 @@ void main() {
       'plugin_bundle': '/new',
     },
   }, true);
+  // deniald went back to the standard desktop: nothing of ours runs.
   final recovered = <String, Object?>{
     ...applied,
-    'active': {'id': 'new', 'bundle': '/new'},
+    'active': {'id': null, 'bundle': null},
     'native': {
       'active_mode': 'official_optimized',
       'plugin_healthy': false,
-      'error': 'plugin bundle needs a different engine',
+      'error': 'Could not start plugins: the shell showed nothing.',
     },
   };
-  check('Saved startup failure is not a new pending action', recovered, false);
+  check('A failed start can be applied again', recovered, true);
   if (compositionStartupError(recovered) !=
-      'plugin bundle needs a different engine') {
+      'Could not start plugins: the shell showed nothing.') {
     throw StateError('Recovery must expose the native error');
   }
   check('New selection remains pending during recovery', {
@@ -86,7 +87,7 @@ void main() {
     ...recovered,
     'build': {'status': 'built', 'bundle': '/replacement'},
   }, true);
-  check('Matching engine restores healthy applied state', {
+  check('A later healthy start restores the applied state', {
     ...recovered,
     'native': {
       'active_mode': 'custom_optimized',

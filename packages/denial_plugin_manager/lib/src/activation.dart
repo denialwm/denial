@@ -10,7 +10,11 @@ import 'source.dart';
 import 'store.dart';
 
 /// Requests native transitions only. The compositor validates compatibility,
-/// confirms startup, persists selection, and owns packaged-shell recovery.
+/// confirms startup, persists selection, and owns packaged-shell recovery. It
+/// is also the only record of what runs: the manager asks, it keeps no copy.
+/// deniald loads compositions that carry no engine of their own.
+const bundleCapability = 'pluginBundleV2';
+
 final class CompositionActivation {
   CompositionActivation(
     this.store, {
@@ -36,11 +40,30 @@ final class CompositionActivation {
         'Denial is not available. Apply plugins from your Denial session.',
       );
     }
-    if (!native.containsKey('plugin_healthy')) {
+    // A compositor from before compositions stopped carrying an engine
+    // would refuse what this manager builds.
+    if (!(native['capabilities'] as List? ?? const []).contains(
+      bundleCapability,
+    )) {
       throw const CompositionException(
         'Log out and back into Denial once to finish the update. Your plugin choices are saved.',
       );
     }
+  }
+
+  /// The candidate deniald runs, or null for the packaged shell and for a
+  /// composition this manager did not build.
+  String? runningCandidate(Map<String, Object?> native) =>
+      candidateOf(native['plugin_bundle']);
+
+  /// The candidate whose bundle is [bundle] in this manager's state.
+  String? candidateOf(Object? bundle) {
+    if (bundle is! String || p.basename(bundle) != 'bundle') return null;
+    final id = p.basename(p.dirname(bundle));
+    return RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(id) &&
+            bundle == p.join(store.root.path, 'candidates', id, 'bundle')
+        ? id
+        : null;
   }
 
   Future<Map<String, Object?>> activate(String id) async {
@@ -59,10 +82,6 @@ final class CompositionActivation {
           'Denial no longer waits for these plugins to be rebuilt',
         );
       }
-    } else if (plan['selectionRevision'] != store.selection['revision']) {
-      throw const CompositionException(
-        'Selection changed after this candidate was planned; plan again',
-      );
     }
     final identity = plan['sourceIdentity'] as Map?;
     final required = (identity?['required_native_capabilities'] as List? ?? [])
@@ -79,50 +98,35 @@ final class CompositionActivation {
     final bundle = Directory(
       p.join(store.root.path, 'candidates', id, 'bundle'),
     ).resolveSymbolicLinksSync();
-    if (build['bundle'] != bundle) {
-      throw const CompositionException(
-        'Candidate bundle does not match its build record',
-      );
-    }
-    // Applying an unchanged, verified composition should not interrupt the
-    // desktop. Keep the physical active bundle and rollback history untouched.
-    final current = store.read('active.json');
-    if (build['reusedFrom'] != null && current['id'] is String) {
-      final currentId = current['id']! as String;
-      ManagerStore.validateId(currentId);
-      final currentBuild = store.read('candidates/$currentId/build.json');
-      final checksum = (build['manifest'] as Map)['engine_sha256']! as String;
-      if (currentBuild['cacheKey'] == build['cacheKey'] &&
-          current['bundle'] is String &&
+    // Applying an unchanged composition should not interrupt the desktop:
+    // deniald already runs the very build this one was copied from.
+    if (build['reusedFrom'] != null) {
+      final status = await this.status();
+      final running = runningCandidate(status);
+      if (running != null &&
+          store.read('candidates/$running/build.json')['cacheKey'] ==
+              build['cacheKey'] &&
+          status['plugin_healthy'] == true &&
+          status['active_mode'] == 'custom_optimized' &&
           BuildCache.validBundle(
-            Directory(current['bundle']! as String),
-            checksum,
+            Directory(status['plugin_bundle']! as String),
           )) {
-        final status = await this.status();
-        if (status['plugin_bundle'] == current['bundle'] &&
-            status['plugin_healthy'] == true &&
-            status['active_mode'] == 'custom_optimized') {
-          _rememberInstalled(plan);
-          return status;
-        }
+        _rememberInstalled(plan);
+        return status;
       }
     }
     final native = await _request(['activate', bundle]);
     if (native['plugin_bundle'] != bundle ||
         native['plugin_healthy'] != true ||
         native['active_mode'] != 'custom_optimized') {
-      throw const CompositionException(
-        'The compositor did not confirm this candidate as healthy',
+      final error = native['error'];
+      throw CompositionException(
+        error is String && error.trim().isNotEmpty
+            ? 'Your plugins did not start: ${error.trim()}'
+            : 'Your plugins did not start. Denial keeps the desktop it was running.',
       );
     }
-    final previous = store.read('active.json');
     _rememberInstalled(plan);
-    store.write('active.json', {
-      'id': id,
-      'bundle': bundle,
-      'previous': previous['id'] == id ? previous['previous'] : previous['id'],
-      'nativeGeneration': native['generation'],
-    });
     return native;
   }
 
@@ -133,12 +137,6 @@ final class CompositionActivation {
         'The compositor did not restore the packaged shell',
       );
     }
-    final previous = store.read('active.json');
-    store.write('active.json', {
-      'id': null,
-      'previous': previous['id'] ?? previous['previous'],
-      'nativeGeneration': native['generation'],
-    });
     return native;
   }
 
@@ -150,14 +148,11 @@ final class CompositionActivation {
         'The previous composition was not confirmed healthy',
       );
     }
-    final bundle = native['plugin_bundle']! as String;
-    final id = p.basename(p.dirname(bundle));
-    ManagerStore.validateId(id);
-    final expected = p.join(store.root.path, 'candidates', id, 'bundle');
-    if (bundle != expected) {
-      throw const CompositionException(
-        'Restored composition belongs to a different manager state directory',
-      );
+    final id = runningCandidate(native);
+    if (id == null) {
+      // deniald went back to plugins this manager has no record of. They
+      // run; the saved selection simply does not describe them.
+      return native;
     }
     final plan = store.read('candidates/$id/plan.json');
     final selection = store.selection;
@@ -174,13 +169,6 @@ final class CompositionActivation {
     // of the candidate that was rolled back. Only update advances revisions.
     store.write('last-plan.json', {'id': id});
     _rememberInstalled(plan);
-    final previous = store.read('active.json');
-    store.write('active.json', {
-      'id': id,
-      'bundle': bundle,
-      'previous': previous['id'],
-      'nativeGeneration': native['generation'],
-    });
     return native;
   }
 

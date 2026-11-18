@@ -229,7 +229,8 @@ struct UiDevelopmentDiagnostic {
 }
 
 /// The last confirmed plugin composition was built for another installed
-/// Denial. It is intact intent, not a failure: the manager rebuilds it.
+/// Denial, or did not start on an engine other than the one it was compiled
+/// against. It is intact intent: the manager rebuilds it.
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct PluginRebuild {
     reason: plugin_bundle::UpdateReason,
@@ -238,6 +239,24 @@ pub(super) struct PluginRebuild {
     /// The identity a rebuilt composition must carry; absent for a
     /// development bundle without a source marker.
     installed_source: Option<serde_json::Value>,
+}
+
+impl PluginRebuild {
+    fn new(reason: plugin_bundle::UpdateReason, bundle: PathBuf, official_bundle: &Path) -> Self {
+        Self {
+            // The version names the release the plugins are rebuilt for. An
+            // engine that changed under the same Denial is no release.
+            version: match reason {
+                plugin_bundle::UpdateReason::Engine => String::new(),
+                _ => denial_core::version().to_owned(),
+            },
+            reason,
+            bundle,
+            installed_source: plugin_bundle::installed_source_identity(official_bundle)
+                .ok()
+                .flatten(),
+        }
+    }
 }
 
 /// Facts that decide whether replacing the shell would interrupt the user.
@@ -275,6 +294,12 @@ pub(super) struct UiDevelopmentState {
     progress_basis_points: Option<u16>,
     plugin_bundle: Option<PathBuf>,
     plugin_healthy: bool,
+    /// The composition deniald would go back to; the manager keeps no record
+    /// of its own.
+    plugin_previous: Option<PathBuf>,
+    /// The running or starting composition was compiled against an engine
+    /// other than this session's. It is loaded all the same.
+    plugin_engine_differs: bool,
     plugin_rebuild: Option<PluginRebuild>,
     #[serde(skip_serializing_if = "Option::is_none")]
     session_activity: Option<SessionActivity>,
@@ -441,6 +466,9 @@ pub(super) struct UiDevelopmentController {
     plugins: PluginSelection,
     release_bundle: Option<PathBuf>,
     plugin_start: Option<Instant>,
+    /// The confirmed composition is being started by this login, not by a
+    /// request: if it fails on another engine it is rebuilt, not dropped.
+    plugin_autostart: bool,
 }
 
 impl UiDevelopmentController {
@@ -506,6 +534,18 @@ impl UiDevelopmentController {
             plugin_error = error;
             PluginSelection::empty()
         });
+        let rebuild = |reason, bundle: PathBuf| PluginRebuild::new(reason, bundle, official_bundle);
+        // The previous login did not survive starting the confirmed
+        // composition. On another engine than it was compiled against, that
+        // is a reason to rebuild it.
+        if let Some(interrupted) = plugins.interrupted()
+            && plugin_bundle::built_for_another_engine(interrupted, official_bundle)
+        {
+            plugin_rebuild = Some(rebuild(
+                plugin_bundle::UpdateReason::Engine,
+                interrupted.to_owned(),
+            ));
+        }
         // Only a confirmed selection reaches this point: an interrupted start
         // was already demoted by `open` and is never classified as an update.
         let release_bundle = plugins
@@ -523,16 +563,7 @@ impl UiDevelopmentController {
                         update: Some(reason),
                         ..
                     }) => {
-                        plugin_rebuild = Some(PluginRebuild {
-                            reason,
-                            bundle: candidate,
-                            version: denial_core::version().to_owned(),
-                            installed_source: plugin_bundle::installed_source_identity(
-                                official_bundle,
-                            )
-                            .ok()
-                            .flatten(),
-                        });
+                        plugin_rebuild = Some(rebuild(reason, candidate));
                         None
                     }
                     Err(rejection) => {
@@ -546,6 +577,10 @@ impl UiDevelopmentController {
         } else {
             UiRuntimeMode::OfficialOptimized
         };
+        let plugin_engine_differs = release_bundle
+            .as_deref()
+            .is_some_and(|bundle| plugin_bundle::built_for_another_engine(bundle, official_bundle));
+        let plugin_previous = plugins.previous().map(Path::to_owned);
         Self {
             official_bundle: official_bundle.to_owned(),
             debug_bundle,
@@ -553,6 +588,7 @@ impl UiDevelopmentController {
             config_path,
             vm_service_path,
             plugins,
+            plugin_autostart: release_bundle.is_some(),
             release_bundle,
             plugin_start: None,
             state: UiDevelopmentState {
@@ -578,11 +614,13 @@ impl UiDevelopmentController {
                 progress_basis_points: None,
                 plugin_bundle: None,
                 plugin_healthy: false,
+                plugin_previous,
+                plugin_engine_differs,
                 plugin_rebuild,
                 session_activity: None,
                 native_client_composition: None,
                 output_frame_delivery: None,
-                capabilities: vec!["pluginActionsV1"],
+                capabilities: vec!["pluginActionsV1", "pluginBundleV2"],
             },
         }
     }
@@ -673,6 +711,9 @@ impl UiDevelopmentController {
                 } else {
                     self.release_bundle = None;
                     self.plugin_start = None;
+                    self.plugin_autostart = false;
+                    self.state.plugin_engine_differs = false;
+                    self.state.plugin_previous = self.plugins.previous().map(Path::to_owned);
                     // Choosing the packaged shell supersedes the composition
                     // that was waiting for a rebuild.
                     self.state.plugin_rebuild = None;
@@ -733,8 +774,11 @@ impl UiDevelopmentController {
             Ok(bundle)
         }) {
             Ok(bundle) => {
+                self.state.plugin_engine_differs =
+                    plugin_bundle::built_for_another_engine(&bundle, &self.official_bundle);
                 self.release_bundle = Some(bundle);
                 self.plugin_start = None;
+                self.plugin_autostart = false;
                 self.state.operation = UiDevelopmentOperation::SwitchingRuntime;
                 self.state.status = "Starting the compiled plugin composition…".into();
                 self.state.desired_mode = UiRuntimeMode::CustomOptimized;
@@ -770,7 +814,9 @@ impl UiDevelopmentController {
             match self.plugins.confirm() {
                 Ok(()) => {
                     self.plugin_start = None;
+                    self.plugin_autostart = false;
                     self.state.plugin_healthy = true;
+                    self.state.plugin_previous = self.plugins.previous().map(Path::to_owned);
                     self.state.plugin_rebuild = None;
                     self.state.operation = UiDevelopmentOperation::Idle;
                     self.state.can_revert = self.plugins.previous().is_some();
@@ -938,6 +984,7 @@ impl UiDevelopmentController {
             .and_then(|bundle| validate_debug_bundle(bundle, expected_workspace));
         self.state.developer_components_available = debug_validation.is_ok();
         self.state.can_revert = self.plugins.previous().is_some();
+        self.state.plugin_previous = self.plugins.previous().map(Path::to_owned);
         self.state.can_build_optimized = self
             .custom_bundle
             .as_deref()
@@ -1010,7 +1057,7 @@ impl UiDevelopmentController {
             (UiRuntimeMode::OfficialOptimized, false) => {
                 self.state.error.clear();
                 if self.state.plugin_rebuild.is_some() {
-                    "The packaged shell is active until your plugins are rebuilt for this Denial version.".to_owned()
+                    "The packaged shell is active until your plugins are rebuilt.".to_owned()
                 } else {
                     "The packaged optimized Flutter shell is active.".to_owned()
                 }
@@ -1033,10 +1080,22 @@ impl UiDevelopmentController {
     }
 
     pub(super) fn runtime_failed(&mut self, mode: UiRuntimeMode, error: &dyn fmt::Display) {
-        if self.release_bundle.is_some() {
+        if let Some(bundle) = self.release_bundle.take() {
             let _ = self.plugins.reject();
-            self.release_bundle = None;
             self.plugin_start = None;
+            // The confirmed composition did not start on an engine other than
+            // the one it was compiled against: the manager rebuilds it. A
+            // composition that was just requested stays a plain failure.
+            if self.plugin_autostart && self.state.plugin_engine_differs {
+                self.state.plugin_rebuild = Some(PluginRebuild::new(
+                    plugin_bundle::UpdateReason::Engine,
+                    bundle,
+                    &self.official_bundle,
+                ));
+            }
+            self.plugin_autostart = false;
+            self.state.plugin_engine_differs = false;
+            self.state.plugin_previous = self.plugins.previous().map(Path::to_owned);
         }
         self.state.desired_mode = UiRuntimeMode::OfficialOptimized;
         self.state.operation = UiDevelopmentOperation::SwitchingRuntime;
@@ -1063,6 +1122,10 @@ impl UiDevelopmentController {
         let _ = self.plugins.reject();
         self.release_bundle = self.state.plugin_bundle.clone();
         self.plugin_start = None;
+        self.plugin_autostart = false;
+        self.state.plugin_engine_differs = self.release_bundle.as_deref().is_some_and(|bundle| {
+            plugin_bundle::built_for_another_engine(bundle, &self.official_bundle)
+        });
         let active_mode = self.state.active_mode;
         self.state.desired_mode = active_mode;
         self.state.operation = UiDevelopmentOperation::Idle;
@@ -1472,6 +1535,108 @@ mod tests {
         controller.handle_command(restore);
         assert!(!controller.plugin_rebuild_needed());
         assert_eq!(controller.plugins.selected(), None);
+    }
+
+    #[test]
+    fn another_engine_is_tried_and_a_failed_login_start_asks_for_a_rebuild() {
+        use plugin_bundle::fixtures::Fixture;
+        let fixture = Fixture::new();
+        let (bundle, official) = fixture.bundle();
+        fs::write(official.join("lib/libflutter_engine.so"), b"experiment").unwrap();
+        let mut controller = startup_with_selected(&fixture, &official, &bundle);
+        // Not refused: the composition starts on the experimental engine.
+        assert!(controller.state.error.is_empty());
+        assert_eq!(controller.release_bundle.as_deref(), Some(bundle.as_path()));
+        assert_eq!(controller.desired_mode(), UiRuntimeMode::CustomOptimized);
+        assert!(!controller.plugin_rebuild_needed());
+        let value = serde_json::to_value(&controller.state).unwrap();
+        assert_eq!(value["plugin_engine_differs"], true);
+        assert!(
+            value["capabilities"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("pluginBundleV2"))
+        );
+
+        controller.runtime_failed(UiRuntimeMode::CustomOptimized, &"wrong snapshot version");
+        assert!(controller.plugin_rebuild_needed());
+        assert!(controller.state.error.contains("wrong snapshot version"));
+        let value = serde_json::to_value(&controller.state).unwrap();
+        assert_eq!(value["plugin_rebuild"]["reason"], "engine");
+        assert_eq!(value["plugin_rebuild"]["bundle"], bundle.to_str().unwrap());
+        assert_eq!(value["plugin_engine_differs"], false);
+    }
+
+    #[test]
+    fn a_requested_composition_that_fails_on_another_engine_is_a_plain_failure() {
+        use plugin_bundle::fixtures::Fixture;
+        let fixture = Fixture::new();
+        let (bundle, official) = fixture.bundle();
+        fs::write(official.join("lib/libflutter_engine.so"), b"experiment").unwrap();
+        let config = fixture.0.join("config");
+        let mut controller = UiDevelopmentController::with_paths(
+            &official,
+            None,
+            None,
+            None,
+            Some(config.join("ui-development.json")),
+            None,
+        );
+        let activate = UiDevelopmentCommand::from_control(
+            CommandKind::ActivatePluginBundle,
+            1,
+            Some(bundle.clone()),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            controller.handle_command(activate),
+            UiDevelopmentEffect::Reload(UiRuntimeMode::CustomOptimized)
+        );
+        assert!(controller.state.plugin_engine_differs);
+        controller.runtime_failed(UiRuntimeMode::CustomOptimized, &"wrong snapshot version");
+        // It was just built: building it again would change nothing.
+        assert!(!controller.plugin_rebuild_needed());
+        assert!(controller.state.error.contains("wrong snapshot version"));
+    }
+
+    #[test]
+    fn a_login_that_died_starting_on_another_engine_asks_for_a_rebuild() {
+        use plugin_bundle::fixtures::Fixture;
+        let fixture = Fixture::new();
+        let (bundle, official) = fixture.bundle();
+        let config = fixture.0.join("config");
+        fs::create_dir_all(&config).unwrap();
+        let interrupted = serde_json::json!({
+            "schema": 1, "selected": bundle, "pending": bundle,
+        });
+        let start = |official: &Path| {
+            fs::write(
+                config.join("plugin-composition.json"),
+                serde_json::to_vec(&interrupted).unwrap(),
+            )
+            .unwrap();
+            UiDevelopmentController::with_paths(
+                official,
+                None,
+                None,
+                None,
+                Some(config.join("ui-development.json")),
+                None,
+            )
+        };
+        // The same engine: the composition itself is at fault, as before.
+        let controller = start(&official);
+        assert!(controller.release_bundle.is_none());
+        assert!(!controller.plugin_rebuild_needed());
+
+        fs::write(official.join("lib/libflutter_engine.so"), b"experiment").unwrap();
+        let controller = start(&official);
+        assert!(controller.release_bundle.is_none());
+        assert!(controller.plugin_rebuild_needed());
+        let value = serde_json::to_value(&controller.state).unwrap();
+        assert_eq!(value["plugin_rebuild"]["reason"], "engine");
+        assert_eq!(value["plugin_previous"], bundle.to_str().unwrap());
     }
 
     #[test]

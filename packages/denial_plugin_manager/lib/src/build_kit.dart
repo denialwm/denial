@@ -10,24 +10,35 @@ import 'store.dart';
 import 'available.dart';
 import 'catalog.dart';
 import 'dart_sdk.dart';
-import 'installation.dart';
+import 'tools.dart';
 
 /// Copies the packaged release compiler into a per-user writable cache. Flutter
 /// writes cache locks and stamps; package-managed files remain immutable.
-final class BuildKit {
+final class BuildKit implements BuildTools {
   BuildKit(
     this.store, {
-    Directory? source,
+    required this.source,
     this.run = runCommand,
     this.dartExecutable,
-  }) : source = source ?? Directory(PluginInstallation.discover().buildKit);
+  });
   final ManagerStore store;
   final Directory source;
   final CommandRunner run;
   final String? dartExecutable;
 
+  @override
   bool get available => File(p.join(source.path, 'kit.json')).existsSync();
 
+  @override
+  Map<String, Object?> get configuration =>
+      PluginCatalog.configuration(store.read('configuration.json'));
+
+  @override
+  String? get problem => !available
+      ? 'Denial plugin build tools are missing. Install the denial-plugin-manager package.'
+      : dartStatus['error'] as String?;
+
+  @override
   String get identity {
     final file = File(p.join(source.path, 'kit.json'));
     if (!file.existsSync()) {
@@ -38,6 +49,7 @@ final class BuildKit {
     return sha256.convert(file.readAsBytesSync()).toString();
   }
 
+  @override
   Map<String, Object?> get dartStatus {
     final expected = _manifest()?['dartVersion'];
     final constraint = _manifest()?['dartConstraint'];
@@ -59,6 +71,7 @@ final class BuildKit {
     );
   }
 
+  @override
   bool get ready {
     if (!available) return false;
     final config = store.read('configuration.json');
@@ -108,20 +121,12 @@ final class BuildKit {
 
   /// Call under the manager mutation lock. Defaults are seeded only once;
   /// removing every root deliberately must survive app and installation restarts.
+  @override
   Future<Map<String, Object?>> initialize({
     void Function(String)? progress,
   }) async {
     final configuration = await ensure(progress: progress);
-    if (store.read('initialization.json')['complete'] != true) {
-      if (store.selection['revision'] == 0 &&
-          (store.selection['roots'] as Map).isEmpty) {
-        await AvailablePlugins(
-          store,
-          SourceRepository(Directory(p.join(store.root.path, 'repositories'))),
-        ).defaults(configuration['runtime'] as String?);
-      }
-      store.write('initialization.json', {'complete': true});
-    }
+    await seedDefaults(store, configuration['runtime']! as String);
     return configuration;
   }
 
@@ -199,46 +204,10 @@ final class BuildKit {
       'platform': manifest['platform'],
       'build-kit': id,
     };
-    final selection = store.selection;
-    final roots = Map<String, Object?>.from(selection['roots']! as Map);
-    final installed = store.read(
-      'installed.json',
-      fallback: {'plugins': roots},
-    );
-    final known = Map<String, Object?>.from(installed['plugins']! as Map);
-    bool builtin(Object? value) =>
-        value is Map &&
-        value['source'] is Map &&
-        (value['source'] as Map)['kind'] == 'builtin';
-    final entries = await AvailablePlugins(
+    await AvailablePlugins(
       store,
       SourceRepository(Directory(p.join(store.root.path, 'repositories'))),
-    ).builtins(configuration['runtime']! as String);
-    var changed = false;
-    for (final entry in entries) {
-      final name = entry['name']! as String;
-      final value = Map<String, Object?>.from(entry)
-        ..remove('builtin')
-        ..remove('default');
-      // Shipped plugins are already installed, but a kit upgrade must never
-      // select newly introduced defaults for an existing user.
-      if (!known.containsKey(name) || builtin(known[name])) {
-        known[name] = value;
-      }
-      if (builtin(roots[name]) &&
-          jsonEncode(roots[name]) != jsonEncode(value)) {
-        roots[name] = value;
-        changed = true;
-      }
-    }
-    store.write('installed.json', {'plugins': known});
-    if (changed) {
-      store.write('selection.json', {
-        ...selection,
-        'roots': roots,
-        'revision': (selection['revision']! as int) + 1,
-      });
-    }
+    ).adoptBuiltins(configuration['runtime']! as String);
     store.write('configuration.json', configuration);
     _pruneStaleBuildKits(destination);
     return configuration;

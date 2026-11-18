@@ -69,7 +69,6 @@ String legacyBuildLog(String error) {
 }
 
 enum FailureKind {
-  engine,
   version,
   declaration,
   panel,
@@ -86,9 +85,6 @@ FailureKind failureKind(String error) {
   error = failureCause(error);
   if (error.contains('Plugin tools are temporarily unavailable')) {
     return FailureKind.toolsUnavailable;
-  }
-  if (error.contains('plugin bundle needs a different engine')) {
-    return FailureKind.engine;
   }
   if (error.contains('plugin bundle source does not match installed Denial')) {
     return FailureKind.version;

@@ -12,6 +12,7 @@ import 'package_graph.dart';
 import 'source.dart';
 import 'store.dart';
 import 'available.dart';
+import 'tools.dart';
 
 const shellApplication = TypeId(
   'package:denial_flutter_sdk/application.dart',
@@ -158,18 +159,6 @@ bool sameComposition(
           contentKey(map(plan['ordering']));
 }
 
-/// A plan must still describe what it is built and activated for. A rebuild
-/// restores a confirmed composition, so a later selection edit does not
-/// invalidate it; activation checks that deniald still waits for it instead.
-void requireCurrentPlan(ManagerStore store, Map<String, Object?> plan) {
-  if (plan['rebuildOf'] is String) return;
-  if (plan['selectionRevision'] != store.selection['revision']) {
-    throw const CompositionException(
-      'Selection changed since this plan; plan again',
-    );
-  }
-}
-
 final class WorkspacePlanner {
   WorkspacePlanner({
     required this.store,
@@ -180,8 +169,9 @@ final class WorkspacePlanner {
   final SourceRepository repository;
   final CommandRunner run;
 
-  /// [runtimeRoot] is the exact installed source template, or an explicitly
-  /// chosen development checkout. A plan records its bytes and commit identity.
+  /// [runtimeRoot] is the installed source template, or a development
+  /// checkout that is read as it is now. [flutterArguments] precede every
+  /// Flutter command.
   ///
   /// [rebuildOf] plans the composition of that earlier candidate, rather than
   /// the saved selection, for the installed release: its roots, provider
@@ -189,6 +179,7 @@ final class WorkspacePlanner {
   Future<Map<String, Object?>> plan({
     required String runtimeRoot,
     required String flutter,
+    List<String> flutterArguments = const [],
     required String candidateId,
     bool update = false,
     String? rebuildOf,
@@ -348,6 +339,7 @@ final class WorkspacePlanner {
     }
     progress?.call('Resolving packages with Pub');
     await run(flutter, [
+      ...flutterArguments,
       'pub',
       update ? 'upgrade' : 'get',
     ], workingDirectory: app.path);
@@ -467,58 +459,15 @@ Future<void> main() async {
       'developmentSdk': sdkRoot != null,
       'sdkOverride': ?sdkRoot,
       'runtimeRoot': Directory(runtimeRoot).absolute.path,
-      'sourceIdentity': sourceMarker.existsSync()
-          ? jsonDecode(sourceMarker.readAsStringSync())
-          : {
-              'developmentCheckout': runtimeRoot,
-              'commit': (await run('git', [
-                '-C',
-                runtimeRoot,
-                'rev-parse',
-                'HEAD',
-              ])).trim(),
-            },
+      // What the installed Denial must be for this composition to load: the
+      // packaged release, or this development checkout.
+      'sourceIdentity': sourceIdentity(runtimeRoot),
       if (lock.existsSync())
         'engineSourceLock': jsonDecode(lock.readAsStringSync()),
-      'releaseEngineChecksums': {
-        for (final platform in ['linux-x64', 'linux-arm64'])
-          if (File(
-            p.join(
-              runtimeRoot,
-              'prebuilt/flutter-engine/$platform-release/libflutter_engine.so.sha256',
-            ),
-          ).existsSync())
-            platform: File(
-              p.join(
-                runtimeRoot,
-                'prebuilt/flutter-engine/$platform-release/libflutter_engine.so.sha256',
-              ),
-            ).readAsStringSync().trim().split(RegExp(r'\s+')).first,
-      },
       'flutter': flutter,
       'flutterVersion': jsonDecode(
-        await run(flutter, ['--version', '--machine']),
+        await run(flutter, [...flutterArguments, '--version', '--machine']),
       ),
-      'applicationInputs': {
-        for (final path in [
-          'pubspec.yaml',
-          'pubspec.lock',
-          'lib/main.dart',
-          'lib/composition.g.dart',
-        ])
-          path: fileDigest(p.join(app.path, path)),
-      },
-      // Include copied assets and Pub's package mapping, not only generated Dart.
-      'applicationDigest': treeDigest(app),
-      'resolvedInputs': {
-        for (final package in graph.packages.values)
-          if (!p.isWithin(candidate.path, package.root))
-            package.name: {
-              'root': package.root,
-              'digest': packageDigests[package.name],
-            },
-      },
-      'inputDigest': treeDigest(Directory(p.join(candidate.path, 'packages'))),
       'status': 'planned',
     };
     metadata['compositionKey'] = contentKey({

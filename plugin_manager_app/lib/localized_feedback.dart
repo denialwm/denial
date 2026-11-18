@@ -50,7 +50,6 @@ String progressDescription(
 
 String localizedFailureSummary(AppLocalizations l10n, String error) =>
     switch (failureKind(error)) {
-      FailureKind.engine => l10n.pluginsFailureEngine,
       FailureKind.version => l10n.pluginsFailureVersion,
       FailureKind.declaration => l10n.pluginsFailureDeclaration,
       FailureKind.conflict => l10n.pluginsFailureConflict,
