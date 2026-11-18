@@ -100,6 +100,7 @@ class MobileAppDeckLayer extends ConsumerWidget {
       onPresentationChanged: onPresentationChanged,
       onProgressChanged: onProgressChanged,
       onCloseRecents: controller.closeOverview,
+      onLeaveWindow: controller.leaveRecents,
       onDismissWindow: controller.dismissFromRecents,
       onOpenWindow: controller.openFromRecents,
       onMoveWindowToDesk: deskBeside ? controller.moveToDesk : null,

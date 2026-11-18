@@ -501,7 +501,11 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
 
   void _reconcileWindowSnapshot() {
     final open = state.openAppWindowsByObjectId;
-    _dismissedIds.removeWhere((id) => !open.containsKey(id));
+    _dismissedIds.removeWhere((id) {
+      if (open.containsKey(id)) return false;
+      _deck.left(id);
+      return true;
+    });
     if (_deck.presenting.value) {
       _deck.reorder(_presentedOrder(), ShellSprings.appStrip);
     }
@@ -840,12 +844,21 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
     _platform.closeWindow(window);
   }
 
-  /// A card swiped away in recents: the row closes its gap at once, and the
-  /// app closes with the windows riding on its card. Recents with no app left
-  /// closes for home.
+  /// A card thrown away in recents, still on its way out: the row closes
+  /// its gap at once, so the next app comes to the centre while the card
+  /// leaves. [dismissFromRecents] follows once the card is gone.
+  void leaveRecents(DenialWindow window) {
+    _dismissedIds.add(window.objectId);
+    _deck.leave(window.objectId, ShellSprings.appStrip);
+  }
+
+  /// A card swiped away in recents has left the screen: the app closes with
+  /// the windows riding on its card. Recents with no app left closes for
+  /// home.
   void dismissFromRecents(DenialWindow window) {
     final riding = state.deckWindowsOver(window.objectId);
     _dismissedIds.add(window.objectId);
+    _deck.left(window.objectId);
     _deck.reorder(_presentedOrder(), ShellSprings.appStrip);
     if (_deck.length == 0) closeOverview();
     for (final over in riding.reversed) {

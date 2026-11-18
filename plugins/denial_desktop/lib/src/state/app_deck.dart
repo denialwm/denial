@@ -104,10 +104,18 @@ class AppDeck extends ChangeNotifier {
     return index < 0 ? null : index;
   }
 
+  /// The apps thrown out of recents whose cards are still on their way
+  /// out, each with how far along the row from the screen it left. The row
+  /// has closed over them; the deck draws them where they were.
+  Iterable<int> get leaving => _leaving.keys;
+  final Map<int, double> _leaving = {};
+
   /// Where [objectId] sits along the row. It differs from its index only
-  /// while the row closes a gap.
-  double slotOf(int objectId) =>
-      _slots[objectId]?.value ?? (indexOf(objectId) ?? 0).toDouble();
+  /// while the row closes a gap, and for an app that is [leaving].
+  double slotOf(int objectId) {
+    if (_leaving[objectId] case final along?) return row.value + along;
+    return _slots[objectId]?.value ?? (indexOf(objectId) ?? 0).toDouble();
+  }
 
   bool get _moving =>
       open.moving ||
@@ -123,6 +131,7 @@ class AppDeck extends ChangeNotifier {
   /// nothing at rest.
   void arrange(List<int> order, {required double rowAt}) {
     if (_moving || _held || open.value != 0) return;
+    _leaving.clear();
     if (_flying case final id? when !order.contains(id)) _flying = null;
     _hidden = null;
     final same =
@@ -194,6 +203,23 @@ class AppDeck extends ChangeNotifier {
     final onApp = row.target.clamp(0, last).toDouble();
     if (onApp != row.target && !row.held) row.settle(onApp, motion);
     _changed();
+  }
+
+  /// The card of [objectId] was thrown out of recents: the row closes its
+  /// gap now, while the card, drawn where it was, goes on leaving. [left]
+  /// ends it.
+  void leave(int objectId, motor.Motion motion) {
+    if (!_order.contains(objectId)) return;
+    _leaving[objectId] = slotOf(objectId) - row.value;
+    reorder([
+      for (final id in _order)
+        if (id != objectId) id,
+    ], motion);
+  }
+
+  /// The card of [objectId] is gone: the deck stops drawing it.
+  void left(int objectId) {
+    if (_leaving.remove(objectId) != null) _changed();
   }
 
   /// The app in front leaves for its home icon. [openRate] is how fast
