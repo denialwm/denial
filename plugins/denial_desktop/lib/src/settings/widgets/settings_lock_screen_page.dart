@@ -17,7 +17,6 @@ class SettingsLockScreenPage extends StatelessWidget {
   const SettingsLockScreenPage({
     required this.settings,
     required this.wallpaper,
-    required this.onUseWallpaperChanged,
     required this.onDimChanged,
     required this.onBlurChanged,
     required this.onClockScaleChanged,
@@ -28,7 +27,6 @@ class SettingsLockScreenPage extends StatelessWidget {
 
   final ShellLockScreenSettings settings;
   final WallpaperResource wallpaper;
-  final ValueChanged<bool> onUseWallpaperChanged;
   final ValueChanged<double> onDimChanged;
   final ValueChanged<double> onBlurChanged;
   final ValueChanged<double> onClockScaleChanged;
@@ -52,13 +50,6 @@ class SettingsLockScreenPage extends StatelessWidget {
               title: l10n.settingsLockBackdropTitle,
               child: Column(
                 children: [
-                  SettingsToggle(
-                    label: l10n.settingsUseSystemWallpaper,
-                    description: l10n.settingsUseSystemWallpaperDescription,
-                    value: settings.useSystemWallpaper,
-                    onChanged: onUseWallpaperChanged,
-                  ),
-                  const SizedBox(height: 18),
                   SettingsSlider(
                     label: l10n.settingsBackdropDimming,
                     value: settings.dimAmount,
@@ -149,26 +140,25 @@ class _LockPreview extends StatelessWidget {
                   ),
                 ),
               ),
-              if (settings.useSystemWallpaper)
-                ImageFiltered(
-                  imageFilter: ImageFilter.blur(
-                    sigmaX: settings.blurRadius / 2,
-                    sigmaY: settings.blurRadius / 2,
-                  ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Image(
-                      image: wallpaperImageProvider(
-                        wallpaper,
-                        targetPixelSize:
-                            constraints.biggest *
-                            MediaQuery.devicePixelRatioOf(context),
-                      ),
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.low,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: settings.blurRadius / 2,
+                  sigmaY: settings.blurRadius / 2,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Image(
+                    image: wallpaperImageProvider(
+                      wallpaper,
+                      targetPixelSize:
+                          constraints.biggest *
+                          MediaQuery.devicePixelRatioOf(context),
                     ),
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.low,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
                   ),
                 ),
+              ),
               ColoredBox(
                 color: ShellMediaColors.darkness.withValues(
                   alpha: settings.dimAmount,

@@ -537,9 +537,9 @@ class _SettingsPageBody extends ConsumerWidget {
         );
         return SettingsLockScreenPage(
           settings: settings,
-          wallpaper: _wallpaperFor(assignment, displayLayout),
-          onUseWallpaperChanged: (value) =>
-              controller.setLockScreen(useSystemWallpaper: value),
+          wallpaper:
+              WallpaperResource.fromPersistenceValue(settings.wallpaper) ??
+              _wallpaperFor(assignment, displayLayout),
           onDimChanged: (value) => controller.setLockScreen(dimAmount: value),
           onBlurChanged: (value) => controller.setLockScreen(blurRadius: value),
           onClockScaleChanged: (value) =>

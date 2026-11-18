@@ -512,6 +512,7 @@ enum LockPadSide { left, right }
 class ShellLockScreenSettings {
   const ShellLockScreenSettings({
     this.useSystemWallpaper = true,
+    this.wallpaper = '',
     this.dimAmount = 0.24,
     this.blurRadius = 8,
     this.clockScale = 1,
@@ -534,6 +535,9 @@ class ShellLockScreenSettings {
   static const double maximumTabletClockScale = 1.8;
 
   final bool useSystemWallpaper;
+
+  /// Persisted wallpaper resource. Empty follows the desktop wallpaper.
+  final String wallpaper;
   final double dimAmount;
   final double blurRadius;
   final double clockScale;
@@ -561,6 +565,7 @@ class ShellLockScreenSettings {
 
   ShellLockScreenSettings copyWith({
     bool? useSystemWallpaper,
+    String? wallpaper,
     double? dimAmount,
     double? blurRadius,
     double? clockScale,
@@ -574,6 +579,7 @@ class ShellLockScreenSettings {
   }) {
     return ShellLockScreenSettings(
       useSystemWallpaper: useSystemWallpaper ?? this.useSystemWallpaper,
+      wallpaper: wallpaper ?? this.wallpaper,
       dimAmount: dimAmount ?? this.dimAmount,
       blurRadius: blurRadius ?? this.blurRadius,
       clockScale: clockScale ?? this.clockScale,
@@ -591,6 +597,7 @@ class ShellLockScreenSettings {
   bool operator ==(Object other) {
     return other is ShellLockScreenSettings &&
         other.useSystemWallpaper == useSystemWallpaper &&
+        other.wallpaper == wallpaper &&
         other.dimAmount == dimAmount &&
         other.blurRadius == blurRadius &&
         other.clockScale == clockScale &&
@@ -606,6 +613,7 @@ class ShellLockScreenSettings {
   @override
   int get hashCode => Object.hash(
     useSystemWallpaper,
+    wallpaper,
     dimAmount,
     blurRadius,
     clockScale,
@@ -1337,6 +1345,9 @@ class ShellSettings {
       if (lockScreen.useSystemWallpaper != before.useSystemWallpaper) {
         section['useSystemWallpaper'] = lockScreen.useSystemWallpaper;
       }
+      if (lockScreen.wallpaper != before.wallpaper) {
+        section['wallpaper'] = lockScreen.wallpaper;
+      }
       if (lockScreen.dimAmount != before.dimAmount) {
         section['dimAmount'] = lockScreen.dimAmount;
       }
@@ -1489,6 +1500,7 @@ class ShellSettings {
       },
       'lockScreen': <String, Object>{
         'useSystemWallpaper': lockScreen.useSystemWallpaper,
+        'wallpaper': lockScreen.wallpaper,
         'dimAmount': lockScreen.dimAmount,
         'blurRadius': lockScreen.blurRadius,
         'clockScale': lockScreen.clockScale,
@@ -1839,6 +1851,9 @@ class ShellSettings {
         useSystemWallpaper: lockJson['useSystemWallpaper'] is bool
             ? lockJson['useSystemWallpaper'] as bool
             : defaults.lockScreen.useSystemWallpaper,
+        wallpaper: lockJson['wallpaper'] is String
+            ? lockJson['wallpaper'] as String
+            : defaults.lockScreen.wallpaper,
         dimAmount: _number(
           lockJson['dimAmount'],
           defaults.lockScreen.dimAmount,

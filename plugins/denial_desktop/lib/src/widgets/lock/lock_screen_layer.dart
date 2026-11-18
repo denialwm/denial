@@ -41,7 +41,10 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart'
     show
+        WallpaperResource,
         WallpaperResourceKind,
+        WallpaperSpanAlignment,
+        wallpaperImageProvider,
         wallpaperControllerProvider,
         wallpaperDepthDirectory,
         wallpaperDepthProvider;
