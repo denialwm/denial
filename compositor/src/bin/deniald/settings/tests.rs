@@ -1049,5 +1049,7 @@ fn mobile_default_document_seeds_the_mobile_appearance() {
     assert_eq!(appearance["colorSchemePreference"], "preferDark");
     assert_eq!(mobile["power"]["idleDpmsTimeoutSeconds"], 30);
     assert!(desktop.get("power").is_none());
+    assert_eq!(mobile["apps"]["scale"], 1.25);
+    assert!(desktop.get("apps").is_none());
     parse_document(serde_json::to_string(&mobile).unwrap().as_bytes()).unwrap();
 }
