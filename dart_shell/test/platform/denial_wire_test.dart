@@ -799,7 +799,7 @@ void main() {
                 windowId: 3,
                 textureId: 0,
                 title: 'Settings',
-                appId: 'dev.denial.settings',
+                appId: 'org.denialwm.Settings',
                 width: 100,
                 height: 80,
                 surfaceWidth: 100,

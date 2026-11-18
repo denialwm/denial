@@ -2,13 +2,12 @@
 %global __os_install_post %{nil}
 %global _build_id_links none
 %global __provides_exclude_from ^/usr/lib/denial/.*\\.so$
-# denial-settings resolves this bundled private runtime through $ORIGIN/lib.
 
 Name:           denial
 Version:        %{denial_version}
 Release:        %{denial_release}
 Summary:        Flutter-native Wayland compositor and desktop shell
-License:        GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
+License:        GPL-3.0-or-later AND Apache-2.0 AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1
 URL:            https://github.com/denialwm/denial
 ExclusiveArch:  x86_64 aarch64
 
@@ -20,8 +19,11 @@ Requires:       polkit
 Requires:       denial-flutter-engine = 1:%{version}-%{release}
 Requires:       glibc >= %{glibc_baseline}
 Requires:       libEGL.so.1()(64bit)
+Requires:       libfontconfig.so.1()(64bit)
 Requires:       libpam.so.0()(64bit)
 Requires:       libpulse.so.0()(64bit)
+Requires:       libvulkan.so.1()(64bit)
+Requires:       libwayland-client.so.0()(64bit)
 Requires:       rtkit
 Requires:       xkeyboard-config
 Requires:       xwayland
@@ -36,7 +38,9 @@ Recommends:     power-profiles-daemon
 Recommends:     upower
 Suggests:       ddcutil
 Suggests:       gdm
+Suggests:       iw
 Suggests:       iwd
+Suggests:       wireless-regdb
 Suggests:       NetworkManager
 Suggests:       ModemManager
 Suggests:       denial-plugin-manager = %{version}-%{release}
@@ -93,7 +97,8 @@ test -f %{buildroot}/usr/bin/denial-plugins.installation.json
 test -f %{buildroot}/usr/lib/denial/plugin-build-kit/kit.json
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
-test -f %{buildroot}/usr/lib/denial/settings/lib/libflutter_engine.so
+test -x %{buildroot}/usr/lib/denial-apps/settings
+test -x %{buildroot}/usr/lib/denial-apps/wifi-country
 
 %post
 if [ $1 -eq 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
@@ -124,7 +129,8 @@ fi
 /usr/bin/deniald
 /usr/lib/denial/flutter/data/flutter_assets
 /usr/lib/denial/flutter/lib/libapp.so
-/usr/lib/denial/settings
+/usr/lib/denial-apps
+/usr/share/denial/settings
 /usr/bin/denial-polkit-agent
 /usr/lib/denial/polkit
 /usr/lib/systemd/user/denial-polkit-agent.service
@@ -141,8 +147,10 @@ fi
 /usr/share/man/man1/denialctl.1.gz
 /usr/share/man/man1/deniald.1.gz
 /usr/share/wayland-sessions/denial.desktop
-/usr/share/applications/dev.denial.Settings.desktop
-/usr/share/applications/dev.denial.Welcome.desktop
+/usr/share/applications/org.denialwm.Settings.desktop
+/usr/share/applications/org.denialwm.Welcome.desktop
+/usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
+/usr/share/polkit-1/actions/org.denialwm.settings.policy
 /usr/share/xdg-desktop-portal/denial-portals.conf
 /usr/share/xdg-desktop-portal/portals/denial.portal
 /usr/share/polkit-1/rules.d/50-denial-fingerprint.rules

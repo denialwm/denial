@@ -30,6 +30,12 @@ system; it is a design contract, not authorization to implement or deploy it.
   sandbox can hide the running compositor.
 - When the user asks for a commit and push, include all local changes unless
   they say otherwise.
+- Settings and Welcome are not in this repository. They are one GPUI program
+  in denial-apps (`apps/settings`), which `tools/denial-settings` builds from
+  the denial-apps and gpui-touch commits `settings/SOURCE_LOCK.json` names
+  and every package installs. A Settings change lands in denial-apps and
+  reaches Denial when the lock and the matching `flake.nix` inputs move to
+  its pushed commit: `settings/README.md` has the steps.
 - Copying the checkout, uncommitted work included, to `.18` and `.188` is not
   exfiltration. Run Nix lock refreshes and checks on the workstation (its Nix
   store is on `/mnt/exty`) or on `.18`.

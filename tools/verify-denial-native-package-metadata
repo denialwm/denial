@@ -240,10 +240,8 @@ verify_rpm() {
       if grep -Fxq /usr/bin/denial-plugin-manager <<<"$package_files"; then
         fail 'Denial RPM embeds the Plugin Manager'
       fi
-      grep -Fxq \
-        /usr/lib/denial/settings/lib/libflutter_engine.so \
-        <<<"$package_files" \
-        || fail 'Denial RPM lacks the raw Flutter settings engine'
+      grep -Fxq /usr/lib/denial-apps/settings <<<"$package_files" \
+        || fail 'Denial RPM lacks Settings'
       for portal_artifact in \
         /usr/bin/denial-portal \
         /usr/lib/systemd/user/denial-portal.service \

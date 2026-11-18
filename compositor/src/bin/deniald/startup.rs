@@ -877,7 +877,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             && let Some(runtime) = flutter.as_mut()
             && let Some(arguments) = welcome::launch_arguments()
             && let Err(error) =
-                runtime.start_startup_application(arguments, "dev.denial.Welcome.desktop")
+                runtime.start_startup_application(arguments, "org.denialwm.Welcome.desktop")
         {
             warn!(%error, "could not start Welcome");
         }

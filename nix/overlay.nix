@@ -5,6 +5,9 @@
   sourceRevision ? "unknown",
   flutterNixpkgs ? null,
   pluginCollection ? null,
+  # The denial-apps and gpui-touch commits settings/SOURCE_LOCK.json names.
+  denialApps ? null,
+  gpuiTouch ? null,
 }:
 
 final: _prev:
@@ -46,6 +49,8 @@ in
     inherit version buildIdentity sourceRevision;
     taskbarSrc =
       if pluginCollection == null then null else pluginCollection + "/plugins/denial_taskbar";
+    denialAppsSrc = denialApps;
+    gpuiTouchSrc = gpuiTouch;
   };
   denialPluginManager = final.denial.pluginManager;
 }

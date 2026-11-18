@@ -259,7 +259,7 @@ output and isolated native-window capture. It retains
 `zwlr-screencopy-unstable-v1` version 3 for legacy clients and region capture.
 The capture paths support SHM and XRGB8888 DMA-BUF targets; DMA-BUF keeps frame
 transfer on the GPU for compatible screen recorders and PipeWire portal
-backends. The Flutter Settings app also configures a
+backends. The Settings app also configures a
 compositor-owned inactivity timeout. Mouse, keyboard, touch, tablet and Linux
 joystick activity reset it; visible clients can keep displays awake with
 `zwp_idle_inhibit_manager_v1`, as media players do during playback. The same

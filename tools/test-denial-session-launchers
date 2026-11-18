@@ -74,8 +74,8 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
         for relative in ('tools/denial-pc', 'tools/lib/denial-architecture.sh',
                          'tools/lib/denial-local-engine.sh',
                          'prebuilt/flutter-engine/SOURCE_LOCK.json',
-                         'packaging/arch/dev.denial.Settings.desktop',
-                         'packaging/dev.denial.Welcome.desktop'):
+                         'settings/org.denialwm.Settings.desktop',
+                         'settings/org.denialwm.Welcome.desktop'):
             destination = repo / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / relative, destination)

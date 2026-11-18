@@ -103,9 +103,9 @@ EOF
 denial_control="$(cat <<EOF
 Section: x11
 Priority: optional
-Depends: bash, coreutils, git, dbus, denial-flutter-engine (= $PACKAGE_VERSION-$PACKAGE_RELEASE), init-system-helpers (>= 1.66~), libc6 (>= $GLIBC_BASELINE), libegl1, libgbm1, libgles2, libwayland-client0, libgcc-s1, libgl1, libinput10, libpam0g, libpolkit-agent-1-0, polkitd | policykit-1, libpulse0, libseat1, libudev1, libxkbcommon0, rtkit, x11-xkb-utils, xkb-data, xserver-xorg-core, xwayland
-Recommends: fonts-noto-cjk, network-manager, pipewire-pulse, power-profiles-daemon, upower, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr, zenity
-Suggests: ddcutil, denial-plugin-manager (= $PACKAGE_VERSION-$PACKAGE_RELEASE), gdm3
+Depends: bash, coreutils, git, dbus, denial-flutter-engine (= $PACKAGE_VERSION-$PACKAGE_RELEASE), init-system-helpers (>= 1.66~), libc6 (>= $GLIBC_BASELINE), libegl1, libgbm1, libgles2, libwayland-client0, libgcc-s1, libgl1, libfontconfig1, libinput10, libpam0g, libpolkit-agent-1-0, polkitd | policykit-1, libpulse0, libseat1, libudev1, libvulkan1, libxkbcommon0, rtkit, x11-xkb-utils, xkb-data, xserver-xorg-core, xwayland
+Recommends: fonts-noto-cjk, mesa-vulkan-drivers, network-manager, pipewire-pulse, power-profiles-daemon, upower, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr, zenity
+Suggests: ddcutil, iw, wireless-regdb, denial-plugin-manager (= $PACKAGE_VERSION-$PACKAGE_RELEASE), gdm3
 Conflicts: denial-git
 Homepage: https://github.com/denialwm/denial
 Description: Flutter-native Wayland compositor and desktop shell

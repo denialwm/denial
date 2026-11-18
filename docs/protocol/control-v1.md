@@ -243,8 +243,7 @@ the client should query it again.
 
 ## Settings application state
 
-The standalone Flutter Settings application is an ordinary Wayland client.
-It never accesses the compositor's settings files directly and does not use
+The Settings application is an ordinary Wayland client. It does not use
 the embedded Flutter engine's private platform channels. These methods run on
 the compositor event loop and return authoritative state after validation and,
 for mutations, after the native live update and persistent commit succeed.

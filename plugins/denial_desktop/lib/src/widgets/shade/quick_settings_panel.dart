@@ -27,6 +27,7 @@ import 'package:denial_flutter_sdk/rendering.dart'
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 
+import '../../desktop/settings_application.dart';
 import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
 import '../connectivity/mobile_data_tile.dart';
@@ -924,15 +925,12 @@ class _ShadeHeaderActions extends ConsumerWidget {
     return ShadeActions(
       onOpenSettings: () {
         ref.read(referenceShellProvider.notifier).closeQuickSettings();
-        openApplication(ref, _phoneSettingsApp);
+        openApplication(ref, denialSettingsApplication);
       },
       onOpenPower: () => showMobilePowerMenu(ref),
     );
   }
 }
-
-/// The phone's own Settings app, never the desktop one.
-const _phoneSettingsApp = 'org.denialwm.Settings';
 
 class _EmptyNotifications extends StatelessWidget {
   const _EmptyNotifications();

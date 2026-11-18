@@ -17,8 +17,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/shell_plugin_services.dart';
 import '../features/default_shell/panel_composition.dart';
-import '../settings/settings_application.dart';
-import '../settings/widgets/settings_navigation.dart';
 import '../state/clipboard_tray.dart';
 import '../state/desktop_visibility.dart';
 import '../state/desktop_window_switcher.dart';
@@ -28,6 +26,7 @@ import 'desktop_overview_keyboard.dart';
 import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_panel_hover_controller.dart';
+import 'settings_application.dart';
 import '../color_tuning/color_tuning_action.dart';
 import '../color_tuning/color_tuning_controller.dart';
 import 'desktop_scene.dart';
@@ -612,10 +611,12 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 
   void _openPowerSettings() {
-    _openSettingsPage(SettingsPageId.power);
+    _openSettingsPage('power');
   }
 
-  void _openSettingsPage(SettingsPageId? page) {
+  /// Opens Settings, on [page] when one is named: a page id of the Settings
+  /// application's catalog.
+  void _openSettingsPage(String? page) {
     final environment = ref.read(startupEnvironmentProvider);
     _closePanels();
     for (final window in ref.read(referenceShellProvider).desk.openAppWindows) {
@@ -633,7 +634,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         : binary;
     ref.read(denialBridgeProvider).launchApplication(<String>[
       executable,
-      if (page != null) '--page=${page.name}',
+      if (page != null) '--page=$page',
     ]);
   }
 
