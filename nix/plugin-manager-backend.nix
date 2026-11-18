@@ -46,7 +46,7 @@ assert lib.assertMsg (pubspecLock.source_sha256 == sourceLockHash) ''
   doInstallCheck = true;
   installCheckPhase = ''
     $out/bin/denial-plugins --help > help.txt
-    grep --fixed-strings 'submit COMMAND' help.txt
+    grep --fixed-strings 'denial-plugins apply' help.txt
     test -f $out/bin/denial-plugins.installation.json
   '';
   meta = {
