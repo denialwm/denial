@@ -30,7 +30,8 @@ class PillLiquid extends ChangeNotifier {
     _ticker = vsync.createTicker(_tick);
   }
 
-  static const double restWidth = 116;
+  /// As wide as the lock screen's swipe pill.
+  static const double restWidth = 180;
   static const double restThickness = 5;
 
   /// How much water gathers under a finger, and how much the rest of the

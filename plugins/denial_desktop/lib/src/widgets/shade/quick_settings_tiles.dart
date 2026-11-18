@@ -1044,7 +1044,7 @@ class ShadeActions extends StatelessWidget {
           icon: Icons.settings_rounded,
           onPressed: onOpenSettings,
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         _RoundButton(
           label: context.l10n.desktopOpenPowerControls,
           icon: Icons.power_settings_new_rounded,
@@ -1074,7 +1074,7 @@ class _RoundButtonState extends State<_RoundButton> {
     final enabled = widget.onPressed != null;
     final theme = ShellTheme.of(context);
     final accent = theme.accent;
-    final radius = theme.borderRadius(24);
+    final radius = theme.borderRadius(18);
     final surface = DecoratedBox(
       decoration: BoxDecoration(
         color: theme.cardColor(context.shellColors.chip),
@@ -1086,12 +1086,12 @@ class _RoundButtonState extends State<_RoundButton> {
             : Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: SizedBox(
-        width: 48,
-        height: 48,
+        width: 36,
+        height: 36,
         child: Icon(
           widget.icon,
           color: context.shellColors.panelText,
-          size: 27 * ShadeReferenceGeometry.inverseScaleOf(context),
+          size: 20 * ShadeReferenceGeometry.inverseScaleOf(context),
         ),
       ),
     );
