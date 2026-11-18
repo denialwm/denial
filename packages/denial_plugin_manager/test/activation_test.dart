@@ -55,39 +55,57 @@ void main() {
           ),
         ),
       );
-      status = {'active_mode': 'official_optimized', 'plugin_healthy': false};
+      status = {
+        'active_mode': 'official_optimized',
+        'capabilities': ['pluginBundleV2'],
+      };
       await activation.requireSupport();
     },
   );
 
-  test('activation persists only the exact candidate confirmed healthy by native control', () async {
-    final bundle = candidate('one');
-    final calls = <List<String>>[];
-    var healthy = false;
-    final activation = CompositionActivation(
-      store,
-      run: (_, argv, {workingDirectory, onOutput}) async {
-        calls.add(argv);
-        return jsonEncode({
-          'active_mode': 'custom_optimized',
-          'plugin_bundle': bundle,
-          'plugin_healthy': healthy,
-          'generation': 3,
-        });
-      },
-    );
-    await expectLater(
-      activation.activate('one'),
-      throwsA(isA<CompositionException>()),
-    );
-    expect(store.read('active.json'), isEmpty);
-    healthy = true;
-    await activation.activate('one');
-    expect(store.read('active.json')['id'], 'one');
-    expect(calls.last, ['--json', 'ui', 'activate', bundle]);
-    store.write('active.json', {'id': 'one', 'previous': 'earlier'});
-    await activation.activate('one');
-    expect(store.read('active.json')['previous'], 'earlier');
+  test(
+    'only deniald reporting the exact bundle healthy counts as applied',
+    () async {
+      final bundle = candidate('one');
+      final calls = <List<String>>[];
+      var healthy = false;
+      final activation = CompositionActivation(
+        store,
+        run: (_, argv, {workingDirectory, onOutput}) async {
+          calls.add(argv);
+          return jsonEncode({
+            'active_mode': 'custom_optimized',
+            'plugin_bundle': bundle,
+            'plugin_healthy': healthy,
+            'error': 'The shell showed nothing.',
+            'generation': 3,
+          });
+        },
+      );
+      await expectLater(
+        activation.activate('one'),
+        throwsA(
+          isA<CompositionException>().having(
+            (e) => e.message,
+            'message',
+            'Your plugins did not start: The shell showed nothing.',
+          ),
+        ),
+      );
+      healthy = true;
+      final native = await activation.activate('one');
+      expect(calls.last, ['--json', 'ui', 'activate', bundle]);
+      // deniald is the only record of what runs.
+      expect(activation.runningCandidate(native), 'one');
+      expect(store.file('active.json').existsSync(), isFalse);
+    },
+  );
+
+  test('plugins built elsewhere are not mistaken for a candidate', () {
+    final activation = CompositionActivation(store);
+    expect(activation.candidateOf('/elsewhere/candidates/one/bundle'), isNull);
+    expect(activation.candidateOf(null), isNull);
+    expect(activation.candidateOf(candidate('mine')), 'mine');
   });
 
   test(
@@ -119,25 +137,11 @@ void main() {
         throwsA(isA<CompositionException>()),
       );
       expect(transitions, 0);
-      expect(store.read('active.json'), isEmpty);
       supported = true;
       await activation.activate('capability');
       expect(transitions, 1);
     },
   );
-
-  test('stale selection cannot reach the native transition', () async {
-    candidate('stale', selection: 3);
-    final activation = CompositionActivation(
-      store,
-      run: (_, argv, {workingDirectory, onOutput}) async =>
-          throw StateError('must not activate'),
-    );
-    await expectLater(
-      activation.activate('stale'),
-      throwsA(isA<CompositionException>()),
-    );
-  });
 
   test(
     'confirmed updates retain installed pins after disabling the root',
@@ -189,44 +193,34 @@ void main() {
     },
   );
 
-  test(
-    'rollback restores saved root intent and packaged restore retains history',
-    () async {
-      final bundle = candidate('previous');
-      store.write('candidates/previous/plan.json', {
-        ...store.read('candidates/previous/plan.json'),
-        'selections': {'contract': 'provider'},
-        'ordering': {
-          'collection': ['second', 'first'],
-        },
-      });
-      store.write('last-plan.json', {'id': 'current'});
-      store.write('active.json', {'id': 'current'});
-      final activation = CompositionActivation(
-        store,
-        run: (_, argv, {workingDirectory, onOutput}) async => jsonEncode(
-          argv.last == 'revert'
-              ? {
-                  'plugin_healthy': true,
-                  'plugin_bundle': bundle,
-                  'generation': 4,
-                }
-              : {'active_mode': 'official_optimized', 'generation': 5},
-        ),
-      );
-      await activation.revert();
-      expect(store.read('active.json')['id'], 'previous');
-      expect(store.selection['revision'], 1);
-      expect(store.selection['selections'], {'contract': 'provider'});
-      expect(store.selection['ordering'], {
+  test('undo restores the saved selection and off keeps it', () async {
+    final bundle = candidate('previous');
+    store.write('candidates/previous/plan.json', {
+      ...store.read('candidates/previous/plan.json'),
+      'selections': {'contract': 'provider'},
+      'ordering': {
         'collection': ['second', 'first'],
-      });
-      expect(store.read('last-plan.json')['id'], 'previous');
-      await activation.restore();
-      expect(store.read('active.json')['id'], isNull);
-      expect(store.read('active.json')['previous'], 'previous');
-    },
-  );
+      },
+    });
+    store.write('last-plan.json', {'id': 'current'});
+    final activation = CompositionActivation(
+      store,
+      run: (_, argv, {workingDirectory, onOutput}) async => jsonEncode(
+        argv.last == 'revert'
+            ? {'plugin_healthy': true, 'plugin_bundle': bundle, 'generation': 4}
+            : {'active_mode': 'official_optimized', 'generation': 5},
+      ),
+    );
+    await activation.revert();
+    expect(store.selection['revision'], 1);
+    expect(store.selection['selections'], {'contract': 'provider'});
+    expect(store.selection['ordering'], {
+      'collection': ['second', 'first'],
+    });
+    expect(store.read('last-plan.json')['id'], 'previous');
+    await activation.restore();
+    expect(store.read('last-plan.json')['id'], 'previous');
+  });
 
   test('status identifies a vanished worker instead of leaving the GUI busy forever', () {
     final id = store.createJob('build', {});

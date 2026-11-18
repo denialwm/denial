@@ -16,14 +16,13 @@ import 'package:denial_flutter_sdk/system_services.dart'
     show hapticsServiceProvider;
 import 'package:denial_flutter_sdk/tokens.dart';
 
-import '../../settings/widgets/settings_fingerprint_page.dart'
-    show fingerprintLabel, fingerprintStatus, isFingerprintError;
 import '../../widgets/connectivity/wifi_detail_surface.dart';
 import '../../widgets/denial_wordmark.dart';
 import '../../widgets/edge_panel_layer.dart';
 import '../../widgets/lock/lock_screen_layer.dart' show PinKeypad;
 import '../mobile/mobile_application_scene.dart'
     show mobileWallpaperGlassProvider;
+import 'fingerprint_text.dart';
 import 'first_user_account.dart';
 
 /// The device's first start: before it has a person's account, the shell

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -118,14 +119,72 @@ final class AvailablePlugins {
     return result;
   }
 
+  /// Points the built-in plugin records at [runtime]'s sources. Shipped
+  /// plugins are already installed, but another runtime must never select
+  /// newly introduced defaults for an existing user.
+  Future<void> adoptBuiltins(String runtime) async {
+    final selection = store.selection;
+    final roots = Map<String, Object?>.from(selection['roots']! as Map);
+    final installed = store.read(
+      'installed.json',
+      fallback: {'plugins': roots},
+    );
+    final known = Map<String, Object?>.from(installed['plugins']! as Map);
+    final before = jsonEncode(known);
+    bool builtin(Object? value) =>
+        value is Map &&
+        value['source'] is Map &&
+        (value['source'] as Map)['kind'] == 'builtin';
+    var changed = false;
+    for (final entry in await builtins(runtime)) {
+      final name = entry['name']! as String;
+      final value = Map<String, Object?>.from(entry)
+        ..remove('builtin')
+        ..remove('default');
+      if (!known.containsKey(name) || builtin(known[name])) {
+        known[name] = value;
+      }
+      if (builtin(roots[name]) &&
+          jsonEncode(roots[name]) != jsonEncode(value)) {
+        roots[name] = value;
+        changed = true;
+      }
+    }
+    if (jsonEncode(known) != before ||
+        !store.file('installed.json').existsSync()) {
+      store.write('installed.json', {'plugins': known});
+    }
+    if (changed) {
+      store.write('selection.json', {
+        ...selection,
+        'roots': roots,
+        'revision': (selection['revision']! as int) + 1,
+      });
+    }
+  }
+
+  /// Makes the selection the plugins Denial comes with, and only them.
+  /// What was turned off stays known and can be turned on again.
   Future<void> defaults(String? runtime) async {
-    for (final item in await builtins(runtime)) {
-      if (item['default'] != true) continue;
-      store.select(
-        await repository.resolve(
-          PluginSource.fromJson(item['source']! as Map<String, Object?>),
-        ),
-      );
+    final defaults = [
+      for (final item in await builtins(runtime))
+        if (item['default'] == true)
+          await repository.resolve(
+            PluginSource.fromJson(item['source']! as Map<String, Object?>),
+          ),
+    ];
+    final names = {for (final plugin in defaults) plugin.name};
+    final roots = store.selection['roots']! as Map;
+    for (final root in roots.entries.toList()) {
+      final source = (root.value as Map)['source'] as Map?;
+      if (!names.contains(root.key) || source?['kind'] != 'builtin') {
+        store.remove(root.key as String);
+      }
+    }
+    for (final plugin in defaults) {
+      if (!(store.selection['roots']! as Map).containsKey(plugin.name)) {
+        store.select(plugin);
+      }
     }
   }
 }

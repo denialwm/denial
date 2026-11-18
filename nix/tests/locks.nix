@@ -5,6 +5,8 @@
   source,
   flutterSource,
   pluginCollection,
+  denialApps,
+  gpuiTouch,
 }:
 
 runCommand "denial-nix-lock-consistency"
@@ -33,6 +35,11 @@ runCommand "denial-nix-lock-consistency"
       ${source}/nix/dart_shell-pubspec-lock.json)" = '${pluginCollection.rev}'
     test "$(jq -er '.packages.denial_taskbar.description.path' \
       ${source}/nix/dart_shell-pubspec-lock.json)" = 'plugins/denial_taskbar'
+    # Every format builds Settings from the same two commits.
+    test "$(jq -er .denial_apps.revision \
+      ${source}/settings/SOURCE_LOCK.json)" = '${denialApps.rev}'
+    test "$(jq -er .gpui_touch.revision \
+      ${source}/settings/SOURCE_LOCK.json)" = '${gpuiTouch.rev}'
     engine_revision="$(tr -d '\n' < \
       ${source}/prebuilt/flutter-engine/linux-x64-release/ENGINE_REVISION)"
     jq -e \
@@ -73,9 +80,6 @@ runCommand "denial-nix-lock-consistency"
     check_pub_lock \
       ${source}/dart_shell/pubspec.lock \
       ${source}/nix/dart_shell-pubspec-lock.json
-    check_pub_lock \
-      ${source}/settings_app/pubspec.lock \
-      ${source}/nix/settings_app-pubspec-lock.json
     check_pub_lock \
       ${source}/plugin_manager_app/pubspec.lock \
       ${source}/nix/plugin_manager_app-pubspec-lock.json

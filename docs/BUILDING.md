@@ -5,7 +5,9 @@ runtime components:
 
 - the Rust compositor and native control client in `compositor/`;
 - the embedded Flutter shell bundle in `dart_shell/`;
-- the standalone Flutter Settings Wayland application in `settings_app/`.
+- Settings, a GPUI application whose source is in denial-apps: the build
+  fetches the commit `settings/SOURCE_LOCK.json` names (see
+  [`settings/README.md`](../settings/README.md)).
 
 Downloaded toolchains and native build output live outside the checkout by
 default. A first bootstrap needs network access; later development builds
@@ -106,8 +108,8 @@ the lock-pinned `build`/`verify` path for a development engine. If a required
 host compiler artifact is absent, select its specific release target;
 do not rebuild completed compilers or add cross/debug/profile targets.
 
-**Engine ready does not mean gallery/bundle compatible or active.** A shell,
-Settings app or selected plugin bundle built against another engine may
+**Engine ready does not mean gallery/bundle compatible or active.** A shell
+or selected plugin bundle built against another engine may
 still be incompatible. Report its actual next step separately; do not make
 extra builds implicit or assume restarting alone fixes it. Reuse existing
 safe staging and never truncate an engine mapped by any running process.
@@ -217,13 +219,8 @@ The Flutter bundle is written to:
 dart_shell/build/linux/x64/release/bundle
 ```
 
-The Settings application bundle is written to:
-
-```text
-settings_app/build/linux/x64/release/bundle
-```
-
-Build only that client with `tools/denial-pc settings`.
+Settings is built outside the checkout; `tools/denial-settings path` prints
+where. Build only that client with `tools/denial-pc settings`.
 
 Set `DENIAL_PC_DEPENDENCY_ROOT`, `DENIAL_PC_BUILD_ROOT`, or
 `DENIAL_PC_RUST_TARGET` to place the corresponding caches elsewhere.

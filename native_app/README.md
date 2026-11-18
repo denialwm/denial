@@ -28,9 +28,9 @@ Run from an existing Wayland terminal:
 
 ```sh
 native_app/target/release/denial-app \
-  --bundle settings_app/build/linux/x64/release/bundle \
+  --bundle plugin_manager_app/build/linux/x64/release/bundle \
   --engine dart_shell/build/linux/x64/release/bundle/lib/libflutter_engine.so \
-  --app-id dev.denial.Settings --title Settings
+  --app-id dev.denial.PluginManager --title 'Denial Plugins'
 ```
 
 `--overlay` presents a centered, undecorated wlr-layer-shell surface on the
@@ -46,13 +46,11 @@ This repository builds Slimpeller, so Skia is unavailable in its engine.
 The runner supports one window/view and seat, integer display scaling, resize,
 pointer/buttons/scrolling, multi-touch, keyboard layout/compose/repeat, basic text
 editing, cursor shapes and window close. Dart entrypoint arguments follow `--`.
-Installed `denial-settings` and `denial-plugin-manager` executables find their
-adjacent bundles; Settings also accepts `--welcome`, `--autostart`, and `--page=`.
-Welcome retains its completion-marker check before opening a window.
-Plugin Manager retains its installation descriptor beside the runner.
+The installed `denial-plugin-manager` executable finds its adjacent bundle and
+retains its installation descriptor beside the runner. Settings is not a
+Flutter application: see `settings/README.md`.
 
-Settings file selection uses the external FileChooser portal, and Welcome web
-links use `xdg-open`. The portal backend can be supplied by any desktop toolkit;
+File selection uses the external FileChooser portal. The portal backend can be supplied by any desktop toolkit;
 it does not handle Denial application windows or input. Accessibility, external
 IME, clipboard, activation/single-instance handling and platform plugins
 remain outside this runner's current scope.

@@ -40,7 +40,11 @@ class _ClockModule extends StatelessWidget {
           child: Text(
             time,
             key: ValueKey<String>(time),
-            style: ShellText.systemBarValue,
+            // The dashboard button's Material resets the inherited text
+            // style, so the clock names the bar's value color itself.
+            style: ShellText.systemBarValue.copyWith(
+              color: context.shellColors.textPrimary,
+            ),
           ),
         ),
       ],

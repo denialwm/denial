@@ -1647,6 +1647,7 @@ fn default_document(mobile: bool) -> (Map<String, Value>, u64, TypedSettings) {
     if mobile {
         seed_mobile_appearance(&mut document);
         seed_mobile_power(&mut document);
+        seed_mobile_apps(&mut document);
     }
     let typed = TypedSettings {
         keyboard,
@@ -1688,6 +1689,12 @@ fn seed_mobile_power(document: &mut Map<String, Value>) {
         "power".to_owned(),
         serde_json::json!({"idleDpmsTimeoutSeconds": 30}),
     );
+}
+
+/// Apps on a phone open a quarter larger than the shell draws: at the
+/// shell's own size their text and controls are small for a hand-held screen.
+fn seed_mobile_apps(document: &mut Map<String, Value>) {
+    document.insert("apps".to_owned(), serde_json::json!({"scale": 1.25}));
 }
 
 fn parse_color_scheme_preference(

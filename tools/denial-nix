@@ -168,9 +168,6 @@ refresh_pub_locks() {
     "$ROOT/dart_shell/pubspec.lock" \
     "$ROOT/nix/dart_shell-pubspec-lock.json"
   write_pub_lock \
-    "$ROOT/settings_app/pubspec.lock" \
-    "$ROOT/nix/settings_app-pubspec-lock.json"
-  write_pub_lock \
     "$ROOT/plugin_manager_app/pubspec.lock" \
     "$ROOT/nix/plugin_manager_app-pubspec-lock.json"
   write_pub_lock \
@@ -221,9 +218,6 @@ verify_locks() {
   verify_pub_lock \
     "$ROOT/dart_shell/pubspec.lock" \
     "$ROOT/nix/dart_shell-pubspec-lock.json"
-  verify_pub_lock \
-    "$ROOT/settings_app/pubspec.lock" \
-    "$ROOT/nix/settings_app-pubspec-lock.json"
   verify_pub_lock \
     "$ROOT/plugin_manager_app/pubspec.lock" \
     "$ROOT/nix/plugin_manager_app-pubspec-lock.json"

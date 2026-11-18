@@ -32,7 +32,6 @@ impl Config {
             .and_then(|s| s.to_str())
             .unwrap_or("");
         let installed_app = match app_name {
-            "denial-settings" => Some(("dev.denial.Settings", "Settings", 900, 620)),
             "denial-plugin-manager" => {
                 Some(("dev.denial.PluginManager", "Denial Plugins", 980, 700))
             }
@@ -70,16 +69,6 @@ impl Config {
                     );
                 }
                 break;
-            }
-            if app_name == "denial-settings"
-                && (matches!(arg, "--welcome" | "--autostart") || arg.starts_with("--page="))
-            {
-                if arg == "--welcome" {
-                    title = "Welcome to Denial".into();
-                    app_id = "dev.denial.Welcome".into();
-                }
-                dart_arguments.push(CString::new(arg).map_err(|_| "Dart argument contains NUL")?);
-                continue;
             }
             if matches!(arg, "--help" | "-h") {
                 println!("{HELP}");

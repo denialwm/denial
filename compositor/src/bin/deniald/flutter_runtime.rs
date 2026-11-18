@@ -210,9 +210,21 @@ impl FlutterRuntimeFactory {
         engine_bundle: &Path,
         runtime: DartRuntimeMode,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut project = project_from_bundle(bundle, runtime)?;
+        // A plugin composition is compiled Dart and its assets. The engine
+        // and its ICU data are the session's own.
         let official = project_from_bundle(engine_bundle, DartRuntimeMode::Aot)?;
-        project.engine_library = official.engine_library;
+        let assets = bundle.join("data/flutter_assets");
+        if !assets.exists() {
+            return Err(format!("Flutter assets are missing at {}", assets.display()).into());
+        }
+        let aot_library = first_file(&[bundle.join("lib/libapp.so"), bundle.join("libapp.so")])
+            .ok_or_else(|| format!("{} has no libapp.so", bundle.display()))?;
+        let project = EngineProject {
+            assets,
+            aot_library: Some(aot_library),
+            runtime,
+            ..official
+        };
         let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
         Ok(Self {
             bundle: bundle.to_owned(),

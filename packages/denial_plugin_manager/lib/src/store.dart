@@ -8,7 +8,7 @@ import 'model.dart';
 import 'source.dart';
 
 /// Durable manager state. Mutating commands run under [exclusive]. Builds live
-/// in fresh candidate directories; active/previous point only to verified IDs.
+/// in fresh candidate directories. What runs is deniald's record, not this one.
 final class ManagerStore {
   ManagerStore(this.root);
   final Directory root;

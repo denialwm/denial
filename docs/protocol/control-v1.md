@@ -243,8 +243,7 @@ the client should query it again.
 
 ## Settings application state
 
-The standalone Flutter Settings application is an ordinary Wayland client.
-It never accesses the compositor's settings files directly and does not use
+The Settings application is an ordinary Wayland client. It does not use
 the embedded Flutter engine's private platform channels. These methods run on
 the compositor event loop and return authoritative state after validation and,
 for mutations, after the native live update and persistent commit succeed.
@@ -526,3 +525,14 @@ Native `supported_actions` no longer advertises legacy `openApplications`.
 Schema 11 migrates saved uses to `denial_launcher.openApplications`; new default
 bindings use that plugin target. `ui status` advertises the generic bridge as
 `pluginActionsV1` in `capabilities`.
+
+### Plugin compositions in `ui status`
+
+`capabilities` contains `pluginBundleV2` when deniald loads compositions that
+carry no engine and runs them on the session's own. `plugin_bundle` is the
+composition that runs or starts, `plugin_previous` the one `ui revert` goes
+back to, and `plugin_engine_differs` says that the running or starting one was
+compiled against another engine; it is loaded all the same. `plugin_rebuild`
+is `{reason, bundle, version, installed_source}` while a confirmed composition
+waits to be rebuilt, with `reason` one of `source`, `flutter_generation` and
+`engine`. `docs/PLUGIN_MANAGER.md` sections 21 and 22 describe the rules.

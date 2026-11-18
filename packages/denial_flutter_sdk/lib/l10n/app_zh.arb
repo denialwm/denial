@@ -1455,7 +1455,6 @@
   "pluginsApplyUnchanged": "开关状态未更改。待处理的插件更新需要应用到桌面。",
   "pluginsStaleSelection": "所选插件已在其他地方更改。请放弃当前更改以加载最新选择。",
   "pluginsUpdated": "Denial 已更新。",
-  "pluginsFailureEngine": "已应用的插件已保存，但当前会话使用了不同的 Flutter 引擎。请使用引擎匹配的 Denial 会话重新加载插件。",
   "pluginsFailureVersion": "已保存的插件是为其他 Denial 版本构建的。请使用与当前安装版本匹配的构建工具重新构建。",
   "pluginsFailurePanel": "选择了多个桌面面板。请只保留一个启用，然后重新应用。",
   "pluginsFailureConflict": "多个插件提供了相同功能。请选择一个，然后重新应用。详情中列出了冲突的插件。",

@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 class ReferenceShellMetrics {
   const ReferenceShellMetrics._();
 
-  static const double gestureHitWidth = 176.0;
+  static const double gestureHitWidth = 200.0;
   static const double gestureHitHeight = 60.0;
   static const double gestureBottomInset = -8.0;
 

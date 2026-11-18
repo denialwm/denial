@@ -6,6 +6,17 @@ boundaries may change before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Settings and Welcome are a new program, the same one on the desktop and the
+  phones, written with GPUI. It comes with the `denial` package as before and
+  `denial-settings` still starts it; its windows are now named
+  `org.denialwm.Settings` and `org.denialwm.Welcome`, so a window rule or a
+  launcher pin that named `dev.denial.Settings` needs the new name. It draws
+  with Vulkan: the packages now depend on the Vulkan loader. The Flutter
+  Settings application is gone. On a phone the package takes the place of
+  `denial-app-settings`.
+
 ### Added
 
 - An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened

@@ -36,6 +36,7 @@ class AppDeckLayer extends StatefulWidget {
     required this.onPresentationChanged,
     this.onProgressChanged,
     required this.onCloseRecents,
+    required this.onLeaveWindow,
     required this.onDismissWindow,
     required this.onOpenWindow,
     this.onMoveWindowToDesk,
@@ -60,6 +61,11 @@ class AppDeckLayer extends StatefulWidget {
   /// How far recents is open, for the launcher beneath.
   final ValueChanged<double>? onProgressChanged;
   final VoidCallback onCloseRecents;
+
+  /// A card was thrown away and is leaving the screen.
+  final ValueChanged<DenialWindow> onLeaveWindow;
+
+  /// A thrown card has left the screen.
   final ValueChanged<DenialWindow> onDismissWindow;
   final ValueChanged<DenialWindow> onOpenWindow;
 
@@ -173,7 +179,8 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
     final ids = <int>[];
     if (presenting && !geometry.isEmpty) {
       final screen = geometry.screen;
-      for (final id in deck.order) {
+      // A card thrown away is drawn over the row that closes under it.
+      for (final id in [...deck.order, ...deck.leaving]) {
         if (id == deck.hidden || !_windows.containsKey(id)) continue;
         final pose = deck.poseOf(id);
         (_poses[id] ??= ValueNotifier(pose)).value = pose;
@@ -329,6 +336,7 @@ class _AppDeckLayerState extends State<AppDeckLayer> {
                         labelWidth: geometry.card.width,
                         labelOpacity: _labelOpacity,
                         onOpen: widget.onOpenWindow,
+                        onLeaving: widget.onLeaveWindow,
                         onDismissed: widget.onDismissWindow,
                         onMoveToDesk: widget.onMoveWindowToDesk,
                       ),
@@ -353,6 +361,7 @@ class _DeckCard extends StatefulWidget {
     required this.labelWidth,
     required this.labelOpacity,
     required this.onOpen,
+    required this.onLeaving,
     required this.onDismissed,
     this.onMoveToDesk,
   });
@@ -367,6 +376,11 @@ class _DeckCard extends StatefulWidget {
   /// The app's icon and name above the card; none without it.
   final Animation<double>? labelOpacity;
   final ValueChanged<DenialWindow> onOpen;
+
+  /// The card was thrown away: the row may close over it at once.
+  final ValueChanged<DenialWindow> onLeaving;
+
+  /// The thrown card has left the screen: its app closes.
   final ValueChanged<DenialWindow> onDismissed;
   final ValueChanged<DenialWindow>? onMoveToDesk;
 
@@ -413,6 +427,12 @@ class _DeckCardState extends State<_DeckCard>
 
   @override
   void dispose() {
+    if (_leaving && !_dismissed) {
+      // Taken off screen before it got out: the row has closed over it, so
+      // its app still closes.
+      final (close, window) = (widget.onDismissed, widget.window);
+      WidgetsBinding.instance.addPostFrameCallback((_) => close(window));
+    }
     _pose.dispose();
     _throw.dispose();
     super.dispose();
@@ -465,6 +485,7 @@ class _DeckCardState extends State<_DeckCard>
       _throw
         ..motion = ShellSprings.cardDismiss
         ..animateTo(_exit, withVelocity: velocity);
+      widget.onLeaving(widget.window);
     } else {
       _settleBack(velocity);
     }

@@ -23,11 +23,11 @@ final class JobWorker {
           'enable',
           'remove',
           'plan',
-          'build',
           'apply',
           'restore',
           'revert',
-          'activate',
+          'undo',
+          'off',
           'update',
           'rebuild',
         }.contains(arguments.first)) {

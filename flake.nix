@@ -18,6 +18,16 @@
     url = "github:denialwm/denial-plugins/4b7adf998852b09b9a91c1cfab48be58debf2e80";
     flake = false;
   };
+  # Settings: the commits settings/SOURCE_LOCK.json names, which the lock
+  # consistency check compares with these.
+  inputs.denialApps = {
+    url = "github:denialwm/denial-apps/fe3317279b38c629394a9bb7162d2dcd6cf5f753";
+    flake = false;
+  };
+  inputs.gpuiTouch = {
+    url = "github:denialwm/gpui-touch/c6d856299c3206311045e5135abb4dc0455e97d2";
+    flake = false;
+  };
 
   outputs =
     {
@@ -25,6 +35,8 @@
       nixpkgs,
       nixpkgsUnstable,
       denialPlugins,
+      denialApps,
+      gpuiTouch,
     }:
     let
       supportedSystems = [ "x86_64-linux" ];
@@ -48,6 +60,7 @@
         inherit version buildIdentity sourceRevision;
         flutterNixpkgs = nixpkgs;
         pluginCollection = denialPlugins;
+        inherit denialApps gpuiTouch;
       };
       mkPkgs =
         system:
@@ -113,6 +126,7 @@
             source = ./.;
             flutterSource = pkgs.denialFlutter.flutterSource;
             pluginCollection = denialPlugins;
+            inherit denialApps gpuiTouch;
           };
           module = import ./nix/tests/module.nix {
             inherit pkgs;

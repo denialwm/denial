@@ -38,6 +38,10 @@ class WallpaperDepth extends Notifier<int> {
   @override
   int build() {
     unawaited(_follow());
+    ref.listen(
+      shellSettingsProvider.select((settings) => settings.lockScreen.wallpaper),
+      (_, _) => pickerClosed(),
+    );
     return 0;
   }
 
@@ -71,15 +75,15 @@ class WallpaperDepth extends Notifier<int> {
   /// has closed.
   void pickerClosed() {
     final paths = ref.read(runtimePathsProvider);
-    if (_program(paths) == null ||
-        !ref.read(shellSettingsProvider).lockScreen.useSystemWallpaper) {
-      return;
-    }
+    if (_program(paths) == null) return;
+    final custom = WallpaperResource.fromPersistenceValue(
+      ref.read(shellSettingsProvider).lockScreen.wallpaper,
+    );
     final assignment = ref.read(wallpaperControllerProvider).assignment;
     final output = ref.read(displayLayoutProvider)?.mainOutput?.name;
-    final resource = output == null
-        ? assignment.all
-        : assignment.forOutput(output);
+    final resource =
+        custom ??
+        (output == null ? assignment.all : assignment.forOutput(output));
     if (resource.kind == WallpaperResourceKind.file) {
       _request(resource.path);
     }

@@ -1,6 +1,9 @@
 //! Built-in onboarding startup and initial placement policy.
+//!
+//! Welcome is Settings, the GPUI application from denial-apps, started with
+//! `--welcome`: it names its window by this application id.
 
-pub(super) const APP_ID: &str = "dev.denial.Welcome";
+pub(super) const APP_ID: &str = "org.denialwm.Welcome";
 
 #[cfg(feature = "flutter")]
 pub(super) fn launch_arguments() -> Option<Vec<String>> {
@@ -36,6 +39,6 @@ mod tests {
         assert!(centers_on_open(APP_ID, false, false));
         assert!(!centers_on_open(APP_ID, true, false));
         assert!(!centers_on_open(APP_ID, false, true));
-        assert!(!centers_on_open("dev.denial.Settings", false, false));
+        assert!(!centers_on_open("org.denialwm.Settings", false, false));
     }
 }

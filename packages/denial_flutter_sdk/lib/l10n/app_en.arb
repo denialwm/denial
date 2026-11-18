@@ -6411,10 +6411,6 @@
   "@pluginsUpdated": {
     "description": "Plugin Manager: Updated."
   },
-  "pluginsFailureEngine": "Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.",
-  "@pluginsFailureEngine": {
-    "description": "Plugin Manager: FailureEngine."
-  },
   "pluginsFailureVersion": "Your saved plugins were built for another Denial version. Rebuild them with the matching installed build tools.",
   "@pluginsFailureVersion": {
     "description": "Plugin Manager: FailureVersion."

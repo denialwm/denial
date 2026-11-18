@@ -107,28 +107,8 @@ shell_source_inputs=(
     "$ROOT/plugins/denial_top_bar/pubspec.yaml"
     "$ROOT/protocol/generated/dart/lib"
 )
-settings_source_inputs=(
-    "${shell_source_inputs[@]}"
-    "$ROOT/settings_app/lib"
-    "$ROOT/native_app/src"
-    "$ROOT/native_app/build.rs"
-    "$ROOT/native_app/Cargo.toml"
-    "$ROOT/native_app/Cargo.lock"
-    "$ROOT/compositor/flutter-engine/src"
-    "$ROOT/compositor/flutter-engine/Cargo.toml"
-    "$ROOT/compositor/src/bin/deniald/flutter_runtime/text_input.rs"
-    "$ROOT/compositor/src/bin/deniald/flutter_runtime/mouse_cursor.rs"
-    "$ROOT/settings_app/pubspec.yaml"
-    "$ROOT/settings_app/pubspec.lock"
-)
 shell_source_manifest="$(
     find "${shell_source_inputs[@]}" -type f \
-        -print0 \
-        | sort -z \
-        | xargs -0 sha256sum
-)"
-settings_source_manifest="$(
-    find "${settings_source_inputs[@]}" -type f \
         -print0 \
         | sort -z \
         | xargs -0 sha256sum
@@ -144,16 +124,15 @@ source_fingerprint_for_revision() {
     } | sha256sum | cut -d' ' -f1
 }
 source_fingerprint="$(source_fingerprint_for_revision "$revision")"
-# Settings imports the shared dart_shell package. Keep a separate, engine-
-# independent fingerprint so its self-contained native bundle can be reused only
-# when that complete Dart dependency surface is unchanged.
-settings_source_fingerprint="$({
-    printf '%s\n' "$settings_source_manifest"
-    printf 'schema=%s\n' "$dart_schema"
-} | sha256sum | cut -d' ' -f1)"
+# Settings is the GPUI application tools/denial-settings builds from the
+# locked denial-apps and gpui-touch commits. Cargo rebuilds it only when
+# those changed, so it is built first and the program itself is what an
+# artifact is known by.
+DENIAL_BUILD_JOBS="$jobs" "$ROOT/tools/denial-settings" build
+settings_program="$("$ROOT/tools/denial-settings" path)"
+settings_source_fingerprint="$(sha256sum "$settings_program" | cut -d' ' -f1)"
 
 artifact=""
-reusable_settings_artifact=""
 reusable_shell_artifact=""
 for candidate in "$ARTIFACT_STORE/"*; do
     [[ -d "$candidate" && -f "$candidate/SHA256SUMS" \
@@ -164,15 +143,6 @@ for candidate in "$ARTIFACT_STORE/"*; do
         cd -- "$candidate"
         sha256sum -c SHA256SUMS >/dev/null
     ) || continue
-    if [[ -z "$reusable_settings_artifact" \
-        && -f "$candidate/SETTINGS_SOURCE_FINGERPRINT" \
-        && "$(<"$candidate/SETTINGS_SOURCE_FINGERPRINT")" == "$settings_source_fingerprint" \
-        && -f "$candidate/settings/denial-settings" \
-        && -f "$candidate/settings/lib/libapp.so" \
-        && -f "$candidate/settings/lib/libflutter_engine.so" ]]; then
-        reusable_settings_artifact="$candidate"
-    fi
-
     candidate_revision="$(tr -d '[:space:]' <"$candidate/FLUTTER_REVISION")"
     candidate_shell_current=false
     if [[ "$candidate_revision" =~ ^[0-9a-f]{40}$ \
@@ -225,38 +195,16 @@ if [[ -n "$artifact" ]]; then
     printf 'Reusing verified artifact %s.\n' "${artifact##*/}"
 else
     work="$(mktemp -d -- "$ARTIFACT_STORE/.build.XXXXXX")"
-    settings_bundle=""
-    settings_depfile="$(
-        find "$ROOT/settings_app/.dart_tool/flutter_build" \
-            -name kernel_snapshot_program.d -printf '%T@ %p\n' 2>/dev/null \
-            | sort -nr \
-            | head -n 1 \
-            | cut -d' ' -f2-
-    )"
-    if [[ -n "$reusable_settings_artifact" && -f "$settings_depfile" ]]; then
-        settings_dep_target="$(sed -n '1s/:.*//p' "$settings_depfile")"
-        if [[ -n "$settings_dep_target" ]] \
-            && make -q -rR -f "$settings_depfile" "$settings_dep_target" \
-            && [[ -z "$(
-                find "$ROOT/settings_app/lib" "$ROOT/native_app/src" \
-                    "$ROOT/settings_app/pubspec.yaml" \
-                    "$ROOT/settings_app/pubspec.lock" \
-                    -type f \
-                    -newer "$reusable_settings_artifact/SHA256SUMS" \
-                    -print -quit
-            )" ]]; then
-            settings_bundle="$reusable_settings_artifact/settings"
-            printf 'Reusing Settings from verified artifact %s.\n' \
-                "${reusable_settings_artifact##*/}"
-        fi
-    fi
+    settings_bundle="$work/settings"
+    mkdir -p -- "$settings_bundle"
+    install -m755 -- "$settings_program" "$settings_bundle/denial-settings"
 
     engine_targets=(libflutter_engine.so flutter_patched_sdk)
     engine_targets+=(gen_snapshot)
     PATH="$depot_tools:$PATH" /usr/bin/ninja -C "$ENGINE_OUT" -j "$jobs" \
         "${engine_targets[@]}"
 
-    if [[ -z "$reusable_shell_artifact" || -z "$settings_bundle" ]]; then
+    if [[ -z "$reusable_shell_artifact" ]]; then
         # A new commit in the Denial fork invalidates the flutter_tools snapshot.
         # Let the launcher finish that rebuild first: shared.sh deletes version
         # metadata while rebuilding, so projecting the pinned compatibility
@@ -308,37 +256,10 @@ else
         )
         shell_app="$assembly/lib/libapp.so"
     fi
-    if [[ -z "$settings_bundle" ]]; then
-        local_runner_target="${XDG_CACHE_HOME:-$HOME/.cache}/denial/pc-build/native-app"
-        CARGO_TARGET_DIR="$local_runner_target" cargo build \
-            --manifest-path "$ROOT/native_app/Cargo.toml" --locked --release --jobs "$jobs"
-        settings_assembly="$work/settings-assembly"
-        (
-            cd -- "$ROOT/settings_app"
-            "$FLUTTER" pub get --enforce-lockfile
-            "$FLUTTER" assemble \
-                --local-engine=denial_host_release \
-                --local-engine-host=denial_host_release \
-                --suppress-analytics \
-                --output="$settings_assembly" \
-                -dTargetFile=lib/main.dart -dBuildMode=release -dTargetPlatform=linux-x64 \
-                -dDartObfuscation=false -dTrackWidgetCreation=true -dTreeShakeIcons=false \
-                release_bundle_linux-x64_assets
-        )
-        settings_bundle="$work/settings-native"
-        mkdir -p -- "$settings_bundle/data/flutter_assets" "$settings_bundle/lib"
-        cp -a -- "$settings_assembly/flutter_assets/." "$settings_bundle/data/flutter_assets/"
-        install -m644 -- "$ICU_DATA" "$settings_bundle/data/icudtl.dat"
-        install -m755 -- "$settings_assembly/lib/libapp.so" "$settings_bundle/lib/libapp.so"
-        install -m755 -- "$engine" "$settings_bundle/lib/libflutter_engine.so"
-        install -m755 -- "$local_runner_target/release/denial-app" "$settings_bundle/denial-settings"
-    fi
     for required in \
         "$shell_app" \
         "$assembly/flutter_assets/AssetManifest.bin" \
         "$settings_bundle/denial-settings" \
-        "$settings_bundle/lib/libapp.so" \
-        "$settings_bundle/lib/libflutter_engine.so" \
         "$engine" \
         "$ICU_DATA"; do
         [[ -f "$required" ]] || {
@@ -364,7 +285,7 @@ else
     fi
 
     shell_sha="$(sha256sum "$shell_app" | cut -d' ' -f1)"
-    settings_sha="$(sha256sum "$settings_bundle/lib/libapp.so" | cut -d' ' -f1)"
+    settings_sha="$settings_source_fingerprint"
     payload_sha="$({
         printf '%s\n' "$engine_sha" "$shell_sha" "$settings_sha"
     } | sha256sum | cut -d' ' -f1)"
@@ -509,9 +430,7 @@ fi
 
 # The shell's Settings action consumes DENIAL_SETTINGS_BINARY, while the
 # application launcher follows the packaged desktop entry's /usr/bin path.
-# Keep both routes on the same immutable lab payload. The executable resolves
-# its private libraries relative to this symlink's target, so pointing at the
-# stable `current` bundle also selects that bundle's libapp.so.
+# Keep both routes on the same immutable lab payload.
 if [[ ! -L "$settings_launcher" ]] \
     || [[ "$(readlink -- "$settings_launcher")" != "$settings_binary" ]]; then
     staged_settings_launcher="/usr/bin/.denial-settings.denial-lab.$$"

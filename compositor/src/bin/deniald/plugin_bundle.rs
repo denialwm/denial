@@ -1,5 +1,10 @@
 //! Native validation and bounded startup recovery for compiled compositions.
 //! This is not a plugin loader: the payload is one ordinary release AOT shell.
+//!
+//! Two rules decide whether a composition loads. It was built for this Denial
+//! (Flutter generation and installed source identity), and the session's
+//! engine accepts it, which is proven by starting it rather than predicted
+//! from the engine's checksum. A composition carries no engine of its own.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -15,9 +20,11 @@ struct Manifest {
     schema: u32,
     mode: String,
     platform: String,
-    engine_sha256: String,
+    /// The engine the composition was compiled against. It explains a failed
+    /// start; it never refuses one.
+    #[serde(default)]
+    engine_sha256: Option<String>,
     app_sha256: String,
-    icu_sha256: String,
     assets_sha256: String,
     flutter_generation: String,
     #[serde(default)]
@@ -85,13 +92,16 @@ fn hash_tree(root: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-/// Why the installed Denial cannot load a sealed composition built for another
-/// release. Every other rejection means a damaged or unsupported bundle.
+/// Why a sealed composition has to be rebuilt: it was built for another
+/// release, or it did not start on an engine other than the one it was
+/// compiled against. Every other rejection means a damaged or unsupported
+/// bundle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum UpdateReason {
     FlutterGeneration,
     Source,
+    Engine,
 }
 
 #[derive(Debug)]
@@ -192,27 +202,33 @@ pub(super) fn validate_bundle(bundle: &Path, official: &Path) -> Result<PathBuf,
     }
     let mut all = Vec::new();
     entries(&bundle, &mut all)?;
-    let official_engine = if official.join("lib/libflutter_engine.so").is_file() {
-        official.join("lib/libflutter_engine.so")
-    } else {
-        official.join("libflutter_engine.so")
-    };
-    if manifest.engine_sha256 != hash_file(&official_engine)? {
-        return Err("plugin bundle needs a different engine; keep the packaged shell and install matching build inputs".into());
-    }
-    for (relative, expected) in [
-        ("lib/libflutter_engine.so", &manifest.engine_sha256),
-        ("lib/libapp.so", &manifest.app_sha256),
-        ("data/icudtl.dat", &manifest.icu_sha256),
-    ] {
-        if hash_file(&bundle.join(relative))? != *expected {
-            return Err(format!("plugin bundle checksum mismatch: {relative}").into());
-        }
+    // The engine is not compared: the session's engine runs every
+    // composition, and starting it is the proof that it accepts this one.
+    if hash_file(&bundle.join("lib/libapp.so"))? != manifest.app_sha256 {
+        return Err("plugin bundle checksum mismatch: lib/libapp.so".into());
     }
     if hash_tree(&bundle.join("data/flutter_assets"))? != manifest.assets_sha256 {
         return Err("plugin bundle assets checksum mismatch".into());
     }
     Ok(bundle)
+}
+
+/// Whether [bundle] was compiled against an engine other than the session's.
+/// False when either side cannot tell; this only explains a failed start.
+pub(super) fn built_for_another_engine(bundle: &Path, official: &Path) -> bool {
+    let built = File::open(bundle.join("denial-plugin-bundle.json"))
+        .ok()
+        .and_then(|file| serde_json::from_reader::<_, Manifest>(file).ok())
+        .and_then(|manifest| manifest.engine_sha256);
+    let official_engine = if official.join("lib/libflutter_engine.so").is_file() {
+        official.join("lib/libflutter_engine.so")
+    } else {
+        official.join("libflutter_engine.so")
+    };
+    match (built, hash_file(&official_engine)) {
+        (Some(built), Ok(running)) => built != running,
+        _ => false,
+    }
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -249,6 +265,9 @@ pub(super) fn resume_arguments() -> Option<Vec<String>> {
 pub(super) struct PluginSelection {
     path: Option<PathBuf>,
     value: Selection,
+    /// The confirmed composition whose start at login the previous process
+    /// did not survive.
+    interrupted: Option<PathBuf>,
 }
 
 impl PluginSelection {
@@ -269,11 +288,17 @@ impl PluginSelection {
                 ..Selection::default()
             }
         };
-        let mut selection = Self { path, value };
+        let mut selection = Self {
+            path,
+            value,
+            interrupted: None,
+        };
         // A prior process died while preparing or validating startup. Never
         // retry that candidate automatically in the next login.
-        if selection.value.pending.is_some() {
-            selection.value.pending = None;
+        if let Some(pending) = selection.value.pending.take() {
+            if selection.value.selected.as_ref() == Some(&pending) {
+                selection.interrupted = Some(pending);
+            }
             if selection.value.selected.is_some() {
                 selection.value.previous = selection.value.selected.take();
             }
@@ -289,7 +314,12 @@ impl PluginSelection {
                 schema: 1,
                 ..Selection::default()
             },
+            interrupted: None,
         }
+    }
+
+    pub(super) fn interrupted(&self) -> Option<&Path> {
+        self.interrupted.as_deref()
     }
 
     pub(super) fn selected(&self) -> Option<&Path> {
@@ -418,18 +448,15 @@ pub(crate) mod fixtures {
             fs::create_dir_all(bundle.join("lib")).unwrap();
             fs::create_dir_all(bundle.join("data/flutter_assets/nested")).unwrap();
             fs::create_dir_all(official.join("lib")).unwrap();
-            fs::write(bundle.join("lib/libflutter_engine.so"), b"engine").unwrap();
             fs::write(official.join("lib/libflutter_engine.so"), b"engine").unwrap();
             fs::write(bundle.join("lib/libapp.so"), b"app").unwrap();
-            fs::write(bundle.join("data/icudtl.dat"), b"icu").unwrap();
             fs::write(bundle.join("data/flutter_assets/nested/asset"), b"asset").unwrap();
             seal(&bundle.join("data/flutter_assets"));
             let manifest = serde_json::json!({
                 "schema": 1, "mode": "release", "platform": if cfg!(target_arch = "aarch64") { "linux-arm64" } else { "linux-x64" },
                 "flutter_generation": denial_core::FLUTTER_ENGINE_ABI,
-                "engine_sha256": hash_file(&bundle.join("lib/libflutter_engine.so")).unwrap(),
+                "engine_sha256": hash_file(&official.join("lib/libflutter_engine.so")).unwrap(),
                 "app_sha256": hash_file(&bundle.join("lib/libapp.so")).unwrap(),
-                "icu_sha256": hash_file(&bundle.join("data/icudtl.dat")).unwrap(),
                 "assets_sha256": hash_tree(&bundle.join("data/flutter_assets")).unwrap(),
             });
             fs::write(
@@ -492,16 +519,15 @@ mod tests {
     }
 
     #[test]
-    fn validates_sealed_bundle_and_rejects_different_engine_or_changed_assets() {
+    fn validates_sealed_bundle_on_any_engine_and_rejects_changed_assets() {
         let fixture = Fixture::new();
         let (bundle, official) = fixture.bundle();
         assert_eq!(validate(&bundle, &official).unwrap(), bundle);
+        assert!(!built_for_another_engine(&bundle, &official));
+        // Another engine is tried, not refused; the difference is only known.
         fs::write(official.join("lib/libflutter_engine.so"), b"other-engine").unwrap();
-        assert!(
-            validate(&bundle, &official)
-                .unwrap_err()
-                .contains("different engine")
-        );
+        assert_eq!(validate(&bundle, &official).unwrap(), bundle);
+        assert!(built_for_another_engine(&bundle, &official));
         fs::write(official.join("lib/libflutter_engine.so"), b"engine").unwrap();
         let asset = bundle.join("data/flutter_assets/nested/asset");
         fs::set_permissions(&asset, fs::Permissions::from_mode(0o644)).unwrap();
@@ -568,13 +594,10 @@ mod tests {
         .unwrap();
         assert!(validate_bundle(&bundle, &official).is_ok());
 
-        // An engine experiment keeps the installed source identity. It must
-        // remain a recovery error rather than start a rebuild for the kit's
-        // pinned engine.
+        // An engine experiment keeps the installed source identity: the
+        // composition is still loaded, on the experimental engine.
         fs::write(official.join("lib/libflutter_engine.so"), b"experiment").unwrap();
-        let rejection = validate_bundle(&bundle, &official).unwrap_err();
-        assert!(rejection.message.contains("different engine"));
-        assert_eq!(rejection.update, None);
+        assert!(validate_bundle(&bundle, &official).is_ok());
 
         fs::write(
             official.join(".denial-ui-source.json"),
@@ -624,6 +647,24 @@ mod tests {
         let recovered = PluginSelection::open(Some(fixture.state())).unwrap();
         assert_eq!(recovered.selected(), None);
         assert_eq!(recovered.previous(), Some(Path::new("/working")));
+        // A composition that was only requested is not the user's
+        // confirmed one.
+        assert_eq!(recovered.interrupted(), None);
+    }
+
+    #[test]
+    fn an_interrupted_start_of_the_confirmed_composition_is_remembered_once() {
+        let fixture = Fixture::new();
+        let mut state = PluginSelection::open(Some(fixture.state())).unwrap();
+        state.begin(Path::new("/working"), false).unwrap();
+        state.confirm().unwrap();
+        state.begin(Path::new("/working"), true).unwrap();
+        let recovered = PluginSelection::open(Some(fixture.state())).unwrap();
+        assert_eq!(recovered.selected(), None);
+        assert_eq!(recovered.previous(), Some(Path::new("/working")));
+        assert_eq!(recovered.interrupted(), Some(Path::new("/working")));
+        let later = PluginSelection::open(Some(fixture.state())).unwrap();
+        assert_eq!(later.interrupted(), None);
     }
 
     #[test]

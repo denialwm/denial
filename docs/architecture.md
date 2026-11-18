@@ -211,15 +211,16 @@ runtime state, and published like a Settings application change. Invalid edits
 remain on disk while the last known-good configuration stays active; deleting
 the file restores and recreates the defaults.
 
-Settings runs as a separate Flutter Wayland process (`denial-settings`). It
-owns only its application widget tree and talks to `deniald` through control
+Settings runs as a separate Wayland process (`denial-settings`): a GPUI
+application whose source is in denial-apps and which the `denial` package
+installs (`settings/README.md`). It talks to `deniald` through control
 protocol v1 for settings, outputs, keyboard, touchpad, shortcuts, audio,
-brightness, and UI-development state. It therefore has its own UI/raster
-threads and cannot add build, layout, paint, or raster work to the compositor's
-desktop frame. The embedded shell receives committed document notifications
-and remains responsible for rendering desktop policy, but it does not host the
-Settings window. Settings launch actions always target the standalone Linux
-application; there is no embedded Settings registration or environment fallback.
+brightness, and UI-development state. It draws on its own threads, with its
+own renderer, and cannot add build, layout, paint, or raster work to the
+compositor's desktop frame. The embedded shell receives committed document
+notifications and remains responsible for rendering desktop policy, but it
+does not host the Settings window. Settings launch actions always target that
+program; there is no embedded Settings registration or environment fallback.
 
 Appearance intent lives beside the other shell-owned appearance settings. The
 same committed value selects Denial's semantic light/dark palette and is

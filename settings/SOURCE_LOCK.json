@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "denial_apps": {
+    "repository": "https://github.com/denialwm/denial-apps.git",
+    "branch": "main",
+    "revision": "fe3317279b38c629394a9bb7162d2dcd6cf5f753"
+  },
+  "gpui_touch": {
+    "repository": "https://github.com/denialwm/gpui-touch.git",
+    "branch": "main",
+    "revision": "c6d856299c3206311045e5135abb4dc0455e97d2"
+  }
+}

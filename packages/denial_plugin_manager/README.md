@@ -4,27 +4,35 @@ Build-time tooling only. Do not import this package into a shell bundle.
 
 Build the development app/backend with `tools/denial-pc plugin-manager`. The app
 resolves its backend from packaging-owned metadata beside its executable. The
-backend similarly locates the matching compiler kit and native control tool.
-There is no user setup, no tool-path preferences, and no required flags. `bootstrap`
-submits one detached initialization job when needed; mutation commands also ensure
-initialization. Defaults are seeded once, never restored over deliberate removals.
-The app can close during initialization or compilation.
+backend similarly locates native control and its build tools: the compiler kit
+of a package, or the Denial checkout it was built from, which it compiles in
+place. There is no user setup, no tool-path preferences, and no required flags.
+`bootstrap` submits one detached initialization job when needed; mutation
+commands also ensure initialization. Defaults are seeded once, never restored
+over deliberate removals. The app can close during initialization or
+compilation.
 
-`tools/denial-plugins` invokes that built backend. Commands emit JSON; progress
-and failures go to stderr. `--state DIRECTORY` is an internal test-isolation option
-(default: `$XDG_STATE_HOME/denial/plugins`). Source selectors such as package path
-and Git ref describe the plugin being added; they do not configure Denial tools.
+`tools/denial-plugins` invokes that built backend. Seven commands are for
+people; they print text, and JSON with `--json`. Progress and failures go to
+stderr. Another program, such as a Settings page, displays the `summary` of
+`status --json` and `list --json` and decides nothing itself: the contract is
+section 23 of `docs/PLUGIN_MANAGER.md`. `--state DIRECTORY` is an internal test-isolation option (default:
+`$XDG_STATE_HOME/denial/plugins`). Source selectors such as package path and
+Git ref describe the plugin being added; they do not configure Denial tools.
 
 ```sh
-tools/denial-plugins bootstrap
-tools/denial-plugins inspect https://example.org/plugins.git
+tools/denial-plugins status         # what runs, why, and what to run next
+tools/denial-plugins list           # plugins you can use, and which are on
+tools/denial-plugins add /path/to/package
 tools/denial-plugins --path panels/taskbar add https://example.org/plugins.git
-tools/denial-plugins --local add /path/to/package
 tools/denial-plugins remove denial_top_bar
-tools/denial-plugins submit plan
-tools/denial-plugins status
-tools/denial-plugins submit apply
+tools/denial-plugins apply          # build the selection and switch to it
+tools/denial-plugins undo           # the plugins that ran before
+tools/denial-plugins off            # the standard desktop; selection kept
 ```
+
+`docs/PLUGIN_MANAGER.md` section 22 has the rules that decide which plugins
+load, the development checkout and the verbs the app and deniald use.
 
 Ordinary planning retains prior Git commits and the last resolved Pub lock.
 `update` explicitly advances them. Plans snapshot local packages into new
@@ -54,46 +62,44 @@ editor setup in [plugin development](../../docs/PLUGIN_DEVELOPMENT.md). SDK host
 on pub.dev is optional; installation supplies those inputs automatically. Local
 source installation also supports SDK path dependencies for development.
 
-The release builder uses existing locked engine artifacts and never rebuilds
-Rust or Flutter. It creates a fresh, read-only bundle with checksums and retained
-provenance. Builds and repository operations can run in detached workers that
-survive the submitting process; status and progress are durable JSON/log files.
+The builder uses existing engine compilers and never rebuilds Rust or Flutter.
+It creates a fresh, read-only bundle of the compiled shell and its assets with
+their checksums; a bundle carries no engine. Builds and repository operations
+can run in detached workers that survive the submitting process; status and
+progress are durable JSON/log files.
 
 `plugin_manager_app` is the separate GUI. Build it and the compiled CLI with
-`tools/denial-pc plugin-manager`. The same command prepares a release-only compiler
-kit from the locked artifacts; it does not build a development engine. Native
-package staging installs `denial-plugin-manager`, `denial-plugins`, the desktop
-entry, and `/usr/lib/denial/plugin-build-kit`. These packaging changes still need
-the distribution-level validation recorded in `docs/PLUGIN_MANAGER.md`.
+`tools/denial-pc plugin-manager`. A release build also prepares the compiler
+kit packages install; a development checkout prepares one only while staging a
+package. Native package staging installs `denial-plugin-manager`,
+`denial-plugins`, the desktop entry, and `/usr/lib/denial/plugin-build-kit`.
 
-Installed use:
+The app works through background jobs, so its window can close meanwhile:
 
 ```sh
 denial-plugins bootstrap            # automatic; the app calls this itself
 denial-plugins submit plan          # preview/validate only
 denial-plugins submit apply         # retain pins, build and request activation
 denial-plugins submit update        # deliberately advance Git/Pub, build and activate
-denial-plugins submit revert        # previous bundle and its complete selection/pins
-denial-plugins submit restore       # packaged recovery shell
+denial-plugins submit revert        # same as undo
+denial-plugins submit restore       # same as off
 ```
 
 Wait for each background job to complete before submitting a dependent operation.
-The GUI disables mutations while a job is active. Initial preparation verifies the entire
-packaged input manifest before copying and publishing configuration; it does not
-write into the installed kit. The compiler cache is keyed by manifest hash. After an
-upgrade, Denial prepares the matching kit automatically; custom bundles are rebuilt.
-A native packaged source marker prevents loading a composition for another source
-snapshot even when engine hashes match. Explicit development checkouts without
-that marker still require the exact engine hash and Flutter compatibility generation.
+The GUI disables mutations while a job is active. A package's initial
+preparation verifies the entire kit manifest before copying and publishing
+configuration; it does not write into the installed kit. After an upgrade,
+Denial prepares the matching kit automatically and custom bundles are rebuilt.
 
-`ui activate BUNDLE` is the native release transition. It verifies sealed bundle
-hashes, architecture, engine, and installed source identity before replacement.
-Promotion requires a produced frame and three seconds of startup; no frame within
-20 seconds requests packaged recovery. Pending startup is never retried after a
-process exit, and rapid repeated custom startups fall back to the packaged shell.
-These checks detect startup failure; they are not a proof of plugin correctness.
-Repeated requests cannot replace a pending native activation. GUI close does not
-cancel builds; source/build failures do not request activation.
+`ui activate BUNDLE` is the native transition. It verifies the sealed bundle's
+checksums, architecture, Flutter generation and source identity before
+replacement; the engine is proven by starting the shell. Promotion requires a
+produced frame and three seconds of startup; no frame within 20 seconds
+requests the standard desktop. Pending startup is never retried after a
+process exit, and rapid repeated custom startups fall back to the standard
+desktop. These checks detect startup failure; they are not a proof of plugin
+correctness. Repeated requests cannot replace a pending native activation. GUI
+close does not cancel builds; source/build failures do not request activation.
 
 The default catalog is `plugins.yaml` in
 [`denialwm/denial-plugins`](https://github.com/denialwm/denial-plugins).
@@ -115,9 +121,9 @@ cd packages/denial_plugin_manager
 ```
 
 Tests exercise real temporary Git repositories, package closure filtering,
-resolved annotation identity, generated Dart execution, source snapshots, and
-stale-plan rejection, native-confirmed activation bookkeeping, rollback intent,
-and isolated compiler provisioning. They do not launch a graphical application.
+resolved annotation identity, generated Dart execution, source snapshots,
+native-confirmed activation, rollback intent, in-place development tools,
+isolated kit provisioning and the status report. They do not launch a graphical application.
 
 Plugin authors can add advisory `denial_plugin` schema 1 `provides`/`requires`
 claims to `pubspec.yaml` for fast switch-time compatibility checks. See

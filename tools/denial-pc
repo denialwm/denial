@@ -87,6 +87,8 @@ else
     FLUTTER_SDK_MANAGED=1
 fi
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
+# Packaging asks for the plugin build kit; a release build always has one.
+PLUGIN_BUILD_KIT="${DENIAL_PC_PLUGIN_BUILD_KIT_REQUIRED:-$FLUTTER_SDK_MANAGED}"
 FLUTTER_ENGINE_CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-$CACHE_HOME/denial/flutter-engine}"
 # Flutter's local-engine locator only requires this path to own the out/
 # directory. Engine outputs deliberately live outside both canonical and
@@ -106,11 +108,13 @@ COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
-SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
-SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$SETTINGS_BUNDLE/denial-settings}"
-SETTINGS_DESKTOP_SOURCE="$ROOT/packaging/arch/dev.denial.Settings.desktop"
+# Settings and Welcome are one GPUI application, which tools/denial-settings
+# builds from the denial-apps and gpui-touch commits settings/SOURCE_LOCK.json
+# names.
+SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$("$ROOT/tools/denial-settings" path)}"
+SETTINGS_DESKTOP_SOURCE="$ROOT/settings/org.denialwm.Settings.desktop"
 USER_DATA_HOME="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
-SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/dev.denial.Settings.desktop}"
+SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/org.denialwm.Settings.desktop}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
 ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/$DENIAL_FLUTTER_PLATFORM/icudtl.dat"
 if ((DENIAL_CROSS)); then
@@ -206,8 +210,8 @@ Usage: tools/denial-pc COMMAND
 Commands:
   bootstrap         Validate or provision Flutter, then fetch Rust crates
   bundle            Build only the native Dart/Flutter bundle
-  settings          Build only the standalone Flutter Settings application
-  welcome           Build the Settings/Welcome host and install the Welcome launcher
+  settings          Build only Settings, the GPUI application that is also Welcome
+  welcome           Build Settings and install the Welcome launcher
   install-welcome-entry
                     Install the Welcome launcher entry
   refresh           Build the bundle and reload its Flutter runtime in this session
@@ -370,6 +374,14 @@ install_settings_desktop_entry() {
     [[ -x "$SETTINGS_BINARY" ]] \
         || die "Settings application is not executable: $SETTINGS_BINARY"
     require_managed_settings_desktop_or_absent
+    remove_flutter_settings_entries
+    # The entry names the application's own icon, which a package installs.
+    local sources="${SETTINGS_BINARY%/*}/settings.source-root"
+    if [[ -f "$sources" ]]; then
+        install -Dm644 -- \
+            "$(< "$sources")/denial-apps/apps/settings/org.denialwm.Settings.png" \
+            "$USER_DATA_HOME/icons/hicolor/512x512/apps/org.denialwm.Settings.png"
+    fi
 
     local rendered
     rendered="$(mktemp)"
@@ -390,11 +402,25 @@ install_settings_desktop_entry() {
     printf 'Installed %s\n' "$SETTINGS_DESKTOP_FILE"
 }
 
+# The entries this checkout installed for the Flutter Settings it used to
+# build, which named the application dev.denial.Settings.
+remove_flutter_settings_entries() {
+    local entry
+    for entry in dev.denial.Settings.desktop dev.denial.Welcome.desktop; do
+        entry="$USER_DATA_HOME/applications/$entry"
+        if [[ -f "$entry" ]] && grep -Fqx \
+            "# Installed by $SCRIPT_DIR/denial-pc" "$entry"; then
+            rm -f -- "$entry"
+        fi
+    done
+}
+
 install_welcome_desktop_entries() {
     require_file "$SETTINGS_BINARY"
     local config_home="${XDG_CONFIG_HOME:-${HOME:?HOME is required}/.config}"
-    local destination="$USER_DATA_HOME/applications/dev.denial.Welcome.desktop"
+    local destination="$USER_DATA_HOME/applications/org.denialwm.Welcome.desktop"
     local old_autostart="$config_home/autostart/dev.denial.Welcome.desktop"
+    remove_flutter_settings_entries
     if [[ -e "$destination" || -L "$destination" ]]; then
         grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$destination" \
             || die "refusing to replace unrecognized Welcome entry: $destination"
@@ -405,7 +431,7 @@ install_welcome_desktop_entries() {
         printf '# Installed by %s/denial-pc\n' "$SCRIPT_DIR"
         sed -e "s|^Exec=.*|Exec=$SETTINGS_BINARY --welcome|" \
             -e "s|^TryExec=.*|TryExec=$SETTINGS_BINARY|" \
-            "$ROOT/packaging/dev.denial.Welcome.desktop"
+            "$ROOT/settings/org.denialwm.Welcome.desktop"
     } > "$rendered"
     install -Dm644 -- "$rendered" "$destination"
     rm -f -- "$rendered"
@@ -419,7 +445,8 @@ install_welcome_desktop_entries() {
 remove_welcome_desktop_entries() {
     local config_home="${XDG_CONFIG_HOME:-${HOME:?HOME is required}/.config}"
     local destination
-    for destination in "$USER_DATA_HOME/applications/dev.denial.Welcome.desktop" \
+    for destination in "$USER_DATA_HOME/applications/org.denialwm.Welcome.desktop" \
+        "$USER_DATA_HOME/applications/dev.denial.Welcome.desktop" \
         "$config_home/autostart/dev.denial.Welcome.desktop"; do
         if [[ -f "$destination" ]] && grep -Fqx \
             "# Installed by $SCRIPT_DIR/denial-pc" "$destination"; then
@@ -655,6 +682,7 @@ stage_engine_test() {
         stage="$(mktemp -d "$ENGINE_TEST_STORE/.stage.XXXXXX")"
         mkdir -p -- "$stage/bundle"
         cp -a -- "$BUNDLE/." "$stage/bundle/"
+        write_development_source_marker "$stage/bundle"
         chmod u+w -- "$stage/bundle/lib" \
             "$stage/bundle/lib/libflutter_engine.so"
         install -m644 -- "$engine_source" \
@@ -819,6 +847,29 @@ prepare_sdk_package() (
     "$FLUTTER" pub get --enforce-lockfile
 )
 
+# A development shell names its checkout, and plugins built from this checkout
+# carry the same name. deniald loads them across commits, edits and engine
+# rebuilds, and rebuilds only those another Denial built
+# (docs/PLUGIN_MANAGER.md, "Which plugins load"). A release names itself with
+# the marker of its plugin build kit instead.
+write_development_source_marker() {
+    local bundle="$1" marker sealed=0
+    ((!FLUTTER_SDK_MANAGED)) || return 0
+    [[ -d "$bundle" ]] || return 0
+    marker="$(python3 -c 'import json, os, sys
+print(json.dumps({"schema": 1, "development": os.path.realpath(sys.argv[1])}))' "$ROOT")"
+    [[ "$(cat -- "$bundle/.denial-ui-source.json" 2>/dev/null)" != "$marker" ]] \
+        || return 0
+    # A staged engine test is read-only; the marker is not what that protects.
+    if [[ ! -w "$bundle" ]]; then
+        chmod u+w -- "$bundle" 2>/dev/null || return 0
+        sealed=1
+    fi
+    rm -f -- "$bundle/.denial-ui-source.json"
+    printf '%s\n' "$marker" > "$bundle/.denial-ui-source.json"
+    ((!sealed)) || chmod a-w -- "$bundle" "$bundle/.denial-ui-source.json"
+}
+
 build_bundle() (
     prepare_flutter_toolchain
     prepare_sdk_package
@@ -854,6 +905,7 @@ build_bundle() (
     install -m644 -- "$ICU_DATA" "$BUNDLE/data/icudtl.dat"
     install -m755 -- "$assembly/lib/libapp.so" "$BUNDLE/lib/libapp.so"
     install_pinned_engine
+    write_development_source_marker "$BUNDLE"
 )
 
 build_native_runner() (
@@ -925,16 +977,9 @@ run_polkit_agent() {
         --engine "$bundle/lib/libflutter_engine.so"
 }
 
-build_settings() (
-    prepare_flutter_toolchain
-    prepare_sdk_package
-    "$ROOT/tools/denial-flutter-engine" prepare-app-build
-    build_native_application settings_app denial-settings "$SETTINGS_BUNDLE"
-    require_file "$SETTINGS_BUNDLE/denial-settings"
-    require_file "$SETTINGS_BUNDLE/lib/libapp.so"
-    require_file "$SETTINGS_BUNDLE/lib/libflutter_engine.so"
-    printf '\nBuilt %s\n' "$SETTINGS_BUNDLE/denial-settings"
-)
+build_settings() {
+    DENIAL_BUILD_JOBS="$BUILD_JOBS" "$ROOT/tools/denial-settings" build
+}
 
 # A cross compile runs Dart's own gen_snapshot for the target and links its
 # runtime, which dart downloads for its SDK version. Pin both.
@@ -979,23 +1024,35 @@ build_plugin_manager() (
             || { rm -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new"; exit 1; }
         mv -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new" "$BUILD_ROOT/plugin-manager/denial-plugins"
     )
-    # The manager runs the Dart it finds first on PATH, and a development kit
-    # attests this SDK's compiler: tools/denial-plugins puts it first.
+    # A build kit runs the Dart it finds first on PATH: tools/denial-plugins
+    # puts the SDK the manager was built with first.
     ln -sfn -- "$(dirname -- "$dart")" "$BUILD_ROOT/plugin-manager/dart-bin"
     local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
     # Keep metadata beside the native application after publishing its bundle.
+    local development='null'
+    if ((!FLUTTER_SDK_MANAGED && !DENIAL_CROSS)); then
+        development="$(python3 -c 'import json, sys
+print(json.dumps(dict(zip(
+    ["checkout", "flutter", "engineRoot", "engineTarget", "platform"],
+    sys.argv[1:]))))' "$ROOT" "$FLUTTER" "$LOCAL_ENGINE_SRC_PATH" \
+            "$LOCAL_ENGINE_TARGET" "$DENIAL_FLUTTER_PLATFORM")"
+    fi
     python3 - "$BUILD_ROOT/plugin-manager" "$RUST_RELEASE/denialctl" \
-        "$app_bundle" <<'PYMETA'
+        "$app_bundle" "$development" <<'PYMETA'
 import json, os, pathlib, sys
-backend, control, app = map(pathlib.Path, sys.argv[1:])
+backend, control, app = map(pathlib.Path, sys.argv[1:4])
+development = json.loads(sys.argv[4])
 def publish(target, value):
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + '.new')
     temporary.write_text(json.dumps(value) + '\n')
     temporary.replace(target)
 publish(backend / 'denial-plugins.installation.json', {
-    'schema': 1, 'buildKit': 'build-kit',
+    'schema': 1,
     'denialctl': os.path.relpath(control, backend),
+    # A checkout compiles plugins in place, with the tools its own shell is
+    # built with. A release build uses the kit its packages install.
+    **({'development': development} if development else {'buildKit': 'build-kit'}),
 })
 publish(app.parent / 'denial-plugin-manager.installation.json', {
     'schema': 1, 'application': 'denial-plugin-manager',
@@ -1006,8 +1063,17 @@ PYMETA
     install -m644 -- "$app_bundle/../denial-plugin-manager.installation.json" "$app_bundle/denial-plugin-manager.installation.json"
     require_file "$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle/denial-plugin-manager"
     require_file "$app_bundle/denial-plugin-manager.installation.json"
-    # A versioned, release-only build kit travels with installed Denial. The
-    # manager copies it into its own cache before running Flutter commands.
+    if ((PLUGIN_BUILD_KIT)); then build_plugin_kit; fi
+    write_development_source_marker "$BUNDLE"
+    printf '\nBuilt Plugin Manager and backend at %s\n' "$BUILD_ROOT/plugin-manager/denial-plugins"
+)
+
+# The plugin build tools a package installs: this Denial's sources, a Flutter
+# tool and the engine's compilers, with the identity plugins are built for.
+# A development checkout needs none: it compiles plugins in place.
+build_plugin_kit() (
+    # The manager copies the kit into its own cache before running Flutter
+    # commands.
     local staging kit_id
     local -a kit_provenance=()
     ((FLUTTER_SDK_MANAGED)) || kit_provenance=(--provenance development)
@@ -1026,10 +1092,13 @@ PYMETA
     fi
     ln -s "build-kits/$kit_id" "$staging/build-kit"
     mv -Tf -- "$staging/build-kit" "$BUILD_ROOT/plugin-manager/build-kit"
-    require_file "$BUNDLE/lib/libapp.so"
-    install -m644 -- \
-        "$BUILD_ROOT/plugin-manager/build-kit/runtime/.denial-ui-source.json" \
-        "$BUNDLE/.denial-ui-source.json"
+    # A release shell is the Denial this kit builds plugins for.
+    if ((FLUTTER_SDK_MANAGED)); then
+        require_file "$BUNDLE/lib/libapp.so"
+        install -m644 -- \
+            "$BUILD_ROOT/plugin-manager/build-kit/runtime/.denial-ui-source.json" \
+            "$BUNDLE/.denial-ui-source.json"
+    fi
     # The compiled Flutter-tool snapshot is not byte-for-byte reproducible, so
     # every rebuild can have a new kit identity. Only the atomically selected
     # kit is a build output; retaining older copies quickly consumes gigabytes.
@@ -1042,8 +1111,6 @@ PYMETA
         rm -rf --one-file-system -- "$cached_kit"
     done < <(find "$BUILD_ROOT/plugin-manager/build-kits" \
         -mindepth 1 -maxdepth 1 -type d -print0)
-
-    printf '\nBuilt Plugin Manager and backend at %s\n' "$BUILD_ROOT/plugin-manager/denial-plugins"
 )
 
 find_denial_pid() {
@@ -1298,6 +1365,7 @@ run_compositor() {
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
     require_file "$SETTINGS_BINARY"
+    write_development_source_marker "$BUNDLE"
     [[ -x "$SETTINGS_BINARY" ]] \
         || die "Settings application is not executable: $SETTINGS_BINARY"
     require_file "$OUTPUT_CONFIG"

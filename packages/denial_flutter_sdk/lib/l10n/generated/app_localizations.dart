@@ -8663,12 +8663,6 @@ abstract class AppLocalizations {
   /// **'Denial was updated.'**
   String get pluginsUpdated;
 
-  /// Plugin Manager: FailureEngine.
-  ///
-  /// In en, this message translates to:
-  /// **'Your applied plugins are saved, but this session uses a different Flutter engine. Use a Denial session with the matching engine to load them again.'**
-  String get pluginsFailureEngine;
-
   /// Plugin Manager: FailureVersion.
   ///
   /// In en, this message translates to:

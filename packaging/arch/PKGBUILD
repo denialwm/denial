@@ -8,6 +8,7 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/denialwm/denial'
 license=(
   'GPL-3.0-or-later'
+  'Apache-2.0'
   'CC-BY-SA-4.0'
   'GPL-3.0-only'
   'OFL-1.1'
@@ -21,6 +22,7 @@ depends=(
   'denial-flutter-engine'
   "denial-flutter-engine-abi=${_flutter_generation}"
   'dbus'
+  'fontconfig'
   'glibc'
   'git'
   'libgcc'
@@ -35,6 +37,8 @@ depends=(
   'rtkit'
   'seatd'
   'systemd-libs'
+  'vulkan-driver'
+  'vulkan-icd-loader'
   'xkeyboard-config'
   'xdg-desktop-portal'
   'xdg-desktop-portal-gtk'
@@ -45,6 +49,7 @@ depends=(
 optdepends=(
   'fprintd: fingerprint unlock and enrollment'
   'sudo: fingerprint enrollment where a Gatekeeper keeps the lock PIN'
+  'iw: set the Wi-Fi country in Settings'
   'iwd: Wi-Fi controls without NetworkManager'
   'lact: AMD GPU performance controls'
   'networkmanager: Wi-Fi and network controls through NetworkManager'
@@ -53,9 +58,12 @@ optdepends=(
   'power-profiles-daemon: system power profiles'
   'sddm: graphical login and session selection'
   'upower: battery and power status'
+  'wireless-regdb: set the Wi-Fi country in Settings'
   'denial-plugin-manager: develop, install, and compose Denial plugins'
 )
-conflicts=('denial-git')
+# Settings came as a package of its own on the phones.
+conflicts=('denial-git' 'denial-app-settings')
+replaces=('denial-app-settings')
 backup=(
   'etc/denial/outputs.conf'
   'etc/denial/session.conf'
@@ -68,7 +76,6 @@ source=(
   "denial-suspend-mode::file://$startdir/../denial-suspend-mode"
   "denial-fingerprint.rules::file://$startdir/../denial-fingerprint.rules"
   'denial.desktop'
-  'dev.denial.Settings.desktop'
   'denial-portal.service'
   'denial.portal'
   'denial-portals.conf'
@@ -83,7 +90,6 @@ sha256sums=(
   '57c146e3579dd87e12c332a180cca32c17602c823fcd39767a7c737f2688fc71'
   'd48446ddc4b6e040c3b76b8a3b3cee63cb1faaa5e81c4d13b0960b310f04cde7'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
-  'f8acf498ad592dcbf1ee31955264b068c27846f99cded6055a6b64aaf7f4fe07'
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
   'ccc136decb96a6d0ef58e0c53827cf39ca6a7d7b810fa0be4196e5db7ade36e3'
   '81d87c497aa4b4c47d2104d3f2be34eac482655a3addfba686a7d9f3e5fe341c'
@@ -100,7 +106,6 @@ package() {
   local control_binary="${DENIAL_PACKAGE_CONTROL_BINARY:-$cache_root/denial/pc-build/rust/release/denialctl}"
   local portal_binary="${DENIAL_PACKAGE_PORTAL_BINARY:-$cache_root/denial/pc-build/rust/release/denial-portal}"
   local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
-  local settings_bundle="${DENIAL_PACKAGE_SETTINGS_BUNDLE:-$repository_root/settings_app/build/linux/x64/release/bundle}"
   local payload_root="${DENIAL_PACKAGE_PAYLOAD_ROOT:-}"
   local runtime_version_file="${DENIAL_PACKAGE_RUNTIME_VERSION_FILE:-}"
   local runtime_version
@@ -147,11 +152,7 @@ package() {
   fi
   for required in \
     "$bundle/data/flutter_assets/AssetManifest.bin" \
-    "$bundle/lib/libapp.so" \
-    "$settings_bundle/denial-settings" \
-    "$settings_bundle/data/flutter_assets/AssetManifest.bin" \
-    "$settings_bundle/lib/libapp.so" \
-    "$settings_bundle/lib/libflutter_engine.so"; do
+    "$bundle/lib/libapp.so"; do
     if [[ ! -f "$required" ]]; then
       error "Flutter bundle component is missing: $required"
       error "Build through tools/denial-pc arch-package."
@@ -182,11 +183,7 @@ package() {
   install -m755 "$bundle/lib/libapp.so" \
     "$pkgdir/usr/lib/denial/flutter/lib/libapp.so"
 
-  install -dm755 "$pkgdir/usr/lib/denial/settings"
-  cp -a -- "$settings_bundle/." "$pkgdir/usr/lib/denial/settings/"
-  chmod -R u=rwX,go=rX "$pkgdir/usr/lib/denial/settings"
-  ln -s ../lib/denial/settings/denial-settings \
-    "$pkgdir/usr/bin/denial-settings"
+  "$repository_root/tools/denial-settings" stage "$pkgdir"
   "$repository_root/tools/stage-denial-polkit-agent" "$pkgdir" \
     "${DENIAL_PACKAGE_POLKIT_BINARY:-$cache_root/denial/pc-build/rust/release/denial-polkit-agent}" \
     "${DENIAL_PACKAGE_POLKIT_BUNDLE:-$repository_root/polkit_app/build/linux/x64/release/bundle}"
@@ -196,10 +193,6 @@ package() {
 
   install -Dm644 "$srcdir/denial.desktop" \
     "$pkgdir/usr/share/wayland-sessions/denial.desktop"
-  install -Dm644 "$srcdir/dev.denial.Settings.desktop" \
-    "$pkgdir/usr/share/applications/dev.denial.Settings.desktop"
-  install -Dm644 "$repository_root/packaging/dev.denial.Welcome.desktop" \
-    "$pkgdir/usr/share/applications/dev.denial.Welcome.desktop"
   install -Dm644 "$srcdir/denial-portals.conf" \
     "$pkgdir/usr/share/xdg-desktop-portal/denial-portals.conf"
   install -Dm644 "$srcdir/denial.portal" \

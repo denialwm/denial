@@ -1,56 +1,44 @@
 # Welcome
 
-Welcome is a standalone application with the Wayland/GApplication identity
-`dev.denial.Welcome`. Its launcher invokes `denial-settings --welcome`: the two
-applications share the packaged GTK runner and synchronized settings host, but
-have independent single-instance windows. Settings can remain open alongside it.
+Welcome is the desktop's first-start tour. It is Settings started with
+`--welcome`: the GPUI application from denial-apps that Denial builds and
+packages (see [`settings/README.md`](../settings/README.md)). Its windows are
+named `org.denialwm.Welcome`, apart from Settings' `org.denialwm.Settings`,
+and each is single-instance on its own: Settings can stay open beside it.
 
-The five steps begin with a welcome screen and a Get started command, then show
-authoritative shortcut bindings, select the existing window layout, select
-transparency and appearance, and offer optional support links.
-Layout and appearance use the normal settings controller and apply immediately.
-Pointer move/resize gestures are native Super + left/right drag; keyboard actions
-come from the current shortcut service, including unassigned actions.
+The five steps begin with a welcome screen and a Get started command, then
+show the current shortcut bindings, pick the window layout, pick transparency
+and appearance, and offer optional support links. Layout and appearance go
+through Denial's settings and apply at once. The bindings come from the
+compositor's shortcut service, unassigned actions included; moving and
+resizing a window with Super and a drag are built in.
 
-The horizontal progress surface uses numbered circles with labels underneath
-and the shared glass material with saved optical settings unchanged. The corner
-commands are ordinary filled buttons without glass wrappers. Commands overlay the
-scrolling sheet; trailing content padding lets its final rows clear the buttons.
-Shortcuts start with resize and move, adapt to two columns, and use thin rules
-between desktop, workspace and tiling groups. Neutral content surfaces and
-contrast-checked accent labels keep controls readable.
-
-Finish and confirmed Exit flush pending settings, atomically persist
-`$XDG_CONFIG_HOME/denial/welcome` (default `~/.config/denial/welcome`), and close
-only the Welcome window. Cancel makes no lifecycle change. The launcher always
-opens Welcome, even after completion. Each full Denial startup launches the app
-with `--autostart` after initial scanout and session environment publication.
-This is independent of systemd and XDG autostart. Bounded diagnostics, test runs,
-and Flutter bundle refreshes do not start it. The runner checks completion before
-registering or activating the application, so completed setup cannot steal focus
-from a manually opened window. The original state-directory marker is migrated
-on startup without reopening completed setup. Remove the config marker to enable
-automatic setup again.
-Closing an unfinished window through the compositor does not mark it complete.
+Finishing, and leaving after confirming, write
+`$XDG_CONFIG_HOME/denial/welcome` (default `~/.config/denial/welcome`) and
+close Welcome. Cancelling the confirmation changes nothing, and closing an
+unfinished window through the compositor does not mark it complete. The
+launcher entry always opens Welcome. Each full Denial startup starts it with
+`--autostart` after initial scanout and session environment publication,
+independent of systemd and XDG autostart; with `--autostart` the program
+leaves before it registers or opens a window when the marker exists, so a
+completed setup cannot take focus. Bounded diagnostics, test runs and Flutter
+bundle refreshes do not start it. The older state-directory marker is taken
+over on startup. Remove the marker to see Welcome at startup again.
 
 In stacking mode, Welcome ignores saved placement and centers on the opening
-monitor after the client supplies its actual size. This one-time placement does
-not recenter later moves or resizes. Dwindle and scrolling own placement normally.
+monitor after the client supplies its actual size. This one-time placement
+does not recenter later moves or resizes. Dwindle and scrolling own placement
+normally.
 
-`tools/denial-pc settings` builds both applications. `tools/denial-pc welcome`
-also installs Welcome's development launcher entry. All commands
-run outside the sandbox. Do not rebuild over a bundle mapped by a running app;
-build an isolated copy and use the following to point Welcome at that bundle:
+`tools/denial-pc settings` builds the program; `tools/denial-pc welcome` also
+installs Welcome's development launcher entry. To point that entry at another
+build:
 
 ```sh
-DENIAL_SETTINGS_BINARY=/path/to/denial-settings tools/denial-pc install-welcome-entry
+DENIAL_SETTINGS_BINARY=/path/to/settings tools/denial-pc install-welcome-entry
 ```
 
-The app is localized in English and simplified Chinese. Donation destinations
-are defined in `welcome_support.dart`, with separate English/Chinese Stripe
-redirects, GitHub Sponsors, and the repository action. Only the Stripe redirect
-for the active language is used by the localized Donate button. Browser launches happen
-only in response to a button press. Visual validation belongs to the user.
-
-Static analysis and a locked release app build validate the app without a
-development engine.
+Welcome is in English and simplified Chinese. The Donate button opens the
+sponsor page of the shown language; GitHub Sponsors and the repository have
+their own buttons. A browser opens only on a button press. Visual validation
+belongs to the user.

@@ -13,7 +13,7 @@ behavior still needs a Rust and protocol change.
 ## Runtime model
 
 The compositor owns the selected shell runtime and its recovery state. The
-Flutter Settings application is a client of that state; it is not the only
+Settings application is a client of that state; it is not the only
 way to recover the session.
 
 Denial distinguishes three runtime modes:

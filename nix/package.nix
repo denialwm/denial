@@ -18,6 +18,8 @@
   runCommand,
   yq-go,
   taskbarSrc ? null,
+  denialAppsSrc ? null,
+  gpuiTouchSrc ? null,
   version ? "0.0.0+unknown",
   buildIdentity ? "nix.unknown",
   sourceRevision ? "unknown",
@@ -106,21 +108,10 @@ let
     sourceLockHash = builtins.hashFile "sha256" (src.origSrc + "/polkit_app/pubspec.lock");
     version = "0.0.0";
   };
-  settingsApp = callPackage ./settings-app.nix {
-    inherit nativeApp;
-    src = uiSourceFor [
-      "dart_shell"
-      "packages/denial_sdk"
-      "packages/denial_flutter_sdk"
-      "plugins/denial_top_bar"
-      "plugins/denial_desktop"
-      "plugins/denial_launcher"
-      "plugins/denial_clock"
-      "plugins/denial_pets"
-      "protocol"
-      "settings_app"
-    ];
-    sourceLockHash = builtins.hashFile "sha256" (src.origSrc + "/settings_app/pubspec.lock");
+  # Settings and Welcome: the GPUI application from denial-apps, at the commits
+  # settings/SOURCE_LOCK.json names.
+  settingsApp = callPackage ./settings.nix {
+    inherit denialAppsSrc gpuiTouchSrc;
     version = "0.0.0";
   };
   pluginManagerApp = callPackage ./plugin-manager-app.nix {
@@ -181,9 +172,7 @@ let
     "packaging/arch/denial-session"
     "packaging/arch/denial.desktop"
     "packaging/arch/denial.portal"
-    "packaging/arch/dev.denial.Settings.desktop"
     "packaging/dev.denial.PluginManager.desktop"
-    "packaging/dev.denial.Welcome.desktop"
     "packaging/arch/org.freedesktop.impl.portal.desktop.denial.service"
     "packaging/arch/outputs.conf"
     "packaging/arch/session.conf"
@@ -191,6 +180,9 @@ let
     "packaging/denial-session.target"
     "packaging/denial-polkit-agent.service"
     "packaging/denial-suspend-mode"
+    "settings/org.denialwm.Settings.desktop"
+    "settings/org.denialwm.Welcome.desktop"
+    "settings/SOURCE_LOCK.json"
   ];
   runtimeLibraryPath = lib.makeLibraryPath [
     libglvnd
@@ -223,9 +215,21 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     install -d $out/lib/denial/flutter
     cp --recursive ${dartShell}/. $out/lib/denial/flutter/
 
-    install -d $out/lib/denial/settings
-    cp --recursive ${settingsApp}/app/denial-settings/. $out/lib/denial/settings/
-    ln --symbolic ../lib/denial/settings/denial-settings $out/bin/denial-settings
+    # The polkit action and Settings itself name the helper inside the
+    # Settings package: link that package's files, do not copy them.
+    ln --symbolic ${settingsApp}/lib/denial-apps $out/lib/denial-apps
+    ln --symbolic ../lib/denial-apps/settings $out/bin/denial-settings
+    install -Dm644 \
+      ${settingsApp}/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png \
+      $out/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
+    install -Dm644 \
+      ${settingsApp}/share/polkit-1/actions/org.denialwm.settings.policy \
+      $out/share/polkit-1/actions/org.denialwm.settings.policy
+    install -d $out/share/licenses/denial
+    cp --recursive ${settingsApp}/share/licenses/denial/settings \
+      $out/share/licenses/denial/settings
+    install -Dm644 ${packageSrc}/settings/SOURCE_LOCK.json \
+      $out/share/denial/settings/SOURCE_LOCK.json
 
     install -d $out/lib/denial/polkit
     cp -R ${polkitApp}/app/denial-polkit-dialog/. $out/lib/denial/polkit/
@@ -263,14 +267,14 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     substituteInPlace $out/share/wayland-sessions/denial.desktop \
       --replace-fail '/usr/bin/denial-session' "$out/bin/denial-session"
 
-    install -Dm644 ${packageSrc}/packaging/arch/dev.denial.Settings.desktop \
-      $out/share/applications/dev.denial.Settings.desktop
-    substituteInPlace $out/share/applications/dev.denial.Settings.desktop \
-      --replace-fail '/usr/bin/denial-settings' "$out/bin/denial-settings"
-    install -Dm644 ${packageSrc}/packaging/dev.denial.Welcome.desktop \
-      $out/share/applications/dev.denial.Welcome.desktop
-    substituteInPlace $out/share/applications/dev.denial.Welcome.desktop \
-      --replace-fail '/usr/bin/denial-settings' "$out/bin/denial-settings"
+    install -Dm644 ${packageSrc}/settings/org.denialwm.Settings.desktop \
+      $out/share/applications/org.denialwm.Settings.desktop
+    substituteInPlace $out/share/applications/org.denialwm.Settings.desktop \
+      --replace-fail '/usr/lib/denial-apps/settings' "$out/lib/denial-apps/settings"
+    install -Dm644 ${packageSrc}/settings/org.denialwm.Welcome.desktop \
+      $out/share/applications/org.denialwm.Welcome.desktop
+    substituteInPlace $out/share/applications/org.denialwm.Welcome.desktop \
+      --replace-fail '/usr/lib/denial-apps/settings' "$out/lib/denial-apps/settings"
 
     install -Dm644 ${packageSrc}/packaging/arch/denial-portals.conf \
       $out/share/xdg-desktop-portal/denial-portals.conf
@@ -342,9 +346,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     test -x $out/bin/denial-settings
     test -x $out/bin/denial-polkit-agent
     test -x $out/lib/denial/polkit/denial-app
-    test "$(readlink $out/bin/denial-settings)" = ../lib/denial/settings/denial-settings
-    ! grep --binary-files=text --recursive --fixed-strings \
-      'flutter-engine-toolchain-' $out/lib/denial/settings
+    test "$(readlink $out/bin/denial-settings)" = ../lib/denial-apps/settings
+    test -x $out/lib/denial-apps/wifi-country
     test -x $out/bin/denial-session
     test -f $out/lib/denial/flutter/data/icudtl.dat
     test -f $out/lib/denial/flutter/lib/libapp.so

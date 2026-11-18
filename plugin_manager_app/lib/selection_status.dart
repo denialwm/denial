@@ -47,26 +47,15 @@ bool selectionNeedsApply(Map<String, Object?> state) {
   final currentPlan =
       selection['revision'] != null &&
       plan['selectionRevision'] == selection['revision'];
+  // `active` is what deniald runs, when this manager built it. A composition
+  // that failed to start is not running, so applying it again stays offered
+  // beside the native error.
   final activated =
       build['bundle'] is String &&
       (native['plugin_bundle'] == build['bundle'] ||
           (build['reusedFrom'] is String &&
               build['reusedFrom'] == active['id'] &&
               native['plugin_bundle'] == active['bundle']));
-  // A previously confirmed composition failing startup is a recovery problem,
-  // not new background work. The UI must show the native error instead. A new
-  // selection or candidate still needs applying even while recovery is visible.
-  final previouslyApplied =
-      build['bundle'] is String &&
-      (build['bundle'] == active['bundle'] ||
-          (build['reusedFrom'] is String &&
-              build['reusedFrom'] == active['id']));
-  if (currentPlan &&
-      build['status'] == 'built' &&
-      previouslyApplied &&
-      compositionStartupError(state) != null) {
-    return false;
-  }
   return !(currentPlan &&
       build['status'] == 'built' &&
       activated &&

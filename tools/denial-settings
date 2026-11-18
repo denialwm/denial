@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# Settings and Welcome: one GPUI application from denial-apps, built against
+# gpui-touch. settings/SOURCE_LOCK.json names the commit of each; this tool
+# fetches them, builds the application and its Wi-Fi country helper, and
+# installs both into a package root.
+set -euo pipefail
+export LC_ALL=C
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/denial-architecture.sh
+source "$SCRIPT_DIR/lib/denial-architecture.sh"
+denial_arch_configure
+
+CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
+DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
+LOCK="$ROOT/settings/SOURCE_LOCK.json"
+# The fetched commits, kept between builds: a checkout rewrites only the files
+# a new commit changed, so Cargo rebuilds only what changed.
+FETCH_ROOT="${DENIAL_SETTINGS_FETCH_ROOT:-$DEPENDENCY_ROOT/settings-source}"
+# A folder holding denial-apps and gpui-touch checkouts, built as they are on
+# disk in place of the locked commits.
+LOCAL_SOURCE_ROOT="${DENIAL_SETTINGS_SOURCE_ROOT:-}"
+# Its own target, beside the compositor's: another workspace, another lock.
+TARGET_DIR="${DENIAL_SETTINGS_TARGET:-$RUST_TARGET-settings}"
+RELEASE_DIR="$TARGET_DIR${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
+BINARY="$RELEASE_DIR/settings"
+HELPER="$RELEASE_DIR/wifi-country"
+
+usage() {
+  cat <<'EOF'
+Usage: tools/denial-settings COMMAND
+
+Commands:
+  source      Fetch the locked denial-apps and gpui-touch commits; print the
+              folder that holds both
+  build       Build Settings and its Wi-Fi country helper
+  path        Print where build leaves the Settings executable
+  stage ROOT  Install what build left into the package root ROOT
+  lock        Print the locked commits
+
+Environment:
+  DENIAL_SETTINGS_SOURCE_ROOT
+                     A folder holding denial-apps and gpui-touch checkouts:
+                     build them as they are on disk, not the locked commits
+  DENIAL_SETTINGS_TARGET
+                     Cargo target directory (default: beside the compositor's)
+  DENIAL_BUILD_JOBS  Cargo build parallelism
+  DENIAL_TARGET_ARCH, DENIAL_ARM64_SYSROOT
+                     As tools/denial-pc: a cross build for aarch64
+EOF
+}
+
+die() {
+  printf 'denial-settings: %s\n' "$*" >&2
+  exit 1
+}
+
+locked() {
+  jq -er ".$1.$2" "$LOCK"
+}
+
+# Leaves NAME's clone at the locked commit, without local changes.
+fetch_one() {
+  local name="$1" key="$2"
+  local repository revision clone
+  repository="$(locked "$key" repository)"
+  revision="$(locked "$key" revision)"
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] \
+    || die "the lock's $key revision is not a commit: $revision"
+  clone="$FETCH_ROOT/$name"
+  [[ -d "$clone/.git" ]] || git init --quiet "$clone"
+  if [[ "$(git -C "$clone" rev-parse --verify --quiet 'HEAD^{commit}' || true)" \
+    == "$revision" && -z "$(git -C "$clone" status --porcelain)" ]]; then
+    return
+  fi
+  git -C "$clone" cat-file -e "$revision^{commit}" 2>/dev/null \
+    || git -C "$clone" fetch --quiet --depth 1 "$repository" "$revision"
+  git -C "$clone" checkout --quiet --force --detach "$revision"
+  git -C "$clone" clean --quiet -ffd
+}
+
+# Prints the folder that holds the denial-apps and gpui-touch sources to
+# build. denial-apps finds gpui-touch beside itself.
+source_root() {
+  if [[ -n "$LOCAL_SOURCE_ROOT" ]]; then
+    local checkout
+    for checkout in denial-apps gpui-touch; do
+      [[ -f "$LOCAL_SOURCE_ROOT/$checkout/Cargo.toml" ]] \
+        || die "DENIAL_SETTINGS_SOURCE_ROOT holds no $checkout: $LOCAL_SOURCE_ROOT"
+    done
+    printf 'denial-settings: building %s as it is on disk, not the locked commits\n' \
+      "$LOCAL_SOURCE_ROOT" >&2
+    readlink -f -- "$LOCAL_SOURCE_ROOT"
+    return
+  fi
+  command -v jq >/dev/null 2>&1 || die 'jq is required'
+  install -d -m 0755 "$FETCH_ROOT"
+  # Builds for two architectures share the clones.
+  (
+    flock 9
+    fetch_one denial-apps denial_apps
+    fetch_one gpui-touch gpui_touch
+  ) 9>"$FETCH_ROOT/.lock"
+  printf '%s\n' "$FETCH_ROOT"
+}
+
+build_jobs() {
+  if [[ -n "${DENIAL_BUILD_JOBS:-}" ]]; then
+    printf '%s\n' "$DENIAL_BUILD_JOBS"
+    return
+  fi
+  local cpus
+  cpus="$(nproc)"
+  if [[ "${GITHUB_ACTIONS:-}" == true \
+    || "${DENIAL_PC_DEDICATED_BUILDER:-0}" == 1 ]]; then
+    printf '%s\n' "$cpus"
+  elif ((cpus > 4)); then
+    printf '%s\n' "$((cpus - 4))"
+  else
+    printf '1\n'
+  fi
+}
+
+build() (
+  sources="$(source_root)"
+  denial_cross_configure_rust || exit
+  target_args=()
+  if [[ -n "$DENIAL_RUST_TARGET" ]]; then
+    target_args=(--target "$DENIAL_RUST_TARGET")
+  fi
+  # Denial's compiler, which the bootstrap installed with the target's
+  # standard library; denial-apps names none.
+  toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$ROOT/rust-toolchain.toml")"
+  [[ -n "$toolchain" ]] || die 'rust-toolchain.toml names no channel'
+  # Settings is a workspace of its own there, with its own lock: the other
+  # apps' workspace also needs Phonewave beside it.
+  cd -- "$sources/denial-apps/apps/settings"
+  RUSTUP_TOOLCHAIN="$toolchain" CARGO_TARGET_DIR="$TARGET_DIR" cargo build \
+    --release --locked --jobs "$(build_jobs)" "${target_args[@]}"
+  [[ -x "$BINARY" && -x "$HELPER" ]] \
+    || die "the build left no $BINARY or $HELPER"
+  # Staging reads the icon, the polkit action and the license texts from the
+  # sources this build used.
+  printf '%s\n' "$sources" >"$RELEASE_DIR/settings.source-root"
+  printf '\nBuilt %s\n' "$BINARY"
+)
+
+stage() {
+  local root="$1"
+  local sources apps
+  [[ -d "$root" ]] || die "package root does not exist: $root"
+  [[ -x "$BINARY" && -x "$HELPER" && -f "$RELEASE_DIR/settings.source-root" ]] \
+    || die "missing $BINARY; run '$0 build' first"
+  sources="$(< "$RELEASE_DIR/settings.source-root")"
+  apps="$sources/denial-apps"
+  # The polkit action names the helper by this path, and Settings runs it
+  # from there.
+  install -Dm755 "$BINARY" "$root/usr/lib/denial-apps/settings"
+  install -Dm755 "$HELPER" "$root/usr/lib/denial-apps/wifi-country"
+  install -d -m 0755 "$root/usr/bin"
+  ln -s ../lib/denial-apps/settings "$root/usr/bin/denial-settings"
+  install -Dm644 "$ROOT/settings/org.denialwm.Settings.desktop" \
+    "$root/usr/share/applications/org.denialwm.Settings.desktop"
+  install -Dm644 "$ROOT/settings/org.denialwm.Welcome.desktop" \
+    "$root/usr/share/applications/org.denialwm.Welcome.desktop"
+  install -Dm644 "$apps/apps/settings/org.denialwm.Settings.png" \
+    "$root/usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png"
+  install -Dm644 "$apps/apps/settings/packaging/org.denialwm.settings.policy" \
+    "$root/usr/share/polkit-1/actions/org.denialwm.settings.policy"
+  install -Dm644 "$apps/LICENSE.md" \
+    "$root/usr/share/licenses/denial/settings/LICENSE.md"
+  install -Dm644 "$apps/README.md" \
+    "$root/usr/share/licenses/denial/settings/README.md"
+  install -Dm644 "$apps/LICENSES/Apache-2.0.txt" \
+    "$root/usr/share/licenses/denial/settings/LICENSES/Apache-2.0.txt"
+  install -Dm644 "$apps/LICENSES/CC-BY-SA-4.0.txt" \
+    "$root/usr/share/licenses/denial/settings/LICENSES/CC-BY-SA-4.0.txt"
+  install -Dm644 "$apps/LICENSES/GPL-3.0-only.txt" \
+    "$root/usr/share/licenses/denial/settings/LICENSES/GPL-3.0-only.txt"
+  install -Dm644 "$LOCK" "$root/usr/share/denial/settings/SOURCE_LOCK.json"
+}
+
+case "${1:-}" in
+  source) source_root ;;
+  build) build ;;
+  path) printf '%s\n' "$BINARY" ;;
+  stage)
+    (($# == 2)) || die 'usage: denial-settings stage ROOT'
+    stage "$2"
+    ;;
+  lock)
+    jq -r '"denial-apps \(.denial_apps.revision)\ngpui-touch \(.gpui_touch.revision)"' "$LOCK"
+    ;;
+  help|-h|--help|'') usage ;;
+  *) die "unknown command '$1' (try '$0 help')" ;;
+esac

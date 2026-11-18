@@ -136,9 +136,7 @@ the user, and no visual test events are triggered by deployment verification.
 
 ## Deploying appearance controls
 
-The shell and standalone Settings app compile separate AOT bundles, even though
-Settings imports its appearance controls from `dart_shell`. Changes to those
-controls must build and deploy `settings_app` as well as the shell. A shell
-SIGUSR1 refresh cannot update the running standalone Settings process. Install
-its new bundle separately, preserve the GTK runner and compatible engine, and
-have the user close and reopen Settings to load the updated controls.
+Settings is a program of its own, built from denial-apps
+(`settings/README.md`); the shell holds none of its controls. A change to an
+appearance control is a change there: build Settings and have the user close
+and reopen it. A shell SIGUSR1 refresh updates only the shell.

@@ -30,6 +30,12 @@ class _LockBackdropState extends ConsumerState<_LockBackdrop> {
     );
     final output = widget.output;
     final onPainted = widget.onPainted;
+    final custom = WallpaperResource.fromPersistenceValue(settings.wallpaper);
+    final desktopWallpaper = output == null
+        ? ShellWallpaper(
+            onPainted: onPainted == null ? null : _wallpaperPainted,
+          )
+        : ShellOutputWallpaper(output: output);
     return _PaintedBoundary(
       key: _boundary,
       onPainted: onPainted,
@@ -39,29 +45,35 @@ class _LockBackdropState extends ConsumerState<_LockBackdrop> {
           CustomPaint(
             painter: _LockFillPainter(color: context.shellColors.background),
           ),
-          if (settings.useSystemWallpaper)
-            ClipRect(
-              child: ImageFiltered(
-                key: ValueKey<String>(
-                  output == null
-                      ? 'lock-wallpaper-blur'
-                      : 'lock-wallpaper-blur-${output.monitorId}',
-                ),
-                imageFilter: ImageFilter.blur(
-                  sigmaX: settings.blurRadius,
-                  sigmaY: settings.blurRadius,
-                  // The lock wallpaper fills the output. Clamping keeps the
-                  // blur kernel from sampling transparent pixels beyond that
-                  // boundary and exposing a bright halo around the display.
-                  tileMode: TileMode.clamp,
-                ),
-                child: output == null
-                    ? ShellWallpaper(
-                        onPainted: onPainted == null ? null : _wallpaperPainted,
-                      )
-                    : ShellOutputWallpaper(output: output),
+          ClipRect(
+            child: ImageFiltered(
+              key: ValueKey<String>(
+                output == null
+                    ? 'lock-wallpaper-blur'
+                    : 'lock-wallpaper-blur-${output.monitorId}',
               ),
+              imageFilter: ImageFilter.blur(
+                sigmaX: settings.blurRadius,
+                sigmaY: settings.blurRadius,
+                tileMode: TileMode.clamp,
+              ),
+              child: custom == null
+                  ? desktopWallpaper
+                  : LayoutBuilder(
+                      builder: (context, constraints) => Image(
+                        image: wallpaperImageProvider(
+                          custom,
+                          targetPixelSize:
+                              output?.pixelSize ??
+                              constraints.biggest *
+                                  MediaQuery.devicePixelRatioOf(context),
+                        ),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => desktopWallpaper,
+                      ),
+                    ),
             ),
+          ),
           CustomPaint(
             painter: _LockFillPainter(
               color: ShellMediaColors.darkness.withValues(
@@ -568,7 +580,7 @@ class _LockGlyph extends StatelessWidget {
   }
 }
 
-/// The swipe-up pill of the mobile face: wider than the navigation pill and
+/// The swipe-up pill of the mobile face: as wide as the navigation pill and
 /// centred where it sits. It stays put and fades out as the face is swiped
 /// away.
 class _LockSwipePill extends StatelessWidget {
@@ -763,15 +775,23 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
     final assignment = ref.watch(
       wallpaperControllerProvider.select((state) => state.assignment),
     );
-    final resource = outputName == null
-        ? assignment.all
-        : assignment.forOutput(outputName);
-    final alignment = outputName == null
+    final custom = WallpaperResource.fromPersistenceValue(settings.wallpaper);
+    final resource =
+        custom ??
+        (outputName == null
+            ? assignment.all
+            : assignment.forOutput(outputName));
+    final alignment = custom != null
+        ? const WallpaperSpanAlignment()
+        : outputName == null
         ? assignment.spanAlignment
         : assignment.alignmentForOutput(outputName);
-    final wallpaper =
-        settings.useSystemWallpaper &&
-            resource.kind == WallpaperResourceKind.file
+    final zoom = custom != null
+        ? 1.0
+        : outputName == null
+        ? assignment.zoom
+        : assignment.zoomForOutput(outputName);
+    final wallpaper = resource.kind == WallpaperResourceKind.file
         ? resource.path
         : null;
     // A new mask may be for this wallpaper: read the cache again.
@@ -795,9 +815,7 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
         // wallpaper is drawn.
         final cover =
             math.max(size.width / source.width, size.height / source.height) *
-            (outputName == null
-                ? assignment.zoom
-                : assignment.zoomForOutput(outputName));
+            zoom;
         final sigma = (settings.blurRadius + widget.spread) / cover;
         if (sigma > 0.0 && _maskKey != (sigma, size)) {
           _bake(source, sigma, size);

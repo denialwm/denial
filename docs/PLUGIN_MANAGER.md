@@ -1154,17 +1154,16 @@ Accepted behavior (2026-10-03):
 
 - deniald treats a rejection as an update only for the selected composition it
   had confirmed before, and only when validation rejects it for a different
-  Flutter generation or installed source identity. An engine-only mismatch with
-  the same source identity is an engine experiment, not an update. Seal,
-  checksum, manifest, interrupted-start and repeated-start rejections keep the
-  section 17 recovery error.
+  Flutter generation or installed source identity. The engine is never a
+  reason to reject (section 22). Seal, checksum, manifest and repeated-start
+  rejections keep the section 17 recovery error.
 - For an update, deniald keeps the selection, reports no error, and publishes
   `plugin_rebuild: {reason, bundle, version, installed_source}` in its UI
-  state. `reason` is `source` or `flutter_generation`; `version` is the
-  installed release from `share/denial/version`, or the build identity of a
-  development build; `installed_source` is the packaged shell's
-  `.denial-ui-source.json`, absent for a development bundle without one. The
-  field clears when a composition is confirmed or the packaged shell is
+  state. `reason` is `source`, `flutter_generation` or `engine` (section 22);
+  `version` is the installed release from `share/denial/version`, the build
+  identity of a development build, or empty for `engine`; `installed_source`
+  is the shell's `.denial-ui-source.json`, absent for a bundle without one.
+  The field clears when a composition is confirmed or the packaged shell is
   explicitly restored.
 - deniald starts `denial-plugins resume` once per compositor start when it
   reports `plugin_rebuild` and the Plugin Manager is installed. The packaged
@@ -1183,9 +1182,10 @@ Accepted behavior (2026-10-03):
   the same intent across releases by name; Git and local roots must keep their
   source. Local plugins are read from their folders as they are now, like
   Apply.
-- Before compiling, `rebuild` requires the prepared build kit's runtime identity
-  to equal the installed one that deniald reports. A mismatch means the Plugin
-  Manager package and Denial differ; nothing is compiled.
+- Before compiling, `rebuild` requires the identity its build tools stamp to
+  equal the installed one that deniald reports. A mismatch means this plugin
+  manager belongs to another Denial than the session runs; nothing is
+  compiled.
 - An automatic rebuild switches the shell only at a quiet moment: the session is
   unlocked, no input arrived for 2.5 seconds, the shell does not capture the
   keyboard, no visible application inhibits idling (a playing video, for
@@ -1260,3 +1260,196 @@ deniald to try first at the next login with the usual startup confirmation.
 This needs a staged-candidate field that the old compositor never rewrites, and
 must not activate a candidate in the old session: that compositor still maps the
 old engine while validating against the new files on disk.
+
+## 22. Which plugins load, development checkouts and the command line (2026-11-18)
+
+This section supersedes, where they differ: the engine comparison and the
+plan-versus-build checks of sections 9, 12 and 14, the manager's own record of
+the active composition, and the `plan`, `build ID`, `activate ID` commands.
+
+### Which plugins load
+
+Two rules decide whether deniald loads a composition:
+
+1. **It was built for this Denial.** The bundle's `source_identity` equals the
+   shell's `.denial-ui-source.json`, and its Flutter generation is deniald's.
+   A release is named by the marker of its build kit, which changes with every
+   release. A development checkout is named by its path alone:
+   `{"schema": 1, "development": "/path/to/checkout"}`. Commits, edits and
+   engine rebuilds keep that name, so they never turn plugins away.
+2. **The engine accepts it, proven by starting it.** The shell must show its
+   first frame. When it does not, deniald goes back to the desktop it was
+   running and reports the error.
+
+A confirmed composition that fails rule 1 is rebuilt (section 21); it is never
+an error. The engine is not compared before starting. The manifest's
+`engine_sha256` only says which engine the composition was compiled against:
+
+- `ui status` reports `plugin_engine_differs` while such a composition runs or
+  starts. It is loaded all the same.
+- When the confirmed composition does not start at login on another engine
+  than it was compiled against, or the previous login died starting it,
+  deniald publishes `plugin_rebuild` with reason `engine` and the manager
+  rebuilds it against the session's engine.
+- A composition that was just requested and does not start is a plain failure:
+  the command returns deniald's error and the desktop that ran stays.
+
+deniald still requires a sealed (read-only) bundle, a readable manifest and
+matching checksums of `lib/libapp.so` and `data/flutter_assets`: they catch a
+damaged build. The manager still checks plugin conflicts and the SDK boundary
+before compiling.
+
+A bundle holds `lib/libapp.so`, `data/flutter_assets` and
+`denial-plugin-bundle.json`. It carries no engine and no ICU data: deniald runs
+every composition on the session's own. deniald announces this as capability
+`pluginBundleV2`; the manager applies nothing to a deniald without it and asks
+for one logout and login.
+
+### One record of what runs
+
+deniald's `plugin-composition.json` is the only record. `ui status` reports
+`plugin_bundle` (what runs), `plugin_previous` (what `undo` goes back to) and
+`plugin_engine_differs`. The manager keeps no copy: its `status` derives
+`active` from deniald's answer, and a composition deniald runs that this
+manager did not build is reported as such.
+
+Apply plans, builds and activates under one lock, from the saved selection as
+it is. Nothing is hashed again between the steps, and an unchanged selection
+whose build deniald already runs does not restart the shell.
+
+### Development checkouts
+
+`tools/denial-pc plugin-manager` builds the backend and the app and writes
+`denial-plugins.installation.json` with
+`development: {checkout, flutter, engineRoot, engineTarget, platform}`. Such a
+manager has no build kit:
+
+- It compiles with the checkout's Flutter tool and the engine output the
+  checkout's shell is built with, in place.
+- It reads the SDK packages and the built-in plugins from the checkout as they
+  are on disk. Nothing is copied and no tool path is stored.
+- It needs the shell built once (`tools/denial-pc bundle`), which produces the
+  engine's compilers. `status` names the missing file otherwise.
+- `tools/denial-pc` writes the checkout's name into the shell bundle when it
+  builds the bundle or the plugin manager, when it starts the session, and
+  when it stages an engine test.
+
+The edit loop for a plugin, the SDK or the shell is one command:
+
+```sh
+tools/denial-plugins apply
+```
+
+`tools/denial-pc plugin-manager` is needed again only after changing the
+plugin manager itself. The built-in plugin records follow the installation
+that runs, so a machine with both a package and a checkout uses either.
+
+A release build (`tools/denial-pc` with its managed Flutter SDK) keeps the
+kit, and `tools/stage-denial-runtime` asks a checkout for one while staging a
+package (`DENIAL_PC_PLUGIN_BUILD_KIT_REQUIRED=1`).
+
+### Commands
+
+| Command | Does |
+| --- | --- |
+| `denial-plugins status` | What runs now, why, and what to do next |
+| `denial-plugins list` | Plugins you can use, and which are on |
+| `denial-plugins add PLUGIN` | Turn a plugin on: a name from `list`, a folder, or a Git URL (`--path`, `--ref`) |
+| `denial-plugins remove PLUGIN` | Turn a plugin off |
+| `denial-plugins apply` | Build the selection and switch the desktop to it (`--update` also moves Git plugins to their newest revision) |
+| `denial-plugins undo` | Go back to the plugins that ran before |
+| `denial-plugins off` | Use the standard desktop; the selection is kept |
+
+`add` and `remove` change only the selection. Commands print text for a
+person; `--json` prints the full JSON. `status` is three kinds of lines: what
+runs, the reasons, and the one command to run next.
+
+```text
+Your plugins are running: denial_desktop, denial_top_bar
+Selected: denial_desktop, denial_taskbar
+  Your selection changed since then: denial_desktop, denial_taskbar
+Next: denial-plugins apply
+```
+
+Plugins and deniald keep using the verbs they had: `bootstrap`, `initialize`
+(`prepare`), `catalog`, `refresh-catalog`, `inspect`, `enable`, `plan` (the
+app's compatibility check), `update`, `revert` (`undo`), `restore` (`off`),
+`rebuild`, `rebuild-now`, `resume`, `discover`, `submit`, `worker` and
+`job-details`. `status --brief` is the app's poll.
+
+## 23. What another program displays (2026-11-18)
+
+A program that shows plugins, such as a Settings page, runs `denial-plugins`
+and displays what it answers. It works nothing out itself: what runs, whether
+Apply is needed, what failed and which buttons to offer are decided here, in
+`lib/src/report.dart`. The command is `$DENIAL_PLUGINS_BINARY` in a Denial
+session, else `denial-plugins` in `PATH`; without it there is no plugin
+support to show.
+
+Every sentence comes with a `code`. A program that knows the code uses its own
+wording, in the user's language; for a code it does not know it shows `text`,
+which is English. `contract` is 1. A new field or code keeps the number, so a
+program ignores fields it does not know.
+
+### `denial-plugins status --json`
+
+The program reads the `summary` object and nothing else of the answer. It
+takes about 40 ms; poll it every 5 s, and every 0.6 s while `work` is set.
+
+| Field | Holds |
+| --- | --- |
+| `desktop` | What runs: `code` `standard`, `plugins` (with `plugins`: names), `other_plugins` (built elsewhere, with `bundle`) or `unreachable` (Denial does not answer), and `text` |
+| `selected` | The saved selection: plugin names |
+| `why` | Lines that explain `desktop`. Codes: `selection_changed`, `engine_differs`, `starting`, `rebuild_update` (with `version` for a release), `rebuild_engine`, `denial_said` (with `message`), `session_old`, `session_error` |
+| `issues` | What stops the saved selection from being built: `code` `too_many_providers`, `missing_provider` or `invalid_declaration`, `text`, `plugins`, `feature` |
+| `included` | What the last build took in besides the selected plugins, while that build is of the saved selection: `name`, `title`, and `through`, the names from a selected plugin down to the one that needs it |
+| `setup` | Whether plugins can be built here: `ready`, `needed`, `preparing`, `missing_dart` (with `expected`), `incompatible_dart` (with `installed`, `required`) or `tools`. For the last three `text` says what to install |
+| `work` | The request that runs now, or null: `job`, `operation`, `label`, `step` and `steps` (null while unknown), `started` (when this step began, for a clock). `label` is one of the labels of `lib/src/progress.dart` |
+| `failure` | The last request, when it failed and nothing succeeded since, or null: `job`, `operation`, `code`, `text`, `detail` (the message it ended with). Codes: `did_not_start`, `conflict`, `two_panels`, `missing`, `declaration`, `download`, `log_in_again`, `other_denial`, `stopped`, `failed` |
+| `next` | The one thing to do, or null: `apply`, `fix_selection`, `log_in_again`, `wait` or `open_in_session`. `text` is worded for the command line |
+| `can` | What to offer now: `change` (switches), `apply`, `undo`, `off`, `switch_now` |
+
+`can.apply` stays true while the selection already runs: in a development
+checkout Apply is also how edits are tried. Show Apply as the main action when
+`next.code` is `apply`. A failure stays until a request succeeds; a program
+that lets the user dismiss it remembers `failure.job`.
+
+### `denial-plugins list --json`
+
+`plugins` is every plugin this installation knows, sorted by name: `name`,
+`title`, `description`, `kind` (`builtin`, `local` or `git`), `from` (a
+folder or a link, `built in` otherwise), `selected`, `installed` (false for a
+community entry that was never added) and `default`. `errors` is non-empty
+when the community list could not be loaded. `default_selection` is true
+while the selection is exactly the plugins Denial comes with. `community`
+holds `configured` (whether this Denial has a community list) and `updated`
+(when it was last read, in UTC).
+
+### `denial-plugins history --json`
+
+`entries` is the requests the manager remembers, the newest first: `job`,
+`operation`, `state` (`waiting`, `working`, `done`, `failed` or `stopped`)
+and `when` (the time it ended or last said something, in UTC). One that
+failed or was stopped also has `code`, `text` and `detail`, as `failure`
+does. What a request ran inside itself, and looking into a folder or a link,
+are left out.
+
+### Requests
+
+| The user | Run |
+| --- | --- |
+| flips a switch | `denial-plugins --json add NAME` or `remove NAME`. It returns at once and changes only the saved selection |
+| adds a folder or a link | `denial-plugins --json inspect LOCATION` (`--local` for a folder, `--ref`) lists the plugin packages found there; then `submit add LOCATION --path PATH` |
+| presses Apply | `denial-plugins submit apply` (`--update` also moves Git plugins to their newest revision) |
+| presses Undo, or Standard desktop | `denial-plugins submit undo`, `submit off` |
+| asks for Denial's defaults | `denial-plugins --json defaults`, while `default_selection` is false. It returns at once: the saved selection becomes the plugins Denial comes with, and only them. What was turned off stays in the list |
+| refreshes the community list | `denial-plugins submit refresh-catalog`, while `community.configured`. `work` reports it, and `list` then has the new entries |
+| opens the recent activity | `denial-plugins --json history` |
+| presses Switch now | `denial-plugins rebuild-now`, while `can.switch_now` |
+| opens the details of a failure | `denial-plugins job-details JOB`: the `log` of that request |
+| opens the page | `denial-plugins bootstrap` once. It returns at once and prepares plugin support in the background when `setup` is `needed` |
+
+`submit` starts the request in its own process and prints `{"job": ID}`; the
+request goes on when the program closes, and `status` reports it as `work`. An
+apply typed into a terminal shows up the same way. A request made while
+another runs fails at once: offer one only while `can` allows it.

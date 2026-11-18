@@ -31,12 +31,21 @@ case "$package_name" in
         'Upstream-Contact: Doctor Logix <doctor.logix@gmail.com>' \
         '' \
         'This file contains verbatim copies of the distribution licenses for' \
-        'the Denial runtime and the visual assets distributed with it.'
+        'the Denial runtime and the visual assets distributed with it.' \
+        '' \
+        'Settings is built from https://github.com/denialwm/denial-apps, under' \
+        'the GNU General Public License version 3 or later, with GPUI from' \
+        'https://github.com/denialwm/gpui-touch, under the Apache License 2.0.' \
+        'Its launcher icon comes from the Yaru icon theme, under Creative' \
+        'Commons Attribution-ShareAlike 4.0. /usr/share/licenses/denial/settings' \
+        'holds their notices.'
       append_license 'Denial project license' "$ROOT/LICENSE"
       append_license 'GNU General Public License version 3' \
         "$ROOT/LICENSES/GPL-3.0-only.txt"
       append_license 'Creative Commons Attribution-ShareAlike 4.0' \
         "$ROOT/LICENSES/CC-BY-SA-4.0.txt"
+      append_license 'Apache License 2.0' \
+        "$ROOT/LICENSES/Apache-2.0.txt"
       append_license 'SIL Open Font License 1.1' \
         "$ROOT/packages/denial_flutter_sdk/assets/fonts/OFL.txt"
       append_license 'SIL Open Font License 1.1 (Roboto Flex)' \

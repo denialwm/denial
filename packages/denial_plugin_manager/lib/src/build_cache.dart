@@ -6,12 +6,12 @@ import 'package:path/path.dart' as p;
 import 'store.dart';
 
 /// A cache hit reuses only verified output bytes. Every new candidate retains
-/// its own plan, lock, sealed bundle and native startup confirmation.
+/// its own plan, lock and sealed bundle.
 final class BuildCache {
   const BuildCache(this.store);
   final ManagerStore store;
 
-  Directory? lookup(String key, String engineChecksum) {
+  Directory? lookup(String key) {
     try {
       final record = store.read('cache/builds/$key.json');
       final id = record['id']! as String;
@@ -22,7 +22,7 @@ final class BuildCache {
       final build = store.read('candidates/$id/build.json');
       if (build['cacheKey'] != key ||
           build['bundle'] != bundle.path ||
-          !validBundle(bundle, engineChecksum)) {
+          !validBundle(bundle)) {
         return null;
       }
       return bundle;
@@ -31,7 +31,7 @@ final class BuildCache {
     }
   }
 
-  static bool validBundle(Directory bundle, String engineChecksum) {
+  static bool validBundle(Directory bundle) {
     try {
       if (FileSystemEntity.isLinkSync(bundle.path) ||
           FileSystemEntity.isLinkSync(bundle.parent.path) ||
@@ -45,13 +45,8 @@ final class BuildCache {
             .readAsStringSync(),
       ) as Map;
       return manifest['id'] == p.basename(bundle.parent.path) &&
-          manifest['engine_sha256'] == engineChecksum &&
-          fileDigest(p.join(bundle.path, 'lib/libflutter_engine.so')) ==
-              engineChecksum &&
           fileDigest(p.join(bundle.path, 'lib/libapp.so')) ==
               manifest['app_sha256'] &&
-          fileDigest(p.join(bundle.path, 'data/icudtl.dat')) ==
-              manifest['icu_sha256'] &&
           treeDigest(Directory(p.join(bundle.path, 'data/flutter_assets'))) ==
               manifest['assets_sha256'];
     } on Object {

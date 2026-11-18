@@ -17,9 +17,11 @@ export 'src/build_kit.dart';
 export 'src/build_cache.dart';
 export 'src/dart_sdk.dart';
 export 'src/installation.dart';
+export 'src/tools.dart';
 
 export 'src/progress.dart';
 export 'src/rebuild.dart';
+export 'src/report.dart';
 export 'src/resume.dart';
 export 'src/notifications.dart';
 export 'src/preflight.dart';

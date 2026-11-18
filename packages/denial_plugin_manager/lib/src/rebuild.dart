@@ -1,14 +1,14 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
 import 'model.dart';
 import 'store.dart';
+import 'tools.dart';
 
 /// The installed plugin build tools do not belong to the installed Denial.
 const buildKitMismatch =
-    'The installed plugin build tools belong to another Denial version. Update the Denial Plugin Manager package to match Denial, then try again.';
+    'These plugin build tools belong to another Denial than the one this session runs. Use the plugin manager that came with it, then try again.';
 
 /// The composition deniald last confirmed, which a Denial update rejected
 /// (PLUGIN_MANAGER.md section 21). deniald runs the packaged shell meanwhile.
@@ -80,16 +80,12 @@ bool waitsForRebuildOf(
       waiting['bundle'] == store.read('candidates/$base/build.json')['bundle'];
 }
 
-/// A build kit prepared from another release would compile a composition that
-/// deniald rejects again. Compare before compiling anything.
+/// Build tools that belong to another Denial would compile a composition
+/// that deniald rejects again. Compare before compiling anything.
 void requireMatchingBuildKit(String runtimeRoot, RebuildTarget target) {
   final installed = target.installedSource;
   if (installed == null) return;
-  final marker = File(p.join(runtimeRoot, '.denial-ui-source.json'));
-  final prepared = marker.existsSync()
-      ? jsonDecode(marker.readAsStringSync())
-      : null;
-  if (contentKey(prepared) != contentKey(installed)) {
+  if (contentKey(sourceIdentity(runtimeRoot)) != contentKey(installed)) {
     throw const CompositionException(buildKitMismatch);
   }
 }
