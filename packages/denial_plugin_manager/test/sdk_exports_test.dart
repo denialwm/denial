@@ -1,3 +1,8 @@
+// The first test here resolves the whole SDK with the analyzer. On a builder
+// that compiles beside the tests that takes longer than the default 30 s.
+@Timeout(Duration(minutes: 3))
+library;
+
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/element/element.dart';
