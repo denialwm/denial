@@ -39,8 +39,8 @@ Anything that fits none of these goes inside an island.
 | Material | Fill | Radius | Edge | Shadow |
 | --- | --- | --- | --- | --- |
 | Window | Glass tint at window opacity, minimum 3/255 | Window radius R | None | None |
-| Island | Smoke: glass tint at max(app-panel opacity, the island floor's alpha); accent, opaque, for own messages and primary actions; opaque raised in an opaque window | max(4, R - 8) | Floating edge, 0.75 lp (opaque raised: light appearance only, ink at 0.10) | Floating shadow, except in runs |
-| Glass group | Glass tint at max(app-panel opacity, group floor) | max(4, R - 8) | Floating edge, 0.75 lp | Floating shadow |
+| Island | Smoke: glass tint at max(app-panel opacity, the island floor's alpha); accent, opaque, for own messages and primary actions; opaque raised in an opaque window | max(4, R - 8, 0.7 R) | Floating edge, 0.75 lp (opaque raised: light appearance only, ink at 0.10) | Floating shadow, except in runs |
+| Glass group | Glass tint at max(app-panel opacity, group floor) | max(4, R - 8, 0.7 R) | Floating edge, 0.75 lp | Floating shadow |
 | Chip | Glass tint at max(app-panel opacity, chip floor) | Fully round | Floating edge, 0.75 lp | None |
 | Bare | None | Own shape | None | Optional floating shadow on a large avatar |
 
@@ -81,8 +81,8 @@ for 225 ppi; 1 dp is 225/160 lp, as `dp()` in Messages computes it.
 | --- | --- | --- |
 | Gutter | **8** | denial-look `INSET`. Between islands, groups and the window edge. |
 | Window radius R | 28 × `cornerRadiusScale` | `Look::window_radius`. 14 at the user's 0.5. |
-| Island and group radius | max(4, R - 8) | `Look::group_radius`. 6 at R 14. |
-| Control radius inside an island | max(4, island radius - inset) | `nested_radius`. |
+| Island and group radius | max(4, R - 8, 0.7 R) | `Look::group_radius`. 9.8 at R 14. Concentric with the window from R 27 up; below, the gutter would take the whole radius, so the island keeps 0.7 of it. |
+| Control radius inside an island | max(4, island radius - inset, 0.55 × island radius) | `nested_radius`. |
 | Bubble and conversation radius | max(4, R) | Messages `bubble_radius`, with a 4 lp tail corner toward the sender on the last bubble of a run. |
 | Group floor | **0.30** dark, **0.50** light | Glass groups never go below it. On a phone, the App panels slider starts at this floor for the current appearance. |
 | Island floor | **0.72** dark, **0.86** light | Window backing plus island glass together never tint the frost less. Keeps secondary text at 4.5:1 over white frost (dark) or black frost (light). |
