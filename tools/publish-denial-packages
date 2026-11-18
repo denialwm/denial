@@ -33,8 +33,9 @@ indexes, are swapped in last, all at once. The server keeps the previous
 release's files, for clients holding its indexes, and loses anything older.
 .manifest in each part's folder lists the release it holds.
 
-KEY_FILE is the upload key. The host key is pinned in
-packaging/packages.denialwm.org/known_hosts.
+KEY_FILE is the upload key. Uploads go over SSH to
+packages-upload.denialwm.org, the server's own address; its host key is
+pinned in packaging/packages.denialwm.org/known_hosts.
 EOF
 }
 
@@ -51,7 +52,9 @@ done
 readonly PART="$1"
 readonly SIGNED_ROOT="$2"
 readonly KEY_FILE="$3"
-readonly HOST='packages.denialwm.org'
+# packages.denialwm.org is served through Cloudflare, which carries no SSH:
+# uploads go to the server's own name.
+readonly HOST='packages-upload.denialwm.org'
 readonly KNOWN_HOSTS="$ROOT/packaging/packages.denialwm.org/known_hosts"
 if [[ "$PART" == phone ]]; then
   readonly REMOTE="packages@$HOST:phone/"
@@ -142,4 +145,4 @@ else
   upload
 fi
 
-printf 'Published %s files to %s.\n' "$(wc -l <"$work/current")" "$HOST"
+printf 'Published %s files to packages.denialwm.org.\n' "$(wc -l <"$work/current")"

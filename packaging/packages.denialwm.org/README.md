@@ -60,7 +60,14 @@ chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
 systemctl enable --now certbot-renew.timer
 ```
 
-The DNS record is an A record, not proxied through Cloudflare.
+DNS holds two A records for the server. `packages.denialwm.org` is proxied
+through Cloudflare (SSL mode Full), which carries the downloads over its own
+network; `nginx.conf` marks the indexes `no-cache` and the package files
+immutable, so Cloudflare keeps only files that never change under their name.
+`packages-upload.denialwm.org` is the server's own address, not proxied:
+Cloudflare carries no SSH, and `tools/publish-denial-packages` uploads there.
+Certificate renewal keeps working through the proxy: Cloudflare passes
+`/.well-known/acme-challenge/` on port 80 to the server.
 
 ## Upload key
 
