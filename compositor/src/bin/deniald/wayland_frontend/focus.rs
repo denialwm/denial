@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use smithay::backend::input::{InputTime, KeyState};
 use smithay::desktop::PopupKind;
-use smithay::input::dnd::{DndFocus, Source};
+use smithay::input::dnd::{DndFocus, OfferData, Source};
 use smithay::input::keyboard::{KeyboardHandle, KeyboardTarget, KeysymHandle, ModifiersState};
 use smithay::input::pointer::{
     AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
@@ -23,6 +23,8 @@ use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::X11Surface;
+#[cfg(feature = "xwayland")]
+use smithay::xwayland::xwm::XwmOfferData;
 use std::sync::Arc;
 
 use super::super::RuntimeState;
@@ -403,8 +405,58 @@ impl TouchTarget<RuntimeState> for ClientSurface {
     }
 }
 
+/// The offer a drag makes to a client surface: a `wl_data_offer`, or XDND
+/// messages when the surface is an X11 window's.
+pub(crate) enum ClientOffer<S: Source> {
+    Wayland(<WlSurface as DndFocus<RuntimeState>>::OfferData<S>),
+    #[cfg(feature = "xwayland")]
+    X11(X11Surface, XwmOfferData<S>),
+}
+
+impl<S: Source> OfferData for ClientOffer<S> {
+    fn disable(&self) {
+        match self {
+            Self::Wayland(offer) => offer.disable(),
+            #[cfg(feature = "xwayland")]
+            Self::X11(_, offer) => offer.disable(),
+        }
+    }
+
+    fn drop(&self) {
+        match self {
+            Self::Wayland(offer) => OfferData::drop(offer),
+            #[cfg(feature = "xwayland")]
+            Self::X11(_, offer) => OfferData::drop(offer),
+        }
+    }
+
+    fn validated(&self) -> bool {
+        match self {
+            Self::Wayland(offer) => offer.validated(),
+            #[cfg(feature = "xwayland")]
+            Self::X11(_, offer) => offer.validated(),
+        }
+    }
+}
+
+/// The X11 window whose surface this is, if any.
+///
+/// Pointer events reach an X11 window through its `wl_surface`, and Xwayland
+/// turns them into X11 events. A drag cannot go that way: an X11 window takes
+/// drops only through XDND, which Smithay speaks for an `X11Surface`. It also
+/// keeps an X11 client's own drag going: Smithay covers the X11 screen while
+/// such a drag is over a Wayland window, and uncovers it when the drag enters
+/// an `X11Surface`.
+#[cfg(feature = "xwayland")]
+fn x11_window(state: &RuntimeState, surface: &WlSurface) -> Option<X11Surface> {
+    state.wayland.as_ref()?.space.elements().find_map(|window| {
+        let x11 = window.x11_surface()?;
+        (x11.wl_surface().as_ref() == Some(surface)).then(|| x11.clone())
+    })
+}
+
 impl DndFocus<RuntimeState> for ClientSurface {
-    type OfferData<S: Source> = <WlSurface as DndFocus<RuntimeState>>::OfferData<S>;
+    type OfferData<S: Source> = ClientOffer<S>;
 
     fn enter<S: Source>(
         &self,
@@ -415,7 +467,12 @@ impl DndFocus<RuntimeState> for ClientSurface {
         location: Point<f64, Logical>,
         serial: &Serial,
     ) -> Option<Self::OfferData<S>> {
-        DndFocus::enter(&self.0, data, dh, source, seat, location, serial)
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = x11_window(data, &self.0) {
+            return DndFocus::enter(&x11, data, dh, source, seat, location, serial)
+                .map(|offer| ClientOffer::X11(x11, offer));
+        }
+        DndFocus::enter(&self.0, data, dh, source, seat, location, serial).map(ClientOffer::Wayland)
     }
 
     fn motion<S: Source>(
@@ -426,7 +483,23 @@ impl DndFocus<RuntimeState> for ClientSurface {
         location: Point<f64, Logical>,
         time: InputTime,
     ) {
-        DndFocus::motion(&self.0, data, offer, seat, location, time);
+        match offer {
+            Some(ClientOffer::Wayland(offer)) => {
+                DndFocus::motion(&self.0, data, Some(offer), seat, location, time);
+            }
+            #[cfg(feature = "xwayland")]
+            Some(ClientOffer::X11(x11, offer)) => {
+                DndFocus::motion(&*x11, data, Some(offer), seat, location, time);
+            }
+            None => {
+                #[cfg(feature = "xwayland")]
+                if let Some(x11) = x11_window(data, &self.0) {
+                    DndFocus::motion::<S>(&x11, data, None, seat, location, time);
+                    return;
+                }
+                DndFocus::motion::<S>(&self.0, data, None, seat, location, time);
+            }
+        }
     }
 
     fn leave<S: Source>(
@@ -435,7 +508,19 @@ impl DndFocus<RuntimeState> for ClientSurface {
         offer: Option<&mut Self::OfferData<S>>,
         seat: &Seat<RuntimeState>,
     ) {
-        DndFocus::leave(&self.0, data, offer, seat);
+        match offer {
+            Some(ClientOffer::Wayland(offer)) => DndFocus::leave(&self.0, data, Some(offer), seat),
+            #[cfg(feature = "xwayland")]
+            Some(ClientOffer::X11(x11, offer)) => DndFocus::leave(&*x11, data, Some(offer), seat),
+            None => {
+                #[cfg(feature = "xwayland")]
+                if let Some(x11) = x11_window(data, &self.0) {
+                    DndFocus::leave::<S>(&x11, data, None, seat);
+                    return;
+                }
+                DndFocus::leave::<S>(&self.0, data, None, seat);
+            }
+        }
     }
 
     fn drop<S: Source>(
@@ -444,7 +529,19 @@ impl DndFocus<RuntimeState> for ClientSurface {
         offer: Option<&mut Self::OfferData<S>>,
         seat: &Seat<RuntimeState>,
     ) {
-        DndFocus::drop(&self.0, data, offer, seat);
+        match offer {
+            Some(ClientOffer::Wayland(offer)) => DndFocus::drop(&self.0, data, Some(offer), seat),
+            #[cfg(feature = "xwayland")]
+            Some(ClientOffer::X11(x11, offer)) => DndFocus::drop(&*x11, data, Some(offer), seat),
+            None => {
+                #[cfg(feature = "xwayland")]
+                if let Some(x11) = x11_window(data, &self.0) {
+                    DndFocus::drop::<S>(&x11, data, None, seat);
+                    return;
+                }
+                DndFocus::drop::<S>(&self.0, data, None, seat);
+            }
+        }
     }
 }
 
