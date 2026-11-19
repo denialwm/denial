@@ -7,6 +7,7 @@ use denial_core::topology::SCALE_BASE;
 use smithay::desktop::Window;
 use smithay::input::pointer::Focus;
 use smithay::reexports::calloop::channel::Event as ChannelEvent;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{EventLoop, LoopHandle, RegistrationToken};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -58,6 +59,9 @@ const XWAYLAND_SCALE_MODE_ENV: &str = "DENIAL_XWAYLAND_SCALE_MODE";
 /// An Xwayland that exits sooner than this after starting is not restarted
 /// again: it would only exit again.
 const XWAYLAND_RESTART_MIN_UPTIME: Duration = Duration::from_secs(10);
+/// How long a restart waits for the old server to let go of the display.
+const XWAYLAND_RESTART_RETRY: Duration = Duration::from_millis(100);
+const XWAYLAND_RESTART_ATTEMPTS: u32 = 50;
 
 /// The complete optional Xwayland subsystem.
 ///
@@ -616,6 +620,10 @@ fn spawn_server(
 /// gone with it. A server that keeps exiting soon after it starts is left
 /// stopped.
 fn restart_xwayland(state: &mut RuntimeState) {
+    restart_xwayland_attempt(state, 1);
+}
+
+fn restart_xwayland_attempt(state: &mut RuntimeState, attempt: u32) {
     if state.lifecycle.shutdown_reason().is_some() {
         return;
     }
@@ -656,6 +664,26 @@ fn restart_xwayland(state: &mut RuntimeState) {
             active.display = display_number;
             active.started = Instant::now();
             warn!(display = %format_args!(":{display_number}"), "restarted Xwayland");
+        }
+        // The old server may still hold the display's sockets while it exits,
+        // after the window manager already saw its connection close.
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::AddrInUse)
+                && attempt < XWAYLAND_RESTART_ATTEMPTS =>
+        {
+            debug!(%error, attempt, "the X11 display is still held; trying Xwayland again");
+            let retry = active.loop_handle.insert_source(
+                Timer::from_duration(XWAYLAND_RESTART_RETRY),
+                move |_, _, state| {
+                    restart_xwayland_attempt(state, attempt + 1);
+                    TimeoutAction::Drop
+                },
+            );
+            if let Err(error) = retry {
+                error!(%error, "could not restart Xwayland; X11 apps stay unavailable until Denial restarts");
+            }
         }
         Err(error) => {
             error!(%error, "could not restart Xwayland; X11 apps stay unavailable until Denial restarts");
