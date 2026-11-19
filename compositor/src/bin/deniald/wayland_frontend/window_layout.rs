@@ -1425,7 +1425,15 @@ impl WaylandFrontend {
         if self.window_on_phone(window) {
             return false;
         }
-        let already_managed = self.window_layout.contains(&root.id());
+        // A tiled window keeps its leaf through later hint changes only once
+        // it has shown a frame there. GTK sends a fixed size with its first
+        // buffer, after the initial commit that put the window in the layout;
+        // X11 size hints arrive before the window maps.
+        let shown = facts.x11
+            || self
+                .window_record_for_surface(&root.id())
+                .is_some_and(|record| record.shown);
+        let keeps_leaf = shown && self.window_layout.contains(&root.id());
         LayoutWindowProperties {
             alive: root.is_alive(),
             transient: self.window_has_transient_parent(window),
@@ -1435,7 +1443,7 @@ impl WaylandFrontend {
             pinned,
             rigid_size: has_rigid_dimension(facts.minimum_size, facts.maximum_size),
         }
-        .is_tiling_candidate(already_managed)
+        .is_tiling_candidate(keeps_leaf)
     }
 
     pub(crate) fn window_size_constraints(
@@ -1663,17 +1671,18 @@ struct LayoutWindowProperties {
 }
 
 impl LayoutWindowProperties {
-    fn is_tiling_candidate(self, already_managed: bool) -> bool {
+    /// `keeps_leaf`: the window holds a leaf it has already shown a frame in.
+    fn is_tiling_candidate(self, keeps_leaf: bool) -> bool {
         self.alive
             && !self.transient
             && !self.auxiliary
             && !self.override_redirect
             && !self.minimized
             && !self.pinned
-            // Dialogs commonly advertise rigid constraints before their first
-            // layout enrollment. Once a regular toplevel owns a leaf, later
-            // hint churn must not let it escape and re-enter the tree.
-            && (!self.rigid_size || already_managed)
+            // A fixed size (dialogs, tray panels) floats at that size. Once a
+            // regular toplevel has shown itself in a leaf, later hint churn
+            // must not let it escape and re-enter the tree.
+            && (!self.rigid_size || keeps_leaf)
     }
 }
 

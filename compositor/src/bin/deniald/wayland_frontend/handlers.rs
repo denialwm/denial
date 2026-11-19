@@ -1431,6 +1431,14 @@ impl CompositorHandler for RuntimeState {
                 // retain only Denial's location intent and receive a zero-size
                 // configure so the client can reveal its own dimensions.
                 frontend.reconcile_window_layout(&window);
+                if root_committed {
+                    // After reconciliation: hints sent with the first buffer
+                    // still decide whether the window tiles.
+                    let shown = !buffer_removed && frontend.buffered_surfaces.contains(&root.id());
+                    if let Some(record) = frontend.ensure_window_record_for_surface(&root.id()) {
+                        record.shown = shown;
+                    }
+                }
                 let restored = frontend.restore_xdg_window_placement(&window);
                 #[cfg(feature = "flutter")]
                 if let Some((restored, target)) = restored {
