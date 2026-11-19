@@ -533,13 +533,22 @@ impl WaylandFrontend {
         buffer: &wl_buffer::WlBuffer,
     ) -> bool {
         let surface_id = surface.id();
-        // Drop the previous CPU snapshot before reserving its replacement, so
-        // repeated commits cannot transiently grow the owned cache without a
-        // bound. Flutter may retain the Arc for its current raster frame only.
-        self.remove_surface_shm_frame(&surface_id);
+        // The new snapshot replaces the previous one, so the previous one's
+        // bytes count as available. It stays until its replacement exists: a
+        // buffer the snapshot rejects (too large, unsupported) leaves the
+        // last good frame on screen instead of a surface with no size. The
+        // cache grows by at most one frame while both exist.
+        let previous_bytes = self
+            .surface_shm_frames
+            .get(&surface_id)
+            .map(|frame| {
+                rgba_payload_len(frame.width(), frame.height())
+                    .expect("validated SHM frame dimensions must fit usize")
+            })
+            .unwrap_or(0);
         let available_cache_bytes = self
             .shm_snapshot_budget_bytes
-            .saturating_sub(self.shm_snapshot_bytes);
+            .saturating_sub(self.shm_snapshot_bytes.saturating_sub(previous_bytes));
         let revision = self.next_shm_revision;
         match snapshot_shm_buffer(
             buffer,
@@ -551,6 +560,7 @@ impl WaylandFrontend {
                 let frame_bytes = rgba_payload_len(frame.width(), frame.height())
                     .expect("validated SHM frame dimensions must fit usize");
                 debug_assert!(frame_bytes <= available_cache_bytes);
+                self.remove_surface_shm_frame(&surface_id);
                 self.shm_snapshot_bytes = self
                     .shm_snapshot_bytes
                     .checked_add(frame_bytes)
@@ -559,7 +569,10 @@ impl WaylandFrontend {
                 self.surface_shm_frames.insert(surface_id, frame);
                 true
             }
-            Ok(None) => false,
+            Ok(None) => {
+                self.remove_surface_shm_frame(&surface_id);
+                false
+            }
             Err(error) => {
                 warn!(
                     %error,
@@ -1933,8 +1946,8 @@ impl WaylandFrontend {
                 let root_layer = layers.iter().find(|layer| layer.surface_id == stable_id);
                 let (
                     texture_id,
-                    width,
-                    height,
+                    root_width,
+                    root_height,
                     texture_source_x,
                     texture_source_y,
                     texture_source_width,
@@ -1954,6 +1967,18 @@ impl WaylandFrontend {
                         layer.scale_120,
                     )
                 });
+                // A root without a frame (its buffer could not be snapshot)
+                // keeps its logical size: a zero size is invalid on the wire.
+                let width = if root_width > 0 {
+                    root_width
+                } else {
+                    u32::try_from(logical_width)?
+                };
+                let height = if root_height > 0 {
+                    root_height
+                } else {
+                    u32::try_from(logical_height)?
+                };
                 let monitor_id = self
                     .output_for_geometry(geometry)
                     .and_then(|output| i64::try_from(output.id.0).ok())
