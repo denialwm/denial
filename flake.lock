@@ -3,17 +3,17 @@
     "denialApps": {
       "flake": false,
       "locked": {
-        "lastModified": 1795096166,
-        "narHash": "sha256-6IYLY5B9+uFlfMTeWX20NdF2ccJapZ/Iqb48oNKiU64=",
+        "lastModified": 1795114709,
+        "narHash": "sha256-VmSj0WQuu7r5Is4foGnWI1DE5VXZDB4RMEDjGsUPtH4=",
         "owner": "denialwm",
         "repo": "denial-apps",
-        "rev": "17c39126fa40546a2adaefb152025b420da0ffa9",
+        "rev": "c4b01ed8b642ded4f1e7bd7edb2bfa341693bd8d",
         "type": "github"
       },
       "original": {
         "owner": "denialwm",
         "repo": "denial-apps",
-        "rev": "17c39126fa40546a2adaefb152025b420da0ffa9",
+        "rev": "c4b01ed8b642ded4f1e7bd7edb2bfa341693bd8d",
         "type": "github"
       }
     },

@@ -21,7 +21,7 @@
   # Settings: the commits settings/SOURCE_LOCK.json names, which the lock
   # consistency check compares with these.
   inputs.denialApps = {
-    url = "github:denialwm/denial-apps/17c39126fa40546a2adaefb152025b420da0ffa9";
+    url = "github:denialwm/denial-apps/c4b01ed8b642ded4f1e7bd7edb2bfa341693bd8d";
     flake = false;
   };
   inputs.gpuiTouch = {
