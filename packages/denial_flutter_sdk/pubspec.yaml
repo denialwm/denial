@@ -37,22 +37,73 @@ flutter:
   uses-material-design: true
   assets:
   - assets/cursors/bibata_modern_ice/alternate/
+  - assets/cursors/bibata_modern_ice/alternate/48/
+  - assets/cursors/bibata_modern_ice/alternate/64/
+  - assets/cursors/bibata_modern_ice/alternate/96/
   - assets/cursors/bibata_modern_ice/busy/
+  - assets/cursors/bibata_modern_ice/busy/48/
+  - assets/cursors/bibata_modern_ice/busy/64/
+  - assets/cursors/bibata_modern_ice/busy/96/
   - assets/cursors/bibata_modern_ice/diagonal_nesw/
+  - assets/cursors/bibata_modern_ice/diagonal_nesw/48/
+  - assets/cursors/bibata_modern_ice/diagonal_nesw/64/
+  - assets/cursors/bibata_modern_ice/diagonal_nesw/96/
   - assets/cursors/bibata_modern_ice/diagonal_nwse/
+  - assets/cursors/bibata_modern_ice/diagonal_nwse/48/
+  - assets/cursors/bibata_modern_ice/diagonal_nwse/64/
+  - assets/cursors/bibata_modern_ice/diagonal_nwse/96/
   - assets/cursors/bibata_modern_ice/handwriting/
+  - assets/cursors/bibata_modern_ice/handwriting/48/
+  - assets/cursors/bibata_modern_ice/handwriting/64/
+  - assets/cursors/bibata_modern_ice/handwriting/96/
   - assets/cursors/bibata_modern_ice/help/
+  - assets/cursors/bibata_modern_ice/help/48/
+  - assets/cursors/bibata_modern_ice/help/64/
+  - assets/cursors/bibata_modern_ice/help/96/
   - assets/cursors/bibata_modern_ice/horizontal_resize/
+  - assets/cursors/bibata_modern_ice/horizontal_resize/48/
+  - assets/cursors/bibata_modern_ice/horizontal_resize/64/
+  - assets/cursors/bibata_modern_ice/horizontal_resize/96/
   - assets/cursors/bibata_modern_ice/link/
+  - assets/cursors/bibata_modern_ice/link/48/
+  - assets/cursors/bibata_modern_ice/link/64/
+  - assets/cursors/bibata_modern_ice/link/96/
   - assets/cursors/bibata_modern_ice/move/
+  - assets/cursors/bibata_modern_ice/move/48/
+  - assets/cursors/bibata_modern_ice/move/64/
+  - assets/cursors/bibata_modern_ice/move/96/
   - assets/cursors/bibata_modern_ice/normal/
+  - assets/cursors/bibata_modern_ice/normal/48/
+  - assets/cursors/bibata_modern_ice/normal/64/
+  - assets/cursors/bibata_modern_ice/normal/96/
   - assets/cursors/bibata_modern_ice/person/
+  - assets/cursors/bibata_modern_ice/person/48/
+  - assets/cursors/bibata_modern_ice/person/64/
+  - assets/cursors/bibata_modern_ice/person/96/
   - assets/cursors/bibata_modern_ice/pin/
+  - assets/cursors/bibata_modern_ice/pin/48/
+  - assets/cursors/bibata_modern_ice/pin/64/
+  - assets/cursors/bibata_modern_ice/pin/96/
   - assets/cursors/bibata_modern_ice/precision/
+  - assets/cursors/bibata_modern_ice/precision/48/
+  - assets/cursors/bibata_modern_ice/precision/64/
+  - assets/cursors/bibata_modern_ice/precision/96/
   - assets/cursors/bibata_modern_ice/text/
+  - assets/cursors/bibata_modern_ice/text/48/
+  - assets/cursors/bibata_modern_ice/text/64/
+  - assets/cursors/bibata_modern_ice/text/96/
   - assets/cursors/bibata_modern_ice/unavailable/
+  - assets/cursors/bibata_modern_ice/unavailable/48/
+  - assets/cursors/bibata_modern_ice/unavailable/64/
+  - assets/cursors/bibata_modern_ice/unavailable/96/
   - assets/cursors/bibata_modern_ice/vertical_resize/
+  - assets/cursors/bibata_modern_ice/vertical_resize/48/
+  - assets/cursors/bibata_modern_ice/vertical_resize/64/
+  - assets/cursors/bibata_modern_ice/vertical_resize/96/
   - assets/cursors/bibata_modern_ice/working/
+  - assets/cursors/bibata_modern_ice/working/48/
+  - assets/cursors/bibata_modern_ice/working/64/
+  - assets/cursors/bibata_modern_ice/working/96/
   - assets/branding/denial-dark.svg
   - assets/icons/application-default-icon.svg
   - assets/wallpapers/trails-h-accent-9-dark.png

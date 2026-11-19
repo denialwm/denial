@@ -63,17 +63,23 @@ WINDOWS_ROOT="$WORK/windows/Bibata-Modern-Ice-Regular-Windows"
     exit 1
   }
 
+# Every role is imported at 32 px, its native size, and at the larger sizes
+# below. A larger size lands in ROLE/SIZE/ beside the 32 px frame, and its
+# hotspot is checked against the one cursor_themes.dart declares for it.
+LARGER_SIZES=(48 64 96)
+
 extract_xcursor_frame() {
   local role="$1"
   local source_name="$2"
-  local expected_hotspot_x="$3"
-  local expected_hotspot_y="$4"
+  shift 2
   local extraction_root="$WORK/extracted/$role"
   local config="$WORK/$role.conf"
+  local wanted
   local size
   local hotspot_x
   local hotspot_y
   local image_name
+  local target
 
   install -d -- "$extraction_root" "$WORK/stage/$role"
   xcur2png \
@@ -81,68 +87,101 @@ extract_xcursor_frame() {
     --directory "$extraction_root" \
     --conf "$config" \
     "$XCURSOR_ROOT/$source_name" >/dev/null 2>&1
-  read -r size hotspot_x hotspot_y image_name < <(
-    awk '$1 == 32 { print $1, $2, $3, $4; exit }' "$config"
-  )
-  [[ "$size" == 32 \
-    && "$hotspot_x" == "$expected_hotspot_x" \
-    && "$hotspot_y" == "$expected_hotspot_y" \
-    && -f "$image_name" ]] \
-    || {
-      printf 'import-bibata-cursor: unexpected %s frame metadata\n' "$role" >&2
-      exit 1
-    }
-  install -m644 -- "$image_name" \
-    "$WORK/stage/$role/00.png"
+  for wanted in 32 "${LARGER_SIZES[@]}"; do
+    # The first frame of each size: animated upstream cursors stay static.
+    read -r size hotspot_x hotspot_y image_name < <(
+      awk -v wanted="$wanted" '$1 == wanted { print $1, $2, $3, $4; exit }' \
+        "$config"
+    )
+    [[ "$size" == "$wanted" \
+      && "$hotspot_x,$hotspot_y" == "$1" \
+      && -f "$image_name" ]] \
+      || {
+        printf 'import-bibata-cursor: unexpected %s %spx frame metadata\n' \
+          "$role" "$wanted" >&2
+        exit 1
+      }
+    shift
+    target="$WORK/stage/$role"
+    [[ "$wanted" == 32 ]] || target="$target/$wanted"
+    install -d -- "$target"
+    install -m644 -- "$image_name" "$target/00.png"
+  done
 }
 
-while read -r role source_name hotspot_x hotspot_y; do
-  extract_xcursor_frame "$role" "$source_name" "$hotspot_x" "$hotspot_y"
+# Role, XCursor name, then the hotspot at 32, 48, 64 and 96 px.
+while read -r role source_name hotspots; do
+  # shellcheck disable=SC2086
+  extract_xcursor_frame "$role" "$source_name" $hotspots
 done <<'ROLE_MAP'
-normal left_ptr 6 2
-help question_arrow 5 10
-working left_ptr_watch 6 2
-text xterm 16 16
-link hand2 14 2
-busy wait 16 16
-precision crosshair 16 16
-handwriting pencil 5 26
-unavailable crossed_circle 16 16
-vertical_resize sb_v_double_arrow 16 16
-horizontal_resize sb_h_double_arrow 16 16
-diagonal_nwse bd_double_arrow 16 16
-diagonal_nesw fd_double_arrow 16 16
-move move 16 16
-alternate dnd-link 12 8
+normal left_ptr 6,2 10,3 13,4 20,6
+help question_arrow 5,10 7,16 10,21 15,32
+working left_ptr_watch 6,2 10,3 13,4 20,6
+text xterm 16,16 24,24 32,32 48,48
+link hand2 14,2 21,3 28,4 42,6
+busy wait 16,16 24,24 32,32 48,48
+precision crosshair 16,16 24,24 32,32 48,48
+handwriting pencil 5,26 8,39 11,52 17,79
+unavailable crossed_circle 16,16 24,24 32,32 48,48
+vertical_resize sb_v_double_arrow 16,16 24,24 32,32 48,48
+horizontal_resize sb_h_double_arrow 16,16 24,24 32,32 48,48
+diagonal_nwse bd_double_arrow 16,16 24,24 32,32 48,48
+diagonal_nesw fd_double_arrow 16,16 24,24 32,32 48,48
+move move 16,16 24,24 32,32 48,48
+alternate dnd-link 12,8 18,12 25,16 37,24
 ROLE_MAP
 
+# The Linux release has no person or pin cursor; the regular Windows release
+# carries them at 32, 48, 64 and 96 px as its first four images.
 extract_windows_frame() {
   local role="$1"
   local source_name="$2"
+  local index=1
+  local wanted
+  local hotspot
   local listing
+  local target
+  local extraction_root="$WORK/extracted/$role"
 
-  listing="$(icotool --list --index=1 "$WINDOWS_ROOT/$source_name")"
-  [[ "$listing" == *'--width=32 --height=32'* \
-    && "$listing" == *'--hotspot-x=4 --hotspot-y=1'* ]] \
-    || {
-      printf 'import-bibata-cursor: unexpected %s frame metadata\n' "$role" >&2
-      exit 1
-    }
-  install -d -- "$WORK/stage/$role"
-  icotool \
-    --extract \
-    --index=1 \
-    --output="$WORK/stage/$role/00.png" \
-    "$WINDOWS_ROOT/$source_name"
+  install -d -- "$extraction_root"
+  icotool --extract --output="$extraction_root" "$WINDOWS_ROOT/$source_name"
+  for wanted in 32 "${LARGER_SIZES[@]}"; do
+    case "$wanted" in
+      32) hotspot='--hotspot-x=4 --hotspot-y=1' ;;
+      48) hotspot='--hotspot-x=6 --hotspot-y=2' ;;
+      64) hotspot='--hotspot-x=9 --hotspot-y=2' ;;
+      96) hotspot='--hotspot-x=13 --hotspot-y=4' ;;
+    esac
+    # icotool --list ignores --index, so read this image's own line.
+    listing="$(
+      icotool --list "$WINDOWS_ROOT/$source_name" \
+        | grep -F -- "--index=$index "
+    )"
+    [[ "$listing" == *"--width=$wanted --height=$wanted"* \
+      && "$listing" == *"$hotspot"* ]] \
+      || {
+        printf 'import-bibata-cursor: unexpected %s %spx frame metadata\n' \
+          "$role" "$wanted" >&2
+        exit 1
+      }
+    target="$WORK/stage/$role"
+    [[ "$wanted" == 32 ]] || target="$target/$wanted"
+    install -d -- "$target"
+    # --extract ignores --index too: extract them all, take this one.
+    install -m644 -- \
+      "$extraction_root/${source_name%.cur}_${index}_${wanted}x${wanted}x32.png" \
+      "$target/00.png"
+    index=$((index + 1))
+  done
 }
 
 extract_windows_frame person Person.cur
 extract_windows_frame pin Pin.cur
 
 frame_count="$(find "$WORK/stage" -type f -name '*.png' | wc -l)"
-[[ "$frame_count" == 17 ]] \
+[[ "$frame_count" == 68 ]] \
   || {
-    printf 'import-bibata-cursor: expected 17 frames, found %s\n' \
+    printf 'import-bibata-cursor: expected 68 frames, found %s\n' \
       "$frame_count" >&2
     exit 1
   }
@@ -160,6 +199,6 @@ cp -a -- "$WORK/stage" "$DESTINATION"
     | xargs -0 sha256sum
 ) > "$MANIFEST"
 
-printf 'Imported 17 unchanged Bibata Modern Ice 32px frames into %s\n' \
+printf 'Imported 17 unchanged Bibata Modern Ice roles at 32, 48, 64 and 96 px into %s\n' \
   "$DESTINATION"
 printf 'Wrote frame manifest: %s\n' "$MANIFEST"

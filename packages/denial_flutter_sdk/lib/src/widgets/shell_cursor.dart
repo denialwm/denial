@@ -191,7 +191,8 @@ class ShellCursorHost extends StatefulWidget {
   final bool hideCursor;
   final DisplayLayout? displayLayout;
 
-  /// Target size of the longest cursor-artwork edge in physical pixels.
+  /// Longest cursor-artwork edge in logical pixels; each display multiplies
+  /// it by its scale.
   final double cursorSize;
   final ValueChanged<int>? onCursorStatePresented;
   final String? benchmarkSocket;
@@ -216,6 +217,7 @@ class _ShellCursorHostState extends State<ShellCursorHost>
   int _pendingCursorAckEpoch = 0;
   bool _cursorAckScheduled = false;
   ShellCursorThemeData? _precacheTheme;
+  final Set<double> _precachedPixels = <double>{};
   CursorBenchmark? _benchmark;
   Offset? _physicalPosition;
 
@@ -289,11 +291,11 @@ class _ShellCursorHostState extends State<ShellCursorHost>
       unawaited(_platformDragIconSubscription?.cancel());
       _subscribeToPlatformDragIcons();
     }
-    if (oldWidget.theme == widget.theme) {
-      return;
+    if (oldWidget.theme != widget.theme ||
+        oldWidget.cursorSize != widget.cursorSize ||
+        oldWidget.displayLayout?.epoch != widget.displayLayout?.epoch) {
+      _precacheCursorAssets();
     }
-    _precacheTheme = null;
-    _precacheCursorAssets();
   }
 
   @override
@@ -308,14 +310,35 @@ class _ShellCursorHostState extends State<ShellCursorHost>
     super.dispose();
   }
 
+  double get _configuredCursorSize =>
+      widget.cursorSize.isFinite && widget.cursorSize > 0
+      ? widget.cursorSize
+      : shellCursorDefaultSize;
+
+  /// Loads the frames the cursor draws on every display before it gets
+  /// there, so moving to a display of another scale shows no empty frame.
   void _precacheCursorAssets() {
-    if (identical(_precacheTheme, widget.theme) ||
-        !widget.theme.usesImageFrames) {
+    if (!widget.theme.usesImageFrames) {
       return;
     }
-    _precacheTheme = widget.theme;
-    for (final provider in widget.theme.imageProviders) {
-      unawaited(precacheImage(provider, context));
+    if (!identical(_precacheTheme, widget.theme)) {
+      _precacheTheme = widget.theme;
+      _precachedPixels.clear();
+    }
+    final scales = <double>{
+      _validDisplayScale(MediaQuery.maybeDevicePixelRatioOf(context), 1.0),
+      for (final output
+          in widget.displayLayout?.outputs ?? const <DisplayOutput>[])
+        _validDisplayScale(output.scale, 1.0),
+    };
+    for (final scale in scales) {
+      final pixels = _configuredCursorSize * scale;
+      if (!_precachedPixels.add(pixels)) {
+        continue;
+      }
+      for (final provider in widget.theme.imageProvidersFor(pixels)) {
+        unawaited(precacheImage(provider, context));
+      }
     }
   }
 
@@ -471,10 +494,9 @@ class _ShellCursorHostState extends State<ShellCursorHost>
       position ?? Offset.zero,
       fallbackScale,
     );
-    final configuredSize = widget.cursorSize.isFinite && widget.cursorSize > 0
-        ? widget.cursorSize
-        : shellCursorDefaultSize;
-    final artworkExtent = configuredSize / outputScale;
+    // The cursor size is logical, so the cursor grows with the display's
+    // scale as apps' cursors do; the scale picks the rendition drawn.
+    final artworkExtent = _configuredCursorSize;
     return MouseRegion(
       opaque: false,
       cursor: ShellMouseCursors.normal,
@@ -555,6 +577,7 @@ class _ShellCursorHostState extends State<ShellCursorHost>
                           theme: widget.theme,
                           kind: !dragActive ? _kind : ShellCursorKind.normal,
                           longestEdge: artworkExtent,
+                          pixelRatio: outputScale,
                           anchorAtHotspot: true,
                         ),
                       ),
@@ -630,6 +653,7 @@ class ShellCursorArtwork extends StatefulWidget {
     required this.theme,
     required this.kind,
     required this.longestEdge,
+    this.pixelRatio,
     this.anchorAtHotspot = false,
     this.running = true,
     super.key,
@@ -638,6 +662,10 @@ class ShellCursorArtwork extends StatefulWidget {
   final ShellCursorThemeData theme;
   final ShellCursorKind kind;
   final double longestEdge;
+
+  /// Physical pixels per logical pixel where the artwork shows, which picks
+  /// the rendition drawn. Defaults to the view's ratio.
+  final double? pixelRatio;
   final bool anchorAtHotspot;
   final bool running;
 
@@ -699,22 +727,29 @@ class _ShellCursorArtworkState extends State<ShellCursorArtwork> {
   @override
   Widget build(BuildContext context) {
     final role = _role;
-    final nativeSize = role.size;
-    final nativeExtent = nativeSize.width > nativeSize.height
-        ? nativeSize.width
-        : nativeSize.height;
     final requestedExtent =
         widget.longestEdge.isFinite && widget.longestEdge > 0
         ? widget.longestEdge
         : shellCursorDefaultSize;
-    final scale = requestedExtent / nativeExtent;
-    final artworkSize = nativeSize * scale;
-    final hotspot = role.hotspotAt(_frame);
+    final pixelRatio = _validDisplayScale(
+      widget.pixelRatio ?? MediaQuery.maybeDevicePixelRatioOf(context),
+      1.0,
+    );
+    final pixels = requestedExtent * pixelRatio;
+    final rendition = role.renditionFor(pixels);
+    final renditionExtent = rendition?.extent.toDouble() ?? role.nativeExtent;
+    // Logical pixels per pixel of the rendition's artwork.
+    final scale = requestedExtent / renditionExtent;
+    final artworkSize = role.size * (requestedExtent / role.nativeExtent);
+    final hotspot = rendition?.hotspot ?? role.hotspotAt(_frame);
     final artwork = Image(
-      image: widget.theme.imageProvider(widget.kind, _frame)!,
+      image: widget.theme.imageProvider(widget.kind, _frame, rendition)!,
       width: artworkSize.width,
       height: artworkSize.height,
-      filterQuality: FilterQuality.none,
+      // Pixel for pixel stays sharp; anything else is resampled smoothly.
+      filterQuality: (pixels - renditionExtent).abs() < 0.5
+          ? FilterQuality.none
+          : FilterQuality.medium,
       gaplessPlayback: true,
       excludeFromSemantics: true,
     );
