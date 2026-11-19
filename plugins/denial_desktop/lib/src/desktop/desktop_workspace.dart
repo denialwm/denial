@@ -339,9 +339,10 @@ enum DesktopOverviewDirection { left, right, up, down }
 
 /// Finds the next overview preview in [direction] using the arranged geometry.
 ///
-/// Candidates which overlap the current preview on the perpendicular axis are
-/// preferred. This keeps left/right movement within a justified row and
-/// up/down movement within a visual column before considering diagonal cards.
+/// Left and right step through the previews in reading order: along a row,
+/// from the end of one row to the start of the next, and around from the last
+/// preview to the first. Up and down move to the nearest preview in that
+/// direction, preferring one in the same visual column, and stop at the edge.
 int? desktopOverviewNeighbor({
   required Map<int, Rect> frames,
   required int fromObjectId,
@@ -350,6 +351,16 @@ int? desktopOverviewNeighbor({
   final source = frames[fromObjectId];
   if (source == null) {
     return null;
+  }
+  if (direction == DesktopOverviewDirection.left ||
+      direction == DesktopOverviewDirection.right) {
+    final order = desktopOverviewReadingOrder(frames);
+    if (order.length < 2) {
+      return null;
+    }
+    final index = order.indexOf(fromObjectId);
+    final step = direction == DesktopOverviewDirection.right ? 1 : -1;
+    return order[(index + step) % order.length];
   }
 
   int? bestObjectId;
@@ -407,6 +418,35 @@ int? desktopOverviewNeighbor({
     }
   }
   return bestObjectId;
+}
+
+/// The previews in reading order: rows from top to bottom, each from left to
+/// right. A preview joins the row above when it overlaps that row vertically.
+List<int> desktopOverviewReadingOrder(Map<int, Rect> frames) {
+  final byTop = frames.entries.toList()
+    ..sort((a, b) {
+      final order = a.value.top.compareTo(b.value.top);
+      return order != 0 ? order : a.value.left.compareTo(b.value.left);
+    });
+  final rows = <List<MapEntry<int, Rect>>>[];
+  var rowBottom = double.negativeInfinity;
+  for (final entry in byTop) {
+    if (rows.isEmpty || entry.value.top >= rowBottom) {
+      rows.add([entry]);
+      rowBottom = entry.value.bottom;
+    } else {
+      rows.last.add(entry);
+      if (entry.value.bottom > rowBottom) rowBottom = entry.value.bottom;
+    }
+  }
+  return [
+    for (final row in rows)
+      ...(row..sort((a, b) {
+            final order = a.value.left.compareTo(b.value.left);
+            return order != 0 ? order : a.key.compareTo(b.key);
+          }))
+          .map((entry) => entry.key),
+  ];
 }
 
 double _separation(double aStart, double aEnd, double bStart, double bEnd) {

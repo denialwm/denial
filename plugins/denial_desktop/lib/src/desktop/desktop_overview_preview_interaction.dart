@@ -42,6 +42,7 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
     required this.desktopWidget,
     required this.dragging,
     this.selected = false,
+    this.previewScale = 1.0,
     required this.label,
     required this.onTap,
     required this.onClose,
@@ -57,6 +58,11 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
   final bool desktopWidget;
   final bool dragging;
   final bool selected;
+
+  /// How much the overview shrinks the window: the selection ring is drawn
+  /// inside the window, so its width is divided by this to stay four logical
+  /// pixels wide on screen.
+  final double previewScale;
   final String label;
   final VoidCallback onTap;
   final VoidCallback onClose;
@@ -74,6 +80,7 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
 class _DesktopOverviewPreviewInteractionState
     extends State<DesktopOverviewPreviewInteraction> {
   static const double _emphasizedScale = 1.018;
+  static const double _selectionRingWidth = 4.0;
 
   bool _hovered = false;
   Offset? _lastGlobalDragPosition;
@@ -179,7 +186,10 @@ class _DesktopOverviewPreviewInteractionState
                             color: context.shellTheme.accent.withValues(
                               alpha: widget.selected ? 1.0 : 0.0,
                             ),
-                            width: widget.selected ? 2.0 : 0.0,
+                            width: widget.selected
+                                ? _selectionRingWidth /
+                                      widget.previewScale.clamp(0.05, 4.0)
+                                : 0.0,
                           ),
                           borderRadius: BorderRadius.circular(
                             context.shellTheme.windowRadius,
@@ -196,4 +206,12 @@ class _DesktopOverviewPreviewInteractionState
       ),
     );
   }
+}
+
+/// How much a window laid out in [layout] is shrunk to show in [shown].
+double desktopPreviewScale(Rect shown, Rect layout) {
+  if (layout.width <= 0 || layout.height <= 0) return 1.0;
+  final scale = shown.width / layout.width;
+  final vertical = shown.height / layout.height;
+  return scale < vertical ? scale : vertical;
 }

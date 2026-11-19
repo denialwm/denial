@@ -407,6 +407,9 @@ class DesktopWindowFrame extends ConsumerWidget {
                           desktopWidget: desktopWidget,
                           dragging: placement.dragging,
                           selected: selected,
+                          previewScale: transformed
+                              ? desktopPreviewScale(frame, placement.frame)
+                              : 1.0,
                           label: desktopWidget
                               ? context.l10n.desktopRestoreWindow(
                                   localizedWindowTitle(context, window),
