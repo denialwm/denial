@@ -22,22 +22,26 @@ class QuickSettingsState {
 
   factory QuickSettingsState.initial() => const QuickSettingsState(
     volume: 0.46,
-    profile: PowerProfile.balanced,
+    profile: null,
     screenshotRunning: false,
   );
 
   final double volume;
-  final String profile;
+
+  /// The system power profile, or null while no power-profile service has
+  /// answered: the shade then shows no power tile.
+  final String? profile;
   final bool screenshotRunning;
 
   QuickSettingsState copyWith({
     double? volume,
     String? profile,
+    bool clearProfile = false,
     bool? screenshotRunning,
   }) {
     return QuickSettingsState(
       volume: volume ?? this.volume,
-      profile: profile ?? this.profile,
+      profile: clearProfile ? null : profile ?? this.profile,
       screenshotRunning: screenshotRunning ?? this.screenshotRunning,
     );
   }
@@ -297,20 +301,25 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
   }
 
   void cycleProfile() {
-    final next = PowerProfile.next(state.profile);
+    final current = state.profile;
+    if (current == null) {
+      return;
+    }
+    final next = PowerProfile.next(current);
     state = state.copyWith(profile: next);
     unawaited(_applyProfile(next, _buildGeneration));
   }
 
   /// Writes [profile], then shows the profile the system actually runs, so a
-  /// refused or unavailable service never leaves a made-up label behind.
+  /// refused service never leaves a made-up label behind. A service that no
+  /// longer answers takes the tile away.
   Future<void> _applyProfile(String profile, int generation) async {
     await _power.write(profile);
     final actual = await _power.read();
-    if (isBuildGenerationActive(generation) &&
-        actual != null &&
-        state.profile == profile) {
-      state = state.copyWith(profile: actual);
+    if (isBuildGenerationActive(generation) && state.profile == profile) {
+      state = actual == null
+          ? state.copyWith(clearProfile: true)
+          : state.copyWith(profile: actual);
     }
   }
 
