@@ -89,7 +89,9 @@ flatbuffers = { version = "=25.9.23", optional = true }
 libc = { version = "0.2", optional = true }
 libloading = { version = "0.9", optional = true }
 wayland-scanner = "0.31.10"
-wayland-server = "0.31.13"
+# libwayland_1_23 only exposes set_default_max_buffer_size: the server runs on
+# wayland-backend's Rust implementation and links no libwayland-server.
+wayland-server = { version = "0.31.13", features = ["libwayland_1_23"] }
 png = { version = "=0.18.1", optional = true }
 rustix = { version = "=1.1.4", features = ["thread"], optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }

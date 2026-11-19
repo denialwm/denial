@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Largest outgoing buffer per client: several seconds of 1000 Hz input.
+const CLIENT_MAX_BUFFER_BYTES: usize = 1024 * 1024;
+
 /// The session configuration a frontend starts with.
 pub(crate) struct FrontendConfig {
     pub(crate) xwayland_enabled: bool,
@@ -30,6 +33,10 @@ impl WaylandFrontend {
         } = config;
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
+        // A 1000 Hz mouse sends about 16 KiB of motion events a second. The
+        // 4 KiB default disconnects a client that stops reading for a moment;
+        // the buffer grows only while a client lags, so others pay nothing.
+        display_handle.set_default_max_buffer_size(CLIENT_MAX_BUFFER_BYTES);
         let loop_handle = event_loop.handle();
         let compositor_state = CompositorState::new::<RuntimeState>(&display_handle);
         let xdg_shell_state = XdgShellState::new::<RuntimeState>(&display_handle);
