@@ -86,10 +86,13 @@ run_setup() {
       >>"$case_root/setup.log"
 }
 
-for pacman_os in arch cachyos; do
+for pacman_os in arch cachyos garuda; do
   pacman_root="$work_root/$pacman_os"
   install -d -m 0755 "$pacman_root"
   printf 'ID=%s\n' "$pacman_os" >"$pacman_root/os-release"
+  if [[ "$pacman_os" == garuda ]]; then
+    printf 'ID_LIKE=arch\n' >>"$pacman_root/os-release"
+  fi
   printf '[core]\nInclude = /etc/pacman.d/mirrorlist\n' \
     >"$pacman_root/pacman.conf"
   : >"$pacman_root/admin.log"
@@ -129,10 +132,12 @@ cmp -s -- "$pages_root/expected.conf" "$pages_root/pacman.conf" \
   || fail 'Pacman setup did not move the GitHub Pages repository'
 
 for apt_case in \
-  'debian-trixie debian 13 trixie trixie' \
-  'debian-forky debian - forky trixie' \
-  'ubuntu-noble ubuntu 24.04 noble noble'; do
-  read -r case_name os_id os_version os_codename suite <<<"$apt_case"
+  'debian-trixie debian 13 trixie trixie -' \
+  'debian-forky debian - forky trixie -' \
+  'ubuntu-noble ubuntu 24.04 noble noble -' \
+  'pika pika 4 nest noble ubuntu_debian' \
+  'kali kali 2026.4 kali-rolling trixie debian'; do
+  read -r case_name os_id os_version os_codename suite os_like <<<"$apt_case"
   apt_root="$work_root/$case_name"
   install -d -m 0755 "$apt_root"
   if [[ "$os_version" == - ]]; then
@@ -141,6 +146,9 @@ for apt_case in \
   else
     printf 'ID=%s\nVERSION_ID="%s"\nVERSION_CODENAME=%s\n' \
       "$os_id" "$os_version" "$os_codename" >"$apt_root/os-release"
+  fi
+  if [[ "$os_like" != - ]]; then
+    printf 'ID_LIKE="%s"\n' "${os_like//_/ }" >>"$apt_root/os-release"
   fi
   : >"$apt_root/pacman.conf"
   : >"$apt_root/admin.log"
@@ -203,5 +211,16 @@ if run_setup "$work_root/debian-trixie" y >/dev/null 2>&1; then
   fail 'APT setup accepted a conflicting existing source definition'
 fi
 
+# A distribution with no known ID and no known base is still refused.
+unknown_root="$work_root/unknown"
+install -d -m 0755 "$unknown_root"
+printf 'ID=gentoo\n' >"$unknown_root/os-release"
+: >"$unknown_root/pacman.conf"
+: >"$unknown_root/admin.log"
+: >"$unknown_root/package.log"
+if run_setup "$unknown_root" >/dev/null 2>&1; then
+  fail 'setup accepted a distribution with no known base'
+fi
+
 printf '%s\n' \
-  'Repository setup tests passed for Arch, CachyOS, Debian, Forky/Sid, Ubuntu, and Fedora.'
+  'Repository setup tests passed for Arch, CachyOS, Garuda, Debian, Forky/Sid, Ubuntu, PikaOS, Kali, and Fedora.'

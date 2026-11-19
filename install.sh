@@ -242,10 +242,35 @@ case "$os_id:$os_version:$os_codename" in
     mode='dnf'
     install_command='sudo dnf install denial'
     ;;
-  *)
-    fail "Unsupported distribution: ${os_id:-unknown} ${os_version:-unknown} (${os_codename:-no-codename}). Supported: Arch and compatible derivatives, Debian 13, Ubuntu 24.04, Fedora 44."
-    ;;
 esac
+
+# A derivative names its base in ID_LIKE. Ubuntu derivatives list debian too,
+# so ubuntu is checked first; the packages need the base's glibc or newer.
+if [ -z "$mode" ]; then
+  os_like=" $(os_release_value ID_LIKE) "
+  case "$os_like" in
+    *" arch "*)
+      mode='pacman'
+      install_command='sudo pacman -Syu denial'
+      compatibility_note="$os_id is used as an Arch derivative on a best-effort basis."
+      ;;
+    *" ubuntu "*)
+      mode='apt'
+      suite='noble'
+      install_command='sudo apt update && sudo apt install denial'
+      compatibility_note="$os_id uses the Ubuntu 24.04 package repository on a best-effort basis."
+      ;;
+    *" debian "*)
+      mode='apt'
+      suite='trixie'
+      install_command='sudo apt update && sudo apt install denial'
+      compatibility_note="$os_id uses the Debian 13 package repository on a best-effort basis."
+      ;;
+    *)
+      fail "Unsupported distribution: ${os_id:-unknown} ${os_version:-unknown} (${os_codename:-no-codename}). Supported: Arch, Debian 13, Ubuntu 24.04, Fedora 44, and derivatives of Arch, Debian and Ubuntu."
+      ;;
+  esac
+fi
 
 case "$mode" in
   pacman)
