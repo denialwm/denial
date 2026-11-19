@@ -502,7 +502,12 @@ class _MediaPlaybackPopup extends StatelessWidget {
                       playback.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: ShellText.statusClock.copyWith(fontSize: 16),
+                      // The popup's Material resets the inherited text
+                      // style, so the title names its color itself.
+                      style: ShellText.statusClock.copyWith(
+                        fontSize: 16,
+                        color: context.shellColors.textPrimary,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(

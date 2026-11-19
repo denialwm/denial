@@ -782,6 +782,14 @@ impl IdlePolicy {
         now.saturating_duration_since(self.last_activity)
     }
 
+    /// The system came back from sleep. An alarm or a timer may have woken
+    /// it, not the user, so a fresh interval starts and the next timeout
+    /// suspends again. Dark screens stay dark: `Instant` stops during sleep,
+    /// so without this the interval before the sleep would still count.
+    pub(super) fn note_resume(&mut self, now: Instant) {
+        self.reset_idle_interval(now);
+    }
+
     pub(super) fn note_activity(&mut self, now: Instant) -> Vec<IdlePowerRequest> {
         self.reset_idle_interval(now);
         self.wake_blanked_outputs()

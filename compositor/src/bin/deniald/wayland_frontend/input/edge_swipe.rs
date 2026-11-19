@@ -59,6 +59,7 @@ impl EdgeSwipeCandidate {
             InputEdge::Left => (delta.x, delta.y.abs()),
             InputEdge::Right => (-delta.x, delta.y.abs()),
             InputEdge::Top => (delta.y, delta.x.abs()),
+            InputEdge::Bottom => (-delta.y, delta.x.abs()),
         };
         if inward >= CLAIM_DISTANCE && along <= inward * ALONG_PER_INWARD {
             EdgeSwipeDecision::Claim
@@ -171,5 +172,18 @@ mod tests {
         assert_eq!(moved(top, 4.0, 12.0), EdgeSwipeDecision::Claim);
         assert_eq!(moved(top, 16.0, 3.0), EdgeSwipeDecision::Release);
         assert_eq!(moved(top, 0.0, -16.0), EdgeSwipeDecision::Release);
+    }
+
+    #[test]
+    fn a_swipe_up_from_the_bottom_edge_claims_the_contact() {
+        let bottom = EdgeSwipeCandidate {
+            edge: InputEdge::Bottom,
+            origin: Point::from((200.0, 790.0)),
+            origin_time_usec: 7,
+        };
+        assert_eq!(moved(bottom, 2.0, -6.0), EdgeSwipeDecision::Pending);
+        assert_eq!(moved(bottom, 4.0, -12.0), EdgeSwipeDecision::Claim);
+        assert_eq!(moved(bottom, 16.0, -3.0), EdgeSwipeDecision::Release);
+        assert_eq!(moved(bottom, 0.0, 16.0), EdgeSwipeDecision::Release);
     }
 }

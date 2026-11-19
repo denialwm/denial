@@ -7,7 +7,6 @@ metadata and attribution remain beside the files they describe.
 Project-level release documents live at the repository root:
 
 - [Changelog](../CHANGELOG.md)
-- [Roadmap](../ROADMAP.md)
 - [Security policy](../SECURITY.md)
 - [Beta contribution policy](../CONTRIBUTING.md)
 

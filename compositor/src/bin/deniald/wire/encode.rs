@@ -99,6 +99,34 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    /// Leaves out each window that is invalid on its own, so one client's
+    /// bad surface cannot stop the session. Whole-list errors (counts,
+    /// surfaces shared between windows) still fail the update.
+    fn drop_invalid_windows(&mut self, windows: &mut Vec<WindowDescription>) {
+        let mut window_surface_ids = HashSet::new();
+        let mut rejected = Vec::new();
+        windows.retain(
+            |window| match validate_window(window, &mut window_surface_ids) {
+                Ok(()) => true,
+                Err(error) => {
+                    if !self.rejected_window_ids.contains(&window.window_id) {
+                        tracing::warn!(
+                            %error,
+                            window_id = window.window_id,
+                            app_id = window.app_id.as_str(),
+                            width = window.width,
+                            height = window.height,
+                            "left an invalid window out of the shell snapshot"
+                        );
+                    }
+                    rejected.push(window.window_id);
+                    false
+                }
+            },
+        );
+        self.rejected_window_ids = rejected;
+    }
+
     /// Updates the authoritative snapshot and returns the displaced storage.
     /// The compositor scene builder uses that vector as its next scratch
     /// generation, keeping application-frame-rate metadata off the allocator.
@@ -115,6 +143,7 @@ impl WireBridge {
         if self.windows_revision == Some(revision) {
             return Ok((None, windows));
         }
+        self.drop_invalid_windows(&mut windows);
         let next_restored_window_ids = windows
             .iter()
             .filter(|window| !window.content_kind.is_layer_shell())
@@ -487,6 +516,7 @@ impl WireBridge {
             &fb::MouseConfigurationArgs {
                 speed: mouse.speed,
                 acceleration_enabled: mouse.acceleration_enabled,
+                natural_scroll_enabled: mouse.natural_scroll_enabled,
             },
         );
         let input_devices = fb::InputDeviceCapabilities::create(

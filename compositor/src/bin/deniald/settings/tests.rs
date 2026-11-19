@@ -183,6 +183,7 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
     let configured_mouse = MouseSettings {
         speed: 0.35,
         acceleration_enabled: false,
+        natural_scroll_enabled: true,
     };
     let update = manager
         .prepare_mouse_update(manager.revision(), configured_mouse.clone())
@@ -544,6 +545,7 @@ fn mouse_update_is_persistent_and_revisioned() {
     let configured = MouseSettings {
         speed: 0.55,
         acceleration_enabled: false,
+        natural_scroll_enabled: true,
     };
     let old_revision = manager.revision();
     let update = manager

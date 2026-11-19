@@ -512,6 +512,76 @@ fn inactivity_triggers_lock_dpms_and_suspend_once_in_threshold_order() {
 }
 
 #[test]
+fn resume_without_input_suspends_again_after_a_fresh_interval() {
+    let started = Instant::now();
+    let mut policy = IdlePolicy::default();
+    policy.configure(
+        configuration(
+            Some(Duration::from_secs(5)),
+            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(15)),
+        ),
+        started,
+    );
+    policy.evaluate(started + Duration::from_secs(5), false, [(output(1), true)]);
+    policy.evaluate(
+        started + Duration::from_secs(10),
+        false,
+        [(output(1), true)],
+    );
+    assert!(
+        policy
+            .evaluate(
+                started + Duration::from_secs(15),
+                false,
+                [(output(1), false)]
+            )
+            .suspend
+    );
+    assert_eq!(policy.next_deadline(), None);
+
+    // An alarm wakes the system; `Instant` did not advance during sleep.
+    let resumed = started + Duration::from_secs(16);
+    policy.note_resume(resumed);
+    assert_eq!(
+        policy.next_deadline(),
+        Some(resumed + Duration::from_secs(5))
+    );
+    let early = policy.evaluate(
+        resumed + Duration::from_secs(1),
+        false,
+        [(output(1), false)],
+    );
+    assert!(!early.suspend);
+    assert!(early.power_requests.is_empty());
+
+    // The dark screen stays dark and the locked session stays locked.
+    let display_off = policy.evaluate(
+        resumed + Duration::from_secs(10),
+        false,
+        [(output(1), false)],
+    );
+    assert!(display_off.power_requests.is_empty());
+    assert!(!display_off.suspend);
+    let suspend = policy.evaluate(
+        resumed + Duration::from_secs(15),
+        false,
+        [(output(1), false)],
+    );
+    assert!(suspend.suspend);
+    assert!(suspend.power_requests.is_empty());
+
+    // A touch still lights the screen the idle policy blanked.
+    assert_eq!(
+        policy.note_activity(resumed + Duration::from_secs(20)),
+        [IdlePowerRequest {
+            output: output(1),
+            powered: true,
+        }]
+    );
+}
+
+#[test]
 fn equal_dpms_and_suspend_thresholds_commit_display_off_first() {
     let started = Instant::now();
     let mut policy = IdlePolicy::default();

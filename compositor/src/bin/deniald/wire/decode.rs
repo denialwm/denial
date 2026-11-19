@@ -862,6 +862,7 @@ fn decode_settings_request(
                 mouse: MouseSettings {
                     speed: mouse.speed(),
                     acceleration_enabled: mouse.acceleration_enabled(),
+                    natural_scroll_enabled: mouse.natural_scroll_enabled(),
                 },
             })
         }
@@ -1216,6 +1217,7 @@ fn decode_input_layout(
                 fb::InputEdge::Left => InputEdge::Left,
                 fb::InputEdge::Right => InputEdge::Right,
                 fb::InputEdge::Top => InputEdge::Top,
+                fb::InputEdge::Bottom => InputEdge::Bottom,
                 _ => return Err(WireError::Payload),
             };
             decoded.edge_swipe_regions.push(EdgeSwipeRegion {

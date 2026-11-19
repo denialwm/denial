@@ -318,7 +318,8 @@ struct InputWindowRegion {
 enum InputEdge : ubyte {
   Left = 0,
   Right = 1,
-  Top = 2
+  Top = 2,
+  Bottom = 3
 }
 
 // A touch that starts inside rect over a client window is delivered to that
@@ -773,6 +774,8 @@ table MouseConfiguration {
   speed:double;
   // Off selects libinput's flat profile: speed becomes a constant factor.
   acceleration_enabled:bool = true;
+  // Reverses the wheel, independent of the touchpad's natural scrolling.
+  natural_scroll_enabled:bool;
 }
 
 table SettingsRequest {

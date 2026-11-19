@@ -783,6 +783,66 @@ mod startup_launch_tests {
             .expect("startup blocked on its application launch")
             .unwrap();
     }
+
+    #[test]
+    fn launched_application_starts_with_an_empty_signal_mask() {
+        // Block what calloop's signalfd blocks in the compositor threads.
+        let mut blocked = MaybeUninit::<libc::sigset_t>::uninit();
+        // SAFETY: the set is initialized by sigemptyset before any use, and
+        // the mask change applies to this test thread only.
+        let previous = unsafe {
+            libc::sigemptyset(blocked.as_mut_ptr());
+            let mut blocked = blocked.assume_init();
+            for signal in [libc::SIGUSR1, libc::SIGUSR2, libc::SIGTTOU] {
+                libc::sigaddset(&mut blocked, signal);
+            }
+            let mut previous = MaybeUninit::<libc::sigset_t>::uninit();
+            assert_eq!(
+                libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, previous.as_mut_ptr()),
+                0
+            );
+            previous.assume_init()
+        };
+        let cat = std::env::var("DENIAL_TEST_CAT").unwrap_or_else(|_| "cat".to_owned());
+        let arguments = [cat, "/proc/self/status".to_owned()];
+        let session = SessionEnvironment {
+            wayland_display: OsStr::new("wayland-test"),
+            x11_display: None,
+            output_control_socket: None,
+            cursor_size: 24,
+            application: Default::default(),
+        };
+        let mut command = application_command(
+            ApplicationLaunch {
+                arguments: &arguments,
+                desktop_file_id: None,
+                launch_request_id: None,
+                activation_token: None,
+            },
+            &session,
+            None,
+            None,
+        );
+        let output = command.stdout(Stdio::piped()).output();
+        // SAFETY: restores this thread's own mask saved above.
+        unsafe {
+            libc::pthread_sigmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+        }
+        let output = match output {
+            Ok(output) => output,
+            // Nix's build sandbox blocks the scheduling reset in the hook.
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => return,
+            Err(error) => panic!("could not execute the signal-mask test child: {error}"),
+        };
+        assert!(output.status.success());
+        let status = String::from_utf8(output.stdout).unwrap();
+        let blocked = status
+            .lines()
+            .find_map(|line| line.strip_prefix("SigBlk:"))
+            .unwrap()
+            .trim();
+        assert_eq!(u64::from_str_radix(blocked, 16).unwrap(), 0);
+    }
 }
 
 fn application_command(
@@ -851,12 +911,13 @@ fn application_command(
     application_environment.apply(&mut command, desktop_file_id, discovered_xmodifiers);
     // Internal tool metadata must never replace an application's restored mask.
     command.env_remove(denial_core::cpu_affinity::APPLICATION_CPUS_ENV);
-    // calloop's signalfd intentionally blocks the shutdown signals in every
-    // compositor thread. A fork inherits that mask, so undo it in the child
-    // between fork and exec; otherwise ordinary applications cannot receive
-    // SIGINT/SIGTERM from their own process manager. Also enforce ordinary
-    // CPU scheduling even if the compositor's kernel reset-on-fork guard or
-    // normal-scheduler fallback changes in the future.
+    // calloop's signalfd blocks the signals it watches (SIGINT, SIGTERM,
+    // SIGUSR1, SIGUSR2, SIGTTOU) and the launching thread may block more. A
+    // fork inherits that mask and exec keeps it, so the child starts from an
+    // empty mask between fork and exec, as it would from a terminal: scripts
+    // such as xvfb-run wait for SIGUSR1 and would otherwise hang. Also
+    // enforce ordinary CPU scheduling even if the compositor's kernel
+    // reset-on-fork guard or normal-scheduler fallback changes in the future.
     // SAFETY: the closure uses only libc signal-mask and scheduling syscalls
     // which are valid in the post-fork child, touches no shared Rust state,
     // and returns before exec on every error.
@@ -866,13 +927,8 @@ fn application_command(
             if libc::sigemptyset(signals.as_mut_ptr()) != 0 {
                 return Err(io::Error::last_os_error());
             }
-            let mut signals = signals.assume_init();
-            if libc::sigaddset(&mut signals, libc::SIGINT) != 0
-                || libc::sigaddset(&mut signals, libc::SIGTERM) != 0
-            {
-                return Err(io::Error::last_os_error());
-            }
-            let result = libc::pthread_sigmask(libc::SIG_UNBLOCK, &signals, std::ptr::null_mut());
+            let signals = signals.assume_init();
+            let result = libc::pthread_sigmask(libc::SIG_SETMASK, &signals, std::ptr::null_mut());
             if result != 0 {
                 return Err(io::Error::from_raw_os_error(result));
             }

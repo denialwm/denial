@@ -508,6 +508,7 @@ pub enum InputEdge {
     Left,
     Right,
     Top,
+    Bottom,
 }
 
 /// A touch starting in `rect` over a client stays with that client until it
@@ -861,6 +862,9 @@ pub struct WireBridge {
     windows_revision: Option<u64>,
     window_deltas: bool,
     restored_window_ids: Vec<u64>,
+    /// Windows left out of the snapshot because they failed validation; a
+    /// window is logged once when it starts failing, not every revision.
+    rejected_window_ids: Vec<u64>,
     active_workspaces: BTreeMap<i64, u8>,
     // Flutter copies platform-channel payloads during the synchronous engine
     // call. Keep one builder alive here and lend its finished tail until the
@@ -906,6 +910,7 @@ impl WireBridge {
             windows_revision: None,
             window_deltas: false,
             restored_window_ids: Vec::new(),
+            rejected_window_ids: Vec::new(),
             active_workspaces,
             outbound_builder: FlatBufferBuilder::with_capacity(1024),
             pending_input_layout: None,
@@ -1039,121 +1044,137 @@ fn validate_windows(windows: &[WindowDescription]) -> Result<(), WireError> {
         if surface_count > MAX_SURFACES {
             return Err(WireError::Count);
         }
-        if window.object_id == 0
-            || window.surface_id == 0
-            || window.window_id == 0
-            || window.width == 0
-            || window.height == 0
-            || window.title.len() > MAX_STRING_BYTES
-            || window.app_id.len() > MAX_STRING_BYTES
-            || window.scale_120 == 0
-            || window.transform > 7
-            || !valid_opacity(window.opacity)
+        validate_window(window, &mut window_surface_ids)?;
+        snapshot_surface_ids.reserve(window.surfaces.len());
+        if window
+            .surfaces
+            .iter()
+            .any(|surface| !snapshot_surface_ids.insert(surface.surface_id))
+        {
+            return Err(WireError::Identity);
+        }
+    }
+    Ok(())
+}
+
+/// Checks one window on its own. `window_surface_ids` is scratch storage.
+fn validate_window(
+    window: &WindowDescription,
+    window_surface_ids: &mut HashSet<u64>,
+) -> Result<(), WireError> {
+    if window.object_id == 0
+        || window.surface_id == 0
+        || window.window_id == 0
+        || window.width == 0
+        || window.height == 0
+        || window.title.len() > MAX_STRING_BYTES
+        || window.app_id.len() > MAX_STRING_BYTES
+        || window.scale_120 == 0
+        || window.transform > 7
+        || !valid_opacity(window.opacity)
+        || [
+            window.surface_x,
+            window.surface_y,
+            window.surface_width,
+            window.surface_height,
+            window.texture_source_x,
+            window.texture_source_y,
+            window.texture_source_width,
+            window.texture_source_height,
+            window.geometry_x,
+            window.geometry_y,
+            window.geometry_width,
+            window.geometry_height,
+            window.content_x,
+            window.content_y,
+            window.content_width,
+            window.content_height,
+        ]
+        .iter()
+        .any(|value| !value.is_finite())
+        || (window.texture_id > 0
+            && (window.texture_source_width <= 0.0 || window.texture_source_height <= 0.0))
+        || (!window.surfaces.is_empty()
+            && (window.content_width <= 0.0 || window.content_height <= 0.0))
+    {
+        return Err(WireError::Payload);
+    }
+    if window.content_kind == WindowContentKind::LocalFlutter
+        && (window.texture_id != 0 || !window.surfaces.is_empty())
+    {
+        return Err(WireError::Payload);
+    }
+
+    if window.client_texture.is_some_and(|texture| {
+        !texture.valid() || window.content_kind != WindowContentKind::SurfaceTree
+    }) {
+        return Err(WireError::Payload);
+    }
+
+    window_surface_ids.clear();
+    window_surface_ids.reserve(window.surfaces.len());
+    if window
+        .surfaces
+        .iter()
+        .any(|surface| surface.surface_id == 0 || !window_surface_ids.insert(surface.surface_id))
+    {
+        return Err(WireError::Identity);
+    }
+
+    let mut previous_order = None;
+    for surface in &window.surfaces {
+        if previous_order.is_some_and(|order| surface.composition_order < order) {
+            return Err(WireError::Ordering);
+        }
+        previous_order = Some(surface.composition_order);
+
+        if surface.transform > 7
+            || surface.scale_120 == 0
+            || !valid_opacity(surface.opacity)
             || [
-                window.surface_x,
-                window.surface_y,
-                window.surface_width,
-                window.surface_height,
-                window.texture_source_x,
-                window.texture_source_y,
-                window.texture_source_width,
-                window.texture_source_height,
-                window.geometry_x,
-                window.geometry_y,
-                window.geometry_width,
-                window.geometry_height,
-                window.content_x,
-                window.content_y,
-                window.content_width,
-                window.content_height,
+                surface.surface_x,
+                surface.surface_y,
+                surface.surface_width,
+                surface.surface_height,
+                surface.texture_source_x,
+                surface.texture_source_y,
+                surface.texture_source_width,
+                surface.texture_source_height,
             ]
             .iter()
             .any(|value| !value.is_finite())
-            || (window.texture_id > 0
-                && (window.texture_source_width <= 0.0 || window.texture_source_height <= 0.0))
-            || (!window.surfaces.is_empty()
-                && (window.content_width <= 0.0 || window.content_height <= 0.0))
+            || surface.surface_width <= 0.0
+            || surface.surface_height <= 0.0
+            || (surface.texture_id > 0
+                && (surface.width == 0
+                    || surface.height == 0
+                    || surface.texture_source_width <= 0.0
+                    || surface.texture_source_height <= 0.0))
+            || (surface.parent_surface_id != 0
+                && !window_surface_ids.contains(&surface.parent_surface_id))
+            || (surface.popup_root_surface_id != 0
+                && !window_surface_ids.contains(&surface.popup_root_surface_id))
         {
             return Err(WireError::Payload);
         }
-        if window.content_kind == WindowContentKind::LocalFlutter
-            && (window.texture_id != 0 || !window.surfaces.is_empty())
-        {
-            return Err(WireError::Payload);
-        }
 
-        if window.client_texture.is_some_and(|texture| {
-            !texture.valid() || window.content_kind != WindowContentKind::SurfaceTree
-        }) {
-            return Err(WireError::Payload);
-        }
-
-        window_surface_ids.clear();
-        window_surface_ids.reserve(window.surfaces.len());
-        snapshot_surface_ids.reserve(window.surfaces.len());
-        if window.surfaces.iter().any(|surface| {
-            surface.surface_id == 0
-                || !window_surface_ids.insert(surface.surface_id)
-                || !snapshot_surface_ids.insert(surface.surface_id)
-        }) {
-            return Err(WireError::Identity);
-        }
-
-        let mut previous_order = None;
-        for surface in &window.surfaces {
-            if previous_order.is_some_and(|order| surface.composition_order < order) {
-                return Err(WireError::Ordering);
-            }
-            previous_order = Some(surface.composition_order);
-
-            if surface.transform > 7
-                || surface.scale_120 == 0
-                || !valid_opacity(surface.opacity)
-                || [
-                    surface.surface_x,
-                    surface.surface_y,
-                    surface.surface_width,
-                    surface.surface_height,
-                    surface.texture_source_x,
-                    surface.texture_source_y,
-                    surface.texture_source_width,
-                    surface.texture_source_height,
-                ]
-                .iter()
-                .any(|value| !value.is_finite())
-                || surface.surface_width <= 0.0
-                || surface.surface_height <= 0.0
-                || (surface.texture_id > 0
-                    && (surface.width == 0
-                        || surface.height == 0
-                        || surface.texture_source_width <= 0.0
-                        || surface.texture_source_height <= 0.0))
-                || (surface.parent_surface_id != 0
-                    && !window_surface_ids.contains(&surface.parent_surface_id))
-                || (surface.popup_root_surface_id != 0
-                    && !window_surface_ids.contains(&surface.popup_root_surface_id))
-            {
-                return Err(WireError::Payload);
-            }
-
-            match surface.role {
-                SurfaceRoleDescription::Root => {
-                    if surface.surface_id != window.surface_id
-                        || surface.parent_surface_id != 0
-                        || surface.popup_root_surface_id != 0
-                    {
-                        return Err(WireError::Identity);
-                    }
+        match surface.role {
+            SurfaceRoleDescription::Root => {
+                if surface.surface_id != window.surface_id
+                    || surface.parent_surface_id != 0
+                    || surface.popup_root_surface_id != 0
+                {
+                    return Err(WireError::Identity);
                 }
-                SurfaceRoleDescription::Popup => {
-                    if surface.popup_root_surface_id != surface.surface_id {
-                        return Err(WireError::Identity);
-                    }
+            }
+            SurfaceRoleDescription::Popup => {
+                if surface.popup_root_surface_id != surface.surface_id {
+                    return Err(WireError::Identity);
                 }
-                SurfaceRoleDescription::Subsurface => {
-                    if surface.parent_surface_id == 0 {
-                        return Err(WireError::Identity);
-                    }
+            }
+            SurfaceRoleDescription::Subsurface => {
+                if surface.parent_surface_id == 0 {
+                    return Err(WireError::Identity);
                 }
             }
         }

@@ -2,6 +2,7 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 
 mod access;
+mod location;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -152,6 +153,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Denial Settings portal backend ready"
     );
 
+    location::spawn();
     receive_updates(socket, &connection, &cache)
 }
 

@@ -13,7 +13,12 @@
 //!   nothing.
 //! - An application that stays unfocused is capped to the little tier's
 //!   capacity. Its threads that still use the whole application CPU domain
-//!   are pinned to the little CPUs. Regaining focus restores both.
+//!   are pinned to the little CPUs. Regaining focus restores both. The
+//!   application is its process and its descendants, minus the focused
+//!   application: a game its launcher started keeps the domain while the
+//!   game is in front. Each demotion remembers the processes it moved, so
+//!   a job that left the tree, such as a build a terminal detached, comes
+//!   back with its application, or when that application exits.
 //! - For the same interaction hold, a GPU that its platform lets Denial raise
 //!   runs at its highest frequency. See `gpu_floor`. The shell also reports
 //!   its own animations, such as an arriving banner, which no input drives;
@@ -359,7 +364,8 @@ struct Worker {
     topology: Option<Topology>,
     focused: Option<Process>,
     pending: Vec<(Process, Instant)>,
-    demoted: HashSet<Process>,
+    /// Each demoted application and the processes its demotion moved.
+    demoted: HashMap<Process, Vec<Process>>,
     frame_threads: HashMap<Process, (Instant, Vec<libc::pid_t>)>,
     boosting: bool,
     gpu: Option<GpuFloor>,
@@ -379,7 +385,7 @@ impl Worker {
             topology: None,
             focused: None,
             pending: Vec::new(),
-            demoted: HashSet::new(),
+            demoted: HashMap::new(),
             frame_threads: HashMap::new(),
             boosting: false,
             gpu: None,
@@ -509,11 +515,9 @@ impl Worker {
         }
         if let Some(process) = next {
             self.pending.retain(|(pending, _)| *pending != process);
-            if self.demoted.remove(&process) {
-                self.restore(process, &topology);
-            }
             let floor = self.current_floor(&topology);
             self.apply_frame_floor(process, floor);
+            self.restore_focused(process, &topology);
         }
         self.focused = next;
     }
@@ -594,11 +598,10 @@ impl Worker {
             for (process, _) in due {
                 if Some(process) != self.focused && process.alive() {
                     self.demote(process, &topology);
-                    self.demoted.insert(process);
                 }
             }
         }
-        self.demoted.retain(Process::alive);
+        self.release_exited();
     }
 
     fn owned(&self, pid: libc::pid_t) -> bool {
@@ -675,9 +678,23 @@ impl Worker {
         if maximum >= UTIL_MAX && pin.is_none() {
             return;
         }
+        let children = process_children();
+        // The focused application keeps its domain even when it descends
+        // from the one leaving focus, as a game its launcher started does.
+        let focused = self
+            .focused
+            .map(|focused| self.subtree(&children, focused.pid))
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let mut members = Vec::new();
         let mut capped = 0usize;
         let mut pinned = 0usize;
-        for pid in self.tree(process.pid) {
+        for pid in self.subtree(&children, process.pid) {
+            if focused.contains(&pid) {
+                continue;
+            }
+            let moved = capped + pinned;
             for (tid, _) in threads(pid) {
                 let Some(attr) = get_attr(tid) else { continue };
                 let policy = attr.sched_policy as libc::c_int;
@@ -705,7 +722,13 @@ impl Worker {
                     pinned += 1;
                 }
             }
+            if capped + pinned > moved
+                && let Some(member) = Process::identify(pid)
+            {
+                members.push(member);
+            }
         }
+        self.demoted.insert(process, members);
         tracing::debug!(
             pid = process.pid,
             capped,
@@ -715,10 +738,86 @@ impl Worker {
         );
     }
 
-    fn restore(&mut self, process: Process, topology: &Topology) {
+    /// Gives the focused application the whole domain back: itself and its
+    /// descendants, wherever their demotion came from. An application
+    /// demoted on its own also gets back the processes that have since left
+    /// its tree.
+    fn restore_focused(&mut self, process: Process, topology: &Topology) {
+        if self.demoted.is_empty() {
+            return;
+        }
+        let children = process_children();
+        // Only processes a demotion moved, or that they started since, which
+        // inherited its affinity; the rest of the tree has nothing to undo.
+        let moved = self
+            .demoted
+            .iter()
+            .flat_map(|(root, members)| {
+                std::iter::once(root.pid).chain(members.iter().map(|member| member.pid))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|pid| self.subtree(&children, pid))
+            .collect::<HashSet<_>>();
+        let mut pids = self
+            .subtree(&children, process.pid)
+            .into_iter()
+            .filter(|pid| moved.contains(pid))
+            .collect::<HashSet<_>>();
+        let roots = self
+            .demoted
+            .keys()
+            .filter(|root| pids.contains(&root.pid))
+            .copied()
+            .collect::<Vec<_>>();
+        for root in roots {
+            let members = self.demoted.remove(&root).unwrap_or_default();
+            for member in members.into_iter().filter(Process::alive) {
+                pids.extend(self.subtree(&children, member.pid));
+            }
+        }
+        // What the focused application took over from another one's
+        // demotion is no longer that one's to restore.
+        for members in self.demoted.values_mut() {
+            members.retain(|member| !pids.contains(&member.pid));
+        }
+        self.restore(&pids, topology);
+        tracing::debug!(pid = process.pid, "restored focused application CPU domain");
+    }
+
+    /// A demoted application that exits leaves the processes it moved
+    /// behind, such as a build its terminal detached. Nothing would restore
+    /// them any more, so they get the whole domain back now.
+    fn release_exited(&mut self) {
+        let exited = self
+            .demoted
+            .keys()
+            .filter(|root| !root.alive())
+            .copied()
+            .collect::<Vec<_>>();
+        if exited.is_empty() {
+            return;
+        }
+        let children = process_children();
+        let mut pids = HashSet::new();
+        for root in exited {
+            let members = self.demoted.remove(&root).unwrap_or_default();
+            for member in members.into_iter().filter(Process::alive) {
+                pids.extend(self.subtree(&children, member.pid));
+            }
+        }
+        if !pids.is_empty() {
+            let topology = self.topology();
+            self.restore(&pids, &topology);
+        }
+    }
+
+    /// Undoes a demotion on these processes' threads: only the values a
+    /// demotion sets, never a cap or an affinity the application chose.
+    fn restore(&mut self, pids: &HashSet<libc::pid_t>, topology: &Topology) {
         let maximum = self.background_max_for(topology);
         let pin = self.pin_mask(topology);
-        for pid in self.tree(process.pid) {
+        for &pid in pids {
             for (tid, _) in threads(pid) {
                 if maximum < UTIL_MAX
                     && get_attr(tid).is_some_and(|attr| attr.sched_util_max == maximum)
@@ -733,31 +832,16 @@ impl Worker {
                 }
             }
         }
-        tracing::debug!(pid = process.pid, "restored focused application CPU domain");
     }
 
     /// Returns the process and its same-user descendants, such as browser
     /// content processes or a terminal's jobs. The walk is bounded so a fork
     /// storm cannot stall the worker.
-    fn tree(&self, root: libc::pid_t) -> Vec<libc::pid_t> {
-        let mut children: HashMap<libc::pid_t, Vec<libc::pid_t>> = HashMap::new();
-        if let Ok(entries) = fs::read_dir("/proc") {
-            for entry in entries.flatten() {
-                let Some(pid) = entry
-                    .file_name()
-                    .to_str()
-                    .and_then(|name| name.parse::<libc::pid_t>().ok())
-                else {
-                    continue;
-                };
-                let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
-                    continue;
-                };
-                if let Some((_, fields)) = parse_stat(&stat) {
-                    children.entry(fields.ppid).or_default().push(pid);
-                }
-            }
-        }
+    fn subtree(
+        &self,
+        children: &HashMap<libc::pid_t, Vec<libc::pid_t>>,
+        root: libc::pid_t,
+    ) -> Vec<libc::pid_t> {
         let mut tree = Vec::new();
         let mut queue = VecDeque::from([root]);
         while let Some(pid) = queue.pop_front() {
@@ -789,6 +873,30 @@ impl Worker {
             Err(error) => tracing::debug!(%error, tid, role, "could not apply a semantic CPU hint"),
         }
     }
+}
+
+/// Every process's children, from one read of `/proc`.
+fn process_children() -> HashMap<libc::pid_t, Vec<libc::pid_t>> {
+    let mut children: HashMap<libc::pid_t, Vec<libc::pid_t>> = HashMap::new();
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return children;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        if let Some((_, fields)) = parse_stat(&stat) {
+            children.entry(fields.ppid).or_default().push(pid);
+        }
+    }
+    children
 }
 
 fn threads(pid: libc::pid_t) -> Vec<(libc::pid_t, String)> {
@@ -992,6 +1100,137 @@ mod tests {
         assert!(topology.little.is_none());
         let topology = Topology::from_capacities(domain, &capacities, Some(groups));
         assert_eq!(topology.little, Some((little_cpus, 762)));
+    }
+
+    /// A shell running `sleep` as its child, as an application with a job.
+    struct App {
+        shell: std::process::Child,
+        root: Process,
+        job: Process,
+    }
+
+    impl App {
+        fn start() -> Self {
+            let shell = std::process::Command::new("sh")
+                .args(["-c", "sleep 30 & wait"])
+                .spawn()
+                .expect("sh starts");
+            let pid = shell.id() as libc::pid_t;
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let job = loop {
+                if let Some(&job) = process_children().get(&pid).and_then(|jobs| jobs.first()) {
+                    break job;
+                }
+                assert!(Instant::now() < deadline, "the job never started");
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            Self {
+                root: Process::identify(pid).unwrap(),
+                job: Process::identify(job).unwrap(),
+                shell,
+            }
+        }
+    }
+
+    impl Drop for App {
+        fn drop(&mut self) {
+            // SAFETY: kill only signals; the job may already be gone.
+            unsafe { libc::kill(self.job.pid, libc::SIGKILL) };
+            let _ = self.shell.kill();
+            let _ = self.shell.wait();
+        }
+    }
+
+    /// A worker that pins without capping, with the first CPU of this test's
+    /// own domain as the little tier. None where only one CPU is allowed.
+    fn pinning_worker() -> Option<(Worker, CpuSet, CpuSet)> {
+        let domain = sched_getaffinity(Pid::from_raw(std::process::id() as i32)).ok()?;
+        let first = (0..CpuSet::MAX_CPU).find(|&cpu| domain.is_set(cpu))?;
+        let mut little = CpuSet::new();
+        little.set(first);
+        if domain.count() < 2 {
+            return None;
+        }
+        let mut worker = Worker::new(Config::from_lookup(|key| {
+            (key == "DENIAL_CPU_HINTS_BACKGROUND_MAX").then(|| "1024".to_owned())
+        }));
+        worker.topology = Some(Topology {
+            domain,
+            little: Some((little, 222)),
+        });
+        Some((worker, domain, little))
+    }
+
+    fn affinity(process: Process) -> CpuSet {
+        sched_getaffinity(Pid::from_raw(process.pid)).unwrap()
+    }
+
+    /// Lets every pending demotion fall due and runs it.
+    fn demote_pending(worker: &mut Worker) {
+        for (_, due) in &mut worker.pending {
+            *due = Instant::now();
+        }
+        worker.expire();
+    }
+
+    #[test]
+    fn a_game_its_launcher_started_keeps_the_domain_while_in_front() {
+        let Some((mut worker, domain, little)) = pinning_worker() else {
+            return;
+        };
+        let launcher = App::start();
+        worker.focus(Some(launcher.root.pid));
+        // The game's window takes focus; the launcher leaves it.
+        worker.focus(Some(launcher.job.pid));
+        demote_pending(&mut worker);
+        assert_eq!(affinity(launcher.root), little);
+        assert_eq!(affinity(launcher.job), domain);
+
+        // Back to the launcher: it gets the whole domain again.
+        worker.focus(Some(launcher.root.pid));
+        assert_eq!(affinity(launcher.root), domain);
+    }
+
+    #[test]
+    fn focusing_a_process_of_a_demoted_application_restores_it() {
+        let Some((mut worker, domain, little)) = pinning_worker() else {
+            return;
+        };
+        let launcher = App::start();
+        worker.focus(Some(launcher.root.pid));
+        worker.focus(None);
+        demote_pending(&mut worker);
+        assert_eq!(affinity(launcher.root), little);
+        assert_eq!(affinity(launcher.job), little);
+
+        worker.focus(Some(launcher.job.pid));
+        assert_eq!(affinity(launcher.job), domain);
+        assert_eq!(affinity(launcher.root), little);
+        // The launcher no longer answers for the job it handed over.
+        assert!(
+            worker.demoted[&launcher.root]
+                .iter()
+                .all(|member| *member != launcher.job)
+        );
+    }
+
+    #[test]
+    fn a_job_left_behind_by_an_exited_application_gets_the_domain_back() {
+        let Some((mut worker, domain, little)) = pinning_worker() else {
+            return;
+        };
+        let mut terminal = App::start();
+        worker.focus(Some(terminal.root.pid));
+        worker.focus(None);
+        demote_pending(&mut worker);
+        assert_eq!(affinity(terminal.job), little);
+
+        // The terminal exits; its job runs on without a parent in the tree.
+        terminal.shell.kill().unwrap();
+        terminal.shell.wait().unwrap();
+        worker.expire();
+        assert!(worker.demoted.is_empty());
+        assert_eq!(affinity(terminal.job), domain);
     }
 
     #[test]

@@ -62,8 +62,10 @@ systemctl enable --now certbot-renew.timer
 
 DNS holds two A records for the server. `packages.denialwm.org` is proxied
 through Cloudflare (SSL mode Full), which carries the downloads over its own
-network; `nginx.conf` marks the indexes `no-cache` and the package files
-immutable, so Cloudflare keeps only files that never change under their name.
+network; `nginx.conf` marks the indexes `no-cache`, the package files
+immutable and "not found" `no-store`, so Cloudflare keeps only files that
+never change under their name, and a package asked for before its upload is
+there as soon as it lands.
 `packages-upload.denialwm.org` is the server's own address, not proxied:
 Cloudflare carries no SSH, and `tools/publish-denial-packages` uploads there.
 Certificate renewal keeps working through the proxy: Cloudflare passes

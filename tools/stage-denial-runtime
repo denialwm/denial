@@ -274,6 +274,9 @@ install -Dm644 "$ROOT/packaging/arch/xdg-desktop-portal-wlr-Denial" \
   "$denial_root/etc/xdg/xdg-desktop-portal-wlr/Denial"
 install -Dm644 "$ROOT/packaging/denial-fingerprint.rules" \
   "$denial_root/usr/share/polkit-1/rules.d/50-denial-fingerprint.rules"
+# GeoClue takes the agents this file names: denial-portal among them.
+install -Dm644 "$ROOT/packaging/geoclue-denial.conf" \
+  "$denial_root/etc/geoclue/conf.d/90-denial.conf"
 install -Dm644 "$ROOT/packaging/arch/outputs.conf" \
   "$denial_root/etc/denial/outputs.conf"
 install -Dm644 "$ROOT/packaging/arch/session.conf" \

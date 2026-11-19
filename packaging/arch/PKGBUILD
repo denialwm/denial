@@ -79,6 +79,7 @@ source=(
   'denial-portal.service'
   'denial.portal'
   'denial-portals.conf'
+  "geoclue-denial.conf::file://$startdir/../geoclue-denial.conf"
   'org.freedesktop.impl.portal.desktop.denial.service'
   'outputs.conf'
   'session.conf'
@@ -93,6 +94,7 @@ sha256sums=(
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
   'ccc136decb96a6d0ef58e0c53827cf39ca6a7d7b810fa0be4196e5db7ade36e3'
   '81d87c497aa4b4c47d2104d3f2be34eac482655a3addfba686a7d9f3e5fe341c'
+  'dcc77f0ceb2f5fb936ad54169d910a8728a5837ca2f48f9b1593829d71942c71'
   '4a60d3ff767caf9d84c1a35b0d76d04e9e135cbabc384d1daac3f358398760de'
   '7b7e463f4156ded01e5dde1cefd288c0798cb06299e79aba29732fbdbd743524'
   '9d6a02bf295c75ae1d149d7e9016bbbabfc6115e7cc3e4dd9cc2a6b489b2bb71'
@@ -195,6 +197,8 @@ package() {
     "$pkgdir/usr/share/wayland-sessions/denial.desktop"
   install -Dm644 "$srcdir/denial-portals.conf" \
     "$pkgdir/usr/share/xdg-desktop-portal/denial-portals.conf"
+  install -Dm644 "$srcdir/geoclue-denial.conf" \
+    "$pkgdir/etc/geoclue/conf.d/90-denial.conf"
   install -Dm644 "$srcdir/denial.portal" \
     "$pkgdir/usr/share/xdg-desktop-portal/portals/denial.portal"
   install -Dm644 "$srcdir/org.freedesktop.impl.portal.desktop.denial.service" \

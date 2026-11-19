@@ -76,7 +76,10 @@ class QuickSettingsTiles extends StatelessWidget {
   final bool bluetoothBusy;
   final bool dnd;
   final bool dndReady;
-  final String profile;
+
+  /// The power profile, or null when no power-profile service answers: no
+  /// power tile, and Silent takes its cell.
+  final String? profile;
   final VoidCallback onToggleWifi;
   final VoidCallback onOpenWifi;
   final VoidCallback onToggleBluetooth;
@@ -124,6 +127,7 @@ class QuickSettingsTiles extends StatelessWidget {
         final wide = column * 2 + gutter;
         final tall = capsule * 2 + gutter;
         final footerTop = row * 3 + gutter;
+        final silentColumn = profile == null ? 2 : 3;
         final footerHeight = footerTiles.any((tile) => !tile.wide)
             ? row
             : capsule;
@@ -209,24 +213,25 @@ class QuickSettingsTiles extends StatelessWidget {
                   height: capsule,
                   child: reveal(4, mobileDataTile!, cell: (1, 2)),
                 ),
-              Positioned(
-                left: pitch * 2,
-                top: row * 2,
-                width: column,
-                height: row,
-                child: reveal(
-                  5,
-                  QuickTile(
-                    icon: _profileIcon(profile),
-                    title: _profileLabel(profile, l10n),
-                    active: profile != PowerProfile.balanced,
-                    onTap: onCycleProfile,
+              if (profile case final profile?)
+                Positioned(
+                  left: pitch * 2,
+                  top: row * 2,
+                  width: column,
+                  height: row,
+                  child: reveal(
+                    5,
+                    QuickTile(
+                      icon: _profileIcon(profile),
+                      title: _profileLabel(profile, l10n),
+                      active: profile != PowerProfile.balanced,
+                      onTap: onCycleProfile,
+                    ),
+                    cell: (2, 2),
                   ),
-                  cell: (2, 2),
                 ),
-              ),
               Positioned(
-                left: pitch * 3,
+                left: pitch * silentColumn,
                 top: row * 2,
                 width: column,
                 height: row,
@@ -242,7 +247,7 @@ class QuickSettingsTiles extends StatelessWidget {
                     enabled: dndReady,
                     onTap: onToggleDnd,
                   ),
-                  cell: (2, 3),
+                  cell: (2, silentColumn),
                 ),
               ),
               for (final (index, tile) in footerTiles.indexed)

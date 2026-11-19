@@ -1479,6 +1479,41 @@ fn legacy_window_readers_continue_receiving_full_snapshots() {
 }
 
 #[test]
+fn an_invalid_window_is_left_out_instead_of_failing_the_snapshot() {
+    let mut bridge = bridge();
+    let mut zero_width = scene_window(2);
+    zero_width.width = 0;
+    let (bytes, _) = bridge
+        .update_windows(
+            1,
+            vec![scene_window(1), zero_width.clone()],
+            &BTreeSet::new(),
+        )
+        .unwrap();
+    let update = fb::root_as_envelope(bytes.unwrap())
+        .unwrap()
+        .payload_as_window_snapshot()
+        .unwrap();
+    let windows = update.windows().unwrap();
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows.get(0).window_id(), 1);
+    assert_eq!(bridge.rejected_window_ids, [2]);
+
+    // Errors of the whole list still fail the update.
+    let too_many = (1..=MAX_WINDOWS as u64 + 1).map(scene_window).collect();
+    assert!(matches!(
+        bridge.update_windows(2, too_many, &BTreeSet::new()),
+        Err(WireError::Count)
+    ));
+
+    // A window that becomes valid again is no longer remembered as rejected.
+    bridge
+        .update_windows(3, vec![scene_window(1), scene_window(2)], &BTreeSet::new())
+        .unwrap();
+    assert!(bridge.rejected_window_ids.is_empty());
+}
+
+#[test]
 fn plugin_action_transport_preserves_catalog_ids_and_generations() {
     let mut bridge = bridge();
     let mut builder = FlatBufferBuilder::new();

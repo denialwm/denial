@@ -14,6 +14,7 @@ class DenialInputDeviceCapabilities {
     required this.hasMouse,
     required this.mouseSpeed,
     required this.mouseAccelerationEnabled,
+    required this.mouseNaturalScrollEnabled,
     required this.hasTouchpad,
     required this.tapToClickEnabled,
     required this.naturalScrollEnabled,
@@ -26,6 +27,7 @@ class DenialInputDeviceCapabilities {
       hasMouse = false,
       mouseSpeed = mouseSpeedDefault,
       mouseAccelerationEnabled = true,
+      mouseNaturalScrollEnabled = false,
       hasTouchpad = false,
       tapToClickEnabled = true,
       naturalScrollEnabled = false,
@@ -37,6 +39,10 @@ class DenialInputDeviceCapabilities {
   final bool hasMouse;
   final double mouseSpeed;
   final bool mouseAccelerationEnabled;
+
+  /// Reverses the mouse wheel, independent of [naturalScrollEnabled], which
+  /// is the touchpad's.
+  final bool mouseNaturalScrollEnabled;
   final bool hasTouchpad;
   final bool tapToClickEnabled;
   final bool naturalScrollEnabled;
@@ -51,6 +57,8 @@ class DenialInputDeviceCapabilities {
           (json['mouse_speed'] as num?)?.toDouble() ?? mouseSpeedDefault,
       mouseAccelerationEnabled:
           json['mouse_acceleration_enabled'] as bool? ?? true,
+      mouseNaturalScrollEnabled:
+          json['mouse_natural_scroll_enabled'] as bool? ?? false,
       hasTouchpad: json['has_touchpad'] as bool? ?? false,
       tapToClickEnabled: json['tap_to_click_enabled'] as bool? ?? true,
       naturalScrollEnabled: json['natural_scroll_enabled'] as bool? ?? false,
@@ -73,6 +81,7 @@ class DenialInputDeviceCapabilities {
   Map<String, Object> mouseToApplyJson() => <String, Object>{
     'speed': mouseSpeed,
     'accelerationEnabled': mouseAccelerationEnabled,
+    'naturalScrollEnabled': mouseNaturalScrollEnabled,
   };
 
   DenialInputDeviceCapabilities copyWith({
@@ -80,6 +89,7 @@ class DenialInputDeviceCapabilities {
     bool? hasMouse,
     double? mouseSpeed,
     bool? mouseAccelerationEnabled,
+    bool? mouseNaturalScrollEnabled,
     bool? hasTouchpad,
     bool? tapToClickEnabled,
     bool? naturalScrollEnabled,
@@ -92,6 +102,8 @@ class DenialInputDeviceCapabilities {
       mouseSpeed: mouseSpeed ?? this.mouseSpeed,
       mouseAccelerationEnabled:
           mouseAccelerationEnabled ?? this.mouseAccelerationEnabled,
+      mouseNaturalScrollEnabled:
+          mouseNaturalScrollEnabled ?? this.mouseNaturalScrollEnabled,
       hasTouchpad: hasTouchpad ?? this.hasTouchpad,
       tapToClickEnabled: tapToClickEnabled ?? this.tapToClickEnabled,
       naturalScrollEnabled: naturalScrollEnabled ?? this.naturalScrollEnabled,
@@ -110,6 +122,7 @@ class DenialInputDeviceCapabilities {
             hasMouse == other.hasMouse &&
             mouseSpeed == other.mouseSpeed &&
             mouseAccelerationEnabled == other.mouseAccelerationEnabled &&
+            mouseNaturalScrollEnabled == other.mouseNaturalScrollEnabled &&
             hasTouchpad == other.hasTouchpad &&
             tapToClickEnabled == other.tapToClickEnabled &&
             naturalScrollEnabled == other.naturalScrollEnabled &&
@@ -124,6 +137,7 @@ class DenialInputDeviceCapabilities {
     hasMouse,
     mouseSpeed,
     mouseAccelerationEnabled,
+    mouseNaturalScrollEnabled,
     hasTouchpad,
     tapToClickEnabled,
     naturalScrollEnabled,

@@ -151,6 +151,9 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     dmabuf_texture_cache:
         Mutex<PartitionedRecencyCache<i64, WeakDmabuf, Arc<CachedTextureBinding>>>,
     shm_texture_cache: Mutex<RecencyCache<(i64, u64), Arc<CachedTextureBinding>>>,
+    /// Textures whose last client-buffer import failed and was logged. A
+    /// buffer that never imports is retried every frame; it is logged once.
+    failed_import_textures: Mutex<HashSet<i64>>,
     retired_external_bindings: Arc<RetiredExternalBindingQueue>,
     retired_external_binding_scratch: Mutex<Vec<ExternalTextureBinding>>,
     external_texture_lease_pool: Arc<ExternalTextureLeasePool>,
@@ -627,6 +630,7 @@ impl FlutterGlHandler {
                 MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE,
             )),
             shm_texture_cache: Mutex::new(RecencyCache::new(MAX_CACHED_SHM_BINDINGS)),
+            failed_import_textures: Mutex::new(HashSet::new()),
             retired_external_bindings: Arc::new(RetiredExternalBindingQueue::new()),
             retired_external_binding_scratch: Mutex::new(Vec::new()),
             external_texture_lease_pool: Arc::new(Mutex::new(Vec::with_capacity(
@@ -954,6 +958,23 @@ impl FlutterGlHandler {
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
         drop((retired_dmabufs, retired_shm, retired_grade));
+    }
+
+    /// Records a failed client-buffer import. True when it is the first
+    /// failure since the texture last imported, so it is worth a warning.
+    pub(in crate::flutter_runtime) fn first_import_failure(&self, texture_id: i64) -> bool {
+        let mut failed = lock(&self.failed_import_textures);
+        if failed.len() >= MAX_LOGGED_IMPORT_FAILURES && !failed.contains(&texture_id) {
+            failed.clear();
+        }
+        failed.insert(texture_id)
+    }
+
+    pub(in crate::flutter_runtime) fn import_succeeded(&self, texture_id: i64) {
+        let mut failed = lock(&self.failed_import_textures);
+        if !failed.is_empty() {
+            failed.remove(&texture_id);
+        }
     }
 
     pub(in crate::flutter_runtime) fn cached_dmabuf_binding(

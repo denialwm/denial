@@ -19,6 +19,7 @@ import 'over_lock_window.dart';
 import 'phone_desk.dart';
 import 'phone_desk_input.dart';
 import 'reference_shell_metrics.dart';
+import 'reference_shell_presentation.dart';
 import 'reference_shell_profile.dart';
 import 'reference_input_layout_coordinator.dart';
 
@@ -119,9 +120,14 @@ class ReferenceShellController extends Notifier<ReferenceShellState>
   /// is minimized: Denial suspends it, stops its frames and keeps showing its
   /// last one. Recents alone leaves the app in front, as does the lock
   /// screen; focusing it again restores it. An app left for its own dialog
-  /// runs on until the dialog is no longer in front.
+  /// runs on until the dialog is no longer in front. A phone or tablet shown
+  /// as a desktop keeps its windows side by side, so nothing is minimized
+  /// there.
   void _minimizeLeftApp(int? previous, ReferenceShellState next) {
-    if (!_automaticSoftwareKeyboard) return;
+    if (ref.read(referenceShellPresentationProvider) !=
+        ReferenceShellProfile.mobile) {
+      return;
+    }
     final windows = next.openAppWindowsByObjectId;
     final left = leaveApps(
       previous: previous,

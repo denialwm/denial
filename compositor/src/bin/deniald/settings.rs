@@ -458,6 +458,8 @@ pub(super) struct MouseSettings {
     pub(super) speed: f64,
     /// libinput's adaptive profile when on, its flat profile when off.
     pub(super) acceleration_enabled: bool,
+    /// Reverses the wheel, independent of the touchpad's natural scrolling.
+    pub(super) natural_scroll_enabled: bool,
 }
 
 impl Default for MouseSettings {
@@ -465,6 +467,7 @@ impl Default for MouseSettings {
         Self {
             speed: DEFAULT_MOUSE_SPEED,
             acceleration_enabled: true,
+            natural_scroll_enabled: false,
         }
     }
 }

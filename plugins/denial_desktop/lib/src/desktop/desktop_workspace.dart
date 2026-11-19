@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 
@@ -13,6 +14,9 @@ import 'desktop_workspace_overview_layout.dart';
 import 'transient_family_order.dart';
 
 part 'desktop_workspace_controller.dart';
+
+/// A screen-edge strip a finger swipes in from, and the edge it starts at.
+typedef DesktopPanelSwipe = ({Rect rect, InputEdge edge});
 
 abstract final class DesktopMetrics {
   static const double frameBorder = 1.0;
@@ -70,6 +74,100 @@ abstract final class DesktopMetrics {
     ),
   }) {
     return _edgeTriggerRect(viewSize, outputRect, placement);
+  }
+
+  /// Width of the strip a finger swipes in from to open a panel.
+  static const double panelSwipeWidth = 24.0;
+
+  /// The strips a finger swipes in from to open the launcher and the
+  /// dashboard. Touch has no hover, so this is its way in. When both panels
+  /// would open from the same place, the launcher keeps it.
+  static ({DesktopPanelSwipe? launcher, DesktopPanelSwipe? dashboard})
+  panelSwipes(
+    Size viewSize, {
+    Rect? outputRect,
+    required ShellOverlaySettings overlays,
+    required bool hasLauncher,
+  }) {
+    final launcher = hasLauncher
+        ? panelSwipeEdge(
+            viewSize,
+            outputRect: outputRect,
+            placement: overlays.launcher,
+          )
+        : null;
+    final dashboard = panelSwipeEdge(
+      viewSize,
+      outputRect: outputRect,
+      placement: overlays.dashboard,
+    );
+    final shared =
+        launcher != null &&
+        dashboard != null &&
+        launcher.edge == dashboard.edge &&
+        launcher.rect.overlaps(dashboard.rect);
+    return (launcher: launcher, dashboard: shared ? null : dashboard);
+  }
+
+  /// Where a finger swipes in to open a panel: along the edge the panel
+  /// opens from, beside it, or along the bottom under it when it is
+  /// centered.
+  static DesktopPanelSwipe? panelSwipeEdge(
+    Size viewSize, {
+    Rect? outputRect,
+    required ShellPopupPlacement placement,
+  }) {
+    final bounds = _outputBounds(viewSize, outputRect);
+    if (bounds.isEmpty) {
+      return null;
+    }
+    final panel = placement.resolve(bounds);
+    final anchor = placement.anchor;
+    final width = math.min(panelSwipeWidth, bounds.shortestSide);
+    final DesktopPanelSwipe swipe;
+    if (anchor.horizontal < 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          bounds.left,
+          panel.top,
+          bounds.left + width,
+          panel.bottom,
+        ),
+        edge: InputEdge.left,
+      );
+    } else if (anchor.horizontal > 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          bounds.right - width,
+          panel.top,
+          bounds.right,
+          panel.bottom,
+        ),
+        edge: InputEdge.right,
+      );
+    } else if (anchor.vertical < 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          panel.left,
+          bounds.top,
+          panel.right,
+          bounds.top + width,
+        ),
+        edge: InputEdge.top,
+      );
+    } else {
+      swipe = (
+        rect: Rect.fromLTRB(
+          panel.left,
+          bounds.bottom - width,
+          panel.right,
+          bounds.bottom,
+        ),
+        edge: InputEdge.bottom,
+      );
+    }
+    final rect = swipe.rect.intersect(bounds);
+    return rect.isEmpty ? null : (rect: rect, edge: swipe.edge);
   }
 
   static Rect dashboardTriggerRect(

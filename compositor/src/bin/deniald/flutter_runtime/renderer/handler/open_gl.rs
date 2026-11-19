@@ -94,7 +94,16 @@ impl FlutterGlHandler {
                     let image = match context.context.display().create_image_from_dmabuf(&dmabuf) {
                         Ok(image) => image,
                         Err(error) => {
-                            warn!(%error, texture_id, "could not import Wayland dma-buf for Flutter");
+                            if self.first_import_failure(texture_id) {
+                                warn!(
+                                    %error,
+                                    texture_id,
+                                    "could not import Wayland dma-buf for Flutter; \
+                                     further failures of this texture are logged at debug"
+                                );
+                            } else {
+                                debug!(%error, texture_id, "could not import Wayland dma-buf for Flutter");
+                            }
                             return None;
                         }
                     };
@@ -147,13 +156,24 @@ impl FlutterGlHandler {
                             egl_ffi::egl::DestroyImageKHR(self.display.handle, image);
                         }
                         if let Some(error) = gl_error {
-                            warn!(
-                                error = format_args!("{error:#x}"),
-                                texture_id, "rejected Wayland dma-buf after GLES import failure"
-                            );
+                            if self.first_import_failure(texture_id) {
+                                warn!(
+                                    error = format_args!("{error:#x}"),
+                                    texture_id,
+                                    "rejected Wayland dma-buf after GLES import failure; \
+                                     further failures of this texture are logged at debug"
+                                );
+                            } else {
+                                debug!(
+                                    error = format_args!("{error:#x}"),
+                                    texture_id,
+                                    "rejected Wayland dma-buf after GLES import failure"
+                                );
+                            }
                         }
                         return None;
                     }
+                    self.import_succeeded(texture_id);
                     let binding = Arc::new(CachedTextureBinding {
                         binding: Some(ExternalTextureBinding {
                             dmabuf_image: Some(image as usize),

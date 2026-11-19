@@ -418,16 +418,31 @@ class _EdgePanelGestureTarget extends ConsumerWidget {
   }
 }
 
+/// Whether the person has lifted the view with the keyboard's handle in this
+/// session. Until then the handle shows that it moves.
+final keyboardHandleUsedProvider = NotifierProvider<KeyboardHandleUsed, bool>(
+  KeyboardHandleUsed.new,
+);
+
+class KeyboardHandleUsed extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void markUsed() {
+    if (!state) state = true;
+  }
+}
+
 class _EdgePanelScrollStrip extends ConsumerWidget {
   const _EdgePanelScrollStrip({required this.enabled, required this.thumb});
 
   final bool enabled;
 
-  /// A see-through thumb that rides under the finger as it lifts the view.
+  /// A thumb that rides under the finger as it lifts the view.
   final bool thumb;
 
-  static const double _thumbWidth = 5;
-  static const double _thumbLength = 48;
+  static const double _thumbWidth = 8;
+  static const double _thumbLength = 72;
 
   /// Between the thumb at rest and the keyboard's top edge.
   static const double _thumbRest = 12;
@@ -459,6 +474,8 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
         behavior: HitTestBehavior.opaque,
         // The content follows the finger: up lifts it from under the
         // keyboard.
+        onVerticalDragStart: (_) =>
+            ref.read(keyboardHandleUsedProvider.notifier).markUsed(),
         onVerticalDragUpdate: (details) {
           controller.updateEdgePanelViewportScroll(
             -details.delta.dy * ReferenceShellMetrics.edgePanelScrollMultiplier,
@@ -471,36 +488,94 @@ class _EdgePanelScrollStrip extends ConsumerWidget {
   }
 }
 
-class _ScrollThumb extends ConsumerWidget {
+class _ScrollThumb extends ConsumerStatefulWidget {
   const _ScrollThumb();
 
+  /// How far the thumb rises to show that it moves.
+  static const double _nudgeHeight = 28;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ScrollThumb> createState() => _ScrollThumbState();
+}
+
+/// The thumb appears once the keyboard has settled. When the keyboard covers
+/// an application that does not lay itself out around it, and the handle has
+/// not been used yet, the thumb rises and settles once to show that it lifts
+/// the view.
+class _ScrollThumbState extends ConsumerState<_ScrollThumb>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _nudge = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+  late final Animation<double> _lift = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 0.0,
+        end: _ScrollThumb._nudgeHeight,
+      ).chain(CurveTween(curve: Curves.easeOutCubic)),
+      weight: 40,
+    ),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: _ScrollThumb._nudgeHeight,
+        end: 0.0,
+      ).chain(CurveTween(curve: Curves.easeInOutCubic)),
+      weight: 60,
+    ),
+  ]).animate(_nudge);
+
+  @override
+  void initState() {
+    super.initState();
+    final state = ref.read(referenceShellProvider);
+    final covers = !state.primaryWindowHandlesKeyboard;
+    if (covers &&
+        state.edgePanelViewportScroll == 0.0 &&
+        !ref.read(keyboardHandleUsedProvider)) {
+      _nudge.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nudge.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scroll = ref.watch(
       referenceShellProvider.select((state) => state.edgePanelViewportScroll),
     );
-    return Stack(
-      children: [
-        Positioned(
-          right:
-              (ReferenceShellMetrics.edgePanelScrollStripWidth -
-                  _EdgePanelScrollStrip._thumbWidth) /
-              2,
-          bottom:
-              _EdgePanelScrollStrip._thumbRest +
-              scroll / ReferenceShellMetrics.edgePanelScrollMultiplier,
-          width: _EdgePanelScrollStrip._thumbWidth,
-          height: _EdgePanelScrollStrip._thumbLength,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: context.shellColors.gesturePill.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(
-                _EdgePanelScrollStrip._thumbWidth / 2,
-              ),
-            ),
+    final color = context.shellColors.gesturePill.withValues(alpha: 0.85);
+    return AnimatedBuilder(
+      animation: _lift,
+      builder: (context, child) => Stack(
+        children: [
+          Positioned(
+            right:
+                (ReferenceShellMetrics.edgePanelScrollStripWidth -
+                    _EdgePanelScrollStrip._thumbWidth) /
+                2,
+            bottom:
+                _EdgePanelScrollStrip._thumbRest +
+                scroll / ReferenceShellMetrics.edgePanelScrollMultiplier +
+                _lift.value,
+            width: _EdgePanelScrollStrip._thumbWidth,
+            height: _EdgePanelScrollStrip._thumbLength,
+            child: child!,
+          ),
+        ],
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(
+            _EdgePanelScrollStrip._thumbWidth / 2,
           ),
         ),
-      ],
+      ),
     );
   }
 }

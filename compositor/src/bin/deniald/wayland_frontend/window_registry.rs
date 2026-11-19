@@ -37,6 +37,9 @@ pub(super) struct WindowRecord {
     pub(super) layout_insertion_anchor: Option<ObjectId>,
     pub(super) restored_position: bool,
     pub(super) client_geometry_state_requested: bool,
+    /// The root surface has shown a buffer since it last mapped. Until then a
+    /// size hint that arrives with the first buffer still decides tiling.
+    pub(super) shown: bool,
     /// The client asked for full screen while on the phone: it gets the whole
     /// output and the shell hides the status bar over it.
     #[cfg(feature = "flutter")]

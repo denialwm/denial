@@ -1766,23 +1766,9 @@ pub(super) fn toggle_always_on_top_focused_toplevel(state: &mut RuntimeState) ->
         return false;
     };
 
-    let pinned = {
-        let frontend = state.frontend_mut();
-        let record = frontend.window_registry.ensure(WindowId::new(window_id));
-        record.pinned = !record.pinned;
-        record.pinned
-    };
-    if let Some(window) = client_window {
-        let frontend = state.frontend_mut();
-        // Pinned windows are floating overlays in every layout. Reconcile
-        // immediately so pinning collapses the vacated tile and restores the
-        // saved stacking rectangle, while unpinning enrolls the current
-        // floating rectangle as the next restore geometry.
-        frontend.reconcile_window_layout(&window);
-        if pinned {
-            frontend.raise_window(&window, true);
-        }
-    }
+    let frontend = state.frontend_mut();
+    let pinned = !frontend.window_id_is_pinned(window_id);
+    frontend.set_window_pinned(window_id, client_window.as_ref(), pinned, true);
     state.scene_sync.mark_dirty();
     true
 }
