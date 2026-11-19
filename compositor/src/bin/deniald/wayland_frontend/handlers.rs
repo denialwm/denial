@@ -1768,12 +1768,20 @@ impl SeatHandler for RuntimeState {
         }
         self.frontend_mut()
             .shortcuts_inhibit_focus_changed(focused_surface.clone());
-        crate::cpu_scheduling::focus_changed(
-            client
+        // An X11 window's surface belongs to Xwayland, which serves every X11
+        // application; the window names its own process. Smithay reads that
+        // property as it changes, so no request to Xwayland waits here.
+        let focused_process = match focused {
+            #[cfg(feature = "xwayland")]
+            Some(KeyboardFocusTarget::X11(surface)) => surface
+                .pid()
+                .and_then(|pid| libc::pid_t::try_from(pid).ok()),
+            _ => client
                 .as_ref()
                 .and_then(|client| client.get_credentials(&display_handle).ok())
                 .map(|credentials| credentials.pid),
-        );
+        };
+        crate::cpu_scheduling::focus_changed(focused_process);
         set_data_device_focus(&display_handle, seat, client);
         #[cfg(feature = "flutter")]
         {
