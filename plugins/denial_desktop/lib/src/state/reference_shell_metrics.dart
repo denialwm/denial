@@ -27,7 +27,7 @@ class ReferenceShellMetrics {
       edgePanelKeysMaxHeight + oskSuggestionStripHeight;
   static const double edgePanelOpenDistance = 86.0;
   static const double edgePanelDragDistance = edgePanelMaxHeight;
-  static const double edgePanelScrollStripWidth = 18.0;
+  static const double edgePanelScrollStripWidth = 32.0;
   static const double edgePanelScrollMultiplier = 1.15;
 
   /// Visual gutter between the outgoing and incoming windows during a
