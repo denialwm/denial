@@ -2784,6 +2784,109 @@ pub(super) fn release_inherited_planes(drm: &DrmDevice) {
     );
 }
 
+/// Turns off displays the configuration leaves off but a previous DRM master
+/// left lit. Kept lit, a display shows that session's last picture, and
+/// turning it on later fails: a hotplug never takes over an active CRTC that
+/// Denial does not own (#243). A CRTC a lit output will use is left to that
+/// output's own modeset.
+pub(super) fn release_unlit_outputs(
+    drm: &DrmDevice,
+    unlit: &[connector::Handle],
+    lit: &[ConnectedOutput],
+) {
+    let released = match unlit_output_request(drm, unlit, lit) {
+        Ok(Some(released)) => released,
+        Ok(None) => return,
+        Err(error) => {
+            warn!("could not inspect displays left lit by the previous DRM master: {error}");
+            return;
+        }
+    };
+    if let Err(error) = drm.atomic_commit(
+        AtomicCommitFlags::ALLOW_MODESET | AtomicCommitFlags::TEST_ONLY,
+        released.request.clone(),
+    ) {
+        warn!(
+            connectors = ?released.connectors,
+            "turning off displays left lit was rejected by TEST_ONLY: {error}"
+        );
+        return;
+    }
+    if let Err(error) = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, released.request) {
+        warn!(
+            connectors = ?released.connectors,
+            "could not turn off displays left lit: {error}"
+        );
+        return;
+    }
+    info!(
+        connectors = ?released.connectors,
+        crtcs = ?released.crtcs,
+        "turned off displays the previous DRM master left lit"
+    );
+}
+
+struct UnlitOutputRequest {
+    request: AtomicModeReq,
+    connectors: Vec<u32>,
+    crtcs: Vec<u32>,
+}
+
+fn unlit_output_request(
+    drm: &DrmDevice,
+    unlit: &[connector::Handle],
+    lit: &[ConnectedOutput],
+) -> Result<Option<UnlitOutputRequest>, Box<dyn Error>> {
+    let mut request = AtomicModeReq::new();
+    let mut connectors = Vec::new();
+    let mut crtcs = BTreeSet::new();
+    for &connector in unlit {
+        let Some(encoder) = drm.get_connector(connector, false)?.current_encoder() else {
+            continue;
+        };
+        let Some(crtc) = drm.get_encoder(encoder)?.crtc() else {
+            continue;
+        };
+        if lit.iter().any(|output| output.crtc == crtc) || drm.get_crtc(crtc)?.mode().is_none() {
+            continue;
+        }
+        let Some(connector_crtc) = optional_named_property(drm, connector, "CRTC_ID")? else {
+            continue;
+        };
+        let (Some(active), Some(mode)) = (
+            optional_named_property(drm, crtc, "ACTIVE")?,
+            optional_named_property(drm, crtc, "MODE_ID")?,
+        ) else {
+            continue;
+        };
+        request.add_raw_property(connector.into(), connector_crtc, 0);
+        connectors.push(u32::from(connector));
+        if !crtcs.insert(u32::from(crtc)) {
+            continue;
+        }
+        request.add_raw_property(crtc.into(), active, 0);
+        request.add_raw_property(crtc.into(), mode, 0);
+        for plane in drm.plane_handles()? {
+            if drm.get_plane(plane)?.crtc() != Some(crtc) {
+                continue;
+            }
+            let (Some(framebuffer), Some(plane_crtc)) = (
+                optional_named_property(drm, plane, "FB_ID")?,
+                optional_named_property(drm, plane, "CRTC_ID")?,
+            ) else {
+                continue;
+            };
+            request.add_raw_property(plane.into(), framebuffer, 0);
+            request.add_raw_property(plane.into(), plane_crtc, 0);
+        }
+    }
+    Ok((!connectors.is_empty()).then(|| UnlitOutputRequest {
+        request,
+        connectors,
+        crtcs: crtcs.into_iter().collect(),
+    }))
+}
+
 struct InheritedPlaneRequest {
     request: AtomicModeReq,
     planes: Vec<u32>,

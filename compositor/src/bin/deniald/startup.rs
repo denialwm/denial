@@ -415,6 +415,9 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             kms_state::release_inherited_planes(&kms.drm);
         }
     }
+    if !preserve_predecessor {
+        kms_state::release_unlit_outputs(&kms.drm, &configured.unlit, &configured.outputs);
+    }
     let outputs = configured.outputs;
 
     let mut topology = topology_for_outputs(&outputs, &output_configuration)?;
