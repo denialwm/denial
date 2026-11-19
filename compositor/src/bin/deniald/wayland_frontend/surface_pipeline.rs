@@ -824,19 +824,31 @@ impl WaylandFrontend {
         Ok(())
     }
 
+    /// Queues a client buffer for a test import on the next loop pass.
+    ///
+    /// A refused import is fatal to a client that created its buffer with
+    /// `create_immed`, as Xwayland does, so a full queue never refuses: past
+    /// the bound, a buffer is accepted without the test import. One that then
+    /// fails to import shows nothing and is logged once, like any buffer whose
+    /// import fails later (#254).
     pub(super) fn queue_dmabuf_import(&mut self, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        if !dmabuf_import_queue_has_capacity(self.pending_dmabuf_imports.len()) {
-            if !self.dmabuf_import_queue_saturated {
-                warn!(
-                    limit = MAX_PENDING_DMABUF_IMPORTS,
-                    "rejecting client linux-dmabuf imports until the bounded queue is drained"
-                );
-                self.dmabuf_import_queue_saturated = true;
-            }
-            notifier.failed();
+        if dmabuf_import_queue_has_capacity(self.pending_dmabuf_imports.len()) {
+            self.pending_dmabuf_imports.push((dmabuf, notifier));
             return;
         }
-        self.pending_dmabuf_imports.push((dmabuf, notifier));
+        if !self.dmabuf_import_queue_saturated {
+            warn!(
+                limit = MAX_PENDING_DMABUF_IMPORTS,
+                "accepting client linux-dmabuf buffers without a test import until the queue drains"
+            );
+            self.dmabuf_import_queue_saturated = true;
+        }
+        if let Some(node) = self.dmabuf_render_node {
+            dmabuf.set_node(node);
+        }
+        if notifier.successful::<RuntimeState>().is_err() {
+            warn!("linux-dmabuf client disappeared before import completed");
+        }
     }
 
     /// Appends `root` and its subsurfaces. A layer's composition order is its
