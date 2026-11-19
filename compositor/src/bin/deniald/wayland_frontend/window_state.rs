@@ -257,6 +257,45 @@ impl WaylandFrontend {
                 .is_some_and(|window_id| self.window_id_is_pinned(window_id))
     }
 
+    /// Pins `window_id` above every layout, or unpins it, and returns whether
+    /// that changed anything. A client window leaves or rejoins its layout at
+    /// once; a newly pinned one is raised, and activated only when `activate`
+    /// says so (the user's shortcut, not a client's own request). X11 windows
+    /// see the pin as `_NET_WM_STATE_ABOVE`.
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_window_pinned(
+        &mut self,
+        window_id: u64,
+        window: Option<&Window>,
+        pinned: bool,
+        activate: bool,
+    ) -> bool {
+        let record = self.window_registry.ensure(WindowId::new(window_id));
+        if record.pinned == pinned {
+            return false;
+        }
+        record.pinned = pinned;
+        let Some(window) = window else {
+            return true;
+        };
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = window.x11_surface()
+            && surface.is_above() != pinned
+            && let Err(error) = surface.set_above(pinned)
+        {
+            warn!(%error, window = surface.window_id(), "could not publish an X11 window's pin");
+        }
+        // Pinned windows are floating overlays in every layout. Reconcile
+        // immediately so pinning collapses the vacated tile and restores the
+        // saved stacking rectangle, while unpinning enrolls the current
+        // floating rectangle as the next restore geometry.
+        self.reconcile_window_layout(window);
+        if pinned {
+            self.raise_window(window, activate);
+        }
+        true
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn window_geometry_locked(&self, window: &Window) -> bool {
         let Some(root_surface) = self.window_root_surface(window) else {

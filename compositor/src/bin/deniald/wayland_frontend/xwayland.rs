@@ -789,6 +789,8 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
         state
             .frontend_mut()
             .set_window_geometry_target(&window, configured);
+        #[cfg(feature = "flutter")]
+        import_x11_above(state.frontend_mut(), &surface);
         state.frontend_mut().reconcile_window_layout(&window);
         #[cfg(feature = "flutter")]
         state.frontend_mut().configure_mobile_window(&window);
@@ -830,6 +832,53 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
         class = surface.class(),
         "mapped X11 window"
     );
+}
+
+/// A client's own `_NET_WM_STATE_ABOVE` request pins or unpins its window
+/// like the user's shortcut, without taking focus.
+#[cfg(feature = "flutter")]
+fn set_x11_above(state: &mut RuntimeState, surface: &X11Surface, above: bool) {
+    if surface.is_override_redirect() {
+        return;
+    }
+    let window = window_for_x11(state, surface);
+    let frontend = state.frontend_mut();
+    let window_id = surface
+        .wl_surface()
+        .and_then(|root| frontend.surface_id(&root));
+    match (window, window_id) {
+        (Some(window), Some(window_id)) => {
+            if frontend.set_window_pinned(window_id, Some(&window), above, false) {
+                state.scene_sync.mark_dirty();
+            }
+        }
+        // Not shown yet: keep the state on the X11 side, where the window's
+        // map or surface association picks it up.
+        _ => {
+            if let Err(error) = surface.set_above(above) {
+                warn!(%error, window = surface.window_id(), "could not set an X11 window's pin");
+            }
+        }
+    }
+}
+
+/// Pins a window that asked to stay above before it was shown, once it has
+/// its window id. Runs before the window's layout reconcile, which then
+/// floats it. Only ever pins: a pin the window already holds stays.
+#[cfg(feature = "flutter")]
+fn import_x11_above(frontend: &mut super::WaylandFrontend, surface: &X11Surface) {
+    if surface.is_override_redirect() || !surface.is_above() {
+        return;
+    }
+    if let Some(window_id) = surface
+        .wl_surface()
+        .and_then(|root| frontend.surface_id(&root))
+    {
+        frontend
+            .window_registry
+            .ensure(super::WindowId::new(window_id))
+            .pinned = true;
+    }
 }
 
 fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
@@ -936,6 +985,8 @@ impl XWaylandShellHandler for RuntimeState {
             if !surface.is_override_redirect() {
                 frontend.announce_foreign_toplevel(&window);
             }
+            #[cfg(feature = "flutter")]
+            import_x11_above(frontend, &surface);
             frontend.reconcile_window_layout(&window);
             #[cfg(feature = "flutter")]
             frontend.configure_mobile_window(&window);
@@ -1172,6 +1223,16 @@ impl XwmHandler for RuntimeState {
                 ManagedClientStateRequest::Unfullscreen,
             );
         }
+    }
+
+    fn above_request(&mut self, _xwm: XwmId, _window: X11Surface) {
+        #[cfg(feature = "flutter")]
+        set_x11_above(self, &_window, true);
+    }
+
+    fn unabove_request(&mut self, _xwm: XwmId, _window: X11Surface) {
+        #[cfg(feature = "flutter")]
+        set_x11_above(self, &_window, false);
     }
 
     fn minimize_request(&mut self, _xwm: XwmId, _window: X11Surface) {
