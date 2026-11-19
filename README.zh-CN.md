@@ -147,8 +147,8 @@ Doctor Logix 做出设计与技术决策，在真实硬件上测试结果，不�
 [全部指南](docs/README.md) · [控制与恢复](docs/DENIALCTL.md) ·
 [截图与屏幕共享](docs/SCREEN_CAPTURE.md)
 
-[更新日志](CHANGELOG.md) · [路线图](ROADMAP.md) ·
-[参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md)
+[更新日志](CHANGELOG.md) · [参与贡献](CONTRIBUTING.md) ·
+[安全](SECURITY.md)
 
 ## 许可证
 

@@ -163,8 +163,8 @@ Authorship is more than typing source code.
 [All guides](docs/README.md) · [Control and recovery](docs/DENIALCTL.md) ·
 [Screenshots and screen sharing](docs/SCREEN_CAPTURE.md)
 
-[Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md) ·
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
 ## License
 
