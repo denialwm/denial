@@ -1,9 +1,8 @@
-import 'dart:io';
-
+import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/power_profile.dart';
-import 'system_io.dart';
+import 'power_profiles_client.dart';
 
 export '../models/power_profile.dart';
 
@@ -11,32 +10,32 @@ final powerProfileServiceProvider = Provider<PowerProfileService>((ref) {
   return const PowerProfileService();
 });
 
-/// Reads and writes the system power profile through denia-powerd.
+/// Reads and writes the system power profile through power-profiles-daemon
+/// (or tuned-ppd), the same endpoints the desktop power modes use.
 class PowerProfileService {
   const PowerProfileService();
 
-  static const String _envPath = '/run/denia-powerd/power_profile.env';
-  static const String _socketPath = '/run/denia-powerd/profile.sock';
+  // Created on first use; one system-bus connection for the session.
+  static final PowerProfilesClient _client = PowerProfilesClient(
+    DBusClient.system(),
+  );
 
-  Future<String?> read() async {
-    final fields = await readKeyValueFile(_envPath);
-    return PowerProfile.normalize(fields['POWER_PROFILE']);
-  }
+  /// The active profile, or null when no power-profile service answers.
+  Future<String?> read() => _client.readActiveProfile();
 
-  Future<void> write(String profile) async {
-    Socket? socket;
+  /// Asks the service for [profile]. Returns whether it accepted it.
+  Future<bool> write(String profile) async {
+    final endpoint = await _client.resolve();
+    if (endpoint == null) {
+      return false;
+    }
     try {
-      socket = await Socket.connect(
-        InternetAddress(_socketPath, type: InternetAddressType.unix),
-        0,
-        timeout: const Duration(milliseconds: 700),
+      await endpoint.setActiveProfile(
+        profile == PowerProfile.powerSave ? 'power-saver' : profile,
       );
-      socket.write('$profile\n');
-      await socket.flush();
+      return true;
     } on Object {
-      // Powerd may be absent during local runs.
-    } finally {
-      socket?.destroy();
+      return false;
     }
   }
 }

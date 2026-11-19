@@ -299,7 +299,19 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
   void cycleProfile() {
     final next = PowerProfile.next(state.profile);
     state = state.copyWith(profile: next);
-    unawaited(_power.write(next));
+    unawaited(_applyProfile(next, _buildGeneration));
+  }
+
+  /// Writes [profile], then shows the profile the system actually runs, so a
+  /// refused or unavailable service never leaves a made-up label behind.
+  Future<void> _applyProfile(String profile, int generation) async {
+    await _power.write(profile);
+    final actual = await _power.read();
+    if (isBuildGenerationActive(generation) &&
+        actual != null &&
+        state.profile == profile) {
+      state = state.copyWith(profile: actual);
+    }
   }
 
   void openKeyboard() =>
