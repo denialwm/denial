@@ -194,6 +194,9 @@ mod xembed_tray;
 #[cfg(feature = "flutter")]
 #[path = "deniald/xembed_tray_protocol.rs"]
 mod xembed_tray_protocol;
+#[cfg(feature = "xwayland")]
+#[path = "deniald/xwayland_exec.rs"]
+mod xwayland_exec;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
@@ -394,6 +397,8 @@ fn render_audit_enabled() -> bool {
 }
 
 fn main() {
+    #[cfg(feature = "xwayland")]
+    xwayland_exec::run_if_requested();
     #[cfg(feature = "flutter")]
     if std::env::args_os()
         .skip(1)

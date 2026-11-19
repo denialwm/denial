@@ -503,6 +503,9 @@ fn spawn_server(
         OsString::from("XCURSOR_SIZE"),
         OsString::from(cursor_size.to_string()),
     )];
+    // Xwayland starts through this program, which clears the signal mask
+    // calloop set in the thread Smithay forks from.
+    environment.extend(crate::xwayland_exec::environment()?);
     #[cfg(feature = "flutter")]
     if let Some(cursor_environment) = crate::xcursor_sentinel::environment() {
         environment.extend(
