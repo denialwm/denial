@@ -318,7 +318,8 @@ struct InputWindowRegion {
 enum InputEdge : ubyte {
   Left = 0,
   Right = 1,
-  Top = 2
+  Top = 2,
+  Bottom = 3
 }
 
 // A touch that starts inside rect over a client window is delivered to that

@@ -200,6 +200,7 @@ class DenialWireCodec {
             InputEdge.left => generated.InputEdge.Left,
             InputEdge.right => generated.InputEdge.Right,
             InputEdge.top => generated.InputEdge.Top,
+            InputEdge.bottom => generated.InputEdge.Bottom,
           },
         ),
       );

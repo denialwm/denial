@@ -115,6 +115,11 @@ class _DesktopPanelOverlayState extends ConsumerState<DesktopPanelOverlay> {
       outputRect: widget.shellOutputRect,
       placement: overlaySettings.launcher,
     );
+    final launcherSwipe = DesktopMetrics.launcherSwipeEdge(
+      widget.viewSize,
+      outputRect: widget.shellOutputRect,
+      placement: overlaySettings.launcher,
+    );
     final dashboardTriggerRect = DesktopMetrics.dashboardTriggerRect(
       widget.viewSize,
       outputRect: widget.shellOutputRect,
@@ -198,6 +203,17 @@ class _DesktopPanelOverlayState extends ConsumerState<DesktopPanelOverlay> {
               ),
             ),
           ),
+        // Above the hover trigger: a finger has no hover. The compositor
+        // hands a swipe over a window to the shell once it moves inward.
+        if (hasLauncher && !panelState.overviewActive)
+          if (launcherSwipe case final swipe?)
+            Positioned.fromRect(
+              rect: swipe.rect,
+              child: DesktopPanelEdgeSwipe(
+                edge: swipe.edge,
+                onSwipe: widget.onOpenLauncher,
+              ),
+            ),
         if (!panelState.overviewActive && !dashboardTriggerRect.isEmpty)
           Positioned.fromRect(
             rect: dashboardTriggerRect,

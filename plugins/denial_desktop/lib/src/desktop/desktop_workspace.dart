@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 
@@ -70,6 +71,70 @@ abstract final class DesktopMetrics {
     ),
   }) {
     return _edgeTriggerRect(viewSize, outputRect, placement);
+  }
+
+  /// Width of the strip a finger swipes in from to open the launcher.
+  static const double launcherSwipeWidth = 24.0;
+
+  /// Where a finger swipes in to open the launcher: along the edge the
+  /// launcher opens from, beside it, or along the bottom under it when it is
+  /// centered. Touch has no hover, so this is its way in.
+  static ({Rect rect, InputEdge edge})? launcherSwipeEdge(
+    Size viewSize, {
+    Rect? outputRect,
+    required ShellPopupPlacement placement,
+  }) {
+    final bounds = _outputBounds(viewSize, outputRect);
+    if (bounds.isEmpty) {
+      return null;
+    }
+    final panel = placement.resolve(bounds);
+    final anchor = placement.anchor;
+    final width = math.min(launcherSwipeWidth, bounds.shortestSide);
+    final ({Rect rect, InputEdge edge}) swipe;
+    if (anchor.horizontal < 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          bounds.left,
+          panel.top,
+          bounds.left + width,
+          panel.bottom,
+        ),
+        edge: InputEdge.left,
+      );
+    } else if (anchor.horizontal > 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          bounds.right - width,
+          panel.top,
+          bounds.right,
+          panel.bottom,
+        ),
+        edge: InputEdge.right,
+      );
+    } else if (anchor.vertical < 0) {
+      swipe = (
+        rect: Rect.fromLTRB(
+          panel.left,
+          bounds.top,
+          panel.right,
+          bounds.top + width,
+        ),
+        edge: InputEdge.top,
+      );
+    } else {
+      swipe = (
+        rect: Rect.fromLTRB(
+          panel.left,
+          bounds.bottom - width,
+          panel.right,
+          bounds.bottom,
+        ),
+        edge: InputEdge.bottom,
+      );
+    }
+    final rect = swipe.rect.intersect(bounds);
+    return rect.isEmpty ? null : (rect: rect, edge: swipe.edge);
   }
 
   static Rect dashboardTriggerRect(

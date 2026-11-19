@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 
+import '../features/default_shell/panel_composition.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/desktop_visibility.dart';
 import '../state/input_deck.dart';
@@ -78,6 +79,10 @@ class _DesktopInputLayoutPublisherState
         ),
       ),
     );
+    ref.watch(
+      shellSettingsProvider.select((settings) => settings.overlays.launcher),
+    );
+    ref.watch(desktopLauncherProvider);
     ref.watch(deskDisplayLayoutProvider);
     ref.watch(phoneDeskProvider);
     ref.watch(shellInteractionRegistryProvider);
@@ -130,6 +135,15 @@ class _DesktopInputLayoutPublisherState
           );
       final deckActive =
           !shell.locked && ref.read(inputDeckProvider).activeOutput != null;
+      final desktop = ref.read(desktopWorkspaceProvider);
+      final launcherSwipe =
+          ref.read(desktopLauncherProvider) == null || desktop.overviewActive
+          ? null
+          : DesktopMetrics.launcherSwipeEdge(
+              viewSize,
+              outputRect: displayLayout?.systemBarOutput?.logicalRect,
+              placement: ref.read(shellSettingsProvider).overlays.launcher,
+            );
       final source = _DesktopInputLayoutSource(
         desktopVisible: ref.read(desktopVisibleProvider),
         viewSize: viewSize,
@@ -139,7 +153,7 @@ class _DesktopInputLayoutPublisherState
         popupSurfaces: shell.desk.positionedPopupSurfaces,
         layerSurfaces: shell.desk.layerSurfaces,
         windowSnapshotSequence: shell.windowSnapshotSequence,
-        desktop: ref.read(desktopWorkspaceProvider),
+        desktop: desktop,
         switcher: ref.read(desktopWindowSwitcherProvider),
         interactions: ref.read(shellInteractionRegistryProvider),
         displayLayout: displayLayout,
@@ -154,6 +168,7 @@ class _DesktopInputLayoutPublisherState
           progress: deckActive ? 0 : shell.edgePanelDragProgress,
           shortcuts: shell.oskShortcuts,
         ),
+        launcherSwipe: launcherSwipe,
       );
       if (_lastSource?.hasSameInputsAs(source) ?? false) {
         return;
@@ -524,6 +539,12 @@ class _DesktopInputLayoutPublisherState
       shellRegions: shellRegions,
       windows: inputWindows,
       softwareKeyboardRegions: softwareKeyboardRegions,
+      // A swipe in from the launcher's edge over a window is handed to the
+      // shell once it moves inward; taps there stay with the window.
+      edgeSwipeRegions: <InputEdgeSwipeRegion>[
+        if (source.launcherSwipe case final swipe?)
+          InputEdgeSwipeRegion(rect: swipe.rect, edge: swipe.edge),
+      ],
       visibleSurfaceIds: visibleSurfaceIds.toList(growable: false),
       keyboardCapture: source.desktopVisible || interactions.capturesKeyboard,
       exclusiveShellMode: interactions.compositorExclusive,
@@ -666,6 +687,7 @@ class _DesktopInputLayoutSource {
     required this.phoneRect,
     required this.windowLayout,
     required this.softwareKeyboard,
+    required this.launcherSwipe,
   });
 
   final Size viewSize;
@@ -684,6 +706,7 @@ class _DesktopInputLayoutSource {
   final DesktopWindowLayout windowLayout;
   final ({bool enabled, bool visible, double progress, bool shortcuts})
   softwareKeyboard;
+  final ({Rect rect, InputEdge edge})? launcherSwipe;
 
   bool hasSameInputsAs(_DesktopInputLayoutSource other) {
     return desktopVisible == other.desktopVisible &&
@@ -698,7 +721,8 @@ class _DesktopInputLayoutSource {
         identical(displayLayout, other.displayLayout) &&
         phoneRect == other.phoneRect &&
         windowLayout == other.windowLayout &&
-        softwareKeyboard == other.softwareKeyboard;
+        softwareKeyboard == other.softwareKeyboard &&
+        launcherSwipe == other.launcherSwipe;
   }
 }
 

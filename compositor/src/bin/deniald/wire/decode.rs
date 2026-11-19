@@ -1216,6 +1216,7 @@ fn decode_input_layout(
                 fb::InputEdge::Left => InputEdge::Left,
                 fb::InputEdge::Right => InputEdge::Right,
                 fb::InputEdge::Top => InputEdge::Top,
+                fb::InputEdge::Bottom => InputEdge::Bottom,
                 _ => return Err(WireError::Payload),
             };
             decoded.edge_swipe_regions.push(EdgeSwipeRegion {

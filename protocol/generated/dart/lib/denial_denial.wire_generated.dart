@@ -1056,7 +1056,8 @@ class _CursorStateKindReader extends fb.Reader<CursorStateKind> {
 enum InputEdge {
   Left(0),
   Right(1),
-  Top(2);
+  Top(2),
+  Bottom(3);
 
   final int value;
   const InputEdge(this.value);
@@ -1066,6 +1067,7 @@ enum InputEdge {
       case 0: return InputEdge.Left;
       case 1: return InputEdge.Right;
       case 2: return InputEdge.Top;
+      case 3: return InputEdge.Bottom;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -1074,7 +1076,7 @@ enum InputEdge {
       value == null ? null : InputEdge.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 2;
+  static const int maxValue = 3;
   static const fb.Reader<InputEdge> reader = _InputEdgeReader();
 }
 
