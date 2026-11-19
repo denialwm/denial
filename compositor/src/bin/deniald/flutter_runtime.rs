@@ -139,6 +139,8 @@ const GLFW_MOD_ALT: u32 = 0x0004;
 // dropped as their buffer goes, not by this bound.
 const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
 const MAX_CACHED_SHM_BINDINGS: usize = 32;
+/// Bounds the set of textures whose import failure was already logged.
+const MAX_LOGGED_IMPORT_FAILURES: usize = 256;
 // SHM revisions own distinct GPU uploads. Unlike rotating dma-bufs, old
 // revisions are not reusable client storage. Keep a small recent ring per
 // surface while retaining the existing compositor-wide cache bound.
