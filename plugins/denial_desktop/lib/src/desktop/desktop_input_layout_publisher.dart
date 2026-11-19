@@ -80,7 +80,9 @@ class _DesktopInputLayoutPublisherState
       ),
     );
     ref.watch(
-      shellSettingsProvider.select((settings) => settings.overlays.launcher),
+      shellSettingsProvider.select(
+        (settings) => (settings.overlays.launcher, settings.overlays.dashboard),
+      ),
     );
     ref.watch(desktopLauncherProvider);
     ref.watch(deskDisplayLayoutProvider);
@@ -136,13 +138,13 @@ class _DesktopInputLayoutPublisherState
       final deckActive =
           !shell.locked && ref.read(inputDeckProvider).activeOutput != null;
       final desktop = ref.read(desktopWorkspaceProvider);
-      final launcherSwipe =
-          ref.read(desktopLauncherProvider) == null || desktop.overviewActive
-          ? null
-          : DesktopMetrics.launcherSwipeEdge(
+      final panelSwipes = desktop.overviewActive
+          ? (launcher: null, dashboard: null)
+          : DesktopMetrics.panelSwipes(
               viewSize,
               outputRect: displayLayout?.systemBarOutput?.logicalRect,
-              placement: ref.read(shellSettingsProvider).overlays.launcher,
+              overlays: ref.read(shellSettingsProvider).overlays,
+              hasLauncher: ref.read(desktopLauncherProvider) != null,
             );
       final source = _DesktopInputLayoutSource(
         desktopVisible: ref.read(desktopVisibleProvider),
@@ -168,7 +170,7 @@ class _DesktopInputLayoutPublisherState
           progress: deckActive ? 0 : shell.edgePanelDragProgress,
           shortcuts: shell.oskShortcuts,
         ),
-        launcherSwipe: launcherSwipe,
+        panelSwipes: panelSwipes,
       );
       if (_lastSource?.hasSameInputsAs(source) ?? false) {
         return;
@@ -539,11 +541,15 @@ class _DesktopInputLayoutPublisherState
       shellRegions: shellRegions,
       windows: inputWindows,
       softwareKeyboardRegions: softwareKeyboardRegions,
-      // A swipe in from the launcher's edge over a window is handed to the
-      // shell once it moves inward; taps there stay with the window.
+      // A swipe in from a panel's edge over a window is handed to the shell
+      // once it moves inward; taps there stay with the window.
       edgeSwipeRegions: <InputEdgeSwipeRegion>[
-        if (source.launcherSwipe case final swipe?)
-          InputEdgeSwipeRegion(rect: swipe.rect, edge: swipe.edge),
+        for (final swipe in [
+          source.panelSwipes.launcher,
+          source.panelSwipes.dashboard,
+        ])
+          if (swipe != null)
+            InputEdgeSwipeRegion(rect: swipe.rect, edge: swipe.edge),
       ],
       visibleSurfaceIds: visibleSurfaceIds.toList(growable: false),
       keyboardCapture: source.desktopVisible || interactions.capturesKeyboard,
@@ -687,7 +693,7 @@ class _DesktopInputLayoutSource {
     required this.phoneRect,
     required this.windowLayout,
     required this.softwareKeyboard,
-    required this.launcherSwipe,
+    required this.panelSwipes,
   });
 
   final Size viewSize;
@@ -706,7 +712,8 @@ class _DesktopInputLayoutSource {
   final DesktopWindowLayout windowLayout;
   final ({bool enabled, bool visible, double progress, bool shortcuts})
   softwareKeyboard;
-  final ({Rect rect, InputEdge edge})? launcherSwipe;
+  final ({DesktopPanelSwipe? launcher, DesktopPanelSwipe? dashboard})
+  panelSwipes;
 
   bool hasSameInputsAs(_DesktopInputLayoutSource other) {
     return desktopVisible == other.desktopVisible &&
@@ -722,7 +729,7 @@ class _DesktopInputLayoutSource {
         phoneRect == other.phoneRect &&
         windowLayout == other.windowLayout &&
         softwareKeyboard == other.softwareKeyboard &&
-        launcherSwipe == other.launcherSwipe;
+        panelSwipes == other.panelSwipes;
   }
 }
 

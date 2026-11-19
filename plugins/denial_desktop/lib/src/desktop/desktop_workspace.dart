@@ -15,6 +15,9 @@ import 'transient_family_order.dart';
 
 part 'desktop_workspace_controller.dart';
 
+/// A screen-edge strip a finger swipes in from, and the edge it starts at.
+typedef DesktopPanelSwipe = ({Rect rect, InputEdge edge});
+
 abstract final class DesktopMetrics {
   static const double frameBorder = 1.0;
   static const double panelGap = 12.0;
@@ -73,13 +76,43 @@ abstract final class DesktopMetrics {
     return _edgeTriggerRect(viewSize, outputRect, placement);
   }
 
-  /// Width of the strip a finger swipes in from to open the launcher.
-  static const double launcherSwipeWidth = 24.0;
+  /// Width of the strip a finger swipes in from to open a panel.
+  static const double panelSwipeWidth = 24.0;
 
-  /// Where a finger swipes in to open the launcher: along the edge the
-  /// launcher opens from, beside it, or along the bottom under it when it is
-  /// centered. Touch has no hover, so this is its way in.
-  static ({Rect rect, InputEdge edge})? launcherSwipeEdge(
+  /// The strips a finger swipes in from to open the launcher and the
+  /// dashboard. Touch has no hover, so this is its way in. When both panels
+  /// would open from the same place, the launcher keeps it.
+  static ({DesktopPanelSwipe? launcher, DesktopPanelSwipe? dashboard})
+  panelSwipes(
+    Size viewSize, {
+    Rect? outputRect,
+    required ShellOverlaySettings overlays,
+    required bool hasLauncher,
+  }) {
+    final launcher = hasLauncher
+        ? panelSwipeEdge(
+            viewSize,
+            outputRect: outputRect,
+            placement: overlays.launcher,
+          )
+        : null;
+    final dashboard = panelSwipeEdge(
+      viewSize,
+      outputRect: outputRect,
+      placement: overlays.dashboard,
+    );
+    final shared =
+        launcher != null &&
+        dashboard != null &&
+        launcher.edge == dashboard.edge &&
+        launcher.rect.overlaps(dashboard.rect);
+    return (launcher: launcher, dashboard: shared ? null : dashboard);
+  }
+
+  /// Where a finger swipes in to open a panel: along the edge the panel
+  /// opens from, beside it, or along the bottom under it when it is
+  /// centered.
+  static DesktopPanelSwipe? panelSwipeEdge(
     Size viewSize, {
     Rect? outputRect,
     required ShellPopupPlacement placement,
@@ -90,8 +123,8 @@ abstract final class DesktopMetrics {
     }
     final panel = placement.resolve(bounds);
     final anchor = placement.anchor;
-    final width = math.min(launcherSwipeWidth, bounds.shortestSide);
-    final ({Rect rect, InputEdge edge}) swipe;
+    final width = math.min(panelSwipeWidth, bounds.shortestSide);
+    final DesktopPanelSwipe swipe;
     if (anchor.horizontal < 0) {
       swipe = (
         rect: Rect.fromLTRB(
