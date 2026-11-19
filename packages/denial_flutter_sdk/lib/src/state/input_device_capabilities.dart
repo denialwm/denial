@@ -104,6 +104,14 @@ class InputDeviceCapabilitiesController
     );
   }
 
+  void setMouseNaturalScroll(bool enabled) {
+    unawaited(
+      _configureMouse(
+        state.capabilities.copyWith(mouseNaturalScrollEnabled: enabled),
+      ),
+    );
+  }
+
   Future<void> _refresh(int generation) async {
     try {
       final capabilities = await _bridge.readInputDeviceCapabilities();

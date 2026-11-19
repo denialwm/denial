@@ -92,6 +92,7 @@ void main() {
       hasMouse: true,
       mouseSpeed: 0.35,
       mouseAccelerationEnabled: false,
+      mouseNaturalScrollEnabled: true,
       hasTouchpad: true,
       tapToClickEnabled: true,
       naturalScrollEnabled: false,
@@ -112,6 +113,7 @@ void main() {
     expect(request.expectedRevision, 7);
     expect(request.mouse!.speed, closeTo(0.35, 0.0001));
     expect(request.mouse!.accelerationEnabled, isFalse);
+    expect(request.mouse!.naturalScrollEnabled, isTrue);
     expect(request.touchpad, isNull);
     expect(
       codec.encodeMouseConfiguration(
@@ -136,6 +138,7 @@ void main() {
       hasMouse: true,
       mouseSpeed: 0.35,
       mouseAccelerationEnabled: false,
+      mouseNaturalScrollEnabled: false,
       hasTouchpad: true,
       tapToClickEnabled: true,
       naturalScrollEnabled: false,
@@ -180,50 +183,58 @@ void main() {
     );
   });
 
-  test('input capability response carries mouse and touchpad settings', () {
-    final bytes = EnvelopeObjectBuilder(
-      protocolVersion: 1,
-      sequence: 1,
-      requestId: 23,
-      payloadType: PayloadTypeId.SettingsResponse,
-      payload: SettingsResponseObjectBuilder(
-        kind: SettingsResponseKind.InputDevices,
-        success: true,
-        revision: 9,
-        inputDevices: InputDeviceCapabilitiesObjectBuilder(
-          hasMouse: true,
-          mouse: MouseConfigurationObjectBuilder(
-            speed: -0.4,
-            accelerationEnabled: false,
-          ),
-          hasTouchpad: true,
-          touchpad: TouchpadConfigurationObjectBuilder(
-            tapToClickEnabled: false,
-            naturalScrollEnabled: true,
-            scrollSpeedFactor: 2.25,
-            scrollingLayoutSwipeSpeedFactor: 1.75,
+  test(
+    'input capability response carries mouse and touchpad settings apart',
+    () {
+      final bytes = EnvelopeObjectBuilder(
+        protocolVersion: 1,
+        sequence: 1,
+        requestId: 23,
+        payloadType: PayloadTypeId.SettingsResponse,
+        payload: SettingsResponseObjectBuilder(
+          kind: SettingsResponseKind.InputDevices,
+          success: true,
+          revision: 9,
+          inputDevices: InputDeviceCapabilitiesObjectBuilder(
+            hasMouse: true,
+            mouse: MouseConfigurationObjectBuilder(
+              speed: -0.4,
+              accelerationEnabled: false,
+              naturalScrollEnabled: true,
+            ),
+            hasTouchpad: true,
+            touchpad: TouchpadConfigurationObjectBuilder(
+              tapToClickEnabled: false,
+              naturalScrollEnabled: false,
+              scrollSpeedFactor: 2.25,
+              scrollingLayoutSwipeSpeedFactor: 1.75,
+            ),
           ),
         ),
-      ),
-    ).toBytes('DENW');
-    final codec = DenialWireCodec();
-    final envelope = codec.decodeStructured(ByteData.sublistView(bytes));
+      ).toBytes('DENW');
+      final codec = DenialWireCodec();
+      final envelope = codec.decodeStructured(ByteData.sublistView(bytes));
 
-    expect(envelope, isNotNull);
-    final capabilities = codec.decodeInputDeviceCapabilities(
-      envelope!.payload as SettingsResponse,
-    );
-    expect(capabilities, isNotNull);
-    expect(capabilities!.revision, 9);
-    expect(capabilities.hasMouse, isTrue);
-    expect(capabilities.mouseSpeed, closeTo(-0.4, 0.0001));
-    expect(capabilities.mouseAccelerationEnabled, isFalse);
-    expect(capabilities.hasTouchpad, isTrue);
-    expect(capabilities.tapToClickEnabled, isFalse);
-    expect(capabilities.naturalScrollEnabled, isTrue);
-    expect(capabilities.scrollSpeedFactor, closeTo(2.25, 0.0001));
-    expect(capabilities.scrollingLayoutSwipeSpeedFactor, closeTo(1.75, 0.0001));
-  });
+      expect(envelope, isNotNull);
+      final capabilities = codec.decodeInputDeviceCapabilities(
+        envelope!.payload as SettingsResponse,
+      );
+      expect(capabilities, isNotNull);
+      expect(capabilities!.revision, 9);
+      expect(capabilities.hasMouse, isTrue);
+      expect(capabilities.mouseSpeed, closeTo(-0.4, 0.0001));
+      expect(capabilities.mouseAccelerationEnabled, isFalse);
+      expect(capabilities.mouseNaturalScrollEnabled, isTrue);
+      expect(capabilities.hasTouchpad, isTrue);
+      expect(capabilities.tapToClickEnabled, isFalse);
+      expect(capabilities.naturalScrollEnabled, isFalse);
+      expect(capabilities.scrollSpeedFactor, closeTo(2.25, 0.0001));
+      expect(
+        capabilities.scrollingLayoutSwipeSpeedFactor,
+        closeTo(1.75, 0.0001),
+      );
+    },
+  );
 
   test('theme accent is encoded as opaque packed sRGB', () {
     final bytes = DenialWireCodec().encodeThemeAccent(0x7f123456);

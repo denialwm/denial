@@ -900,6 +900,7 @@ fn control_input_snapshot(
         "has_mouse": !events.input_devices.mice.is_empty(),
         "mouse_speed": mouse.speed,
         "mouse_acceleration_enabled": mouse.acceleration_enabled,
+        "mouse_natural_scroll_enabled": mouse.natural_scroll_enabled,
         "tap_to_click_enabled": touchpad.tap_to_click_enabled,
         "natural_scroll_enabled": touchpad.natural_scroll_enabled,
         "scroll_speed_factor": touchpad.scroll_speed_factor,

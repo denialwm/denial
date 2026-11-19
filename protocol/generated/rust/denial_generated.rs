@@ -9815,6 +9815,7 @@ impl<'a> flatbuffers::Follow<'a> for MouseConfiguration<'a> {
 impl<'a> MouseConfiguration<'a> {
   pub const VT_SPEED: flatbuffers::VOffsetT = 4;
   pub const VT_ACCELERATION_ENABLED: flatbuffers::VOffsetT = 6;
+  pub const VT_NATURAL_SCROLL_ENABLED: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -9827,6 +9828,7 @@ impl<'a> MouseConfiguration<'a> {
   ) -> flatbuffers::WIPOffset<MouseConfiguration<'bldr>> {
     let mut builder = MouseConfigurationBuilder::new(_fbb);
     builder.add_speed(args.speed);
+    builder.add_natural_scroll_enabled(args.natural_scroll_enabled);
     builder.add_acceleration_enabled(args.acceleration_enabled);
     builder.finish()
   }
@@ -9846,6 +9848,13 @@ impl<'a> MouseConfiguration<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, Some(true)).unwrap()}
   }
+  #[inline]
+  pub fn natural_scroll_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(MouseConfiguration::VT_NATURAL_SCROLL_ENABLED, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for MouseConfiguration<'_> {
@@ -9857,6 +9866,7 @@ impl flatbuffers::Verifiable for MouseConfiguration<'_> {
     v.visit_table(pos)?
      .visit_field::<f64>("speed", Self::VT_SPEED, false)?
      .visit_field::<bool>("acceleration_enabled", Self::VT_ACCELERATION_ENABLED, false)?
+     .visit_field::<bool>("natural_scroll_enabled", Self::VT_NATURAL_SCROLL_ENABLED, false)?
      .finish();
     Ok(())
   }
@@ -9864,6 +9874,7 @@ impl flatbuffers::Verifiable for MouseConfiguration<'_> {
 pub struct MouseConfigurationArgs {
     pub speed: f64,
     pub acceleration_enabled: bool,
+    pub natural_scroll_enabled: bool,
 }
 impl<'a> Default for MouseConfigurationArgs {
   #[inline]
@@ -9871,6 +9882,7 @@ impl<'a> Default for MouseConfigurationArgs {
     MouseConfigurationArgs {
       speed: 0.0,
       acceleration_enabled: true,
+      natural_scroll_enabled: false,
     }
   }
 }
@@ -9887,6 +9899,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> MouseConfigurationBuilder<'a, '
   #[inline]
   pub fn add_acceleration_enabled(&mut self, acceleration_enabled: bool) {
     self.fbb_.push_slot::<bool>(MouseConfiguration::VT_ACCELERATION_ENABLED, acceleration_enabled, true);
+  }
+  #[inline]
+  pub fn add_natural_scroll_enabled(&mut self, natural_scroll_enabled: bool) {
+    self.fbb_.push_slot::<bool>(MouseConfiguration::VT_NATURAL_SCROLL_ENABLED, natural_scroll_enabled, false);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> MouseConfigurationBuilder<'a, 'b, A> {
@@ -9908,6 +9924,7 @@ impl core::fmt::Debug for MouseConfiguration<'_> {
     let mut ds = f.debug_struct("MouseConfiguration");
       ds.field("speed", &self.speed());
       ds.field("acceleration_enabled", &self.acceleration_enabled());
+      ds.field("natural_scroll_enabled", &self.natural_scroll_enabled());
       ds.finish()
   }
 }

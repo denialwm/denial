@@ -774,6 +774,8 @@ table MouseConfiguration {
   speed:double;
   // Off selects libinput's flat profile: speed becomes a constant factor.
   acceleration_enabled:bool = true;
+  // Reverses the wheel, independent of the touchpad's natural scrolling.
+  natural_scroll_enabled:bool;
 }
 
 table SettingsRequest {

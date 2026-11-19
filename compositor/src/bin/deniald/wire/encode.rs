@@ -516,6 +516,7 @@ impl WireBridge {
             &fb::MouseConfigurationArgs {
                 speed: mouse.speed,
                 acceleration_enabled: mouse.acceleration_enabled,
+                natural_scroll_enabled: mouse.natural_scroll_enabled,
             },
         );
         let input_devices = fb::InputDeviceCapabilities::create(

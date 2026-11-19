@@ -862,6 +862,7 @@ fn decode_settings_request(
                 mouse: MouseSettings {
                     speed: mouse.speed(),
                     acceleration_enabled: mouse.acceleration_enabled(),
+                    natural_scroll_enabled: mouse.natural_scroll_enabled(),
                 },
             })
         }

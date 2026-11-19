@@ -1424,11 +1424,25 @@ fn configure_mouse_device(
             device.name()
         )
     })?;
+    let natural_scroll_supported = device.config_scroll_has_natural_scroll();
+    if natural_scroll_supported {
+        device
+            .config_scroll_set_natural_scroll_enabled(settings.natural_scroll_enabled)
+            .map_err(|error| {
+                format!(
+                    "could not set wheel natural scrolling on {} to {}: {error:?}",
+                    device.name(),
+                    settings.natural_scroll_enabled
+                )
+            })?;
+    }
     info!(
         device = %device.name(),
         speed = settings.speed,
         ?profile,
-        "configured mouse pointer speed and acceleration"
+        natural_scroll_enabled = settings.natural_scroll_enabled,
+        natural_scroll_supported,
+        "configured mouse"
     );
     Ok(())
 }

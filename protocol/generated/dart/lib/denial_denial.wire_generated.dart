@@ -5499,10 +5499,11 @@ class MouseConfiguration {
 
   double get speed => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 4, 0.0);
   bool get accelerationEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, true);
+  bool get naturalScrollEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
 
   @override
   String toString() {
-    return 'MouseConfiguration{speed: ${speed}, accelerationEnabled: ${accelerationEnabled}}';
+    return 'MouseConfiguration{speed: ${speed}, accelerationEnabled: ${accelerationEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}}';
   }
 }
 
@@ -5520,7 +5521,7 @@ class MouseConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
   }
 
   int addSpeed(double? speed) {
@@ -5529,6 +5530,10 @@ class MouseConfigurationBuilder {
   }
   int addAccelerationEnabled(bool? accelerationEnabled) {
     fbBuilder.addBool(1, accelerationEnabled);
+    return fbBuilder.offset;
+  }
+  int addNaturalScrollEnabled(bool? naturalScrollEnabled) {
+    fbBuilder.addBool(2, naturalScrollEnabled);
     return fbBuilder.offset;
   }
 
@@ -5540,20 +5545,24 @@ class MouseConfigurationBuilder {
 class MouseConfigurationObjectBuilder extends fb.ObjectBuilder {
   final double? _speed;
   final bool? _accelerationEnabled;
+  final bool? _naturalScrollEnabled;
 
   MouseConfigurationObjectBuilder({
     double? speed,
     bool? accelerationEnabled,
+    bool? naturalScrollEnabled,
   })
       : _speed = speed,
-        _accelerationEnabled = accelerationEnabled;
+        _accelerationEnabled = accelerationEnabled,
+        _naturalScrollEnabled = naturalScrollEnabled;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
     fbBuilder.addFloat64(0, _speed);
     fbBuilder.addBool(1, _accelerationEnabled);
+    fbBuilder.addBool(2, _naturalScrollEnabled);
     return fbBuilder.endTable();
   }
 
