@@ -113,6 +113,7 @@ pub(super) fn synchronize_sleep_transition(scanouts: &[Scanout], events: &mut Ru
             // Opening the lid often ends the sleep, and some lid drivers report
             // no toggle on resume.
             events.lid.request_reading();
+            events.idle_policy.note_resume(Instant::now());
             let requests = events.sleep_transition.resume();
             events.queue_idle_power_requests(requests);
             info!("queued display restoration after system sleep");
