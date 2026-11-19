@@ -493,29 +493,53 @@ class _DashboardVolumeCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Semantics(
-            slider: true,
-            label: context.l10n.commonVolume,
-            value: context.l10n.settingsPercent((volume * 100).round()),
-            onIncrease: () => controller.commitDashboardVolume(
-              (volume + .05).clamp(0.0, 1.0),
+          if (volume == null)
+            // No audio service has reported a volume: nothing to move.
+            Semantics(
+              slider: true,
+              enabled: false,
+              label: context.l10n.commonVolume,
+              value: context.l10n.commonUnavailable,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.45,
+                  child: RangeBar(
+                    icon: Icons.volume_off_rounded,
+                    value: 0,
+                    activeColor: ShellTheme.of(context).accent,
+                    inactiveColor: context.shellColors.volumeTrack,
+                    onChanged: (_) {},
+                    onChangeEnd: (_) {},
+                    height: 48,
+                    showValueMarker: false,
+                  ),
+                ),
+              ),
+            )
+          else
+            Semantics(
+              slider: true,
+              label: context.l10n.commonVolume,
+              value: context.l10n.settingsPercent((volume * 100).round()),
+              onIncrease: () => controller.commitDashboardVolume(
+                (volume + .05).clamp(0.0, 1.0),
+              ),
+              onDecrease: () => controller.commitDashboardVolume(
+                (volume - .05).clamp(0.0, 1.0),
+              ),
+              child: RangeBar(
+                icon: volume <= 0.01
+                    ? Icons.volume_off_rounded
+                    : Icons.volume_up_rounded,
+                value: volume,
+                activeColor: ShellTheme.of(context).accent,
+                inactiveColor: context.shellColors.volumeTrack,
+                onChangeStart: controller.beginVolumeInteraction,
+                onChanged: controller.setDashboardVolume,
+                onChangeEnd: controller.commitDashboardVolume,
+                height: 48,
+              ),
             ),
-            onDecrease: () => controller.commitDashboardVolume(
-              (volume - .05).clamp(0.0, 1.0),
-            ),
-            child: RangeBar(
-              icon: volume <= 0.01
-                  ? Icons.volume_off_rounded
-                  : Icons.volume_up_rounded,
-              value: volume,
-              activeColor: ShellTheme.of(context).accent,
-              inactiveColor: context.shellColors.volumeTrack,
-              onChangeStart: controller.beginVolumeInteraction,
-              onChanged: controller.setDashboardVolume,
-              onChangeEnd: controller.commitDashboardVolume,
-              height: 48,
-            ),
-          ),
           const SizedBox(height: 10),
           DashboardAudioDeviceDropdown(
             state: devices,

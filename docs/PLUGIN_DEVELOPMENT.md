@@ -559,7 +559,9 @@ the smallest capability in your feature constructors/helpers, such as
 or `ShellMediaServices` for playback controls. The supplied `ShellServices` bundle
 implements all of them, so existing plugin calls remain valid.
 
-`ShellAudioServices` supplies output volume and begin/change/commit interactions;
+`ShellAudioServices` supplies output volume, whether an audio service has
+reported it (`volumeAvailable`; show the volume as unavailable until then) and
+begin/change/commit interactions;
 `ShellConnectivityServices` supplies the connected Wi-Fi network and its current
 signal strength. `controls.dart` exposes the shared themed `RangeBar`,
 `VerticalRangeBar` and `WifiStatusIcon` for consistent desktop/mobile controls.

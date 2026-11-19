@@ -20,14 +20,17 @@ class DisplayBrightnessState {
 /// Reconciles initial reads with local edits and native brightness events.
 /// Snapshots own immutable collections and share every unchanged collection.
 final class DisplayBrightnessModel {
-  DisplayBrightnessModel(Iterable<int> monitorIds) {
-    final levels = {for (final id in monitorIds) id: 0.72};
+  /// Every monitor starts without a level: a level appears only once the
+  /// system reports one, so a display nothing can dim shows none.
+  DisplayBrightnessModel(Iterable<int> monitorIds)
+    : _monitors = Set<int>.unmodifiable(monitorIds) {
     _state = DisplayBrightnessState(
-      levels: UnmodifiableMapView(levels),
-      loading: UnmodifiableSetView(levels.keys.toSet()),
+      levels: const <int, double>{},
+      loading: UnmodifiableSetView(_monitors.toSet()),
     );
   }
 
+  final Set<int> _monitors;
   late DisplayBrightnessState _state;
   final Map<int, ({int token, bool invalidated})> _reads = {};
   int _nextRead = 0;
@@ -35,15 +38,16 @@ final class DisplayBrightnessModel {
   DisplayBrightnessState get state => _state;
 
   int? beginRead(int monitorId) {
-    if (!_state.levels.containsKey(monitorId)) return null;
+    if (!_monitors.contains(monitorId)) return null;
     final token = ++_nextRead;
     _reads[monitorId] = (token: token, invalidated: false);
     return token;
   }
 
+  /// A level the system has not reported cannot be changed.
   DisplayBrightnessState setLevel(int monitorId, double level) {
     if (!_state.levels.containsKey(monitorId)) return _state;
-    // Even an edit to the displayed default invalidates an older initial read.
+    // An edit invalidates an older read still on its way.
     _invalidateRead(monitorId);
     return _update(monitorId, level, finishLoading: false);
   }
@@ -53,7 +57,7 @@ final class DisplayBrightnessModel {
     double level, {
     required bool completesRead,
   }) {
-    if (!_state.levels.containsKey(monitorId)) return _state;
+    if (!_monitors.contains(monitorId)) return _state;
     if (completesRead) {
       // The stream notification satisfies the read before its future resumes.
       // Consume it now so that completion cannot publish the same value again.

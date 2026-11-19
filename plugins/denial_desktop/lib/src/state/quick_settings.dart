@@ -21,12 +21,14 @@ class QuickSettingsState {
   });
 
   factory QuickSettingsState.initial() => const QuickSettingsState(
-    volume: 0.46,
+    volume: null,
     profile: null,
     screenshotRunning: false,
   );
 
-  final double volume;
+  /// The output volume, or null until the audio service reports one: with
+  /// no audio service the volume controls show it as unavailable.
+  final double? volume;
 
   /// The system power profile, or null while no power-profile service has
   /// answered: the shade then shows no power tile.
@@ -141,6 +143,7 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
   }
 
   void beginVolumeInteraction() {
+    if (state.volume == null) return;
     _volumeInteracting = true;
     _deferredAudioState = null;
   }
@@ -174,6 +177,8 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     bool force = false,
     bool suppressHud = false,
   }) {
+    // A volume the audio service never reported cannot be changed.
+    if (state.volume == null) return;
     final clamped = value.clamp(0.0, 1.0).toDouble();
     final percent = (clamped * 100).round().clamp(0, 100);
     state = state.copyWith(volume: clamped);

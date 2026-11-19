@@ -876,7 +876,7 @@ class _BrightnessRangeBar extends ConsumerWidget {
     );
     final brightness = ref.watch(
       displayBrightnessProvider.select(
-        (state) => state.levels[output?.monitorId] ?? 0.72,
+        (state) => state.levels[output?.monitorId],
       ),
     );
     final controller = ref.read(displayBrightnessProvider.notifier);

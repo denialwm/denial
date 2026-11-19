@@ -39,7 +39,12 @@ final _accent = Provider.autoDispose(
   (ref) => ref.watch(shellAccentProvider).color,
 );
 final _volume = Provider.autoDispose(
-  (ref) => ref.watch(quickSettingsProvider.select((state) => state.volume)),
+  (ref) =>
+      ref.watch(quickSettingsProvider.select((state) => state.volume)) ?? 0.0,
+);
+final _volumeAvailable = Provider.autoDispose(
+  (ref) =>
+      ref.watch(quickSettingsProvider.select((state) => state.volume != null)),
 );
 final _connectedWifi = Provider.autoDispose(
   (ref) => ref.watch(
@@ -282,6 +287,8 @@ final class DesktopShellServices implements ShellServices {
   ProviderListenable<BatteryStatus> get battery => batteryProvider;
   @override
   ProviderListenable<double> get volume => _volume;
+  @override
+  ProviderListenable<bool> get volumeAvailable => _volumeAvailable;
   @override
   ProviderListenable<WifiNetwork?> get connectedWifi => _connectedWifi;
   @override

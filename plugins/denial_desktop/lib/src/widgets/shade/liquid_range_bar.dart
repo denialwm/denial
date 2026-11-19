@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import 'package:denial_flutter_sdk/effects.dart';
+import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 
 import '../liquid/liquid.dart';
@@ -18,6 +19,9 @@ import '../liquid/water_reveal.dart' show LiquidRevealScope;
 /// the tapped height. Past either end the bar stretches like rubber. A
 /// change from elsewhere pours in and tugs the bar toward it, and when the
 /// shade reveals the bar the level pours up from empty.
+///
+/// Without a [value], nothing reports the level: the bar shows empty and
+/// dimmed, reads as unavailable and takes no input.
 class LiquidRangeBar extends StatefulWidget {
   const LiquidRangeBar({
     super.key,
@@ -31,7 +35,7 @@ class LiquidRangeBar extends StatefulWidget {
   });
 
   final IconData icon;
-  final double value;
+  final double? value;
   final Color trackColor;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
@@ -52,7 +56,10 @@ class _LiquidRangeBarState extends State<LiquidRangeBar>
   /// Rubber reach inside the grid, where the gutter is narrow.
   static const double _reach = 12;
 
-  late final _LiquidBarMotion _motion = _LiquidBarMotion(this, widget.value);
+  late final _LiquidBarMotion _motion = _LiquidBarMotion(
+    this,
+    widget.value ?? 0,
+  );
   ValueListenable<double>? _reveal;
   double _revealValue = 0;
   double _dragStart = 0;
@@ -75,7 +82,7 @@ class _LiquidRangeBarState extends State<LiquidRangeBar>
   void didUpdateWidget(covariant LiquidRangeBar oldWidget) {
     super.didUpdateWidget(oldWidget);
     // While the finger holds the bar, the value coming back is its own.
-    if (!_dragging) _motion.pour(widget.value, tug: true);
+    if (!_dragging) _motion.pour(widget.value ?? 0, tug: true);
   }
 
   @override
@@ -89,7 +96,7 @@ class _LiquidRangeBarState extends State<LiquidRangeBar>
     final value = _reveal!.value;
     // Once the bead has stretched into the bar, the level pours up.
     if (_revealValue < 0.6 && value >= 0.6 && !_dragging) {
-      _motion.pourFromEmpty(widget.value);
+      _motion.pourFromEmpty(widget.value ?? 0);
     }
     _revealValue = value;
   }
@@ -157,6 +164,76 @@ class _LiquidRangeBarState extends State<LiquidRangeBar>
     );
     final percent = (_motion.target * 100).round();
     final media = MediaQuery.of(context);
+    final available = widget.value != null;
+    final bar = LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight;
+        final radius = theme.scaledRadius(20);
+        return Listener(
+          onPointerSignal: _handlePointerSignal,
+          // A short slop: the bar answers almost at once, and the travel
+          // before the drag starts still counts.
+          child: MediaQuery(
+            data: media.copyWith(
+              gestureSettings: const DeviceGestureSettings(
+                touchSlop: _touchSlop,
+              ),
+            ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              dragStartBehavior: DragStartBehavior.down,
+              onTapUp: (details) => _tapped(details, height),
+              onVerticalDragStart: _dragStarted,
+              onVerticalDragUpdate: (details) => _dragUpdated(details, height),
+              onVerticalDragEnd: (_) => _dragEnded(),
+              onVerticalDragCancel: _dragEnded,
+              child: Stack(
+                clipBehavior: Clip.none,
+                fit: StackFit.expand,
+                children: [
+                  AnimatedBuilder(
+                    animation: _motion,
+                    builder: (context, _) {
+                      final shape = _motion.shape(constraints.biggest);
+                      return Positioned.fromRect(
+                        rect: shape,
+                        child: ShellBackdropBlur(
+                          blur:
+                              _motion.level < 1 &&
+                              theme.effectivePanelOpacity < 1,
+                          borderRadius: BorderRadius.circular(
+                            math.min(radius, shape.shortestSide / 2),
+                          ),
+                          child: CustomPaint(
+                            size: shape.size,
+                            painter: _LiquidBarPainter(
+                              motion: _motion,
+                              colors: palette,
+                              radius: radius,
+                              icon: widget.icon,
+                              iconSize: 24 * widget.iconScale,
+                              textDirection: Directionality.of(context),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (!available) {
+      return Semantics(
+        slider: true,
+        enabled: false,
+        value: context.l10n.commonUnavailable,
+        child: IgnorePointer(child: Opacity(opacity: 0.45, child: bar)),
+      );
+    }
     return Semantics(
       slider: true,
       value: '$percent%',
@@ -164,68 +241,7 @@ class _LiquidRangeBarState extends State<LiquidRangeBar>
       decreasedValue: '${(percent - 5).clamp(0, 100)}%',
       onIncrease: () => _adjust(_step),
       onDecrease: () => _adjust(-_step),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final height = constraints.maxHeight;
-          final radius = theme.scaledRadius(20);
-          return Listener(
-            onPointerSignal: _handlePointerSignal,
-            // A short slop: the bar answers almost at once, and the travel
-            // before the drag starts still counts.
-            child: MediaQuery(
-              data: media.copyWith(
-                gestureSettings: const DeviceGestureSettings(
-                  touchSlop: _touchSlop,
-                ),
-              ),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                dragStartBehavior: DragStartBehavior.down,
-                onTapUp: (details) => _tapped(details, height),
-                onVerticalDragStart: _dragStarted,
-                onVerticalDragUpdate: (details) =>
-                    _dragUpdated(details, height),
-                onVerticalDragEnd: (_) => _dragEnded(),
-                onVerticalDragCancel: _dragEnded,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  fit: StackFit.expand,
-                  children: [
-                    AnimatedBuilder(
-                      animation: _motion,
-                      builder: (context, _) {
-                        final shape = _motion.shape(constraints.biggest);
-                        return Positioned.fromRect(
-                          rect: shape,
-                          child: ShellBackdropBlur(
-                            blur:
-                                _motion.level < 1 &&
-                                theme.effectivePanelOpacity < 1,
-                            borderRadius: BorderRadius.circular(
-                              math.min(radius, shape.shortestSide / 2),
-                            ),
-                            child: CustomPaint(
-                              size: shape.size,
-                              painter: _LiquidBarPainter(
-                                motion: _motion,
-                                colors: palette,
-                                radius: radius,
-                                icon: widget.icon,
-                                iconSize: 24 * widget.iconScale,
-                                textDirection: Directionality.of(context),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+      child: bar,
     );
   }
 }
