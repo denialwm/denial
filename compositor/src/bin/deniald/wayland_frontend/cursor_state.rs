@@ -271,12 +271,13 @@ impl WaylandFrontend {
                     &mut layers,
                     &mut textures,
                 );
-                if let Some(cursor_override) = self.xwayland_cursor_override(&surface) {
+                if let Some(cursor_override) = self.sentinel_cursor_override(&surface) {
                     // Xwayland calls wl_pointer.set_cursor before attaching
-                    // and committing the replacement buffer. It also reuses
-                    // this surface for later application cursors, so the
-                    // final composed layer is the first authoritative place
-                    // to classify the buffer selected by that request.
+                    // and committing the replacement buffer, and other
+                    // clients may too. Xwayland also reuses this surface for
+                    // later application cursors, so the final composed layer
+                    // is the first authoritative place to classify the
+                    // buffer selected by that request.
                     textures.clear();
                     let publication = match cursor_override {
                         crate::xcursor_sentinel::CursorOverride::Hidden => {
@@ -485,7 +486,7 @@ impl WaylandFrontend {
                 let CursorImageStatus::Surface(surface) = &self.cursor_status else {
                     unreachable!("surface cursor intent must retain its wl_surface")
                 };
-                if let Some(cursor_override) = self.xwayland_cursor_override(surface) {
+                if let Some(cursor_override) = self.sentinel_cursor_override(surface) {
                     match cursor_override {
                         crate::xcursor_sentinel::CursorOverride::Hidden => {
                             CursorPublication::Hidden
@@ -501,14 +502,15 @@ impl WaylandFrontend {
         }
     }
 
+    /// The cursor a sentinel-theme marker stands for. Every launched app
+    /// gets the sentinel theme: X11 apps load it through Xwayland, and
+    /// Wayland apps without the cursor-shape protocol (Qt before 6.5, older
+    /// foot) load it themselves, so a marker can come from either.
     #[cfg(feature = "flutter")]
-    fn xwayland_cursor_override(
+    fn sentinel_cursor_override(
         &self,
         surface: &WlSurface,
     ) -> Option<crate::xcursor_sentinel::CursorOverride> {
-        if !self.is_xwayland_cursor_surface(surface) {
-            return None;
-        }
         let frame = self.surface_shm_frames.get(&surface.id())?;
         if frame.is_fully_transparent() {
             return Some(crate::xcursor_sentinel::CursorOverride::Hidden);
@@ -518,13 +520,6 @@ impl WaylandFrontend {
         }
         let pixel = frame.pixels_if_single()?;
         crate::xcursor_sentinel::override_for_marker(frame.width(), frame.height(), &pixel)
-    }
-
-    #[cfg(feature = "flutter")]
-    fn is_xwayland_cursor_surface(&self, surface: &WlSurface) -> bool {
-        surface
-            .client()
-            .is_some_and(|client| xwayland::is_client(&client))
     }
 
     #[cfg(feature = "flutter")]
