@@ -5,7 +5,8 @@ use std::process::Stdio;
 use denial_core::topology::SCALE_BASE;
 use smithay::desktop::Window;
 use smithay::input::pointer::Focus;
-use smithay::reexports::calloop::EventLoop;
+use smithay::reexports::calloop::channel::Event as ChannelEvent;
+use smithay::reexports::calloop::{EventLoop, LoopHandle};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
@@ -48,6 +49,9 @@ use super::{
 #[cfg(feature = "flutter")]
 use super::{WindowPlacementChange, WindowPlacementPhase};
 
+#[path = "xwayland/frame_input.rs"]
+mod frame_input;
+
 const XWAYLAND_BASE_DPI: u32 = 96;
 const XWAYLAND_SCALE_MODE_ENV: &str = "DENIAL_XWAYLAND_SCALE_MODE";
 
@@ -63,6 +67,7 @@ struct ActiveXWayland {
     shell_state: XWaylandShellState,
     _keyboard_grab_state: XWaylandKeyboardGrabState,
     xwm: Option<X11Wm>,
+    frame_input: Option<frame_input::FrameInputShapes>,
     #[cfg(feature = "flutter")]
     xembed_tray: Option<super::super::xembed_tray::XEmbedTray>,
     client: Client,
@@ -176,6 +181,7 @@ impl XWaylandState {
                         }
                         publish_resource_dpi(active.display, dpi(active.app_scale_120()));
                         active.xwm = Some(xwm);
+                        active.frame_input = start_frame_input(&xwm_loop_handle, active.display);
                         #[cfg(feature = "flutter")]
                         match super::super::xembed_tray::XEmbedTray::start(OsString::from(format!(
                             ":{}",
@@ -217,6 +223,7 @@ impl XWaylandState {
                 shell_state,
                 _keyboard_grab_state: keyboard_grab_state,
                 xwm: None,
+                frame_input: None,
                 #[cfg(feature = "flutter")]
                 xembed_tray: None,
                 client,
@@ -573,6 +580,44 @@ fn window_for_x11(state: &RuntimeState, surface: &X11Surface) -> Option<Window> 
         .elements()
         .find(|window| window.x11_surface() == Some(surface))
         .cloned()
+}
+
+/// Starts copying X11 input regions onto window frames. Without it, windows
+/// still work; only their click-through holes are lost.
+fn start_frame_input(
+    loop_handle: &LoopHandle<'static, RuntimeState>,
+    display: u32,
+) -> Option<frame_input::FrameInputShapes> {
+    let (shapes, source) = match frame_input::FrameInputShapes::connect(display) {
+        Ok(started) => started,
+        Err(error) => {
+            warn!(%error, "X11 windows keep no click-through regions");
+            return None;
+        }
+    };
+    let inserted = loop_handle.insert_source(source, |event, _, state| {
+        let ChannelEvent::Msg(event) = event else {
+            return;
+        };
+        if let Some(shapes) = state.frontend_mut().xwayland.frame_input()
+            && let Err(error) = shapes.handle(event)
+        {
+            warn!(%error, "could not copy an X11 input region");
+        }
+    });
+    match inserted {
+        Ok(_) => Some(shapes),
+        Err(error) => {
+            warn!(%error, "X11 windows keep no click-through regions");
+            None
+        }
+    }
+}
+
+impl XWaylandState {
+    fn frame_input(&mut self) -> Option<&mut frame_input::FrameInputShapes> {
+        self.active.as_mut()?.frame_input.as_mut()
+    }
 }
 
 fn root_surface_for_x11(surface: &X11Surface) -> Option<WlSurface> {
@@ -949,6 +994,18 @@ impl XwmHandler for RuntimeState {
             warn!(%error, window = window.window_id(), "could not grant X11 map request");
             return;
         }
+        if let Some(frame) = window.mapped_window_id()
+            && let Some(shapes) = self.frontend_mut().xwayland.frame_input()
+        {
+            let size = window.geometry().size;
+            let size = (
+                u16::try_from(size.w).unwrap_or(u16::MAX),
+                u16::try_from(size.h).unwrap_or(u16::MAX),
+            );
+            if let Err(error) = shapes.follow(window.window_id(), frame, size) {
+                warn!(%error, window = window.window_id(), "could not follow an X11 input region");
+            }
+        }
         map_x11_window(self, window, false);
     }
 
@@ -957,10 +1014,16 @@ impl XwmHandler for RuntimeState {
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        if let Some(shapes) = self.frontend_mut().xwayland.frame_input() {
+            shapes.forget(window.window_id());
+        }
         unmap_x11_window(self, &window);
     }
 
     fn destroyed_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        if let Some(shapes) = self.frontend_mut().xwayland.frame_input() {
+            shapes.forget(window.window_id());
+        }
         unmap_x11_window(self, &window);
         if let Some(root) = root_surface_for_x11(&window) {
             self.frontend_mut().remove_surface_state(&root, false);
