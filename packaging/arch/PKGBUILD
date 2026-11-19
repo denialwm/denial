@@ -79,7 +79,7 @@ source=(
   'denial-portal.service'
   'denial.portal'
   'denial-portals.conf'
-  'geoclue-denial.conf'
+  "geoclue-denial.conf::file://$startdir/../geoclue-denial.conf"
   'org.freedesktop.impl.portal.desktop.denial.service'
   'outputs.conf'
   'session.conf'

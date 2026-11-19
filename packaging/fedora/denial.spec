@@ -122,6 +122,7 @@ fi
 %config(noreplace) /etc/denial/outputs.conf
 %config(noreplace) /etc/denial/session.conf
 %config(noreplace) /etc/xdg/xdg-desktop-portal-wlr/Denial
+/etc/geoclue/conf.d/90-denial.conf
 /usr/bin/denial-session
 /usr/bin/denial-settings
 /usr/bin/denial-portal
