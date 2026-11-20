@@ -350,7 +350,10 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
 
   _AutoCapitals get _autoCapitals {
     final input = _input;
-    if (input == null || !input.active) return _AutoCapitals.none;
+    // An input method composes what the keys spell; a capital changes it.
+    if (input == null || !input.active || input.inputMethod) {
+      return _AutoCapitals.none;
+    }
     final hint = input.contentHint;
     const refused =
         _ContentType.hintLowercase |
@@ -440,13 +443,14 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     return _typed.substring(start);
   }
 
-  /// Suggestions suit the editor.
+  /// Suggestions suit the editor, and no input method offers its own.
   bool get _predicts {
     final input = _input;
     if (widget.onPredict == null || input == null || !input.active) {
       return false;
     }
     if (input.legacy ||
+        input.inputMethod ||
         input.contentHint &
                 (_ContentType.hintHidden | _ContentType.hintSensitive) !=
             0) {

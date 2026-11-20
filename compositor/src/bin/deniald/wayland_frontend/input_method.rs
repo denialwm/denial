@@ -698,6 +698,13 @@ impl InputMethodManager {
         self.active_editor_ref().cloned()
     }
 
+    /// Whether an input method client is active on the focused editor.
+    pub(super) fn serves_editor(&self) -> bool {
+        self.instance
+            .as_ref()
+            .is_some_and(|instance| instance.active)
+    }
+
     pub(super) fn flutter_editor_active(&self) -> bool {
         self.active_editor_ref()
             .is_some_and(|editor| matches!(&editor.endpoint, EditorEndpoint::Flutter { .. }))

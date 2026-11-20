@@ -3896,10 +3896,11 @@ class TextInputState {
   int get contentHint => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
   int get contentPurpose => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 0);
   int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 14, 0);
+  bool get inputMethod => const fb.BoolReader().vTableGet(_bc, _bcOffset, 16, false);
 
   @override
   String toString() {
-    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}, activationSerial: ${activationSerial}}';
+    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}, activationSerial: ${activationSerial}, inputMethod: ${inputMethod}}';
   }
 }
 
@@ -3917,7 +3918,7 @@ class TextInputStateBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(6);
+    fbBuilder.startTable(7);
   }
 
   int addActive(bool? active) {
@@ -3944,6 +3945,10 @@ class TextInputStateBuilder {
     fbBuilder.addUint64(5, activationSerial);
     return fbBuilder.offset;
   }
+  int addInputMethod(bool? inputMethod) {
+    fbBuilder.addBool(6, inputMethod);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3957,6 +3962,7 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
   final int? _contentHint;
   final int? _contentPurpose;
   final int? _activationSerial;
+  final bool? _inputMethod;
 
   TextInputStateObjectBuilder({
     bool? active,
@@ -3965,24 +3971,27 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
     int? contentHint,
     int? contentPurpose,
     int? activationSerial,
+    bool? inputMethod,
   })
       : _active = active,
         _inputPanelVisible = inputPanelVisible,
         _legacy = legacy,
         _contentHint = contentHint,
         _contentPurpose = contentPurpose,
-        _activationSerial = activationSerial;
+        _activationSerial = activationSerial,
+        _inputMethod = inputMethod;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(6);
+    fbBuilder.startTable(7);
     fbBuilder.addBool(0, _active);
     fbBuilder.addBool(1, _inputPanelVisible);
     fbBuilder.addBool(2, _legacy);
     fbBuilder.addUint32(3, _contentHint);
     fbBuilder.addUint32(4, _contentPurpose);
     fbBuilder.addUint64(5, _activationSerial);
+    fbBuilder.addBool(6, _inputMethod);
     return fbBuilder.endTable();
   }
 

@@ -639,6 +639,9 @@ table TextInputState {
   content_hint:uint;
   content_purpose:uint;
   activation_serial:ulong;
+  // An input method client such as Fcitx composes the field: its candidates,
+  // corrections and capitals replace the software keyboard's own.
+  input_method:bool;
 }
 
 // KeyboardCommand.flags: bit 0 means Ctrl is held; bit 1 is key press; bit 2

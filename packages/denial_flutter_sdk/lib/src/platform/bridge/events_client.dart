@@ -179,6 +179,7 @@ final class BridgeEventsClient {
               contentHint: payload.contentHint,
               contentPurpose: payload.contentPurpose,
               activationSerial: payload.activationSerial,
+              inputMethod: payload.inputMethod,
             ),
           );
         }

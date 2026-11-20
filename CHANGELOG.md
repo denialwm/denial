@@ -25,6 +25,8 @@ boundaries may change before 1.0.
   press offers the layout language's accents. With more than one layout set,
   a language key switches to the next, for the hardware keyboard too, and the
   space bar names the current one.
+  While an input method such as Fcitx serves the text field, the keyboard
+  types through it and leaves suggestions, corrections and capitals to it.
 - An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened
   after a change draw that many times larger than the screen's scale, at full
   sharpness; X11 apps follow through their DPI. The shell and Droidloom keep

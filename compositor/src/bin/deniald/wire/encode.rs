@@ -1165,6 +1165,7 @@ fn encode_text_input_state(
         content_hint,
         content_purpose,
         activation_serial,
+        input_method,
     } = state;
     let state = fb::TextInputState::create(
         builder,
@@ -1175,6 +1176,7 @@ fn encode_text_input_state(
             content_hint,
             content_purpose,
             activation_serial,
+            input_method,
         },
     );
     let envelope = fb::Envelope::create(

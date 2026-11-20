@@ -87,6 +87,7 @@ class DenialTextInputState {
     required this.contentHint,
     required this.contentPurpose,
     this.activationSerial = 0,
+    this.inputMethod = false,
   });
 
   final bool active;
@@ -95,6 +96,10 @@ class DenialTextInputState {
   final int contentHint;
   final int contentPurpose;
   final int activationSerial;
+
+  /// An input method such as Fcitx composes the field: its candidates,
+  /// corrections and capitals replace the software keyboard's own.
+  final bool inputMethod;
 }
 
 /// Suggestions for the word the software keyboard is typing.
