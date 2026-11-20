@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:ui';
 
+import 'package:flutter/painting.dart' show EdgeInsets;
+
 import 'package:denial_flutter_sdk/models.dart';
 
 /// The layer surfaces each window holds (denial-pet-v1), keyed by the holding
@@ -24,7 +26,7 @@ Map<int, List<DenialWindow>> desktopHeldLayersByWindow(
 /// Where [layer], a pet held by [window], is drawn and hit.
 ///
 /// The hold point lies on the window's visible frame: its presentation
-/// rectangle inflated by [frameBorder], in the window's unscaled coordinates
+/// rectangle inflated by [frameMargins], in the window's unscaled coordinates
 /// relative to that rectangle. An edge hold puts the point at the hold's share
 /// of the edge from its left or top end; a corner hold at that corner. The
 /// layer keeps its own geometry size and puts its [DenialPet.anchor] on the
@@ -39,7 +41,7 @@ Rect? desktopHeldLayerRect({
   required DenialWindow layer,
   required DenialWindow window,
   required Rect contentRect,
-  required double frameBorder,
+  required EdgeInsets frameMargins,
 }) {
   final held = layer.heldBy;
   final pet = layer.pet;
@@ -55,10 +57,10 @@ Rect? desktopHeldLayerRect({
     return null;
   }
   final frame = Rect.fromLTRB(
-    -frameBorder,
-    -frameBorder,
-    source.width + frameBorder,
-    source.height + frameBorder,
+    -frameMargins.left,
+    -frameMargins.top,
+    source.width + frameMargins.right,
+    source.height + frameMargins.bottom,
   );
   final point = held.hold.pointOn(frame, held.share);
   final rect = Rect.fromLTWH(
@@ -78,13 +80,13 @@ Rect? desktopHeldLayerRect({
 }
 
 /// [window]'s visible frame, which its held pets' hold points lie on: its
-/// presentation rectangle inflated by [frameBorder], mapped onto
+/// presentation rectangle inflated by [frameMargins], mapped onto
 /// [contentRect] as [desktopHeldLayerRect] maps the pets. Returns null when
 /// either rectangle is empty.
 Rect? desktopHeldFrameRect({
   required DenialWindow window,
   required Rect contentRect,
-  required double frameBorder,
+  required EdgeInsets frameMargins,
 }) {
   final source = window.presentationCoordinateRect;
   if (source.width <= 0.0 ||
@@ -93,12 +95,12 @@ Rect? desktopHeldFrameRect({
       contentRect.height <= 0.0) {
     return null;
   }
-  final borderX = frameBorder * contentRect.width / source.width;
-  final borderY = frameBorder * contentRect.height / source.height;
+  final scaleX = contentRect.width / source.width;
+  final scaleY = contentRect.height / source.height;
   return Rect.fromLTRB(
-    contentRect.left - borderX,
-    contentRect.top - borderY,
-    contentRect.right + borderX,
-    contentRect.bottom + borderY,
+    contentRect.left - frameMargins.left * scaleX,
+    contentRect.top - frameMargins.top * scaleY,
+    contentRect.right + frameMargins.right * scaleX,
+    contentRect.bottom + frameMargins.bottom * scaleY,
   );
 }

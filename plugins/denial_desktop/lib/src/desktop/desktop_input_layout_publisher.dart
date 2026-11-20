@@ -256,6 +256,16 @@ class _DesktopInputLayoutPublisherState
       }
     }
 
+    // What a plugin's window frames take, window by window from the bottom:
+    // each window above takes its own content, popups and pets back.
+    var frameRegions = <Rect>[];
+    void subtractAbove(Rect rect) {
+      shellRegions = _subtractFromAll(shellRegions, rect);
+      if (frameRegions.isNotEmpty) {
+        frameRegions = _subtractFromAll(frameRegions, rect);
+      }
+    }
+
     // Hover panels must not take pointer ownership of the whole scene. Changing
     // ownership while leaving a hot edge can synthesize another edge enter and
     // make the launcher repeatedly open and close over client windows.
@@ -273,7 +283,19 @@ class _DesktopInputLayoutPublisherState
             ? visualContentRect
             : visualContentRect.intersect(outputClip);
         if (!visibleContentRect.isEmpty) {
-          shellRegions = _subtractFromAll(shellRegions, visibleContentRect);
+          subtractAbove(visibleContentRect);
+        }
+        if (DesktopMetrics.customWindowFrame &&
+            placement.drawsLiveServerFrame) {
+          final visibleFrame = outputClip == null
+              ? placement.frame
+              : placement.frame.intersect(outputClip);
+          final clipped = visibleFrame.intersect(canvas);
+          if (!clipped.isEmpty) {
+            frameRegions.addAll(
+              _subtractFromAll(<Rect>[clipped], visualContentRect),
+            );
+          }
         }
         final window = windowsById[placement.objectId]!;
         for (final popup in window.popupRoots) {
@@ -282,7 +304,7 @@ class _DesktopInputLayoutPublisherState
               ? popupRect
               : popupRect.intersect(outputClip);
           if (!visiblePopupRect.isEmpty) {
-            shellRegions = _subtractFromAll(shellRegions, visiblePopupRect);
+            subtractAbove(visiblePopupRect);
           }
         }
         for (final layer
@@ -292,7 +314,7 @@ class _DesktopInputLayoutPublisherState
             layer: layer,
             window: window,
             contentRect: visualContentRect,
-            frameBorder: placement.frameBorder,
+            frameMargins: placement.frameMargins,
           );
           if (heldRect == null) {
             continue;
@@ -306,11 +328,20 @@ class _DesktopInputLayoutPublisherState
                 ? rect
                 : rect.intersect(outputClip);
             if (!visibleRect.isEmpty) {
-              shellRegions = _subtractFromAll(shellRegions, visibleRect);
+              subtractAbove(visibleRect);
             }
           }
         }
       }
+      // The frames a plugin draws take the pointer where nothing above them
+      // does: the windows and popups over them, and the phone's own panel.
+      for (final popup in popupSurfaces) {
+        frameRegions = _subtractFromAll(frameRegions, popup.geometry!);
+      }
+      if (phoneRect != null) {
+        frameRegions = _subtractFromAll(frameRegions, phoneRect);
+      }
+      shellRegions.addAll(frameRegions);
     }
     for (final region in interactions.childRegions) {
       final clipped = region.intersect(canvas);
@@ -433,7 +464,7 @@ class _DesktopInputLayoutPublisherState
         layer: layer,
         window: window,
         contentRect: visualContentRect,
-        frameBorder: placement.frameBorder,
+        frameMargins: placement.frameMargins,
       );
       // Held pets are hit like layer surfaces, but at their window's place
       // and clipped like its regions.

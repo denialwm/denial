@@ -266,7 +266,10 @@ void main() {
     expect(placement.frame, scrolledFrame);
     expect(placement.contentRect, scrolledContent);
     expect(placement.drawsLiveServerFrame, isTrue);
-    expect(placement.frameBorder, DesktopMetrics.frameBorder);
+    expect(
+      placement.frameMargins,
+      const EdgeInsets.all(DesktopMetrics.frameBorder),
+    );
   });
 
   test('stacking maximize remains frameless', () {
@@ -292,7 +295,55 @@ void main() {
     final placement = container.read(desktopWorkspaceProvider).placements[7]!;
     expect(placement.frame, geometry);
     expect(placement.drawsLiveServerFrame, isFalse);
-    expect(placement.frameBorder, 0);
+    expect(placement.frameMargins, EdgeInsets.zero);
+  });
+
+  test('a plugin frame keeps its title bar on a maximized window', () {
+    DesktopMetrics.useWindowFrameMargins(
+      const DenialWindowFrameMargins(left: 1, top: 32, right: 1, bottom: 1),
+      maximized: const DenialWindowFrameMargins(top: 32),
+    );
+    addTearDown(() => DesktopMetrics.useWindowFrameMargins(null));
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final workspace = container.read(desktopWorkspaceProvider.notifier);
+    const geometry = Rect.fromLTWH(0, 72, 1920, 1008);
+
+    workspace.syncWindows(
+      <DenialWindow>[
+        nativeWindow(
+          objectKind: 'xdg',
+          geometry: geometry,
+          fullscreen: false,
+          maximized: true,
+        ),
+      ],
+      const Size(1920, 1080),
+      1,
+      snapshotSequence: 25,
+    );
+
+    final placement = container.read(desktopWorkspaceProvider).placements[7]!;
+    expect(placement.frameMargins, const EdgeInsets.only(top: 32));
+    expect(placement.frame, const Rect.fromLTWH(0, 40, 1920, 1040));
+    expect(placement.contentRect, geometry);
+    // The overview shows the plugin's frame, not the desktop's border.
+    expect(
+      placement.drawnFrameMargins(transformed: true),
+      const EdgeInsets.only(top: 32),
+    );
+
+    const free = DesktopWindowPlacement(
+      objectId: 9,
+      frame: Rect.fromLTWH(100, 100, 400, 300),
+      z: 0,
+      monitorId: 1,
+    );
+    expect(free.contentRect, const Rect.fromLTRB(101, 132, 499, 399));
+    expect(
+      free.copyWith(fullscreen: true).contentRect,
+      const Rect.fromLTWH(100, 100, 400, 300),
+    );
   });
 
   test('dwindle maximize keeps the rounded server frame', () {

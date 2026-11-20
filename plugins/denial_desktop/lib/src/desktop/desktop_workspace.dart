@@ -19,7 +19,70 @@ part 'desktop_workspace_controller.dart';
 typedef DesktopPanelSwipe = ({Rect rect, InputEdge edge});
 
 abstract final class DesktopMetrics {
+  /// The width of the frame the desktop draws itself.
   static const double frameBorder = 1.0;
+
+  /// What the selected window frame takes around a decorated window's
+  /// content. The compiled application sets it once, before the shell starts,
+  /// through [useWindowFrameMargins].
+  static EdgeInsets get frameMargins => _frameMargins;
+  static EdgeInsets _frameMargins = const EdgeInsets.all(frameBorder);
+
+  /// What the selected window frame takes around a maximized window. Null
+  /// when it has no frame of its own for one: stacking then draws none and a
+  /// tiling layout keeps [frameMargins].
+  static EdgeInsets? get maximizedFrameMargins => _maximizedFrameMargins;
+  static EdgeInsets? _maximizedFrameMargins;
+
+  /// Whether a plugin draws the frames, not the desktop.
+  static bool get customWindowFrame => _customWindowFrame;
+  static bool _customWindowFrame = false;
+
+  /// Selects a plugin's frame margins, or the desktop's own with null. A side
+  /// outside what the compositor accepts is brought into it.
+  static void useWindowFrameMargins(
+    DenialWindowFrameMargins? margins, {
+    DenialWindowFrameMargins? maximized,
+  }) {
+    EdgeInsets insets(DenialWindowFrameMargins margins) {
+      double side(double value) => value.isFinite
+          ? value.clamp(0.0, DenialWindowFrameMargins.max).toDouble()
+          : 0.0;
+      return EdgeInsets.fromLTRB(
+        side(margins.left),
+        side(margins.top),
+        side(margins.right),
+        side(margins.bottom),
+      );
+    }
+
+    _customWindowFrame = margins != null;
+    _frameMargins = margins == null
+        ? const EdgeInsets.all(frameBorder)
+        : insets(margins);
+    _maximizedFrameMargins = margins == null || maximized == null
+        ? null
+        : insets(maximized);
+  }
+
+  /// The frame around a window's content while it is live on the desktop, by
+  /// the compositor's own rule.
+  static EdgeInsets windowFrameMargins({
+    required bool serverSideDecorated,
+    required bool maximized,
+    required bool serverFrameWhileMaximized,
+    bool fullscreen = false,
+  }) {
+    if (!serverSideDecorated || fullscreen) {
+      return EdgeInsets.zero;
+    }
+    if (!maximized) {
+      return _frameMargins;
+    }
+    return _maximizedFrameMargins ??
+        (serverFrameWhileMaximized ? _frameMargins : EdgeInsets.zero);
+  }
+
   static const double panelGap = 12.0;
   static const double panelMargin = 14.0;
   // Meet the panel at its resting edge so crossing from trigger to surface
@@ -536,15 +599,31 @@ class DesktopWindowPlacement {
   final Rect? restoreFrame;
   final Rect? fullscreenRestoreFrame;
 
-  bool get drawsLiveServerFrame =>
-      serverSideDecorated &&
-      !fullscreen &&
-      (!maximized || serverFrameWhileMaximized);
+  bool get drawsLiveServerFrame => frameMargins != EdgeInsets.zero;
 
-  double get frameBorder =>
-      drawsLiveServerFrame ? DesktopMetrics.frameBorder : 0.0;
+  /// What the frame takes around the content while the window is live.
+  EdgeInsets get frameMargins => DesktopMetrics.windowFrameMargins(
+    serverSideDecorated: serverSideDecorated,
+    maximized: maximized,
+    serverFrameWhileMaximized: serverFrameWhileMaximized,
+    fullscreen: fullscreen,
+  );
 
-  Rect get contentRect => frame.deflate(frameBorder);
+  /// What the frame takes around the content as the window is drawn. The
+  /// overview and the switcher show the desktop's own frame around every
+  /// decorated window, also one that has none while live.
+  EdgeInsets drawnFrameMargins({required bool transformed}) {
+    final live = frameMargins;
+    if (!transformed ||
+        live != EdgeInsets.zero ||
+        !serverSideDecorated ||
+        DesktopMetrics.customWindowFrame) {
+      return live;
+    }
+    return DesktopMetrics.frameMargins;
+  }
+
+  Rect get contentRect => frameMargins.deflateRect(frame);
 
   DesktopWindowPlacement copyWith({
     Rect? frame,

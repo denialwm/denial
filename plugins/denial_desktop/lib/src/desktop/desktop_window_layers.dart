@@ -133,7 +133,7 @@ List<Widget> buildDesktopWindowLayers({
     );
     final frame = desktopPixelAlignedWindowFrame(
       frame: arrangedFrame,
-      contentInset: placement.frameBorder,
+      contentInsets: placement.frameMargins,
       devicePixelRatio: outputPixelGrid?.scale ?? devicePixelRatio,
       pixelGridOrigin: outputPixelGrid?.logicalRect.topLeft ?? Offset.zero,
       enabled: !overview && !departing && !switching && !minimizedIdle,

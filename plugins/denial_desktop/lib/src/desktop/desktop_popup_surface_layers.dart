@@ -95,7 +95,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
         );
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,
-          contentInset: placement.frameBorder,
+          contentInsets: placement.frameMargins,
           devicePixelRatio: devicePixelRatio,
           pixelGridOrigin: pixelGridOrigin,
           enabled: !transformed,
@@ -105,15 +105,11 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final drawsServerFrame = transformed
-            ? placement.serverSideDecorated
-            : placement.drawsLiveServerFrame;
-        final contentRect = drawsServerFrame
-            ? frame.deflate(DesktopMetrics.frameBorder)
-            : frame;
-        final retainedContentRect = drawsServerFrame
-            ? placement.frame.deflate(DesktopMetrics.frameBorder)
-            : placement.frame;
+        final drawnMargins = placement.drawnFrameMargins(
+          transformed: transformed,
+        );
+        final contentRect = drawnMargins.deflateRect(frame);
+        final retainedContentRect = drawnMargins.deflateRect(placement.frame);
         final duration = placement.dragging ? Duration.zero : motionDuration;
         final resizing = desktopTextureNeedsResizeSmoothing(
           targetSize: contentRect.size,
@@ -155,7 +151,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
                         dragging: placement.dragging,
                         resizing: placement.resizing,
                         layoutPreviewing: placement.layoutPreviewing,
-                        pixelAlignmentInset: 0.0,
+                        pixelAlignmentInsets: EdgeInsets.zero,
                         pixelGridScale: devicePixelRatio,
                         pixelGridOrigin: pixelGridOrigin,
                         alignSizeToDevicePixels: true,

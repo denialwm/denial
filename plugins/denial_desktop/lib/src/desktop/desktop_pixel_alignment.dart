@@ -38,7 +38,7 @@ DesktopOutputPixelGrid? desktopOutputPixelGridForMonitor(
 /// helper at the call site and keeps filtered animation sampling.
 Rect desktopPixelAlignedWindowFrame({
   required Rect frame,
-  required double contentInset,
+  required EdgeInsets contentInsets,
   required double devicePixelRatio,
   required bool enabled,
   Offset pixelGridOrigin = Offset.zero,
@@ -46,8 +46,9 @@ Rect desktopPixelAlignedWindowFrame({
 }) {
   if (!enabled ||
       frame.isEmpty ||
-      !contentInset.isFinite ||
-      contentInset < 0.0 ||
+      !contentInsets.isNonNegative ||
+      !contentInsets.horizontal.isFinite ||
+      !contentInsets.vertical.isFinite ||
       !devicePixelRatio.isFinite ||
       devicePixelRatio <= 0.0 ||
       !pixelGridOrigin.dx.isFinite ||
@@ -55,7 +56,7 @@ Rect desktopPixelAlignedWindowFrame({
     return frame;
   }
 
-  final contentRect = frame.deflate(contentInset);
+  final contentRect = contentInsets.deflateRect(frame);
   if (contentRect.isEmpty) {
     return frame;
   }
@@ -80,10 +81,5 @@ Rect desktopPixelAlignedWindowFrame({
   if (alignedContentRect.isEmpty) {
     return frame;
   }
-  return Rect.fromLTRB(
-    alignedContentRect.left - contentInset,
-    alignedContentRect.top - contentInset,
-    alignedContentRect.right + contentInset,
-    alignedContentRect.bottom + contentInset,
-  );
+  return contentInsets.inflateRect(alignedContentRect);
 }

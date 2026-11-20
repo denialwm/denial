@@ -6,6 +6,7 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 
 import '../widgets/desktop_visibility_transition.dart';
+import 'desktop_plugin_window_frame.dart';
 
 /// Publishes whether a window has finished moving into overview.
 ///
@@ -38,6 +39,7 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
   const DesktopOverviewPreviewInteraction({
     super.key,
     required this.compositorRoutesInput,
+    this.shellFrameMargins,
     required this.overviewActive,
     required this.overview,
     required this.desktopWidget,
@@ -58,6 +60,10 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
   /// surfaces and their input regions. Only what no client takes, such as a
   /// click through a desktop pet's transparent part, reaches the shell.
   final bool compositorRoutesInput;
+
+  /// The sides of the window where a plugin's frame takes the pointer. The
+  /// compositor gives those to the shell, so they are not let through.
+  final EdgeInsets? shellFrameMargins;
   final bool overviewActive;
   final bool overview;
   final bool desktopWidget;
@@ -157,8 +163,9 @@ class _DesktopOverviewPreviewInteractionState
     // Outside the overview a client window's preview has nothing to do with
     // the pointer. Whatever reaches the shell inside it belongs to the shell
     // below, such as the top bar under a window that lets clicks through.
-    return IgnorePointer(
-      ignoring: widget.compositorRoutesInput && !interactive,
+    return DesktopFrameMarginsHitTest(
+      enabled: widget.compositorRoutesInput && !interactive,
+      margins: widget.shellFrameMargins,
       child: _preview(context, interactive, emphasized),
     );
   }

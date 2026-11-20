@@ -654,6 +654,56 @@ the frame on screen. Without `maximized`, a maximized window keeps its frame
 only where the layout draws one. A declaration lasts as long as the shell that
 made it.
 
+## Draw window frames
+
+A plugin that provides `ShellWindowFrame` draws the frame of every decorated
+window on the reference desktop: title bar, borders and their controls. The
+desktop declares the plugin's margins to the compositor, puts the window's
+content in the hole they leave and gives the margins to the shell's input, so
+the plugin only draws and reacts.
+
+```dart
+@Provides(ShellWindowFrame)
+final class TitledFrame implements ShellWindowFrame {
+  const TitledFrame();
+
+  @override
+  DenialWindowFrameMargins get margins =>
+      const DenialWindowFrameMargins(left: 1, top: 32, right: 1, bottom: 1);
+
+  @override
+  DenialWindowFrameMargins? get maximizedMargins =>
+      const DenialWindowFrameMargins(top: 32);
+
+  @override
+  Widget build(BuildContext context, {required ShellWindowFrameContext frame}) =>
+      TitleBar(frame: frame);
+}
+```
+
+Declare it in `pubspec.yaml` as
+`package:denial_flutter_sdk/window_frames.dart#ShellWindowFrame`. One frame
+plugin can be selected at a time; without one the desktop draws its own border.
+
+- `build` returns one widget laid out over the content and its margins
+  together. It is painted under the content, so paint only on the margins: a
+  translucent window shows whatever lies under it.
+- `frame.window` is the window, `frame.active` and `frame.maximized` its state,
+  `frame.margins` the margins in effect and `frame.services` the host services,
+  such as `buildApplicationIcon`.
+- The frame acts with the bridge's own calls and keeps no window state:
+  `beginWindowMove` and `beginWindowResize` from a primary mouse press,
+  `placeWindow` with `DenialWindowPlace.maximized()` or `.restore()`,
+  `minimizeWindow`, `closeWindow`. The desktop redraws from what the
+  compositor did.
+- Pointers reach the frame only on its margins. In the overview, the window
+  switcher and while a window minimizes or closes, `frame.interactive` is false
+  and it receives none.
+- Margins are read once when the shell starts and must not change afterwards.
+  Corners are square: the content is not clipped to a rounded frame.
+
+`denial_window_frames` in the plugin collection is a complete example.
+
 ## Make an action available to shortcuts
 
 Implement `ShellAction` as in the example above. A package can contribute multiple

@@ -283,7 +283,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
               : _initialFrame(
                   nativeGeometry,
                   serverSideDecorated: window.serverSideDecorated,
-                  expanded: window.maximized && !serverFrameWhileMaximized,
+                  maximized: window.maximized,
+                  serverFrameWhileMaximized: serverFrameWhileMaximized,
                 ),
           z: nextZ++,
           monitorId: window.monitorId,
@@ -362,7 +363,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
               : _initialFrame(
                   nativeGeometry,
                   serverSideDecorated: nativeServerSideDecorated,
-                  expanded: nativeMaximized && !serverFrameWhileMaximized,
+                  maximized: nativeMaximized,
+                  serverFrameWhileMaximized: serverFrameWhileMaximized,
                 );
           final pendingFrame = _pendingFlutterProposedFrames[window.objectId];
           final nativeAcknowledgedPending =
@@ -394,7 +396,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           frame = _initialFrame(
             existing.contentRect,
             serverSideDecorated: nativeServerSideDecorated,
-            expanded: nativeMaximized && !serverFrameWhileMaximized,
+            maximized: nativeMaximized,
+            serverFrameWhileMaximized: serverFrameWhileMaximized,
           );
         }
         final pendingWorkspace = _pendingWorkspaceMoves[window.objectId];
@@ -829,7 +832,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     final frame = _initialFrame(
       event.contentRect,
       serverSideDecorated: placement.serverSideDecorated,
-      expanded: placement.maximized && !placement.serverFrameWhileMaximized,
+      maximized: placement.maximized,
+      serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
     );
     final ending = event.phase == DenialWindowPlacementPhase.end;
     if (placement.dragging) {
@@ -1257,8 +1261,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         ? _initialFrame(
             event.contentRect,
             serverSideDecorated: placement.serverSideDecorated,
-            expanded:
-                placement.maximized && !placement.serverFrameWhileMaximized,
+            maximized: placement.maximized,
+            serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
           )
         : placement.frame;
     final updated = placement.copyWith(
@@ -1521,17 +1525,14 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
   Rect _initialFrame(
     Rect contentRect, {
     required bool serverSideDecorated,
-    bool expanded = false,
+    required bool maximized,
+    required bool serverFrameWhileMaximized,
   }) {
-    if (!serverSideDecorated || expanded) {
-      return contentRect;
-    }
-    return Rect.fromLTRB(
-      contentRect.left - DesktopMetrics.frameBorder,
-      contentRect.top - DesktopMetrics.frameBorder,
-      contentRect.right + DesktopMetrics.frameBorder,
-      contentRect.bottom + DesktopMetrics.frameBorder,
-    );
+    return DesktopMetrics.windowFrameMargins(
+      serverSideDecorated: serverSideDecorated,
+      maximized: maximized,
+      serverFrameWhileMaximized: serverFrameWhileMaximized,
+    ).inflateRect(contentRect);
   }
 
   Rect _clampFrame(Rect frame, Size viewSize, {Rect? bounds}) {

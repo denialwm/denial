@@ -11,7 +11,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/default_shell/panel_composition.dart';
 import 'desktop_held_layers.dart';
-import 'desktop_workspace.dart';
 
 /// Draws the pets [window] holds (denial-pet-v1) around [child], the window,
 /// inside its frame's transforms, so they follow every move of the window the
@@ -30,9 +29,9 @@ class DesktopHeldPets extends StatelessWidget {
     super.key,
     required this.window,
     required this.pets,
-    required this.frameBorder,
+    required this.frameMargins,
     this.frameRadius = 0.0,
-    required this.drawsServerFrame,
+    required this.contentMargins,
     required this.opacity,
     required this.duration,
     required this.curve,
@@ -49,16 +48,16 @@ class DesktopHeldPets extends StatelessWidget {
   /// and textures are drawn.
   final List<DenialWindow> pets;
 
-  /// The width of the frame the hold points lie on, around the window's
-  /// presentation rectangle.
-  final double frameBorder;
+  /// The frame the hold points lie on, around the window's presentation
+  /// rectangle.
+  final EdgeInsets frameMargins;
 
   /// The radius of the visible frame's corners, which clip what pets cast.
   final double frameRadius;
 
-  /// Whether the window is drawn inside a frame of [DesktopMetrics]'s width,
-  /// so its presentation rectangle is the frame deflated by it.
-  final bool drawsServerFrame;
+  /// What the frame the window is drawn inside takes: its presentation
+  /// rectangle is the laid-out frame deflated by it.
+  final EdgeInsets contentMargins;
 
   /// The pets fade with their window when it is minimized, but not with its
   /// own translucency.
@@ -92,9 +91,9 @@ class DesktopHeldPets extends StatelessWidget {
               window: window,
               petIds: ids,
               below: below,
-              frameBorder: frameBorder,
+              frameMargins: frameMargins,
               frameRadius: frameRadius,
-              drawsServerFrame: drawsServerFrame,
+              contentMargins: contentMargins,
               filterQuality: filterQuality,
               presentationScale: presentationScale,
               pixelGridOrigin: pixelGridOrigin,
@@ -124,9 +123,9 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
     required this.window,
     required this.petIds,
     required this.below,
-    required this.frameBorder,
+    required this.frameMargins,
     required this.frameRadius,
-    required this.drawsServerFrame,
+    required this.contentMargins,
     required this.filterQuality,
     required this.presentationScale,
     required this.pixelGridOrigin,
@@ -135,9 +134,9 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
   final DenialWindow window;
   final List<int> petIds;
   final bool below;
-  final double frameBorder;
+  final EdgeInsets frameMargins;
   final double frameRadius;
-  final bool drawsServerFrame;
+  final EdgeInsets contentMargins;
   final FilterQuality filterQuality;
   final double presentationScale;
   final Offset pixelGridOrigin;
@@ -183,16 +182,14 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
         // The frame as the window is laid out, in its own unscaled units;
         // every transform above maps it to the screen with the window.
         final frame = Offset.zero & constraints.biggest;
-        final contentRect = drawsServerFrame
-            ? frame.deflate(DesktopMetrics.frameBorder)
-            : frame;
+        final contentRect = contentMargins.deflateRect(frame);
         final placed = [
           for (final pet in pets)
             if (desktopHeldLayerRect(
                   layer: pet,
                   window: window,
                   contentRect: contentRect,
-                  frameBorder: frameBorder,
+                  frameMargins: frameMargins,
                 )
                 case final rect?)
               (pet: pet, rect: _alignToPixels(rect)),
@@ -237,7 +234,7 @@ class _DesktopHeldPetLayer extends ConsumerWidget {
     final visible = desktopHeldFrameRect(
       window: window,
       contentRect: contentRect,
-      frameBorder: frameBorder,
+      frameMargins: frameMargins,
     );
     if (visible == null) return null;
     final cast = <Widget>[

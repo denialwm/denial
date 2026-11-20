@@ -81,8 +81,17 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final bridge = ref.read(denialBridgeProvider);
     // The frame this desktop draws has one source. The compositor subtracts
     // exactly this wherever it turns a window's frame into its content.
+    DenialWindowFrameMargins margins(EdgeInsets insets) =>
+        DenialWindowFrameMargins(
+          left: insets.left,
+          top: insets.top,
+          right: insets.right,
+          bottom: insets.bottom,
+        );
+    final maximizedMargins = DesktopMetrics.maximizedFrameMargins;
     bridge.configureWindowFrame(
-      const DenialWindowFrameMargins.all(DesktopMetrics.frameBorder),
+      margins(DesktopMetrics.frameMargins),
+      maximized: maximizedMargins == null ? null : margins(maximizedMargins),
     );
     _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
   }

@@ -184,7 +184,7 @@ List<PetHoldTarget> desktopPetHoldTargets({
           layer: heldPet,
           window: window,
           contentRect: placement.contentRect,
-          frameBorder: placement.frameBorder,
+          frameMargins: placement.frameMargins,
         );
         if (rect != null && !rect.isEmpty) {
           yield PetHoldTarget(rect: rect);

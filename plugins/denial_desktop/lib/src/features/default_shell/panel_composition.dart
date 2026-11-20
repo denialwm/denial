@@ -2,6 +2,7 @@ import 'package:denial_flutter_sdk/actions.dart';
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:denial_flutter_sdk/launcher.dart';
 import 'package:denial_flutter_sdk/pets.dart';
+import 'package:denial_flutter_sdk/window_frames.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Statically supplied by the application; no runtime discovery or selection.
@@ -19,3 +20,7 @@ final desktopPetHoldsProvider = Provider<ShellPetHolds?>((ref) => null);
 /// Optional pet shadows selected by the compiled application. Without one,
 /// held pets cast nothing on their windows.
 final desktopPetShadowsProvider = Provider<ShellPetShadows?>((ref) => null);
+
+/// Optional window frame selected by the compiled application. Without one,
+/// the desktop draws its own border.
+final desktopWindowFrameProvider = Provider<ShellWindowFrame?>((ref) => null);

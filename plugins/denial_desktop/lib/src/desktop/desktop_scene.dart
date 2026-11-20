@@ -10,6 +10,7 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/surface_hosting.dart';
+import 'package:denial_flutter_sdk/services.dart' show ShellServicesScope;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -231,14 +232,23 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
       dense: denseWindowMode,
       items: <DesktopHomeLayoutItem>[
         for (final placement in outputWindows)
-          DesktopHomeLayoutItem(
-            id: _desktopHomeWindowKey(placement.objectId),
-            contentAspectRatio:
-                placement.contentRect.width / placement.contentRect.height,
-            frameInset: placement.serverSideDecorated
-                ? DesktopMetrics.frameBorder
-                : 0.0,
-          ),
+          // A plugin's frame is scaled with its window as one picture, so
+          // the whole frame keeps its shape.
+          if (DesktopMetrics.customWindowFrame)
+            DesktopHomeLayoutItem(
+              id: _desktopHomeWindowKey(placement.objectId),
+              preferredAspectRatio:
+                  placement.frame.width / placement.frame.height,
+            )
+          else
+            DesktopHomeLayoutItem(
+              id: _desktopHomeWindowKey(placement.objectId),
+              contentAspectRatio:
+                  placement.contentRect.width / placement.contentRect.height,
+              frameInset: placement.serverSideDecorated
+                  ? DesktopMetrics.frameBorder
+                  : 0.0,
+            ),
       ],
     );
     for (final placement in outputWindows) {
@@ -653,9 +663,12 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         id: closeId,
         window: window,
         frame: frame,
-        fullscreen:
+        frameMargins:
             placement.fullscreen &&
-            !oldWidget.desktop.isInOverview(window.objectId),
+                !oldWidget.desktop.isInOverview(window.objectId)
+            ? EdgeInsets.zero
+            : placement.drawnFrameMargins(transformed: true),
+        maximized: placement.maximized,
         effect: widget.closeEffect,
         outputClip: outputClip,
       );
@@ -898,7 +911,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
             switcher: windowSwitcher,
           );
 
-    return Stack(
+    final planes = Stack(
       fit: StackFit.expand,
       children: [
         ShellWallpaper(
@@ -1135,6 +1148,8 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         Positioned.fill(child: ColorTuningLayer(displayRect: mainDisplayRect)),
       ],
     );
+    // A plugin's window frame reads the services as a surface does.
+    return ShellServicesScope(services: surfaceServices, child: planes);
   }
 }
 
