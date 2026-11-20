@@ -287,9 +287,11 @@ class _DesktopInputLayoutPublisherState
         }
         if (DesktopMetrics.customWindowFrame &&
             placement.drawsLiveServerFrame) {
+          // The frame takes presses on its reach too, outside the window.
+          final reached = placement.frameReach.inflateRect(placement.frame);
           final visibleFrame = outputClip == null
-              ? placement.frame
-              : placement.frame.intersect(outputClip);
+              ? reached
+              : reached.intersect(outputClip);
           final clipped = visibleFrame.intersect(canvas);
           if (!clipped.isEmpty) {
             frameRegions.addAll(

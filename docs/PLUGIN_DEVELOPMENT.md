@@ -705,6 +705,12 @@ plugin can be selected at a time; without one the desktop draws its own border.
 - Pointers reach the frame only on its margins. In the overview, the window
   switcher and while a window minimizes or closes, `frame.interactive` is false
   and it receives none.
+- `reach` asks for presses on a band outside the frame, per side, for resize
+  handles wider than a thin border. `buildReach` returns what takes them: a
+  widget laid out over the frame and the band together, hit only on the band,
+  that paints nothing. The band lies under its window and over whatever is
+  beside it; a maximized window has none, and `frame.reach` says what is in
+  effect. Return zero margins from `reach` to have no band.
 - Margins are read once when the shell starts and must not change afterwards.
   Corners are square: the content is not clipped to a rounded frame.
 

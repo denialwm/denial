@@ -48,6 +48,7 @@ class ReferenceDesktop implements ShellApplication {
     DesktopMetrics.useWindowFrameMargins(
       windowFrame?.margins,
       maximized: windowFrame?.maximizedMargins,
+      reach: windowFrame?.reach,
     );
     return DenialShellApp(
       desktopSurfaces: surfaces,

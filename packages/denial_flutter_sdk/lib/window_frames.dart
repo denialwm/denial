@@ -35,6 +35,7 @@ final class ShellWindowFrameContext {
     required this.maximized,
     required this.interactive,
     required this.margins,
+    required this.reach,
     required this.services,
   });
 
@@ -57,6 +58,11 @@ final class ShellWindowFrameContext {
   /// the content and these margins together.
   final DenialWindowFrameMargins margins;
 
+  /// How far outside the frame presses reach it in this build: the frame's
+  /// [ShellWindowFrame.reach] while the window rests on the desktop, zero for a
+  /// maximized window and whenever [interactive] is false.
+  final DenialWindowFrameMargins reach;
+
   /// Application icons, cursors and the other host services.
   final ShellServices services;
 }
@@ -74,8 +80,23 @@ abstract interface class ShellWindowFrame {
   /// tiling layout, which keeps [margins].
   DenialWindowFrameMargins? get maximizedMargins;
 
+  /// How far outside the frame it takes presses, per side: room for resize
+  /// handles wider than a thin border. Read once as [margins]; all zero for
+  /// none. The band lies over whatever is beside the window, under the window
+  /// itself and under every window above it.
+  DenialWindowFrameMargins get reach;
+
   /// The frame, laid out over the content and its margins together. It is
   /// painted under the content and receives input only on its margins. Paint
   /// only on the margins: a translucent window shows whatever lies under it.
   Widget build(BuildContext context, {required ShellWindowFrameContext frame});
+
+  /// What takes the presses on the [reach], laid out over the frame and its
+  /// reach together. It receives input only on the reach and should paint
+  /// nothing. It is built only for a window that has a reach now, and it does
+  /// not follow a window that animates: it is where the window comes to rest.
+  Widget buildReach(
+    BuildContext context, {
+    required ShellWindowFrameContext frame,
+  });
 }

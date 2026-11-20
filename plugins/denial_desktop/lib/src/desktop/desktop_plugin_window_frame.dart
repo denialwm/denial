@@ -2,7 +2,9 @@ import 'package:denial_flutter_sdk/services.dart';
 import 'package:denial_flutter_sdk/window_frames.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/default_shell/panel_composition.dart';
 import '../widgets/desktop_visibility_transition.dart';
 
 /// A window inside the frame the selected [ShellWindowFrame] draws.
@@ -20,6 +22,7 @@ class DesktopPluginWindowFrame extends StatelessWidget {
     required this.maximized,
     required this.interactive,
     required this.margins,
+    this.reach = EdgeInsets.zero,
     required this.child,
   });
 
@@ -29,6 +32,9 @@ class DesktopPluginWindowFrame extends StatelessWidget {
   final bool maximized;
   final bool interactive;
   final EdgeInsets margins;
+
+  /// The band outside the frame that [DesktopWindowFrameReach] gives it now.
+  final EdgeInsets reach;
   final Widget child;
 
   @override
@@ -49,12 +55,8 @@ class DesktopPluginWindowFrame extends StatelessWidget {
                   active: active,
                   maximized: maximized,
                   interactive: interactive,
-                  margins: DenialWindowFrameMargins(
-                    left: margins.left,
-                    top: margins.top,
-                    right: margins.right,
-                    bottom: margins.bottom,
-                  ),
+                  margins: _frameMargins(margins),
+                  reach: _frameMargins(reach),
                   services: ShellServicesScope.of(context),
                 ),
               ),
@@ -63,6 +65,64 @@ class DesktopPluginWindowFrame extends StatelessWidget {
         ),
         Padding(padding: margins, child: child),
       ],
+    );
+  }
+}
+
+DenialWindowFrameMargins _frameMargins(EdgeInsets insets) =>
+    DenialWindowFrameMargins(
+      left: insets.left,
+      top: insets.top,
+      right: insets.right,
+      bottom: insets.bottom,
+    );
+
+/// The band outside a resting window's frame where the selected
+/// [ShellWindowFrame] takes presses, such as resize handles.
+///
+/// It is a layer of its own, right under its window: a window's box, and all
+/// that animates it, is exactly its frame, and Flutter offers a widget no
+/// pointer outside its box. The band is hit only outside the frame.
+class DesktopWindowFrameReach extends ConsumerWidget {
+  const DesktopWindowFrameReach({
+    super.key,
+    required this.window,
+    required this.frame,
+    required this.active,
+    required this.margins,
+    required this.reach,
+  });
+
+  final DenialWindow window;
+
+  /// The window's frame rectangle, as its own layer draws it.
+  final Rect frame;
+  final bool active;
+  final EdgeInsets margins;
+  final EdgeInsets reach;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pluginFrame = ref.watch(desktopWindowFrameProvider);
+    return Positioned.fromRect(
+      rect: reach.inflateRect(frame),
+      child: pluginFrame == null
+          ? const SizedBox.shrink()
+          : DesktopFrameMarginsHitTest(
+              margins: reach,
+              child: pluginFrame.buildReach(
+                context,
+                frame: ShellWindowFrameContext(
+                  window: window,
+                  active: active,
+                  maximized: false,
+                  interactive: true,
+                  margins: _frameMargins(margins),
+                  reach: _frameMargins(reach),
+                  services: ShellServicesScope.of(context),
+                ),
+              ),
+            ),
     );
   }
 }

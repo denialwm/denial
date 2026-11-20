@@ -513,6 +513,9 @@ class DesktopWindowFrame extends ConsumerWidget {
                                         maximized: placement.maximized,
                                         interactive: !transformed && !minimized,
                                         margins: drawnMargins,
+                                        reach: transformed || minimized
+                                            ? EdgeInsets.zero
+                                            : placement.frameReach,
                                         child: client,
                                       ),
                               );

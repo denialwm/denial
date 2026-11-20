@@ -38,16 +38,28 @@ abstract final class DesktopMetrics {
   static bool get customWindowFrame => _customWindowFrame;
   static bool _customWindowFrame = false;
 
+  /// The widest band outside a frame that a plugin's frame may take presses
+  /// on, per side.
+  static const double maxFrameReach = 48.0;
+
+  /// How far outside its frame the selected window frame takes presses. Zero
+  /// without a plugin's frame.
+  static EdgeInsets get frameReach => _frameReach;
+  static EdgeInsets _frameReach = EdgeInsets.zero;
+
   /// Selects a plugin's frame margins, or the desktop's own with null. A side
   /// outside what the compositor accepts is brought into it.
   static void useWindowFrameMargins(
     DenialWindowFrameMargins? margins, {
     DenialWindowFrameMargins? maximized,
+    DenialWindowFrameMargins? reach,
   }) {
-    EdgeInsets insets(DenialWindowFrameMargins margins) {
-      double side(double value) => value.isFinite
-          ? value.clamp(0.0, DenialWindowFrameMargins.max).toDouble()
-          : 0.0;
+    EdgeInsets insets(
+      DenialWindowFrameMargins margins, {
+      double max = DenialWindowFrameMargins.max,
+    }) {
+      double side(double value) =>
+          value.isFinite ? value.clamp(0.0, max).toDouble() : 0.0;
       return EdgeInsets.fromLTRB(
         side(margins.left),
         side(margins.top),
@@ -63,6 +75,9 @@ abstract final class DesktopMetrics {
     _maximizedFrameMargins = margins == null || maximized == null
         ? null
         : insets(maximized);
+    _frameReach = margins == null || reach == null
+        ? EdgeInsets.zero
+        : insets(reach, max: maxFrameReach);
   }
 
   /// The frame around a window's content while it is live on the desktop, by
@@ -624,6 +639,12 @@ class DesktopWindowPlacement {
   }
 
   Rect get contentRect => frameMargins.deflateRect(frame);
+
+  /// How far outside the frame presses reach a plugin's frame while the
+  /// window is live. A window without a frame and a maximized one have none.
+  EdgeInsets get frameReach => maximized || !drawsLiveServerFrame
+      ? EdgeInsets.zero
+      : DesktopMetrics.frameReach;
 
   DesktopWindowPlacement copyWith({
     Rect? frame,
