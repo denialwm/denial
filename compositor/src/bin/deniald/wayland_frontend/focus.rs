@@ -15,6 +15,7 @@ use smithay::input::touch::{
 };
 use smithay::input::{Seat, SeatHandler};
 use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{IsAlive, Serial};
 use smithay::utils::{Logical, Point};
@@ -210,6 +211,14 @@ impl WaylandFocus for KeyboardFocusTarget {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ClientSurface(pub(crate) WlSurface);
 
+impl ClientSurface {
+    fn is_xwayland(&self) -> bool {
+        self.0
+            .client()
+            .is_some_and(|client| super::xwayland::is_client(&client))
+    }
+}
+
 impl From<WlSurface> for ClientSurface {
     fn from(surface: WlSurface) -> Self {
         Self(surface)
@@ -249,6 +258,25 @@ impl PointerTarget<RuntimeState> for ClientSurface {
 
     fn motion(&self, seat: &Seat<RuntimeState>, data: &mut RuntimeState, event: &MotionEvent) {
         input_timestamps::send(data, seat, InputDevice::Pointer, &self.0, event.time);
+        if !pointer_frame_has_relative(data) && self.is_xwayland() {
+            // Xwayland feeds X11 from two pointer devices: a relative one for
+            // frames that carry relative motion, an absolute one for frames
+            // that carry a position alone. One such frame at the end of an
+            // X11 drag left its master pointer describing absolute axes while
+            // it delivered relative steps, and a game reading raw input took
+            // every step for a screen position. So a position never reaches
+            // Xwayland alone: it gets a relative step of zero first.
+            PointerTarget::relative_motion(
+                self,
+                seat,
+                data,
+                &RelativeMotionEvent {
+                    delta: Point::default(),
+                    delta_unaccel: Point::default(),
+                    time: event.time,
+                },
+            );
+        }
         PointerTarget::motion(&self.0, seat, data, event);
     }
 
@@ -258,6 +286,7 @@ impl PointerTarget<RuntimeState> for ClientSurface {
         data: &mut RuntimeState,
         event: &RelativeMotionEvent,
     ) {
+        set_pointer_frame_has_relative(data, true);
         PointerTarget::relative_motion(&self.0, seat, data, event);
     }
 
@@ -273,6 +302,7 @@ impl PointerTarget<RuntimeState> for ClientSurface {
     }
 
     fn frame(&self, seat: &Seat<RuntimeState>, data: &mut RuntimeState) {
+        set_pointer_frame_has_relative(data, false);
         PointerTarget::frame(&self.0, seat, data);
     }
 
@@ -355,7 +385,21 @@ impl PointerTarget<RuntimeState> for ClientSurface {
         serial: Serial,
         time: InputTime,
     ) {
+        set_pointer_frame_has_relative(data, false);
         PointerTarget::leave(&self.0, seat, data, serial, time);
+    }
+}
+
+fn pointer_frame_has_relative(state: &RuntimeState) -> bool {
+    state
+        .wayland
+        .as_ref()
+        .is_some_and(|frontend| frontend.pointer_frame_has_relative)
+}
+
+fn set_pointer_frame_has_relative(state: &mut RuntimeState, value: bool) {
+    if let Some(frontend) = state.wayland.as_mut() {
+        frontend.pointer_frame_has_relative = value;
     }
 }
 

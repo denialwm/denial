@@ -693,6 +693,8 @@ pub(super) struct WaylandFrontend {
     touch_transform: OutputTransform,
     tablet_output_mappings: HashMap<String, String>,
     pointer_location: Point<f64, Logical>,
+    /// The pointer's focus got relative motion in the frame being sent.
+    pointer_frame_has_relative: bool,
     cursor_status: CursorImageStatus,
     atlas_origin: Point<f64, Logical>,
     atlas_scale: f64,

@@ -552,6 +552,7 @@ impl WaylandFrontend {
             touch_transform,
             tablet_output_mappings: HashMap::new(),
             pointer_location,
+            pointer_frame_has_relative: false,
             cursor_status: CursorImageStatus::default_named(),
             atlas_origin,
             atlas_scale,
