@@ -6,15 +6,18 @@
 //! input region (a desktop pet, an on-screen widget) lost those holes. This
 //! copies the window's input region onto its frame on the X server itself, on
 //! a connection of its own, so pointer motion costs the compositor nothing.
+//!
+//! The frame's shape notifications then tell whether that region leaves part
+//! of the window's rectangle to what is below. Such a window gets no frame.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
 use smithay::utils::x11rb::X11Source;
-use x11rb::connection::Connection;
+use x11rb::connection::{Connection, SequenceNumber};
 use x11rb::errors::ConnectionError;
-use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
+use x11rb::protocol::shape::{ConnectionExt as _, NotifyEvent, SK, SO};
 use x11rb::protocol::xproto::{
     AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, CreateWindowAux, EventMask, Window,
     WindowClass,
@@ -28,6 +31,20 @@ struct Framed {
     frame: Window,
     width: u16,
     height: u16,
+    /// The request that finishes the latest copy. The frame's shape
+    /// notification for it carries the window's final input region; the one
+    /// before it, for the first half of the copy, does not.
+    last_copy: SequenceNumber,
+    /// The input region leaves part of the window's rectangle uncovered.
+    click_through: bool,
+}
+
+/// A window whose input region now leaves part of its rectangle to what is
+/// below, or no longer does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ClickThroughChange {
+    pub(super) window: Window,
+    pub(super) click_through: bool,
 }
 
 pub(super) struct FrameInputShapes {
@@ -85,19 +102,21 @@ impl FrameInputShapes {
         // Event masks are per connection: this does not change what the
         // window manager or the client itself receives.
         self.connection.shape_select_input(window, true)?;
+        self.connection.shape_select_input(frame, true)?;
         self.connection.change_window_attributes(
             window,
             &ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY),
         )?;
-        self.windows.insert(
-            window,
-            Framed {
-                frame,
-                width,
-                height,
-            },
-        );
-        self.copy(window, frame)
+        let mut framed = Framed {
+            frame,
+            width,
+            height,
+            last_copy: 0,
+            click_through: false,
+        };
+        copy(&self.connection, window, &mut framed)?;
+        self.windows.insert(window, framed);
+        Ok(())
     }
 
     /// Stops following `window`. Its frame is destroyed on unmap.
@@ -105,8 +124,19 @@ impl FrameInputShapes {
         self.windows.remove(&window);
     }
 
-    pub(super) fn handle(&mut self, event: Event) -> Result<(), ConnectionError> {
+    /// Handles one event of this connection. Returns the window whose
+    /// click-through state it changed, if any.
+    pub(super) fn handle(
+        &mut self,
+        event: Event,
+    ) -> Result<Option<ClickThroughChange>, ConnectionError> {
         let window = match event {
+            Event::ShapeNotify(event)
+                if event.shape_kind == SK::INPUT
+                    && !self.windows.contains_key(&event.affected_window) =>
+            {
+                return Ok(self.frame_shaped(&event));
+            }
             Event::ShapeNotify(event) if matches!(event.shape_kind, SK::INPUT | SK::BOUNDING) => {
                 event.affected_window
             }
@@ -115,10 +145,10 @@ impl FrameInputShapes {
             // also arrive here, change nothing.
             Event::ConfigureNotify(event) => {
                 let Some(framed) = self.windows.get_mut(&event.window) else {
-                    return Ok(());
+                    return Ok(None);
                 };
                 if (framed.width, framed.height) == (event.width, event.height) {
-                    return Ok(());
+                    return Ok(None);
                 }
                 framed.width = event.width;
                 framed.height = event.height;
@@ -126,36 +156,110 @@ impl FrameInputShapes {
             }
             Event::DestroyNotify(event) => {
                 self.forget(event.window);
-                return Ok(());
+                return Ok(None);
             }
             // The window or its frame can go before a queued copy runs.
-            Event::Error(error) if error.error_kind == ErrorKind::Window => return Ok(()),
+            Event::Error(error) if error.error_kind == ErrorKind::Window => return Ok(None),
             Event::Error(error) => {
                 tracing::warn!(?error, "an X11 input region copy failed");
-                return Ok(());
+                return Ok(None);
             }
-            _ => return Ok(()),
+            _ => return Ok(None),
         };
-        match self.windows.get(&window) {
-            Some(framed) => self.copy(window, framed.frame),
-            None => Ok(()),
+        if let Some(framed) = self.windows.get_mut(&window) {
+            copy(&self.connection, window, framed)?;
+        }
+        Ok(None)
+    }
+
+    /// A frame's input region changed. Only the notification for the end of
+    /// the latest copy carries the window's region.
+    fn frame_shaped(&mut self, event: &NotifyEvent) -> Option<ClickThroughChange> {
+        let (&window, framed) = self
+            .windows
+            .iter_mut()
+            .find(|(_, framed)| framed.frame == event.affected_window)?;
+        // Events carry the low 16 bits of the last request the server read.
+        if event.sequence != framed.last_copy as u16 {
+            return None;
+        }
+        let click_through = !covers_window(event, framed.width, framed.height);
+        if click_through == framed.click_through {
+            return None;
+        }
+        framed.click_through = click_through;
+        Some(ClickThroughChange {
+            window,
+            click_through,
+        })
+    }
+}
+
+/// The window's effective input region is its input shape clipped by its
+/// bounding shape; the frame gets exactly that.
+fn copy(
+    connection: &RustConnection,
+    window: Window,
+    framed: &mut Framed,
+) -> Result<(), ConnectionError> {
+    connection.shape_combine(SO::SET, SK::INPUT, SK::INPUT, framed.frame, 0, 0, window)?;
+    let last = connection.shape_combine(
+        SO::INTERSECT,
+        SK::INPUT,
+        SK::BOUNDING,
+        framed.frame,
+        0,
+        0,
+        window,
+    )?;
+    framed.last_copy = last.sequence_number();
+    connection.flush()
+}
+
+/// Whether a shape whose notification is `event` reaches every edge of a
+/// `width` by `height` window. Its extents are the bounds only: a region with
+/// a hole inside them still counts as covering.
+fn covers_window(event: &NotifyEvent, width: u16, height: u16) -> bool {
+    if !event.shaped {
+        return true;
+    }
+    let left = i32::from(event.extents_x);
+    let top = i32::from(event.extents_y);
+    left <= 0
+        && top <= 0
+        && left + i32::from(event.extents_width) >= i32::from(width)
+        && top + i32::from(event.extents_height) >= i32::from(height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notify(shaped: bool, (x, y, width, height): (i16, i16, u16, u16)) -> NotifyEvent {
+        NotifyEvent {
+            response_type: 0,
+            shape_kind: SK::INPUT,
+            sequence: 0,
+            affected_window: 0,
+            extents_x: x,
+            extents_y: y,
+            extents_width: width,
+            extents_height: height,
+            server_time: 0,
+            shaped,
         }
     }
 
-    /// The window's effective input region is its input shape clipped by its
-    /// bounding shape; the frame gets exactly that.
-    fn copy(&self, window: Window, frame: Window) -> Result<(), ConnectionError> {
-        self.connection
-            .shape_combine(SO::SET, SK::INPUT, SK::INPUT, frame, 0, 0, window)?;
-        self.connection.shape_combine(
-            SO::INTERSECT,
-            SK::INPUT,
-            SK::BOUNDING,
-            frame,
-            0,
-            0,
-            window,
-        )?;
-        self.connection.flush()
+    #[test]
+    fn a_region_short_of_any_edge_lets_clicks_through() {
+        assert!(covers_window(&notify(false, (0, 0, 0, 0)), 800, 600));
+        assert!(covers_window(&notify(true, (0, 0, 800, 600)), 800, 600));
+        assert!(covers_window(&notify(true, (-4, -4, 808, 608)), 800, 600));
+        // A desktop pet: only its body takes clicks.
+        assert!(!covers_window(&notify(true, (300, 200, 96, 96)), 800, 600));
+        assert!(!covers_window(&notify(true, (0, 0, 800, 599)), 800, 600));
+        assert!(!covers_window(&notify(true, (1, 0, 799, 600)), 800, 600));
+        // An empty region: every click passes through.
+        assert!(!covers_window(&notify(true, (0, 0, 0, 0)), 800, 600));
     }
 }

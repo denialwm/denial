@@ -718,10 +718,13 @@ fn start_frame_input(
         let ChannelEvent::Msg(event) = event else {
             return;
         };
-        if let Some(shapes) = state.frontend_mut().xwayland.frame_input()
-            && let Err(error) = shapes.handle(event)
-        {
-            warn!(%error, "could not copy an X11 input region");
+        let Some(shapes) = state.frontend_mut().xwayland.frame_input() else {
+            return;
+        };
+        match shapes.handle(event) {
+            Ok(Some(change)) => apply_click_through(state, change),
+            Ok(None) => {}
+            Err(error) => warn!(%error, "could not copy an X11 input region"),
         }
     });
     match inserted {
@@ -731,6 +734,32 @@ fn start_frame_input(
             None
         }
     }
+}
+
+/// A window that lets clicks through part of its rectangle is drawn without
+/// Denial's frame; one that stops doing so gets it back.
+fn apply_click_through(state: &mut RuntimeState, change: frame_input::ClickThroughChange) {
+    let Some(frontend) = state.wayland.as_mut() else {
+        return;
+    };
+    let Some(element) = frontend
+        .space
+        .elements()
+        .find(|window| {
+            window
+                .x11_surface()
+                .is_some_and(|surface| surface.window_id() == change.window)
+        })
+        .cloned()
+    else {
+        return;
+    };
+    if let Some(surface) = element.x11_surface() {
+        super::managed_window::set_x11_click_through(surface, change.click_through);
+    }
+    // The frame decides the window's content geometry in a layout.
+    frontend.reconcile_window_layout(&element);
+    state.scene_sync.mark_dirty();
 }
 
 impl XWaylandState {
@@ -1187,6 +1216,9 @@ impl XwmHandler for RuntimeState {
         if let Some(shapes) = self.frontend_mut().xwayland.frame_input() {
             shapes.forget(window.window_id());
         }
+        // Mapped again, it is followed afresh and reported only if it lets
+        // clicks through then.
+        super::managed_window::set_x11_click_through(&window, false);
         unmap_x11_window(self, &window);
     }
 

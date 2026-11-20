@@ -6,6 +6,9 @@
 //! backend-specific state. Everything above it consumes [`ManagedWindowFacts`]
 //! and invokes backend-neutral operations.
 
+#[cfg(feature = "xwayland")]
+use std::cell::Cell;
+
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
@@ -156,6 +159,29 @@ enum ManagedWindowProtocol<'a> {
     X11(&'a X11Surface),
 }
 
+/// The X11 window's input region leaves part of its rectangle to what is
+/// below, as a desktop pet's does around its body.
+#[cfg(feature = "xwayland")]
+struct X11ClickThrough(Cell<bool>);
+
+/// Records whether the X11 window lets clicks through part of its rectangle.
+#[cfg(feature = "xwayland")]
+pub(super) fn set_x11_click_through(surface: &X11Surface, click_through: bool) {
+    let data = surface.user_data();
+    data.insert_if_missing(|| X11ClickThrough(Cell::new(false)));
+    if let Some(state) = data.get::<X11ClickThrough>() {
+        state.0.set(click_through);
+    }
+}
+
+#[cfg(feature = "xwayland")]
+fn x11_click_through(surface: &X11Surface) -> bool {
+    surface
+        .user_data()
+        .get::<X11ClickThrough>()
+        .is_some_and(|state| state.0.get())
+}
+
 fn prepare_geometry_reassertion(
     pending: &mut ToplevelState,
     target_size: Size<i32, Logical>,
@@ -240,9 +266,14 @@ impl<'a> ManagedWindow<'a> {
                         resizing: false,
                     },
                     // Client motif hints do not choose Denial's frame policy.
-                    // Only protocol-level popups and override-redirect surfaces
-                    // are excluded from the managed toplevel frame.
-                    server_side_decorated: !surface.is_override_redirect() && !protocol_popup,
+                    // Protocol-level popups and override-redirect surfaces are
+                    // excluded from the managed toplevel frame, and so is a
+                    // window that lets clicks through part of its rectangle:
+                    // a frame around a desktop pet's transparent area would
+                    // float on the screen.
+                    server_side_decorated: !surface.is_override_redirect()
+                        && !protocol_popup
+                        && !x11_click_through(surface),
                     auxiliary,
                     override_redirect: surface.is_override_redirect(),
                     minimum_size: surface.min_size().unwrap_or_else(|| Size::from((0, 0))),

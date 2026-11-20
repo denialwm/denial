@@ -402,6 +402,7 @@ class DesktopWindowFrame extends ConsumerWidget {
                             ? DesktopWindowShadowPainter.shadowOutset
                             : 0,
                         child: DesktopOverviewPreviewInteraction(
+                          compositorRoutesInput: !window.isLocalFlutter,
                           overviewActive: overviewActive,
                           overview: overview,
                           desktopWidget: desktopWidget,

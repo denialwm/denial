@@ -167,6 +167,10 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- A click through an app's transparent part, such as around a desktop pet,
+  reaches the top bar or whatever else of the shell is below it. An X11
+  window that lets clicks through part of itself is drawn without Denial's
+  frame, rounded corners and shadow (#286).
 - Qt and other Xlib apps under Xwayland are scaled: Denial also sets
   `Xft.dpi` in the X resources, which they read instead of XSETTINGS.
 - A quick flick in mobile recents reaches the next card however short it

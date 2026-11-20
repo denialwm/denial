@@ -37,6 +37,7 @@ class DesktopOverviewTransitionStatus
 class DesktopOverviewPreviewInteraction extends StatefulWidget {
   const DesktopOverviewPreviewInteraction({
     super.key,
+    required this.compositorRoutesInput,
     required this.overviewActive,
     required this.overview,
     required this.desktopWidget,
@@ -53,6 +54,10 @@ class DesktopOverviewPreviewInteraction extends StatefulWidget {
     required this.child,
   });
 
+  /// The compositor hands this window's input to the client itself, by its
+  /// surfaces and their input regions. Only what no client takes, such as a
+  /// click through a desktop pet's transparent part, reaches the shell.
+  final bool compositorRoutesInput;
   final bool overviewActive;
   final bool overview;
   final bool desktopWidget;
@@ -149,6 +154,16 @@ class _DesktopOverviewPreviewInteractionState
     final interactive =
         (widget.overviewActive && widget.overview) ||
         (!widget.overviewActive && widget.desktopWidget);
+    // Outside the overview a client window's preview has nothing to do with
+    // the pointer. Whatever reaches the shell inside it belongs to the shell
+    // below, such as the top bar under a window that lets clicks through.
+    return IgnorePointer(
+      ignoring: widget.compositorRoutesInput && !interactive,
+      child: _preview(context, interactive, emphasized),
+    );
+  }
+
+  Widget _preview(BuildContext context, bool interactive, bool emphasized) {
     return Semantics(
       button: interactive,
       selected: widget.overview ? widget.selected : null,
