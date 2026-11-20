@@ -555,6 +555,15 @@ pub(super) struct WaylandFrontend {
     /// it ends.
     #[cfg(feature = "flutter")]
     shell_window_grab_active: bool,
+    /// The latest contact the shell holds: what a move or resize started from
+    /// the shell's chrome by touch takes over.
+    #[cfg(feature = "flutter")]
+    flutter_touch_press: Option<FlutterTouchPress>,
+    /// The contact that drives a shell-started move or resize. Its motion
+    /// moves the pointer grab and its lift releases it; the shell's own view
+    /// of the contact was cancelled when the grab began.
+    #[cfg(feature = "flutter")]
+    shell_touch_grab_slot: Option<i32>,
     /// The frames the shell draws around decorated windows.
     shell_frames: ShellFrames,
     /// Whether the running shell declared `shell_frames` itself. A frame
@@ -718,6 +727,15 @@ pub(super) struct WaylandFrontend {
 struct FlutterPointerPress {
     button: u32,
     serial: Serial,
+    time: InputTime,
+    location: Point<f64, Logical>,
+}
+
+/// The latest contact the shell took, where it went down.
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug)]
+struct FlutterTouchPress {
+    slot: i32,
     time: InputTime,
     location: Point<f64, Logical>,
 }

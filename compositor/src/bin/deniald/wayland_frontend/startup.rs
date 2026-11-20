@@ -420,6 +420,10 @@ impl WaylandFrontend {
             flutter_pointer_press: None,
             #[cfg(feature = "flutter")]
             shell_window_grab_active: false,
+            #[cfg(feature = "flutter")]
+            flutter_touch_press: None,
+            #[cfg(feature = "flutter")]
+            shell_touch_grab_slot: None,
             shell_frames: ShellFrames::default(),
             #[cfg(feature = "flutter")]
             shell_frames_declared: false,

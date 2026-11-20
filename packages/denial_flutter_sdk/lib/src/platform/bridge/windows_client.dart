@@ -366,10 +366,12 @@ final class BridgeWindowsClient {
     );
   }
 
-  /// Hands the pointer press the shell is holding to a native move of
-  /// [window]. Call it from the press or the first drag update of the shell
-  /// widget the user grabbed; native then moves the window with the pointer
-  /// and reports it through [windowEvents] until the button is released.
+  /// Hands the press the shell is holding, the primary mouse button or a
+  /// touch, to a native move of [window]. Call it from the press or the first
+  /// drag update of the shell widget the user grabbed; native then moves the
+  /// window with the pointer or the finger and reports it through
+  /// [windowEvents] until the button is released or the finger lifts. A touch
+  /// ends for the shell when the move begins: its widgets see it cancelled.
   void beginWindowMove(DenialWindow window) {
     if (_context.codec.encodeWindowDrag(window.windowId) case final bytes?) {
       _context.sendWire(bytes);

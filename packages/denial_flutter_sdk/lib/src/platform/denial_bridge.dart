@@ -416,9 +416,10 @@ class DenialBridge {
     DenialWindowPlace place,
   ) => _windows.resolveWindowPlace(window, place);
 
-  /// Hands the pointer press the shell is holding to a compositor move of
-  /// [window]. The compositor moves the window with the pointer and reports
-  /// it through [windowEvents] until the button is released.
+  /// Hands the press the shell is holding, the primary mouse button or a
+  /// touch, to a compositor move of [window]. The compositor moves the window
+  /// with the pointer or the finger and reports it through [windowEvents]
+  /// until the button is released or the finger lifts.
   void beginWindowMove(DenialWindow window) => _windows.beginWindowMove(window);
 
   /// As [beginWindowMove], for a resize of [edge].

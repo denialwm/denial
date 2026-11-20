@@ -45,6 +45,13 @@ pub(in super::super) fn cancel_captured_touch_routes(
         (flutter_slots, cancel_client, touch)
     };
     state.flutter_input.cancel_touch_slots(&flutter_slots);
+    if state
+        .frontend()
+        .shell_touch_grab_slot
+        .is_some_and(|slot| slots.contains(&slot))
+    {
+        end_shell_touch_grab(state, InputTime::now());
+    }
     if let Some(touch) = touch {
         touch.cancel(state);
         if touch.is_grabbed() {
@@ -52,6 +59,66 @@ pub(in super::super) fn cancel_captured_touch_routes(
         }
     }
     cancel_client
+}
+
+/// Moves the window grab a contact drives to where the contact is now.
+#[cfg(feature = "flutter")]
+fn move_shell_touch_grab(
+    state: &mut RuntimeState,
+    position: Point<f64, Logical>,
+    time: InputTime,
+) -> bool {
+    let pointer = state
+        .frontend()
+        .seat
+        .get_pointer()
+        .expect("seat has no pointer");
+    if !pointer.is_grabbed() {
+        // The grab ended by itself. The contact has nothing left to drive.
+        return false;
+    }
+    // The cursor stays where the mouse left it: only the grab follows the
+    // contact.
+    pointer.motion(
+        state,
+        None,
+        &MotionEvent {
+            location: position,
+            serial: SERIAL_COUNTER.next_serial(),
+            time,
+        },
+    );
+    pointer.frame(state);
+    true
+}
+
+/// Ends the window grab a contact drives: the contact lifted or was taken
+/// away. Returns whether a contact drove one.
+#[cfg(feature = "flutter")]
+pub(in super::super) fn end_shell_touch_grab(state: &mut RuntimeState, time: InputTime) -> bool {
+    let Some(frontend) = state.wayland.as_mut() else {
+        return false;
+    };
+    if frontend.shell_touch_grab_slot.take().is_none() {
+        return false;
+    }
+    frontend.shell_window_grab_active = false;
+    let pointer = frontend.seat.get_pointer().expect("seat has no pointer");
+    if !pointer.is_grabbed() {
+        return true;
+    }
+    // The grab began with a primary press seeded for it; this is its release.
+    pointer.button(
+        state,
+        &ButtonEvent {
+            button: BTN_LEFT,
+            state: ButtonState::Released,
+            serial: SERIAL_COUNTER.next_serial(),
+            time,
+        },
+    );
+    pointer.frame(state);
+    true
 }
 
 /// Follows a client contact that started in a shell edge-swipe region. Once
@@ -292,6 +359,11 @@ pub(super) fn process_flutter_input_event(
                         frontend.text_input.note_flutter_touch();
                     }
                     frontend.flutter_touch_slots.insert(slot);
+                    frontend.flutter_touch_press = Some(FlutterTouchPress {
+                        slot,
+                        time: touch_event.time(),
+                        location: position,
+                    });
                     let scale = frontend.atlas_scale;
                     state.flutter_input.handle_touch_at(
                         &event,
@@ -382,6 +454,9 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return move_shell_touch_grab(state, position, touch_event.time());
+            }
             let flutter_target = state.frontend().flutter_touch_slots.contains(&slot);
             if flutter_target {
                 let scale = state.frontend().atlas_scale;
@@ -454,6 +529,9 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return end_shell_touch_grab(state, touch_event.time());
+            }
             let flutter_target = state.frontend_mut().flutter_touch_slots.remove(&slot);
             if flutter_target {
                 state.flutter_input.handle(&event);
@@ -524,6 +602,9 @@ pub(super) fn process_flutter_input_event(
             let flush_clients = apply_touch_gesture_update(state, gesture);
             if gesture_consumed {
                 return flush_clients;
+            }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return end_shell_touch_grab(state, touch_event.time());
             }
             let flutter_target = state.frontend_mut().flutter_touch_slots.remove(&slot);
             if flutter_target {
@@ -1264,14 +1345,13 @@ pub(in super::super) fn begin_shell_window_grab(
         .get_pointer()
         .expect("seat has no pointer");
     if state.secure_session_locked()
-        || !state.flutter_input.pointer_captured()
         || pointer.is_grabbed()
         || state.frontend().clipboard_drag_active
         || state.frontend().shell_window_grab_active
     {
         warn!(
             window_id,
-            "refused a shell window drag: the shell holds no free pointer press"
+            "refused a shell window drag: the pointer is not free"
         );
         return false;
     }
@@ -1292,13 +1372,38 @@ pub(in super::super) fn begin_shell_window_grab(
     } else {
         WindowPlacementChange::Move
     };
-    let Some(press) = state.frontend().flutter_pointer_press else {
-        // Touch and the other buttons have no press to hand over.
-        warn!(
-            window_id,
-            "refused a shell window drag without a primary button press"
-        );
-        return false;
+    // A drag starts from what the shell holds: the primary button, or failing
+    // that its latest contact, which then drives the grab as the button would.
+    let (press, touch_slot) = {
+        let frontend = state.frontend();
+        let button = state
+            .flutter_input
+            .pointer_captured()
+            .then_some(frontend.flutter_pointer_press)
+            .flatten();
+        let touch = frontend
+            .flutter_touch_press
+            .filter(|touch| frontend.flutter_touch_slots.contains(&touch.slot));
+        match (button, touch) {
+            (Some(press), _) => (press, None),
+            (None, Some(touch)) => (
+                FlutterPointerPress {
+                    button: BTN_LEFT,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time: touch.time,
+                    location: touch.location,
+                },
+                Some(touch.slot),
+            ),
+            (None, None) => {
+                // The other buttons have no press to hand over.
+                warn!(
+                    window_id,
+                    "refused a shell window drag: the shell holds no primary press or touch"
+                );
+                return false;
+            }
+        }
     };
     let serial = press.serial;
     let local = state.frontend().is_local_flutter_window(window_id);
@@ -1375,6 +1480,15 @@ pub(in super::super) fn begin_shell_window_grab(
         location: press.location,
     };
     state.frontend_mut().shell_window_grab_active = true;
+    if let Some(slot) = touch_slot {
+        // The contact is the grab's from here on. The shell sees it cancelled,
+        // so none of its gestures goes on beside the drag.
+        let frontend = state.frontend_mut();
+        frontend.flutter_touch_press = None;
+        frontend.flutter_touch_slots.remove(&slot);
+        frontend.shell_touch_grab_slot = Some(slot);
+        state.flutter_input.cancel_touch_slots(&[slot]);
+    }
     match target {
         Target::Local(geometry) => {
             super::super::window_management::queue_local_flutter_window_placement(
@@ -1647,6 +1761,7 @@ pub(in super::super) fn route_pointer_button(
         }
     }
     if button_state == ButtonState::Released
+        && state.frontend().shell_touch_grab_slot.is_none()
         && std::mem::take(&mut state.frontend_mut().shell_window_grab_active)
         && pointer_grabbed
         && !secure_locked

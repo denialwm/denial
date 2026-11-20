@@ -63,6 +63,8 @@ use super::super::{RuntimeState, logical_axis_scroll_delta};
 use super::ClientSurface;
 #[cfg(feature = "flutter")]
 use super::FlutterPointerPress;
+#[cfg(feature = "flutter")]
+use super::FlutterTouchPress;
 use super::WaylandFrontend;
 use super::input_source::{InputBatchEvent, LibinputBatchSource};
 #[cfg(feature = "flutter")]
@@ -2205,6 +2207,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             .map(|frontend| frontend.touch_gestures.cancel_all())
             .unwrap_or_default();
         touch_gestures::apply_actions(state, actions);
+        flutter_route::end_shell_touch_grab(state, InputTime::now());
     }
     if reset.keyboard {
         state.native_escape_shortcut.reset();

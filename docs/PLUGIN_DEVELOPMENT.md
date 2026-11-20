@@ -625,18 +625,23 @@ resize handle), hand the press to the compositor:
 ```dart
 Listener(
   onPointerDown: (event) {
-    if (event.buttons == kPrimaryButton) bridge.beginWindowMove(window);
+    final mouse = event.kind == PointerDeviceKind.mouse;
+    if (!mouse || event.buttons == kPrimaryButton) {
+      bridge.beginWindowMove(window);
+    }
   },
   child: titleBar,
 )
 ```
 
-`beginWindowMove` and `beginWindowResize(window, edge)` take over the primary
-button press the shell holds. The compositor moves the window with the
-pointer, applies the layout's own rules (a tile is dragged as a tile), reports
-each step through `windowEvents` and ends the drag when the button is
-released; the shell receives that release. Do not also move the window from
-Dart during the drag.
+`beginWindowMove` and `beginWindowResize(window, edge)` take over the press
+the shell holds: the primary mouse button, or else its latest touch. The
+compositor moves the window with the pointer or the finger, applies the
+layout's own rules (a tile is dragged as a tile), reports each step through
+`windowEvents` and ends the drag when the button is released or the finger
+lifts. The shell receives the button's release; a touch it sees cancelled the
+moment the drag begins, so no tap or long press follows. Do not also move the
+window from Dart during the drag.
 
 A shell that draws window frames declares them once, when it starts:
 
@@ -692,7 +697,8 @@ plugin can be selected at a time; without one the desktop draws its own border.
   `frame.margins` the margins in effect and `frame.services` the host services,
   such as `buildApplicationIcon`.
 - The frame acts with the bridge's own calls and keeps no window state:
-  `beginWindowMove` and `beginWindowResize` from a primary mouse press,
+  `beginWindowMove` and `beginWindowResize` from a primary mouse press or a
+  touch,
   `placeWindow` with `DenialWindowPlace.maximized()` or `.restore()`,
   `minimizeWindow`, `closeWindow`. The desktop redraws from what the
   compositor did.
