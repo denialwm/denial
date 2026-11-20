@@ -235,6 +235,11 @@ final class BridgeEventsClient {
     int requestId,
     wire.WindowResponse response,
   ) {
+    if (response.kind == wire.WindowResponseKind.Place) {
+      // A refusal is an answer like any other, not a failed request.
+      _windows.completePlace(requestId, response);
+      return;
+    }
     if (!response.success) {
       _windows.reject(requestId, response.error);
       _displays.reject(requestId);

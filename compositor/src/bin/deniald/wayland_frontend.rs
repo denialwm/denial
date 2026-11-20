@@ -244,6 +244,9 @@ mod window_management;
 #[path = "wayland_frontend/window_outputs.rs"]
 mod window_outputs;
 #[cfg(feature = "flutter")]
+#[path = "wayland_frontend/window_place.rs"]
+mod window_place;
+#[cfg(feature = "flutter")]
 #[path = "wayland_frontend/window_presentation.rs"]
 mod window_presentation;
 #[path = "wayland_frontend/window_registry.rs"]
@@ -288,17 +291,15 @@ use topology::{
     centered_transient_geometry, choose_popup_output, clamp_window_geometry, configure_output,
     output_logical_bounds, saturating_point_sub,
 };
-use window_management::SHELL_FRAME_BORDER;
+use window_management::{ShellFrame, ShellFrames};
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
     apply_window_commands, finalize_topology_window_reconciliation, finish_desk_window_drag,
     queue_local_flutter_window_placement, queue_transient_window_placement, queue_window_placement,
-    synchronize_over_lock_window,
+    refuse_window_commands, synchronize_over_lock_window,
 };
 #[cfg(feature = "flutter")]
-use window_management::{
-    maximized_shell_content_geometry, shell_content_geometry, shell_draws_server_frame,
-};
+use window_management::{shell_content_geometry, shell_frame_geometry};
 use window_registry::{WindowId, WindowRegistry};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
@@ -549,6 +550,17 @@ pub(super) struct WaylandFrontend {
     client_popup_grab: Option<smithay::desktop::PopupGrab<RuntimeState>>,
     #[cfg(feature = "flutter")]
     flutter_pointer_press: Option<FlutterPointerPress>,
+    /// A move or resize the shell started from its own chrome holds the
+    /// pointer. Flutter still owns the press it began with, and is told when
+    /// it ends.
+    #[cfg(feature = "flutter")]
+    shell_window_grab_active: bool,
+    /// The frames the shell draws around decorated windows.
+    shell_frames: ShellFrames,
+    /// Whether the running shell declared `shell_frames` itself. A frame
+    /// belongs to the shell that draws it and does not outlive it.
+    #[cfg(feature = "flutter")]
+    shell_frames_declared: bool,
     #[cfg(feature = "flutter")]
     clipboard_drag_active: bool,
     #[cfg(feature = "flutter")]

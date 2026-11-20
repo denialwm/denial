@@ -103,6 +103,9 @@ impl WaylandFrontend {
         // later release/up cannot be delivered to the new engine without its
         // matching press/down. Client captures and routes remain untouched.
         self.input_layout = None;
+        // The frame is the replacement's to declare; it is settled once the
+        // replacement is up, so windows are not laid out twice in between.
+        self.shell_frames_declared = false;
         let released_shell_focus = self.text_input.shell_captures_keyboard();
         self.text_input.set_shell_capture(false);
         self.text_input.retire_flutter_generation();

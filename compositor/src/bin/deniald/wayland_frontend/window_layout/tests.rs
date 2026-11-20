@@ -155,15 +155,15 @@ fn scrolling_drop_swaps_on_the_strip_axis_and_splits_across_it() {
 #[test]
 fn decorated_layout_maximum_preserves_unconstrained_dimensions() {
     assert_eq!(
-        layout_frame_maximum_size(Size::from((800, 0)), true),
+        layout_frame_maximum_size(Size::from((800, 0)), ShellFrame::uniform(1)),
         Size::from((802, 0))
     );
     assert_eq!(
-        layout_frame_maximum_size(Size::from((0, 600)), false),
+        layout_frame_maximum_size(Size::from((0, 600)), ShellFrame::NONE),
         Size::from((0, 600))
     );
     assert_eq!(
-        layout_frame_maximum_size(Size::from((i32::MAX, 0)), true),
+        layout_frame_maximum_size(Size::from((i32::MAX, 0)), ShellFrame::uniform(1)),
         Size::from((i32::MAX, 0))
     );
 }
@@ -171,11 +171,11 @@ fn decorated_layout_maximum_preserves_unconstrained_dimensions() {
 #[test]
 fn decorated_layout_minimum_includes_the_server_frame() {
     assert_eq!(
-        layout_frame_minimum_size(Size::from((800, 600)), true),
+        layout_frame_minimum_size(Size::from((800, 600)), ShellFrame::uniform(1)),
         Size::from((802, 602)),
     );
     assert_eq!(
-        layout_frame_minimum_size(Size::from((0, 0)), false),
+        layout_frame_minimum_size(Size::from((0, 0)), ShellFrame::NONE),
         Size::from((1, 1)),
     );
 }

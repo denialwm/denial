@@ -618,15 +618,10 @@ impl WaylandFrontend {
             return normal_geometry;
         };
         let object_id = root.id();
-        let server_frame = shell_draws_server_frame(window);
         let mut maximized_target = normal_geometry;
         if state.maximized {
             let frame = self.maximize_work_area(Some(&output), output_geometry);
-            maximized_target = maximized_shell_content_geometry(
-                frame,
-                server_frame,
-                self.window_layout_manages_geometry(),
-            );
+            maximized_target = shell_content_geometry(frame, self.maximized_frame_for(window));
         }
         if state.fullscreen {
             self.ensure_window_record_for_surface(&object_id)
@@ -643,7 +638,7 @@ impl WaylandFrontend {
                     ShellFullscreenUnderlay::Normal
                 },
             });
-            shell_content_geometry(output_geometry, server_frame)
+            shell_content_geometry(output_geometry, self.frame_for(window))
         } else {
             self.ensure_window_record_for_surface(&object_id)
                 .expect("managed window has no stable id")
@@ -1013,11 +1008,8 @@ impl WaylandFrontend {
                 }
                 let work_area =
                     self.maximize_work_area(Some(&output.output), output.logical_geometry);
-                super::window_management::shell_content_geometry(
-                    work_area,
-                    super::window_management::shell_draws_server_frame(window),
-                )
-                .size
+                super::window_management::shell_content_geometry(work_area, self.frame_for(window))
+                    .size
             }
             #[cfg(not(feature = "flutter"))]
             {

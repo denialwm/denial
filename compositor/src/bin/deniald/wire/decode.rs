@@ -454,6 +454,84 @@ impl WireBridge {
                     });
                 Ok(None)
             }
+            kind @ (fb::WindowRequestKind::PlaceWindow
+            | fb::WindowRequestKind::ResolveWindowPlace) => {
+                // The answer is sent once the command has run against the
+                // window state, so it needs an identity to come back under.
+                if request_id == 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let window_id = request.window_id();
+                if window_id == 0 {
+                    return Err(WireError::Identity);
+                }
+                if request.flags() != 0 {
+                    return Err(WireError::Flags);
+                }
+                let place = decode_window_place(&request)?;
+                self.pending_window_commands
+                    .push_back(WindowCommand::Place {
+                        window_id,
+                        request_id,
+                        place,
+                        apply: kind == fb::WindowRequestKind::PlaceWindow,
+                    });
+                Ok(None)
+            }
+            kind @ (fb::WindowRequestKind::BeginWindowMove
+            | fb::WindowRequestKind::BeginWindowResize) => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let window_id = request.window_id();
+                if window_id == 0 {
+                    return Err(WireError::Identity);
+                }
+                let edges = request.flags();
+                let command = if kind == fb::WindowRequestKind::BeginWindowMove {
+                    if edges != 0 {
+                        return Err(WireError::Flags);
+                    }
+                    WindowCommand::BeginMove { window_id }
+                } else {
+                    const VERTICAL: u32 = WINDOW_RESIZE_TOP | WINDOW_RESIZE_BOTTOM;
+                    const HORIZONTAL: u32 = WINDOW_RESIZE_LEFT | WINDOW_RESIZE_RIGHT;
+                    if edges == 0
+                        || edges & !(VERTICAL | HORIZONTAL) != 0
+                        || edges & VERTICAL == VERTICAL
+                        || edges & HORIZONTAL == HORIZONTAL
+                    {
+                        return Err(WireError::Flags);
+                    }
+                    WindowCommand::BeginResize { window_id, edges }
+                };
+                self.pending_window_commands.push_back(command);
+                Ok(None)
+            }
+            fb::WindowRequestKind::ConfigureWindowFrame => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let margins = decode_window_frame_margins(
+                    request.frame_margins().ok_or(WireError::Geometry)?,
+                )?;
+                let maximized = request
+                    .maximized_frame_margins()
+                    .map(decode_window_frame_margins)
+                    .transpose()?;
+                self.pending_window_commands
+                    .push_back(WindowCommand::ConfigureFrame { margins, maximized });
+                Ok(None)
+            }
             kind => Err(WireError::Request(kind)),
         }
     }
@@ -479,6 +557,64 @@ fn decode_workspace_drop_geometry(rect: &fb::WireRect) -> Result<WindowGeometry,
         return Err(WireError::Geometry);
     }
     Ok(geometry)
+}
+
+/// The largest frame edge a shell may declare, in logical pixels.
+const MAX_WINDOW_FRAME_MARGIN: f64 = 256.0;
+
+fn decode_window_frame_margins(margins: &fb::WireInsets) -> Result<WindowFrameMargins, WireError> {
+    let margin = |value: f64| {
+        (value.is_finite() && (0.0..=MAX_WINDOW_FRAME_MARGIN).contains(&value))
+            .then(|| value.round() as i32)
+            .ok_or(WireError::Geometry)
+    };
+    Ok(WindowFrameMargins {
+        left: margin(margins.left())?,
+        top: margin(margins.top())?,
+        right: margin(margins.right())?,
+        bottom: margin(margins.bottom())?,
+    })
+}
+
+fn decode_window_place(request: &fb::WindowRequest<'_>) -> Result<WindowPlace, WireError> {
+    let monitor_id = match request.monitor_id() {
+        -1 => None,
+        monitor_id if monitor_id >= 0 => Some(monitor_id),
+        _ => return Err(WireError::Identity),
+    };
+    match request.place_kind() {
+        fb::WindowPlaceKind::Free => Ok(WindowPlace::Free(decode_window_geometry(
+            request.geometry().ok_or(WireError::Geometry)?,
+        )?)),
+        fb::WindowPlaceKind::Area => {
+            let share = request.place_share().ok_or(WireError::Geometry)?;
+            let share = WindowGeometry {
+                x: share.x(),
+                y: share.y(),
+                width: share.width(),
+                height: share.height(),
+            };
+            // A share names part of the work area and never leaves it. The
+            // small slack only absorbs thirds and the like written as doubles.
+            const SLACK: f64 = 1e-9;
+            let valid = [share.x, share.y, share.width, share.height]
+                .iter()
+                .all(|value| value.is_finite())
+                && share.x >= 0.0
+                && share.y >= 0.0
+                && share.width > 0.0
+                && share.height > 0.0
+                && share.x + share.width <= 1.0 + SLACK
+                && share.y + share.height <= 1.0 + SLACK;
+            if !valid {
+                return Err(WireError::Geometry);
+            }
+            Ok(WindowPlace::Area { monitor_id, share })
+        }
+        fb::WindowPlaceKind::Fullscreen => Ok(WindowPlace::Fullscreen { monitor_id }),
+        fb::WindowPlaceKind::Restore => Ok(WindowPlace::Restore),
+        _ => Err(WireError::Enumeration),
+    }
 }
 
 fn decode_window_geometry(rect: &fb::WireRect) -> Result<WindowGeometry, WireError> {

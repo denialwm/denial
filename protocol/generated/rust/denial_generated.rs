@@ -397,10 +397,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 11;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 16;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 12] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 17] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
@@ -413,6 +413,11 @@ pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 12] = [
   WindowRequestKind::MinimizeWindow,
   WindowRequestKind::NavigateBack,
   WindowRequestKind::MoveWindowToOutput,
+  WindowRequestKind::PlaceWindow,
+  WindowRequestKind::ResolveWindowPlace,
+  WindowRequestKind::BeginWindowMove,
+  WindowRequestKind::BeginWindowResize,
+  WindowRequestKind::ConfigureWindowFrame,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -432,9 +437,14 @@ impl WindowRequestKind {
   pub const MinimizeWindow: Self = Self(9);
   pub const NavigateBack: Self = Self(10);
   pub const MoveWindowToOutput: Self = Self(11);
+  pub const PlaceWindow: Self = Self(12);
+  pub const ResolveWindowPlace: Self = Self(13);
+  pub const BeginWindowMove: Self = Self(14);
+  pub const BeginWindowResize: Self = Self(15);
+  pub const ConfigureWindowFrame: Self = Self(16);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 11;
+  pub const ENUM_MAX: u8 = 16;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
@@ -448,6 +458,11 @@ impl WindowRequestKind {
     Self::MinimizeWindow,
     Self::NavigateBack,
     Self::MoveWindowToOutput,
+    Self::PlaceWindow,
+    Self::ResolveWindowPlace,
+    Self::BeginWindowMove,
+    Self::BeginWindowResize,
+    Self::ConfigureWindowFrame,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -464,6 +479,11 @@ impl WindowRequestKind {
       Self::MinimizeWindow => Some("MinimizeWindow"),
       Self::NavigateBack => Some("NavigateBack"),
       Self::MoveWindowToOutput => Some("MoveWindowToOutput"),
+      Self::PlaceWindow => Some("PlaceWindow"),
+      Self::ResolveWindowPlace => Some("ResolveWindowPlace"),
+      Self::BeginWindowMove => Some("BeginWindowMove"),
+      Self::BeginWindowResize => Some("BeginWindowResize"),
+      Self::ConfigureWindowFrame => Some("ConfigureWindowFrame"),
       _ => None,
     }
   }
@@ -522,12 +542,13 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowRequestKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_RESPONSE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_RESPONSE_KIND: u8 = 1;
+pub const ENUM_MAX_WINDOW_RESPONSE_KIND: u8 = 2;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_RESPONSE_KIND: [WindowResponseKind; 2] = [
+pub const ENUM_VALUES_WINDOW_RESPONSE_KIND: [WindowResponseKind; 3] = [
   WindowResponseKind::Windows,
   WindowResponseKind::DisplayLayout,
+  WindowResponseKind::Place,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -537,18 +558,21 @@ pub struct WindowResponseKind(pub u8);
 impl WindowResponseKind {
   pub const Windows: Self = Self(0);
   pub const DisplayLayout: Self = Self(1);
+  pub const Place: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 2;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Windows,
     Self::DisplayLayout,
+    Self::Place,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Windows => Some("Windows"),
       Self::DisplayLayout => Some("DisplayLayout"),
+      Self::Place => Some("Place"),
       _ => None,
     }
   }
@@ -604,6 +628,188 @@ impl<'a> flatbuffers::Verifiable for WindowResponseKind {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for WindowResponseKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_WINDOW_PLACE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_WINDOW_PLACE_KIND: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_WINDOW_PLACE_KIND: [WindowPlaceKind; 4] = [
+  WindowPlaceKind::Free,
+  WindowPlaceKind::Area,
+  WindowPlaceKind::Fullscreen,
+  WindowPlaceKind::Restore,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct WindowPlaceKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl WindowPlaceKind {
+  pub const Free: Self = Self(0);
+  pub const Area: Self = Self(1);
+  pub const Fullscreen: Self = Self(2);
+  pub const Restore: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Free,
+    Self::Area,
+    Self::Fullscreen,
+    Self::Restore,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Free => Some("Free"),
+      Self::Area => Some("Area"),
+      Self::Fullscreen => Some("Fullscreen"),
+      Self::Restore => Some("Restore"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for WindowPlaceKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for WindowPlaceKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for WindowPlaceKind {
+    type Output = WindowPlaceKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for WindowPlaceKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for WindowPlaceKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for WindowPlaceKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_WINDOW_PLACE_STATUS: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_WINDOW_PLACE_STATUS: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_WINDOW_PLACE_STATUS: [WindowPlaceStatus; 3] = [
+  WindowPlaceStatus::Applied,
+  WindowPlaceStatus::Adjusted,
+  WindowPlaceStatus::Refused,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct WindowPlaceStatus(pub u8);
+#[allow(non_upper_case_globals)]
+impl WindowPlaceStatus {
+  pub const Applied: Self = Self(0);
+  pub const Adjusted: Self = Self(1);
+  pub const Refused: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Applied,
+    Self::Adjusted,
+    Self::Refused,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Applied => Some("Applied"),
+      Self::Adjusted => Some("Adjusted"),
+      Self::Refused => Some("Refused"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for WindowPlaceStatus {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for WindowPlaceStatus {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for WindowPlaceStatus {
+    type Output = WindowPlaceStatus;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for WindowPlaceStatus {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for WindowPlaceStatus {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for WindowPlaceStatus {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_EVENT_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -3282,6 +3488,198 @@ impl<'a> WirePoint {
       core::ptr::copy_nonoverlapping(
         &x_le as *const _ as *const u8,
         self.0[8..].as_mut_ptr(),
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct WireInsets, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct WireInsets(pub [u8; 32]);
+impl Default for WireInsets { 
+  fn default() -> Self { 
+    Self([0; 32])
+  }
+}
+impl core::fmt::Debug for WireInsets {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    f.debug_struct("WireInsets")
+      .field("left", &self.left())
+      .field("top", &self.top())
+      .field("right", &self.right())
+      .field("bottom", &self.bottom())
+      .finish()
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for WireInsets {}
+impl<'a> flatbuffers::Follow<'a> for WireInsets {
+  type Inner = &'a WireInsets;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a WireInsets>::follow(buf, loc) }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a WireInsets {
+  type Inner = &'a WireInsets;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { flatbuffers::follow_cast_ref::<WireInsets>(buf, loc) }
+  }
+}
+impl<'b> flatbuffers::Push for WireInsets {
+    type Output = WireInsets;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const WireInsets as *const u8, <Self as flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> flatbuffers::PushAlignment {
+        flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for WireInsets {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> WireInsets {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+  ) -> Self {
+    let mut s = Self([0; 32]);
+    s.set_left(left);
+    s.set_top(top);
+    s.set_right(right);
+    s.set_bottom(bottom);
+    s
+  }
+
+  pub fn left(&self) -> f64 {
+    let mut mem = core::mem::MaybeUninit::<<f64 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_left(&mut self, x: f64) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn top(&self) -> f64 {
+    let mut mem = core::mem::MaybeUninit::<<f64 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_top(&mut self, x: f64) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn right(&self) -> f64 {
+    let mut mem = core::mem::MaybeUninit::<<f64 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[16..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_right(&mut self, x: f64) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[16..].as_mut_ptr(),
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn bottom(&self) -> f64 {
+    let mut mem = core::mem::MaybeUninit::<<f64 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[24..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_bottom(&mut self, x: f64) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[24..].as_mut_ptr(),
         core::mem::size_of::<<f64 as EndianScalar>::Scalar>(),
       );
     }
@@ -6241,6 +6639,10 @@ impl<'a> WindowRequest<'a> {
   pub const VT_SYSTEM_BAR_THICKNESS: flatbuffers::VOffsetT = 24;
   pub const VT_MAXIMIZE_PADDING: flatbuffers::VOffsetT = 26;
   pub const VT_WINDOW_DELTAS: flatbuffers::VOffsetT = 28;
+  pub const VT_PLACE_KIND: flatbuffers::VOffsetT = 30;
+  pub const VT_PLACE_SHARE: flatbuffers::VOffsetT = 32;
+  pub const VT_FRAME_MARGINS: flatbuffers::VOffsetT = 34;
+  pub const VT_MAXIMIZED_FRAME_MARGINS: flatbuffers::VOffsetT = 36;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6256,12 +6658,16 @@ impl<'a> WindowRequest<'a> {
     builder.add_system_bar_thickness(args.system_bar_thickness);
     builder.add_monitor_id(args.monitor_id);
     builder.add_window_id(args.window_id);
+    if let Some(x) = args.maximized_frame_margins { builder.add_maximized_frame_margins(x); }
+    if let Some(x) = args.frame_margins { builder.add_frame_margins(x); }
+    if let Some(x) = args.place_share { builder.add_place_share(x); }
     builder.add_workspace_id(args.workspace_id);
     builder.add_flags(args.flags);
     if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.title { builder.add_title(x); }
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.geometry { builder.add_geometry(x); }
+    builder.add_place_kind(args.place_kind);
     builder.add_window_deltas(args.window_deltas);
     builder.add_system_bar_side(args.system_bar_side);
     builder.add_kind(args.kind);
@@ -6360,6 +6766,34 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(WindowRequest::VT_WINDOW_DELTAS, Some(false)).unwrap()}
   }
+  #[inline]
+  pub fn place_kind(&self) -> WindowPlaceKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WindowPlaceKind>(WindowRequest::VT_PLACE_KIND, Some(WindowPlaceKind::Free)).unwrap()}
+  }
+  #[inline]
+  pub fn place_share(&self) -> Option<&'a WireRect> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WireRect>(WindowRequest::VT_PLACE_SHARE, None)}
+  }
+  #[inline]
+  pub fn frame_margins(&self) -> Option<&'a WireInsets> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WireInsets>(WindowRequest::VT_FRAME_MARGINS, None)}
+  }
+  #[inline]
+  pub fn maximized_frame_margins(&self) -> Option<&'a WireInsets> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WireInsets>(WindowRequest::VT_MAXIMIZED_FRAME_MARGINS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -6382,6 +6816,10 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<f64>("system_bar_thickness", Self::VT_SYSTEM_BAR_THICKNESS, false)?
      .visit_field::<f64>("maximize_padding", Self::VT_MAXIMIZE_PADDING, false)?
      .visit_field::<bool>("window_deltas", Self::VT_WINDOW_DELTAS, false)?
+     .visit_field::<WindowPlaceKind>("place_kind", Self::VT_PLACE_KIND, false)?
+     .visit_field::<WireRect>("place_share", Self::VT_PLACE_SHARE, false)?
+     .visit_field::<WireInsets>("frame_margins", Self::VT_FRAME_MARGINS, false)?
+     .visit_field::<WireInsets>("maximized_frame_margins", Self::VT_MAXIMIZED_FRAME_MARGINS, false)?
      .finish();
     Ok(())
   }
@@ -6400,6 +6838,10 @@ pub struct WindowRequestArgs<'a> {
     pub system_bar_thickness: f64,
     pub maximize_padding: f64,
     pub window_deltas: bool,
+    pub place_kind: WindowPlaceKind,
+    pub place_share: Option<&'a WireRect>,
+    pub frame_margins: Option<&'a WireInsets>,
+    pub maximized_frame_margins: Option<&'a WireInsets>,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -6418,6 +6860,10 @@ impl<'a> Default for WindowRequestArgs<'a> {
       system_bar_thickness: -1.0,
       maximize_padding: -1.0,
       window_deltas: false,
+      place_kind: WindowPlaceKind::Free,
+      place_share: None,
+      frame_margins: None,
+      maximized_frame_margins: None,
     }
   }
 }
@@ -6480,6 +6926,22 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot::<bool>(WindowRequest::VT_WINDOW_DELTAS, window_deltas, false);
   }
   #[inline]
+  pub fn add_place_kind(&mut self, place_kind: WindowPlaceKind) {
+    self.fbb_.push_slot::<WindowPlaceKind>(WindowRequest::VT_PLACE_KIND, place_kind, WindowPlaceKind::Free);
+  }
+  #[inline]
+  pub fn add_place_share(&mut self, place_share: &WireRect) {
+    self.fbb_.push_slot_always::<&WireRect>(WindowRequest::VT_PLACE_SHARE, place_share);
+  }
+  #[inline]
+  pub fn add_frame_margins(&mut self, frame_margins: &WireInsets) {
+    self.fbb_.push_slot_always::<&WireInsets>(WindowRequest::VT_FRAME_MARGINS, frame_margins);
+  }
+  #[inline]
+  pub fn add_maximized_frame_margins(&mut self, maximized_frame_margins: &WireInsets) {
+    self.fbb_.push_slot_always::<&WireInsets>(WindowRequest::VT_MAXIMIZED_FRAME_MARGINS, maximized_frame_margins);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -6510,6 +6972,10 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("system_bar_thickness", &self.system_bar_thickness());
       ds.field("maximize_padding", &self.maximize_padding());
       ds.field("window_deltas", &self.window_deltas());
+      ds.field("place_kind", &self.place_kind());
+      ds.field("place_share", &self.place_share());
+      ds.field("frame_margins", &self.frame_margins());
+      ds.field("maximized_frame_margins", &self.maximized_frame_margins());
       ds.finish()
   }
 }
@@ -6534,6 +7000,11 @@ impl<'a> WindowResponse<'a> {
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 8;
   pub const VT_DISPLAY_LAYOUT: flatbuffers::VOffsetT = 10;
   pub const VT_ERROR: flatbuffers::VOffsetT = 12;
+  pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 14;
+  pub const VT_PLACE_STATUS: flatbuffers::VOffsetT = 16;
+  pub const VT_FRAME: flatbuffers::VOffsetT = 18;
+  pub const VT_GEOMETRY: flatbuffers::VOffsetT = 20;
+  pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 22;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6545,9 +7016,14 @@ impl<'a> WindowResponse<'a> {
     args: &'args WindowResponseArgs<'args>
   ) -> flatbuffers::WIPOffset<WindowResponse<'bldr>> {
     let mut builder = WindowResponseBuilder::new(_fbb);
+    builder.add_monitor_id(args.monitor_id);
+    builder.add_window_id(args.window_id);
+    if let Some(x) = args.geometry { builder.add_geometry(x); }
+    if let Some(x) = args.frame { builder.add_frame(x); }
     if let Some(x) = args.error { builder.add_error(x); }
     if let Some(x) = args.display_layout { builder.add_display_layout(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
+    builder.add_place_status(args.place_status);
     builder.add_success(args.success);
     builder.add_kind(args.kind);
     builder.finish()
@@ -6589,6 +7065,41 @@ impl<'a> WindowResponse<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WindowResponse::VT_ERROR, None)}
   }
+  #[inline]
+  pub fn window_id(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WindowResponse::VT_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn place_status(&self) -> WindowPlaceStatus {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WindowPlaceStatus>(WindowResponse::VT_PLACE_STATUS, Some(WindowPlaceStatus::Applied)).unwrap()}
+  }
+  #[inline]
+  pub fn frame(&self) -> Option<&'a WireRect> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WireRect>(WindowResponse::VT_FRAME, None)}
+  }
+  #[inline]
+  pub fn geometry(&self) -> Option<&'a WireRect> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WireRect>(WindowResponse::VT_GEOMETRY, None)}
+  }
+  #[inline]
+  pub fn monitor_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(WindowResponse::VT_MONITOR_ID, Some(-1)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowResponse<'_> {
@@ -6603,6 +7114,11 @@ impl flatbuffers::Verifiable for WindowResponse<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<WindowSnapshot>>("windows", Self::VT_WINDOWS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<DisplayLayout>>("display_layout", Self::VT_DISPLAY_LAYOUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("error", Self::VT_ERROR, false)?
+     .visit_field::<u64>("window_id", Self::VT_WINDOW_ID, false)?
+     .visit_field::<WindowPlaceStatus>("place_status", Self::VT_PLACE_STATUS, false)?
+     .visit_field::<WireRect>("frame", Self::VT_FRAME, false)?
+     .visit_field::<WireRect>("geometry", Self::VT_GEOMETRY, false)?
+     .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
      .finish();
     Ok(())
   }
@@ -6613,6 +7129,11 @@ pub struct WindowResponseArgs<'a> {
     pub windows: Option<flatbuffers::WIPOffset<WindowSnapshot<'a>>>,
     pub display_layout: Option<flatbuffers::WIPOffset<DisplayLayout<'a>>>,
     pub error: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub window_id: u64,
+    pub place_status: WindowPlaceStatus,
+    pub frame: Option<&'a WireRect>,
+    pub geometry: Option<&'a WireRect>,
+    pub monitor_id: i64,
 }
 impl<'a> Default for WindowResponseArgs<'a> {
   #[inline]
@@ -6623,6 +7144,11 @@ impl<'a> Default for WindowResponseArgs<'a> {
       windows: None,
       display_layout: None,
       error: None,
+      window_id: 0,
+      place_status: WindowPlaceStatus::Applied,
+      frame: None,
+      geometry: None,
+      monitor_id: -1,
     }
   }
 }
@@ -6653,6 +7179,26 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowResponseBuilder<'a, 'b, A
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowResponse::VT_ERROR, error);
   }
   #[inline]
+  pub fn add_window_id(&mut self, window_id: u64) {
+    self.fbb_.push_slot::<u64>(WindowResponse::VT_WINDOW_ID, window_id, 0);
+  }
+  #[inline]
+  pub fn add_place_status(&mut self, place_status: WindowPlaceStatus) {
+    self.fbb_.push_slot::<WindowPlaceStatus>(WindowResponse::VT_PLACE_STATUS, place_status, WindowPlaceStatus::Applied);
+  }
+  #[inline]
+  pub fn add_frame(&mut self, frame: &WireRect) {
+    self.fbb_.push_slot_always::<&WireRect>(WindowResponse::VT_FRAME, frame);
+  }
+  #[inline]
+  pub fn add_geometry(&mut self, geometry: &WireRect) {
+    self.fbb_.push_slot_always::<&WireRect>(WindowResponse::VT_GEOMETRY, geometry);
+  }
+  #[inline]
+  pub fn add_monitor_id(&mut self, monitor_id: i64) {
+    self.fbb_.push_slot::<i64>(WindowResponse::VT_MONITOR_ID, monitor_id, -1);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowResponseBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowResponseBuilder {
@@ -6675,6 +7221,11 @@ impl core::fmt::Debug for WindowResponse<'_> {
       ds.field("windows", &self.windows());
       ds.field("display_layout", &self.display_layout());
       ds.field("error", &self.error());
+      ds.field("window_id", &self.window_id());
+      ds.field("place_status", &self.place_status());
+      ds.field("frame", &self.frame());
+      ds.field("geometry", &self.geometry());
+      ds.field("monitor_id", &self.monitor_id());
       ds.finish()
   }
 }

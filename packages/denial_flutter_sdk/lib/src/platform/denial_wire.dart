@@ -20,6 +20,7 @@ import '../models/system_tray_item.dart' as tray_model;
 import '../models/denial_pet.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
+import '../models/denial_window_place.dart';
 
 export 'package:denial_wire_protocol/denial_denial.wire_generated.dart';
 
@@ -287,6 +288,10 @@ class DenialWireCodec {
     int flags = 0,
     int monitorId = -1,
     int workspaceId = 1,
+    generated.WindowPlaceKind? placeKind,
+    Rect? placeShare,
+    DenialWindowFrameMargins? frameMargins,
+    DenialWindowFrameMargins? maximizedFrameMargins,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -302,8 +307,176 @@ class DenialWireCodec {
         monitorId: monitorId,
         workspaceId: workspaceId,
         windowDeltas: kind == generated.WindowRequestKind.ListWindows,
+        placeKind: placeKind,
+        placeShare: placeShare == null ? null : _rectBuilder(placeShare),
+        frameMargins: frameMargins == null
+            ? null
+            : _insetsBuilder(frameMargins),
+        maximizedFrameMargins: maximizedFrameMargins == null
+            ? null
+            : _insetsBuilder(maximizedFrameMargins),
       ),
       requestId: requestId,
+    );
+  }
+
+  /// A place for [windowId], applied or only resolved. Native answers under
+  /// [requestId]. Null when the place cannot be put on the wire.
+  Uint8List? encodeWindowPlace({
+    required int requestId,
+    required int windowId,
+    required DenialWindowPlace place,
+    required bool apply,
+  }) {
+    if (requestId <= 0 || windowId <= 0) {
+      return null;
+    }
+    final kind = apply
+        ? generated.WindowRequestKind.PlaceWindow
+        : generated.WindowRequestKind.ResolveWindowPlace;
+    bool validMonitor(int? monitorId) => monitorId == null || monitorId >= 0;
+    switch (place) {
+      case DenialFreeWindowPlace(:final frame):
+        if (!_validRect(frame)) {
+          return null;
+        }
+        return encodeWindowRequest(
+          kind,
+          requestId: requestId,
+          windowId: windowId,
+          placeKind: generated.WindowPlaceKind.Free,
+          geometry: denialWireWindowGeometry(frame),
+        );
+      case DenialAreaWindowPlace(:final share, :final monitorId):
+        // The slack only absorbs thirds and the like written as doubles.
+        const slack = 1e-9;
+        if (!_validRect(share) ||
+            share.left < 0.0 ||
+            share.top < 0.0 ||
+            share.right > 1.0 + slack ||
+            share.bottom > 1.0 + slack ||
+            !validMonitor(monitorId)) {
+          return null;
+        }
+        return encodeWindowRequest(
+          kind,
+          requestId: requestId,
+          windowId: windowId,
+          monitorId: monitorId ?? -1,
+          placeKind: generated.WindowPlaceKind.Area,
+          placeShare: share,
+        );
+      case DenialFullscreenWindowPlace(:final monitorId):
+        if (!validMonitor(monitorId)) {
+          return null;
+        }
+        return encodeWindowRequest(
+          kind,
+          requestId: requestId,
+          windowId: windowId,
+          monitorId: monitorId ?? -1,
+          placeKind: generated.WindowPlaceKind.Fullscreen,
+        );
+      case DenialRestoreWindowPlace():
+        return encodeWindowRequest(
+          kind,
+          requestId: requestId,
+          windowId: windowId,
+          placeKind: generated.WindowPlaceKind.Restore,
+        );
+    }
+  }
+
+  /// Native's answer to a place, or null when it is not one.
+  DenialWindowPlaceResult? decodeWindowPlaceResult(
+    generated.WindowResponse response,
+  ) {
+    if (response.kind != generated.WindowResponseKind.Place ||
+        response.windowId <= 0) {
+      return null;
+    }
+    final status = switch (response.placeStatus) {
+      generated.WindowPlaceStatus.Applied => DenialWindowPlaceStatus.applied,
+      generated.WindowPlaceStatus.Adjusted => DenialWindowPlaceStatus.adjusted,
+      generated.WindowPlaceStatus.Refused => DenialWindowPlaceStatus.refused,
+    };
+    final frame = response.frame;
+    final geometry = response.geometry;
+    if (status == DenialWindowPlaceStatus.refused ||
+        !response.success ||
+        frame == null ||
+        geometry == null) {
+      return DenialWindowPlaceResult.refused(response.windowId);
+    }
+    final frameRect = Rect.fromLTWH(
+      frame.x,
+      frame.y,
+      frame.width,
+      frame.height,
+    );
+    final contentRect = Rect.fromLTWH(
+      geometry.x,
+      geometry.y,
+      geometry.width,
+      geometry.height,
+    );
+    if (!_validRect(frameRect) || !_validRect(contentRect)) {
+      return DenialWindowPlaceResult.refused(response.windowId);
+    }
+    return DenialWindowPlaceResult(
+      windowId: response.windowId,
+      status: status,
+      frame: frameRect,
+      contentRect: contentRect,
+      monitorId: response.monitorId < 0 ? null : response.monitorId,
+    );
+  }
+
+  /// Hands the pointer press the shell holds to a native drag of [windowId]:
+  /// a move when [resize] is null, else a resize of that edge or corner.
+  Uint8List? encodeWindowDrag(int windowId, {DenialWindowResizeEdge? resize}) {
+    if (windowId <= 0) {
+      return null;
+    }
+    if (resize == null) {
+      return encodeWindowRequest(
+        generated.WindowRequestKind.BeginWindowMove,
+        windowId: windowId,
+      );
+    }
+    const top = 1;
+    const bottom = 2;
+    const left = 4;
+    const right = 8;
+    return encodeWindowRequest(
+      generated.WindowRequestKind.BeginWindowResize,
+      windowId: windowId,
+      flags: switch (resize) {
+        DenialWindowResizeEdge.top => top,
+        DenialWindowResizeEdge.bottom => bottom,
+        DenialWindowResizeEdge.left => left,
+        DenialWindowResizeEdge.right => right,
+        DenialWindowResizeEdge.topLeft => top | left,
+        DenialWindowResizeEdge.topRight => top | right,
+        DenialWindowResizeEdge.bottomLeft => bottom | left,
+        DenialWindowResizeEdge.bottomRight => bottom | right,
+      },
+    );
+  }
+
+  /// The frame the shell draws around decorated windows, and around
+  /// maximized ones when that differs from none.
+  Uint8List? encodeWindowFrame(
+    DenialWindowFrameMargins margins, {
+    DenialWindowFrameMargins? maximized,
+  }) {
+    if (!margins.isValid || !(maximized?.isValid ?? true)) {
+      return null;
+    }
+    return encodeWindowRequest(
+      generated.WindowRequestKind.ConfigureWindowFrame,
+      frameMargins: margins,
+      maximizedFrameMargins: maximized,
     );
   }
 

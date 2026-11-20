@@ -59,12 +59,50 @@ enum WindowRequestKind : ubyte {
   // The system Back action for one client window.
   NavigateBack = 10,
   // Moves one window between the phone and a desk output (monitor_id).
-  MoveWindowToOutput = 11
+  MoveWindowToOutput = 11,
+  // Places one window by rule (place_kind). The envelope's request_id is
+  // answered by a WindowResponse of kind Place.
+  PlaceWindow = 12,
+  // Answers like PlaceWindow with the rectangle the rule would give, and
+  // applies nothing.
+  ResolveWindowPlace = 13,
+  // Hands the pointer press the shell holds to a compositor-owned move of
+  // one window.
+  BeginWindowMove = 14,
+  // The same for a resize; flags names the dragged edges as xdg_toplevel
+  // does: top 1, bottom 2, left 4, right 8.
+  BeginWindowResize = 15,
+  // Declares the frame the shell draws around the content of every window
+  // it decorates (frame_margins, maximized_frame_margins).
+  ConfigureWindowFrame = 16
 }
 
 enum WindowResponseKind : ubyte {
   Windows = 0,
-  DisplayLayout = 1
+  DisplayLayout = 1,
+  Place = 2
+}
+
+// Where a window is, as a rule the compositor resolves to pixels.
+enum WindowPlaceKind : ubyte {
+  // A floating rectangle: WindowRequest.geometry is the outer frame.
+  Free = 0,
+  // A share of one output's work area (place_share). The whole area is
+  // maximize; the compositor keeps the free place to restore.
+  Area = 1,
+  // The whole of one output.
+  Fullscreen = 2,
+  // Back to the free place the window had before Area or Fullscreen.
+  Restore = 3
+}
+
+enum WindowPlaceStatus : ubyte {
+  // The rule resolved to exactly the answered rectangle.
+  Applied = 0,
+  // The window's own limits or its layout changed the rectangle.
+  Adjusted = 1,
+  // Nothing changed; the rectangles are where the window is now.
+  Refused = 2
 }
 
 enum WindowEventKind : ubyte {
@@ -287,6 +325,13 @@ struct WireRect {
 struct WirePoint {
   x:double;
   y:double;
+}
+
+struct WireInsets {
+  left:double;
+  top:double;
+  right:double;
+  bottom:double;
 }
 
 struct WireSize {
@@ -571,6 +616,17 @@ table WindowRequest {
   // ListWindows only: accept incremental WindowSnapshot publications after
   // the full response. Older shells leave this false and receive full lists.
   window_deltas:bool;
+  // PlaceWindow and ResolveWindowPlace only. monitor_id selects the output
+  // of Area and Fullscreen; -1 keeps the window's own.
+  place_kind:WindowPlaceKind = Free;
+  // Area only: left, top, width and height as shares of the work area, each
+  // within 0..1.
+  place_share:WireRect;
+  // ConfigureWindowFrame only, in logical pixels. Without
+  // maximized_frame_margins a maximized window keeps frame_margins where a
+  // layout places it and has no frame otherwise.
+  frame_margins:WireInsets;
+  maximized_frame_margins:WireInsets;
 }
 
 table WindowResponse {
@@ -579,6 +635,14 @@ table WindowResponse {
   windows:WindowSnapshot;
   display_layout:DisplayLayout;
   error:string;
+  // Place only. frame is the window's outer rectangle and geometry its
+  // content, both in scene coordinates; they differ by the frame margins
+  // where the shell draws a frame.
+  window_id:ulong;
+  place_status:WindowPlaceStatus = Applied;
+  frame:WireRect;
+  geometry:WireRect;
+  monitor_id:long = -1;
 }
 
 table WindowEvent {

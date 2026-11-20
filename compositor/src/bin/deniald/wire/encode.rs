@@ -216,6 +216,51 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    /// Answers one place request. A refused request for a window that no
+    /// longer exists still answers, so its sender never waits on a timeout.
+    pub fn encode_window_place_result(
+        &mut self,
+        result: WindowPlaceResult,
+    ) -> Result<&[u8], WireError> {
+        if result.request_id == 0 {
+            return Err(WireError::RequestId);
+        }
+        if result.window_id == 0 {
+            return Err(WireError::Identity);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        let rect = |geometry: WindowGeometry| {
+            fb::WireRect::new(geometry.x, geometry.y, geometry.width, geometry.height)
+        };
+        let frame = rect(result.frame);
+        let geometry = rect(result.geometry);
+        let response = fb::WindowResponse::create(
+            &mut self.outbound_builder,
+            &fb::WindowResponseArgs {
+                kind: fb::WindowResponseKind::Place,
+                success: result.status != WindowPlaceStatus::Refused,
+                window_id: result.window_id,
+                place_status: match result.status {
+                    WindowPlaceStatus::Applied => fb::WindowPlaceStatus::Applied,
+                    WindowPlaceStatus::Adjusted => fb::WindowPlaceStatus::Adjusted,
+                    WindowPlaceStatus::Refused => fb::WindowPlaceStatus::Refused,
+                },
+                frame: Some(&frame),
+                geometry: Some(&geometry),
+                monitor_id: result.monitor_id,
+                ..Default::default()
+            },
+        );
+        finish_response(
+            &mut self.outbound_builder,
+            sequence,
+            result.request_id,
+            response,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     pub fn encode_window_activated(&mut self, window_id: u64) -> Result<&[u8], WireError> {
         if window_id == 0 {
             return Err(WireError::Identity);

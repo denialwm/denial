@@ -82,6 +82,8 @@ mod tablet;
 mod wayland_route;
 
 #[cfg(feature = "flutter")]
+pub(super) use flutter_route::begin_shell_window_grab;
+#[cfg(feature = "flutter")]
 use flutter_route::process_flutter_input_event;
 use flutter_route::process_wayland_keyboard_transition;
 #[cfg(feature = "flutter")]
@@ -2247,6 +2249,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             frontend.client_pointer_buttons.clear();
             frontend.client_pointer_presses.clear();
             frontend.flutter_pointer_press = None;
+            frontend.shell_window_grab_active = false;
             frontend.set_clipboard_drag_active(false);
             frontend.retired_pointer_buttons.clear();
             frontend.set_routed_pointer_target(RoutedPointerTarget::Flutter);
@@ -3144,6 +3147,7 @@ fn release_pointer_to_shell(state: &mut RuntimeState) {
         frontend.client_pointer_buttons.clear();
         frontend.client_pointer_presses.clear();
         frontend.flutter_pointer_press = None;
+        frontend.shell_window_grab_active = false;
         frontend.set_clipboard_drag_active(false);
         let mut pressed_buttons = std::mem::take(&mut frontend.wayland_pointer_buttons)
             .into_iter()

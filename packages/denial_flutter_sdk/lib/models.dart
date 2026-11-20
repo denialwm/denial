@@ -39,6 +39,17 @@ export 'src/models/denial_window_event.dart'
         DenialWindowPlacementChange,
         DenialWindowPlacementEvent,
         DenialWindowPlacementPhase;
+export 'src/models/denial_window_place.dart'
+    show
+        DenialAreaWindowPlace,
+        DenialFreeWindowPlace,
+        DenialFullscreenWindowPlace,
+        DenialRestoreWindowPlace,
+        DenialWindowFrameMargins,
+        DenialWindowPlace,
+        DenialWindowPlaceResult,
+        DenialWindowPlaceStatus,
+        DenialWindowResizeEdge;
 export 'src/models/denial_window_snapshot.dart' show DenialWindowSnapshot;
 export 'src/models/desktop_notification.dart'
     show

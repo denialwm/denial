@@ -125,6 +125,58 @@ pub struct WindowGeometry {
     pub height: f64,
 }
 
+/// Where a window is, as a rule the compositor resolves to pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WindowPlace {
+    /// A floating rectangle: the window's outer frame in scene coordinates.
+    Free(WindowGeometry),
+    /// A share of one output's work area, each component within 0..1. The
+    /// whole area is maximize.
+    Area {
+        monitor_id: Option<i64>,
+        share: WindowGeometry,
+    },
+    /// The whole of one output.
+    Fullscreen { monitor_id: Option<i64> },
+    /// Back to the free place the window had before Area or Fullscreen.
+    Restore,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowPlaceStatus {
+    Applied,
+    Adjusted,
+    Refused,
+}
+
+/// The answer to one place request. Both rectangles are in scene
+/// coordinates: `frame` is the window's outer rectangle and `geometry` its
+/// content.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowPlaceResult {
+    pub request_id: u64,
+    pub window_id: u64,
+    pub status: WindowPlaceStatus,
+    pub frame: WindowGeometry,
+    pub geometry: WindowGeometry,
+    pub monitor_id: i64,
+}
+
+/// The frame the shell draws around a decorated window's content, in logical
+/// pixels.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WindowFrameMargins {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+pub const WINDOW_RESIZE_TOP: u32 = 1 << 0;
+pub const WINDOW_RESIZE_BOTTOM: u32 = 1 << 1;
+pub const WINDOW_RESIZE_LEFT: u32 = 1 << 2;
+pub const WINDOW_RESIZE_RIGHT: u32 = 1 << 3;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum WindowCommand {
     CreateLocal {
@@ -195,6 +247,29 @@ pub enum WindowCommand {
         pet_id: u64,
         velocity_x: f64,
         velocity_y: f64,
+    },
+    /// Places one window by rule, or only resolves the rule when `apply` is
+    /// false. Always answered with a [`WindowPlaceResult`] for `request_id`.
+    Place {
+        window_id: u64,
+        request_id: u64,
+        place: WindowPlace,
+        apply: bool,
+    },
+    /// Hands the pointer press the shell holds to a compositor-owned move.
+    BeginMove {
+        window_id: u64,
+    },
+    /// The same for a resize of the edges in `edges` (`WINDOW_RESIZE_*`).
+    BeginResize {
+        window_id: u64,
+        edges: u32,
+    },
+    /// The frame the shell draws around every window it decorates, and the
+    /// one it draws around a maximized window when that differs.
+    ConfigureFrame {
+        margins: WindowFrameMargins,
+        maximized: Option<WindowFrameMargins>,
     },
 }
 
@@ -327,8 +402,11 @@ impl WindowCommand {
         match self {
             Self::CreateLocal { .. } => None,
             Self::SwitchWorkspace { .. } => None,
-            Self::HoldPet { .. } | Self::CarryPet { .. } => None,
-            Self::Close { window_id }
+            Self::HoldPet { .. } | Self::CarryPet { .. } | Self::ConfigureFrame { .. } => None,
+            Self::Place { window_id, .. }
+            | Self::BeginMove { window_id }
+            | Self::BeginResize { window_id, .. }
+            | Self::Close { window_id }
             | Self::Focus { window_id }
             | Self::Minimize { window_id }
             | Self::NavigateBack { window_id }

@@ -190,6 +190,10 @@ impl WaylandFrontend {
         }
         self.work_area = work_area;
         self.arrange_layout_windows();
+        // Maximize and shares of the work area are rules; the layout above
+        // already placed its own windows again.
+        #[cfg(feature = "flutter")]
+        self.replace_shell_placed_windows();
     }
 
     /// Native identity can change without any mode/CRTC/layout change (late

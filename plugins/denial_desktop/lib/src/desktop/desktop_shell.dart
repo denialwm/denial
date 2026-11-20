@@ -78,10 +78,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ref.read(quickSettingsProvider);
       ref.read(desktopPowerModesProvider);
     });
-    _shellActionSubscription = ref
-        .read(denialBridgeProvider)
-        .shellActions
-        .listen(_handleShellAction);
+    final bridge = ref.read(denialBridgeProvider);
+    // The frame this desktop draws has one source. The compositor subtracts
+    // exactly this wherever it turns a window's frame into its content.
+    bridge.configureWindowFrame(
+      const DenialWindowFrameMargins.all(DesktopMetrics.frameBorder),
+    );
+    _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
   }
 
   @override

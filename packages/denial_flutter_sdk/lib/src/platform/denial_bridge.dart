@@ -8,6 +8,7 @@ import '../models/denial_drag_icon.dart';
 import '../models/denial_pet.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
+import '../models/denial_window_place.dart';
 import '../models/denial_window_snapshot.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
@@ -400,6 +401,36 @@ class DenialBridge {
     exact: exact,
     layoutDrop: layoutDrop,
   );
+
+  /// Puts [window] at [place]: free at a rectangle, a share of a work area,
+  /// fullscreen, or back to its last free place. The compositor turns the
+  /// place into pixels and answers with the rectangle the window got.
+  Future<DenialWindowPlaceResult> placeWindow(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _windows.placeWindow(window, place);
+
+  /// Answers where [place] would put [window] and changes nothing.
+  Future<DenialWindowPlaceResult> resolveWindowPlace(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _windows.resolveWindowPlace(window, place);
+
+  /// Hands the pointer press the shell is holding to a compositor move of
+  /// [window]. The compositor moves the window with the pointer and reports
+  /// it through [windowEvents] until the button is released.
+  void beginWindowMove(DenialWindow window) => _windows.beginWindowMove(window);
+
+  /// As [beginWindowMove], for a resize of [edge].
+  void beginWindowResize(DenialWindow window, DenialWindowResizeEdge edge) =>
+      _windows.beginWindowResize(window, edge);
+
+  /// Declares the frame the shell draws around decorated windows, and around
+  /// maximized ones when [maximized] is given.
+  bool configureWindowFrame(
+    DenialWindowFrameMargins margins, {
+    DenialWindowFrameMargins? maximized,
+  }) => _windows.configureWindowFrame(margins, maximized: maximized);
 
   Stream<InputDeckSnapshot> get inputDeckStates => _inputDeck.states;
   void readInputDeck() => unawaited(_inputDeck.read());

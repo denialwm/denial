@@ -21,6 +21,7 @@ use super::super::window_layout::{
     LayoutResizeRequest, LayoutSpace, WindowLayout, WindowLayoutKind, create_window_layout,
     directional_neighbor,
 };
+use super::ShellFrame;
 #[cfg(feature = "flutter")]
 use super::WindowId;
 use super::managed_window::ManagedWindow;
@@ -118,39 +119,26 @@ fn scrolling_layout_axis(
     }
 }
 
-fn layout_frame_minimum_size(
-    minimum: Size<i32, Logical>,
-    server_side_decorated: bool,
-) -> Size<i32, Logical> {
-    let frame_extent = if server_side_decorated {
-        super::SHELL_FRAME_BORDER.saturating_mul(2)
-    } else {
-        0
-    };
+fn layout_frame_minimum_size(minimum: Size<i32, Logical>, frame: ShellFrame) -> Size<i32, Logical> {
     Size::from((
-        constrain_dimension(1, minimum.w, 0).saturating_add(frame_extent),
-        constrain_dimension(1, minimum.h, 0).saturating_add(frame_extent),
+        constrain_dimension(1, minimum.w, 0).saturating_add(frame.width()),
+        constrain_dimension(1, minimum.h, 0).saturating_add(frame.height()),
     ))
 }
 
 // Maximum hints are client-content sizes too. Preserve zero as unconstrained.
-fn layout_frame_maximum_size(
-    maximum: Size<i32, Logical>,
-    server_side_decorated: bool,
-) -> Size<i32, Logical> {
-    let frame_extent = if server_side_decorated {
-        super::SHELL_FRAME_BORDER.saturating_mul(2)
-    } else {
-        0
-    };
-    let framed = |value: i32| {
+fn layout_frame_maximum_size(maximum: Size<i32, Logical>, frame: ShellFrame) -> Size<i32, Logical> {
+    let framed = |value: i32, extent: i32| {
         if value > 0 {
-            value.saturating_add(frame_extent)
+            value.saturating_add(extent)
         } else {
             0
         }
     };
-    Size::from((framed(maximum.w), framed(maximum.h)))
+    Size::from((
+        framed(maximum.w, frame.width()),
+        framed(maximum.h, frame.height()),
+    ))
 }
 
 impl WaylandFrontend {
@@ -215,9 +203,7 @@ impl WaylandFrontend {
             .into_iter()
             .find_map(|placement| (placement.window == window_id).then_some(placement.geometry))?;
         #[cfg(feature = "flutter")]
-        let draw_frame = super::shell_draws_server_frame(window);
-        #[cfg(feature = "flutter")]
-        return Some(shell_content_geometry(frame, draw_frame));
+        return Some(shell_content_geometry(frame, self.frame_for(window)));
         #[cfg(not(feature = "flutter"))]
         Some(frame)
     }
@@ -624,10 +610,7 @@ impl WaylandFrontend {
                 if self.window_has_constrained_state(&window) {
                     return None;
                 }
-                let geometry = shell_content_geometry(
-                    placement.geometry,
-                    super::shell_draws_server_frame(&window),
-                );
+                let geometry = shell_content_geometry(placement.geometry, self.frame_for(&window));
                 Some((window, geometry))
             })
             .collect()
@@ -1217,7 +1200,7 @@ impl WaylandFrontend {
                 continue;
             }
             #[cfg(feature = "flutter")]
-            let target = shell_content_geometry(frame, super::shell_draws_server_frame(&window));
+            let target = shell_content_geometry(frame, self.frame_for(&window));
             #[cfg(not(feature = "flutter"))]
             let target = frame;
             let previous = self.window_geometry_target(&window);
@@ -1247,19 +1230,19 @@ impl WaylandFrontend {
     fn layout_minimum_size(&self, window: &Window) -> Size<i32, Logical> {
         let minimum = self.window_size_constraints(window).0;
         #[cfg(feature = "flutter")]
-        let server_side_decorated = super::shell_draws_server_frame(window);
+        let frame = self.frame_for(window);
         #[cfg(not(feature = "flutter"))]
-        let server_side_decorated = false;
-        layout_frame_minimum_size(minimum, server_side_decorated)
+        let frame = ShellFrame::NONE;
+        layout_frame_minimum_size(minimum, frame)
     }
 
     fn layout_maximum_size(&self, window: &Window) -> Size<i32, Logical> {
         let maximum = self.window_size_constraints(window).1;
         #[cfg(feature = "flutter")]
-        let decorated = super::shell_draws_server_frame(window);
+        let frame = self.frame_for(window);
         #[cfg(not(feature = "flutter"))]
-        let decorated = false;
-        layout_frame_maximum_size(maximum, decorated)
+        let frame = ShellFrame::NONE;
+        layout_frame_maximum_size(maximum, frame)
     }
 
     fn refresh_layout_size_constraints(&mut self) -> bool {

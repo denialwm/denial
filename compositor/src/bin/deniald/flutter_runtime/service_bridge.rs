@@ -251,6 +251,20 @@ impl FlutterRuntime {
         Ok(())
     }
 
+    pub fn send_window_place_result(
+        &mut self,
+        result: wire::WindowPlaceResult,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self.wire.encode_window_place_result(result)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
+        Ok(())
+    }
+
     pub fn send_window_placement(
         &mut self,
         placement: wire::WindowPlacement,

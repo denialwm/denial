@@ -579,6 +579,81 @@ New plugin-owned assets belong in that plugin's manifest and package namespace.
 For low-level analysis use `tools/denial-pc plugin-check`: upstream Flutter's cached
 `dart:ui` declarations do not contain Denial's native window-plane API.
 
+## Place and drag windows
+
+A shell says where a window belongs and the compositor turns that into pixels.
+It never computes a client's rectangle itself: the frame, the window's size
+limits, the layout and the work area are applied in one place, and the same
+call works for every window, whoever draws it.
+
+```dart
+final bridge = ref.read(denialBridgeProvider);
+
+// The left half of the window's own work area.
+final result = await bridge.placeWindow(
+  window,
+  const DenialWindowPlace.area(Rect.fromLTWH(0, 0, 0.5, 1)),
+);
+if (!result.refused) {
+  // result.frame is the outer rectangle, result.contentRect the client's.
+}
+```
+
+`DenialWindowPlace` is one of four rules:
+
+| Place | Meaning |
+|---|---|
+| `free(frame)` | The outer frame at a rectangle in scene coordinates. |
+| `area(share, monitorId:)` | A share of an output's work area, in fractions of it. `maximized()` is the whole of it. Shares that touch in fractions touch in pixels, and the share is resolved again when the work area changes. |
+| `fullscreen(monitorId:)` | The whole output. |
+| `restore()` | Back to the last free place. |
+
+Every call is answered once, under its own request: `applied` when the window
+is exactly where the place says, `adjusted` when its size limits or its layout
+decided otherwise (the answer carries the rectangle it got), `refused` when
+nothing changed. Use the answer instead of comparing later snapshots with what
+you asked for.
+
+`resolveWindowPlace` takes the same arguments, changes nothing and answers
+with the rectangle the place would give. A snap preview is that rectangle,
+drawn while the user still holds the window; letting go sends the same place
+through `placeWindow`.
+
+To let the user drag a window by something the shell draws (a title bar, a
+resize handle), hand the press to the compositor:
+
+```dart
+Listener(
+  onPointerDown: (event) {
+    if (event.buttons == kPrimaryButton) bridge.beginWindowMove(window);
+  },
+  child: titleBar,
+)
+```
+
+`beginWindowMove` and `beginWindowResize(window, edge)` take over the primary
+button press the shell holds. The compositor moves the window with the
+pointer, applies the layout's own rules (a tile is dragged as a tile), reports
+each step through `windowEvents` and ends the drag when the button is
+released; the shell receives that release. Do not also move the window from
+Dart during the drag.
+
+A shell that draws window frames declares them once, when it starts:
+
+```dart
+bridge.configureWindowFrame(
+  const DenialWindowFrameMargins(left: 1, top: 34, right: 1, bottom: 1),
+  maximized: const DenialWindowFrameMargins(top: 34),
+);
+```
+
+The margins are what the shell draws around a decorated window's content, in
+logical pixels per side. The compositor subtracts them wherever it turns a
+frame into content, so maximize, tiling, pet holds and every place agree with
+the frame on screen. Without `maximized`, a maximized window keeps its frame
+only where the layout draws one. A declaration lasts as long as the shell that
+made it.
+
 ## Make an action available to shortcuts
 
 Implement `ShellAction` as in the example above. A package can contribute multiple

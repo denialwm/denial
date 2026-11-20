@@ -123,6 +123,28 @@ int _writeAlignedInt64Vector(fb.Builder builder, List<int> values) {
   return builder.endStructVector(values.length);
 }
 
+generated.WireInsetsObjectBuilder _insetsBuilder(
+  DenialWindowFrameMargins margins,
+) {
+  return generated.WireInsetsObjectBuilder(
+    left: margins.left,
+    top: margins.top,
+    right: margins.right,
+    bottom: margins.bottom,
+  );
+}
+
+/// [rect] as native accepts a window rectangle: whole pixels, on the scene,
+/// no smaller than a window can be.
+Rect denialWireWindowGeometry(Rect rect) {
+  return Rect.fromLTWH(
+    rect.left.round().clamp(0, 16384).toDouble(),
+    rect.top.round().clamp(0, 16384).toDouble(),
+    rect.width.round().clamp(64, 16384).toDouble(),
+    rect.height.round().clamp(64, 16384).toDouble(),
+  );
+}
+
 generated.WireRectObjectBuilder _rectBuilder(Rect rect) {
   return generated.WireRectObjectBuilder(
     x: rect.left,

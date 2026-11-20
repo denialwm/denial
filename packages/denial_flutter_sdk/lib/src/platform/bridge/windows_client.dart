@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../models/denial_pet.dart';
 import '../../models/denial_window.dart';
 import '../../models/denial_window_event.dart';
+import '../../models/denial_window_place.dart';
 import '../../models/denial_window_snapshot.dart';
 import '../denial_wire.dart' as wire;
 import 'context.dart';
@@ -19,6 +20,8 @@ final class BridgeWindowsClient {
   );
   final _invalidations = StreamController<void>.broadcast(sync: true);
   final Map<int, Completer<DenialWindowSnapshot>> _pendingWindowRequests = {};
+  final Map<int, ({int windowId, Completer<DenialWindowPlaceResult> answer})>
+  _pendingPlaces = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
   final StreamController<int> _windowActivations =
@@ -292,19 +295,126 @@ final class BridgeWindowsClient {
         contentRect.height < 1.0) {
       return;
     }
-    final geometry = Rect.fromLTWH(
-      contentRect.left.round().clamp(0, 16384).toDouble(),
-      contentRect.top.round().clamp(0, 16384).toDouble(),
-      contentRect.width.round().clamp(64, 16384).toDouble(),
-      contentRect.height.round().clamp(64, 16384).toDouble(),
-    );
     _context.sendWire(
       _context.codec.encodeWindowRequest(
         wire.WindowRequestKind.ConfigureWindow,
         windowId: window.windowId,
-        geometry: geometry,
+        geometry: wire.denialWireWindowGeometry(contentRect),
         flags: (exact ? 1 : 0) | (layoutDrop ? 2 : 0),
       ),
+    );
+  }
+
+  /// Puts [window] at [place]. Native turns the place into pixels (the frame,
+  /// the window's size limits, the layout and the work area are its own) and
+  /// answers with the rectangle the window got, or a refusal.
+  Future<DenialWindowPlaceResult> placeWindow(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _place(window, place, apply: true);
+
+  /// Answers where [place] would put [window] and changes nothing: what a
+  /// preview draws before the user lets go.
+  Future<DenialWindowPlaceResult> resolveWindowPlace(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _place(window, place, apply: false);
+
+  Future<DenialWindowPlaceResult> _place(
+    DenialWindow window,
+    DenialWindowPlace place, {
+    required bool apply,
+  }) {
+    final windowId = window.windowId;
+    final refused = DenialWindowPlaceResult.refused(windowId);
+    if (windowId <= 0) {
+      return Future.value(refused);
+    }
+    final requestId = _context.platform.nextRequestId();
+    final bytes = _context.codec.encodeWindowPlace(
+      requestId: requestId,
+      windowId: windowId,
+      place: place,
+      apply: apply,
+    );
+    if (bytes == null) {
+      return Future.value(refused);
+    }
+    final answer = Completer<DenialWindowPlaceResult>();
+    _pendingPlaces[requestId] = (windowId: windowId, answer: answer);
+    void refuse() {
+      final pending = _pendingPlaces.remove(requestId);
+      if (pending != null && !pending.answer.isCompleted) {
+        pending.answer.complete(refused);
+      }
+    }
+
+    _context.platform
+        .send(wire.denialWireToNativeChannel, ByteData.sublistView(bytes))
+        ?.catchError((Object _) {
+          refuse();
+          return null;
+        });
+    // Native answers every place it reads. Only a request it could not read
+    // goes unanswered, and that one changed nothing.
+    return answer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        refuse();
+        return refused;
+      },
+    );
+  }
+
+  /// Hands the pointer press the shell is holding to a native move of
+  /// [window]. Call it from the press or the first drag update of the shell
+  /// widget the user grabbed; native then moves the window with the pointer
+  /// and reports it through [windowEvents] until the button is released.
+  void beginWindowMove(DenialWindow window) {
+    if (_context.codec.encodeWindowDrag(window.windowId) case final bytes?) {
+      _context.sendWire(bytes);
+    }
+  }
+
+  /// As [beginWindowMove], for a resize of [edge].
+  void beginWindowResize(DenialWindow window, DenialWindowResizeEdge edge) {
+    final bytes = _context.codec.encodeWindowDrag(
+      window.windowId,
+      resize: edge,
+    );
+    if (bytes != null) {
+      _context.sendWire(bytes);
+    }
+  }
+
+  /// Declares the frame the shell draws around decorated windows, and around
+  /// maximized ones when [maximized] is given. Native subtracts it wherever
+  /// it turns a frame into content, so no other code repeats the numbers.
+  bool configureWindowFrame(
+    DenialWindowFrameMargins margins, {
+    DenialWindowFrameMargins? maximized,
+  }) {
+    final bytes = _context.codec.encodeWindowFrame(
+      margins,
+      maximized: maximized,
+    );
+    if (bytes == null) {
+      return false;
+    }
+    _context.sendWire(bytes);
+    return true;
+  }
+
+  void completePlace(int requestId, wire.WindowResponse response) {
+    final pending = _pendingPlaces.remove(requestId);
+    if (pending == null || pending.answer.isCompleted) {
+      return;
+    }
+    final result = _context.codec.decodeWindowPlaceResult(response);
+    pending.answer.complete(
+      result != null && result.windowId == pending.windowId
+          ? result
+          : DenialWindowPlaceResult.refused(pending.windowId),
     );
   }
 
@@ -401,6 +511,14 @@ final class BridgeWindowsClient {
       }
     }
     _pendingWindowRequests.clear();
+    for (final pending in _pendingPlaces.values) {
+      if (!pending.answer.isCompleted) {
+        pending.answer.complete(
+          DenialWindowPlaceResult.refused(pending.windowId),
+        );
+      }
+    }
+    _pendingPlaces.clear();
     _onWindowsChanged = null;
     _onWindowSnapshot = null;
     _onWindowActivated = null;

@@ -40,7 +40,9 @@ use super::window_presentation::{
 #[cfg(feature = "flutter")]
 use super::{WaylandFrontend, WindowId};
 
-fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+pub(super) fn bound_geometry_size(
+    mut geometry: Rectangle<i32, Logical>,
+) -> Rectangle<i32, Logical> {
     geometry.size = Size::from((
         constrain_dimension(geometry.size.w, 1, 0),
         constrain_dimension(geometry.size.h, 1, 0),
@@ -49,7 +51,7 @@ fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, 
 }
 
 #[cfg(feature = "flutter")]
-fn configured_window_size(
+pub(super) fn configured_window_size(
     requested: Size<i32, Logical>,
     minimum: Size<i32, Logical>,
     maximum: Size<i32, Logical>,
@@ -65,35 +67,131 @@ fn configured_window_size(
     }
 }
 
-// Must match DesktopMetrics.frameBorder in the embedded shell.
-pub(super) const SHELL_FRAME_BORDER: i32 = 1;
+/// What the shell draws around the content of a window it decorates, in
+/// logical pixels.
+///
+/// A window is three rectangles: the frame the user sees, the content the
+/// client draws, and what lies between. This is the between, and the only
+/// place it is defined: every content rectangle is its frame less this.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct ShellFrame {
+    pub(super) left: i32,
+    pub(super) top: i32,
+    pub(super) right: i32,
+    pub(super) bottom: i32,
+}
+
+impl ShellFrame {
+    pub(super) const NONE: Self = Self::uniform(0);
+
+    pub(super) const fn uniform(width: i32) -> Self {
+        Self {
+            left: width,
+            top: width,
+            right: width,
+            bottom: width,
+        }
+    }
+
+    pub(super) const fn width(self) -> i32 {
+        self.left.saturating_add(self.right)
+    }
+
+    pub(super) const fn height(self) -> i32 {
+        self.top.saturating_add(self.bottom)
+    }
+}
+
+/// The frames the shell declared with `ConfigureWindowFrame`. Until it does,
+/// they are those of Denial's own desktop: one pixel around a window, kept
+/// around a maximized one only where a layout places it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ShellFrames {
+    pub(super) normal: ShellFrame,
+    pub(super) maximized: Option<ShellFrame>,
+}
+
+impl Default for ShellFrames {
+    fn default() -> Self {
+        Self {
+            normal: ShellFrame::uniform(1),
+            maximized: None,
+        }
+    }
+}
+
+impl ShellFrames {
+    /// The frame of a window that is neither maximized nor fullscreen.
+    pub(super) const fn window(self, shell_draws_frame: bool) -> ShellFrame {
+        if shell_draws_frame {
+            self.normal
+        } else {
+            ShellFrame::NONE
+        }
+    }
+
+    /// The frame of a maximized window.
+    pub(super) const fn maximized_window(
+        self,
+        shell_draws_frame: bool,
+        managed_layout: bool,
+    ) -> ShellFrame {
+        if !shell_draws_frame {
+            return ShellFrame::NONE;
+        }
+        match self.maximized {
+            Some(frame) => frame,
+            None if managed_layout => self.normal,
+            None => ShellFrame::NONE,
+        }
+    }
+}
 
 pub(super) fn shell_draws_server_frame(window: &Window) -> bool {
     ManagedWindow::new(window).is_some_and(|window| window.facts().server_side_decorated)
 }
 
+/// The content of a window whose outer rectangle is `frame`. A frame too
+/// small to hold its own edges is all content.
 pub(super) fn shell_content_geometry(
     mut frame: Rectangle<i32, Logical>,
-    server_side_decorated: bool,
+    margins: ShellFrame,
 ) -> Rectangle<i32, Logical> {
-    if server_side_decorated
-        && frame.size.w > SHELL_FRAME_BORDER * 2
-        && frame.size.h > SHELL_FRAME_BORDER * 2
-    {
-        frame.loc.x += SHELL_FRAME_BORDER;
-        frame.loc.y += SHELL_FRAME_BORDER;
-        frame.size.w -= SHELL_FRAME_BORDER * 2;
-        frame.size.h -= SHELL_FRAME_BORDER * 2;
+    if frame.size.w > margins.width() && frame.size.h > margins.height() {
+        frame.loc.x = frame.loc.x.saturating_add(margins.left);
+        frame.loc.y = frame.loc.y.saturating_add(margins.top);
+        frame.size.w -= margins.width();
+        frame.size.h -= margins.height();
     }
     frame
 }
 
-pub(super) fn maximized_shell_content_geometry(
-    frame: Rectangle<i32, Logical>,
-    server_side_decorated: bool,
-    managed_layout: bool,
+/// The outer rectangle of a window whose content is `content`.
+pub(super) fn shell_frame_geometry(
+    mut content: Rectangle<i32, Logical>,
+    margins: ShellFrame,
 ) -> Rectangle<i32, Logical> {
-    shell_content_geometry(frame, server_side_decorated && managed_layout)
+    content.loc.x = content.loc.x.saturating_sub(margins.left);
+    content.loc.y = content.loc.y.saturating_sub(margins.top);
+    content.size.w = content.size.w.saturating_add(margins.width());
+    content.size.h = content.size.h.saturating_add(margins.height());
+    content
+}
+
+impl super::WaylandFrontend {
+    /// The frame around `window` while it is neither maximized nor
+    /// fullscreen.
+    pub(super) fn frame_for(&self, window: &Window) -> ShellFrame {
+        self.shell_frames.window(shell_draws_server_frame(window))
+    }
+
+    /// The frame around `window` while it is maximized.
+    pub(super) fn maximized_frame_for(&self, window: &Window) -> ShellFrame {
+        self.shell_frames.maximized_window(
+            shell_draws_server_frame(window),
+            self.window_layout_manages_geometry(),
+        )
+    }
 }
 
 /// Drop client-protocol fullscreen/maximize state before a shell-owned
@@ -113,7 +211,7 @@ pub(super) fn clear_client_geometry_constraints(window: &Window) -> bool {
 /// distinction is the terminal protocol handshake: XDG needs a configure
 /// serial, while `set_window_geometry_target` emits the X11 configure.
 #[cfg(feature = "flutter")]
-fn configure_shell_owned_geometry(
+pub(super) fn configure_shell_owned_geometry(
     state: &mut RuntimeState,
     window: &Window,
     target: Rectangle<i32, Logical>,
@@ -136,10 +234,9 @@ fn shell_maximized_geometry(
 ) -> Option<Rectangle<i32, Logical>> {
     let output = frontend.output_for_geometry(from)?.output.clone();
     let output_geometry = frontend.space.output_geometry(&output)?;
-    Some(maximized_shell_content_geometry(
+    Some(shell_content_geometry(
         frontend.maximize_work_area(Some(&output), output_geometry),
-        shell_draws_server_frame(window),
-        frontend.window_layout_manages_geometry(),
+        frontend.maximized_frame_for(window),
     ))
 }
 
@@ -417,6 +514,33 @@ fn apply_window_command(state: &mut RuntimeState, command: WindowCommand) {
                 frontend.carry_pet(pet_id, Point::from((velocity_x, velocity_y)));
             }
         }
+        WindowCommand::Place {
+            window_id,
+            request_id,
+            place,
+            apply,
+        } => super::window_place::place_window(state, window_id, request_id, place, apply),
+        WindowCommand::BeginMove { window_id } => {
+            super::input::begin_shell_window_grab(state, window_id, None);
+        }
+        WindowCommand::BeginResize { window_id, edges } => {
+            super::input::begin_shell_window_grab(state, window_id, Some(edges));
+        }
+        WindowCommand::ConfigureFrame { margins, maximized } => {
+            let frame = |margins: super::super::wire::WindowFrameMargins| ShellFrame {
+                left: margins.left,
+                top: margins.top,
+                right: margins.right,
+                bottom: margins.bottom,
+            };
+            let frames = ShellFrames {
+                normal: frame(margins),
+                maximized: maximized.map(frame),
+            };
+            if state.frontend_mut().set_shell_frames(frames) {
+                state.scene_sync.mark_dirty();
+            }
+        }
         command => apply_targeted_window_command(state, command),
     }
 }
@@ -506,7 +630,11 @@ fn apply_local_window_command(state: &mut RuntimeState, window_id: u64, command:
         | WindowCommand::DropOnWorkspace { .. }
         | WindowCommand::PreviewWorkspaceDrop { .. }
         | WindowCommand::HoldPet { .. }
-        | WindowCommand::CarryPet { .. } => unreachable!(),
+        | WindowCommand::CarryPet { .. }
+        | WindowCommand::Place { .. }
+        | WindowCommand::BeginMove { .. }
+        | WindowCommand::BeginResize { .. }
+        | WindowCommand::ConfigureFrame { .. } => unreachable!(),
     }
 }
 
@@ -550,7 +678,11 @@ fn apply_client_window_command(
         | WindowCommand::DropOnWorkspace { .. }
         | WindowCommand::PreviewWorkspaceDrop { .. }
         | WindowCommand::HoldPet { .. }
-        | WindowCommand::CarryPet { .. } => unreachable!(),
+        | WindowCommand::CarryPet { .. }
+        | WindowCommand::Place { .. }
+        | WindowCommand::BeginMove { .. }
+        | WindowCommand::BeginResize { .. }
+        | WindowCommand::ConfigureFrame { .. } => unreachable!(),
     }
 }
 
@@ -594,7 +726,7 @@ fn clamped_scene_coordinate(coordinate: f64) -> i32 {
 }
 
 #[cfg(feature = "flutter")]
-fn transfer_shell_restore_between_outputs(
+pub(super) fn transfer_shell_restore_between_outputs(
     frontend: &mut WaylandFrontend,
     root_surface: &WlSurface,
     current_target: Rectangle<i32, Logical>,
@@ -760,6 +892,28 @@ fn configure_client_window(
         );
     }
     state.scene_sync.mark_dirty();
+}
+
+/// Drops `commands` the shell sent while the session is locked. A place
+/// request is still answered, as refused, so its sender is not left waiting.
+#[cfg(feature = "flutter")]
+pub(in super::super) fn refuse_window_commands(
+    state: &mut RuntimeState,
+    commands: impl IntoIterator<Item = WindowCommand>,
+) {
+    for command in commands {
+        match command {
+            WindowCommand::Place {
+                window_id,
+                request_id,
+                ..
+            } => super::window_place::refuse_place(state, window_id, request_id),
+            // What the shell draws is a fact, not an action on a window: it
+            // holds while the session is locked too.
+            command @ WindowCommand::ConfigureFrame { .. } => apply_window_command(state, command),
+            _ => {}
+        }
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -1565,7 +1719,7 @@ pub(super) fn resize_focused_toplevel(
         return false;
     };
     let frame = frontend.maximize_work_area(Some(&output.output), output.logical_geometry);
-    let work_area = shell_content_geometry(frame, shell_draws_server_frame(&window));
+    let work_area = shell_content_geometry(frame, frontend.frame_for(&window));
     let target = action.geometry(
         current,
         work_area,
@@ -1742,7 +1896,11 @@ pub(super) fn focused_workspace_window(state: &RuntimeState) -> Option<(u64, i64
 }
 
 #[cfg(feature = "flutter")]
-fn queue_local_window_action(state: &mut RuntimeState, window_id: u64, action: WindowAction) {
+pub(super) fn queue_local_window_action(
+    state: &mut RuntimeState,
+    window_id: u64,
+    action: WindowAction,
+) {
     state
         .window_events
         .pending
@@ -1901,7 +2059,7 @@ struct ShellGeometryTransition {
 }
 
 #[cfg(feature = "flutter")]
-fn toggle_scrolling_layout_maximize(state: &mut RuntimeState, window: &Window) -> bool {
+pub(super) fn toggle_scrolling_layout_maximize(state: &mut RuntimeState, window: &Window) -> bool {
     let presentation = state.frontend().managed_window_presentation(window);
     if !presentation.fullscreen && state.frontend().window_geometry_locked(window) {
         return true;
@@ -2049,6 +2207,14 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
     let Some(window) = focused_window(state) else {
         return false;
     };
+    toggle_shell_maximize_window(state, &window)
+}
+
+/// Maximizes `window`, or restores it when it is maximized. The shortcut and
+/// a place request by window id share this one transition.
+#[cfg(feature = "flutter")]
+pub(super) fn toggle_shell_maximize_window(state: &mut RuntimeState, window: &Window) -> bool {
+    let window = window.clone();
     let client = ManagedWindow::new(&window)
         .map(|window| window.facts().client_state)
         .unwrap_or_default();
@@ -2189,7 +2355,7 @@ fn toggle_client_vertical_maximize(state: &mut RuntimeState, window: &Window) ->
                 return false;
             };
             let frame = frontend.maximize_work_area(Some(&output), output_geometry);
-            let content = shell_content_geometry(frame, shell_draws_server_frame(window));
+            let content = shell_content_geometry(frame, frontend.frame_for(window));
             (
                 Rectangle::new(
                     Point::from((current.loc.x, content.loc.y)),
@@ -2295,6 +2461,24 @@ fn resolve_shell_fullscreen_exit(
                 }
             }
         }
+        Some(ShellFullscreenExit::Area {
+            normal_geometry,
+            geometry,
+            share,
+        }) => {
+            frontend.set_shell_presentation(
+                &surface_id,
+                ShellWindowPresentation::Area {
+                    normal_geometry,
+                    share,
+                },
+            );
+            ShellGeometryTransition {
+                target: bound_geometry_size(geometry),
+                action: WindowAction::Restore,
+                arrange_layout: false,
+            }
+        }
         None if let Some(ShellWindowPresentation::Maximized { normal_geometry }) =
             shell_presentation =>
         {
@@ -2341,10 +2525,13 @@ fn resolve_shell_fullscreen_entry(
     root: &WlSurface,
     current: Rectangle<i32, Logical>,
     client: ClientWindowState,
+    output: Option<Rectangle<i32, Logical>>,
 ) -> Option<ShellGeometryTransition> {
     let assigned_output = frontend
         .managed_layout_space(window)
         .map(|space| space.output);
+    // A layout keeps a window on the output of its tile. Elsewhere a place
+    // request may name the output; the shortcut takes the window's own.
     let target = assigned_output
         .and_then(|output| {
             frontend
@@ -2353,6 +2540,7 @@ fn resolve_shell_fullscreen_entry(
                 .find(|entry| entry.id == output)
                 .map(|entry| entry.logical_geometry)
         })
+        .or(output)
         .or_else(|| {
             frontend
                 .output_for_geometry(current)
@@ -2395,6 +2583,18 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
     let Some(window) = focused_window(state) else {
         return false;
     };
+    toggle_shell_fullscreen_window(state, &window, None)
+}
+
+/// Makes `window` fullscreen, or ends its fullscreen. `output` is the
+/// output's rectangle a place request asked for; the shortcut passes none.
+#[cfg(feature = "flutter")]
+pub(super) fn toggle_shell_fullscreen_window(
+    state: &mut RuntimeState,
+    window: &Window,
+    output: Option<Rectangle<i32, Logical>>,
+) -> bool {
+    let window = window.clone();
     let client = ManagedWindow::new(&window)
         .map(|window| window.facts().client_state)
         .unwrap_or_default();
@@ -2426,7 +2626,7 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
         if presentation.fullscreen {
             resolve_shell_fullscreen_exit(frontend, &window, &root, current)
         } else {
-            resolve_shell_fullscreen_entry(frontend, &window, &root, current, client)
+            resolve_shell_fullscreen_entry(frontend, &window, &root, current, client, output)
         }
     };
     let Some(transition) = transition else {
@@ -2437,10 +2637,17 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
         clear_client_geometry_constraints(&window);
         state.frontend_mut().arrange_layout_windows();
     } else {
-        let authority = if matches!(
-            transition.action,
-            WindowAction::Fullscreen | WindowAction::Maximize
-        ) {
+        // A share of the work area is kept as firmly as maximize is.
+        let keeps_area = state
+            .frontend()
+            .window_record_for_surface(&root.id())
+            .and_then(|record| record.shell_presentation)
+            .is_some_and(|presentation| presentation.area_share().is_some());
+        let authority = if keeps_area
+            || matches!(
+                transition.action,
+                WindowAction::Fullscreen | WindowAction::Maximize
+            ) {
             WindowGeometryAuthority::Shell
         } else {
             WindowGeometryAuthority::Pending
@@ -2554,10 +2761,9 @@ fn resolve_entering_client_state_target(
     }
 
     let frontend = state.frontend();
-    let target = maximized_shell_content_geometry(
+    let target = shell_content_geometry(
         frontend.maximize_work_area(Some(&output), monitor),
-        shell_draws_server_frame(window),
-        frontend.window_layout_manages_geometry(),
+        frontend.maximized_frame_for(window),
     );
     Some((target, fullscreen_output))
 }
@@ -2902,8 +3108,8 @@ mod tests {
     use smithay::utils::{Logical, Point, Rectangle, Size};
 
     use super::{
-        authoritative_geometry_rejects_configure, configured_window_size,
-        maximized_shell_content_geometry,
+        ShellFrame, ShellFrames, authoritative_geometry_rejects_configure, configured_window_size,
+        shell_content_geometry, shell_frame_geometry,
     };
 
     fn rect(x: i32, y: i32, width: i32, height: i32) -> Rectangle<i32, Logical> {
@@ -2957,12 +3163,52 @@ mod tests {
     #[test]
     fn managed_layout_maximize_reserves_the_shell_frame() {
         let frame = rect(8, 40, 1904, 1032);
+        let frames = ShellFrames::default();
+        let content = |shell_draws_frame, managed_layout| {
+            shell_content_geometry(
+                frame,
+                frames.maximized_window(shell_draws_frame, managed_layout),
+            )
+        };
 
+        assert_eq!(content(true, true), rect(9, 41, 1902, 1030));
+        assert_eq!(content(true, false), frame);
+        assert_eq!(content(false, true), frame);
+    }
+
+    #[test]
+    fn a_declared_frame_is_the_only_difference_between_frame_and_content() {
+        let title_bar = ShellFrame {
+            left: 1,
+            top: 32,
+            right: 1,
+            bottom: 1,
+        };
+        let frame = rect(100, 50, 802, 633);
+        let content = shell_content_geometry(frame, title_bar);
+
+        assert_eq!(content, rect(101, 82, 800, 600));
+        assert_eq!(shell_frame_geometry(content, title_bar), frame);
+        // A frame that cannot hold its own edges is all content.
         assert_eq!(
-            maximized_shell_content_geometry(frame, true, true),
-            rect(9, 41, 1902, 1030),
+            shell_content_geometry(rect(0, 0, 2, 20), title_bar),
+            rect(0, 0, 2, 20),
         );
-        assert_eq!(maximized_shell_content_geometry(frame, true, false), frame,);
-        assert_eq!(maximized_shell_content_geometry(frame, false, true), frame,);
+    }
+
+    #[test]
+    fn a_declared_maximized_frame_applies_in_every_layout() {
+        let title_bar_only = ShellFrame {
+            top: 32,
+            ..ShellFrame::NONE
+        };
+        let frames = ShellFrames {
+            normal: ShellFrame::uniform(1),
+            maximized: Some(title_bar_only),
+        };
+
+        assert_eq!(frames.maximized_window(true, false), title_bar_only);
+        assert_eq!(frames.maximized_window(true, true), title_bar_only);
+        assert_eq!(frames.maximized_window(false, true), ShellFrame::NONE);
     }
 }

@@ -419,6 +419,11 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             flutter_pointer_press: None,
             #[cfg(feature = "flutter")]
+            shell_window_grab_active: false,
+            shell_frames: ShellFrames::default(),
+            #[cfg(feature = "flutter")]
+            shell_frames_declared: false,
+            #[cfg(feature = "flutter")]
             clipboard_drag_active: false,
             #[cfg(feature = "flutter")]
             client_drag_active: false,

@@ -17,7 +17,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
   @override
   DesktopWorkspaceState build() => DesktopWorkspaceState.initial();
 
-  final Map<int, Offset> _moveRemainders = <int, Offset>{};
   // Rectangles initiated by a real Flutter interaction may be presented
   // optimistically until the compositor acknowledges them. Compositor action
   // notifications must never populate this map: their authoritative geometry
@@ -244,7 +243,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     final viewMetricsChanged = pixelRatioChanged || state.viewSize != viewSize;
     if (pixelRatioChanged) {
       _devicePixelRatio = nextPixelRatio;
-      _moveRemainders.clear();
     }
 
     final userWindows = windows.where((window) => window.isUserApp).toList();
@@ -255,7 +253,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           if (parentId != window.objectId && activeIds.contains(parentId))
             window.objectId: parentId,
     };
-    _moveRemainders.removeWhere((objectId, _) => !activeIds.contains(objectId));
     _pendingFlutterProposedFrames.removeWhere(
       (objectId, _) => !activeIds.contains(objectId),
     );
@@ -615,7 +612,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       return;
     }
 
-    _moveRemainders.clear();
     _overviewDragOrigins.clear();
     final settledPlacements = <int, DesktopWindowPlacement>{
       for (final placement in state.placements.values)
@@ -673,7 +669,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     if (state.overviewActive || bounds.isEmpty || viewport.isEmpty) {
       return;
     }
-    _moveRemainders.clear();
     _overviewDragOrigins.clear();
     _clearOverviewDropPreview();
     final settledPlacements = <int, DesktopWindowPlacement>{
@@ -1167,79 +1162,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     }).key;
   }
 
-  void moveBy(int objectId, Offset delta) {
-    if (state.overviewActive) {
-      return;
-    }
-    final placement = state.placements[objectId];
-    if (placement == null ||
-        placement.maximized ||
-        placement.fullscreen ||
-        placement.minimized) {
-      return;
-    }
-
-    final pendingDelta = (_moveRemainders[objectId] ?? Offset.zero) + delta;
-    final snappedDelta = _snapOffset(pendingDelta);
-    if (snappedDelta == Offset.zero) {
-      _moveRemainders[objectId] = pendingDelta;
-      return;
-    }
-
-    final frame = _clampFrame(
-      placement.frame.shift(snappedDelta),
-      state.viewSize,
-    );
-    final appliedDelta = frame.topLeft - placement.frame.topLeft;
-    var remainder = pendingDelta - appliedDelta;
-    if ((appliedDelta.dx - snappedDelta.dx).abs() > 0.000001) {
-      remainder = Offset(0.0, remainder.dy);
-    }
-    if ((appliedDelta.dy - snappedDelta.dy).abs() > 0.000001) {
-      remainder = Offset(remainder.dx, 0.0);
-    }
-    _moveRemainders[objectId] = remainder;
-
-    if (frame == placement.frame) {
-      return;
-    }
-    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(frame: frame);
-    _pendingFlutterProposedFrames[objectId] = frame;
-    state = state.copyWith(placements: next);
-  }
-
-  void beginMove(int objectId) {
-    if (state.overviewActive) {
-      return;
-    }
-    final placement = state.placements[objectId];
-    if (placement == null ||
-        placement.maximized ||
-        placement.fullscreen ||
-        placement.minimized) {
-      return;
-    }
-    _moveRemainders[objectId] = Offset.zero;
-    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(dragging: true);
-    state = state.copyWith(placements: next);
-  }
-
-  void endMove(int objectId) {
-    if (state.overviewActive) {
-      return;
-    }
-    _moveRemainders.remove(objectId);
-    final placement = state.placements[objectId];
-    if (placement == null || !placement.dragging) {
-      return;
-    }
-    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(dragging: false);
-    state = state.copyWith(placements: next);
-  }
-
   bool applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
     if (state.overviewActive) {
       return event.change == DenialWindowPlacementChange.layoutPreview &&
@@ -1479,7 +1401,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     if (placement == null) {
       return;
     }
-    _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
     if (placement.fullscreen) {
       final canvas = Offset.zero & state.viewSize;
@@ -1554,7 +1475,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       return;
     }
 
-    _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
     final fullscreen = placement.copyWith(
       frame: fullscreenFrame,
@@ -1572,7 +1492,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
   }
 
   void _exitFullscreen(int objectId, DesktopWindowPlacement placement) {
-    _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
     final restored = placement.copyWith(
       frame: _clampFrame(
@@ -1634,10 +1553,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         .clamp(workTop, math.max(workTop, workBottom - height))
         .toDouble();
     return Rect.fromLTWH(left, top, width, height);
-  }
-
-  Offset _snapOffset(Offset offset) {
-    return Offset(_snapToPixel(offset.dx), _snapToPixel(offset.dy));
   }
 
   double _snapToPixel(double value) {
