@@ -44,9 +44,15 @@ impl WaylandFrontend {
         self.cursor_output_scale = None;
         self.pending_cursor_state = Some(self.resolved_client_cursor_publication());
         self.pending_drag_icon = true;
-        // Ordinary click capture must not pin the DnD target to its origin.
-        self.client_pointer_capture = None;
+        self.release_pointer_capture_for_drag();
         self.queue_cursor_position();
+    }
+
+    /// The press that began a drag stops holding the pointer on the window it
+    /// began in: a drag goes to whatever is under the pointer.
+    #[cfg(feature = "flutter")]
+    pub(super) fn release_pointer_capture_for_drag(&mut self) {
+        self.client_pointer_capture = None;
     }
 
     #[cfg(feature = "flutter")]

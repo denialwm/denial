@@ -511,6 +511,13 @@ impl DndFocus<RuntimeState> for ClientSurface {
         location: Point<f64, Logical>,
         serial: &Serial,
     ) -> Option<Self::OfferData<S>> {
+        // A drag that an X11 app starts begins inside the X11 window manager,
+        // with no request Denial sees: the first window it enters, the one it
+        // began in, is where Denial learns of it.
+        #[cfg(feature = "flutter")]
+        if let Some(frontend) = data.wayland.as_mut() {
+            frontend.release_pointer_capture_for_drag();
+        }
         #[cfg(feature = "xwayland")]
         if let Some(x11) = x11_window(data, &self.0) {
             return DndFocus::enter(&x11, data, dh, source, seat, location, serial)
