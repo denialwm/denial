@@ -41,12 +41,17 @@ class DesktopWindowFrameLayers extends StatelessWidget {
     required this.frameColor,
     required this.borderColor,
     required this.child,
+    this.frameMargins = EdgeInsets.zero,
     this.drawFrame = true,
     super.key,
   });
 
   final int windowId;
   final double devicePixelRatio;
+
+  /// What the frame takes around the content, whose edges lie on the pixel
+  /// grid: see [desktopWindowShadowHole].
+  final EdgeInsets frameMargins;
   final double radius;
   final Color frameColor;
   final Color borderColor;
@@ -68,6 +73,8 @@ class DesktopWindowFrameLayers extends StatelessWidget {
                   windowId: windowId,
                   radius: radius,
                   shadowColor: context.shellColors.shadow,
+                  frameMargins: frameMargins,
+                  devicePixelRatio: devicePixelRatio,
                 ),
                 isComplex: true,
                 willChange: false,
@@ -141,17 +148,62 @@ class RenderDesktopWindowRepaintBoundary extends RenderRepaintBoundary {
   Rect get paintBounds => super.paintBounds.inflate(_outset);
 }
 
+/// The part of a window's frame its shadow leaves out, in the frame's own
+/// coordinates: the frame, with each edge moved in to the physical pixel
+/// line next to it.
+///
+/// The content of a resting window lies on the pixel grid and the frame ends
+/// a margin outside it, which is not a whole number of pixels at every scale:
+/// a 1 px border at scale 1.5 ends on half a pixel. The shadow is clipped
+/// with hard edges, and a hard edge through the middle of a pixel row goes to
+/// one side or the other depending on how the picture is rasterized. The
+/// engine draws the shadow live in some frames and from a cached picture in
+/// others, so that row had a shadow in one and none in the next. Without a
+/// [devicePixelRatio] the hole is the frame itself.
+Rect desktopWindowShadowHole({
+  required Size size,
+  required EdgeInsets frameMargins,
+  required double? devicePixelRatio,
+}) {
+  final frame = Offset.zero & size;
+  final scale = devicePixelRatio;
+  if (scale == null || !scale.isFinite || scale <= 0.0) {
+    return frame;
+  }
+  // How far a margin reaches past its last whole pixel.
+  double inset(double margin) {
+    if (!margin.isFinite || margin <= 0.0) {
+      return 0.0;
+    }
+    final pixels = margin * scale;
+    final partial = pixels - (pixels + 1e-3).floorToDouble();
+    return partial <= 0.0 ? 0.0 : partial / scale;
+  }
+
+  final hole = Rect.fromLTRB(
+    inset(frameMargins.left),
+    inset(frameMargins.top),
+    size.width - inset(frameMargins.right),
+    size.height - inset(frameMargins.bottom),
+  );
+  return hole.isEmpty ? frame : hole;
+}
+
 /// Paints the cached shadow behind a decorated client surface.
 class DesktopWindowShadowPainter extends CustomPainter {
   const DesktopWindowShadowPainter({
     this.windowId = 0,
     required this.radius,
     required this.shadowColor,
+    this.frameMargins = EdgeInsets.zero,
+    this.devicePixelRatio,
   });
 
   final int windowId;
   final double radius;
   final Color shadowColor;
+  final EdgeInsets frameMargins;
+  final double? devicePixelRatio;
 
   static const double shadowOutset = 64;
 
@@ -164,7 +216,25 @@ class DesktopWindowShadowPainter extends CustomPainter {
 
     final frame = Offset.zero & size;
     final outer = frame.inflate(shadowOutset);
-    final frameShape = RRect.fromRectAndRadius(frame, Radius.circular(radius));
+    // Every hard clip edge next to the frame lies on a pixel line.
+    final hole = desktopWindowShadowHole(
+      size: size,
+      frameMargins: frameMargins,
+      devicePixelRatio: devicePixelRatio,
+    );
+    final scale = devicePixelRatio;
+    double pixelLine(double value, {required bool up}) {
+      if (scale == null || !scale.isFinite || scale <= 0.0) {
+        return value;
+      }
+      final pixels = (value - hole.top) * scale;
+      final line = up
+          ? (pixels - 1e-3).ceilToDouble()
+          : (pixels + 1e-3).floorToDouble();
+      return hole.top + line / scale;
+    }
+
+    final frameShape = RRect.fromRectAndRadius(hole, Radius.circular(radius));
     final outsideFrame = Path()
       ..fillType = PathFillType.evenOdd
       ..addRect(outer)
@@ -185,8 +255,8 @@ class DesktopWindowShadowPainter extends CustomPainter {
     // the band edge itself; only the bands with the rounded corners need the
     // path clip. Aliased band clips give every pixel to exactly one band.
     final corner = math.min(radius, size.shortestSide / 2);
-    final cornersEnd = frame.top + corner;
-    final cornersStart = frame.bottom - corner;
+    final cornersEnd = pixelLine(hole.top + corner, up: true);
+    final cornersStart = pixelLine(hole.bottom - corner, up: false);
     void band(Rect bounds, {required bool corners}) {
       canvas
         ..save()
@@ -209,11 +279,11 @@ class DesktopWindowShadowPainter extends CustomPainter {
     );
     if (cornersStart > cornersEnd) {
       band(
-        Rect.fromLTRB(outer.left, cornersEnd, frame.left, cornersStart),
+        Rect.fromLTRB(outer.left, cornersEnd, hole.left, cornersStart),
         corners: false,
       );
       band(
-        Rect.fromLTRB(frame.right, cornersEnd, outer.right, cornersStart),
+        Rect.fromLTRB(hole.right, cornersEnd, outer.right, cornersStart),
         corners: false,
       );
     }
@@ -223,7 +293,9 @@ class DesktopWindowShadowPainter extends CustomPainter {
   bool shouldRepaint(covariant DesktopWindowShadowPainter oldDelegate) {
     return windowId != oldDelegate.windowId ||
         radius != oldDelegate.radius ||
-        shadowColor != oldDelegate.shadowColor;
+        shadowColor != oldDelegate.shadowColor ||
+        frameMargins != oldDelegate.frameMargins ||
+        devicePixelRatio != oldDelegate.devicePixelRatio;
   }
 }
 

@@ -504,6 +504,7 @@ class DesktopWindowFrame extends ConsumerWidget {
                                 drawFrame: false,
                                 windowId: window.objectId,
                                 devicePixelRatio: devicePixelRatio,
+                                frameMargins: placement.frameMargins,
                                 radius: windowRadius,
                                 frameColor:
                                     context.shellColors.windowFrameSurface,
