@@ -32,8 +32,11 @@ DesktopOutputPixelGrid? desktopOutputPixelGridForMonitor(
 /// device-pixel ratio those positions can land between atlas pixels even when
 /// the client buffer itself is already rendered at the correct scale. Shift
 /// the complete frame so its client content, clip, and surface tree move
-/// together. Stable desktop windows align the opposite content edges as well
-/// so the laid-out texture always covers a whole number of physical pixels.
+/// together. Stable desktop windows also give the content a whole number of
+/// physical pixels: the size rounded as a client rounds its buffer for a
+/// fractional scale, half away from zero, wherever the window sits. Aligning
+/// the opposite edges instead would take a pixel off an odd-sized window at
+/// every other position, and its unscaled buffer would hang over the frame.
 /// Deliberately transformed overview and switcher geometry bypasses this
 /// helper at the call site and keeps filtered animation sampling.
 Rect desktopPixelAlignedWindowFrame({
@@ -72,11 +75,14 @@ Rect desktopPixelAlignedWindowFrame({
     );
   }
 
-  final alignedContentRect = Rect.fromLTRB(
+  double alignExtent(double value) =>
+      (value * devicePixelRatio).roundToDouble() / devicePixelRatio;
+
+  final alignedContentRect = Rect.fromLTWH(
     alignedLeft,
     alignedTop,
-    align(contentRect.right, pixelGridOrigin.dx),
-    align(contentRect.bottom, pixelGridOrigin.dy),
+    alignExtent(contentRect.width),
+    alignExtent(contentRect.height),
   );
   if (alignedContentRect.isEmpty) {
     return frame;
