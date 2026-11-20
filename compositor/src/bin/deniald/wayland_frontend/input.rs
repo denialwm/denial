@@ -243,11 +243,28 @@ pub(super) struct ShellKeyStroke {
 const XKB_KEYCODE_OFFSET: u32 = 8;
 
 /// The keys a character is typed with: the main block, keypad aside, so
-/// digits and signs come from the row a hand would use.
+/// digits and signs come from the row a hand would use. The key between
+/// left Shift and Z comes last: only ISO keyboards have it, and a US layout
+/// elsewhere reads it as another key.
 #[cfg(feature = "flutter")]
-fn shell_text_keys() -> impl Iterator<Item = u32> {
-    (1..=88).filter(|evdev| !(71..=83).contains(evdev))
-}
+const SHELL_TEXT_KEY_GROUPS: [&[u32]; 2] = [&SHELL_MAIN_KEYS, &[KEY_102ND]];
+
+#[cfg(feature = "flutter")]
+const KEY_102ND: u32 = 86;
+
+/// Escape to Right Shift, then Space: evdev 1 to 54 and 57. 55 is the
+/// keypad's asterisk.
+#[cfg(feature = "flutter")]
+const SHELL_MAIN_KEYS: [u32; 55] = {
+    let mut keys = [0; 55];
+    let mut index = 0;
+    while index < 54 {
+        keys[index] = index as u32 + 1;
+        index += 1;
+    }
+    keys[54] = 57;
+    keys
+};
 
 /// Which key of the active layout types each character, alone, with Shift,
 /// with AltGr or with both. A layout types what it shows: `a` is the key
@@ -295,16 +312,21 @@ impl ShellLayoutKeys {
     }
 
     fn stroke(&mut self, character: char) -> Option<ShellKeyStroke> {
-        for &(mask, shift, level3) in &self.levels {
-            self.state.update_mask(mask, 0, 0, 0, 0, self.layout);
-            for evdev in shell_text_keys() {
-                let keycode = Keycode::new(evdev + XKB_KEYCODE_OFFSET);
-                if self.state.key_get_utf32(keycode) == u32::from(character) {
-                    return Some(ShellKeyStroke {
-                        evdev_keycode: evdev,
-                        shift,
-                        level3,
-                    });
+        // Plain and Shift before AltGr, and within each the main keys first.
+        for levels in [&self.levels[..2], &self.levels[2..]] {
+            for keys in SHELL_TEXT_KEY_GROUPS {
+                for &(mask, shift, level3) in levels {
+                    self.state.update_mask(mask, 0, 0, 0, 0, self.layout);
+                    for &evdev in keys {
+                        let keycode = Keycode::new(evdev + XKB_KEYCODE_OFFSET);
+                        if self.state.key_get_utf32(keycode) == u32::from(character) {
+                            return Some(ShellKeyStroke {
+                                evdev_keycode: evdev,
+                                shift,
+                                level3,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -798,6 +820,9 @@ mod layout_key_tests {
         assert_eq!(us.stroke('1'), stroke(2, false, None));
         assert_eq!(us.stroke('@'), stroke(3, true, None));
         assert_eq!(us.stroke('è'), None);
+        // Not the keypad's asterisk, nor the ISO key US reads as another.
+        assert_eq!(us.stroke('*'), stroke(9, true, None));
+        assert_eq!(us.stroke('<'), stroke(51, true, None));
 
         let mut azerty = keys("fr");
         assert_eq!(azerty.stroke('a'), stroke(16, false, None));
@@ -805,6 +830,8 @@ mod layout_key_tests {
         assert_eq!(azerty.stroke('1'), stroke(2, true, None));
         assert_eq!(azerty.stroke('é'), stroke(3, false, None));
         assert_eq!(azerty.stroke('@'), stroke(11, false, Some(100)));
+        assert_eq!(azerty.stroke('*'), stroke(43, false, None));
+        assert_eq!(azerty.stroke('<'), stroke(86, false, None));
 
         let mut italian = keys("it");
         assert_eq!(italian.stroke('-'), stroke(53, false, None));
