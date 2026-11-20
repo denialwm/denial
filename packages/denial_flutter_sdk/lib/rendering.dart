@@ -12,7 +12,7 @@ export 'src/widgets/posed_window.dart' show PosedWindow, WindowPose;
 export 'src/widgets/retained_scale.dart' show RetainedScale;
 export 'src/widgets/fade_snapshot.dart' show FadeSnapshot;
 export 'src/widgets/retained_translation.dart'
-    show CompositedTranslation, RetainedTranslation;
+    show CompositedTranslation, RetainedTranslation, translationOnPixelGrid;
 export 'src/widgets/retained_window_motion.dart' show RetainedWindowMotion;
 export 'src/widgets/shell_cursor.dart'
     show

@@ -19,6 +19,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
     required this.window,
     required this.placement,
     required this.frame,
+    this.unalignedFrameOrigin,
     required this.minimized,
     required this.offscreenMinimized,
     required this.overviewActive,
@@ -30,6 +31,10 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
   final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
+
+  /// As [DesktopWindowFrame.unalignedFrameOrigin]: popups follow a native
+  /// move on the same pixels as their window.
+  final Offset? unalignedFrameOrigin;
   final bool minimized;
   final bool offscreenMinimized;
   final bool overviewActive;
@@ -154,6 +159,11 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
                         pixelAlignmentInsets: EdgeInsets.zero,
                         pixelGridScale: devicePixelRatio,
                         pixelGridOrigin: pixelGridOrigin,
+                        liveTranslationAnchor: desktopLiveTranslationAnchor(
+                          unalignedFrameOrigin: unalignedFrameOrigin,
+                          frameMargins: placement.frameMargins,
+                          pixelGridOrigin: pixelGridOrigin,
+                        ),
                         alignSizeToDevicePixels: true,
                         globalClipRect: outputClip,
                         // The window primitive composites the client

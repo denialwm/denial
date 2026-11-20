@@ -171,6 +171,7 @@ class DesktopWindowFrame extends ConsumerWidget {
     required this.window,
     required this.placement,
     required this.frame,
+    this.unalignedFrameOrigin,
     required this.minimized,
     required this.desktopWidget,
     required this.offscreenMinimized,
@@ -198,6 +199,10 @@ class DesktopWindowFrame extends ConsumerWidget {
   final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
+
+  /// Where [frame] began before it was aligned to the pixel grid. A native
+  /// move rounds from there, as the frame it ends on will be.
+  final Offset? unalignedFrameOrigin;
   final bool minimized;
   final bool desktopWidget;
   final bool offscreenMinimized;
@@ -357,6 +362,11 @@ class DesktopWindowFrame extends ConsumerWidget {
       pixelAlignmentInsets: placement.frameMargins,
       pixelGridScale: devicePixelRatio,
       pixelGridOrigin: pixelGridOrigin,
+      liveTranslationAnchor: desktopLiveTranslationAnchor(
+        unalignedFrameOrigin: unalignedFrameOrigin,
+        frameMargins: placement.frameMargins,
+        pixelGridOrigin: pixelGridOrigin,
+      ),
       alignSizeToDevicePixels: true,
       globalClipRect: outputClip,
       child: DesktopWorkspaceWindowTransition(
@@ -694,6 +704,29 @@ class _WorkspaceOutputClipper extends CustomClipper<Path> {
       oldClipper.outputRect != outputRect;
 }
 
+/// What a native move of a pixel-aligned frame rounds its translation from:
+/// the content's origin before alignment, measured from the pixel grid's
+/// origin. Null without [unalignedFrameOrigin] rounds the translation itself.
+Offset? desktopLiveTranslationAnchor({
+  required Offset? unalignedFrameOrigin,
+  required EdgeInsets frameMargins,
+  required Offset pixelGridOrigin,
+}) {
+  if (unalignedFrameOrigin == null) {
+    return null;
+  }
+  return unalignedFrameOrigin + frameMargins.topLeft - pixelGridOrigin;
+}
+
+/// Whether [origin] and [rect] are the same rectangle up to float noise.
+bool _restsAt(Rect origin, Rect rect) {
+  const tolerance = 1e-3;
+  return (origin.left - rect.left).abs() < tolerance &&
+      (origin.top - rect.top).abs() < tolerance &&
+      (origin.right - rect.right).abs() < tolerance &&
+      (origin.bottom - rect.bottom).abs() < tolerance;
+}
+
 class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   const DesktopAnimatedWindowPosition({
     super.key,
@@ -712,6 +745,7 @@ class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     this.pixelAlignmentInsets,
     this.pixelGridScale,
     this.pixelGridOrigin = Offset.zero,
+    this.liveTranslationAnchor,
     this.alignSizeToDevicePixels = false,
     this.globalClipRect,
     this.separateSurfaceOpacity = false,
@@ -733,6 +767,11 @@ class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   final EdgeInsets? pixelAlignmentInsets;
   final double? pixelGridScale;
   final Offset pixelGridOrigin;
+
+  /// What a native move rounds its translation from: see
+  /// [desktopLiveTranslationAnchor]. Everything that follows one window
+  /// passes the same value, so all of it lands on the same pixels.
+  final Offset? liveTranslationAnchor;
   final bool alignSizeToDevicePixels;
   final Rect? globalClipRect;
   final bool separateSurfaceOpacity;
@@ -776,9 +815,23 @@ class _DesktopAnimatedWindowPositionState
       final translation = ref
           .read(desktopLiveWindowPlacementsProvider)
           .settleTranslation(widget.placementObjectId);
-      _dragReleaseAnimationOrigin = translation == null
+      // The window was shown at whole pixels, not at the translation itself.
+      // Released where it already rests, it has nothing left to settle: a
+      // tween over a rounding remainder would only take it off the grid.
+      final origin = translation == null
           ? null
-          : oldWidget.rect.shift(translation);
+          : oldWidget.rect.shift(
+              translationOnPixelGrid(
+                translation,
+                devicePixelRatio: oldWidget.pixelAlignmentInsets == null
+                    ? null
+                    : oldWidget.pixelGridScale ??
+                          MediaQuery.devicePixelRatioOf(context),
+                anchor: oldWidget.liveTranslationAnchor,
+              ),
+            );
+      _dragReleaseAnimationOrigin =
+          origin == null || _restsAt(origin, widget.rect) ? null : origin;
     }
     if (oldWidget.layoutPreviewing && !widget.layoutPreviewing) {
       _layoutPreviewExitActive = true;
@@ -897,6 +950,7 @@ class _DesktopAnimatedWindowPositionState
               devicePixelRatio: pixelAlignmentInsets == null
                   ? null
                   : devicePixelRatio,
+              pixelGridAnchor: widget.liveTranslationAnchor,
               child: widget.child,
             ),
           ),
