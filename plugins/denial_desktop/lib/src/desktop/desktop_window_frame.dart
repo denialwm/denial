@@ -718,9 +718,14 @@ Offset? desktopLiveTranslationAnchor({
   return unalignedFrameOrigin + frameMargins.topLeft - pixelGridOrigin;
 }
 
-/// Whether [origin] and [rect] are the same rectangle up to float noise.
-bool _restsAt(Rect origin, Rect rect) {
-  const tolerance = 1e-3;
+/// Whether [origin] is [rect] up to one physical pixel on every edge. A
+/// pixel-aligned frame can differ by one from where its move showed it: its
+/// far edges are aligned again where it comes to rest.
+bool _restsAt(Rect origin, Rect rect, {required double? devicePixelRatio}) {
+  final scale = devicePixelRatio;
+  final tolerance =
+      (scale == null || !scale.isFinite || scale <= 0.0 ? 0.0 : 1.0 / scale) +
+      1e-3;
   return (origin.left - rect.left).abs() < tolerance &&
       (origin.top - rect.top).abs() < tolerance &&
       (origin.right - rect.right).abs() < tolerance &&
@@ -789,6 +794,7 @@ class _DesktopAnimatedWindowPositionState
   bool _overviewTransitionActive = false;
   bool _layoutPreviewExitActive = false;
   bool _resizeJustEnded = false;
+  bool _moveJustEndedAtRest = false;
   Rect? _dragReleaseAnimationOrigin;
 
   @override
@@ -811,27 +817,31 @@ class _DesktopAnimatedWindowPositionState
     final layoutPreviewGeometryChanged =
         widget.rect != oldWidget.rect &&
         (widget.layoutPreviewing || oldWidget.layoutPreviewing);
+    _moveJustEndedAtRest = false;
     if (oldWidget.dragging && !widget.dragging) {
       final translation = ref
           .read(desktopLiveWindowPlacementsProvider)
           .settleTranslation(widget.placementObjectId);
+      final scale = oldWidget.pixelAlignmentInsets == null
+          ? null
+          : oldWidget.pixelGridScale ?? MediaQuery.devicePixelRatioOf(context);
       // The window was shown at whole pixels, not at the translation itself.
-      // Released where it already rests, it has nothing left to settle: a
-      // tween over a rounding remainder would only take it off the grid.
       final origin = translation == null
           ? null
           : oldWidget.rect.shift(
               translationOnPixelGrid(
                 translation,
-                devicePixelRatio: oldWidget.pixelAlignmentInsets == null
-                    ? null
-                    : oldWidget.pixelGridScale ??
-                          MediaQuery.devicePixelRatioOf(context),
+                devicePixelRatio: scale,
                 anchor: oldWidget.liveTranslationAnchor,
               ),
             );
-      _dragReleaseAnimationOrigin =
-          origin == null || _restsAt(origin, widget.rect) ? null : origin;
+      // Released where it rests, it has nothing left to settle: a tween over
+      // a pixel would scale the window and take it off the grid on the way.
+      // It takes its frame at once instead, as a resize does when it ends.
+      _moveJustEndedAtRest =
+          origin != null &&
+          _restsAt(origin, widget.rect, devicePixelRatio: scale);
+      _dragReleaseAnimationOrigin = _moveJustEndedAtRest ? null : origin;
     }
     if (oldWidget.layoutPreviewing && !widget.layoutPreviewing) {
       _layoutPreviewExitActive = true;
@@ -912,7 +922,10 @@ class _DesktopAnimatedWindowPositionState
     // Also commit the release rectangle immediately if the final pointer
     // sample and transaction end arrive in the same Flutter frame.
     final positionDuration =
-        widget.dragging || widget.resizing || _resizeJustEnded
+        widget.dragging ||
+            widget.resizing ||
+            _resizeJustEnded ||
+            _moveJustEndedAtRest
         ? Duration.zero
         : previewMotionActive && widget.duration != Duration.zero
         ? Motion.layoutTileReflow
