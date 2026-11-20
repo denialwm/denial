@@ -321,7 +321,18 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
             previous.activationSerial != input.activationSerial ||
             previous.contentPurpose != input.contentPurpose ||
             previous.contentHint != input.contentHint);
-    if (begins) setState(_beginEditor);
+    if (begins) {
+      setState(_beginEditor);
+    } else if (input.inputMethod != previous?.inputMethod) {
+      // An input method takes the field a moment after it opens: drop the
+      // sentence capital and suggestions it would turn into other words.
+      setState(() {
+        _requestedWord = null;
+        _prediction = null;
+        _strip.value = const [];
+        _updateAutoShift();
+      });
+    }
   }
 
   void _beginEditor() {
