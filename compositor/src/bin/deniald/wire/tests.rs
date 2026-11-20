@@ -925,6 +925,36 @@ fn panel_motion_decodes_height_and_duration_within_bounds() {
     assert!(bridge.pending_keyboard_commands.is_empty());
 }
 
+#[test]
+fn next_layout_decodes_without_a_payload() {
+    let mut bridge = bridge();
+    bridge
+        .handle(&keyboard_command(
+            fb::KeyboardCommandKind::NextLayout,
+            None,
+            None,
+            0,
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.pending_keyboard_commands.pop_front().unwrap(),
+        KeyboardCommand::NextLayout
+    );
+    for (text, key, flags) in [(Some("a"), None, 0), (None, Some("a"), 0), (None, None, 1)] {
+        assert!(
+            bridge
+                .handle(&keyboard_command(
+                    fb::KeyboardCommandKind::NextLayout,
+                    text,
+                    key,
+                    flags
+                ))
+                .is_err()
+        );
+    }
+    assert!(bridge.pending_keyboard_commands.is_empty());
+}
+
 fn keyboard_command(
     kind: fb::KeyboardCommandKind,
     text: Option<&str>,

@@ -550,6 +550,16 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
                 duration_ms: command.panel_duration_ms(),
             })
         }
+        fb::KeyboardCommandKind::NextLayout => {
+            if command.flags() != 0
+                || command.text().is_some()
+                || command.key().is_some()
+                || command.replaced().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(KeyboardCommand::NextLayout)
+        }
         fb::KeyboardCommandKind::Text => {
             if command.flags() != 0 {
                 return Err(WireError::Flags);

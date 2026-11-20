@@ -455,6 +455,9 @@ class DenialBridge {
   void dismissKeyboardPanel(int activationSerial) =>
       _input.dismissKeyboardPanel(activationSerial);
 
+  /// Switches every keyboard to the next configured layout, as Super+Space.
+  void nextKeyboardLayout() => _input.nextKeyboardLayout();
+
   /// Tells applications laid out around the keyboard (denial-insets-v1) that
   /// the keyboard panel starts moving to [height] logical pixels, zero when
   /// hidden, over [duration]. Once per motion, never per frame.

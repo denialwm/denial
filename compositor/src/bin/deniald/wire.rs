@@ -227,6 +227,8 @@ pub enum KeyboardCommand {
         replaced: String,
         text: String,
     },
+    /// Switches to the next configured keyboard layout.
+    NextLayout,
 }
 
 /// Pointer settings the shell edits, and whether a device of each kind exists.

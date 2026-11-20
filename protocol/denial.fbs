@@ -118,7 +118,9 @@ enum KeyboardCommandKind : ubyte {
   PanelMotion = 3,
   // Replaces `replaced`, the text just before the cursor, with `text`: an
   // autocorrection or a picked suggestion.
-  Replace = 4
+  Replace = 4,
+  // Switches the keyboard to its next configured layout, as Super+Space.
+  NextLayout = 5
 }
 
 enum SettingsRequestKind : ubyte {

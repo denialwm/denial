@@ -398,7 +398,8 @@ enum KeyboardCommandKind {
   Key(1),
   DismissPanel(2),
   PanelMotion(3),
-  Replace(4);
+  Replace(4),
+  NextLayout(5);
 
   final int value;
   const KeyboardCommandKind(this.value);
@@ -410,6 +411,7 @@ enum KeyboardCommandKind {
       case 2: return KeyboardCommandKind.DismissPanel;
       case 3: return KeyboardCommandKind.PanelMotion;
       case 4: return KeyboardCommandKind.Replace;
+      case 5: return KeyboardCommandKind.NextLayout;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -418,7 +420,7 @@ enum KeyboardCommandKind {
       value == null ? null : KeyboardCommandKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 4;
+  static const int maxValue = 5;
   static const fb.Reader<KeyboardCommandKind> reader = _KeyboardCommandKindReader();
 }
 

@@ -14,7 +14,7 @@ installed `en.words.gz` replaces the built-in one. Every installed language
 is on at once: a word from any list is a word, and a shortcut from one
 language never rewrites a word of another (`il` stays `il` with Italian on).
 The keyboard learns the languages from each answer and offers their accents
-on a long press.
+on a long press, with those of its layout's language.
 
 ## How it decides
 

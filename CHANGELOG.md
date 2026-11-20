@@ -19,6 +19,12 @@ boundaries may change before 1.0.
 
 ### Added
 
+- The on-screen keyboard shows the letters of the active keyboard layout:
+  AZERTY, QWERTZ, the Nordic, Spanish, Portuguese, Turkish, South Slavic,
+  Cyrillic, Greek, Hebrew and Arabic layouts, Dvorak and Colemak. A long
+  press offers the layout language's accents. With more than one layout set,
+  a language key switches to the next, for the hardware keyboard too, and the
+  space bar names the current one.
 - An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened
   after a change draw that many times larger than the screen's scale, at full
   sharpness; X11 apps follow through their DPI. The shell and Droidloom keep
@@ -167,6 +173,10 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- The on-screen keyboard types the character on its key whatever the
+  keyboard layout. It used to type through US key positions, so with French
+  set `a` typed `q`. A character the layout reaches only with AltGr, such as
+  `@` on the Italian layout, is typed with AltGr.
 - A click through an app's transparent part, such as around a desktop pet,
   reaches the top bar or whatever else of the shell is below it. An X11
   window that lets clicks through part of itself is drawn without Denial's

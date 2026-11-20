@@ -423,6 +423,15 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List encodeNextKeyboardLayout() {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.KeyboardCommand,
+      generated.KeyboardCommandObjectBuilder(
+        kind: generated.KeyboardCommandKind.NextLayout,
+      ),
+    );
+  }
+
   Uint8List encodeKeyboardPanelMotion(int height, Duration duration) {
     return _encodeEnvelope(
       generated.PayloadTypeId.KeyboardCommand,

@@ -954,15 +954,16 @@ impl flatbuffers::SimpleToVerifyInSlice for ShellActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_KEYBOARD_COMMAND_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 4;
+pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 5;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 5] = [
+pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 6] = [
   KeyboardCommandKind::Text,
   KeyboardCommandKind::Key,
   KeyboardCommandKind::DismissPanel,
   KeyboardCommandKind::PanelMotion,
   KeyboardCommandKind::Replace,
+  KeyboardCommandKind::NextLayout,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -975,15 +976,17 @@ impl KeyboardCommandKind {
   pub const DismissPanel: Self = Self(2);
   pub const PanelMotion: Self = Self(3);
   pub const Replace: Self = Self(4);
+  pub const NextLayout: Self = Self(5);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 4;
+  pub const ENUM_MAX: u8 = 5;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Text,
     Self::Key,
     Self::DismissPanel,
     Self::PanelMotion,
     Self::Replace,
+    Self::NextLayout,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -993,6 +996,7 @@ impl KeyboardCommandKind {
       Self::DismissPanel => Some("DismissPanel"),
       Self::PanelMotion => Some("PanelMotion"),
       Self::Replace => Some("Replace"),
+      Self::NextLayout => Some("NextLayout"),
       _ => None,
     }
   }
