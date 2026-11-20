@@ -15,11 +15,11 @@ conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source_x86_64=('manifest.json')
 source_aarch64=('manifest.aarch64.json')
-sha256sums_x86_64=('883af8b3691e69d7ab884b620654b4b0a6223cba732f417b9657adb71830a9d4')
-sha256sums_aarch64=('1c1c8b62c452802cac8788f11b6445462fe33d1953da1cc901dc47cb758c61e5')
+sha256sums_x86_64=('29d05e23c3c78cf5faa8f9502b3d31d1485dc7cba3eec1adf38dea00f27b14d6')
+sha256sums_aarch64=('499242517d69fdc00b98977677f61852715ef8ed5b9401b00fc1cde3920c47cf')
 
-_engine_sha256_x86_64='b4c09ba83d770d96bc4867e0718d13d7466f69ab20061a2b1dbf063041c13dad'
-_engine_sha256_aarch64='af2435ed14ce971fc249eaf2aa7bd2e5a0ef963069794db69396cb3c88a0fcff'
+_engine_sha256_x86_64='cdd7aae32b86469466be97e1c96b3ca036cfd8b9478ff170f65c32f2488aaa8a'
+_engine_sha256_aarch64='cf45f4855b20bcc3f52a87dc40bf9e906b8fd5c65bb6b157c591727e36a713ff'
 _icu_sha256='325a86063d26334c2eabe1743cea073b612540fbf3d8fc2ef0b5708e3763a8c7'
 
 package() {

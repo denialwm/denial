@@ -1,8 +1,8 @@
 buildtools_path = "//flutter/buildtools"
 is_debug = false
 optimize_for_size = false
-engine_version = "efc69a622716ea26f3197cb0d48589439ad25cb9"
-content_hash = "51a63525300b4ecf51359cf5f4d3afb1fd73c104"
+engine_version = "5845ae3ff403d8b1958c0742672f5ecb55fa1f01"
+content_hash = "572ed075e672b06cb50f0702770369cc54ad36c7"
 skia_version = "5b495e3e15a59ee76af882d83316d351654c1e88"
 dart_version = "b530c21f7de367b94fb04787bfed9d8e989d75e8"
 full_dart_sdk = false
