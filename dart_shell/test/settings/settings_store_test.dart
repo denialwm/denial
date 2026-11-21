@@ -9,10 +9,10 @@ void main() {
     final transport = _MemorySettingsTransport();
     final store = NativeSettingsStore(transport);
     const first = ShellSettings(
-      appearance: ShellAppearanceSettings(cornerRadiusScale: 0.75),
+      appearance: ShellAppearanceSettings(desktopCornerRadiusScale: 0.75),
     );
     const latest = ShellSettings(
-      appearance: ShellAppearanceSettings(cornerRadiusScale: 1.5),
+      appearance: ShellAppearanceSettings(desktopCornerRadiusScale: 1.5),
     );
 
     await Future.wait(<Future<void>>[store.write(first), store.write(latest)]);
@@ -31,7 +31,7 @@ void main() {
       final transport = _MemorySettingsTransport()..conflictNextWrite = true;
       final store = NativeSettingsStore(transport);
       const settings = ShellSettings(
-        appearance: ShellAppearanceSettings(cornerRadiusScale: 1.25),
+        appearance: ShellAppearanceSettings(desktopCornerRadiusScale: 1.25),
       );
 
       await store.write(settings);

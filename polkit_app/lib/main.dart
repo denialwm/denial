@@ -146,7 +146,14 @@ class DialogApp extends ConsumerWidget {
       colors: light ? ShellColorScheme.light : ShellColorScheme.dark,
       accent: accent.color,
       fontFamily: appearance.fontFamily,
-      cornerRadiusScale: appearance.cornerRadiusScale,
+      cornerRadiusScale: appearance.cornerRadiusScale(
+        mobile:
+            denialEnvironmentValue(
+              Platform.environment,
+              'DENIAL_SHELL_PROFILE',
+            ) ==
+            'mobile',
+      ),
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
       transparencyMode: appearance.transparencyMode,

@@ -69,6 +69,7 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
       // Application materials resolve content and sidebar appearances according
       // to the background they sample, using Denial's shared SDK policy.
       final light = appearance['colorSchemePreference'] == 'preferLight';
+      final mobile = Platform.environment['DENIAL_SHELL_PROFILE'] == 'mobile';
       final colors = light ? ShellColorScheme.light : ShellColorScheme.dark;
       final custom = appearance['customAccentColor'];
       final resolved = ShellThemeData(
@@ -78,7 +79,12 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
             : ShellBrandColors.defaultAccent,
         fontFamily: appearance['fontFamily'] as String? ?? '',
         cornerRadiusScale:
-            (appearance['cornerRadiusScale'] as num?)?.toDouble() ?? 1,
+            (appearance[mobile
+                        ? 'mobileCornerRadiusScale'
+                        : 'desktopCornerRadiusScale']
+                    as num?)
+                ?.toDouble() ??
+            const ShellAppearanceSettings().cornerRadiusScale(mobile: mobile),
         panelOpacity:
             (appearance['panelOpacity'] as num?)?.toDouble() ??
             ShellOpacity.panel,

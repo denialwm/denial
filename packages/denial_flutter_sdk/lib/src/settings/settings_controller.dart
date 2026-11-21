@@ -214,14 +214,6 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(fontFamily: family);
   }
 
-  void setCornerRadiusScale(double value) {
-    _updateAppearance(
-      cornerRadiusScale: value
-          .clamp(ShellRoundness.minimum, ShellRoundness.maximum)
-          .toDouble(),
-    );
-  }
-
   void setPanelOpacity(double value) {
     _updateAppearance(
       panelOpacity: value.clamp(ShellOpacity.minimumPanel, 1).toDouble(),
@@ -783,7 +775,6 @@ class ShellSettingsController extends Notifier<ShellSettings> {
 
   void _updateAppearance({
     String? fontFamily,
-    double? cornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -802,7 +793,6 @@ class ShellSettingsController extends Notifier<ShellSettings> {
       state.copyWith(
         appearance: state.appearance.copyWith(
           fontFamily: fontFamily,
-          cornerRadiusScale: cornerRadiusScale,
           panelOpacity: panelOpacity,
           cardOpacity: cardOpacity,
           transparencyMode: transparencyMode,

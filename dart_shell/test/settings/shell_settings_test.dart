@@ -16,7 +16,8 @@ void main() {
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
         fontFamily: 'Noto Sans',
-        cornerRadiusScale: 1.35,
+        desktopCornerRadiusScale: 1.35,
+        mobileCornerRadiusScale: 0.7,
         panelOpacity: 0.78,
         transparencyMode: ShellTransparencyMode.glass,
         backdropBlurLevel: ShellBackdropBlurLevel.best,
@@ -135,7 +136,8 @@ void main() {
       'appearance': <String, dynamic>{
         'accentSource': 'future-source',
         'fontFamily': 'invalid\u0000family',
-        'windowRadius': 400,
+        'desktopCornerRadiusScale': 400,
+        'mobileCornerRadiusScale': -3,
         'panelOpacity': 0.01,
         'cursorSize': 400,
         'cursorThemeId': '\u0000invalid',
@@ -163,7 +165,11 @@ void main() {
     expect(settings.localization.locale, ShellLocalePreference.system);
     expect(settings.appearance.accentSource, ShellAccentSource.custom);
     expect(settings.appearance.fontFamily, isEmpty);
-    expect(settings.appearance.cornerRadiusScale, ShellRoundness.maximum);
+    expect(
+      settings.appearance.desktopCornerRadiusScale,
+      ShellRoundness.maximum,
+    );
+    expect(settings.appearance.mobileCornerRadiusScale, ShellRoundness.minimum);
     expect(settings.appearance.panelOpacity, ShellOpacity.minimumPanel);
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.appearance.cursorThemeId, 'bibata_modern_ice');
@@ -236,14 +242,21 @@ void main() {
     expect(ShellSettings.fromJson(settings.toJson()), settings);
   });
 
-  test('legacy panel radius migrates to the global roundness scale', () {
+  test('the desktop and the mobile shell have roundness of their own', () {
+    // The one roundness kept before is not read: each takes its default.
     final settings = ShellSettings.fromJson(<String, dynamic>{
-      'appearance': <String, dynamic>{'panelRadius': 42},
+      'appearance': <String, dynamic>{
+        'cornerRadiusScale': 1.8,
+        'monitorCornerRadiusScale': 1.2,
+        'panelRadius': 42,
+      },
     });
 
-    expect(settings.appearance.cornerRadiusScale, 1.5);
+    expect(settings.appearance.cornerRadiusScale(mobile: false), 0.5);
+    expect(settings.appearance.cornerRadiusScale(mobile: true), 1.0);
     final appearance = settings.toJson()['appearance']! as Map<String, Object>;
-    expect(appearance.containsKey('windowRadius'), isFalse);
+    expect(appearance.containsKey('cornerRadiusScale'), isFalse);
+    expect(appearance.containsKey('monitorCornerRadiusScale'), isFalse);
     expect(appearance.containsKey('panelRadius'), isFalse);
   });
 

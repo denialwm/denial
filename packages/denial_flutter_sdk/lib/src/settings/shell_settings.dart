@@ -117,8 +117,8 @@ class ShellAppearanceSettings {
     this.accentSource = ShellAccentSource.custom,
     this.customAccentColor = const Color(0xff6b3f73),
     this.fontFamily = '',
-    this.cornerRadiusScale = 0.5,
-    this.monitorCornerRadiusScale = 0.5,
+    this.desktopCornerRadiusScale = 0.5,
+    this.mobileCornerRadiusScale = 1.0,
     this.panelOpacity = 0.5,
     this.cardOpacity = 0.4421052631578947,
     this.transparencyMode = ShellTransparencyMode.glass,
@@ -139,11 +139,17 @@ class ShellAppearanceSettings {
   final ShellAccentSource accentSource;
   final Color customAccentColor;
   final String fontFamily;
-  final double cornerRadiusScale;
 
-  /// The corners on a monitor beside a phone, whose own scale is tuned for
-  /// the mobile shell.
-  final double monitorCornerRadiusScale;
+  /// The corners of the desktop shell, on a monitor beside a phone too, and
+  /// of its windows.
+  final double desktopCornerRadiusScale;
+
+  /// The corners of the mobile shell and of its apps.
+  final double mobileCornerRadiusScale;
+
+  /// The corners in the mobile shell when [mobile], else in the desktop one.
+  double cornerRadiusScale({required bool mobile}) =>
+      mobile ? mobileCornerRadiusScale : desktopCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -169,8 +175,8 @@ class ShellAppearanceSettings {
     ShellAccentSource? accentSource,
     Color? customAccentColor,
     String? fontFamily,
-    double? cornerRadiusScale,
-    double? monitorCornerRadiusScale,
+    double? desktopCornerRadiusScale,
+    double? mobileCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -192,9 +198,10 @@ class ShellAppearanceSettings {
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
       fontFamily: fontFamily ?? this.fontFamily,
-      cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
-      monitorCornerRadiusScale:
-          monitorCornerRadiusScale ?? this.monitorCornerRadiusScale,
+      desktopCornerRadiusScale:
+          desktopCornerRadiusScale ?? this.desktopCornerRadiusScale,
+      mobileCornerRadiusScale:
+          mobileCornerRadiusScale ?? this.mobileCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -224,8 +231,8 @@ class ShellAppearanceSettings {
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
         other.fontFamily == fontFamily &&
-        other.cornerRadiusScale == cornerRadiusScale &&
-        other.monitorCornerRadiusScale == monitorCornerRadiusScale &&
+        other.desktopCornerRadiusScale == desktopCornerRadiusScale &&
+        other.mobileCornerRadiusScale == mobileCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -248,8 +255,8 @@ class ShellAppearanceSettings {
     accentSource,
     customAccentColor,
     fontFamily,
-    cornerRadiusScale,
-    monitorCornerRadiusScale,
+    desktopCornerRadiusScale,
+    mobileCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,
@@ -1206,13 +1213,14 @@ class ShellSettings {
       if (appearance.fontFamily != before.fontFamily) {
         section['fontFamily'] = appearance.fontFamily;
       }
-      if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
-        section['cornerRadiusScale'] = appearance.cornerRadiusScale;
+      if (appearance.desktopCornerRadiusScale !=
+          before.desktopCornerRadiusScale) {
+        section['desktopCornerRadiusScale'] =
+            appearance.desktopCornerRadiusScale;
       }
-      if (appearance.monitorCornerRadiusScale !=
-          before.monitorCornerRadiusScale) {
-        section['monitorCornerRadiusScale'] =
-            appearance.monitorCornerRadiusScale;
+      if (appearance.mobileCornerRadiusScale !=
+          before.mobileCornerRadiusScale) {
+        section['mobileCornerRadiusScale'] = appearance.mobileCornerRadiusScale;
       }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
@@ -1478,8 +1486,8 @@ class ShellSettings {
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
         'fontFamily': appearance.fontFamily,
-        'cornerRadiusScale': appearance.cornerRadiusScale,
-        'monitorCornerRadiusScale': appearance.monitorCornerRadiusScale,
+        'desktopCornerRadiusScale': appearance.desktopCornerRadiusScale,
+        'mobileCornerRadiusScale': appearance.mobileCornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
         'transparencyMode': appearance.transparencyMode.name,
@@ -1583,26 +1591,6 @@ class ShellSettings {
             hoverTriggerEnabled: legacyHoverTriggersEnabled,
           )
         : defaults.overlays.dashboard;
-    var legacyCornerRadiusScale = defaults.appearance.cornerRadiusScale;
-    if (appearanceJson.containsKey('panelRadius')) {
-      legacyCornerRadiusScale =
-          _number(
-            appearanceJson['panelRadius'],
-            ShellRadii.panel,
-            0,
-            ShellRadii.panel * ShellRoundness.maximum,
-          ) /
-          ShellRadii.panel;
-    } else if (appearanceJson.containsKey('windowRadius')) {
-      legacyCornerRadiusScale =
-          _number(
-            appearanceJson['windowRadius'],
-            ShellRadii.window,
-            0,
-            ShellRadii.window * ShellRoundness.maximum,
-          ) /
-          ShellRadii.window;
-    }
     final outputNames = <String>[];
     for (final value in _list(layoutJson['systemBarOutputs'])) {
       if (value is! String) {
@@ -1678,15 +1666,15 @@ class ShellSettings {
           appearanceJson['fontFamily'],
           defaults.appearance.fontFamily,
         ),
-        cornerRadiusScale: _number(
-          appearanceJson['cornerRadiusScale'],
-          legacyCornerRadiusScale,
+        desktopCornerRadiusScale: _number(
+          appearanceJson['desktopCornerRadiusScale'],
+          defaults.appearance.desktopCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),
-        monitorCornerRadiusScale: _number(
-          appearanceJson['monitorCornerRadiusScale'],
-          defaults.appearance.monitorCornerRadiusScale,
+        mobileCornerRadiusScale: _number(
+          appearanceJson['mobileCornerRadiusScale'],
+          defaults.appearance.mobileCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),

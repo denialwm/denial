@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
+import 'package:denial_flutter_sdk/settings.dart' show ShellAppearanceSettings;
 import 'package:denial_flutter_sdk/effects.dart';
 
 /// A separate AOT entry point for Denial's render-node-only profiling worker.
@@ -33,7 +34,9 @@ Future<void> main() async {
     glass: ShellGlassConfiguration.fromJson(appearance['glass']),
     panelOpacity: (appearance['panelOpacity'] as num).toDouble(),
     cardOpacity: (appearance['cardOpacity'] as num).toDouble(),
-    cornerRadiusScale: (appearance['cornerRadiusScale'] as num).toDouble(),
+    cornerRadiusScale:
+        (appearance['desktopCornerRadiusScale'] as num?)?.toDouble() ??
+        const ShellAppearanceSettings().desktopCornerRadiusScale,
   );
   await File(output).create(exclusive: true);
   final timeline = await _TimelineCapture.start(output);

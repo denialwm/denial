@@ -121,7 +121,9 @@ class DenialShell extends ConsumerWidget {
       colors: colors,
       accent: accent,
       fontFamily: appearance.fontFamily,
-      cornerRadiusScale: appearance.cornerRadiusScale,
+      cornerRadiusScale: appearance.cornerRadiusScale(
+        mobile: effectivePresentation == ReferenceShellProfile.mobile,
+      ),
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
       transparencyMode: appearance.transparencyMode,
@@ -230,9 +232,9 @@ class _PhoneDeskScene extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final split = this.split;
     final active = ref.read(activeShellPartProvider.notifier);
-    final monitorCornerRadiusScale = ref.watch(
+    final deskCornerRadiusScale = ref.watch(
       shellSettingsProvider.select(
-        (settings) => settings.appearance.monitorCornerRadiusScale,
+        (settings) => settings.appearance.desktopCornerRadiusScale,
       ),
     );
     Widget part(ShellPart part, Widget child) => Listener(
@@ -249,11 +251,11 @@ class _PhoneDeskScene extends ConsumerWidget {
             key: const ValueKey(ShellPart.desk),
             child: part(
               ShellPart.desk,
-              // The desk keeps its own corners; the phone's are tuned for the
-              // mobile shell.
+              // The desk is a desktop and has the desktop's corners; the
+              // phone keeps the mobile shell's.
               ShellTheme(
                 data: ShellTheme.of(context)
-                    .copyWith(cornerRadiusScale: monitorCornerRadiusScale),
+                    .copyWith(cornerRadiusScale: deskCornerRadiusScale),
                 child: _ProfileScene(
                   profile: ReferenceShellProfile.desktop,
                   policyProfile: policyProfile,

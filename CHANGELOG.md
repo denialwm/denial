@@ -16,6 +16,12 @@ boundaries may change before 1.0.
   with Vulkan: the packages now depend on the Vulkan loader. The Flutter
   Settings application is gone. On a phone the package takes the place of
   `denial-app-settings`.
+- Roundness is two settings: one for the desktop shell, a monitor beside a
+  phone included (`appearance.desktopCornerRadiusScale`, 0.5), and one for
+  the mobile shell (`appearance.mobileCornerRadiusScale`, 1.0). Each shell
+  and the apps in it take their own. The single roundness kept before
+  (`cornerRadiusScale`, `monitorCornerRadiusScale`) is no longer read, so
+  both start from their defaults.
 
 ### Added
 
@@ -44,8 +50,8 @@ boundaries may change before 1.0.
   a window on the phone's screen, or opening it from the phone, brings it
   back. With the monitor in use the power button turns off only the phone,
   each screen dims on its own, and unplugging moves the monitor's windows to
-  the phone until it returns. The monitor has its own roundness
-  (`appearance.monitorCornerRadiusScale`) and its own wallpaper, placed and
+  the phone until it returns. The monitor has the desktop's roundness
+  (`appearance.desktopCornerRadiusScale`) and its own wallpaper, placed and
   zoomed apart from the phone's (`outputZooms` in the wallpaper file). See
   [docs/PHONE_AND_MONITOR.md](docs/PHONE_AND_MONITOR.md).
 - Color management. Output buffers are 10-bit where the display planes allow

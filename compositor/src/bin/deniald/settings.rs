@@ -1671,8 +1671,6 @@ fn seed_mobile_appearance(document: &mut Map<String, Value>) {
         .and_then(Value::as_object_mut)
         .expect("default appearance is an object");
     appearance.insert("customAccentColor".to_owned(), Value::from(0xFFD0_BCFF_u32));
-    appearance.insert("cornerRadiusScale".to_owned(), Value::from(1.6));
-    appearance.insert("monitorCornerRadiusScale".to_owned(), Value::from(0.4));
     // All three opacities: the shell seeds missing ones from `opacity`.
     appearance.insert(
         "glass".to_owned(),
