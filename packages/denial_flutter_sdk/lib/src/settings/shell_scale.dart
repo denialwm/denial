@@ -16,7 +16,7 @@ abstract final class ShellScale {
 
   /// The shell's scale on a built-in panel the handheld density rule scaled:
   /// the desktop shell is drawn at desktop sizes, which come out small on
-  /// such a panel. 1.75 was far too large on the Pad 4.
+  /// such a panel.
   static const double handheldPanel = 1.25;
 
   /// The scale a screen takes when none is stored for it.
