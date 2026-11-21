@@ -1333,6 +1333,7 @@ impl XwmHandler for RuntimeState {
             WmWindowProperty::NormalHints
                 | WmWindowProperty::TransientFor
                 | WmWindowProperty::WindowType
+                | WmWindowProperty::MotifHints
         ) && let Some(element) = window_for_x11(self, &window)
         {
             self.frontend_mut().reconcile_window_layout(&element);

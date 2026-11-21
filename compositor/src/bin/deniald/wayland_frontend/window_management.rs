@@ -32,9 +32,7 @@ use super::clamp_window_geometry;
 #[cfg(feature = "flutter")]
 use super::focus::clear_keyboard_focus;
 use super::focus::request_keyboard_focus;
-use super::managed_window::{
-    ClientStateRequestKind, ClientWindowState, ManagedWindow, toplevel_draws_title_bar,
-};
+use super::managed_window::{ClientStateRequestKind, ClientWindowState, ManagedWindow};
 #[cfg(feature = "flutter")]
 use super::window_presentation::{
     ShellFixedMaximizeTransition, ShellFullscreenExit, ShellWindowPresentation,
@@ -145,7 +143,7 @@ impl ShellFrames {
     /// The frames of `window`: without their title bars when its client
     /// draws its own.
     pub(super) fn of_window(self, window: &Window) -> Self {
-        if window.toplevel().is_some_and(toplevel_draws_title_bar) {
+        if ManagedWindow::new(window).is_some_and(|window| window.facts().client_title_bar) {
             self.without_title_bar()
         } else {
             self

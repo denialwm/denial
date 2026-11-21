@@ -20,7 +20,7 @@ use smithay::wayland::shell::xdg::{
     SurfaceCachedState, ToplevelCachedState, ToplevelState, ToplevelSurface, XdgToplevelSurfaceData,
 };
 #[cfg(feature = "xwayland")]
-use smithay::xwayland::xwm::{WmWindowType, X11Surface};
+use smithay::xwayland::xwm::{MwmDecorationsHint, WmWindowType, X11Surface};
 #[cfg(feature = "xwayland")]
 use tracing::warn;
 
@@ -178,6 +178,18 @@ pub(super) fn set_x11_click_through(surface: &X11Surface, click_through: bool) {
     }
 }
 
+/// Whether an X11 client's Motif decoration hint leaves the title bar out,
+/// as Steam's does: it draws its own. Without the hint every decoration is
+/// wanted; with `ALL` the listed parts are the ones left out, without it the
+/// listed parts are the only ones wanted.
+#[cfg(feature = "xwayland")]
+fn motif_hides_title_bar(decorations: Option<MwmDecorationsHint>) -> bool {
+    decorations.is_some_and(|decorations| {
+        decorations.contains(MwmDecorationsHint::ALL)
+            == decorations.contains(MwmDecorationsHint::TITLE)
+    })
+}
+
 #[cfg(feature = "xwayland")]
 fn x11_click_through(surface: &X11Surface) -> bool {
     surface
@@ -270,8 +282,8 @@ impl<'a> ManagedWindow<'a> {
                         maximized: surface.is_maximized(),
                         resizing: false,
                     },
-                    // Client motif hints do not choose Denial's frame policy.
-                    // Protocol-level popups and override-redirect surfaces are
+                    // Motif hints do not take Denial's frame away, only its
+                    // title bar (`client_title_bar`). Protocol-level popups and override-redirect surfaces are
                     // excluded from the managed toplevel frame, and so is a
                     // window that lets clicks through part of its rectangle:
                     // a frame around a desktop pet's transparent area would
@@ -279,7 +291,7 @@ impl<'a> ManagedWindow<'a> {
                     server_side_decorated: !surface.is_override_redirect()
                         && !protocol_popup
                         && !x11_click_through(surface),
-                    client_title_bar: false,
+                    client_title_bar: motif_hides_title_bar(surface.motif_hints().decorations),
                     auxiliary,
                     override_redirect: surface.is_override_redirect(),
                     minimum_size: surface.min_size().unwrap_or_else(|| Size::from((0, 0))),
@@ -819,7 +831,7 @@ pub(super) fn set_client_title_bar(surface: &ToplevelSurface, draws: bool) {
     });
 }
 
-pub(super) fn toplevel_draws_title_bar(surface: &ToplevelSurface) -> bool {
+fn toplevel_draws_title_bar(surface: &ToplevelSurface) -> bool {
     if !surface.wl_surface().is_alive() {
         return false;
     }
@@ -834,6 +846,20 @@ pub(super) fn toplevel_draws_title_bar(surface: &ToplevelSurface) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "xwayland")]
+    #[test]
+    fn a_motif_hint_without_the_title_bar_hides_only_the_title_bar() {
+        use MwmDecorationsHint as Hint;
+        // No hint, or every decoration: Denial's title bar stays.
+        assert!(!motif_hides_title_bar(None));
+        assert!(!motif_hides_title_bar(Some(Hint::ALL)));
+        assert!(!motif_hides_title_bar(Some(Hint::TITLE | Hint::BORDER)));
+        // No decorations at all (Steam), or all but the title bar.
+        assert!(motif_hides_title_bar(Some(Hint::empty())));
+        assert!(motif_hides_title_bar(Some(Hint::BORDER | Hint::RESIZEH)));
+        assert!(motif_hides_title_bar(Some(Hint::ALL | Hint::TITLE)));
+    }
 
     fn sized(width: i32) -> ToplevelState {
         ToplevelState {
