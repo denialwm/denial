@@ -85,6 +85,7 @@ class _DesktopInputLayoutPublisherState
       ),
     );
     ref.watch(desktopLauncherProvider);
+    ref.watch(desktopWindowFrameProvider);
     ref.watch(deskDisplayLayoutProvider);
     ref.watch(phoneDeskProvider);
     ref.watch(shellInteractionRegistryProvider);

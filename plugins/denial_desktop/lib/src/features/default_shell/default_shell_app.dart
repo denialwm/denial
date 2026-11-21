@@ -58,7 +58,7 @@ class DenialShellApp extends StatelessWidget {
         desktopActionsProvider.overrideWithValue(actions),
         desktopPetHoldsProvider.overrideWithValue(desktopPetHolds),
         desktopPetShadowsProvider.overrideWithValue(desktopPetShadows),
-        desktopWindowFrameProvider.overrideWithValue(desktopWindowFrame),
+        pluginWindowFrameProvider.overrideWithValue(desktopWindowFrame),
       ],
       child: DenialShell(
         desktopWorkArea: desktopWorkArea,

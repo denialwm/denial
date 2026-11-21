@@ -12,6 +12,7 @@ import 'package:denial_flutter_sdk/shell.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
+import 'package:denial_flutter_sdk/window_frames.dart' show ShellWindowFrame;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -79,10 +80,32 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ref.read(desktopPowerModesProvider);
     });
     final bridge = ref.read(denialBridgeProvider);
+    _useWindowFrame(ref.read(desktopWindowFrameProvider));
     _useOutputScales(ref.read(deskDisplayLayoutProvider));
     _declareWindowFrames();
     _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
   }
+
+  /// The window frame whose margins the metrics hold.
+  ShellWindowFrame? _windowFrame;
+
+  /// Takes the margins of [frame], or of the desktop's own border without
+  /// one. Returns whether the frame changed.
+  bool _useWindowFrame(ShellWindowFrame? frame) {
+    if (identical(frame, _windowFrame) && _windowFrameApplied) {
+      return false;
+    }
+    _windowFrame = frame;
+    _windowFrameApplied = true;
+    DesktopMetrics.useWindowFrameMargins(
+      frame?.margins,
+      maximized: frame?.maximizedMargins,
+      reach: frame?.reach,
+    );
+    return true;
+  }
+
+  bool _windowFrameApplied = false;
 
   /// Takes the shell's own scale on each output from [layout]. Returns
   /// whether the frames changed with it.
@@ -1007,7 +1030,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final nativeDisplayLayout = ref.watch(deskDisplayLayoutProvider);
     // Placements read their frames from the metrics as they build, so the
     // metrics change before anything below builds.
-    if (_useOutputScales(nativeDisplayLayout)) {
+    final frameChanged = _useWindowFrame(ref.watch(desktopWindowFrameProvider));
+    if (_useOutputScales(nativeDisplayLayout) || frameChanged) {
       scheduleMicrotask(() {
         if (mounted) _declareWindowFrames();
       });

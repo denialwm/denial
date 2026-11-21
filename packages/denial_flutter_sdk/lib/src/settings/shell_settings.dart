@@ -319,6 +319,7 @@ class ShellAnimationSettings {
 class ShellLayoutSettings {
   const ShellLayoutSettings({
     this.windowLayout = DesktopWindowLayout.stacking,
+    this.windowFrames = false,
     this.keyboardResizeStep = '2%',
     this.scrollingLayoutPreserveSwapSizes = true,
     this.scrollingLayoutWheelSpeed = scrollingLayoutWheelSpeedDefault,
@@ -338,6 +339,11 @@ class ShellLayoutSettings {
 
   final DesktopWindowLayout windowLayout;
 
+  /// Whether the stacking layout draws Denial's own window frames, a title
+  /// bar with caption buttons, around decorated windows. Other layouts and a
+  /// window frame plugin ignore it.
+  final bool windowFrames;
+
   /// Native-validated pixel or percentage amount, preserved across UI saves.
   final String keyboardResizeStep;
   final bool scrollingLayoutPreserveSwapSizes;
@@ -356,6 +362,7 @@ class ShellLayoutSettings {
 
   ShellLayoutSettings copyWith({
     DesktopWindowLayout? windowLayout,
+    bool? windowFrames,
     String? keyboardResizeStep,
     bool? scrollingLayoutPreserveSwapSizes,
     double? scrollingLayoutWheelSpeed,
@@ -374,6 +381,7 @@ class ShellLayoutSettings {
   }) {
     return ShellLayoutSettings(
       windowLayout: windowLayout ?? this.windowLayout,
+      windowFrames: windowFrames ?? this.windowFrames,
       keyboardResizeStep: keyboardResizeStep ?? this.keyboardResizeStep,
       scrollingLayoutPreserveSwapSizes:
           scrollingLayoutPreserveSwapSizes ??
@@ -406,6 +414,7 @@ class ShellLayoutSettings {
   bool operator ==(Object other) {
     return other is ShellLayoutSettings &&
         other.windowLayout == windowLayout &&
+        other.windowFrames == windowFrames &&
         other.keyboardResizeStep == keyboardResizeStep &&
         other.scrollingLayoutPreserveSwapSizes ==
             scrollingLayoutPreserveSwapSizes &&
@@ -427,6 +436,7 @@ class ShellLayoutSettings {
   @override
   int get hashCode => Object.hash(
     windowLayout,
+    windowFrames,
     keyboardResizeStep,
     scrollingLayoutPreserveSwapSizes,
     scrollingLayoutWheelSpeed,
@@ -1267,6 +1277,9 @@ class ShellSettings {
       if (layout.windowLayout != before.windowLayout) {
         section['windowLayout'] = layout.windowLayout.name;
       }
+      if (layout.windowFrames != before.windowFrames) {
+        section['windowFrames'] = layout.windowFrames;
+      }
       if (layout.scrollingLayoutPreserveSwapSizes !=
           before.scrollingLayoutPreserveSwapSizes) {
         section['scrollingLayoutPreserveSwapSizes'] =
@@ -1486,6 +1499,7 @@ class ShellSettings {
       },
       'layout': <String, Object?>{
         'windowLayout': layout.windowLayout.name,
+        'windowFrames': layout.windowFrames,
         'keyboardResizeStep': layout.keyboardResizeStep,
         'scrollingLayoutPreserveSwapSizes':
             layout.scrollingLayoutPreserveSwapSizes,
@@ -1753,6 +1767,9 @@ class ShellSettings {
           layoutJson['windowLayout'],
           defaults.layout.windowLayout,
         ),
+        windowFrames: layoutJson['windowFrames'] is bool
+            ? layoutJson['windowFrames'] as bool
+            : defaults.layout.windowFrames,
         scrollingLayoutWheelSpeed: _number(
           layoutJson['scrollingLayoutWheelSpeed'],
           defaults.layout.scrollingLayoutWheelSpeed,

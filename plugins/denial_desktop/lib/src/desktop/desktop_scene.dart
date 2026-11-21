@@ -775,6 +775,8 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
     );
     final windowsById = topology.windowsById;
     final desktopVisible = ref.watch(desktopVisibleProvider);
+    // The frame decides how windows are framed and laid out on the desktop.
+    ref.watch(desktopWindowFrameProvider);
     final popupSurfaces = topology.popupSurfaces;
     final placements = topology.placements
         .where(
