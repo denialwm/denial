@@ -285,6 +285,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
                   serverSideDecorated: window.serverSideDecorated,
                   maximized: window.maximized,
                   serverFrameWhileMaximized: serverFrameWhileMaximized,
+                  monitorId: window.monitorId,
                 ),
           z: nextZ++,
           monitorId: window.monitorId,
@@ -365,6 +366,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
                   serverSideDecorated: nativeServerSideDecorated,
                   maximized: nativeMaximized,
                   serverFrameWhileMaximized: serverFrameWhileMaximized,
+                  monitorId: nativeMonitorId,
                 );
           final pendingFrame = _pendingFlutterProposedFrames[window.objectId];
           final nativeAcknowledgedPending =
@@ -398,6 +400,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
             serverSideDecorated: nativeServerSideDecorated,
             maximized: nativeMaximized,
             serverFrameWhileMaximized: serverFrameWhileMaximized,
+            monitorId: nativeMonitorId,
           );
         }
         final pendingWorkspace = _pendingWorkspaceMoves[window.objectId];
@@ -834,6 +837,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       serverSideDecorated: placement.serverSideDecorated,
       maximized: placement.maximized,
       serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
+      monitorId: placement.monitorId,
     );
     final ending = event.phase == DenialWindowPlacementPhase.end;
     if (placement.dragging) {
@@ -1263,6 +1267,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
             serverSideDecorated: placement.serverSideDecorated,
             maximized: placement.maximized,
             serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
+            monitorId: metadataIsNew ? event.monitorId : placement.monitorId,
           )
         : placement.frame;
     final updated = placement.copyWith(
@@ -1527,11 +1532,15 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     required bool serverSideDecorated,
     required bool maximized,
     required bool serverFrameWhileMaximized,
+    required int monitorId,
   }) {
+    // The frame on the window's own output, as contentRect takes it off
+    // again: other margins here would change the window on every round.
     return DesktopMetrics.windowFrameMargins(
       serverSideDecorated: serverSideDecorated,
       maximized: maximized,
       serverFrameWhileMaximized: serverFrameWhileMaximized,
+      monitorId: monitorId,
     ).inflateRect(contentRect);
   }
 
