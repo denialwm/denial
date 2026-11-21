@@ -273,11 +273,7 @@ impl WaylandFrontend {
                 let Some((work_area, _)) = self.place_output(monitor_id, current) else {
                     return Resolved::Refused;
                 };
-                let margins = if share.is_whole() {
-                    self.maximized_frame_for(window)
-                } else {
-                    self.frame_for(window)
-                };
+                let margins = self.frame_at(window, work_area, share.is_whole());
                 Resolved::Exact(Placed::framed(share.of(work_area), margins))
             }
             WindowPlace::Fullscreen { monitor_id } => {
@@ -332,14 +328,29 @@ impl WaylandFrontend {
         }
     }
 
-    /// Declares the frames the shell draws, and returns whether they changed.
-    /// Every rectangle that depends on a frame is placed again.
+    /// Declares the frames the shell draws, on every output or with
+    /// `monitor_id` on that one only, and returns whether they changed. The
+    /// frames for every output forget those of single outputs, which the
+    /// shell declares after them. Every rectangle that depends on a frame is
+    /// placed again.
     pub(super) fn set_shell_frames(
         &mut self,
+        monitor_id: Option<i64>,
         frames: super::window_management::ShellFrames,
     ) -> bool {
         self.shell_frames_declared = true;
-        self.apply_shell_frames(frames)
+        match monitor_id {
+            None => self.apply_shell_frames(frames),
+            Some(monitor_id) => {
+                if self.output_shell_frames.get(&monitor_id) == Some(&frames) {
+                    return false;
+                }
+                self.output_shell_frames.insert(monitor_id, frames);
+                self.arrange_layout_windows();
+                self.replace_shell_placed_windows();
+                true
+            }
+        }
     }
 
     /// Called once a replacement shell is up: one that declared no frame
@@ -350,7 +361,9 @@ impl WaylandFrontend {
     }
 
     fn apply_shell_frames(&mut self, frames: super::window_management::ShellFrames) -> bool {
-        if self.shell_frames == frames {
+        let had_output_frames = !self.output_shell_frames.is_empty();
+        self.output_shell_frames.clear();
+        if self.shell_frames == frames && !had_output_frames {
             return false;
         }
         self.shell_frames = frames;
@@ -686,7 +699,7 @@ fn place_local_window(
                 ..current
             },
         );
-        let margins = frontend.shell_frames.window(true);
+        let margins = frontend.shell_frames_at(current).window(true);
         let before = Placed::around(current, margins);
         let (resolved, action) = match place {
             WindowPlace::Free(frame) => (
@@ -698,7 +711,7 @@ fn place_local_window(
                 let (work_area, _) = frontend.place_output(monitor_id, current)?;
                 if share.is_whole() {
                     let margins = frontend
-                        .shell_frames
+                        .shell_frames_at(work_area)
                         .maximized_window(true, frontend.window_layout_manages_geometry());
                     (
                         Some(Placed::framed(work_area, margins)),

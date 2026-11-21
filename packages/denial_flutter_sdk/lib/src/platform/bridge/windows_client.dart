@@ -395,10 +395,12 @@ final class BridgeWindowsClient {
   bool configureWindowFrame(
     DenialWindowFrameMargins margins, {
     DenialWindowFrameMargins? maximized,
+    int? monitorId,
   }) {
     final bytes = _context.codec.encodeWindowFrame(
       margins,
       maximized: maximized,
+      monitorId: monitorId,
     );
     if (bytes == null) {
       return false;

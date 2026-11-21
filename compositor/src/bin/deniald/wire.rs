@@ -20,8 +20,8 @@ use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
 use super::options::{
-    MAX_MAXIMIZE_PADDING, MAX_SYSTEM_BAR_THICKNESS, SystemBarOptions, SystemBarSide,
-    WorkAreaOptions,
+    MAX_MAXIMIZE_PADDING, MAX_SYSTEM_BAR_THICKNESS, OutputWorkArea, SystemBarOptions,
+    SystemBarSide, WorkAreaOptions,
 };
 use super::settings::{KeyboardLayout, KeyboardSettings, MouseSettings, TouchpadSettings};
 use super::wayland_frontend::SoftwareKeyboardState;
@@ -266,8 +266,11 @@ pub enum WindowCommand {
         edges: u32,
     },
     /// The frame the shell draws around every window it decorates, and the
-    /// one it draws around a maximized window when that differs.
+    /// one it draws around a maximized window when that differs: on every
+    /// output, or with `monitor_id` on that output only, where it stands over
+    /// the frame for every output.
     ConfigureFrame {
+        monitor_id: Option<i64>,
         margins: WindowFrameMargins,
         maximized: Option<WindowFrameMargins>,
     },

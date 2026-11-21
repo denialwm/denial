@@ -879,6 +879,7 @@ fn the_shell_declares_the_frame_it_draws() {
     assert_eq!(
         bridge.drain_window_commands().collect::<Vec<_>>(),
         vec![WindowCommand::ConfigureFrame {
+            monitor_id: None,
             margins: WindowFrameMargins {
                 left: 1,
                 top: 32,
@@ -946,6 +947,7 @@ fn dart_places_and_frames_keep_every_inline_rectangle() {
     assert_eq!(
         bridge.drain_window_commands().collect::<Vec<_>>(),
         vec![WindowCommand::ConfigureFrame {
+            monitor_id: None,
             margins: WindowFrameMargins {
                 left: 1,
                 top: 34,

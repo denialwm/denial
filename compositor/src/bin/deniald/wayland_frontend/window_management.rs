@@ -179,18 +179,56 @@ pub(super) fn shell_frame_geometry(
 }
 
 impl super::WaylandFrontend {
+    /// The frames the shell draws on the output `geometry` lies on.
+    pub(super) fn shell_frames_at(&self, geometry: Rectangle<i32, Logical>) -> ShellFrames {
+        if self.output_shell_frames.is_empty() {
+            return self.shell_frames;
+        }
+        self.output_for_geometry(geometry)
+            .and_then(|entry| i64::try_from(entry.id.0).ok())
+            .and_then(|monitor_id| self.output_shell_frames.get(&monitor_id))
+            .copied()
+            .unwrap_or(self.shell_frames)
+    }
+
+    /// The frames the shell draws on the output `window` is on.
+    fn shell_frames_of(&self, window: &Window) -> ShellFrames {
+        if self.output_shell_frames.is_empty() {
+            return self.shell_frames;
+        }
+        self.shell_frames_at(self.window_geometry_target(window))
+    }
+
     /// The frame around `window` while it is neither maximized nor
     /// fullscreen.
     pub(super) fn frame_for(&self, window: &Window) -> ShellFrame {
-        self.shell_frames.window(shell_draws_server_frame(window))
+        self.shell_frames_of(window)
+            .window(shell_draws_server_frame(window))
     }
 
     /// The frame around `window` while it is maximized.
     pub(super) fn maximized_frame_for(&self, window: &Window) -> ShellFrame {
-        self.shell_frames.maximized_window(
+        self.shell_frames_of(window).maximized_window(
             shell_draws_server_frame(window),
             self.window_layout_manages_geometry(),
         )
+    }
+
+    /// The frame around `window` placed at `geometry`, by the output that
+    /// lies on, maximized or not.
+    pub(super) fn frame_at(
+        &self,
+        window: &Window,
+        geometry: Rectangle<i32, Logical>,
+        maximized: bool,
+    ) -> ShellFrame {
+        let frames = self.shell_frames_at(geometry);
+        let decorated = shell_draws_server_frame(window);
+        if maximized {
+            frames.maximized_window(decorated, self.window_layout_manages_geometry())
+        } else {
+            frames.window(decorated)
+        }
     }
 }
 
@@ -526,7 +564,11 @@ fn apply_window_command(state: &mut RuntimeState, command: WindowCommand) {
         WindowCommand::BeginResize { window_id, edges } => {
             super::input::begin_shell_window_grab(state, window_id, Some(edges));
         }
-        WindowCommand::ConfigureFrame { margins, maximized } => {
+        WindowCommand::ConfigureFrame {
+            monitor_id,
+            margins,
+            maximized,
+        } => {
             let frame = |margins: super::super::wire::WindowFrameMargins| ShellFrame {
                 left: margins.left,
                 top: margins.top,
@@ -537,7 +579,7 @@ fn apply_window_command(state: &mut RuntimeState, command: WindowCommand) {
                 normal: frame(margins),
                 maximized: maximized.map(frame),
             };
-            if state.frontend_mut().set_shell_frames(frames) {
+            if state.frontend_mut().set_shell_frames(monitor_id, frames) {
                 state.scene_sync.mark_dirty();
             }
         }

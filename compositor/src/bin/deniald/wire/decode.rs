@@ -201,6 +201,54 @@ impl WireBridge {
                 if request_id == 0 {
                     return Err(WireError::RequestId);
                 }
+                // With a monitor_id the request sets the bar's thickness and
+                // the padding on that output only; -1 for both forgets them.
+                let output_monitor_id = request.monitor_id();
+                if output_monitor_id != -1 {
+                    if output_monitor_id < 0 {
+                        return Err(WireError::Identity);
+                    }
+                    let connector = self
+                        .snapshot
+                        .outputs
+                        .iter()
+                        .find(|output| monitor_id(output.id) == Some(output_monitor_id))
+                        .ok_or(WireError::Topology("system bar monitor is not live"))?
+                        .name
+                        .clone();
+                    let thickness = request.system_bar_thickness();
+                    let padding = request.maximize_padding();
+                    if thickness == -1.0 && padding == -1.0 {
+                        self.work_area.outputs.remove(&connector);
+                    } else if thickness.is_finite()
+                        && (0.0..=MAX_SYSTEM_BAR_THICKNESS).contains(&thickness)
+                        && padding.is_finite()
+                        && (0.0..=MAX_MAXIMIZE_PADDING).contains(&padding)
+                    {
+                        self.work_area.outputs.insert(
+                            connector,
+                            OutputWorkArea {
+                                system_bar_thickness: thickness,
+                                maximize_padding: padding,
+                            },
+                        );
+                    } else {
+                        return Err(WireError::Payload);
+                    }
+                    self.pending_work_area = Some(self.work_area.clone());
+                    let sequence = self.take_sequence();
+                    self.outbound_builder.reset();
+                    encode_display_layout(
+                        &mut self.outbound_builder,
+                        sequence,
+                        request_id,
+                        &self.snapshot,
+                        &self.atlas,
+                        &self.work_area,
+                        &self.active_workspaces,
+                    )?;
+                    return Ok(Some(self.outbound_builder.finished_data()));
+                }
                 let side = match request.system_bar_side() {
                     fb::SystemBarSide::Left => SystemBarSide::Left,
                     fb::SystemBarSide::Right => SystemBarSide::Right,
@@ -528,8 +576,17 @@ impl WireBridge {
                     .maximized_frame_margins()
                     .map(decode_window_frame_margins)
                     .transpose()?;
+                let monitor_id = match request.monitor_id() {
+                    -1 => None,
+                    monitor_id if monitor_id >= 0 => Some(monitor_id),
+                    _ => return Err(WireError::Identity),
+                };
                 self.pending_window_commands
-                    .push_back(WindowCommand::ConfigureFrame { margins, maximized });
+                    .push_back(WindowCommand::ConfigureFrame {
+                        monitor_id,
+                        margins,
+                        maximized,
+                    });
                 Ok(None)
             }
             kind => Err(WireError::Request(kind)),

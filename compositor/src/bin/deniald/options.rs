@@ -79,6 +79,18 @@ pub(super) struct WorkAreaOptions {
     pub(super) system_bar: SystemBarOptions,
     /// Logical pixels between a maximized window and bar-free output edges.
     pub(super) maximize_padding: f64,
+    /// The bar's thickness and the padding on single outputs, by connector,
+    /// where they differ from those above: the shell's own scale differs by
+    /// screen.
+    pub(super) outputs: std::collections::BTreeMap<String, OutputWorkArea>,
+}
+
+/// The system bar's thickness and the maximize padding on one output, in its
+/// logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct OutputWorkArea {
+    pub(super) system_bar_thickness: f64,
+    pub(super) maximize_padding: f64,
 }
 
 impl Default for WorkAreaOptions {
@@ -86,7 +98,21 @@ impl Default for WorkAreaOptions {
         Self {
             system_bar: SystemBarOptions::default(),
             maximize_padding: DEFAULT_MAXIMIZE_PADDING,
+            outputs: std::collections::BTreeMap::new(),
         }
+    }
+}
+
+impl WorkAreaOptions {
+    /// The bar's thickness and the padding on the output `connector`.
+    pub(super) fn on_output(&self, connector: &str) -> OutputWorkArea {
+        self.outputs
+            .get(connector)
+            .copied()
+            .unwrap_or(OutputWorkArea {
+                system_bar_thickness: self.system_bar.thickness,
+                maximize_padding: self.maximize_padding,
+            })
     }
 }
 
@@ -395,6 +421,7 @@ impl Options {
             maximize_padding: maximize_padding_argument
                 .or(maximize_padding)
                 .unwrap_or(DEFAULT_MAXIMIZE_PADDING),
+            outputs: std::collections::BTreeMap::new(),
         };
 
         if frames != 0 && commit_seconds != 0 {

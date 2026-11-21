@@ -425,6 +425,7 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             shell_touch_grab_slot: None,
             shell_frames: ShellFrames::default(),
+            output_shell_frames: std::collections::HashMap::new(),
             #[cfg(feature = "flutter")]
             shell_frames_declared: false,
             #[cfg(feature = "flutter")]

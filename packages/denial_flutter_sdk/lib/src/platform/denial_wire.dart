@@ -466,17 +466,58 @@ class DenialWireCodec {
 
   /// The frame the shell draws around decorated windows, and around
   /// maximized ones when that differs from none.
+  /// With [monitorId], on that output only.
   Uint8List? encodeWindowFrame(
     DenialWindowFrameMargins margins, {
     DenialWindowFrameMargins? maximized,
+    int? monitorId,
   }) {
-    if (!margins.isValid || !(maximized?.isValid ?? true)) {
+    if (!margins.isValid ||
+        !(maximized?.isValid ?? true) ||
+        (monitorId != null && monitorId < 0)) {
       return null;
     }
     return encodeWindowRequest(
       generated.WindowRequestKind.ConfigureWindowFrame,
+      monitorId: monitorId ?? -1,
       frameMargins: margins,
       maximizedFrameMargins: maximized,
+    );
+  }
+
+  /// The system bar's thickness and the maximize padding on the output
+  /// [monitorId] alone, where they differ from every output's; both null
+  /// forgets them. Native answers with the display layout under [requestId].
+  Uint8List? encodeOutputWorkArea({
+    required int requestId,
+    required int monitorId,
+    double? systemBarThickness,
+    double? maximizePadding,
+  }) {
+    final clear = systemBarThickness == null && maximizePadding == null;
+    if (requestId <= 0 ||
+        monitorId < 0 ||
+        (!clear &&
+            (systemBarThickness == null ||
+                maximizePadding == null ||
+                !systemBarThickness.isFinite ||
+                systemBarThickness < 0 ||
+                systemBarThickness > denialWireMaxSystemBarThickness ||
+                !maximizePadding.isFinite ||
+                maximizePadding < 0 ||
+                maximizePadding > denialWireMaxMaximizePadding))) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.WindowRequest,
+      _AlignedSystemBarRequestObjectBuilder(
+        side: generated.SystemBarSide.Top,
+        monitorIds: const <int>[],
+        systemBarThickness: systemBarThickness ?? -1.0,
+        maximizePadding: maximizePadding ?? -1.0,
+        outputMonitorId: monitorId,
+      ),
+      requestId: requestId,
     );
   }
 

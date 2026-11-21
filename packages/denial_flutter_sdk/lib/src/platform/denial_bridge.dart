@@ -224,6 +224,19 @@ class DenialBridge {
     maximizePadding: maximizePadding,
   );
 
+  /// The system bar's thickness and the maximize padding on the output
+  /// [monitorId] alone, where the shell's scale makes them differ; both null
+  /// forgets them.
+  Future<DisplayLayout?> configureOutputWorkArea({
+    required int monitorId,
+    double? systemBarThickness,
+    double? maximizePadding,
+  }) => _displays.configureOutputWorkArea(
+    monitorId: monitorId,
+    systemBarThickness: systemBarThickness,
+    maximizePadding: maximizePadding,
+  );
+
   /// Publishes the shell's fully resolved accent to deniald. Standalone
   /// Denial clients deliberately cannot author compositor theme state.
   void publishThemeAccent(int argb) => _session.publishThemeAccent(argb);
@@ -428,10 +441,17 @@ class DenialBridge {
 
   /// Declares the frame the shell draws around decorated windows, and around
   /// maximized ones when [maximized] is given.
+  /// With [monitorId], the frame on that output only, over the one for
+  /// every output; declaring the one for every output forgets them.
   bool configureWindowFrame(
     DenialWindowFrameMargins margins, {
     DenialWindowFrameMargins? maximized,
-  }) => _windows.configureWindowFrame(margins, maximized: maximized);
+    int? monitorId,
+  }) => _windows.configureWindowFrame(
+    margins,
+    maximized: maximized,
+    monitorId: monitorId,
+  );
 
   Stream<InputDeckSnapshot> get inputDeckStates => _inputDeck.states;
   void readInputDeck() => unawaited(_inputDeck.read());

@@ -566,6 +566,9 @@ pub(super) struct WaylandFrontend {
     shell_touch_grab_slot: Option<i32>,
     /// The frames the shell draws around decorated windows.
     shell_frames: ShellFrames,
+    /// The frames the shell draws on single outputs, by monitor id, where
+    /// they differ from `shell_frames`: its own scale differs by screen.
+    output_shell_frames: std::collections::HashMap<i64, ShellFrames>,
     /// Whether the running shell declared `shell_frames` itself. A frame
     /// belongs to the shell that draws it and does not outlive it.
     #[cfg(feature = "flutter")]
