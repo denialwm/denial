@@ -1356,6 +1356,18 @@ impl WaylandFrontend {
         }
     }
 
+    /// The workspace a placement reports. A window placed before it is first
+    /// published (a restored location, a window placed beside its app's
+    /// other window) has none yet; it will join the visible workspace of its
+    /// output, so the placement says that, not workspace 1.
+    #[cfg(feature = "flutter")]
+    fn placement_workspace(&self, window_id: u64, output: OutputId) -> i64 {
+        i64::from(self.workspace_location(window_id).map_or_else(
+            || self.active_workspace(output),
+            |location| location.workspace,
+        ))
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn window_placement(
         &self,
@@ -1368,21 +1380,16 @@ impl WaylandFrontend {
         let root_surface = self.window_root_surface(window)?;
         let window_id = self.surface_id(&root_surface)?;
         let layout_space = self.managed_layout_space(window);
-        let monitor_id = layout_space
-            .map(|space| space.output)
-            .or_else(|| {
-                self.output_for_geometry(monitor_geometry)
-                    .map(|entry| entry.id)
-            })
-            .and_then(|output| i64::try_from(output.0).ok())?;
+        let output = layout_space.map(|space| space.output).or_else(|| {
+            self.output_for_geometry(monitor_geometry)
+                .map(|entry| entry.id)
+        })?;
+        let monitor_id = i64::try_from(output.0).ok()?;
         Some(WindowPlacement {
             window_id,
             monitor_id,
             workspace_id: layout_space.map_or_else(
-                || {
-                    self.workspace_location(window_id)
-                        .map_or(1, |location| i64::from(location.workspace))
-                },
+                || self.placement_workspace(window_id, output),
                 |space| i64::from(space.workspace),
             ),
             phase,
@@ -1551,15 +1558,12 @@ impl WaylandFrontend {
                 geometry.height.round().clamp(1.0, f64::from(i32::MAX)) as i32,
             )),
         );
-        let monitor_id = self
-            .output_for_geometry(global_geometry)
-            .and_then(|entry| i64::try_from(entry.id.0).ok())?;
+        let output = self.output_for_geometry(global_geometry)?.id;
+        let monitor_id = i64::try_from(output.0).ok()?;
         Some(WindowPlacement {
             window_id,
             monitor_id,
-            workspace_id: self
-                .workspace_location(window_id)
-                .map_or(1, |location| i64::from(location.workspace)),
+            workspace_id: self.placement_workspace(window_id, output),
             phase,
             change,
             geometry: WindowGeometry {
