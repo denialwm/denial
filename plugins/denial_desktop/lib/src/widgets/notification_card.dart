@@ -78,8 +78,14 @@ class NotificationCard extends StatelessWidget {
     final banner = !compact && !mobile;
 
     final panelSurface = banner || mobile;
+    // A banner or a phone's card is a surface of its own and takes the
+    // panels' outer corners; a card listed inside a panel is part of it.
     final radius = BorderRadius.circular(
-      mobile ? visual(theme.panelRadius) : theme.panelRadius,
+      mobile
+          ? visual(theme.panelRadius)
+          : banner
+          ? theme.panelRadius
+          : theme.nestedPanelRadius,
     );
     final copy = Column(
       mainAxisSize: MainAxisSize.min,

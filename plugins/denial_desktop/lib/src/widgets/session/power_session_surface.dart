@@ -503,7 +503,7 @@ class _ConfirmationPane extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(theme.panelRadius),
+          borderRadius: BorderRadius.circular(theme.nestedPanelRadius),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(

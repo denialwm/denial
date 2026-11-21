@@ -212,7 +212,7 @@ class _DesktopDashboardState extends ConsumerState<DesktopDashboard>
                           _origin.height,
                         );
                         final rect = Rect.lerp(origin, target, t)!;
-                        final radius = 12 + (theme.panelRadius - 12) * t;
+                        final radius = 12 + (theme.nestedPanelRadius - 12) * t;
                         return Stack(
                           clipBehavior: Clip.none,
                           fit: StackFit.expand,

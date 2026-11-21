@@ -32,7 +32,7 @@ class WallpaperSearchField extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: theme.panelColor(context.shellColors.panelBackground),
-          borderRadius: BorderRadius.circular(theme.panelRadius),
+          borderRadius: BorderRadius.circular(theme.nestedPanelRadius),
           border: Border.all(
             color: focusNode.hasFocus
                 ? accent.primary

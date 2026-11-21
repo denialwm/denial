@@ -646,7 +646,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
       ),
       shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
-          borderRadius: context.shellTheme.borderRadius(10),
+          borderRadius: context.shellTheme.outerBorderRadius(10),
         ),
       ),
       visualDensity: VisualDensity.compact,

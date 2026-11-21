@@ -140,11 +140,12 @@ class ShellAppearanceSettings {
   final Color customAccentColor;
   final String fontFamily;
 
-  /// The corners of windows, on every screen.
+  /// The corners of windows, on every screen, and the outermost corners of
+  /// shell panels, so panels and windows share one shape.
   final double windowCornerRadiusScale;
 
-  /// The corners of everything else the shell rounds: panels, notifications,
-  /// tiles, buttons, cards.
+  /// The corners of everything inside the shell's panels: cards, tiles,
+  /// buttons, fields.
   final double interfaceCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;

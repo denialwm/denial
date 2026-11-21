@@ -16,10 +16,12 @@ boundaries may change before 1.0.
   with Vulkan: the packages now depend on the Vulkan loader. The Flutter
   Settings application is gone. On a phone the package takes the place of
   `denial-app-settings`.
-- Roundness is two settings: one for window corners
-  (`appearance.windowCornerRadiusScale`, 0.5, shown as 25%) and one for
-  everything else the shell rounds, such as panels, notifications, tiles and
-  buttons (`appearance.interfaceCornerRadiusScale`, 1.2, shown as 60%). Both
+- Roundness is two settings: one for window corners and the outer corners
+  of the shell's panels, such as the Dashboard, the launcher, flyouts, menus
+  and notification banners, so panels and windows share one shape
+  (`appearance.windowCornerRadiusScale`, 0.5, shown as 25%), and one for
+  everything inside them, such as cards, tiles and buttons
+  (`appearance.interfaceCornerRadiusScale`, 1.2, shown as 60%). Both
   hold on the desktop, on a phone and on a monitor beside a phone; inside
   their windows, apps round their islands, groups and controls with the
   interface roundness. The roundness kept before
