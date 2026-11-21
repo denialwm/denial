@@ -61,7 +61,7 @@ export 'src/models/desktop_notification.dart'
         DesktopNotificationMessage,
         DesktopNotificationUrgency;
 export 'src/models/display_layout.dart'
-    show DisplayLayout, DisplayOutput, SystemBarSide;
+    show DisplayLayout, DisplayOutput, OutputShellMetrics, SystemBarSide;
 export 'src/models/input_device_capabilities.dart'
     show
         DenialInputDeviceCapabilities,

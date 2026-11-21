@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../surfaces.dart';
 import '../../input.dart';
+import '../core/shell_overlay_host.dart';
 import 'shell_surface_transition.dart';
 import '../surfaces/surface_events.dart';
 
@@ -60,6 +61,10 @@ class ShellSurfacePlane extends StatelessWidget {
   final List<ShellSurfaceEntry> entries;
   final ShellSurfaceLayer layer;
   final ShellServices services;
+
+  /// Each surface sits in its output's box. Where the shell has a scale of
+  /// its own, the box is laid out in the shell's units and drawn that many
+  /// times as large.
   @override
   Widget build(BuildContext context) => Stack(
     fit: StackFit.expand,
@@ -71,30 +76,52 @@ class ShellSurfacePlane extends StatelessWidget {
               entry.surface.id,
               entry.environment.output.monitorId,
             )),
-            rect: entry.environment.output.logicalRect,
+            rect: entry.environment.screenRect,
             child: ClipRect(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned.fromRect(
-                    rect: entry.placement.bounds.shift(
-                      -entry.environment.output.logicalRect.topLeft,
-                    ),
-                    child: ShellInputClip(
-                      bounds:
-                          ShellInputClip.boundsOf(
-                            context,
-                          )?.intersect(entry.environment.output.logicalRect) ??
-                          entry.environment.output.logicalRect,
-                      child: _SurfaceInstance(entry: entry, services: services),
-                    ),
+              child: ShellScaleViewport(
+                scale: entry.environment.shellScale,
+                child: _ShellUnitsOverlay(
+                  scaled: entry.environment.shellScale != 1.0,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned.fromRect(
+                        rect: entry.placement.bounds.shift(
+                          -entry.environment.output.logicalRect.topLeft,
+                        ),
+                        child: ShellInputClip(
+                          bounds:
+                              ShellInputClip.boundsOf(context)
+                                  ?.intersect(entry.environment.screenRect) ??
+                              entry.environment.screenRect,
+                          child: _SurfaceInstance(
+                            entry: entry,
+                            services: services,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
     ],
   );
+}
+
+/// Where the shell is drawn at a scale of its own, an overlay of the
+/// output's own, so the menus a surface opens are laid out and drawn in the
+/// shell's units beside it.
+class _ShellUnitsOverlay extends StatelessWidget {
+  const _ShellUnitsOverlay({required this.scaled, required this.child});
+
+  final bool scaled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      scaled ? ShellOverlayHost(child: child) : child;
 }
 
 class _SurfaceInstance extends StatefulWidget {

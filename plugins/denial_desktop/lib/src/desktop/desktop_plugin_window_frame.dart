@@ -1,4 +1,5 @@
 import 'package:denial_flutter_sdk/services.dart';
+import 'package:denial_flutter_sdk/surfaces.dart' show ShellScaleViewport;
 import 'package:denial_flutter_sdk/window_frames.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -13,6 +14,10 @@ import '../widgets/desktop_visibility_transition.dart';
 /// [child], the window's content, sits in the hole its [margins] leave. The
 /// frame is hit only on its margins: what reaches the shell inside the
 /// content belongs to whatever lies below the window.
+///
+/// The frame is built in the shell's own units and drawn [scale] times as
+/// large; the margins and reach it is told are this widget's divided by
+/// [scale], so it fills exactly the margins the compositor knows.
 class DesktopPluginWindowFrame extends StatelessWidget {
   const DesktopPluginWindowFrame({
     super.key,
@@ -23,6 +28,7 @@ class DesktopPluginWindowFrame extends StatelessWidget {
     required this.interactive,
     required this.margins,
     this.reach = EdgeInsets.zero,
+    this.scale = 1.0,
     required this.child,
   });
 
@@ -35,10 +41,14 @@ class DesktopPluginWindowFrame extends StatelessWidget {
 
   /// The band outside the frame that [DesktopWindowFrameReach] gives it now.
   final EdgeInsets reach;
+
+  /// The shell's own scale where the window is.
+  final double scale;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final frameMargins = margins / scale;
     return Stack(
       fit: StackFit.expand,
       clipBehavior: Clip.none,
@@ -46,18 +56,23 @@ class DesktopPluginWindowFrame extends StatelessWidget {
         DesktopVisibilityFade(
           child: IgnorePointer(
             ignoring: !interactive,
-            child: DesktopFrameMarginsHitTest(
-              margins: margins,
-              child: frame.build(
-                context,
-                frame: ShellWindowFrameContext(
-                  window: window,
-                  active: active,
-                  maximized: maximized,
-                  interactive: interactive,
-                  margins: _frameMargins(margins),
-                  reach: _frameMargins(reach),
-                  services: ShellServicesScope.of(context),
+            child: ShellScaleViewport(
+              scale: scale,
+              child: DesktopFrameMarginsHitTest(
+                margins: frameMargins,
+                child: Builder(
+                  builder: (context) => frame.build(
+                    context,
+                    frame: ShellWindowFrameContext(
+                      window: window,
+                      active: active,
+                      maximized: maximized,
+                      interactive: interactive,
+                      margins: _frameMargins(frameMargins),
+                      reach: _frameMargins(reach / scale),
+                      services: ShellServicesScope.of(context),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -91,6 +106,7 @@ class DesktopWindowFrameReach extends ConsumerWidget {
     required this.active,
     required this.margins,
     required this.reach,
+    this.scale = 1.0,
   });
 
   final DenialWindow window;
@@ -101,25 +117,34 @@ class DesktopWindowFrameReach extends ConsumerWidget {
   final EdgeInsets margins;
   final EdgeInsets reach;
 
+  /// The shell's own scale where the window is, as for its frame.
+  final double scale;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pluginFrame = ref.watch(desktopWindowFrameProvider);
+    final frameReach = reach / scale;
     return Positioned.fromRect(
       rect: reach.inflateRect(frame),
       child: pluginFrame == null
           ? const SizedBox.shrink()
-          : DesktopFrameMarginsHitTest(
-              margins: reach,
-              child: pluginFrame.buildReach(
-                context,
-                frame: ShellWindowFrameContext(
-                  window: window,
-                  active: active,
-                  maximized: false,
-                  interactive: true,
-                  margins: _frameMargins(margins),
-                  reach: _frameMargins(reach),
-                  services: ShellServicesScope.of(context),
+          : ShellScaleViewport(
+              scale: scale,
+              child: DesktopFrameMarginsHitTest(
+                margins: frameReach,
+                child: Builder(
+                  builder: (context) => pluginFrame.buildReach(
+                    context,
+                    frame: ShellWindowFrameContext(
+                      window: window,
+                      active: active,
+                      maximized: false,
+                      interactive: true,
+                      margins: _frameMargins(margins / scale),
+                      reach: _frameMargins(frameReach),
+                      services: ShellServicesScope.of(context),
+                    ),
+                  ),
                 ),
               ),
             ),

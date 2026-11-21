@@ -16,6 +16,7 @@ import '../state/desktop_window_close_effect.dart';
 import 'package:denial_flutter_sdk/backdrop_blur_level.dart';
 
 import '../theme/cursor_themes.dart';
+import 'shell_scale.dart';
 
 import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
@@ -131,6 +132,7 @@ class ShellAppearanceSettings {
     this.cursorSize = shellCursorDefaultSize,
     this.cursorThemeId = 'bibata_modern_ice',
     this.allowClientCursorSurfaces = true,
+    this.shellScales = const <String, double>{},
   });
 
   final DesktopColorSchemePreference colorSchemePreference;
@@ -156,6 +158,12 @@ class ShellAppearanceSettings {
   final String cursorThemeId;
   final bool allowClientCursorSurfaces;
 
+  /// How much larger than its screen's scale the desktop shell draws itself
+  /// on each screen, by output name: the system bar, panels, menus and window
+  /// frames, not the windows. A screen missing here takes
+  /// [ShellScale.automatic].
+  final Map<String, double> shellScales;
+
   ShellAppearanceSettings copyWith({
     DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
@@ -176,6 +184,7 @@ class ShellAppearanceSettings {
     double? cursorSize,
     String? cursorThemeId,
     bool? allowClientCursorSurfaces,
+    Map<String, double>? shellScales,
   }) {
     return ShellAppearanceSettings(
       colorSchemePreference:
@@ -204,6 +213,7 @@ class ShellAppearanceSettings {
       cursorThemeId: cursorThemeId ?? this.cursorThemeId,
       allowClientCursorSurfaces:
           allowClientCursorSurfaces ?? this.allowClientCursorSurfaces,
+      shellScales: shellScales ?? this.shellScales,
     );
   }
 
@@ -228,7 +238,8 @@ class ShellAppearanceSettings {
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
         other.cursorSize == cursorSize &&
         other.cursorThemeId == cursorThemeId &&
-        other.allowClientCursorSurfaces == allowClientCursorSurfaces;
+        other.allowClientCursorSurfaces == allowClientCursorSurfaces &&
+        mapEquals(other.shellScales, shellScales);
   }
 
   @override
@@ -252,6 +263,9 @@ class ShellAppearanceSettings {
     cursorSize,
     cursorThemeId,
     allowClientCursorSurfaces,
+    Object.hashAllUnordered(
+      shellScales.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
   );
 }
 
@@ -1238,6 +1252,9 @@ class ShellSettings {
         section['allowClientCursorSurfaces'] =
             appearance.allowClientCursorSurfaces;
       }
+      if (!mapEquals(appearance.shellScales, before.shellScales)) {
+        section['shellScales'] = appearance.shellScales;
+      }
       patch['appearance'] = section;
     }
 
@@ -1465,6 +1482,7 @@ class ShellSettings {
         'cursorSize': appearance.cursorSize,
         'cursorThemeId': appearance.cursorThemeId,
         'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
+        'shellScales': appearance.shellScales,
       },
       'layout': <String, Object?>{
         'windowLayout': layout.windowLayout.name,
@@ -1724,6 +1742,7 @@ class ShellSettings {
             appearanceJson['allowClientCursorSurfaces'] is bool
             ? appearanceJson['allowClientCursorSurfaces'] as bool
             : defaults.appearance.allowClientCursorSurfaces,
+        shellScales: _shellScales(appearanceJson['shellScales']),
       ),
       layout: ShellLayoutSettings(
         keyboardResizeStep: layoutJson['keyboardResizeStep'] is String
@@ -2071,6 +2090,26 @@ double _number(Object? value, double fallback, double minimum, double maximum) {
     return fallback;
   }
   return result.clamp(minimum, maximum).toDouble();
+}
+
+Map<String, double> _shellScales(Object? value) {
+  if (value is! Map) {
+    return const <String, double>{};
+  }
+  final scales = <String, double>{};
+  for (final entry in value.entries) {
+    final name = entry.key;
+    final scale = entry.value;
+    if (name is String &&
+        name.isNotEmpty &&
+        scale is num &&
+        scale.isFinite &&
+        scale >= ShellScale.minimum &&
+        scale <= ShellScale.maximum) {
+      scales[name] = scale.toDouble();
+    }
+  }
+  return Map<String, double>.unmodifiable(scales);
 }
 
 int _integer(Object? value, int fallback, int minimum, int maximum) {

@@ -76,6 +76,12 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
       fireImmediately: true,
     );
     ref.listenManual(
+      shellSettingsProvider.select(
+        (settings) => settings.appearance.shellScales,
+      ),
+      (_, _) => _scheduleLayoutSync(ref.read(shellSettingsProvider).layout),
+    );
+    ref.listenManual(
       shellSettingsProvider.select((settings) => settings.power),
       (_, power) => _schedulePowerSync(power),
       fireImmediately: true,
@@ -183,6 +189,8 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
             maximizePadding: widget.mobilePresentation && !widget.deskBeside
                 ? 0
                 : layout.maximizePadding,
+            shellScales: ref.read(shellSettingsProvider).appearance.shellScales,
+            desktopPanels: !widget.mobilePresentation,
           );
     });
   }

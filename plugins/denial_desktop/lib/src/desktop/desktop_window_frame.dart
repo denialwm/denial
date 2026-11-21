@@ -113,7 +113,7 @@ class DesktopClosingWindowFrame extends ConsumerWidget {
       active: false,
       borderRadius: BorderRadius.circular(radius),
       frameWidth: drawsServerFrame && pluginFrame == null
-          ? DesktopMetrics.frameBorder
+          ? DesktopMetrics.frameBorderOn(closing.window.monitorId)
           : 0,
       frameColor: frameColor,
     );
@@ -147,6 +147,7 @@ class DesktopClosingWindowFrame extends ConsumerWidget {
               maximized: closing.maximized,
               interactive: false,
               margins: closing.frameMargins,
+              scale: DesktopMetrics.shellScaleOf(closing.window.monitorId),
               child: content,
             ),
         ],
@@ -479,7 +480,9 @@ class DesktopWindowFrame extends ConsumerWidget {
                                 ),
                                 frameWidth:
                                     drawsServerFrame && pluginFrame == null
-                                    ? DesktopMetrics.frameBorder
+                                    ? DesktopMetrics.frameBorderOn(
+                                        placement.monitorId,
+                                      )
                                     : 0,
                                 frameColor: Color.alphaBlend(
                                   desktopWindowBorderColor(
@@ -527,6 +530,7 @@ class DesktopWindowFrame extends ConsumerWidget {
                                         reach: transformed || minimized
                                             ? EdgeInsets.zero
                                             : placement.frameReach,
+                                        scale: placement.frameScale,
                                         child: client,
                                       ),
                               );

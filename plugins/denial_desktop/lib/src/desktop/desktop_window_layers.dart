@@ -193,6 +193,7 @@ List<Widget> buildDesktopWindowLayers({
           active: active && !desktopVisible,
           margins: placement.frameMargins,
           reach: frameReach,
+          scale: placement.frameScale,
         ),
       );
     }

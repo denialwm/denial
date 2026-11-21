@@ -13,6 +13,7 @@ import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
+import 'package:denial_flutter_sdk/surfaces.dart' show ShellScaleViewport;
 import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
@@ -79,51 +80,67 @@ class NotificationBannerLayer extends ConsumerWidget {
         (settings) => settings.overlays.notifications,
       ),
     );
+    final part = ShellPart.of(context);
     final mainOutput = ref.watch(
-      sceneDisplayLayoutProvider(ShellPart.of(context))
-          .select((layout) => layout?.mainOutput),
+      sceneDisplayLayoutProvider(part).select((layout) => layout?.mainOutput),
+    );
+    final shellScale = ref.watch(
+      sceneDisplayLayoutProvider(part).select(
+        (layout) => mainOutput == null
+            ? 1.0
+            : layout?.shellScaleOf(mainOutput.monitorId) ?? 1.0,
+      ),
     );
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final canvas = Offset.zero & constraints.biggest;
         final output = mainOutput?.logicalRect.intersect(canvas) ?? canvas;
-        final rect = placement.resolve(output);
+        // Laid out in the shell's own units, drawn that many times as large.
+        final rect = shellScale == 1.0
+            ? placement.resolve(output)
+            : placement.resolve(Offset.zero & output.size / shellScale);
         if (rect.isEmpty) {
           return const SizedBox.shrink();
         }
-        final localRect = rect.shift(-output.topLeft);
+        final localRect = shellScale == 1.0
+            ? rect.shift(-output.topLeft)
+            : rect;
         return Stack(
           fit: StackFit.expand,
           children: [
             Positioned.fromRect(
               rect: output,
               child: ClipRect(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Positioned.fromRect(
-                      rect: localRect,
-                      child: Align(
-                        alignment: placement.anchor.alignment,
-                        child: SizedBox(
-                          width: rect.width,
-                          child: NotificationBannerView(
-                            notifications: notifications,
-                            previewMode: previewMode,
-                            interactive: !locked,
-                            entryOffset: _notificationEntryOffset(
-                              placement.anchor,
+                child: ShellScaleViewport(
+                  scale: shellScale,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Positioned.fromRect(
+                        rect: localRect,
+                        child: Align(
+                          alignment: placement.anchor.alignment,
+                          child: SizedBox(
+                            width: rect.width,
+                            child: NotificationBannerView(
+                              notifications: notifications,
+                              previewMode: previewMode,
+                              interactive: !locked,
+                              entryOffset: _notificationEntryOffset(
+                                placement.anchor,
+                              ),
+                              onHide: controller.hideBanner,
+                              onDismiss: controller.dismiss,
+                              onDefaultAction: (id) =>
+                                  openNotification(ref, id),
+                              onAction: controller.invokeAction,
                             ),
-                            onHide: controller.hideBanner,
-                            onDismiss: controller.dismiss,
-                            onDefaultAction: (id) => openNotification(ref, id),
-                            onAction: controller.invokeAction,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

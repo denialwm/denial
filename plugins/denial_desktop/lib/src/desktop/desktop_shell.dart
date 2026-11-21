@@ -79,8 +79,29 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ref.read(desktopPowerModesProvider);
     });
     final bridge = ref.read(denialBridgeProvider);
-    // The frame this desktop draws has one source. The compositor subtracts
-    // exactly this wherever it turns a window's frame into its content.
+    _useOutputScales(ref.read(deskDisplayLayoutProvider));
+    _declareWindowFrames();
+    _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
+  }
+
+  /// Takes the shell's own scale on each output from [layout]. Returns
+  /// whether the frames changed with it.
+  bool _useOutputScales(DisplayLayout? layout) {
+    final scales = <int, ({double shell, double screen})>{
+      if (layout != null)
+        for (final output in layout.outputs)
+          if (layout.shellMetrics[output.monitorId] case final metrics?)
+            output.monitorId: (shell: metrics.scale, screen: output.scale),
+    };
+    return DesktopMetrics.useOutputScales(scales);
+  }
+
+  /// Tells the compositor the frame this desktop draws: on every output, then
+  /// on each output where the shell's own scale makes it larger. The frame
+  /// has one source, and the compositor subtracts exactly this wherever it
+  /// turns a window's frame into its content.
+  void _declareWindowFrames() {
+    final bridge = ref.read(denialBridgeProvider);
     DenialWindowFrameMargins margins(EdgeInsets insets) =>
         DenialWindowFrameMargins(
           left: insets.left,
@@ -93,7 +114,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       margins(DesktopMetrics.frameMargins),
       maximized: maximizedMargins == null ? null : margins(maximizedMargins),
     );
-    _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
+    for (final monitorId in DesktopMetrics.scaledOutputs) {
+      final maximized = DesktopMetrics.maximizedFrameMarginsOn(monitorId);
+      bridge.configureWindowFrame(
+        margins(DesktopMetrics.frameMarginsOn(monitorId)),
+        maximized: maximized == null ? null : margins(maximized),
+        monitorId: monitorId,
+      );
+    }
   }
 
   @override
@@ -977,6 +1005,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     );
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
     final nativeDisplayLayout = ref.watch(deskDisplayLayoutProvider);
+    // Placements read their frames from the metrics as they build, so the
+    // metrics change before anything below builds.
+    if (_useOutputScales(nativeDisplayLayout)) {
+      scheduleMicrotask(() {
+        if (mounted) _declareWindowFrames();
+      });
+    }
     // DENIAL_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
     // (no native bridge) while still rendering layout-dependent chrome such
     // as the system bar, for styling work without restarting deniald.

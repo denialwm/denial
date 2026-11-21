@@ -16,6 +16,8 @@ export 'panels.dart' show PanelEdge;
 export 'services.dart' show ShellServices;
 export 'settings.dart' show ShellLayoutSettings, ShellSettings;
 export 'src/models/display_layout.dart' show DisplayOutput;
+export 'src/widgets/shell_scale_viewport.dart'
+    show ShellScaleViewport, shellScaleMediaQuery;
 
 /// All planes remain below the secure session and platform overlays.
 enum ShellSurfaceLayer {
@@ -56,7 +58,57 @@ final class ShellSurfaceEnvironment {
     required this.settings,
     required this.defaultOutputSelected,
     this.inputOnlyOutputNames = const <String>[],
+    this.shellScale = 1.0,
+    this.scaledFrom,
   });
+
+  /// [environment] in the shell's own units on an output where the shell is
+  /// drawn [shellScale] times as large: the output's rectangle and the work
+  /// area keep their origin and are [shellScale] times smaller, and the
+  /// output's scale is [shellScale] times larger.
+  factory ShellSurfaceEnvironment.scaled(
+    ShellSurfaceEnvironment environment,
+    double shellScale,
+  ) {
+    if (shellScale == 1.0) return environment;
+    final output = environment.output;
+    final origin = output.logicalRect.topLeft;
+    Rect shrink(Rect rect) => Rect.fromLTWH(
+      origin.dx + (rect.left - origin.dx) / shellScale,
+      origin.dy + (rect.top - origin.dy) / shellScale,
+      rect.width / shellScale,
+      rect.height / shellScale,
+    );
+    return ShellSurfaceEnvironment(
+      output: DisplayOutput(
+        monitorId: output.monitorId,
+        name: output.name,
+        logicalRect: shrink(output.logicalRect),
+        pixelSize: output.pixelSize,
+        scale: output.scale * shellScale,
+        refreshRate: output.refreshRate,
+        activeWorkspace: output.activeWorkspace,
+        inputOnly: output.inputOnly,
+      ),
+      workArea: shrink(environment.workArea),
+      isMainOutput: environment.isMainOutput,
+      workspaceId: environment.workspaceId,
+      fullscreen: environment.fullscreen,
+      overview: environment.overview,
+      desktopVisible: environment.desktopVisible,
+      wallpaperSelectorVisible: environment.wallpaperSelectorVisible,
+      locked: environment.locked,
+      settings: environment.settings,
+      defaultOutputSelected: environment.defaultOutputSelected,
+      inputOnlyOutputNames: environment.inputOnlyOutputNames,
+      shellScale: shellScale,
+      scaledFrom: output.logicalRect,
+    );
+  }
+
+  /// The output, in the shell's own units: where the shell is drawn larger
+  /// than the screen's scale, its rectangle keeps its origin and is
+  /// [shellScale] times smaller than [screenRect].
   final DisplayOutput output;
   final List<String> inputOnlyOutputNames;
   final Rect workArea;
@@ -68,6 +120,28 @@ final class ShellSurfaceEnvironment {
   final bool wallpaperSelectorVisible;
   final bool locked;
   final ShellSettings settings;
+
+  /// How many of the screen's logical pixels one shell unit takes here.
+  final double shellScale;
+
+  /// The output's rectangle in the screen's own logical pixels.
+  Rect get screenRect => scaledFrom ?? output.logicalRect;
+
+  /// The output's rectangle in screen units when this environment is
+  /// [ShellSurfaceEnvironment.scaled], else null.
+  final Rect? scaledFrom;
+
+  /// [rect], in the shell's units here, in the screen's own logical pixels.
+  Rect toScreen(Rect rect) {
+    if (shellScale == 1.0) return rect;
+    final origin = output.logicalRect.topLeft;
+    return Rect.fromLTWH(
+      origin.dx + (rect.left - origin.dx) * shellScale,
+      origin.dy + (rect.top - origin.dy) * shellScale,
+      rect.width * shellScale,
+      rect.height * shellScale,
+    );
+  }
 
   /// Whether this output belongs to the compositor's configured default set.
   /// It is a fact, not a requirement to place a surface here.
@@ -113,7 +187,9 @@ final class ShellSurfaceEnvironment {
           wallpaperSelectorVisible == other.wallpaperSelectorVisible &&
           locked == other.locked &&
           settings == other.settings &&
-          defaultOutputSelected == other.defaultOutputSelected;
+          defaultOutputSelected == other.defaultOutputSelected &&
+          shellScale == other.shellScale &&
+          screenRect == other.screenRect;
 
   @override
   int get hashCode => Object.hash(
@@ -129,6 +205,8 @@ final class ShellSurfaceEnvironment {
     locked,
     settings,
     defaultOutputSelected,
+    shellScale,
+    screenRect,
   );
 }
 

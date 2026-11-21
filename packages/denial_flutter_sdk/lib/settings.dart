@@ -2,6 +2,7 @@
 library;
 
 export 'src/settings/input_deck_settings.dart' show InputDeckSettings;
+export 'src/settings/shell_scale.dart' show ShellScale;
 
 export 'src/settings/color_format.dart'
     show formatOpaqueColorHex, opaqueColorRgb, parseOpaqueColorHex;

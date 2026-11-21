@@ -15,6 +15,22 @@ import 'transient_family_order.dart';
 
 part 'desktop_workspace_controller.dart';
 
+/// A frame's margins, maximized margins, reach and border on one output.
+@immutable
+final class _OutputFrames {
+  const _OutputFrames({
+    required this.margins,
+    required this.maximized,
+    required this.reach,
+    required this.border,
+  });
+
+  final EdgeInsets margins;
+  final EdgeInsets? maximized;
+  final EdgeInsets reach;
+  final double border;
+}
+
 /// A screen-edge strip a finger swipes in from, and the edge it starts at.
 typedef DesktopPanelSwipe = ({Rect rect, InputEdge edge});
 
@@ -78,24 +94,105 @@ abstract final class DesktopMetrics {
     _frameReach = margins == null || reach == null
         ? EdgeInsets.zero
         : insets(reach, max: maxFrameReach);
+    _baseFrames = _OutputFrames(
+      margins: _frameMargins,
+      maximized: _maximizedFrameMargins,
+      reach: _frameReach,
+      border: frameBorder,
+    );
+    _outputFrames.clear();
   }
 
+  /// The frames where the shell's scale is 1.
+  static _OutputFrames _baseFrames = const _OutputFrames(
+    margins: EdgeInsets.all(frameBorder),
+    maximized: null,
+    reach: EdgeInsets.zero,
+    border: frameBorder,
+  );
+
+  /// The shell's own scale and the screen's scale on every output where the
+  /// shell's is not 1, by monitor id.
+  static Map<int, ({double shell, double screen})> _outputScales =
+      const <int, ({double shell, double screen})>{};
+  static final Map<int, _OutputFrames> _outputFrames = <int, _OutputFrames>{};
+
+  /// Every output's shell scale and screen scale where the shell's is not 1.
+  /// Returns whether they changed, and with them the frames.
+  static bool useOutputScales(
+    Map<int, ({double shell, double screen})> scales,
+  ) {
+    if (mapEquals(_outputScales, scales)) {
+      return false;
+    }
+    _outputScales = Map<int, ({double shell, double screen})>.unmodifiable(
+      scales,
+    );
+    _outputFrames.clear();
+    return true;
+  }
+
+  /// The outputs where the shell has a scale of its own, by monitor id.
+  static Iterable<int> get scaledOutputs => _outputScales.keys;
+
+  /// The shell's own scale on the output [monitorId].
+  static double shellScaleOf(int monitorId) =>
+      _outputScales[monitorId]?.shell ?? 1.0;
+
+  /// The frame margins, maximized margins, reach and border on the output
+  /// [monitorId]: the frame's own, times the shell's scale there, each a
+  /// whole number of screen units and of pixels.
+  static _OutputFrames _framesOn(int monitorId) {
+    final scales = _outputScales[monitorId];
+    if (scales == null) {
+      return _baseFrames;
+    }
+    return _outputFrames.putIfAbsent(monitorId, () {
+      EdgeInsets scaled(EdgeInsets insets) =>
+          ShellScale.insets(insets, scales.shell, scales.screen);
+      final maximized = _maximizedFrameMargins;
+      return _OutputFrames(
+        margins: scaled(_frameMargins),
+        maximized: maximized == null ? null : scaled(maximized),
+        reach: scaled(_frameReach),
+        border: ShellScale.length(frameBorder, scales.shell, scales.screen),
+      );
+    });
+  }
+
+  /// What the selected window frame takes around a decorated window's
+  /// content on the output [monitorId].
+  static EdgeInsets frameMarginsOn(int monitorId) =>
+      _framesOn(monitorId).margins;
+
+  /// [maximizedFrameMargins] on the output [monitorId].
+  static EdgeInsets? maximizedFrameMarginsOn(int monitorId) =>
+      _framesOn(monitorId).maximized;
+
+  /// [frameReach] on the output [monitorId].
+  static EdgeInsets frameReachOn(int monitorId) => _framesOn(monitorId).reach;
+
+  /// [frameBorder] on the output [monitorId].
+  static double frameBorderOn(int monitorId) => _framesOn(monitorId).border;
+
   /// The frame around a window's content while it is live on the desktop, by
-  /// the compositor's own rule.
+  /// the compositor's own rule, on the output [monitorId].
   static EdgeInsets windowFrameMargins({
     required bool serverSideDecorated,
     required bool maximized,
     required bool serverFrameWhileMaximized,
     bool fullscreen = false,
+    int monitorId = -1,
   }) {
     if (!serverSideDecorated || fullscreen) {
       return EdgeInsets.zero;
     }
+    final frames = _framesOn(monitorId);
     if (!maximized) {
-      return _frameMargins;
+      return frames.margins;
     }
-    return _maximizedFrameMargins ??
-        (serverFrameWhileMaximized ? _frameMargins : EdgeInsets.zero);
+    return frames.maximized ??
+        (serverFrameWhileMaximized ? frames.margins : EdgeInsets.zero);
   }
 
   static const double panelGap = 12.0;
@@ -622,6 +719,7 @@ class DesktopWindowPlacement {
     maximized: maximized,
     serverFrameWhileMaximized: serverFrameWhileMaximized,
     fullscreen: fullscreen,
+    monitorId: monitorId,
   );
 
   /// What the frame takes around the content as the window is drawn. The
@@ -635,7 +733,7 @@ class DesktopWindowPlacement {
         DesktopMetrics.customWindowFrame) {
       return live;
     }
-    return DesktopMetrics.frameMargins;
+    return DesktopMetrics.frameMarginsOn(monitorId);
   }
 
   Rect get contentRect => frameMargins.deflateRect(frame);
@@ -644,7 +742,10 @@ class DesktopWindowPlacement {
   /// window is live. A window without a frame and a maximized one have none.
   EdgeInsets get frameReach => maximized || !drawsLiveServerFrame
       ? EdgeInsets.zero
-      : DesktopMetrics.frameReach;
+      : DesktopMetrics.frameReachOn(monitorId);
+
+  /// The shell's own scale where the window is, which its frame is drawn at.
+  double get frameScale => DesktopMetrics.shellScaleOf(monitorId);
 
   DesktopWindowPlacement copyWith({
     Rect? frame,
