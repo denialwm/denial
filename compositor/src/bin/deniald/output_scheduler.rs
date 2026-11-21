@@ -426,6 +426,9 @@ struct OutputPipeline {
     production: ProductionEstimate,
     /// The blanking limit KMS last reported for this output's CRTC.
     blanking: Duration,
+    /// Variable refresh: the panel waits for each frame, so there is no
+    /// fixed edge for a late frame to miss.
+    vrr: bool,
 }
 
 impl OutputPipeline {
@@ -434,21 +437,24 @@ impl OutputPipeline {
     /// longer than one edge allows: the ready frame then presents an edge
     /// after its target either way, and a successor that waited for it would
     /// skip an edge too. The pool's buffers bound how far ahead it can run.
+    /// A VRR output never renders ahead: its panel shows a late frame as soon
+    /// as it arrives, so a frame started early would only add latency.
     fn renders_ahead(&self) -> bool {
-        self.frames.ready.as_ref().is_some_and(|ready| {
-            ready.screenshot_request_id.is_none()
-                && !self.production.reaches_next_edge(
-                    ready.request.tick.interval,
-                    kms_submit_lead(self.blanking, ready.request.tick.nominal_interval),
-                )
-        })
+        !self.vrr
+            && self.frames.ready.as_ref().is_some_and(|ready| {
+                ready.screenshot_request_id.is_none()
+                    && !self.production.reaches_next_edge(
+                        ready.request.tick.interval,
+                        kms_submit_lead(self.blanking, ready.request.tick.nominal_interval),
+                    )
+            })
     }
 }
 
 /// An output renders its next frame while the previous one is still on the
 /// GPU, once frames take longer than a refresh allows. Frames that fit a
-/// refresh are unaffected. DENIAL_RENDER_AHEAD=0 turns it off: a frame then
-/// starts only after the previous one has left for KMS.
+/// refresh and VRR outputs are unaffected. DENIAL_RENDER_AHEAD=0 turns it
+/// off: a frame then starts only after the previous one has left for KMS.
 pub(super) fn render_ahead() -> bool {
     static RENDER_AHEAD: OnceLock<bool> = OnceLock::new();
     *RENDER_AHEAD
@@ -1109,6 +1115,7 @@ impl OutputScheduler {
                     request: plane_commit(scanout, pool.size)?,
                     production: ProductionEstimate::default(),
                     blanking: Duration::ZERO,
+                    vrr: scanout.output.vrr_enabled,
                 })
             })
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
@@ -2059,6 +2066,7 @@ impl OutputScheduler {
             request: plane_commit(output, pool.size)?,
             production: ProductionEstimate::default(),
             blanking: Duration::ZERO,
+            vrr: output.output.vrr_enabled,
         });
         let _ = runtime;
         Ok(())
