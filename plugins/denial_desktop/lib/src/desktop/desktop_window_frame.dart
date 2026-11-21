@@ -11,6 +11,7 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
+import 'package:denial_flutter_sdk/window_frames.dart' show ShellWindowFrame;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,6 +31,7 @@ import 'desktop_plugin_window_frame.dart';
 import 'desktop_window_frame_painter.dart';
 import 'desktop_workspace.dart';
 import 'retained_animated_positioned.dart';
+import 'window_frames/built_in_window_frame.dart';
 import 'window_backdrop_blur_policy.dart';
 import '../state/phone_desk.dart';
 
@@ -87,6 +89,44 @@ class ClosingDesktopWindow {
   final Rect? outputClip;
 }
 
+/// The corners of a window on the screen: its outline, which its shadow and
+/// frame follow, and its content's.
+///
+/// The desktop's plain border and Denial's built-in frame take the window
+/// rounding setting. The built-in frame is drawn [scale] times as large and
+/// covers the content's upper corners with its title bar, so only the lower
+/// ones are rounded, inside its border. A maximized window with the built-in
+/// frame, and another plugin's frame, are square.
+({double outline, BorderRadius content}) desktopWindowCorners({
+  required bool drawsServerFrame,
+  required ShellWindowFrame? frame,
+  required bool maximized,
+  required double windowRadius,
+  required double scale,
+  required EdgeInsets margins,
+}) {
+  if (!drawsServerFrame) {
+    return (outline: 0.0, content: BorderRadius.zero);
+  }
+  if (frame == null) {
+    return (
+      outline: windowRadius,
+      content: BorderRadius.circular(windowRadius),
+    );
+  }
+  if (frame is! BuiltInWindowFrame || maximized) {
+    return (outline: 0.0, content: BorderRadius.zero);
+  }
+  final outline = windowRadius * scale;
+  final inner = Radius.circular(
+    math.max(0.0, outline - math.max(margins.left, margins.bottom)),
+  );
+  return (
+    outline: outline,
+    content: BorderRadius.only(bottomLeft: inner, bottomRight: inner),
+  );
+}
+
 class DesktopClosingWindowFrame extends ConsumerWidget {
   const DesktopClosingWindowFrame({
     super.key,
@@ -103,15 +143,21 @@ class DesktopClosingWindowFrame extends ConsumerWidget {
     final pluginFrame = drawsServerFrame
         ? ref.watch(desktopWindowFrameProvider)
         : null;
-    final radius = drawsServerFrame && pluginFrame == null
-        ? ShellTheme.of(context).windowRadius
-        : 0.0;
+    final corners = desktopWindowCorners(
+      drawsServerFrame: drawsServerFrame,
+      frame: pluginFrame,
+      maximized: closing.maximized,
+      windowRadius: ShellTheme.of(context).windowRadius,
+      scale: DesktopMetrics.shellScaleOf(closing.window.monitorId),
+      margins: closing.frameMargins,
+    );
+    final radius = corners.outline;
     final frameColor = context.shellColors.windowFrameSurface;
     final Widget content = _DesktopWindowContent(
       window: closing.window,
       smooth: false,
       active: false,
-      borderRadius: BorderRadius.circular(radius),
+      borderRadius: corners.content,
       frameWidth: drawsServerFrame && pluginFrame == null
           ? DesktopMetrics.frameBorderOn(closing.window.monitorId)
           : 0,
@@ -324,9 +370,15 @@ class DesktopWindowFrame extends ConsumerWidget {
         ? ref.watch(desktopWindowFrameProvider)
         : null;
     final theme = ShellTheme.of(context);
-    final windowRadius = drawsServerFrame && pluginFrame == null
-        ? theme.windowRadius
-        : 0.0;
+    final corners = desktopWindowCorners(
+      drawsServerFrame: drawsServerFrame,
+      frame: pluginFrame,
+      maximized: placement.maximized,
+      windowRadius: theme.windowRadius,
+      scale: placement.frameScale,
+      margins: drawnMargins,
+    );
+    final windowRadius = corners.outline;
     final windowOpacity = active
         ? theme.focusedWindowOpacity
         : theme.unfocusedWindowOpacity;
@@ -475,9 +527,7 @@ class DesktopWindowFrame extends ConsumerWidget {
                                     !transformed && !resizing && !minimized,
                                 smooth: transformed || resizing,
                                 active: active && !minimized,
-                                borderRadius: BorderRadius.circular(
-                                  windowRadius,
-                                ),
+                                borderRadius: corners.content,
                                 frameWidth:
                                     drawsServerFrame && pluginFrame == null
                                     ? DesktopMetrics.frameBorderOn(
