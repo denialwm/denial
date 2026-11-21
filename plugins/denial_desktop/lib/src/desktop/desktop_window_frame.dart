@@ -93,10 +93,10 @@ class ClosingDesktopWindow {
 /// frame follow, and its content's.
 ///
 /// The desktop's plain border and Denial's built-in frame take the window
-/// rounding setting. The built-in frame is drawn [scale] times as large and
-/// covers the content's upper corners with its title bar, so only the lower
-/// ones are rounded, inside its border. A maximized window with the built-in
-/// frame, and another plugin's frame, are square.
+/// rounding setting. The built-in frame is drawn [scale] times as large; the
+/// content's corners are rounded inside its border, and the frame fills
+/// behind the upper ones with its title bar's colour. A maximized window
+/// with the built-in frame, and another plugin's frame, are square.
 ({double outline, BorderRadius content}) desktopWindowCorners({
   required bool drawsServerFrame,
   required ShellWindowFrame? frame,
@@ -118,13 +118,9 @@ class ClosingDesktopWindow {
     return (outline: 0.0, content: BorderRadius.zero);
   }
   final outline = windowRadius * scale;
-  final inner = Radius.circular(
-    math.max(0.0, outline - math.max(margins.left, margins.bottom)),
-  );
-  return (
-    outline: outline,
-    content: BorderRadius.only(bottomLeft: inner, bottomRight: inner),
-  );
+  // The window surface takes one radius for all four corners.
+  final inner = math.max(0.0, outline - math.max(margins.left, margins.bottom));
+  return (outline: outline, content: BorderRadius.circular(inner));
 }
 
 class DesktopClosingWindowFrame extends ConsumerWidget {

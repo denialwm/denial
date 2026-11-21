@@ -83,6 +83,9 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
     // plain border; a maximized window is square. The desktop rounds the
     // content's lower corners and the shadow to match.
     final radius = frame.maximized ? 0.0 : theme.windowRadius;
+    // As far as the content's rounded corners reach, with a unit to spare
+    // for rounding to whole pixels; behind the content.
+    final contentCorner = radius > topBorder ? radius - topBorder + 1.0 : 0.0;
     // The active window's border takes the accent when the setting asks for
     // it, as the plain border does.
     final borderColor = desktopWindowBorderColor(
@@ -98,17 +101,6 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (topBorder > 0.0)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: borderColor, width: topBorder),
-                    borderRadius: BorderRadius.circular(radius),
-                  ),
-                ),
-              ),
-            ),
           Positioned(
             left: margins.left,
             top: topBorder,
@@ -178,6 +170,37 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
               ),
             ),
           ),
+          // The content's upper corners are rounded as its lower ones; the
+          // bar's colour fills behind them so they meet the title bar.
+          if (contentCorner > 0.0) ...[
+            Positioned(
+              left: margins.left,
+              top: margins.top,
+              width: contentCorner,
+              height: contentCorner,
+              child: ColoredBox(color: colors.bar),
+            ),
+            Positioned(
+              right: margins.right,
+              top: margins.top,
+              width: contentCorner,
+              height: contentCorner,
+              child: ColoredBox(color: colors.bar),
+            ),
+          ],
+          // The border goes over the title bar, so it follows the rounded
+          // corners all the way round.
+          if (topBorder > 0.0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: borderColor, width: topBorder),
+                    borderRadius: BorderRadius.circular(radius),
+                  ),
+                ),
+              ),
+            ),
           if (!frame.maximized) ..._resizeZones(margins),
         ],
       ),
