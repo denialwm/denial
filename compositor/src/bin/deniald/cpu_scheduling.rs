@@ -343,6 +343,7 @@ fn set_ui_floor(raised: bool) {
 
 fn initialize_once() {
     clear_ambient_capabilities();
+    lift_inherited_deprioritization();
 
     if std::env::var("DENIAL_NO_RT")
         .ok()
@@ -450,6 +451,76 @@ fn initialize_once() {
         rt_hard_limit = "infinity",
         "armed non-fatal realtime CPU scheduling"
     );
+}
+
+/// A session launcher may start Denial at a positive nice value or in the idle
+/// I/O class: CachyOS's ananicy-cpp gives SDDM's session helper nice 16 and
+/// idle I/O, and the session inherits both. Every Denial thread that is not
+/// elevated, the GPU driver's submission threads among them, would then lose
+/// the CPU to ordinary programs. Bring the threads that exist now to the
+/// ordinary baseline; threads started later inherit it.
+fn lift_inherited_deprioritization() {
+    let Ok(tasks) = fs::read_dir("/proc/self/task") else {
+        return;
+    };
+    let mut inherited_nice = None;
+    let mut nice_failures = 0_u32;
+    let mut idle_io = false;
+    let mut io_failures = 0_u32;
+    for tid in tasks
+        .flatten()
+        .filter_map(|task| task.file_name().to_str()?.parse::<libc::pid_t>().ok())
+    {
+        if let Ok(nice) = nice_for_tid(tid)
+            && nice > 0
+        {
+            inherited_nice.get_or_insert(nice);
+            nice_failures += u32::from(set_nice(tid, 0).is_err());
+        }
+        if io_priority_class(tid) == Some(IOPRIO_CLASS_IDLE) {
+            idle_io = true;
+            io_failures += u32::from(set_io_priority(tid, 0).is_err());
+        }
+    }
+    if inherited_nice.is_some() || idle_io {
+        let lifted = nice_failures == 0 && io_failures == 0;
+        if lifted {
+            info!(
+                inherited_nice,
+                idle_io, "lifted inherited low CPU and I/O priority to the ordinary baseline"
+            );
+        } else {
+            warn!(
+                inherited_nice,
+                idle_io,
+                nice_failures,
+                io_failures,
+                "could not lift inherited low CPU or I/O priority; RLIMIT_NICE may forbid it"
+            );
+        }
+    }
+}
+
+const IOPRIO_WHO_PROCESS: libc::c_int = 1;
+const IOPRIO_CLASS_SHIFT: libc::c_int = 13;
+const IOPRIO_CLASS_IDLE: libc::c_int = 3;
+
+fn io_priority_class(tid: libc::pid_t) -> Option<libc::c_int> {
+    // SAFETY: ioprio_get receives integral selectors and reads only the
+    // selected task's I/O priority.
+    let priority = unsafe { libc::syscall(libc::SYS_ioprio_get, IOPRIO_WHO_PROCESS, tid) };
+    (priority >= 0).then_some(priority as libc::c_int >> IOPRIO_CLASS_SHIFT)
+}
+
+/// Zero is IOPRIO_CLASS_NONE: the task's I/O priority follows its nice value.
+fn set_io_priority(tid: libc::pid_t, priority: libc::c_int) -> io::Result<()> {
+    // SAFETY: ioprio_set receives integral selectors and touches only the
+    // selected task's I/O priority.
+    if unsafe { libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_PROCESS, tid, priority) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 fn start_priority_guard() {
