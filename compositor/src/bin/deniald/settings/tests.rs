@@ -1041,8 +1041,9 @@ fn mobile_default_document_seeds_the_mobile_appearance() {
     let (mobile, _, _) = default_document(true);
     let appearance = &mobile["appearance"];
     assert_eq!(appearance["customAccentColor"], 0xFFD0_BCFF_u32);
-    // Each shell's own roundness default stands.
-    assert!(appearance.get("mobileCornerRadiusScale").is_none());
+    // The roundness defaults stand on a phone too.
+    assert!(appearance.get("windowCornerRadiusScale").is_none());
+    assert!(appearance.get("interfaceCornerRadiusScale").is_none());
     assert_eq!(appearance["glass"]["opacity"], 0.2);
     assert_eq!(appearance["glass"]["windowOpacity"], 0.5);
     assert_eq!(appearance["glass"]["appPanelOpacity"], 0.4);

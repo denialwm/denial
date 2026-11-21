@@ -117,8 +117,8 @@ class ShellAppearanceSettings {
     this.accentSource = ShellAccentSource.custom,
     this.customAccentColor = const Color(0xff6b3f73),
     this.fontFamily = '',
-    this.desktopCornerRadiusScale = 0.5,
-    this.mobileCornerRadiusScale = 1.0,
+    this.windowCornerRadiusScale = 0.5,
+    this.interfaceCornerRadiusScale = 1.2,
     this.panelOpacity = 0.5,
     this.cardOpacity = 0.4421052631578947,
     this.transparencyMode = ShellTransparencyMode.glass,
@@ -140,16 +140,12 @@ class ShellAppearanceSettings {
   final Color customAccentColor;
   final String fontFamily;
 
-  /// The corners of the desktop shell, on a monitor beside a phone too, and
-  /// of its windows.
-  final double desktopCornerRadiusScale;
+  /// The corners of windows, on every screen.
+  final double windowCornerRadiusScale;
 
-  /// The corners of the mobile shell and of its apps.
-  final double mobileCornerRadiusScale;
-
-  /// The corners in the mobile shell when [mobile], else in the desktop one.
-  double cornerRadiusScale({required bool mobile}) =>
-      mobile ? mobileCornerRadiusScale : desktopCornerRadiusScale;
+  /// The corners of everything else the shell rounds: panels, notifications,
+  /// tiles, buttons, cards.
+  final double interfaceCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -175,8 +171,8 @@ class ShellAppearanceSettings {
     ShellAccentSource? accentSource,
     Color? customAccentColor,
     String? fontFamily,
-    double? desktopCornerRadiusScale,
-    double? mobileCornerRadiusScale,
+    double? windowCornerRadiusScale,
+    double? interfaceCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -198,10 +194,10 @@ class ShellAppearanceSettings {
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
       fontFamily: fontFamily ?? this.fontFamily,
-      desktopCornerRadiusScale:
-          desktopCornerRadiusScale ?? this.desktopCornerRadiusScale,
-      mobileCornerRadiusScale:
-          mobileCornerRadiusScale ?? this.mobileCornerRadiusScale,
+      windowCornerRadiusScale:
+          windowCornerRadiusScale ?? this.windowCornerRadiusScale,
+      interfaceCornerRadiusScale:
+          interfaceCornerRadiusScale ?? this.interfaceCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -231,8 +227,8 @@ class ShellAppearanceSettings {
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
         other.fontFamily == fontFamily &&
-        other.desktopCornerRadiusScale == desktopCornerRadiusScale &&
-        other.mobileCornerRadiusScale == mobileCornerRadiusScale &&
+        other.windowCornerRadiusScale == windowCornerRadiusScale &&
+        other.interfaceCornerRadiusScale == interfaceCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -255,8 +251,8 @@ class ShellAppearanceSettings {
     accentSource,
     customAccentColor,
     fontFamily,
-    desktopCornerRadiusScale,
-    mobileCornerRadiusScale,
+    windowCornerRadiusScale,
+    interfaceCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,
@@ -1213,14 +1209,14 @@ class ShellSettings {
       if (appearance.fontFamily != before.fontFamily) {
         section['fontFamily'] = appearance.fontFamily;
       }
-      if (appearance.desktopCornerRadiusScale !=
-          before.desktopCornerRadiusScale) {
-        section['desktopCornerRadiusScale'] =
-            appearance.desktopCornerRadiusScale;
+      if (appearance.windowCornerRadiusScale !=
+          before.windowCornerRadiusScale) {
+        section['windowCornerRadiusScale'] = appearance.windowCornerRadiusScale;
       }
-      if (appearance.mobileCornerRadiusScale !=
-          before.mobileCornerRadiusScale) {
-        section['mobileCornerRadiusScale'] = appearance.mobileCornerRadiusScale;
+      if (appearance.interfaceCornerRadiusScale !=
+          before.interfaceCornerRadiusScale) {
+        section['interfaceCornerRadiusScale'] =
+            appearance.interfaceCornerRadiusScale;
       }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
@@ -1486,8 +1482,8 @@ class ShellSettings {
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
         'fontFamily': appearance.fontFamily,
-        'desktopCornerRadiusScale': appearance.desktopCornerRadiusScale,
-        'mobileCornerRadiusScale': appearance.mobileCornerRadiusScale,
+        'windowCornerRadiusScale': appearance.windowCornerRadiusScale,
+        'interfaceCornerRadiusScale': appearance.interfaceCornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
         'transparencyMode': appearance.transparencyMode.name,
@@ -1666,15 +1662,15 @@ class ShellSettings {
           appearanceJson['fontFamily'],
           defaults.appearance.fontFamily,
         ),
-        desktopCornerRadiusScale: _number(
-          appearanceJson['desktopCornerRadiusScale'],
-          defaults.appearance.desktopCornerRadiusScale,
+        windowCornerRadiusScale: _number(
+          appearanceJson['windowCornerRadiusScale'],
+          defaults.appearance.windowCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),
-        mobileCornerRadiusScale: _number(
-          appearanceJson['mobileCornerRadiusScale'],
-          defaults.appearance.mobileCornerRadiusScale,
+        interfaceCornerRadiusScale: _number(
+          appearanceJson['interfaceCornerRadiusScale'],
+          defaults.appearance.interfaceCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),

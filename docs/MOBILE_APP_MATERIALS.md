@@ -80,7 +80,7 @@ for 225 ppi; 1 dp is 225/160 lp, as `dp()` in Messages computes it.
 | Token | Value | Notes |
 | --- | --- | --- |
 | Gutter | **8** | denial-look `INSET`. Between islands, groups and the window edge. |
-| Window radius R | 20 × the shell's roundness | `Look::window_radius`: `mobileCornerRadiusScale` (1.0, so 20) under the mobile shell, `desktopCornerRadiusScale` (0.5, so 10) under the desktop one. |
+| Window radius R | 20 × the window roundness | `Look::window_radius`: `windowCornerRadiusScale`, 0.5 unless set, so 10. The same under the mobile and the desktop shell. |
 | Island and group radius | max(4, R - 8, 0.7 R) | `Look::group_radius`. 9.8 at R 14. Concentric with the window from R 27 up; below, the gutter would take the whole radius, so the island keeps 0.7 of it. |
 | Control radius inside an island | max(4, island radius - inset, 0.55 × island radius) | `nested_radius`. |
 | Bubble and conversation radius | max(4, R) | Messages `bubble_radius`, with a 4 lp tail corner toward the sender on the last bubble of a run. |

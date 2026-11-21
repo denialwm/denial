@@ -102,6 +102,7 @@ class ShellThemeData {
     Color accent = ShellBrandColors.defaultAccent,
     this.fontFamily = '',
     this.cornerRadiusScale = ShellRoundness.normal,
+    this.windowCornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
     this.cardOpacity = ShellOpacity.card,
     this.transparencyMode = ShellTransparencyMode.blur,
@@ -122,7 +123,12 @@ class ShellThemeData {
   final ShellTextTheme? _resolvedTextTheme;
   final ShellAccentPalette? _resolvedAccentPalette;
   final ColorScheme? _resolvedGeneratedColorScheme;
+
+  /// The roundness of everything the shell rounds but window corners.
   final double cornerRadiusScale;
+
+  /// The roundness of window corners.
+  final double windowCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -181,7 +187,7 @@ class ShellThemeData {
   /// The normalized primary role. [accentSeed] is the persisted source color.
   Color get accent => accentPalette.primary;
 
-  /// Scales a component's base radius by the single user-selected roundness.
+  /// Scales a component's base radius by the interface roundness.
   double scaledRadius(double radius) => radius * cornerRadiusScale;
 
   Radius radius(double baseRadius) => _resolution.radius(baseRadius);
@@ -189,7 +195,7 @@ class ShellThemeData {
   BorderRadius borderRadius(double baseRadius) =>
       _resolution.borderRadius(baseRadius);
 
-  double get windowRadius => scaledRadius(ShellRadii.window);
+  double get windowRadius => ShellRadii.window * windowCornerRadiusScale;
 
   double get notificationRadius => scaledRadius(ShellRadii.notification);
 
@@ -239,6 +245,7 @@ class ShellThemeData {
     Color? accent,
     String? fontFamily,
     double? cornerRadiusScale,
+    double? windowCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -254,6 +261,8 @@ class ShellThemeData {
       accent: accent ?? accentSeed,
       fontFamily: fontFamily ?? this.fontFamily,
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
+      windowCornerRadiusScale:
+          windowCornerRadiusScale ?? this.windowCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -314,6 +323,10 @@ class ShellThemeData {
         first.cornerRadiusScale,
         second.cornerRadiusScale,
       ),
+      windowCornerRadiusScale: blend(
+        first.windowCornerRadiusScale,
+        second.windowCornerRadiusScale,
+      ),
       panelOpacity: blend(first.panelOpacity, second.panelOpacity),
       cardOpacity: blend(first.cardOpacity, second.cardOpacity),
       transparencyMode: t < 0.5
@@ -348,6 +361,7 @@ class ShellThemeData {
         other.accentSeed == accentSeed &&
         other.fontFamily == fontFamily &&
         other.cornerRadiusScale == cornerRadiusScale &&
+        other.windowCornerRadiusScale == windowCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -365,6 +379,7 @@ class ShellThemeData {
     accentSeed,
     fontFamily,
     cornerRadiusScale,
+    windowCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,

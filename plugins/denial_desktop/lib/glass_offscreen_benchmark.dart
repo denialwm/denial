@@ -35,8 +35,11 @@ Future<void> main() async {
     panelOpacity: (appearance['panelOpacity'] as num).toDouble(),
     cardOpacity: (appearance['cardOpacity'] as num).toDouble(),
     cornerRadiusScale:
-        (appearance['desktopCornerRadiusScale'] as num?)?.toDouble() ??
-        const ShellAppearanceSettings().desktopCornerRadiusScale,
+        (appearance['interfaceCornerRadiusScale'] as num?)?.toDouble() ??
+        const ShellAppearanceSettings().interfaceCornerRadiusScale,
+    windowCornerRadiusScale:
+        (appearance['windowCornerRadiusScale'] as num?)?.toDouble() ??
+        const ShellAppearanceSettings().windowCornerRadiusScale,
   );
   await File(output).create(exclusive: true);
   final timeline = await _TimelineCapture.start(output);

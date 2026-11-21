@@ -16,8 +16,8 @@ void main() {
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
         fontFamily: 'Noto Sans',
-        desktopCornerRadiusScale: 1.35,
-        mobileCornerRadiusScale: 0.7,
+        windowCornerRadiusScale: 1.35,
+        interfaceCornerRadiusScale: 0.7,
         panelOpacity: 0.78,
         transparencyMode: ShellTransparencyMode.glass,
         backdropBlurLevel: ShellBackdropBlurLevel.best,
@@ -136,8 +136,8 @@ void main() {
       'appearance': <String, dynamic>{
         'accentSource': 'future-source',
         'fontFamily': 'invalid\u0000family',
-        'desktopCornerRadiusScale': 400,
-        'mobileCornerRadiusScale': -3,
+        'windowCornerRadiusScale': 400,
+        'interfaceCornerRadiusScale': -3,
         'panelOpacity': 0.01,
         'cursorSize': 400,
         'cursorThemeId': '\u0000invalid',
@@ -165,11 +165,11 @@ void main() {
     expect(settings.localization.locale, ShellLocalePreference.system);
     expect(settings.appearance.accentSource, ShellAccentSource.custom);
     expect(settings.appearance.fontFamily, isEmpty);
+    expect(settings.appearance.windowCornerRadiusScale, ShellRoundness.maximum);
     expect(
-      settings.appearance.desktopCornerRadiusScale,
-      ShellRoundness.maximum,
+      settings.appearance.interfaceCornerRadiusScale,
+      ShellRoundness.minimum,
     );
-    expect(settings.appearance.mobileCornerRadiusScale, ShellRoundness.minimum);
     expect(settings.appearance.panelOpacity, ShellOpacity.minimumPanel);
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.appearance.cursorThemeId, 'bibata_modern_ice');
@@ -242,22 +242,31 @@ void main() {
     expect(ShellSettings.fromJson(settings.toJson()), settings);
   });
 
-  test('the desktop and the mobile shell have roundness of their own', () {
-    // The one roundness kept before is not read: each takes its default.
+  test('windows and the interface have roundness of their own', () {
+    // The roundness kept before, one or per shell, is not read: each takes
+    // its default, windows 25% and the interface 60% of the slider.
     final settings = ShellSettings.fromJson(<String, dynamic>{
       'appearance': <String, dynamic>{
         'cornerRadiusScale': 1.8,
         'monitorCornerRadiusScale': 1.2,
+        'desktopCornerRadiusScale': 1.4,
+        'mobileCornerRadiusScale': 0.3,
         'panelRadius': 42,
       },
     });
 
-    expect(settings.appearance.cornerRadiusScale(mobile: false), 0.5);
-    expect(settings.appearance.cornerRadiusScale(mobile: true), 1.0);
+    expect(settings.appearance.windowCornerRadiusScale, 0.5);
+    expect(settings.appearance.interfaceCornerRadiusScale, 1.2);
     final appearance = settings.toJson()['appearance']! as Map<String, Object>;
-    expect(appearance.containsKey('cornerRadiusScale'), isFalse);
-    expect(appearance.containsKey('monitorCornerRadiusScale'), isFalse);
-    expect(appearance.containsKey('panelRadius'), isFalse);
+    for (final old in <String>[
+      'cornerRadiusScale',
+      'monitorCornerRadiusScale',
+      'desktopCornerRadiusScale',
+      'mobileCornerRadiusScale',
+      'panelRadius',
+    ]) {
+      expect(appearance.containsKey(old), isFalse, reason: old);
+    }
   });
 
   test('the legacy backdrop toggle migrates to a transparency mode', () {
