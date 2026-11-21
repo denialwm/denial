@@ -93,16 +93,16 @@ class ClosingDesktopWindow {
 /// frame follow, and its content's.
 ///
 /// The desktop's plain border and Denial's built-in frame take the window
-/// rounding setting. The built-in frame is drawn [scale] times as large; the
-/// content's corners are rounded inside its border, and the frame fills
-/// behind the upper ones with its title bar's colour. A maximized window
-/// with the built-in frame, and another plugin's frame, are square.
+/// rounding setting, the same radius on the screen whatever the shell's
+/// scale. With the built-in frame the content's corners are rounded inside
+/// its border, and the frame fills behind the upper ones with its title
+/// bar's colour. A maximized window with the built-in frame, and another
+/// plugin's frame, are square.
 ({double outline, BorderRadius content}) desktopWindowCorners({
   required bool drawsServerFrame,
   required ShellWindowFrame? frame,
   required bool maximized,
   required double windowRadius,
-  required double scale,
   required EdgeInsets margins,
 }) {
   if (!drawsServerFrame) {
@@ -117,7 +117,7 @@ class ClosingDesktopWindow {
   if (frame is! BuiltInWindowFrame || maximized) {
     return (outline: 0.0, content: BorderRadius.zero);
   }
-  final outline = windowRadius * scale;
+  final outline = windowRadius;
   // The window surface takes one radius for all four corners.
   final inner = math.max(0.0, outline - math.max(margins.left, margins.bottom));
   return (outline: outline, content: BorderRadius.circular(inner));
@@ -144,7 +144,6 @@ class DesktopClosingWindowFrame extends ConsumerWidget {
       frame: pluginFrame,
       maximized: closing.maximized,
       windowRadius: ShellTheme.of(context).windowRadius,
-      scale: DesktopMetrics.shellScaleOf(closing.window.monitorId),
       margins: closing.frameMargins,
     );
     final radius = corners.outline;
@@ -371,7 +370,6 @@ class DesktopWindowFrame extends ConsumerWidget {
       frame: pluginFrame,
       maximized: placement.maximized,
       windowRadius: theme.windowRadius,
-      scale: placement.frameScale,
       margins: drawnMargins,
     );
     final windowRadius = corners.outline;

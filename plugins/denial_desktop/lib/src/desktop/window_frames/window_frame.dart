@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../desktop_plugin_window_frame.dart' show DesktopFrameScale;
 import '../desktop_window_frame_painter.dart' show desktopWindowBorderColor;
 import 'caption_button.dart';
 import 'double_click.dart';
@@ -82,7 +83,12 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
     // The window rounding setting rounds the frame as it does the desktop's
     // plain border; a maximized window is square. The desktop rounds the
     // content's lower corners and the shadow to match.
-    final radius = frame.maximized ? 0.0 : theme.windowRadius;
+    // The frame is built in the shell's units and drawn larger by the
+    // shell's scale; its corners keep the screen's window radius, as the
+    // plain border's do.
+    final radius = frame.maximized
+        ? 0.0
+        : theme.windowRadius / DesktopFrameScale.of(context);
     // As far as the content's rounded corners reach, with a unit to spare
     // for rounding to whole pixels; behind the content.
     final contentCorner = radius > topBorder ? radius - topBorder + 1.0 : 0.0;

@@ -49,39 +49,64 @@ class DesktopPluginWindowFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final frameMargins = margins / scale;
-    return Stack(
-      fit: StackFit.expand,
-      clipBehavior: Clip.none,
-      children: [
-        DesktopVisibilityFade(
-          child: IgnorePointer(
-            ignoring: !interactive,
-            child: ShellScaleViewport(
-              scale: scale,
-              child: DesktopFrameMarginsHitTest(
-                margins: frameMargins,
-                child: Builder(
-                  builder: (context) => frame.build(
-                    context,
-                    frame: ShellWindowFrameContext(
-                      window: window,
-                      active: active,
-                      maximized: maximized,
-                      interactive: interactive,
-                      margins: _frameMargins(frameMargins),
-                      reach: _frameMargins(reach / scale),
-                      services: ShellServicesScope.of(context),
+    return DesktopFrameScale(
+      scale: scale,
+      child: Stack(
+        fit: StackFit.expand,
+        clipBehavior: Clip.none,
+        children: [
+          DesktopVisibilityFade(
+            child: IgnorePointer(
+              ignoring: !interactive,
+              child: ShellScaleViewport(
+                scale: scale,
+                child: DesktopFrameMarginsHitTest(
+                  margins: frameMargins,
+                  child: Builder(
+                    builder: (context) => frame.build(
+                      context,
+                      frame: ShellWindowFrameContext(
+                        window: window,
+                        active: active,
+                        maximized: maximized,
+                        interactive: interactive,
+                        margins: _frameMargins(frameMargins),
+                        reach: _frameMargins(reach / scale),
+                        services: ShellServicesScope.of(context),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        Padding(padding: margins, child: child),
-      ],
+          Padding(padding: margins, child: child),
+        ],
+      ),
     );
   }
+}
+
+/// The shell's own scale a window frame is drawn at, for a frame built in
+/// that scaled space that has to keep a length on the screen: Denial's own
+/// frame keeps its corners at the screen's window radius.
+class DesktopFrameScale extends InheritedWidget {
+  const DesktopFrameScale({
+    super.key,
+    required this.scale,
+    required super.child,
+  });
+
+  final double scale;
+
+  /// The scale around [context], 1 outside a frame.
+  static double of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DesktopFrameScale>()?.scale ??
+      1.0;
+
+  @override
+  bool updateShouldNotify(DesktopFrameScale oldWidget) =>
+      oldWidget.scale != scale;
 }
 
 DenialWindowFrameMargins _frameMargins(EdgeInsets insets) =>
