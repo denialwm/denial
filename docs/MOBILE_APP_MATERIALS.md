@@ -39,8 +39,8 @@ Anything that fits none of these goes inside an island.
 | Material | Fill | Radius | Edge | Shadow |
 | --- | --- | --- | --- | --- |
 | Window | Glass tint at window opacity, minimum 3/255 | Window radius R | None | None |
-| Island | Smoke: glass tint at max(app-panel opacity, the island floor's alpha); accent, opaque, for own messages and primary actions; opaque raised in an opaque window | max(4, R - 8, 0.7 R) | Floating edge, 0.75 lp (opaque raised: light appearance only, ink at 0.10) | Floating shadow, except in runs |
-| Glass group | Glass tint at max(app-panel opacity, group floor) | max(4, R - 8, 0.7 R) | Floating edge, 0.75 lp | Floating shadow |
+| Island | Smoke: glass tint at max(app-panel opacity, the island floor's alpha); accent, opaque, for own messages and primary actions; opaque raised in an opaque window | max(4, I - 8, 0.7 I) | Floating edge, 0.75 lp (opaque raised: light appearance only, ink at 0.10) | Floating shadow, except in runs |
+| Glass group | Glass tint at max(app-panel opacity, group floor) | max(4, I - 8, 0.7 I) | Floating edge, 0.75 lp | Floating shadow |
 | Chip | Glass tint at max(app-panel opacity, chip floor) | Fully round | Floating edge, 0.75 lp | None |
 | Bare | None | Own shape | None | Optional floating shadow on a large avatar |
 
@@ -80,10 +80,11 @@ for 225 ppi; 1 dp is 225/160 lp, as `dp()` in Messages computes it.
 | Token | Value | Notes |
 | --- | --- | --- |
 | Gutter | **8** | denial-look `INSET`. Between islands, groups and the window edge. |
-| Window radius R | 20 × the window roundness | `Look::window_radius`: `windowCornerRadiusScale`, 0.5 unless set, so 10. The same under the mobile and the desktop shell. |
-| Island and group radius | max(4, R - 8, 0.7 R) | `Look::group_radius`. 9.8 at R 14. Concentric with the window from R 27 up; below, the gutter would take the whole radius, so the island keeps 0.7 of it. |
+| Window radius R | 20 × the window roundness | `Look::window_radius`: `windowCornerRadiusScale`, 0.5 unless set, so 10. Denial draws the window's corners; the app rounds nothing with R. The same under the mobile and the desktop shell. |
+| Interface radius I | 20 × the interface roundness | `Look::interface_radius`: `interfaceCornerRadiusScale`, 1.2 unless set, so 24. Everything inside the window is rounded from it. |
+| Island and group radius | max(4, I - 8, 0.7 I) | `Look::group_radius`. 16.8 at I 24. Below I 27 the gutter would take the whole radius, so the island keeps 0.7 of it. |
 | Control radius inside an island | max(4, island radius - inset, 0.55 × island radius) | `nested_radius`. |
-| Bubble and conversation radius | max(4, R) | Messages `bubble_radius`, with a 4 lp tail corner toward the sender on the last bubble of a run. |
+| Bubble and conversation radius | max(4, I) | Messages `bubble_radius`, with a 4 lp tail corner toward the sender on the last bubble of a run. |
 | Group floor | **0.30** dark, **0.50** light | Glass groups never go below it. On a phone, the App panels slider starts at this floor for the current appearance. |
 | Island floor | **0.72** dark, **0.86** light | Window backing plus island glass together never tint the frost less. Keeps secondary text at 4.5:1 over white frost (dark) or black frost (light). |
 | Chip floor | **0.50** dark, **0.70** light | Chips never go below it. |
@@ -290,7 +291,7 @@ durations in apps.
 - `palette` for dark and light, selected from the saved appearance, plus error
   text, the destructive fill and the call fill.
 - `INSET` (gutter), `MIN_RADIUS`, `nested_radius`, `Look::group_radius`, and a
-  bubble radius helper equal to max(4, R).
+  bubble radius helper equal to max(4, I).
 - Group and chip alpha helpers that apply the floors for the current
   appearance, and `Look::island_fill` for smoke.
 - Floating edge and shadow tokens with the light-mode values, and the island

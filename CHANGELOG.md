@@ -20,8 +20,9 @@ boundaries may change before 1.0.
   (`appearance.windowCornerRadiusScale`, 0.5, shown as 25%) and one for
   everything else the shell rounds, such as panels, notifications, tiles and
   buttons (`appearance.interfaceCornerRadiusScale`, 1.2, shown as 60%). Both
-  hold on the desktop, on a phone and on a monitor beside a phone; apps
-  round their windows with the window roundness. The roundness kept before
+  hold on the desktop, on a phone and on a monitor beside a phone; inside
+  their windows, apps round their islands, groups and controls with the
+  interface roundness. The roundness kept before
   (`cornerRadiusScale`, `monitorCornerRadiusScale`,
   `desktopCornerRadiusScale`, `mobileCornerRadiusScale`) is no longer read,
   so both start from their defaults.
