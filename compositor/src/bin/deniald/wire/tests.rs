@@ -1682,6 +1682,7 @@ fn scene_window(id: u64) -> WindowDescription {
         opacity_class: WindowOpacityClass::FullyOpaque,
         pet: None,
         keyboard_inset: false,
+        client_title_bar: false,
     }
 }
 

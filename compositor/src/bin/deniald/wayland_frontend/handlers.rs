@@ -1,7 +1,7 @@
 #[cfg(feature = "flutter")]
 use super::super::render_audit_enabled;
 use super::focus::request_keyboard_focus;
-use super::managed_window::ManagedWindow;
+use super::managed_window::{ManagedWindow, set_client_title_bar};
 use super::window_management::{
     ManagedClientStateRequest, activate_window, apply_managed_client_state_request,
     managed_client_grab_allowed,
@@ -1083,6 +1083,22 @@ mod frame_deadline_source_tests {
             .unwrap();
         assert_eq!(events, ["deadline", "acquire", "unrelated"]);
         assert_eq!(blocker.state(), BlockerState::Released);
+    }
+}
+
+#[cfg(test)]
+mod decoration_mode_tests {
+    use super::*;
+
+    #[test]
+    fn a_client_asking_for_client_side_draws_its_title_bar() {
+        assert!(client_draws_title_bar(Some(XdgDecorationMode::ClientSide)));
+    }
+
+    #[test]
+    fn every_other_client_gets_the_shell_title_bar() {
+        assert!(!client_draws_title_bar(Some(XdgDecorationMode::ServerSide)));
+        assert!(!client_draws_title_bar(None));
     }
 }
 
@@ -2507,26 +2523,41 @@ const fn shell_decoration_mode() -> XdgDecorationMode {
     XdgDecorationMode::ServerSide
 }
 
-fn configure_shell_decoration(toplevel: &ToplevelSurface) {
+/// Whether a client that asked for `requested` draws its own title bar: one
+/// that asks for client-side decorations, as a browser with its tabs in the
+/// title bar does. The shell then leaves its title bar out and keeps the
+/// rest of its frame.
+const fn client_draws_title_bar(requested: Option<XdgDecorationMode>) -> bool {
+    matches!(requested, Some(XdgDecorationMode::ClientSide))
+}
+
+fn configure_shell_decoration(
+    state: &mut RuntimeState,
+    toplevel: &ToplevelSurface,
+    requested: Option<XdgDecorationMode>,
+) {
+    set_client_title_bar(toplevel, client_draws_title_bar(requested));
     toplevel.with_pending_state(|state| {
         state.decoration_mode = Some(shell_decoration_mode());
     });
     if toplevel.is_initial_configure_sent() {
         toplevel.send_pending_configure();
     }
+    // The shell reframes the window from its next description.
+    state.scene_sync.mark_dirty();
 }
 
 impl XdgDecorationHandler for RuntimeState {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
-        configure_shell_decoration(&toplevel);
+        configure_shell_decoration(self, &toplevel, None);
     }
 
-    fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: XdgDecorationMode) {
-        configure_shell_decoration(&toplevel);
+    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: XdgDecorationMode) {
+        configure_shell_decoration(self, &toplevel, Some(mode));
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
-        configure_shell_decoration(&toplevel);
+        configure_shell_decoration(self, &toplevel, None);
     }
 }
 

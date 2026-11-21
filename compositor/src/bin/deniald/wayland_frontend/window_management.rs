@@ -32,7 +32,9 @@ use super::clamp_window_geometry;
 #[cfg(feature = "flutter")]
 use super::focus::clear_keyboard_focus;
 use super::focus::request_keyboard_focus;
-use super::managed_window::{ClientStateRequestKind, ClientWindowState, ManagedWindow};
+use super::managed_window::{
+    ClientStateRequestKind, ClientWindowState, ManagedWindow, toplevel_draws_title_bar,
+};
 #[cfg(feature = "flutter")]
 use super::window_presentation::{
     ShellFixedMaximizeTransition, ShellFullscreenExit, ShellWindowPresentation,
@@ -100,6 +102,16 @@ impl ShellFrame {
     pub(super) const fn height(self) -> i32 {
         self.top.saturating_add(self.bottom)
     }
+
+    /// The frame of a window whose client draws its own title bar: the top
+    /// edge as wide as the side ones. What a frame's top edge has beyond its
+    /// side is its title bar.
+    pub(super) const fn without_title_bar(self) -> Self {
+        Self {
+            top: self.left,
+            ..self
+        }
+    }
 }
 
 /// The frames the shell declared with `ConfigureWindowFrame`. Until it does,
@@ -121,6 +133,25 @@ impl Default for ShellFrames {
 }
 
 impl ShellFrames {
+    /// These frames without their title bars, for a window whose client
+    /// draws its own.
+    pub(super) fn without_title_bar(self) -> Self {
+        Self {
+            normal: self.normal.without_title_bar(),
+            maximized: self.maximized.map(ShellFrame::without_title_bar),
+        }
+    }
+
+    /// The frames of `window`: without their title bars when its client
+    /// draws its own.
+    pub(super) fn of_window(self, window: &Window) -> Self {
+        if window.toplevel().is_some_and(toplevel_draws_title_bar) {
+            self.without_title_bar()
+        } else {
+            self
+        }
+    }
+
     /// The frame of a window that is neither maximized nor fullscreen.
     pub(super) const fn window(self, shell_draws_frame: bool) -> ShellFrame {
         if shell_draws_frame {
@@ -193,10 +224,12 @@ impl super::WaylandFrontend {
 
     /// The frames the shell draws on the output `window` is on.
     fn shell_frames_of(&self, window: &Window) -> ShellFrames {
-        if self.output_shell_frames.is_empty() {
-            return self.shell_frames;
-        }
-        self.shell_frames_at(self.window_geometry_target(window))
+        let frames = if self.output_shell_frames.is_empty() {
+            self.shell_frames
+        } else {
+            self.shell_frames_at(self.window_geometry_target(window))
+        };
+        frames.of_window(window)
     }
 
     /// The frame around `window` while it is neither maximized nor
@@ -222,7 +255,7 @@ impl super::WaylandFrontend {
         geometry: Rectangle<i32, Logical>,
         maximized: bool,
     ) -> ShellFrame {
-        let frames = self.shell_frames_at(geometry);
+        let frames = self.shell_frames_at(geometry).of_window(window);
         let decorated = shell_draws_server_frame(window);
         if maximized {
             frames.maximized_window(decorated, self.window_layout_manages_geometry())
@@ -3252,5 +3285,30 @@ mod tests {
         assert_eq!(frames.maximized_window(true, false), title_bar_only);
         assert_eq!(frames.maximized_window(true, true), title_bar_only);
         assert_eq!(frames.maximized_window(false, true), ShellFrame::NONE);
+    }
+
+    #[test]
+    fn a_client_title_bar_takes_only_the_frames_title_bar_away() {
+        let frames = ShellFrames {
+            normal: ShellFrame {
+                left: 1,
+                top: 40,
+                right: 1,
+                bottom: 1,
+            },
+            maximized: Some(ShellFrame {
+                top: 40,
+                ..ShellFrame::NONE
+            }),
+        };
+
+        let titleless = frames.without_title_bar();
+        assert_eq!(titleless.normal, ShellFrame::uniform(1));
+        assert_eq!(titleless.maximized, Some(ShellFrame::NONE));
+        // A frame without a title bar keeps all it has.
+        assert_eq!(
+            ShellFrames::default().without_title_bar(),
+            ShellFrames::default()
+        );
     }
 }

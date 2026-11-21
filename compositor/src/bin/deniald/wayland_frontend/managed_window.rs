@@ -8,6 +8,7 @@
 
 #[cfg(feature = "xwayland")]
 use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -135,6 +136,9 @@ pub(super) struct ClientWindowState {
 pub(super) struct ManagedWindowFacts {
     pub(super) client_state: ClientWindowState,
     pub(super) server_side_decorated: bool,
+    /// The client draws its own title bar; the shell's frame leaves its
+    /// title bar out.
+    pub(super) client_title_bar: bool,
     pub(super) auxiliary: bool,
     pub(super) override_redirect: bool,
     pub(super) minimum_size: Size<i32, Logical>,
@@ -234,6 +238,7 @@ impl<'a> ManagedWindow<'a> {
                         resizing: toplevel_has_state(toplevel, xdg_toplevel::State::Resizing),
                     },
                     server_side_decorated: true,
+                    client_title_bar: toplevel_draws_title_bar(toplevel),
                     auxiliary: false,
                     override_redirect: false,
                     minimum_size,
@@ -274,6 +279,7 @@ impl<'a> ManagedWindow<'a> {
                     server_side_decorated: !surface.is_override_redirect()
                         && !protocol_popup
                         && !x11_click_through(surface),
+                    client_title_bar: false,
                     auxiliary,
                     override_redirect: surface.is_override_redirect(),
                     minimum_size: surface.min_size().unwrap_or_else(|| Size::from((0, 0))),
@@ -795,6 +801,33 @@ pub(super) fn toplevel_has_state(
             .unwrap_or_else(|| attributes.current_server_state())
             .states
             .contains(xdg_state)
+    })
+}
+
+/// Whether the client draws its own title bar, as it asked with
+/// xdg-decoration (`set_client_title_bar`).
+#[derive(Default)]
+struct ClientTitleBar(AtomicBool);
+
+pub(super) fn set_client_title_bar(surface: &ToplevelSurface, draws: bool) {
+    with_states(surface.wl_surface(), |states| {
+        states
+            .data_map
+            .get_or_insert_threadsafe(ClientTitleBar::default)
+            .0
+            .store(draws, Ordering::Relaxed);
+    });
+}
+
+pub(super) fn toplevel_draws_title_bar(surface: &ToplevelSurface) -> bool {
+    if !surface.wl_surface().is_alive() {
+        return false;
+    }
+    with_states(surface.wl_surface(), |states| {
+        states
+            .data_map
+            .get::<ClientTitleBar>()
+            .is_some_and(|draws| draws.0.load(Ordering::Relaxed))
     })
 }
 

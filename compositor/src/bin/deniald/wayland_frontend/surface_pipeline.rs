@@ -1595,6 +1595,7 @@ impl WaylandFrontend {
                 opacity_class,
                 pet: None,
                 keyboard_inset: self.keyboard_inset_surface(&surface),
+                client_title_bar: presentation.client_title_bar,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1704,6 +1705,7 @@ impl WaylandFrontend {
                 opacity_class: WindowOpacityClass::FullyOpaque,
                 pet: None,
                 keyboard_inset: false,
+                client_title_bar: false,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1886,6 +1888,7 @@ impl WaylandFrontend {
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet,
                     keyboard_inset: false,
+                    client_title_bar: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;
@@ -2038,6 +2041,7 @@ impl WaylandFrontend {
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet: None,
                     keyboard_inset: false,
+                    client_title_bar: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;

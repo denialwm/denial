@@ -1891,6 +1891,7 @@ class DenialWireCodec {
               )
             : null,
         keyboardInset: window.keyboardInset,
+        clientTitleBar: window.clientTitleBar,
       );
       // FlatBuffers getters parse their field on each access. Validate the
       // materialized snapshot so geometry and layer fields are read only once.

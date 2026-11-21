@@ -80,6 +80,9 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
     // The border above the title bar is as wide as the one beside it. A
     // maximized window has no side margins and so no border.
     final topBorder = margins.left;
+    // A window whose client draws its own title bar has a frame without
+    // one: its top edge is only the border.
+    final titleBar = margins.top > topBorder;
     // The window rounding setting rounds the frame as it does the desktop's
     // plain border; a maximized window is square. The desktop rounds the
     // content's lower corners and the shadow to match.
@@ -107,78 +110,79 @@ class _WindowsWindowFrameState extends ConsumerState<WindowsWindowFrame> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Positioned(
-            left: margins.left,
-            top: topBorder,
-            right: margins.right,
-            height: (margins.top - topBorder).clamp(0.0, double.infinity),
-            child: ColoredBox(
-              color: colors.bar,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: Listener(
-                      behavior: HitTestBehavior.opaque,
-                      onPointerDown: _titlePressed,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 12.0),
-                          SizedBox.square(
-                            dimension: _iconSize,
-                            child: frame.services.buildApplicationIcon(
-                              context,
-                              _window.appId,
+          if (titleBar)
+            Positioned(
+              left: margins.left,
+              top: topBorder,
+              right: margins.right,
+              height: (margins.top - topBorder).clamp(0.0, double.infinity),
+              child: ColoredBox(
+                color: colors.bar,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: _titlePressed,
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 12.0),
+                            SizedBox.square(
+                              dimension: _iconSize,
+                              child: frame.services.buildApplicationIcon(
+                                context,
+                                _window.appId,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8.0),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.ellipsis,
-                              style: DefaultTextStyle.of(context).style
-                                  .copyWith(
-                                    color: colors.text,
-                                    fontSize: 13.0,
-                                    fontWeight: FontWeight.w400,
-                                    decoration: TextDecoration.none,
-                                  ),
+                            const SizedBox(width: 8.0),
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: DefaultTextStyle.of(context).style
+                                    .copyWith(
+                                      color: colors.text,
+                                      fontSize: 13.0,
+                                      fontWeight: FontWeight.w400,
+                                      decoration: TextDecoration.none,
+                                    ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8.0),
-                        ],
+                            const SizedBox(width: 8.0),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  CaptionButton(
-                    glyph: CaptionGlyph.minimize,
-                    label: 'Minimize',
-                    colors: colors,
-                    onPressed: () => _bridge.minimizeWindow(_window),
-                  ),
-                  CaptionButton(
-                    glyph: frame.maximized
-                        ? CaptionGlyph.restore
-                        : CaptionGlyph.maximize,
-                    label: frame.maximized ? 'Restore' : 'Maximize',
-                    colors: colors,
-                    onPressed: _toggleMaximized,
-                  ),
-                  CaptionButton(
-                    glyph: CaptionGlyph.close,
-                    label: 'Close',
-                    colors: colors,
-                    onPressed: () => _bridge.closeWindow(_window),
-                  ),
-                ],
+                    CaptionButton(
+                      glyph: CaptionGlyph.minimize,
+                      label: 'Minimize',
+                      colors: colors,
+                      onPressed: () => _bridge.minimizeWindow(_window),
+                    ),
+                    CaptionButton(
+                      glyph: frame.maximized
+                          ? CaptionGlyph.restore
+                          : CaptionGlyph.maximize,
+                      label: frame.maximized ? 'Restore' : 'Maximize',
+                      colors: colors,
+                      onPressed: _toggleMaximized,
+                    ),
+                    CaptionButton(
+                      glyph: CaptionGlyph.close,
+                      label: 'Close',
+                      colors: colors,
+                      onPressed: () => _bridge.closeWindow(_window),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
           // The content's upper corners are rounded as its lower ones; the
           // bar's colour fills behind them so they meet the title bar.
-          if (contentCorner > 0.0) ...[
+          if (titleBar && contentCorner > 0.0) ...[
             Positioned(
               left: margins.left,
               top: margins.top,

@@ -177,10 +177,14 @@ abstract final class DesktopMetrics {
 
   /// The frame around a window's content while it is live on the desktop, by
   /// the compositor's own rule, on the output [monitorId].
+  ///
+  /// A window whose client draws its own title bar ([clientTitleBar]) keeps
+  /// the frame without its title bar.
   static EdgeInsets windowFrameMargins({
     required bool serverSideDecorated,
     required bool maximized,
     required bool serverFrameWhileMaximized,
+    bool clientTitleBar = false,
     bool fullscreen = false,
     int monitorId = -1,
   }) {
@@ -188,12 +192,18 @@ abstract final class DesktopMetrics {
       return EdgeInsets.zero;
     }
     final frames = _framesOn(monitorId);
-    if (!maximized) {
-      return frames.margins;
-    }
-    return frames.maximized ??
-        (serverFrameWhileMaximized ? frames.margins : EdgeInsets.zero);
+    final margins = !maximized
+        ? frames.margins
+        : frames.maximized ??
+              (serverFrameWhileMaximized ? frames.margins : EdgeInsets.zero);
+    return clientTitleBar ? withoutTitleBar(margins) : margins;
   }
+
+  /// [margins] without their title bar, by the compositor's rule: the top
+  /// edge as wide as the side ones. What a frame's top edge has beyond its
+  /// side is its title bar.
+  static EdgeInsets withoutTitleBar(EdgeInsets margins) =>
+      margins.copyWith(top: margins.left);
 
   static const double panelGap = 12.0;
   static const double panelMargin = 14.0;
@@ -678,6 +688,7 @@ class DesktopWindowPlacement {
     this.maximized = false,
     this.fullscreen = false,
     this.serverSideDecorated = true,
+    this.clientTitleBar = false,
     this.serverFrameWhileMaximized = false,
     this.dragging = false,
     this.resizing = false,
@@ -695,6 +706,9 @@ class DesktopWindowPlacement {
   final bool maximized;
   final bool fullscreen;
   final bool serverSideDecorated;
+
+  /// The client draws its own title bar: the frame leaves its own out.
+  final bool clientTitleBar;
 
   /// Whether the active layout keeps the shell frame around a maximized
   /// window. Managed layouts leave breathing room around their tiles, unlike
@@ -718,6 +732,7 @@ class DesktopWindowPlacement {
     serverSideDecorated: serverSideDecorated,
     maximized: maximized,
     serverFrameWhileMaximized: serverFrameWhileMaximized,
+    clientTitleBar: clientTitleBar,
     fullscreen: fullscreen,
     monitorId: monitorId,
   );
@@ -733,7 +748,8 @@ class DesktopWindowPlacement {
         DesktopMetrics.customWindowFrame) {
       return live;
     }
-    return DesktopMetrics.frameMarginsOn(monitorId);
+    final margins = DesktopMetrics.frameMarginsOn(monitorId);
+    return clientTitleBar ? DesktopMetrics.withoutTitleBar(margins) : margins;
   }
 
   Rect get contentRect => frameMargins.deflateRect(frame);
@@ -756,6 +772,7 @@ class DesktopWindowPlacement {
     bool? maximized,
     bool? fullscreen,
     bool? serverSideDecorated,
+    bool? clientTitleBar,
     bool? serverFrameWhileMaximized,
     bool? dragging,
     bool? resizing,
@@ -775,6 +792,7 @@ class DesktopWindowPlacement {
       maximized: maximized ?? this.maximized,
       fullscreen: fullscreen ?? this.fullscreen,
       serverSideDecorated: serverSideDecorated ?? this.serverSideDecorated,
+      clientTitleBar: clientTitleBar ?? this.clientTitleBar,
       serverFrameWhileMaximized:
           serverFrameWhileMaximized ?? this.serverFrameWhileMaximized,
       dragging: dragging ?? this.dragging,
@@ -1039,6 +1057,7 @@ bool _desktopPlacementHasSameSceneStructure(
       left.maximized == right.maximized &&
       left.fullscreen == right.fullscreen &&
       left.serverSideDecorated == right.serverSideDecorated &&
+      left.clientTitleBar == right.clientTitleBar &&
       left.serverFrameWhileMaximized == right.serverFrameWhileMaximized &&
       left.dragging == right.dragging &&
       left.resizing == right.resizing &&

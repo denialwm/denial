@@ -5050,6 +5050,7 @@ impl<'a> Window<'a> {
   pub const VT_PET_DRAGGED: flatbuffers::VOffsetT = 104;
   pub const VT_CLIENT_TEXTURE: flatbuffers::VOffsetT = 106;
   pub const VT_KEYBOARD_INSET: flatbuffers::VOffsetT = 108;
+  pub const VT_CLIENT_TITLE_BAR: flatbuffers::VOffsetT = 110;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5100,6 +5101,7 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_client_title_bar(args.client_title_bar);
     builder.add_keyboard_inset(args.keyboard_inset);
     builder.add_pet_dragged(args.pet_dragged);
     builder.add_pet(args.pet);
@@ -5489,6 +5491,13 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(Window::VT_KEYBOARD_INSET, Some(false)).unwrap()}
   }
+  #[inline]
+  pub fn client_title_bar(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_CLIENT_TITLE_BAR, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -5551,6 +5560,7 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<bool>("pet_dragged", Self::VT_PET_DRAGGED, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<ClientTexture>>("client_texture", Self::VT_CLIENT_TEXTURE, false)?
      .visit_field::<bool>("keyboard_inset", Self::VT_KEYBOARD_INSET, false)?
+     .visit_field::<bool>("client_title_bar", Self::VT_CLIENT_TITLE_BAR, false)?
      .finish();
     Ok(())
   }
@@ -5609,6 +5619,7 @@ pub struct WindowArgs<'a> {
     pub pet_dragged: bool,
     pub client_texture: Option<flatbuffers::WIPOffset<ClientTexture<'a>>>,
     pub keyboard_inset: bool,
+    pub client_title_bar: bool,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -5667,6 +5678,7 @@ impl<'a> Default for WindowArgs<'a> {
       pet_dragged: false,
       client_texture: None,
       keyboard_inset: false,
+      client_title_bar: false,
     }
   }
 }
@@ -5889,6 +5901,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<bool>(Window::VT_KEYBOARD_INSET, keyboard_inset, false);
   }
   #[inline]
+  pub fn add_client_title_bar(&mut self, client_title_bar: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_CLIENT_TITLE_BAR, client_title_bar, false);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -5959,6 +5975,7 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("pet_dragged", &self.pet_dragged());
       ds.field("client_texture", &self.client_texture());
       ds.field("keyboard_inset", &self.keyboard_inset());
+      ds.field("client_title_bar", &self.client_title_bar());
       ds.finish()
   }
 }

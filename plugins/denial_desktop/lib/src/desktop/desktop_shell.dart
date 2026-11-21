@@ -83,6 +83,17 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     _useWindowFrame(ref.read(desktopWindowFrameProvider));
     _useOutputScales(ref.read(deskDisplayLayoutProvider));
     _declareWindowFrames();
+    // A frame chosen later, such as the stacking layout's title bars turned
+    // on or off, keeps every window's content where it is, as the compositor
+    // does, before anything builds with it.
+    ref.listenManual<ShellWindowFrame?>(desktopWindowFrameProvider, (_, next) {
+      final changed = ref
+          .read(desktopWorkspaceProvider.notifier)
+          .changeFramesKeepingContent(() => _useWindowFrame(next));
+      if (changed) {
+        _declareWindowFrames();
+      }
+    });
     _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
   }
 

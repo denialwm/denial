@@ -831,6 +831,7 @@ fn create_window_snapshot<'a>(
                 pet_holds: description.pet.map_or(0, |pet| pet.holds),
                 pet_dragged: description.pet.is_some_and(|pet| pet.dragged),
                 keyboard_inset: description.keyboard_inset,
+                client_title_bar: description.client_title_bar,
                 ..Default::default()
             },
         ));

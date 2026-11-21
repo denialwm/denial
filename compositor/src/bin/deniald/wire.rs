@@ -853,6 +853,9 @@ pub struct WindowDescription {
     /// The client lays the window out around the on-screen keyboard
     /// (denial-insets-v1), so the mobile shell does not lift it.
     pub keyboard_inset: bool,
+    /// The client draws its own title bar; the shell's frame leaves its
+    /// title bar out.
+    pub client_title_bar: bool,
 }
 
 /// A desktop pet (denial-pet-v1) as the shell knows it. A held pet is drawn

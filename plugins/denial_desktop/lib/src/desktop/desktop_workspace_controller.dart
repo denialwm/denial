@@ -283,6 +283,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
               : _initialFrame(
                   nativeGeometry,
                   serverSideDecorated: window.serverSideDecorated,
+                  clientTitleBar: window.clientTitleBar,
                   maximized: window.maximized,
                   serverFrameWhileMaximized: serverFrameWhileMaximized,
                   monitorId: window.monitorId,
@@ -294,6 +295,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           maximized: window.maximized,
           fullscreen: window.fullscreen,
           serverSideDecorated: window.serverSideDecorated,
+          clientTitleBar: window.clientTitleBar,
           serverFrameWhileMaximized: serverFrameWhileMaximized,
         );
         _nativeRevisions[window.objectId] = _NativeWindowRevisions(
@@ -333,6 +335,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         final nativeServerSideDecorated = metadataIsNew
             ? window.serverSideDecorated
             : existing.serverSideDecorated;
+        final nativeClientTitleBar = metadataIsNew
+            ? window.clientTitleBar
+            : existing.clientTitleBar;
         final nativeMonitorId = metadataIsNew
             ? window.monitorId
             : existing.monitorId;
@@ -345,7 +350,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           fullscreenRestoreFrame ??= existing.frame;
         }
         final decorationChanged =
-            existing.serverSideDecorated != nativeServerSideDecorated;
+            existing.serverSideDecorated != nativeServerSideDecorated ||
+            existing.clientTitleBar != nativeClientTitleBar;
         // Rust owns geometry throughout a native grab. A presentation or
         // metadata snapshot (for example, an animating title) can carry the
         // latest native rectangle before Flutter receives the matching
@@ -364,6 +370,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
               : _initialFrame(
                   nativeGeometry,
                   serverSideDecorated: nativeServerSideDecorated,
+                  clientTitleBar: nativeClientTitleBar,
                   maximized: nativeMaximized,
                   serverFrameWhileMaximized: serverFrameWhileMaximized,
                   monitorId: nativeMonitorId,
@@ -398,6 +405,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           frame = _initialFrame(
             existing.contentRect,
             serverSideDecorated: nativeServerSideDecorated,
+            clientTitleBar: nativeClientTitleBar,
             maximized: nativeMaximized,
             serverFrameWhileMaximized: serverFrameWhileMaximized,
             monitorId: nativeMonitorId,
@@ -418,6 +426,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           frame: frame,
           monitorId: monitorId,
           serverSideDecorated: nativeServerSideDecorated,
+          clientTitleBar: nativeClientTitleBar,
           workspaceId: adoptsNativeWorkspace
               ? window.workspaceId
               : existing.workspaceId,
@@ -446,6 +455,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         if (current.frame != existing.frame ||
             current.monitorId != existing.monitorId ||
             current.serverSideDecorated != existing.serverSideDecorated ||
+            current.clientTitleBar != existing.clientTitleBar ||
             current.workspaceId != existing.workspaceId ||
             current.minimized != existing.minimized ||
             current.maximized != existing.maximized ||
@@ -835,6 +845,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     final frame = _initialFrame(
       event.contentRect,
       serverSideDecorated: placement.serverSideDecorated,
+      clientTitleBar: placement.clientTitleBar,
       maximized: placement.maximized,
       serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
       monitorId: placement.monitorId,
@@ -1265,6 +1276,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         ? _initialFrame(
             event.contentRect,
             serverSideDecorated: placement.serverSideDecorated,
+            clientTitleBar: placement.clientTitleBar,
             maximized: placement.maximized,
             serverFrameWhileMaximized: placement.serverFrameWhileMaximized,
             monitorId: metadataIsNew ? event.monitorId : placement.monitorId,
@@ -1527,9 +1539,43 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     showPanel(DesktopPanel.none);
   }
 
+  /// Runs [change], which changes the frame metrics and returns whether it
+  /// did, and keeps every window's content where it is: the compositor keeps
+  /// a resting window's content as its frame changes, and the frame grows or
+  /// shrinks around it. A title bar that appears goes above the window, not
+  /// into it. A maximized or fullscreen window keeps its rectangle; the
+  /// compositor places its content again and says so.
+  bool changeFramesKeepingContent(bool Function() change) {
+    final contents = <int, Rect>{
+      for (final placement in state.placements.values)
+        if (!placement.maximized && !placement.fullscreen)
+          placement.objectId: placement.contentRect,
+    };
+    if (!change()) {
+      return false;
+    }
+    Map<int, DesktopWindowPlacement>? next;
+    for (final MapEntry(key: objectId, value: content) in contents.entries) {
+      final placement = state.placements[objectId]!;
+      final frame = placement.frameMargins.inflateRect(content);
+      if (frame != placement.frame) {
+        (next ??= Map<int, DesktopWindowPlacement>.of(
+          state.placements,
+        ))[objectId] = placement.copyWith(
+          frame: frame,
+        );
+      }
+    }
+    if (next != null) {
+      state = state.copyWith(placements: next);
+    }
+    return true;
+  }
+
   Rect _initialFrame(
     Rect contentRect, {
     required bool serverSideDecorated,
+    bool clientTitleBar = false,
     required bool maximized,
     required bool serverFrameWhileMaximized,
     required int monitorId,
@@ -1538,6 +1584,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     // again: other margins here would change the window on every round.
     return DesktopMetrics.windowFrameMargins(
       serverSideDecorated: serverSideDecorated,
+      clientTitleBar: clientTitleBar,
       maximized: maximized,
       serverFrameWhileMaximized: serverFrameWhileMaximized,
       monitorId: monitorId,

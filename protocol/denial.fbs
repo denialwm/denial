@@ -533,7 +533,10 @@ table Window {
   // Appended for compatibility. The client lays this window out around the
   // on-screen keyboard (denial-insets-v1 get_keyboard_inset), so the mobile
   // shell must not lift it while the keyboard is shown.
-  keyboard_inset:bool;
+  keyboard_inset:bool;  // Appended for compatibility. The client draws its own title bar (it asked
+  // for client-side decorations): a decorated window's frame then leaves its
+  // title bar out, its top edge as wide as its side ones, and keeps the rest.
+  client_title_bar:bool;
 }
 
 table WindowSnapshot {

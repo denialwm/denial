@@ -11,6 +11,7 @@ pub(super) struct ManagedWindowPresentation {
     pub(super) fullscreen: bool,
     pub(super) maximized: bool,
     pub(super) server_side_decorated: bool,
+    pub(super) client_title_bar: bool,
 }
 
 fn xdg_transient_parent_surface(window: &Window) -> Option<WlSurface> {
@@ -243,6 +244,7 @@ impl WaylandFrontend {
             fullscreen,
             maximized: !fullscreen && (client.maximized || shell_maximized || layout_maximized),
             server_side_decorated: facts.is_some_and(|facts| facts.server_side_decorated),
+            client_title_bar: facts.is_some_and(|facts| facts.client_title_bar),
         }
     }
 
