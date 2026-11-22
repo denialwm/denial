@@ -933,6 +933,7 @@ fn application_command(
                 return Err(io::Error::from_raw_os_error(result));
             }
             crate::cpu_scheduling::reset_application_scheduling()?;
+            crate::open_file_limit::restore_in_child()?;
             Ok(())
         });
     }

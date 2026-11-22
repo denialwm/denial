@@ -21,6 +21,8 @@ mod color_grade;
 mod color_space;
 #[path = "deniald/cpu_scheduling.rs"]
 mod cpu_scheduling;
+#[path = "deniald/open_file_limit.rs"]
+mod open_file_limit;
 #[cfg(feature = "flutter")]
 #[path = "deniald/dpms.rs"]
 mod dpms;
@@ -484,6 +486,8 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
     if options.max_outputs == 0 {
         return Ok(());
     }
+    // Before any thread or spawn: Xwayland and every worker inherit it.
+    open_file_limit::raise();
     let application_cpus = cpu_scheduling::initialize_placement();
     // SAFETY: still the sole startup thread, before run() creates any native,
     // driver or engine workers. Dart's direct tool-spawn path inherits this
