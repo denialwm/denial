@@ -5,7 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
@@ -127,6 +127,10 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     Ok(padding)
 }
 
+/// `--vulkan-composer`: output frames the Flutter engine can describe are
+/// composed with Vulkan instead of the engine's GLES pass.
+pub(crate) static VULKAN_COMPOSER: AtomicBool = AtomicBool::new(false);
+
 #[derive(Debug)]
 pub(super) struct Options {
     pub(super) device: PathBuf,
@@ -233,6 +237,7 @@ impl Options {
         let mut flutter_bundle = None;
         let mut software_rendering = false;
         let mut flutter_offscreen_blit = false;
+        let mut vulkan_composer = false;
         let mut flutter_debug_bundle = None;
         let mut flutter_ui_workspace = None;
         let mut start_locked = false;
@@ -322,6 +327,7 @@ impl Options {
                 }
                 "--software-rendering" => software_rendering = true,
                 "--flutter-offscreen-blit" => flutter_offscreen_blit = true,
+                "--vulkan-composer" => vulkan_composer = true,
                 "--flutter-debug-bundle" => {
                     flutter_debug_bundle = Some(PathBuf::from(
                         args.next().ok_or("--flutter-debug-bundle needs a path")?,
@@ -364,6 +370,7 @@ impl Options {
                          [--flutter-bundle PATH] \
                          [--software-rendering] \
                          [--flutter-offscreen-blit] \
+                         [--vulkan-composer] \
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
                          [--start-locked] \
@@ -470,6 +477,10 @@ impl Options {
         if flutter_offscreen_blit && flutter_bundle.is_none() {
             return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
         }
+        if vulkan_composer && flutter_bundle.is_none() {
+            return Err("--vulkan-composer requires --flutter-bundle".into());
+        }
+        VULKAN_COMPOSER.store(vulkan_composer, Ordering::Relaxed);
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
             && flutter_bundle.is_none()
         {

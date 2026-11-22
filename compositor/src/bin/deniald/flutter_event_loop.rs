@@ -325,6 +325,8 @@ impl Session<'_, '_> {
         let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
             Duration::from_millis(50).min(deadline.saturating_duration_since(now))
         });
+        // As in `run`: send events queued outside a client dispatch first.
+        events.frontend_mut().display_handle.flush_clients()?;
         event_loop.dispatch(timeout, events)?;
         Ok(())
     }
@@ -712,6 +714,11 @@ impl Session<'_, '_> {
             {
                 dispatch_timeout = dispatch_timeout.min(deadline.saturating_duration_since(now));
             }
+            // Events queued outside a client dispatch, such as a buffer
+            // release on its GPU fence, wait in each client's buffer until a
+            // flush. Send them before sleeping, as libwayland's loop does; an
+            // empty flush makes no syscall.
+            self.events.frontend_mut().display_handle.flush_clients()?;
             self.event_loop
                 .dispatch(dispatch_timeout, &mut self.events)?;
             self.frame_scheduler.resume_ticks(Instant::now());

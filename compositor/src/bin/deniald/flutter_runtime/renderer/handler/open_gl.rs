@@ -355,6 +355,81 @@ impl FlutterGlHandler {
     }
 }
 
+impl FlutterGlHandler {
+    /// Fences the raster context's work for this present. On failure the
+    /// frame's samples are finished and released and the runtime is told.
+    fn present_gles_fence(&self) -> Option<OwnedFd> {
+        let context = lock(&self.render_context);
+        let created_fence = {
+            let _stage = RenderAuditCallbackTimer::new(
+                self.render_audit.as_ref(),
+                RenderAuditStage::PresentFenceCreate,
+            );
+            EGLFence::create(context.context.display())
+        };
+        let fence = match created_fence {
+            Ok(fence) => {
+                // The fence follows Flutter's render commands. Flushing
+                // publishes the native sync_file without waiting for GPU
+                // completion on the raster thread.
+                // SAFETY: present runs with the raster context current.
+                {
+                    let _stage = RenderAuditCallbackTimer::new(
+                        self.render_audit.as_ref(),
+                        RenderAuditStage::PresentFlush,
+                    );
+                    // SAFETY: present owns the current raster GLES context.
+                    unsafe { (self.gl.flush)() };
+                }
+                let exported_fence = {
+                    let _stage = RenderAuditCallbackTimer::new(
+                        self.render_audit.as_ref(),
+                        RenderAuditStage::PresentFenceExport,
+                    );
+                    fence.export()
+                };
+                match exported_fence {
+                    Ok(fence) => Some(fence),
+                    Err(error) => {
+                        let reason =
+                            format!("could not export the required Flutter native fence: {error}");
+                        error!(%error, "required Flutter native fence export failed");
+                        // Complete outstanding sampling only so teardown
+                        // can release imported client buffers safely. This
+                        // frame is not published as an unfenced fallback.
+                        // SAFETY: present runs with the raster context current.
+                        unsafe { (self.gl.finish)() };
+                        let sampled = self.seal_sampled_buffers();
+                        let _ = self.publish_sampled_buffer_release(None, sampled);
+                        let _ = self.events.send(RuntimeEvent::FatalRender {
+                            generation: self.generation,
+                            reason,
+                        });
+                        return None;
+                    }
+                }
+            }
+            Err(error) => {
+                let reason = format!("could not create the required Flutter native fence: {error}");
+                error!(%error, "required Flutter native fence creation failed");
+                // Complete outstanding sampling only so teardown can
+                // release imported client buffers safely. This frame is
+                // not published as an unfenced fallback.
+                // SAFETY: present runs with the raster context current.
+                unsafe { (self.gl.finish)() };
+                let sampled = self.seal_sampled_buffers();
+                let _ = self.publish_sampled_buffer_release(None, sampled);
+                let _ = self.events.send(RuntimeEvent::FatalRender {
+                    generation: self.generation,
+                    reason,
+                });
+                return None;
+            }
+        };
+        fence
+    }
+}
+
 impl OpenGlHandler for FlutterGlHandler {
     fn make_current(&self) -> bool {
         if self.shutdown_started.load(Ordering::Acquire) {
@@ -410,6 +485,45 @@ impl OpenGlHandler for FlutterGlHandler {
 
     fn shutdown_on_render_thread(&self) -> bool {
         self.destroy_targets()
+    }
+
+    fn scene_composer_enabled(&self) -> bool {
+        self.scene_composer.is_some()
+    }
+
+    fn scene_begin(&self, view_id: i64) -> u64 {
+        self.composer_begin(view_id)
+    }
+
+    fn scene_acquire_writer(
+        &self,
+        _ticket: u64,
+        width: u32,
+        height: u32,
+    ) -> Option<denial_flutter_engine::scene::SliceWriter> {
+        self.composer_acquire_writer(width, height)
+    }
+
+    fn scene_stage(&self, scene: denial_flutter_engine::scene::SceneSource<'_>) -> bool {
+        self.composer_stage(scene)
+    }
+
+    fn scene_drop_engine_ref(&self, key: denial_flutter_engine::scene::SliceKey) {
+        self.composer_drop_engine_ref(key);
+    }
+
+    fn scene_cancel(&self, ticket: u64) {
+        self.composer_cancel(ticket);
+    }
+
+    fn scene_prepare_gles_read(&self, _view_id: i64) -> bool {
+        self.composer_prepare_gles_read()
+    }
+
+    fn scene_pin_backdrop(&self, ticket: u64, token: i64) -> bool {
+        self.scene_composer
+            .as_ref()
+            .is_some_and(|composer| composer.pin_backdrop(ticket, token))
     }
 
     fn raster_idle(&self) {
@@ -681,14 +795,63 @@ impl OpenGlHandler for FlutterGlHandler {
                     RenderAuditStage::PresentRetire,
                 );
                 self.destroy_retired_external_bindings();
+                self.composer_reap();
             }
-            if let Some(gpu_timing) = &self.gpu_timing {
+            // A staged scene is drawn by Vulkan; the engine rendered nothing
+            // into this buffer.
+            // Some(None): composed, and already complete.
+            let mut added_damage = None;
+            let composed = match self.composer_take_staged(view_id) {
+                Some(staged) => match self.composer_submit(
+                    staged,
+                    framebuffer,
+                    super::composer::FrameDamage {
+                        frame: frame.frame_damage,
+                        buffer: frame.buffer_damage,
+                    },
+                ) {
+                    Ok(submitted) => {
+                        added_damage = submitted.added;
+                        Some(submitted.completion)
+                    }
+                    Err(()) => return false,
+                },
+                None => {
+                    self.composer_gles_presented(view_id);
+                    None
+                }
+            };
+            // What the composer changed beyond the engine's damage joins
+            // the frame's: the scanout copy and the other buffers take it.
+            let frame_damage;
+            let buffer_damage;
+            let frame = match added_damage {
+                Some(rect) => {
+                    frame_damage = [frame.frame_damage, &[rect]].concat();
+                    buffer_damage = [frame.buffer_damage, &[rect]].concat();
+                    PresentFrame {
+                        framebuffer: frame.framebuffer,
+                        frame_damage: &frame_damage,
+                        buffer_damage: &buffer_damage,
+                    }
+                }
+                None => frame,
+            };
+            if composed.is_none()
+                && let Some(gpu_timing) = &self.gpu_timing
+            {
                 let _stage = RenderAuditCallbackTimer::new(
                     self.render_audit.as_ref(),
                     RenderAuditStage::PresentGpuMarkers,
                 );
                 lock(gpu_timing).mark_flutter_complete(framebuffer);
             }
+            let needs_blit = lock(&self.targets)
+                .iter()
+                .find(|target| target.render_framebuffer == framebuffer)
+                .is_some_and(|target| target.needs_blit());
+            // GLES already waits for the submission (composer_submit), so the
+            // copy to scanout reads what Vulkan drew.
             let blit_ok = {
                 let _stage = RenderAuditCallbackTimer::new(
                     self.render_audit.as_ref(),
@@ -697,6 +860,8 @@ impl OpenGlHandler for FlutterGlHandler {
                 self.blit_to_scanout(framebuffer, frame.buffer_damage)
             };
             if !blit_ok {
+                // Vulkan may still read what this transaction sampled.
+                self.composer_wait_idle();
                 if let Some(gpu_timing) = &self.gpu_timing {
                     let _stage = RenderAuditCallbackTimer::new(
                         self.render_audit.as_ref(),
@@ -713,82 +878,30 @@ impl OpenGlHandler for FlutterGlHandler {
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 return false;
             }
-            if let Some(gpu_timing) = &self.gpu_timing {
+            if composed.is_none()
+                && let Some(gpu_timing) = &self.gpu_timing
+            {
                 let _stage = RenderAuditCallbackTimer::new(
                     self.render_audit.as_ref(),
                     RenderAuditStage::PresentGpuMarkers,
                 );
                 lock(gpu_timing).finish(framebuffer);
             }
-            let context = lock(&self.render_context);
-            let created_fence = {
-                let _stage = RenderAuditCallbackTimer::new(
-                    self.render_audit.as_ref(),
-                    RenderAuditStage::PresentFenceCreate,
-                );
-                EGLFence::create(context.context.display())
-            };
-            let fence = match created_fence {
-                Ok(fence) => {
-                    // The fence follows Flutter's render commands. Flushing
-                    // publishes the native sync_file without waiting for GPU
-                    // completion on the raster thread.
-                    // SAFETY: present runs with the raster context current.
-                    {
-                        let _stage = RenderAuditCallbackTimer::new(
-                            self.render_audit.as_ref(),
-                            RenderAuditStage::PresentFlush,
-                        );
-                        // SAFETY: present owns the current raster GLES context.
-                        unsafe { (self.gl.flush)() };
+            let fence = match composed {
+                // Without a copy, Vulkan's completion is the frame's fence.
+                Some(Some(completion)) if !needs_blit => completion,
+                _ => match self.present_gles_fence() {
+                    Some(fence) => {
+                        self.composer_gles_fenced(&fence);
+                        fence
                     }
-                    let exported_fence = {
-                        let _stage = RenderAuditCallbackTimer::new(
-                            self.render_audit.as_ref(),
-                            RenderAuditStage::PresentFenceExport,
-                        );
-                        fence.export()
-                    };
-                    match exported_fence {
-                        Ok(fence) => Some(fence),
-                        Err(error) => {
-                            let reason = format!(
-                                "could not export the required Flutter native fence: {error}"
-                            );
-                            error!(%error, "required Flutter native fence export failed");
-                            // Complete outstanding sampling only so teardown
-                            // can release imported client buffers safely. This
-                            // frame is not published as an unfenced fallback.
-                            // SAFETY: present runs with the raster context current.
-                            unsafe { (self.gl.finish)() };
-                            let sampled = self.seal_sampled_buffers();
-                            let _ = self.publish_sampled_buffer_release(None, sampled);
-                            let _ = self.events.send(RuntimeEvent::FatalRender {
-                                generation: self.generation,
-                                reason,
-                            });
-                            return false;
-                        }
+                    None => {
+                        self.composer_wait_idle();
+                        return false;
                     }
-                }
-                Err(error) => {
-                    let reason =
-                        format!("could not create the required Flutter native fence: {error}");
-                    error!(%error, "required Flutter native fence creation failed");
-                    // Complete outstanding sampling only so teardown can
-                    // release imported client buffers safely. This frame is
-                    // not published as an unfenced fallback.
-                    // SAFETY: present runs with the raster context current.
-                    unsafe { (self.gl.finish)() };
-                    let sampled = self.seal_sampled_buffers();
-                    let _ = self.publish_sampled_buffer_release(None, sampled);
-                    let _ = self.events.send(RuntimeEvent::FatalRender {
-                        generation: self.generation,
-                        reason,
-                    });
-                    return false;
-                }
+                },
             };
+            let fence = Some(fence);
             let _publish_stage = RenderAuditCallbackTimer::new(
                 self.render_audit.as_ref(),
                 RenderAuditStage::PresentPublish,
@@ -820,6 +933,9 @@ impl OpenGlHandler for FlutterGlHandler {
                         warn!(%error, "could not duplicate Flutter render fence; using glFinish for sampled buffers");
                         // SAFETY: present runs with the raster context current.
                         unsafe { (self.gl.finish)() };
+                        // The fence may be Vulkan's, which glFinish does not
+                        // cover.
+                        super::composer::wait_completion(fence);
                         None
                     }
                 },

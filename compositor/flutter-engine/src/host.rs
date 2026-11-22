@@ -154,6 +154,53 @@ pub trait OpenGlHandler: Send + Sync + 'static {
         self.clear_current()
     }
 
+    /// Asks for Denial's scene composer: output frames the engine can describe
+    /// are composed by the `scene_*` methods instead of the engine.
+    fn scene_composer_enabled(&self) -> bool {
+        false
+    }
+
+    /// Raster thread, before an output view's frame: a ticket, or zero for
+    /// engine composition.
+    fn scene_begin(&self, _view_id: i64) -> u64 {
+        0
+    }
+
+    /// Raster thread, raster context current: fresh storage for one slice.
+    fn scene_acquire_writer(
+        &self,
+        _ticket: u64,
+        _width: u32,
+        _height: u32,
+    ) -> Option<crate::scene::SliceWriter> {
+        None
+    }
+
+    /// Raster thread: the frame's scene; copy it before returning. `false`
+    /// has the engine compose the frame.
+    fn scene_stage(&self, _scene: crate::scene::SceneSource<'_>) -> bool {
+        false
+    }
+
+    /// Any thread, maybe under a GL reactor lock: record the key only.
+    fn scene_drop_engine_ref(&self, _key: crate::scene::SliceKey) {}
+
+    /// Raster thread: a begun frame that will not be staged.
+    fn scene_cancel(&self, _ticket: u64) {}
+
+    /// Raster thread, raster context current: the engine is about to compose
+    /// `view_id` itself from composer slice storage. False skips the frame.
+    fn scene_prepare_gles_read(&self, _view_id: i64) -> bool {
+        true
+    }
+
+    /// Raster thread, while the engine plans the damage of frame `ticket`:
+    /// whether the composer holds the backdrop made from `token`, so the
+    /// engine need not repaint what that backdrop reads.
+    fn scene_pin_backdrop(&self, _ticket: u64, _token: i64) -> bool {
+        false
+    }
+
     /// Optional virtual canvas, read with a resolved texture generation.
     fn external_texture_presentation(
         &self,
@@ -651,6 +698,27 @@ impl EngineHost {
                 Some(external_texture_callback_may_modify_gl),
                 state,
             )?;
+        }
+        if callback_state.handler.scene_composer_enabled() {
+            let composer = crate::scene::RawComposer {
+                struct_size: mem::size_of::<crate::scene::RawComposer>(),
+                user_data: state,
+                begin: scene_begin,
+                acquire_writer: scene_acquire_writer,
+                stage: scene_stage,
+                drop_engine_ref: scene_drop_engine_ref,
+                cancel: scene_cancel,
+                prepare_gles_read: scene_prepare_gles_read,
+                pin_backdrop: scene_pin_backdrop,
+            };
+            // SAFETY: `state` outlives the engine (see above) and every
+            // trampoline contains panics.
+            if !unsafe { engine.set_scene_composer(&composer)? } {
+                callback_state.handler.log(
+                    "denial",
+                    "engine has no scene composer; engine composition stays",
+                );
+            }
         }
         publish_engine_handle(&callback_state, engine.raw_handle() as usize, state);
         Ok(Self {
@@ -1293,6 +1361,62 @@ unsafe extern "C" fn external_texture_presentation(
         };
         *result = presentation;
         true
+    })
+}
+
+unsafe extern "C" fn scene_begin(data: *mut c_void, view_id: i64) -> u64 {
+    dispatch(data, 0, |state| state.handler.scene_begin(view_id))
+}
+
+unsafe extern "C" fn scene_acquire_writer(
+    data: *mut c_void,
+    ticket: u64,
+    width: u32,
+    height: u32,
+    writer: *mut crate::scene::SliceWriter,
+) -> bool {
+    if writer.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        let Some(mut acquired) = state.handler.scene_acquire_writer(ticket, width, height) else {
+            return false;
+        };
+        acquired.struct_size = mem::size_of::<crate::scene::SliceWriter>();
+        // SAFETY: the engine passes a writable writer for this synchronous call.
+        unsafe { writer.write(acquired) };
+        true
+    })
+}
+
+unsafe extern "C" fn scene_stage(data: *mut c_void, scene: *const crate::scene::RawScene) -> bool {
+    if scene.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        // SAFETY: the engine keeps the scene and its arrays valid for this call.
+        let source = unsafe { crate::scene::SceneSource::new(&*scene) };
+        state.handler.scene_stage(source)
+    })
+}
+
+unsafe extern "C" fn scene_drop_engine_ref(data: *mut c_void, key: crate::scene::SliceKey) {
+    dispatch(data, (), |state| state.handler.scene_drop_engine_ref(key))
+}
+
+unsafe extern "C" fn scene_cancel(data: *mut c_void, ticket: u64) {
+    dispatch(data, (), |state| state.handler.scene_cancel(ticket))
+}
+
+unsafe extern "C" fn scene_prepare_gles_read(data: *mut c_void, view_id: i64) -> bool {
+    dispatch(data, false, |state| {
+        state.handler.scene_prepare_gles_read(view_id)
+    })
+}
+
+unsafe extern "C" fn scene_pin_backdrop(data: *mut c_void, ticket: u64, token: i64) -> bool {
+    dispatch(data, false, |state| {
+        state.handler.scene_pin_backdrop(ticket, token)
     })
 }
 

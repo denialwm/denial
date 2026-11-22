@@ -15,6 +15,7 @@ use std::time::Duration;
 use libloading::Library;
 
 mod host;
+pub mod scene;
 
 /// Virtual canvas for an imported external texture. Rectangles use x/y/width/height.
 #[repr(C)]
@@ -303,8 +304,12 @@ pub struct EngineLibrary {
         *mut c_void,
     ) -> sys::FlutterEngineResult,
     set_texture_presentation_callback: SetTexturePresentationCallback,
+    set_scene_composer: Option<SetSceneComposer>,
     _library: Library,
 }
+
+type SetSceneComposer =
+    unsafe extern "C" fn(sys::FlutterEngine, *const scene::RawComposer) -> sys::FlutterEngineResult;
 
 /// # Safety
 ///
@@ -409,6 +414,14 @@ impl EngineLibrary {
                 c"DenialFlutterEngineSetExternalTexturePresentationCallback",
             )?
         };
+        // SAFETY: this additive extension has the signature above; engines
+        // without it keep engine composition.
+        let set_scene_composer = unsafe {
+            library
+                .get::<SetSceneComposer>(b"DenialFlutterEngineSetSceneComposer\0")
+                .ok()
+                .map(|function| *function)
+        };
         // SAFETY: the C API explicitly requires a zero-initialized table with
         // only `struct_size` populated before the call.
         let mut table: sys::FlutterEngineProcTable = unsafe { mem::zeroed() };
@@ -454,6 +467,7 @@ impl EngineLibrary {
             render_outputs_with_completion,
             set_external_texture_gl_state_callback,
             set_texture_presentation_callback,
+            set_scene_composer,
             _library: library,
         })
     }
@@ -686,6 +700,26 @@ impl RunningEngine {
         check_result("SetExternalTexturePresentationCallback", unsafe {
             (self.library.set_texture_presentation_callback)(self.handle, callback, data)
         })
+    }
+
+    /// Installs Denial's scene composer once. `Ok(false)` when the engine
+    /// library has no scene composer.
+    ///
+    /// # Safety
+    /// `composer.user_data` must outlive the engine and callbacks must not
+    /// unwind.
+    pub(crate) unsafe fn set_scene_composer(
+        &self,
+        composer: &scene::RawComposer,
+    ) -> Result<bool, EngineError> {
+        let Some(function) = self.library.set_scene_composer else {
+            return Ok(false);
+        };
+        // SAFETY: upheld by the caller; the engine copies the table.
+        check_result("DenialFlutterEngineSetSceneComposer", unsafe {
+            function(self.handle, composer)
+        })?;
+        Ok(true)
     }
 
     pub fn current_time_nanos(&self) -> u64 {

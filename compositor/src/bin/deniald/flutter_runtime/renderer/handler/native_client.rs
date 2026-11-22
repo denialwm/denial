@@ -275,6 +275,10 @@ impl FlutterGlHandler {
         let mut state = lock(&self.native_clients);
         state.registry.remove(texture_id);
         state.images.remove(&texture_id);
+        drop(state);
+        if let Some(composer) = &self.scene_composer {
+            composer.forget_texture(texture_id);
+        }
     }
     pub(in crate::flutter_runtime) fn take_native_window_fallback(&self) -> bool {
         self.native_fallback_pending.swap(false, Ordering::AcqRel)
@@ -318,6 +322,82 @@ impl FlutterGlHandler {
             plan,
             inputs,
             presentations,
+        })
+    }
+    /// A native window for the Vulkan composer: the layers the GLES pass
+    /// would draw from the same snapshot, mapped into the window's image.
+    pub(super) fn composer_merged_client(
+        &self,
+        texture_id: i64,
+        bounds: denial_flutter_engine::scene::Rect,
+    ) -> Result<super::composer::Client, super::composer::Decline> {
+        use super::composer::{Client, MergedClient, MergedLayer, Placement, SampledClient};
+        let NativeSnapshot {
+            plan,
+            inputs,
+            presentations,
+        } = self.native_snapshot(texture_id).ok_or("native window plan")?;
+        // Layers without a current buffer are left out of both.
+        let presented = plan
+            .plan
+            .presented(&presentations)
+            .ok_or("native window presentation")?;
+        if presented.layers.len() != inputs.len() {
+            return Err("native window inputs");
+        }
+        let scene = crate::output_color::scene_encoding();
+        let size = (presented.width, presented.height);
+        let mut layers = Vec::with_capacity(inputs.len());
+        let mut unseen = Vec::new();
+        for (layer, (input_id, source)) in presented.layers.iter().zip(inputs) {
+            if source.color().is_some_and(|color| {
+                color.transform(scene).is_some() || color.alpha != Default::default()
+            }) {
+                return Err("color conversion");
+            }
+            let buffer = match &source {
+                ExternalTextureSource::Dmabuf { dmabuf, .. } => {
+                    [dmabuf.width() as u32, dmabuf.height() as u32]
+                }
+                ExternalTextureSource::Shm(frame) => [frame.width(), frame.height()],
+            };
+            let sampled = SampledClient {
+                texture_id: input_id,
+                generation: source.generation(),
+                source,
+            };
+            // As the GLES pass: a layer it cannot place is not drawn, and
+            // its buffer still counts as shown.
+            let (Some(vertices), Some(limits)) = (
+                presented.vertices(layer, buffer),
+                layer.sample_limits(buffer),
+            ) else {
+                unseen.push(sampled);
+                continue;
+            };
+            let [upper_left, upper_right, lower_left, lower_right] = vertices;
+            layers.push(MergedLayer {
+                sampled,
+                quad: [
+                    upper_left.position[0],
+                    upper_left.position[1],
+                    lower_right.position[0],
+                    lower_right.position[1],
+                ],
+                uv: [upper_left.uv, upper_right.uv, lower_left.uv],
+                limits,
+                opacity: layer.opacity,
+            });
+        }
+        Ok(Client::Merged {
+            placement: Placement::new(bounds, size, None).ok_or("native window placement")?,
+            merged: MergedClient {
+                texture_id,
+                size,
+                layers,
+                unseen,
+            },
+            look: self.app_look(texture_id),
         })
     }
     fn native_samples(inputs: &[(i64, ExternalTextureSource)]) -> Vec<NativeInputSample> {

@@ -2,12 +2,16 @@
 
 use super::*;
 
+#[path = "composer/mod.rs"]
+mod composer;
 #[path = "handler/gpu_deadline.rs"]
 mod gpu_deadline;
 #[path = "handler/native_client.rs"]
 pub(super) mod native_client;
 #[path = "handler/open_gl.rs"]
 mod open_gl;
+#[path = "handler/scene_composer.rs"]
+mod scene_composer;
 use native_client::NativeClientState;
 
 /// Window grading on the render thread: one 3D texture per app look, and
@@ -173,6 +177,8 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     desktop_size: PixelSize,
     producer: ProducerArbiter,
     shutdown_started: AtomicBool,
+    /// `--vulkan-composer`.
+    scene_composer: Option<composer::SceneComposer>,
 }
 
 impl FlutterGlHandler {
@@ -204,6 +210,7 @@ impl FlutterGlHandler {
         let mut targets = Vec::new();
         let mut broker_descriptors = Vec::new();
         let mut transfers = HashMap::new();
+        let scene_composer = scene_composer::create_scene_composer(&render_context);
 
         for pool in output_pools {
             let width =
@@ -508,6 +515,12 @@ impl FlutterGlHandler {
                 if let Some(Some(transfer)) = pool.transfers.get(buffer_index) {
                     transfers.insert(target.render_framebuffer, Arc::clone(transfer));
                 }
+                if let Some(composer) = &scene_composer {
+                    composer.add_target(
+                        target.render_framebuffer,
+                        render_dmabuf.unwrap_or(scanout_dmabuf),
+                    );
+                }
                 targets.push(target);
             }
             let framebuffers = targets[target_start..]
@@ -652,6 +665,7 @@ impl FlutterGlHandler {
             desktop_size,
             producer: ProducerArbiter::new(),
             shutdown_started: AtomicBool::new(false),
+            scene_composer,
         }))
     }
 
@@ -954,6 +968,9 @@ impl FlutterGlHandler {
         let retired_shm =
             lock(&self.shm_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
         let retired_grade = lock(&self.window_grades).graded.remove(&texture_id);
+        if let Some(composer) = &self.scene_composer {
+            composer.forget_texture(texture_id);
+        }
         // Dropping a cache reference never issues GL calls. If no Flutter
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
@@ -1587,6 +1604,9 @@ impl FlutterGlHandler {
             return false;
         }
         context.owner = Some(thread::current().id());
+        drop(context);
+        self.composer_shutdown();
+        let mut context = lock(&self.render_context);
         lock(&self.native_clients).destroy();
         let cached_dmabufs = lock(&self.dmabuf_texture_cache).drain();
         let cached_shm = lock(&self.shm_texture_cache).drain();

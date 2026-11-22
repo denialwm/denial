@@ -593,6 +593,12 @@ impl ShmTextureFrame {
             .expect("live SHM frame lost its pixel storage")
     }
 
+    /// Names these pixels while anything holds the name: storage is
+    /// immutable once published, so the same name means the same pixels.
+    pub(in crate::flutter_runtime) fn pixels_id(&self) -> ShmPixelsId {
+        ShmPixelsId(Arc::downgrade(&self.rgba))
+    }
+
     pub(crate) fn width(&self) -> u32 {
         self.width
     }
@@ -618,6 +624,23 @@ impl ShmTextureFrame {
             .0
             .iter()
             .all(|pixel| pixel[3] == 0)
+    }
+}
+
+/// A frame's pixel storage, by identity (`ShmTextureFrame::pixels_id`). The
+/// weak reference keeps the allocation's address from being reused.
+#[derive(Clone)]
+pub(in crate::flutter_runtime) struct ShmPixelsId(Weak<ShmPixelStorage>);
+
+impl PartialEq for ShmPixelsId {
+    fn eq(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl ShmPixelsId {
+    pub(in crate::flutter_runtime) fn names(&self, frame: &ShmTextureFrame) -> bool {
+        std::ptr::eq(self.0.as_ptr(), Arc::as_ptr(&frame.rgba))
     }
 }
 
