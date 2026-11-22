@@ -554,8 +554,16 @@ file_sha256() {
     sha256sum -- "$1" | cut -d' ' -f1
 }
 
+# The local engine's checksum names the engine only when nothing pinned
+# another: a package build pins the locked engine with
+# DENIAL_PC_ENGINE_SOURCE, even when the bundle step built a local one from
+# Flutter and Skia trees with uncommitted changes.
+engine_is_local() {
+    [[ -z "${DENIAL_PC_ENGINE_SOURCE:-}" && -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]
+}
+
 prebuilt_engine_sha256() {
-    if [[ -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]; then
+    if engine_is_local; then
         cut -d' ' -f1 < "$PREBUILT_ENGINE_LOCAL_SHA256"
     elif [[ -f "$PREBUILT_ENGINE_SHA256" ]]; then
         cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
@@ -573,7 +581,7 @@ verify_prebuilt_engine() {
 }
 
 prebuilt_engine_label() {
-    if [[ -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]; then
+    if engine_is_local; then
         printf 'local\n'
     else
         printf 'pinned\n'
