@@ -52,12 +52,17 @@ pub(super) struct Draw {
     frame: [f32; 4],
     params: [f32; 4],
     flags: [u32; 4],
+    /// A presentation's backing strip, in texture coordinates; empty
+    /// without one (`Strip`).
+    strip: [f32; 4],
     /// The first of the draw's `flags[1]` clips in the frame's clip buffer.
     clip_first: u32,
-    _pad: [u32; 3],
+    /// The texel centre that fills the strip, in texture coordinates.
+    strip_texel: [f32; 2],
+    _pad: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<Draw>() == 272);
+const _: () = assert!(std::mem::size_of::<Draw>() == 288);
 
 /// A run of a frame's clip records: `count` from `first`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -176,7 +181,10 @@ impl Draw {
     ) -> [Option<[i32; 4]>; 2] {
         let whole = self.flags[1] == 0 && self.params[1] == 1.0;
         match self.flags[0] {
-            KIND_TEXTURE if whole && self.flags[2] == 0 => [self.covered(self.quad, size), None],
+            // A strip and its image need not fill the quad between them.
+            KIND_TEXTURE if whole && self.flags[2] == 0 && self.strip[2] <= self.strip[0] => {
+                [self.covered(self.quad, size), None]
+            }
             KIND_WINDOW if whole && self.params[2] == 1.0 && self.flags[2] == 1 => {
                 let Some(surface) = surface else {
                     return [None, None];
@@ -224,6 +232,7 @@ impl Draw {
         }
         match self.flags[0] {
             KIND_TEXTURE if self.flags[2] != 0 => return Some("merged layer"),
+            KIND_TEXTURE if self.strip[2] > self.strip[0] => return Some("backing strip"),
             KIND_TEXTURE => {}
             KIND_WINDOW if self.params[2] != 1.0 => return Some("surface opacity"),
             KIND_WINDOW if self.flags[2] != 1 => return Some("window without surface"),
@@ -413,19 +422,32 @@ pub(super) fn inside_material(
     draw.params[1] = opacity;
 }
 
-/// Where a client image lands: its source texels, the local destination and
-/// whether sampling is strict (a crop-only presentation).
+/// Where a client image lands: its source texels, the local destination,
+/// whether sampling is strict (a crop-only presentation), and the backing
+/// strip of a content-inset presentation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::flutter_runtime) struct Placement {
     pub(super) source: [f32; 4],
     pub(super) destination: Rect,
     pub(super) strict: bool,
+    pub(super) strip: Option<Strip>,
+}
+
+/// A presentation's backing strip, as DenialTexturePresentation paints it:
+/// `destination` (local, beside the image) filled with the image's `texel`
+/// (its left and top, in pixels), sampled at the texel's centre.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::flutter_runtime) struct Strip {
+    pub(super) destination: Rect,
+    pub(super) texel: [f32; 2],
 }
 
 impl Placement {
-    /// The image drawn into `bounds`, or a crop-only presentation projected
-    /// into them (EmbedderExternalTextureGL::Paint). None for a presentation
-    /// with a backing strip, which the composer does not draw.
+    /// The image drawn into `bounds`, or a presentation projected into them
+    /// (DenialTexturePresentation::Paint): crop-only, or the image beside a
+    /// backing strip. None for a presentation the composer cannot draw
+    /// exactly: a strip without a texel of the image to fill it, or
+    /// rectangles outside the image or the canvas.
     pub(in crate::flutter_runtime) fn new(
         bounds: Rect,
         image: (u32, u32),
@@ -437,6 +459,7 @@ impl Placement {
                 source: full,
                 destination: bounds,
                 strict: false,
+                strip: None,
             });
         };
         let finite = |rect: &[f64; 4]| {
@@ -463,28 +486,105 @@ impl Placement {
             && destination[1] >= 0.0
             && destination[0] + destination[2] <= presentation.width
             && destination[1] + destination[3] <= presentation.height;
-        if !crop_only {
-            return None;
-        }
         let sx = f64::from(bounds.right - bounds.left) / presentation.width;
         let sy = f64::from(bounds.bottom - bounds.top) / presentation.height;
-        let left = f64::from(bounds.left) + destination[0] * sx;
-        let top = f64::from(bounds.top) + destination[1] * sy;
-        Some(Self {
-            source: [
-                source[0] as f32,
-                source[1] as f32,
-                (source[0] + source[2]) as f32,
-                (source[1] + source[3]) as f32,
-            ],
-            destination: Rect {
+        let project = |rect: &[f64; 4]| {
+            let left = f64::from(bounds.left) + rect[0] * sx;
+            let top = f64::from(bounds.top) + rect[1] * sy;
+            Rect {
                 left: left as f32,
                 top: top as f32,
-                right: (left + destination[2] * sx) as f32,
-                bottom: (top + destination[3] * sy) as f32,
-            },
-            strict: true,
+                right: (left + rect[2] * sx) as f32,
+                bottom: (top + rect[3] * sy) as f32,
+            }
+        };
+        let source_rect = [
+            source[0] as f32,
+            source[1] as f32,
+            (source[0] + source[2]) as f32,
+            (source[1] + source[3]) as f32,
+        ];
+        if crop_only {
+            return Some(Self {
+                source: source_rect,
+                destination: project(destination),
+                strict: true,
+                strip: None,
+            });
+        }
+        // A backing strip. The engine clips both draws to the bounds; here
+        // both lie inside them, and the image inside its buffer, so no clip
+        // is needed. Its fill is the visible source's texel five in from
+        // the corner (clamped into the source), never a solid colour.
+        let inside = |rect: &[f64; 4], width: f64, height: f64| {
+            rect[2] > 0.0
+                && rect[3] > 0.0
+                && rect[0] >= 0.0
+                && rect[1] >= 0.0
+                && rect[0] + rect[2] <= width
+                && rect[1] + rect[3] <= height
+        };
+        let (canvas_width, canvas_height) = (presentation.width, presentation.height);
+        if !finite(background)
+            || !inside(source, f64::from(image.0), f64::from(image.1))
+            || !inside(destination, canvas_width, canvas_height)
+            || !inside(background, canvas_width, canvas_height)
+        {
+            return None;
+        }
+        let axis = |start: f64, end: f64| {
+            (start + 5.0)
+                .floor()
+                .clamp(start.floor(), (end.ceil() - 1.0).max(start.floor())) as f32
+        };
+        Some(Self {
+            source: source_rect,
+            destination: project(destination),
+            strict: false,
+            strip: Some(Strip {
+                destination: project(background),
+                texel: [
+                    axis(source[0], source[0] + source[2]),
+                    axis(source[1], source[1] + source[3]),
+                ],
+            }),
         })
+    }
+
+    /// The strip in texture coordinates, through the same mapping as the
+    /// image (destination to source), and its texel's centre.
+    fn strip_uv(&self, image: (u32, u32)) -> Option<([f32; 4], [f32; 2])> {
+        let strip = self.strip.as_ref()?;
+        let (wt, ht) = (image.0 as f32, image.1 as f32);
+        let d = &self.destination;
+        let (dw, dh) = (d.right - d.left, d.bottom - d.top);
+        if dw <= 0.0 || dh <= 0.0 {
+            return None;
+        }
+        let kx = (self.source[2] - self.source[0]) / dw;
+        let ky = (self.source[3] - self.source[1]) / dh;
+        let u = |x: f32| (self.source[0] + (x - d.left) * kx) / wt;
+        let v = |y: f32| (self.source[1] + (y - d.top) * ky) / ht;
+        let s = &strip.destination;
+        let (u0, u1, v0, v1) = (u(s.left), u(s.right), v(s.top), v(s.bottom));
+        Some((
+            [u0.min(u1), v0.min(v1), u0.max(u1), v0.max(v1)],
+            [(strip.texel[0] + 0.5) / wt, (strip.texel[1] + 0.5) / ht],
+        ))
+    }
+
+    /// The local rectangle the image and its strip draw into together.
+    fn drawn(&self) -> Rect {
+        let d = self.destination;
+        match &self.strip {
+            Some(strip) => Rect {
+                left: d.left.min(strip.destination.left),
+                top: d.top.min(strip.destination.top),
+                right: d.right.max(strip.destination.right),
+                bottom: d.bottom.max(strip.destination.bottom),
+            },
+            None => d,
+        }
     }
 
     /// Local (after `local_to_input`) to normalized texture coordinates.
@@ -755,15 +855,21 @@ pub(super) fn texture(
         local,
         clips,
         ndc_from_scene,
-        ltrb(&placement.destination),
+        ltrb(&placement.drawn()),
         KIND_TEXTURE,
     );
     (draw.uv_x, draw.uv_y) = placement.uv(image, &Matrix3::IDENTITY)?;
+    let size = (image.0 as f32, image.1 as f32);
     draw.limits = if placement.strict {
-        texel_limits(placement.source, (image.0 as f32, image.1 as f32), true)
+        texel_limits(placement.source, size, true)
     } else {
         [0.0, 0.0, 1.0, 1.0]
     };
+    if placement.strip.is_some() {
+        // Beside its strip, the image covers only its destination.
+        (draw.strip, draw.strip_texel) = placement.strip_uv(image)?;
+        draw.coverage = texel_limits(placement.source, size, false);
+    }
     draw.params = [0.0, local.opacity, 1.0, 0.0];
     Some(draw)
 }
@@ -852,6 +958,9 @@ pub(super) fn window(
         draw.coverage = texel_limits(placement.source, size, false);
         draw.limits = texel_limits(placement.source, size, placement.strict);
         draw.flags[2] = 1;
+        if placement.strip.is_some() {
+            (draw.strip, draw.strip_texel) = placement.strip_uv(image)?;
+        }
     }
     Some(draw)
 }
@@ -1614,11 +1723,51 @@ pub(super) mod tests {
         let placement = Placement::new(bounds, (128, 64), Some(&presentation)).unwrap();
         assert!(placement.strict);
         assert_eq!(placement.destination, bounds);
-        let with_strip = denial_flutter_engine::ExternalTexturePresentation {
-            background: [0.0, 0.0, 10.0, 10.0],
+    }
+
+    #[test]
+    fn inset_presentation_fills_its_strip_with_a_texel() {
+        // Mobile inset canvas: the image below a 20-unit strip, at scale 2.
+        let presentation = denial_flutter_engine::ExternalTexturePresentation {
+            struct_size: 0,
+            width: 200.0,
+            height: 120.0,
+            source: [10.0, 4.0, 100.0, 50.0],
+            destination: [0.0, 20.0, 200.0, 100.0],
+            background: [0.0, 0.0, 200.0, 20.0],
+            background_argb: 0,
+        };
+        let bounds = rect(0.0, 0.0, 400.0, 240.0);
+        let placement = Placement::new(bounds, (128, 64), Some(&presentation)).unwrap();
+        assert!(!placement.strict);
+        assert_eq!(placement.destination, rect(0.0, 40.0, 400.0, 240.0));
+        let strip = placement.strip.unwrap();
+        assert_eq!(strip.destination, rect(0.0, 0.0, 400.0, 40.0));
+        // Five texels in from the visible source's corner.
+        assert_eq!(strip.texel, [15.0, 9.0]);
+        let draw = texture(
+            &whole(1.0),
+            ClipSpan::default(),
+            &ndc_from_target(400, 240),
+            &placement,
+            (128, 64),
+        )
+        .unwrap();
+        // The quad holds the strip and the image; the strip lies just above
+        // the image's texture coordinates.
+        assert_eq!(draw.quad, [0.0, 0.0, 400.0, 240.0]);
+        let (u0, v0) = (10.0 / 128.0, 4.0 / 64.0);
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert!(close(draw.strip[0], u0) && close(draw.strip[3], v0));
+        assert!(close(draw.strip[1], v0 - 10.0 / 64.0));
+        assert!(close(draw.strip_texel[0], 15.5 / 128.0) && close(draw.strip_texel[1], 9.5 / 64.0));
+        assert_eq!(draw.opaque(None, (400, 240)), [None, None]);
+        // A strip outside the canvas is not drawn exactly: declined.
+        let outside = denial_flutter_engine::ExternalTexturePresentation {
+            background: [0.0, -10.0, 200.0, 20.0],
             ..presentation
         };
-        assert!(Placement::new(bounds, (128, 64), Some(&with_strip)).is_none());
+        assert!(Placement::new(bounds, (128, 64), Some(&outside)).is_none());
     }
 
     #[test]
@@ -1659,6 +1808,7 @@ pub(super) mod tests {
                 bottom: 200.0,
             },
             strict: false,
+            strip: None,
         };
         let draw = window(
             &local,
@@ -2120,6 +2270,7 @@ pub(super) mod tests {
             source: [0.0, 0.0, 64.0, 64.0],
             destination: rect(10.25, 5.0, 60.0, 30.5),
             strict: false,
+            strip: None,
         };
         let draw = texture(&whole(1.0), ClipSpan::default(), &ndc, &placement, (64, 64)).unwrap();
         assert_eq!(draw.bounds((200, 100)), [20, 10, 120, 61]);
@@ -2182,6 +2333,7 @@ pub(super) mod tests {
             source: [0.0, 0.0, 100.0, 90.0],
             destination: rect(0.0, 0.0, 100.0, 90.0),
             strict: false,
+            strip: None,
         };
         let ndc = ndc_from_target(100, 100);
         let draw = |surface_opacity: f32| {

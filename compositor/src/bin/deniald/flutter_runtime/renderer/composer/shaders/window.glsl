@@ -60,15 +60,38 @@ void windowCoverage(uint index, vec2 local, out float outer, out float inner) {
   inner = min(outer, roundedCoverage(local, content, max(radius - inset, 0.0)));
 }
 
-// The client at `uv`, with its surface opacity; transparent outside the
-// texture's coverage.
-vec4 windowSurface(uint index, vec2 uv, float inner) {
+// Whether `uv` falls in the draw's backing strip: a content-inset
+// presentation fills it with one texel of the client
+// (DenialTexturePresentation).
+bool inStrip(uint index, vec2 uv) {
+  const vec4 strip = draws[index].strip;
+  return strip.z > strip.x && all(greaterThanEqual(uv, strip.xy)) &&
+         all(lessThan(uv, strip.zw));
+}
+
+// The strip's fill: its texel's centre, which linear sampling reads alone.
+vec4 stripColor(uint index) {
+  return graded(index, textureLod(surface_texture,
+                                  vec2(draws[index].strip_u, draws[index].strip_v), 0.0));
+}
+
+bool inCoverage(uint index, vec2 uv) {
   const vec4 coverage = draws[index].coverage;
+  return all(greaterThanEqual(uv, coverage.xy)) && all(lessThanEqual(uv, coverage.zw));
+}
+
+// The client at `uv`, with its surface opacity; its strip's fill beside
+// it, and transparent elsewhere outside the texture's coverage.
+vec4 windowSurface(uint index, vec2 uv, float inner) {
   const vec4 limits = draws[index].limits;
-  if (inner > 0.0 && draws[index].flags.z != 0u &&
-      all(greaterThanEqual(uv, coverage.xy)) && all(lessThanEqual(uv, coverage.zw))) {
-    return graded(index, texture(surface_texture, clamp(uv, limits.xy, limits.zw))) *
-           draws[index].params.z;
+  if (inner > 0.0 && draws[index].flags.z != 0u) {
+    if (inCoverage(index, uv)) {
+      return graded(index, texture(surface_texture, clamp(uv, limits.xy, limits.zw))) *
+             draws[index].params.z;
+    }
+    if (inStrip(index, uv)) {
+      return stripColor(index) * draws[index].params.z;
+    }
   }
   return vec4(0.0);
 }

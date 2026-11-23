@@ -31,9 +31,16 @@ void main() {
     // past its buffer, as the GLES merge pass discards there.
     const bool past = flags.z != 0u &&
                       (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))));
+    const float alpha = past ? 0.0 : params.y * clip;
+    // A texture beside its backing strip covers only its destination; the
+    // strip takes its texel, the rest of the quad stays clear.
+    const vec4 strip = draws[index].strip;
+    if (strip.z > strip.x && !inCoverage(index, uv)) {
+      frag_color = inStrip(index, uv) ? stripColor(index) * alpha : vec4(0.0);
+      return;
+    }
     // A slice inside a material carries the material's clips and opacity.
-    frag_color = graded(index, texture(surface_texture, clamp(uv, limits.xy, limits.zw))) *
-                 (past ? 0.0 : params.y * clip);
+    frag_color = graded(index, texture(surface_texture, clamp(uv, limits.xy, limits.zw))) * alpha;
     return;
   }
   float outer;

@@ -32,11 +32,15 @@ struct Draw {
   // surface or a merged layer's edge (compose.frag), w a window's material
   // record (window_glass.frag).
   uvec4 flags;
+  // A presentation's backing strip in texture coordinates, empty without
+  // one (window.glsl).
+  vec4 strip;
   // The first of the draw's clips in the frame's clip buffer.
   uint clip_first;
+  // The texel centre that fills the strip, in texture coordinates.
+  float strip_u;
+  float strip_v;
   uint pad0;
-  uint pad1;
-  uint pad2;
 };
 
 // Binding 1 holds glass records (glass.glsl), binding 2 clips
