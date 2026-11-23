@@ -469,12 +469,6 @@ if [[ -n "${DENIAL_FLUTTER_UI_WORKSPACE:-}" ]]; then
   denial_args+=(--flutter-ui-workspace "$DENIAL_FLUTTER_UI_WORKSPACE")
 fi
 
-# DENIAL_VULKAN_COMPOSER=1 composes output frames with Vulkan where the
-# engine can describe them; everything else stays on the GLES renderer.
-if [[ "${DENIAL_VULKAN_COMPOSER:-0}" == 1 ]]; then
-  denial_args+=(--vulkan-composer)
-fi
-
 # DENIAL_POLKIT_AGENT=0 leaves PolicyKit to an agent the user runs themselves.
 if [[ "${DENIAL_POLKIT_AGENT:-1}" == 0 ]]; then
   denial_args+=(--no-polkit-agent)

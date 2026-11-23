@@ -1,4 +1,4 @@
-//! Vulkan scene composer (`--vulkan-composer`).
+//! Vulkan scene composer, the default wherever Vulkan opens the GPU.
 //!
 //! The engine keeps rendering shell slices with GLES, into storage this
 //! module allocates (GBM, bound to GL through an EGLImage and imported into
@@ -71,7 +71,7 @@ pub(in crate::flutter_runtime) use shell_queue::instance_proc as shell_instance_
 
 use crate::output_color::Lut;
 
-/// `--vulkan-composer`.
+/// Whether this session renders in hardware and so tries the composer.
 pub(super) fn requested() -> bool {
     crate::options::VULKAN_COMPOSER.load(Ordering::Relaxed)
 }
@@ -102,7 +102,7 @@ pub(crate) fn client_formats(
     }
 }
 
-/// `DENIAL_VULKAN_SHELL=1` with `--vulkan-composer`: the engine renders the
+/// `DENIAL_VULKAN_SHELL=1` with the composer: the engine renders the
 /// shell with Impeller Vulkan on the composer's device, into private slice
 /// images, instead of GLES.
 pub(super) fn shell_requested() -> bool {

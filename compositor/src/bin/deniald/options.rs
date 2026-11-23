@@ -127,8 +127,9 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     Ok(padding)
 }
 
-/// `--vulkan-composer`: output frames the Flutter engine can describe are
-/// composed with Vulkan instead of the engine's GLES pass.
+/// Output frames the Flutter engine can describe are composed with Vulkan
+/// instead of the engine's GLES pass, on every GPU rendered in hardware. Where
+/// Vulkan cannot open that GPU, frames stay on GLES.
 pub(crate) static VULKAN_COMPOSER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
@@ -237,7 +238,6 @@ impl Options {
         let mut flutter_bundle = None;
         let mut software_rendering = false;
         let mut flutter_offscreen_blit = false;
-        let mut vulkan_composer = false;
         let mut flutter_debug_bundle = None;
         let mut flutter_ui_workspace = None;
         let mut start_locked = false;
@@ -327,7 +327,6 @@ impl Options {
                 }
                 "--software-rendering" => software_rendering = true,
                 "--flutter-offscreen-blit" => flutter_offscreen_blit = true,
-                "--vulkan-composer" => vulkan_composer = true,
                 "--flutter-debug-bundle" => {
                     flutter_debug_bundle = Some(PathBuf::from(
                         args.next().ok_or("--flutter-debug-bundle needs a path")?,
@@ -370,7 +369,6 @@ impl Options {
                          [--flutter-bundle PATH] \
                          [--software-rendering] \
                          [--flutter-offscreen-blit] \
-                         [--vulkan-composer] \
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
                          [--start-locked] \
@@ -477,10 +475,10 @@ impl Options {
         if flutter_offscreen_blit && flutter_bundle.is_none() {
             return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
         }
-        if vulkan_composer && flutter_bundle.is_none() {
-            return Err("--vulkan-composer requires --flutter-bundle".into());
-        }
-        VULKAN_COMPOSER.store(vulkan_composer, Ordering::Relaxed);
+        VULKAN_COMPOSER.store(
+            flutter_bundle.is_some() && !software_rendering,
+            Ordering::Relaxed,
+        );
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
             && flutter_bundle.is_none()
         {

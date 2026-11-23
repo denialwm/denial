@@ -8,8 +8,8 @@ use super::composer::{
 use super::*;
 use denial_flutter_engine::scene::{Rect, SceneSource, SliceKey, SliceWriter};
 
-/// The composer when `--vulkan-composer` asks for it and the raster
-/// context's GPU supports it; otherwise frames stay on GLES.
+/// The composer when the raster context's GPU supports it; otherwise frames
+/// stay on GLES.
 pub(super) fn create_scene_composer(
     context: &egl_context::SharedEglContext,
 ) -> Option<SceneComposer> {

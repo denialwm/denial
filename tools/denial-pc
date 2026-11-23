@@ -136,7 +136,6 @@ ENGINE_TEST_STORE="${DENIAL_PC_ENGINE_TEST_STORE:-$CACHE_HOME/denial/engine-test
 ENGINE_TEST_CURRENT="$ENGINE_TEST_STORE/current"
 ENGINE_TEST_NEXT="$ENGINE_TEST_STORE/next-session"
 RENDER_AUDIT_NEXT="$BUILD_ROOT/render-audit-next-session"
-GLES_NEXT="$BUILD_ROOT/gles-next-session"
 RENDER_AHEAD_OFF_NEXT="$BUILD_ROOT/render-ahead-off-next-session"
 ENGINE_TEST_SOURCE_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-$CANONICAL_FLUTTER_SOURCE}"
 ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_ROOT/engine/src/out/denial_host_release}"
@@ -244,9 +243,6 @@ Commands:
                     Run the staged engine test (normally invoked by a display manager)
   audit-arm         Turn the render audit on for the next development login only
   audit-cancel      Cancel a pending one-shot render audit
-  gles-arm          Render and compose with GLES, not Vulkan, for the next
-                    development login only
-  gles-cancel       Cancel a pending one-shot GLES login
   render-ahead-off-arm     Turn rendering ahead off for the next development login only
   render-ahead-off-cancel  Cancel a pending one-shot render-ahead-off login
   doctor            Show prerequisites and built artifact state
@@ -1421,13 +1417,9 @@ run_compositor() {
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
 
-    # Vulkan composes output frames and Impeller Vulkan renders the shell
-    # unless DENIAL_VULKAN_COMPOSER=0 (GLES for both) or DENIAL_VULKAN_SHELL=0
-    # (GLES shell, Vulkan composer) asks otherwise.
-    export DENIAL_VULKAN_COMPOSER="${DENIAL_VULKAN_COMPOSER:-1}"
-    export DENIAL_VULKAN_SHELL="${DENIAL_VULKAN_SHELL:-$DENIAL_VULKAN_COMPOSER}"
-    local composer_arguments=()
-    [[ "$DENIAL_VULKAN_COMPOSER" == 1 ]] && composer_arguments=(--vulkan-composer)
+    # Impeller Vulkan renders the shell unless DENIAL_VULKAN_SHELL=0 asks
+    # for the GLES shell.
+    export DENIAL_VULKAN_SHELL="${DENIAL_VULKAN_SHELL:-1}"
 
     # deniald exits with 75 to be started again in the same session.
     local status
@@ -1438,7 +1430,6 @@ run_compositor() {
             --wayland \
             "${xwayland_arguments[@]}" \
             "${polkit_arguments[@]}" \
-            "${composer_arguments[@]}" \
             --flutter-bundle "$BUNDLE" <&0 &
         DENIAL_SESSION_PID=$!
         status=0
@@ -1515,21 +1506,6 @@ cancel_render_audit() {
     fi
 }
 
-arm_gles() {
-    mkdir -p -- "$(dirname -- "$GLES_NEXT")"
-    : > "$GLES_NEXT"
-    printf 'Armed GLES (no Vulkan composer, GLES shell) for the next Denial development login only.\n'
-}
-
-cancel_gles() {
-    if [[ -e "$GLES_NEXT" ]]; then
-        rm -f -- "$GLES_NEXT"
-        printf 'Cancelled the pending one-shot GLES login.\n'
-    else
-        printf 'No one-shot GLES login is armed.\n'
-    fi
-}
-
 arm_render_ahead_off() {
     mkdir -p -- "$(dirname -- "$RENDER_AHEAD_OFF_NEXT")"
     : > "$RENDER_AHEAD_OFF_NEXT"
@@ -1554,10 +1530,6 @@ run_display_manager_session() {
     if [[ -e "$RENDER_AUDIT_NEXT" ]]; then
         rm -f -- "$RENDER_AUDIT_NEXT"
         export DENIAL_RENDER_AUDIT=1
-    fi
-    if [[ -e "$GLES_NEXT" ]]; then
-        rm -f -- "$GLES_NEXT"
-        export DENIAL_VULKAN_COMPOSER=0 DENIAL_VULKAN_SHELL=0
     fi
     if [[ -e "$RENDER_AHEAD_OFF_NEXT" ]]; then
         rm -f -- "$RENDER_AHEAD_OFF_NEXT"
@@ -2046,8 +2018,6 @@ case "${1:-}" in
     engine-test-session) run_engine_test_session ;;
     audit-arm) arm_render_audit ;;
     audit-cancel) cancel_render_audit ;;
-    gles-arm) arm_gles ;;
-    gles-cancel) cancel_gles ;;
     render-ahead-off-arm) arm_render_ahead_off ;;
     render-ahead-off-cancel) cancel_render_ahead_off ;;
     doctor) doctor ;;

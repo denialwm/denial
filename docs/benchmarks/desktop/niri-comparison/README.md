@@ -370,9 +370,9 @@ composed, compressed buffer, 10-bit (XR30) from Denial and 8-bit (XR24) from
 niri, plus niri's cursor plane.
 
 Notes for `.18`:
-- The installed `denial-session` must pass `--vulkan-composer` when
-  `DENIAL_VULKAN_COMPOSER=1` (dev's `packaging/arch/denial-session` does; the
-  0.6.8 one does not, so 0.6.8 composes with GLES).
+- The runs above passed `--vulkan-composer`. `deniald` from `dev` now
+  composes with Vulkan by default and has no such flag; 0.6.8's own
+  `deniald` composes with GLES.
 - Noctalia 5.6 needs libjxl 0.13; on a host with an older libjxl, run it with
   that library alone on `LD_LIBRARY_PATH`.
 - niri runs as a user service: stop `niri.service` before restarting greetd,

@@ -194,7 +194,7 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     desktop_size: PixelSize,
     producer: ProducerArbiter,
     shutdown_started: AtomicBool,
-    /// `--vulkan-composer`.
+    /// `None` where Vulkan cannot open the GPU: frames stay on GLES.
     scene_composer: Option<composer::SceneComposer>,
     /// Composer submissions the raster context has not waited for yet. With
     /// the Vulkan shell GLES draws nothing in most frames: the wait is
