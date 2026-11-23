@@ -8,7 +8,7 @@ use smithay::utils::{Logical, Rectangle, Size};
 use smithay::utils::{Point, SERIAL_COUNTER};
 #[cfg(feature = "flutter")]
 use smithay::wayland::seat::WaylandFocus;
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
@@ -877,7 +877,7 @@ fn configure_client_window(
     };
     let facts = managed.facts();
     if !exact && facts.client_state.resizing {
-        warn!(
+        debug!(
             window_id,
             "ignored Flutter configure during an active client resize"
         );
