@@ -1014,10 +1014,21 @@ impl SceneComposer {
         }
         let pooled = {
             let mut state = lock(&self.state);
+            // The engine renders into storage at least its size. A pooled
+            // image a little larger serves: slices change size as the shell
+            // moves (recents cards), and each miss allocates.
+            let needed = u64::from(width) * u64::from(height);
             let found = state
                 .slice_pool
                 .iter()
-                .rposition(|(_, image)| image.size == (width, height));
+                .enumerate()
+                .filter(|(_, (_, image))| {
+                    let (w, h) = image.size;
+                    let area = u64::from(w) * u64::from(h);
+                    w >= width && h >= height && area * 2 <= needed * 3
+                })
+                .min_by_key(|(_, (_, image))| u64::from(image.size.0) * u64::from(image.size.1))
+                .map(|(index, _)| index);
             found.map(|index| state.slice_pool.remove(index).1)
         };
         // A pooled image's contents are discarded: the engine clears every
@@ -1048,8 +1059,9 @@ impl SceneComposer {
             image_view: ash::vk::Handle::as_raw(image.view),
             format: image.format.as_raw() as u32,
             layout: ash::vk::ImageLayout::UNDEFINED.as_raw() as u32,
-            width,
-            height,
+            // A pooled image may be larger than asked for.
+            width: image.size.0,
+            height: image.size.1,
         };
         let slice = Slice {
             _bo: None,
