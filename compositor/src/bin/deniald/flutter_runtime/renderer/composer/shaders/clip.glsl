@@ -17,4 +17,9 @@ struct Clip {
   // Zeros for a rectangle; `rect` then holds the path's bounds.
   uvec4 path;
 };
+
+// The frame's clips; draws and glass records name a run of them.
+layout(std430, set = 0, binding = 2) readonly buffer Clips {
+  Clip clips[];
+};
 #endif

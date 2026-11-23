@@ -19,3 +19,16 @@ layout(location = 9) flat DRAW_VARYING vec4 v_frame;
 layout(location = 10) flat DRAW_VARYING vec4 v_strip;
 layout(location = 11) flat DRAW_VARYING vec2 v_strip_texel;
 layout(location = 12) flat DRAW_VARYING uint v_clip_first;
+// The draw's first clip, zeros without one (clip.glsl).
+layout(location = 13) flat DRAW_VARYING vec4 v_clip_m0;
+layout(location = 14) flat DRAW_VARYING vec4 v_clip_m1;
+layout(location = 15) flat DRAW_VARYING vec4 v_clip_m2;
+layout(location = 16) flat DRAW_VARYING vec4 v_clip_rect;
+layout(location = 17) flat DRAW_VARYING vec4 v_clip_radii_top;
+layout(location = 18) flat DRAW_VARYING vec4 v_clip_radii_bottom;
+layout(location = 19) flat DRAW_VARYING uvec4 v_clip_path;
+
+// The draw's clips at `scene`: its first from the varyings.
+#define DRAW_CLIP_HEAD                                                  \
+  Clip(v_clip_m0, v_clip_m1, v_clip_m2, v_clip_rect, v_clip_radii_top, \
+       v_clip_radii_bottom, v_clip_path)

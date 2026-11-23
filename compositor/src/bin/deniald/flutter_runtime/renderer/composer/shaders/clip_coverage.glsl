@@ -1,10 +1,5 @@
 // Clip coverage for fragment shaders; needs clip.glsl.
 
-// The frame's clips; draws and glass records name a run of them.
-layout(std430, set = 0, binding = 2) readonly buffer Clips {
-  Clip clips[];
-};
-
 // Path clips' polygon edges in their clips' spaces: x0, y0, x1, y1.
 layout(std430, set = 0, binding = 3) readonly buffer Edges {
   vec4 edges[];
@@ -81,6 +76,20 @@ float clipCoverage(Clip clip, vec2 scene) {
     distance = max(max(rect.x - q.x, q.x - rect.z), max(rect.y - q.y, q.y - rect.w));
   }
   return edge(distance);
+}
+
+// The product of a draw's `count` clips from `first`, whose first one
+// came flat from the vertex shader (draw_varyings.glsl): most draws have
+// one clip or none, and Adreno reads storage slowly per pixel.
+float drawClipsCoverage(Clip head, uint first, uint count, vec2 scene) {
+  if (count == 0u) {
+    return 1.0;
+  }
+  float coverage = clipCoverage(head, scene);
+  for (uint i = 1u; i < count; ++i) {
+    coverage *= clipCoverage(clips[first + i], scene);
+  }
+  return coverage;
 }
 
 // The product of `count` clips from `first`.

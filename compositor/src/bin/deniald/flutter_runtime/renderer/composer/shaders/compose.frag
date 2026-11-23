@@ -18,7 +18,8 @@ const uint kWindow = 2u;
 void main() {
   const uvec4 flags = v_flags;
   const vec4 params = v_params;
-  const float clip = clipsCoverage(v_clip_first, flags.y, v_scene.xy / v_scene.z);
+  const float clip =
+      drawClipsCoverage(DRAW_CLIP_HEAD, v_clip_first, flags.y, v_scene.xy / v_scene.z);
   // No discard: derivatives stay defined for the whole quad, and a
   // transparent premultiplied result leaves the target unchanged.
   const vec4 limits = v_limits;

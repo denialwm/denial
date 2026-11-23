@@ -32,7 +32,8 @@ float materialCoverage() {
 
 void main() {
   glass_index = v_flags.w;
-  const float clip = clipsCoverage(v_clip_first, v_flags.y, v_scene.xy / v_scene.z);
+  const float clip =
+      drawClipsCoverage(DRAW_CLIP_HEAD, v_clip_first, v_flags.y, v_scene.xy / v_scene.z);
   float outer;
   float inner;
   windowCoverage(v_local, outer, inner);

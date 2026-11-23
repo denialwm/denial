@@ -30,4 +30,15 @@ void main() {
   v_strip = draws[index].strip;
   v_strip_texel = vec2(draws[index].strip_u, draws[index].strip_v);
   v_clip_first = draws[index].clip_first;
+  Clip head = Clip(vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), uvec4(0u));
+  if (draws[index].flags.y > 0u) {
+    head = clips[draws[index].clip_first];
+  }
+  v_clip_m0 = head.m0;
+  v_clip_m1 = head.m1;
+  v_clip_m2 = head.m2;
+  v_clip_rect = head.rect;
+  v_clip_radii_top = head.radii_top;
+  v_clip_radii_bottom = head.radii_bottom;
+  v_clip_path = head.path;
 }
