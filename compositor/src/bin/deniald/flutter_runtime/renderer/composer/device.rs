@@ -1618,6 +1618,8 @@ pub(super) struct Batch {
     pub(super) nearest: bool,
     pub(super) first: u32,
     pub(super) count: u32,
+    /// What `image` holds for the frame: equal values, equal pixels.
+    pub(super) content: u64,
 }
 
 /// A material: its frost (made first when `fresh`), then its glass record.
@@ -1629,6 +1631,11 @@ pub(super) struct MaterialStep {
     /// Set when the frame is submitted: a cached frost or new images.
     pub(super) frost: Option<Arc<Frost>>,
     pub(super) fresh: bool,
+    /// Set with `frost`: what the frost reads below the material
+    /// (`SceneComposer::resolve_frosts`), and the submission it was made
+    /// for.
+    pub(super) below: u64,
+    pub(super) made: u64,
     /// A window over the material: drawn with it, instead of the glass
     /// quad.
     pub(super) window: Option<WindowDraw>,
@@ -1642,6 +1649,8 @@ pub(super) struct WindowDraw {
     pub(super) image: Arc<Image>,
     pub(super) look: Arc<Image>,
     pub(super) nearest: bool,
+    /// What `image` holds for the frame, as `Batch::content`.
+    pub(super) content: u64,
 }
 
 /// Pixels a frame takes from the output buffer shown before it rather than

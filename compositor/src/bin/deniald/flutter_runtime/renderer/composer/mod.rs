@@ -47,6 +47,7 @@ mod record;
 mod shell_queue;
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -204,6 +205,27 @@ pub(super) struct SampledClient {
     pub(super) source: super::ExternalTextureSource,
 }
 
+impl SampledClient {
+    /// Feeds the buffer into `state`: its storage and the revision of its
+    /// pixels.
+    fn hash_content(&self, state: &mut DefaultHasher) {
+        state.write_i64(self.texture_id);
+        state.write_u64(self.generation);
+        match &self.source {
+            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf.weak().hash(state),
+            super::ExternalTextureSource::Shm(_) => state.write_u8(0),
+        }
+    }
+}
+
+/// What a slice version holds: a rewrite renders a new generation.
+fn slice_content(key: &SliceKey) -> u64 {
+    let mut content = DefaultHasher::new();
+    content.write_u64(key.allocation);
+    content.write_u64(key.generation);
+    content.finish()
+}
+
 /// A submitted frame.
 pub(super) struct Submitted {
     /// Its completion; None when it already completed.
@@ -256,9 +278,10 @@ pub(super) struct Staged {
     engine_tokens: Vec<Option<i64>>,
     /// Target pixels each material's draw can change, by record.
     outputs: Vec<[i32; 4]>,
-    /// Diagnostic: cached frosts by why they were judged (below, plan,
-    /// token, revision, damage, reused), and frosts without a cache.
-    remade_why: [u32; 7],
+    /// Diagnostic: cached frosts by why they were judged (a frost made
+    /// below, plan, token, what they read, reused), and frosts without a
+    /// cache.
+    remade_why: [u32; 6],
     slices: Vec<SliceKey>,
     /// Shell slices the engine rendered again for this frame.
     slices_rewritten: u32,
@@ -440,7 +463,7 @@ struct Tally {
     /// why they were judged (`Staged::remade_why`).
     engine_damage: f64,
     added_damage: f64,
-    remade_why: [u64; 7],
+    remade_why: [u64; 6],
     empty_frames: u64,
     redrawn: f64,
     /// Draws and materials not drawn: opaque draws above hide them.
@@ -550,10 +573,9 @@ impl Tally {
             remade_below = self.remade_why[0],
             remade_plan = self.remade_why[1],
             remade_token = self.remade_why[2],
-            remade_revision = self.remade_why[3],
-            remade_damage = self.remade_why[4],
-            reused = self.remade_why[5],
-            uncached = self.remade_why[6],
+            remade_read = self.remade_why[3],
+            reused = self.remade_why[4],
+            uncached = self.remade_why[5],
             empty_frames = self.empty_frames,
             culled_draws = self.culled_draws,
             culled_materials = self.culled_materials,
@@ -577,14 +599,11 @@ struct CachedFrost {
     /// The engine's token for the material, tracked or not: what the engine
     /// asks the composer to pin.
     engine_token: Option<i64>,
-    /// `engine_token` when no other material of its frame had it: a
-    /// material's identity across layered builds. Grouped materials share
-    /// one token.
-    identity: Option<i64>,
-    /// The layered build it was last shown in.
-    scene_revision: u64,
-    /// The engine reported a change in its region since then.
-    damaged: bool,
+    /// What it read below its material (`SceneComposer::resolve_frosts`).
+    below: u64,
+    /// The submission it was made for: what the materials above it read of
+    /// it.
+    made: u64,
 }
 
 pub(super) struct SceneComposer {
@@ -1206,14 +1225,7 @@ impl SceneComposer {
         let to_target = |rects| target_damage(rects, output_from_scene, size);
         let view_id = staged.view_id;
         let unaccounted = state.unaccounted.contains(&view_id);
-        for (&(view, _), cached) in &mut state.frosts {
-            if view == view_id && !cached.damaged {
-                let region = cached.plan.region;
-                cached.damaged =
-                    to_target(damage.frame).any(|rect| record::pixels_overlap(rect, region));
-            }
-        }
-        Self::resolve_frosts(state, gpu, staged)?;
+        Self::resolve_frosts(state, gpu, staged, size)?;
         // What the frame redraws: the buffer's damage, and every frost made
         // again with all it reads, so its copy sees this frame below it
         // (outside the damage the target holds the previous frame, the
@@ -1360,9 +1372,8 @@ impl SceneComposer {
                                 plan: material.plan,
                                 backdrop_token: staged.backdrop_tokens[material.record as usize],
                                 engine_token: staged.engine_tokens[material.record as usize],
-                                identity: unique_token(&staged.engine_tokens, material.record),
-                                scene_revision: staged.scene_revision,
-                                damaged: false,
+                                below: material.below,
+                                made: material.made,
                             },
                         );
                     }
@@ -1389,80 +1400,118 @@ impl SceneComposer {
         Ok(Submitted { completion, added })
     }
 
-    /// Gives every material its frost: the cached one when the scene below
-    /// it is unchanged (no engine damage in its region since it was made,
-    /// or an unchanged backdrop token), else images to make it in (the
-    /// cached ones when their sizes fit).
-    fn resolve_frosts(state: &State, gpu: &Gpu, staged: &mut Staged) -> Result<(), String> {
-        // What materials whose frosts are made this frame draw, in paint
-        // order: it may have changed below a frost above, which neither its
-        // token nor the engine's damage sees.
+    /// Gives every material its frost: the cached one when what it reads is
+    /// unchanged, else images to make it in (the cached ones when their
+    /// sizes fit).
+    ///
+    /// A frost copies the target where its material reads, as the steps
+    /// below the material drew it. A tracked backdrop token says whether
+    /// that changed. Else the frost keeps a fingerprint of those steps:
+    /// each draw's record, clips and image content (a slice's version, a
+    /// client's buffer revision), and each lower material's glass and the
+    /// submission its frost was made for. Changes above a material, which
+    /// the engine's damage also reports, leave its frost as it is.
+    fn resolve_frosts(
+        state: &State,
+        gpu: &Gpu,
+        staged: &mut Staged,
+        size: (u32, u32),
+    ) -> Result<(), String> {
+        // The submission this frame becomes.
+        let serial = state.serial + 1;
+        let Staged {
+            view_id,
+            draws,
+            glasses,
+            clips,
+            edges,
+            steps,
+            backdrop_tokens,
+            outputs,
+            remade_why,
+            ..
+        } = staged;
+        // What each step drew so far, in paint order: where, and a
+        // fingerprint of what.
+        let mut drawn: Vec<([i32; 4], u64)> = Vec::new();
+        // What materials whose frosts are made this frame draw: a tracked
+        // token does not see it change.
         let mut remade: Vec<[i32; 4]> = Vec::new();
-        for step in &mut staged.steps {
-            let Step::Material(material) = step else {
-                continue;
+        for step in steps.iter_mut() {
+            let material = match step {
+                Step::Draws(batch) => {
+                    let range = batch.first as usize..(batch.first + batch.count) as usize;
+                    for draw in &draws[range] {
+                        let mut fingerprint = DefaultHasher::new();
+                        fingerprint.write_u64(batch.content);
+                        fingerprint.write_usize(Arc::as_ptr(&batch.look) as usize);
+                        fingerprint.write_u8(u8::from(batch.nearest));
+                        draw.hash_into(clips, edges, &mut fingerprint);
+                        drawn.push((draw.bounds(size), fingerprint.finish()));
+                    }
+                    continue;
+                }
+                Step::Material(material) => material,
             };
-            let token = staged.backdrop_tokens[material.record as usize];
-            let engine_token = unique_token(&staged.engine_tokens, material.record);
-            let cached = state.frosts.get(&(staged.view_id, material.record));
+            let record = material.record as usize;
             let region = material.plan.region;
+            let mut below = DefaultHasher::new();
+            for &(_, fingerprint) in drawn
+                .iter()
+                .filter(|(bounds, _)| record::pixels_overlap(*bounds, region))
+            {
+                below.write_u64(fingerprint);
+            }
+            let below = below.finish();
+            let token = backdrop_tokens[record];
+            let cached = state.frosts.get(&(*view_id, material.record));
             let below_changed = remade
                 .iter()
                 .any(|&output| record::pixels_overlap(output, region));
-            // A tracked token says whether the scene below changed. Else no
-            // engine damage in the frost's region since it was made, for the
-            // same material: the one this order names within one layered
-            // build, or across builds the one with the same engine token, one
-            // no other material of either frame shares (it changes with the
-            // scene below; grouped materials share one). The composer
-            // accounts every frame's damage to its frosts; a frame it did
-            // not draw drops them.
             let unchanged = |cached: &CachedFrost| match token {
                 Some(_) => cached.backdrop_token == token,
-                None => {
-                    !cached.damaged
-                        && (cached.scene_revision == staged.scene_revision
-                            || (engine_token.is_some() && cached.identity == engine_token))
-                }
+                None => cached.below == below,
             };
-            if let Some(cached) = cached {
-                // Diagnostic: why a cached frost is made again.
-                let why = if below_changed {
-                    1
-                } else if cached.plan != material.plan {
-                    2
-                } else if token.is_some() && cached.backdrop_token != token {
-                    3
-                } else if token.is_none()
-                    && cached.scene_revision != staged.scene_revision
-                    && (engine_token.is_none() || cached.identity != engine_token)
-                {
-                    4
-                } else if token.is_none() && cached.damaged {
-                    5
-                } else {
-                    6
-                };
-                staged.remade_why[why - 1] += 1;
-            } else {
-                staged.remade_why[6] += 1;
-            }
-            let (frost, fresh) = match cached {
+            // Diagnostic: why a cached frost is made again.
+            remade_why[match cached {
+                Some(_) if below_changed => 0,
+                Some(cached) if cached.plan != material.plan => 1,
+                Some(cached) if !unchanged(cached) => 2 + usize::from(token.is_none()),
+                Some(_) => 4,
+                None => 5,
+            }] += 1;
+            let (frost, kept) = match cached {
                 Some(cached)
                     if !below_changed && cached.plan == material.plan && unchanged(cached) =>
                 {
-                    (Arc::clone(&cached.frost), false)
+                    (Arc::clone(&cached.frost), Some(cached.made))
                 }
                 Some(cached) if cached.frost.fits(&material.plan) => {
-                    (Arc::clone(&cached.frost), true)
+                    (Arc::clone(&cached.frost), None)
                 }
-                _ => (Arc::new(Frost::new(gpu, material.plan)?), true),
+                _ => (Arc::new(Frost::new(gpu, material.plan)?), None),
             };
-            if fresh {
-                remade.push(staged.outputs[material.record as usize]);
+            if kept.is_none() {
+                remade.push(outputs[record]);
             }
             material.frost = Some(frost);
-            material.fresh = fresh;
+            material.fresh = kept.is_none();
+            material.below = below;
+            material.made = kept.unwrap_or(serial);
+            // What the material draws, for the materials above it.
+            let mut fingerprint = DefaultHasher::new();
+            fingerprint.write_u64(material.made);
+            glasses[record].hash_into(clips, edges, &mut fingerprint);
+            let mut bounds = outputs[record];
+            if let Some(window) = &material.window {
+                let draw = &draws[window.draw as usize];
+                fingerprint.write_u64(window.content);
+                fingerprint.write_usize(Arc::as_ptr(&window.look) as usize);
+                fingerprint.write_u8(u8::from(window.nearest));
+                draw.hash_into(clips, edges, &mut fingerprint);
+                bounds = record::pixels_union(bounds, draw.bounds(size));
+            }
+            drawn.push((bounds, fingerprint.finish()));
         }
         Ok(())
     }
@@ -1484,13 +1533,6 @@ impl SceneComposer {
         drop(state);
         self.shutdown_conversions(gl, display);
     }
-}
-
-/// Material `record`'s engine token when no other material of the frame has
-/// it.
-fn unique_token(tokens: &[Option<i64>], record: u32) -> Option<i64> {
-    let token = tokens[record as usize]?;
-    (tokens.iter().filter(|&&other| other == Some(token)).count() == 1).then_some(token)
 }
 
 /// What a pooled slice image holds, RGBA8.
@@ -1556,6 +1598,27 @@ pub(super) enum Client {
 }
 
 impl Client {
+    /// What the client's image holds: equal values, equal pixels.
+    fn content(&self) -> u64 {
+        let mut content = DefaultHasher::new();
+        match self {
+            Self::Missing | Self::Omitted(_) => {}
+            Self::Image { sampled, .. } | Self::Converted { sampled, .. } => {
+                sampled.hash_content(&mut content);
+            }
+            Self::Merged { merged, .. } => {
+                for layer in &merged.layers {
+                    layer.sampled.hash_content(&mut content);
+                    let values = layer.quad.iter().chain(layer.uv.iter().flatten());
+                    for value in values.chain(&layer.limits).chain([&layer.opacity]) {
+                        content.write_u32(value.to_bits());
+                    }
+                }
+            }
+        }
+        content.finish()
+    }
+
     /// The client's surface declared its pixels opaque through its opaque
     /// region: it hides what lies under it even when its buffer's format
     /// carries alpha.
@@ -2080,6 +2143,7 @@ impl SceneComposer {
                     nearest: false,
                     first: index,
                     count: 1,
+                    content: 0,
                 }),
             }
             if copied {
@@ -2170,7 +2234,7 @@ impl SceneComposer {
                 backdrop_tokens: Vec::new(),
                 engine_tokens: Vec::new(),
                 outputs: Vec::new(),
-                remade_why: [0; 7],
+                remade_why: [0; 6],
                 slices: Vec::new(),
                 slices_rewritten: scene.rewritten.len() as u32,
                 clients: Vec::new(),
@@ -2193,12 +2257,14 @@ impl SceneComposer {
             let push = |staged: &mut Staged,
                         draw: Draw,
                         image: &Arc<Image>,
+                        content: u64,
                         look: &Arc<Image>,
                         nearest: bool| {
                 let index = staged.draws.len() as u32;
                 staged.draws.push(draw);
                 if let Some(Step::Draws(last)) = staged.steps.last_mut()
                     && Arc::ptr_eq(&last.image, image)
+                    && last.content == content
                     && Arc::ptr_eq(&last.look, look)
                     && last.nearest == nearest
                     && last.first + last.count == index
@@ -2212,6 +2278,7 @@ impl SceneComposer {
                     nearest,
                     first: index,
                     count: 1,
+                    content,
                 }));
             };
             // Each entry's clips, reduced to what the shaders evaluate and
@@ -2243,6 +2310,7 @@ impl SceneComposer {
                             return Err("slice storage size");
                         }
                         let image = Arc::clone(&slice.image);
+                        let content = slice_content(key);
                         staged.slices.push(*key);
                         for blit in &scene.blits[blits.clone()] {
                             let mut draw =
@@ -2255,7 +2323,7 @@ impl SceneComposer {
                                     &scene_from_target,
                                 );
                             }
-                            push(&mut staged, draw, &image, &self.no_look, true);
+                            push(&mut staged, draw, &image, content, &self.no_look, true);
                         }
                     }
                     SceneEntry::Texture {
@@ -2265,6 +2333,7 @@ impl SceneComposer {
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *bounds)?;
+                        let content = client.content();
                         let declared_opaque = client.declared_opaque();
                         let Some((image, placement, look)) =
                             self.resolved_image(&mut state, &mut staged, client, resolve)?
@@ -2296,6 +2365,7 @@ impl SceneComposer {
                             &mut staged,
                             draw,
                             &image,
+                            content,
                             &look_image,
                             local.sampling == Sampling::Nearest,
                         );
@@ -2311,6 +2381,7 @@ impl SceneComposer {
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *texture_bounds)?;
+                        let content = client.content();
                         let declared_opaque = client.declared_opaque();
                         let (image, look) =
                             match self.resolved_image(&mut state, &mut staged, client, resolve)? {
@@ -2389,7 +2460,7 @@ impl SceneComposer {
                                     staged.covers.push((index, cover));
                                 }
                             }
-                            push(&mut staged, draw, &bound, &look_image, nearest);
+                            push(&mut staged, draw, &bound, content, &look_image, nearest);
                             continue;
                         };
                         // The window draws itself over its material, in one
@@ -2408,11 +2479,14 @@ impl SceneComposer {
                             plan: behind.plan,
                             frost: None,
                             fresh: false,
+                            below: 0,
+                            made: 0,
                             window: Some(WindowDraw {
                                 draw: index,
                                 image: bound,
                                 look: look_image,
                                 nearest,
+                                content,
                             }),
                         }));
                     }
@@ -2455,6 +2529,8 @@ impl SceneComposer {
                             plan: draw.plan,
                             frost: None,
                             fresh: false,
+                            below: 0,
+                            made: 0,
                             window: None,
                         }));
                     }
@@ -2656,6 +2732,7 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                             nearest: batch.nearest,
                             first,
                             count,
+                            content: batch.content,
                         }));
                     }
                 }

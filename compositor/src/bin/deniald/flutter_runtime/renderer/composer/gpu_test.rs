@@ -163,6 +163,7 @@ fn scene(rig: &Rig, bands: u32, bottom_up: bool) -> (Vec<record::Draw>, Vec<Step
                 nearest: true,
                 first: index,
                 count: 1,
+                content: 0,
             })),
         }
     }
@@ -220,7 +221,7 @@ fn empty_staged(view_id: i64) -> super::Staged {
         backdrop_tokens: Vec::new(),
         engine_tokens: Vec::new(),
         outputs: Vec::new(),
-        remade_why: [0; 7],
+        remade_why: [0; 6],
         slices: Vec::new(),
         slices_rewritten: 0,
         clients: Vec::new(),
@@ -441,6 +442,7 @@ fn shm_upload_draws_exactly_and_is_overwritten() {
         nearest: true,
         first: 0,
         count: 1,
+        content: 0,
     })];
     let mut frame = Frame::new(&rig.gpu).expect("frame");
     // The first upload goes into undefined contents, the second over what
@@ -600,6 +602,8 @@ fn material_scene(
         plan,
         frost: Some(Arc::clone(frost)),
         fresh,
+        below: 0,
+        made: 0,
         window: None,
     }));
     (draws, vec![glass], steps)
@@ -774,6 +778,8 @@ fn steps_with(
         plan: draw.plan,
         frost: Some(Arc::clone(frost)),
         fresh,
+        below: 0,
+        made: 0,
         window: None,
     }));
     (draws, steps)
@@ -1057,11 +1063,14 @@ fn window_shows_its_material_above_the_threshold() {
             plan: behind.plan,
             frost: Some(frost),
             fresh: true,
+            below: 0,
+            made: 0,
             window: Some(WindowDraw {
                 draw: index,
                 image: Arc::clone(&client),
                 look: Arc::clone(&rig.no_look),
                 nearest: true,
+                content: 0,
             }),
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[behind.glass], &steps);
@@ -1142,6 +1151,7 @@ fn window_client_is_graded_through_its_look() {
             nearest: true,
             first: index,
             count: 1,
+            content: 0,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
         pixel(&rig.target_buffer, 128, H - 1 - 64)
@@ -1305,6 +1315,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
         nearest,
         first,
         count: 1,
+        content: 0,
     };
     let merges = [Merge {
         image: Arc::clone(&merged),
@@ -1816,6 +1827,8 @@ fn what_an_opaque_draw_hides_is_left_out() {
             plan: material.plan,
             frost: None,
             fresh: false,
+            below: 0,
+            made: 0,
             window: None,
         }));
         // The cover: the slice again, over everything.
@@ -1826,6 +1839,7 @@ fn what_an_opaque_draw_hides_is_left_out() {
             nearest: true,
             first: 1,
             count: 1,
+            content: 0,
         }));
         staged.draws = draws;
         staged.steps = steps;
@@ -1888,6 +1902,7 @@ fn a_draw_split_around_a_cover_draws_the_same_pixels() {
                 nearest: true,
                 first: index as u32,
                 count: 1,
+                content: 0,
             }));
         }
         staged.covers.push((1, hole.map(|value| value as i32)));
@@ -1979,6 +1994,7 @@ fn an_opaque_window_paints_every_pixel_it_covers() {
             nearest: true,
             first: index,
             count: 1,
+            content: 0,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
         let inside = pixel(&rig.target_buffer, 128, H - 1 - 50);

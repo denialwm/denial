@@ -912,6 +912,98 @@ pub(super) struct Glass {
 
 const _: () = assert!(std::mem::size_of::<Glass>() == 336);
 
+/// A record the composer fingerprints whole: `repr(C)` and only 4-byte
+/// fields, so every byte is a field and none is padding.
+trait Words: Copy {}
+impl Words for ClipRecord {}
+impl Words for Draw {}
+impl Words for Glass {}
+
+const _: () = assert!(std::mem::size_of::<ClipRecord>() == 112);
+
+fn words<T: Words>(record: &T) -> &[u32] {
+    // SAFETY: `Words` records are `repr(C)` structs of `f32` and `u32`
+    // fields: 4-byte aligned, sized in whole words and without padding.
+    unsafe {
+        std::slice::from_raw_parts(
+            (record as *const T).cast::<u32>(),
+            std::mem::size_of::<T>() / 4,
+        )
+    }
+}
+
+/// Feeds `clips[span]` into `state`, with the edges of their paths.
+fn hash_clips(
+    span: ClipSpan,
+    clips: &[ClipRecord],
+    edges: &[[f32; 4]],
+    state: &mut impl std::hash::Hasher,
+) {
+    let start = span.first as usize;
+    for clip in clips.get(start..start + span.count as usize).unwrap_or(&[]) {
+        // Where the edges sit in the frame's buffer is not what they are.
+        let [first, count, _, path] = clip.path;
+        let mut record = *clip;
+        record.path[0] = 0;
+        words(&record)
+            .iter()
+            .for_each(|&word| state.write_u32(word));
+        if path != 0 {
+            let start = first as usize;
+            for edge in edges.get(start..start + count as usize).unwrap_or(&[]) {
+                edge.iter()
+                    .for_each(|value| state.write_u32(value.to_bits()));
+            }
+        }
+    }
+}
+
+impl Draw {
+    /// Feeds everything that decides the draw's pixels but its image into
+    /// `state`: the record and its clips.
+    pub(super) fn hash_into(
+        &self,
+        clips: &[ClipRecord],
+        edges: &[[f32; 4]],
+        state: &mut impl std::hash::Hasher,
+    ) {
+        // Where its clips sit in the frame's buffer is not what they are.
+        let mut record = *self;
+        record.clip_first = 0;
+        words(&record)
+            .iter()
+            .for_each(|&word| state.write_u32(word));
+        let span = ClipSpan {
+            first: self.clip_first,
+            count: self.flags[1],
+        };
+        hash_clips(span, clips, edges, state);
+    }
+}
+
+impl Glass {
+    /// Feeds everything that decides the glass's pixels but its frost into
+    /// `state`: the record and its clips.
+    pub(super) fn hash_into(
+        &self,
+        clips: &[ClipRecord],
+        edges: &[[f32; 4]],
+        state: &mut impl std::hash::Hasher,
+    ) {
+        // Where its clips sit in the frame's buffer is not what they are.
+        let mut record = *self;
+        record.clip_first = 0;
+        words(&record)
+            .iter()
+            .for_each(|&word| state.write_u32(word));
+        let span = ClipSpan {
+            first: self.clip_first,
+            count: self.clip_count,
+        };
+        hash_clips(span, clips, edges, state);
+    }
+}
+
 /// How a material's frost is made: `region` of the target is copied and
 /// halved `halvings` times (each a 2x2 box), then blurred along each axis
 /// with a Gaussian of `sigma` texels of the result, cut at `radius` texels.
