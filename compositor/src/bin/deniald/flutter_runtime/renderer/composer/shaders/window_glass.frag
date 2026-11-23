@@ -4,16 +4,14 @@
 // window_surface.glsl with its backdrop. The client covers the material,
 // which shows through where the client is translucent and its alpha
 // exceeds the material's threshold: surface + material * (1 - surface.a).
-#include "draw.glsl"
 #include "glass.glsl"
 #include "clip_coverage.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D surface_texture;
 layout(set = 1, binding = 1) uniform sampler2D frost_texture;
 
-layout(location = 0) in vec2 v_local;
-layout(location = 1) in vec3 v_scene;
-layout(location = 2) flat in uint v_draw;
+#define DRAW_VARYING in
+#include "draw_varyings.glsl"
 layout(location = 0) out vec4 frag_color;
 
 #include "window.glsl"
@@ -33,16 +31,14 @@ float materialCoverage() {
 }
 
 void main() {
-  const uint index = v_draw;
-  glass_index = draws[index].flags.w;
-  const float clip = clipsCoverage(draws[index].clip_first, draws[index].flags.y,
-                                   v_scene.xy / v_scene.z);
+  glass_index = v_flags.w;
+  const float clip = clipsCoverage(v_clip_first, v_flags.y, v_scene.xy / v_scene.z);
   float outer;
   float inner;
-  windowCoverage(index, v_local, outer, inner);
+  windowCoverage(v_local, outer, inner);
   // Before any branch: it takes derivatives.
   const float material = materialCoverage();
-  vec4 surface = windowSurface(index, surfaceUv(index, v_local), inner);
+  vec4 surface = windowSurface(v_uv, inner);
   if (material > 0.0 && surface.a > 0.0 &&
       surface.a * inner > GLASS.alpha_threshold &&
       surface.a < 1.0 - 1.0 / 1024.0) {
@@ -53,6 +49,5 @@ void main() {
     surface += backdrop * material * (1.0 - surface.a);
   }
   // Disjoint coverages avoid double blending at the inner AA edge.
-  frag_color = (surface * inner + draws[index].frame * (outer - inner)) *
-               draws[index].params.y * clip;
+  frag_color = (surface * inner + v_frame * (outer - inner)) * v_params.y * clip;
 }
