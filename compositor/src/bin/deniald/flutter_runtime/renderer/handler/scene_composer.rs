@@ -14,6 +14,9 @@ pub(super) fn create_scene_composer(
     context: &egl_context::SharedEglContext,
 ) -> Option<SceneComposer> {
     if !super::composer::requested() {
+        if denial_core::environment::flag("DENIAL_NO_VULKAN") {
+            info!("DENIAL_NO_VULKAN: the shell and output frames render with GLES");
+        }
         return None;
     }
     let created = (|| -> Result<SceneComposer, Box<dyn Error>> {

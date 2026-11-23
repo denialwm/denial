@@ -128,8 +128,9 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
 }
 
 /// Output frames the Flutter engine can describe are composed with Vulkan
-/// instead of the engine's GLES pass, on every GPU rendered in hardware. Where
-/// Vulkan cannot open that GPU, frames stay on GLES.
+/// instead of the engine's GLES pass, on every GPU rendered in hardware, and
+/// the shell renders with Vulkan with them. Where Vulkan cannot open that GPU,
+/// or `DENIAL_NO_VULKAN` asks, both stay on GLES.
 pub(crate) static VULKAN_COMPOSER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
@@ -476,7 +477,9 @@ impl Options {
             return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
         }
         VULKAN_COMPOSER.store(
-            flutter_bundle.is_some() && !software_rendering,
+            flutter_bundle.is_some()
+                && !software_rendering
+                && !denial_core::environment::flag("DENIAL_NO_VULKAN"),
             Ordering::Relaxed,
         );
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
