@@ -9,6 +9,10 @@
 //! pipelines and descriptor sets are made once and reused.
 
 use ash::{Entry, vk};
+use gpu_allocator::{
+    AllocationSizes, MemoryLocation,
+    vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc},
+};
 use smithay::backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf, format::FormatSet};
 use std::{
     collections::HashMap,
@@ -331,6 +335,11 @@ pub(super) struct GpuInner {
     /// Largest importable extent per format, modifier and usage; None when
     /// the combination cannot be imported.
     extents: Mutex<HashMap<(vk::Format, u64, vk::ImageUsageFlags), Option<(u32, u32)>>>,
+    /// Memory of private images: blocks bound once, images placed in them.
+    /// A dedicated allocation maps its memory through the kernel every
+    /// time (a quarter millisecond for a frost on a Moto), and frosts and
+    /// slices come and go while the shell animates. None once dropped.
+    allocator: Mutex<Option<Allocator>>,
 }
 
 impl Drop for GpuInner {
@@ -343,6 +352,9 @@ impl Drop for GpuInner {
                 let _queue = shell_queue::lock();
                 let _ = self.device.device_wait_idle();
             }
+            // Its blocks go before the device; every image holding one of
+            // its allocations is gone with its Arc to this owner.
+            drop(lock(&self.allocator).take());
             for (_, pipeline) in lock(&self.pipelines).drain() {
                 self.device.destroy_pipeline(pipeline, None);
             }
@@ -610,10 +622,25 @@ impl Gpu {
             pipelines: Mutex::new(HashMap::new()),
             modifiers: Mutex::new(HashMap::new()),
             extents: Mutex::new(HashMap::new()),
+            allocator: Mutex::new(None),
         };
         // From here on, Drop destroys whatever was created (null handles are
         // ignored by vkDestroy*).
         inner.create_objects()?;
+        // 32 MiB blocks hold a full-screen phone slice; a desktop that needs
+        // more blocks gets them doubled, up to 128 MiB.
+        inner.allocator = Mutex::new(Some(
+            Allocator::new(&AllocatorCreateDesc {
+                instance: inner.instance.clone(),
+                device: inner.device.clone(),
+                physical_device: physical,
+                debug_settings: Default::default(),
+                buffer_device_address: false,
+                allocation_sizes: AllocationSizes::new(32 << 20, 4 << 20)
+                    .with_max_device_memblock_size(128 << 20),
+            })
+            .map_err(|e| format!("Vulkan composer allocator: {e}"))?,
+        ));
         // SAFETY: the name is a NUL-terminated array of the live device.
         let properties = unsafe { inner.instance.get_physical_device_properties(physical) };
         tracing::info!(
@@ -959,6 +986,9 @@ pub(in crate::flutter_runtime) struct Image {
     gpu: Arc<GpuInner>,
     pub(super) image: vk::Image,
     memory: vk::DeviceMemory,
+    /// Where a private image lives in the allocator's blocks; `memory` is
+    /// then null.
+    allocation: Option<Allocation>,
     pub(super) view: vk::ImageView,
     pub(super) format: vk::Format,
     pub(super) size: (u32, u32),
@@ -994,6 +1024,12 @@ impl Drop for Image {
             self.gpu.device.destroy_image_view(self.view, None);
             self.gpu.device.destroy_image(self.image, None);
             self.gpu.device.free_memory(self.memory, None);
+        }
+        if let Some(allocation) = self.allocation.take()
+            && let Some(allocator) = lock(&self.gpu.allocator).as_mut()
+            && let Err(error) = allocator.free(allocation)
+        {
+            tracing::warn!(%error, "Vulkan composer: freeing private image memory");
         }
     }
 }
@@ -1109,6 +1145,7 @@ impl Gpu {
             gpu: Arc::clone(gpu),
             image,
             memory: vk::DeviceMemory::null(),
+            allocation: None,
             view: vk::ImageView::null(),
             format: vk_format,
             size: (width, height),
@@ -1204,6 +1241,7 @@ impl Gpu {
             gpu: Arc::clone(gpu),
             image,
             memory: vk::DeviceMemory::null(),
+            allocation: None,
             view: vk::ImageView::null(),
             format: FROST_FORMAT,
             size,
@@ -1215,21 +1253,21 @@ impl Gpu {
         // SAFETY: queries and allocation on the live device.
         unsafe {
             let requirements = d.get_image_memory_requirements(image);
-            let type_index = gpu
-                .memory_type(
-                    requirements.memory_type_bits,
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                )
-                .ok_or("Vulkan composer found no device memory")?;
-            private.memory = d
-                .allocate_memory(
-                    &vk::MemoryAllocateInfo::default()
-                        .allocation_size(requirements.size)
-                        .memory_type_index(type_index),
-                    None,
-                )
-                .map_err(|e| vk_error("private image memory", e))?;
-            d.bind_image_memory(image, private.memory, 0)
+            let allocation = lock(&gpu.allocator)
+                .as_mut()
+                .ok_or("Vulkan composer: allocator gone")?
+                .allocate(&AllocationCreateDesc {
+                    name: "private image",
+                    requirements,
+                    location: MemoryLocation::GpuOnly,
+                    linear: false,
+                    allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+                })
+                .map_err(|e| format!("Vulkan composer private image memory: {e}"))?;
+            let (memory, at) = (allocation.memory(), allocation.offset());
+            // Dropping `private` frees it, bound or not.
+            private.allocation = Some(allocation);
+            d.bind_image_memory(image, memory, at)
                 .map_err(|e| vk_error("bind private image", e))?;
             private.view = d
                 .create_image_view(
@@ -1421,6 +1459,7 @@ impl Gpu {
             gpu: Arc::clone(gpu),
             image,
             memory: vk::DeviceMemory::null(),
+            allocation: None,
             view: vk::ImageView::null(),
             format,
             size: (size, size),
