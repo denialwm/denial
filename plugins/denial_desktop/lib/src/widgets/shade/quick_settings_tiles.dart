@@ -404,9 +404,14 @@ class _QuickTileState extends State<QuickTile>
           behavior: HitTestBehavior.opaque,
           onTapUp: widget.enabled ? _noteTap : null,
           onTap: widget.enabled ? widget.onTap : null,
-          child: widget.wide
-              ? _buildWide(off, on, radius)
-              : _buildSmall(off, on, radius),
+          // A tile repaints every frame its liquid moves. On its own layer
+          // the other tiles keep their recorded pictures, and the engine
+          // reuses what it rendered for them.
+          child: RepaintBoundary(
+            child: widget.wide
+                ? _buildWide(off, on, radius)
+                : _buildSmall(off, on, radius),
+          ),
         ),
       ),
     );
