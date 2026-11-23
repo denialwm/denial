@@ -27,5 +27,9 @@ void main() {
   // Impeller's analytic edges; before any branch, it takes derivatives.
   const float bounds = GLASS.shaped_blur != 0u ? edge(boundsDistance(v_target)) : 1.0;
   const vec4 material = GLASS.mode == kModeGlass ? glass(v_target) : sampleFrost(v_target);
-  frag_color = material * (GLASS.opacity * clip * bounds);
+  // Frozen glass's overlay within the surface, over the faded material;
+  // a no-op for every other material.
+  const vec4 overlay = GLASS.overlay * glass_coverage;
+  frag_color = (overlay + material * GLASS.material_opacity * (1.0 - overlay.a)) *
+               (GLASS.opacity * clip * bounds);
 }

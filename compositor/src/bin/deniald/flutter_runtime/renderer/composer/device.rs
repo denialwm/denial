@@ -1678,6 +1678,9 @@ pub(super) struct MaterialStep {
     /// A window over the material: drawn with it, instead of the glass
     /// quad.
     pub(super) window: Option<WindowDraw>,
+    /// Frozen glass: the slice holding its frost, which it samples instead
+    /// of a frost made from the target, and that slice's content.
+    pub(super) frozen: Option<(Arc<Image>, u64)>,
 }
 
 /// A window drawn over its material (`Program::WindowGlass`).
@@ -2617,6 +2620,10 @@ impl Frame {
         for step in steps {
             let images: [Option<&Arc<Image>>; 2] = match step {
                 Step::Draws(batch) => [Some(&batch.image), Some(&batch.look)],
+                Step::Material(MaterialStep {
+                    frozen: Some((image, _)),
+                    ..
+                }) => [Some(image), None],
                 Step::Material(material) => {
                     let frost = material
                         .frost
@@ -3020,6 +3027,17 @@ impl Frame {
                         d.cmd_draw(command, 4, batch.count, 0, batch.first);
                         instances += batch.count;
                         stamp(Some(gpu_timing::DRAWS));
+                    }
+                    Step::Material(MaterialStep {
+                        frozen: Some((image, _)),
+                        record,
+                        ..
+                    }) => {
+                        bound = None;
+                        use_pipeline(glass);
+                        push_images(image, false, None, None);
+                        d.cmd_draw(command, 4, 1, 0, *record);
+                        stamp(Some(gpu_timing::GLASS));
                     }
                     Step::Material(material) => {
                         let Some(frost) = &material.frost else {

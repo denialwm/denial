@@ -12,7 +12,7 @@
 //! - Client buffers are top-down.
 
 use denial_flutter_engine::scene::{
-    Clip, EntryLocal, Material, Matrix3, Rect, SliceBlit, WindowStyle,
+    Clip, EntryLocal, FrozenFrost, Material, Matrix3, Rect, SliceBlit, WindowStyle,
 };
 
 pub(super) const KIND_SLICE: u32 = 0;
@@ -1017,9 +1017,15 @@ pub(super) struct Glass {
     /// frame, not all of `quad`.
     shaped_blur: u32,
     _pad: [u32; 2],
+    /// Frozen glass: drawn over the material within its shape,
+    /// premultiplied; zero otherwise.
+    overlay: [f32; 4],
+    /// Fades the material under the overlay; 1 for every other material.
+    material_opacity: f32,
+    _pad_end: [u32; 3],
 }
 
-const _: () = assert!(std::mem::size_of::<Glass>() == 336);
+const _: () = assert!(std::mem::size_of::<Glass>() == 368);
 
 /// A record the composer fingerprints whole: `repr(C)` and only 4-byte
 /// fields, so every byte is a field and none is padding.
@@ -1128,6 +1134,16 @@ pub(super) struct FrostPlan {
     pub(super) halvings: u32,
     pub(super) sigma: [f32; 2],
     pub(super) radius: [f32; 2],
+}
+
+impl FrostPlan {
+    /// Frozen glass: no frost to make, and nothing read below.
+    pub(super) const NONE: Self = Self {
+        region: [0; 4],
+        halvings: 0,
+        sigma: [0.0; 2],
+        radius: [0.0; 2],
+    };
 }
 
 /// Impeller's ScaleSigma: a requested sigma as the engine blurs it (Skia's
@@ -1535,6 +1551,7 @@ fn material_over(
         to_material1,
         normal_transform: affine.normal_transform(),
         shaped_blur: u32::from(!window && !axis_aligned),
+        material_opacity: 1.0,
         ..Glass::default()
     };
     // Refraction looks inward across the whole surface, so glass frosts its
@@ -1589,11 +1606,14 @@ fn material_over(
             (quad, if window { bounds } else { shape }, reach)
         }
     };
+    record.quad = quad;
+    if let Some(frozen) = &material.frozen {
+        return frozen_material(record, frozen, &affine, quad, window, target).map(Some);
+    }
     // Only an exact window frost reads no more than the engine's input
     // (its content bounds): a blur's region adds padding and rounds out to
     // its halving grid.
     let tracked = window && clips.is_empty() && bounds == whole;
-    record.quad = quad;
     let sigma = affine.target_sigma(material.sigma.map(scale_sigma));
     let Some(plan) = FrostPlan::new(source, sigma, reach, window, target) else {
         return Ok(None);
@@ -1617,6 +1637,65 @@ fn material_over(
         tracked,
         output,
     }))
+}
+
+/// Glass over a frost made once for the scene: the frost is the slice
+/// version `frozen` names, not a copy of what is drawn below, so the
+/// material reads nothing of the target. The frost keeps its texels on the
+/// target's axes: it may scale or flip with the material, not turn.
+fn frozen_material(
+    mut record: Glass,
+    frozen: &FrozenFrost,
+    affine: &Affine,
+    quad: [f32; 4],
+    window: bool,
+    target: (u32, u32),
+) -> Result<MaterialDraw, &'static str> {
+    if window {
+        return Err("frozen frost behind a window");
+    }
+    if affine.m[1] != 0.0 || affine.m[3] != 0.0 {
+        return Err("turned frozen frost");
+    }
+    if frozen.bottom_up {
+        return Err("bottom-up frozen frost");
+    }
+    let (width, height) = frozen.size;
+    let (storage_width, storage_height) = frozen.storage_size;
+    if width == 0 || height == 0 || storage_width < width || storage_height < height {
+        return Err("frozen frost size");
+    }
+    // The frost's top-left texel corner and the storage's far corner, in
+    // target pixels: sampleFrost maps the target between them to 0..1.
+    let rect = &frozen.rect;
+    let [x0, y0] = affine.point(rect.left, rect.top);
+    let [x1, y1] = affine.point(rect.right, rect.bottom);
+    let (across, down) = (
+        storage_width as f32 / width as f32,
+        storage_height as f32 / height as f32,
+    );
+    record.frost = [x0, y0, x0 + (x1 - x0) * across, y0 + (y1 - y0) * down];
+    let (sw, sh) = (storage_width as f32, storage_height as f32);
+    record.frost_limits = [
+        0.5 / sw,
+        0.5 / sh,
+        (width as f32 - 0.5) / sw,
+        (height as f32 - 0.5) / sh,
+    ];
+    record.overlay = frozen.overlay;
+    record.material_opacity = frozen.opacity;
+    let output = [
+        (quad[0].floor() as i32 - 1).max(0),
+        (quad[1].floor() as i32 - 1).max(0),
+        (quad[2].ceil() as i32 + 1).min(target.0 as i32),
+        (quad[3].ceil() as i32 + 1).min(target.1 as i32),
+    ];
+    Ok(MaterialDraw {
+        glass: record,
+        plan: FrostPlan::NONE,
+        tracked: false,
+        output,
+    })
 }
 
 #[cfg(test)]
@@ -1865,6 +1944,7 @@ pub(super) mod tests {
             content_clip: None,
             backdrop_token: Some(1),
             alpha_threshold: 0.0,
+            frozen: None,
         }
     }
 

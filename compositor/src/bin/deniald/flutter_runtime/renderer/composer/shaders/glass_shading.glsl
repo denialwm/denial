@@ -6,6 +6,8 @@
 
 // The material this fragment draws: set first in main.
 uint glass_index;
+// The surface's antialiased coverage where glass() last evaluated it.
+float glass_coverage = 0.0;
 #define GLASS glasses[glass_index]
 
 vec4 sampleFrost(vec2 target) {
@@ -144,6 +146,7 @@ vec4 glass(vec2 target) {
                                GLASS.normal_transform.zw * outward_normal.y);
   }
   const float coverage = 1.0 - smoothstep(-2.0, 0.0, signed_distance);
+  glass_coverage = coverage;
   if (coverage < 0.01) {
     return vec4(0.0);
   }

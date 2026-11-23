@@ -567,6 +567,7 @@ fn blur_material(rig: &Rig, rect: [f32; 4], sigma: f32) -> record::MaterialDraw 
         content_clip: None,
         backdrop_token: Some(1),
         alpha_threshold: 0.0,
+        frozen: None,
     };
     let local = EntryLocal {
         scene_from_local: Matrix3::IDENTITY,
@@ -604,6 +605,7 @@ fn material_scene(
         fresh,
         below: 0,
         made: 0,
+        frozen: None,
         window: None,
     }));
     (draws, vec![glass], steps)
@@ -780,6 +782,7 @@ fn steps_with(
         fresh,
         below: 0,
         made: 0,
+        frozen: None,
         window: None,
     }));
     (draws, steps)
@@ -1065,6 +1068,7 @@ fn window_shows_its_material_above_the_threshold() {
             fresh: true,
             below: 0,
             made: 0,
+            frozen: None,
             window: Some(WindowDraw {
                 draw: index,
                 image: Arc::clone(&client),
@@ -1829,6 +1833,7 @@ fn what_an_opaque_draw_hides_is_left_out() {
             fresh: false,
             below: 0,
             made: 0,
+            frozen: None,
             window: None,
         }));
         // The cover: the slice again, over everything.

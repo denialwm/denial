@@ -63,6 +63,14 @@ struct Glass {
   uint shaped_blur;
   uint pad0;
   uint pad1;
+  // Frozen glass: drawn over the material within its shape, premultiplied;
+  // zero otherwise.
+  vec4 overlay;
+  // Fades the material under the overlay; 1 for every other material.
+  float material_opacity;
+  uint pad2;
+  uint pad3;
+  uint pad4;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Glasses {

@@ -180,6 +180,16 @@ pub(crate) struct RawMaterial {
     pub rim_falloff: f64,
     pub opposite_light_strength: f64,
     pub alpha_threshold: f64,
+    pub has_frozen_frost: bool,
+    pub frozen_frost: SliceKey,
+    pub frozen_frost_bottom_up: bool,
+    pub frozen_frost_storage_width: u32,
+    pub frozen_frost_storage_height: u32,
+    pub frozen_frost_width: u32,
+    pub frozen_frost_height: u32,
+    pub frozen_frost_rect: sys::FlutterRect,
+    pub frozen_overlay: [f64; 4],
+    pub frozen_opacity: f64,
 }
 
 #[repr(C)]
@@ -354,6 +364,22 @@ pub struct Glass {
     pub opposite_light_strength: f32,
 }
 
+/// Glass over a frost made once for a whole scene: a slice version whose
+/// top-left `size` pixels cover `rect` (material-local), refracted and lit
+/// in place of a blur of the scene below.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrozenFrost {
+    pub key: SliceKey,
+    pub bottom_up: bool,
+    pub storage_size: (u32, u32),
+    pub size: (u32, u32),
+    pub rect: Rect,
+    /// Drawn over the material within its shape, premultiplied RGBA.
+    pub overlay: [f32; 4],
+    /// Fades the material, not the overlay.
+    pub opacity: f32,
+}
+
 /// A backdrop material: the scene below it, blurred (and shaded as glass),
 /// then the entries up to its end, composited as one layer.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -373,6 +399,9 @@ pub struct Material {
     pub backdrop_token: Option<i64>,
     /// Behind a window: the client alpha the material needs, 0..1.
     pub alpha_threshold: f32,
+    /// Glass over a frost made once for the scene, instead of the scene
+    /// below; such a material has no content.
+    pub frozen: Option<FrozenFrost>,
 }
 
 impl Material {
@@ -419,6 +448,21 @@ impl Material {
                 .then(|| Rect::from_flutter(&raw.content_clip)),
             backdrop_token: raw.has_backdrop_token.then_some(raw.backdrop_token),
             alpha_threshold: raw.alpha_threshold as f32,
+            frozen: (raw.struct_size >= std::mem::size_of::<RawMaterial>()
+                && raw.has_frozen_frost
+                && glass.is_some())
+            .then(|| FrozenFrost {
+                key: raw.frozen_frost,
+                bottom_up: raw.frozen_frost_bottom_up,
+                storage_size: (
+                    raw.frozen_frost_storage_width,
+                    raw.frozen_frost_storage_height,
+                ),
+                size: (raw.frozen_frost_width, raw.frozen_frost_height),
+                rect: Rect::from_flutter(&raw.frozen_frost_rect),
+                overlay: raw.frozen_overlay.map(|v| v as f32),
+                opacity: raw.frozen_opacity as f32,
+            }),
         })
     }
 }

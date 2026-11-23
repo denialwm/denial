@@ -1466,6 +1466,14 @@ impl SceneComposer {
                 Step::Material(material) => material,
             };
             let record = material.record as usize;
+            if let Some((_, content)) = &material.frozen {
+                // No frost to make: what it draws is its record and frost.
+                let mut fingerprint = DefaultHasher::new();
+                fingerprint.write_u64(*content);
+                glasses[record].hash_into(clips, edges, &mut fingerprint);
+                drawn.push((outputs[record], fingerprint.finish()));
+                continue;
+            }
             let region = material.plan.region;
             let mut below = DefaultHasher::new();
             for &(_, fingerprint) in drawn
@@ -2493,6 +2501,7 @@ impl SceneComposer {
                             fresh: false,
                             below: 0,
                             made: 0,
+                            frozen: None,
                             window: Some(WindowDraw {
                                 draw: index,
                                 image: bound,
@@ -2528,6 +2537,22 @@ impl SceneComposer {
                         else {
                             continue;
                         };
+                        // Frozen glass samples the slice its frost was copied
+                        // into, kept for the frame like the shown slices.
+                        let frozen = match &material.frozen {
+                            Some(frozen) => {
+                                let slice = state
+                                    .slices
+                                    .get(&frozen.key.allocation)
+                                    .ok_or("unknown frozen frost")?;
+                                if slice.image.size != frozen.storage_size {
+                                    return Err("frozen frost storage size");
+                                }
+                                staged.slices.push(frozen.key);
+                                Some((Arc::clone(&slice.image), slice_content(&frozen.key)))
+                            }
+                            None => None,
+                        };
                         let record = staged.glasses.len() as u32;
                         staged.glasses.push(draw.glass);
                         // An untracked frost is kept by the engine's damage.
@@ -2544,6 +2569,7 @@ impl SceneComposer {
                             below: 0,
                             made: 0,
                             window: None,
+                            frozen,
                         }));
                     }
                     SceneEntry::MaterialEnd => {
