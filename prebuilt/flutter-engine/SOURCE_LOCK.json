@@ -3,7 +3,7 @@
   "flutter": {
     "repository": "https://github.com/denialwm/flutter.git",
     "branch": "denial/3.47.5",
-    "revision": "759ed1b647d5ffb5000c47ce500d660ee13091b6",
+    "revision": "bfac097493db525907ff2b2c9821b0e856d43cee",
     "upstream_revision": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1"
   },
   "skia": {
