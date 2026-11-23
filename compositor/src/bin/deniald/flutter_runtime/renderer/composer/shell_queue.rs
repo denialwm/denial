@@ -1,7 +1,6 @@
 //! One queue for the composer and the engine's Impeller Vulkan renderer.
 //!
-//! With `DENIAL_VULKAN_SHELL`, the engine renders on the composer's device
-//! and queue. Vulkan requires external synchronization of a queue, and
+//! The engine renders on the composer's device and queue. Vulkan requires external synchronization of a queue, and
 //! Impeller submits from the raster thread and from its IO workers. The
 //! engine resolves every Vulkan procedure through `instance_proc`, which
 //! hands it locked variants of the queue entry points; the composer takes

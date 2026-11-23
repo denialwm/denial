@@ -111,7 +111,7 @@ struct Rig {
 
 fn rig(slices: usize, bottom_up: bool) -> Rig {
     let fd = node();
-    let gpu = Gpu::new(fd.as_fd(), false).expect("Vulkan composer device");
+    let gpu = Gpu::new(fd.as_fd()).expect("Vulkan composer device");
     let gbm = GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(fd))).expect("GBM");
     let target_buffer = allocate(&gbm);
     let target = gpu
@@ -222,7 +222,6 @@ fn empty_staged(view_id: i64) -> super::Staged {
         outputs: Vec::new(),
         remade_why: [0; 7],
         slices: Vec::new(),
-        rewritten: false,
         slices_rewritten: 0,
         clients: Vec::new(),
         credits: Vec::new(),
@@ -1730,15 +1729,14 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
 #[ignore = "needs a GPU"]
 fn conversions_are_waited_for_until_a_submission_succeeds() {
     let (composer, _target) = composer_with_target();
-    let staged = empty_staged(-1);
     assert!(matches!(
-        composer.producer_wait(&staged),
+        composer.producer_wait(),
         super::ProducerWait::None
     ));
     // GLES converted a client.
     super::lock(&composer.converts).unwaited = true;
     assert!(matches!(
-        composer.producer_wait(&staged),
+        composer.producer_wait(),
         super::ProducerWait::Fresh
     ));
     // A failed submission did not wait for it.
@@ -1756,7 +1754,7 @@ fn conversions_are_waited_for_until_a_submission_succeeds() {
     }
     assert!(!super::lock(&composer.converts).unwaited);
     assert!(matches!(
-        composer.producer_wait(&staged),
+        composer.producer_wait(),
         super::ProducerWait::None
     ));
 }

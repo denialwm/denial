@@ -305,8 +305,6 @@ pub(super) struct GpuInner {
     /// it renders on this device (`ShellDevice`).
     instance_extensions: Vec<&'static CStr>,
     device_extensions: Vec<&'static CStr>,
-    /// The engine renders slices on this queue (`Gpu::new`).
-    shell: bool,
     memory: vk::PhysicalDeviceMemoryProperties,
     /// The largest storage buffer range a descriptor may name.
     max_storage_range: u64,
@@ -404,10 +402,10 @@ pub(super) struct Gpu(pub(super) Arc<GpuInner>);
 
 impl Gpu {
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
-    /// context renders with. With `shell`, the engine renders on it too: the
-    /// instance and device add what Impeller requires, and the queue entry
-    /// points the engine resolves take the shared queue lock.
-    pub(super) fn new(render_node: BorrowedFd<'_>, shell: bool) -> Result<Self> {
+    /// context renders with. The engine renders on it too: the instance and
+    /// device add what Impeller requires, and the queue entry points the
+    /// engine resolves take the shared queue lock.
+    pub(super) fn new(render_node: BorrowedFd<'_>) -> Result<Self> {
         let device_number = device_number(render_node.as_raw_fd())?;
         // SAFETY: ash keeps the loaded library alive in the entry.
         let entry = unsafe { Entry::load() }
@@ -426,27 +424,25 @@ impl Gpu {
         // when it never presents; Wayland is the one deniald has.
         let mut instance_extensions: Vec<&'static CStr> = Vec::new();
         let mut layers: Vec<&'static CStr> = Vec::new();
-        if shell {
-            // SAFETY: a query on the live entry.
-            let available = unsafe { entry.enumerate_instance_extension_properties(None) }
-                .map_err(|e| vk_error("instance extensions", e))?;
-            for name in [ash::khr::surface::NAME, ash::khr::wayland_surface::NAME] {
-                if !available
-                    .iter()
-                    .any(|ext| ext.extension_name_as_c_str().is_ok_and(|own| own == name))
-                {
-                    return Err(format!(
-                        "Vulkan shell needs instance extension {}",
-                        name.to_string_lossy()
-                    ));
-                }
-                instance_extensions.push(name);
+        // SAFETY: a query on the live entry.
+        let available = unsafe { entry.enumerate_instance_extension_properties(None) }
+            .map_err(|e| vk_error("instance extensions", e))?;
+        for name in [ash::khr::surface::NAME, ash::khr::wayland_surface::NAME] {
+            if !available
+                .iter()
+                .any(|ext| ext.extension_name_as_c_str().is_ok_and(|own| own == name))
+            {
+                return Err(format!(
+                    "Vulkan shell needs instance extension {}",
+                    name.to_string_lossy()
+                ));
             }
-            // Diagnostic: DENIAL_VULKAN_VALIDATION=1 enables the Khronos
-            // validation layer for the composer and the engine alike.
-            if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
-                layers.push(c"VK_LAYER_KHRONOS_validation");
-            }
+            instance_extensions.push(name);
+        }
+        // Diagnostic: DENIAL_VULKAN_VALIDATION=1 enables the Khronos
+        // validation layer for the composer and the engine alike.
+        if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
+            layers.push(c"VK_LAYER_KHRONOS_validation");
         }
         let extension_pointers: Vec<_> = instance_extensions.iter().map(|n| n.as_ptr()).collect();
         let layer_pointers: Vec<_> = layers.iter().map(|n| n.as_ptr()).collect();
@@ -506,11 +502,7 @@ impl Gpu {
             let families =
                 unsafe { instance.get_physical_device_queue_family_properties(physical) };
             // The engine runs graphics and compute work on the same queue.
-            let wanted = if shell {
-                vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE
-            } else {
-                vk::QueueFlags::GRAPHICS
-            };
+            let wanted = vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE;
             let Some(family) = families
                 .iter()
                 .position(|family| family.queue_count > 0 && family.queue_flags.contains(wanted))
@@ -535,34 +527,33 @@ impl Gpu {
         let mut device_extensions: Vec<&'static CStr> = required.to_vec();
         // Impeller enables what the hardware has of these and assumes the
         // embedder did the same.
-        let mut features11 = vk::PhysicalDeviceVulkan11Features::default();
-        let mut features = vk::PhysicalDeviceFeatures2::default();
-        if shell {
-            // SAFETY: a query on a device of this instance.
-            let extensions = unsafe { instance.enumerate_device_extension_properties(physical) }
-                .unwrap_or_default();
-            if !extensions.iter().any(|ext| {
-                ext.extension_name_as_c_str()
-                    .is_ok_and(|own| own == ash::khr::swapchain::NAME)
-            }) {
-                return Err(fail(
-                    &instance,
-                    "Vulkan shell needs VK_KHR_swapchain".into(),
-                ));
-            }
-            device_extensions.push(ash::khr::swapchain::NAME);
-            let mut supported11 = vk::PhysicalDeviceVulkan11Features::default();
-            let mut supported = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported11);
-            // SAFETY: a query on a Vulkan 1.3 device of this instance.
-            unsafe { instance.get_physical_device_features2(physical, &mut supported) };
-            let base = supported.features;
-            features.features = vk::PhysicalDeviceFeatures::default()
+        // SAFETY: a query on a device of this instance.
+        let extensions =
+            unsafe { instance.enumerate_device_extension_properties(physical) }.unwrap_or_default();
+        if !extensions.iter().any(|ext| {
+            ext.extension_name_as_c_str()
+                .is_ok_and(|own| own == ash::khr::swapchain::NAME)
+        }) {
+            return Err(fail(
+                &instance,
+                "Vulkan shell needs VK_KHR_swapchain".into(),
+            ));
+        }
+        device_extensions.push(ash::khr::swapchain::NAME);
+        let mut supported11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut supported = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported11);
+        // SAFETY: a query on a Vulkan 1.3 device of this instance.
+        unsafe { instance.get_physical_device_features2(physical, &mut supported) };
+        let base = supported.features;
+        let mut features = vk::PhysicalDeviceFeatures2::default().features(
+            vk::PhysicalDeviceFeatures::default()
                 .fill_mode_non_solid(base.fill_mode_non_solid == vk::TRUE)
-                .sampler_anisotropy(base.sampler_anisotropy == vk::TRUE);
-            features11 = features11.uniform_and_storage_buffer16_bit_access(
+                .sampler_anisotropy(base.sampler_anisotropy == vk::TRUE),
+        );
+        let mut features11 = vk::PhysicalDeviceVulkan11Features::default()
+            .uniform_and_storage_buffer16_bit_access(
                 supported11.uniform_and_storage_buffer16_bit_access == vk::TRUE,
             );
-        }
         let priorities = [1.0];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
@@ -587,13 +578,12 @@ impl Gpu {
                 instance.get_physical_device_properties(physical).limits,
             )
         };
-        if shell && let Err(error) = shell_queue::install(&entry, instance.handle()) {
+        if let Err(error) = shell_queue::install(&entry, instance.handle()) {
             // SAFETY: nothing was created from the device yet.
             unsafe { device.destroy_device(None) };
             return Err(fail(&instance, error));
         }
         let mut inner = GpuInner {
-            shell,
             instance_extensions,
             device_extensions,
             memory_fd: ash::khr::external_memory_fd::Device::new(&instance, &device),
@@ -631,8 +621,7 @@ impl Gpu {
             drm_major = libc::major(device_number),
             drm_minor = libc::minor(device_number),
             family,
-            shell,
-            "Vulkan scene composer initialized"
+            "Vulkan scene composer initialized; the shell renders with Vulkan"
         );
         Ok(Self(Arc::new(inner)))
     }
@@ -2073,7 +2062,7 @@ impl Frame {
         }
         .map_err(|e| vk_error("command buffer", e))?[0];
         // Diagnostic: names the composer's buffers in validation reports.
-        if gpu.shell && std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
+        if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
             tracing::info!(?command, "composer frame command buffer");
         }
         let mut frame = Self {
@@ -2932,7 +2921,7 @@ impl Frame {
                 .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
                 .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
                 .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)];
-            let memory: &[vk::MemoryBarrier2] = if gpu.shell { &slices_written } else { &[] };
+            let memory: &[vk::MemoryBarrier2] = &slices_written;
             d.cmd_pipeline_barrier2(
                 command,
                 &vk::DependencyInfo::default()

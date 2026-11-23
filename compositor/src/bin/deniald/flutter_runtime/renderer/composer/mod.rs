@@ -1,17 +1,19 @@
-//! Vulkan scene composer, the default wherever Vulkan opens the GPU.
+//! Vulkan scene composer. Wherever Vulkan opens the GPU, Denial renders with
+//! Vulkan alone: the engine renders the shell with Impeller Vulkan on this
+//! module's device and queue, into private slice images, and the composer
+//! draws each output frame from them. Where Vulkan cannot open the GPU there
+//! is no composer and everything renders with GLES; never half of each.
 //!
-//! The engine keeps rendering shell slices with GLES, into storage this
-//! module allocates (GBM, bound to GL through an EGLImage and imported into
-//! Vulkan once). Each output frame it can describe, the engine stages as an
-//! ordered list of slices, client textures and windows; the composer draws
-//! that list into the output buffer on its own Vulkan queue. Frames it cannot
-//! describe the engine composes as before, sampling the same storage.
+//! Each output frame it can describe, the engine stages as an ordered list of
+//! slices, client textures and windows; the composer draws that list into the
+//! output buffer. A frame it cannot describe the engine composes itself, with
+//! Vulkan, into composer storage (`engine_frames`).
 //!
 //! Synchronization:
-//! - GLES writes a slice version once. The first scene that shows it waits
-//!   for one EGL native fence covering every version written since.
-//! - Vulkan only reads slices and client buffers, in `GENERAL` layout with
-//!   FOREIGN ownership acquired and released in the same submission.
+//! - Slices are written on the composer's queue before the submission that
+//!   shows them.
+//! - Vulkan only reads client buffers, in `GENERAL` layout with FOREIGN
+//!   ownership acquired and released in the same submission.
 //! - Before GLES samples composer storage itself, its context waits for the
 //!   last Vulkan submission (`prepare_gles_read`), and the next submission
 //!   waits for that GLES work.
@@ -51,7 +53,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use denial_flutter_engine::scene::{
     BLEND_SRC, BLEND_SRC_OVER, Matrix3, Rect, Sampling, Scene, SceneEntry, SceneSource, SliceKey,
-    SliceWriter, SliceWriterVk,
+    SliceWriterVk,
 };
 use denial_flutter_engine::sys;
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf, WeakDmabuf};
@@ -100,13 +102,6 @@ pub(crate) fn client_formats(
             formats
         }
     }
-}
-
-/// `DENIAL_VULKAN_SHELL=1` with the composer: the engine renders the
-/// shell with Impeller Vulkan on the composer's device, into private slice
-/// images, instead of GLES.
-pub(super) fn shell_requested() -> bool {
-    requested() && std::env::var_os("DENIAL_VULKAN_SHELL").is_some_and(|value| value == "1")
 }
 
 /// Blocks until a completion fence signals. Failure paths only.
@@ -265,7 +260,6 @@ pub(super) struct Staged {
     /// token, revision, damage, reused), and frosts without a cache.
     remade_why: [u32; 7],
     slices: Vec<SliceKey>,
-    rewritten: bool,
     /// Shell slices the engine rendered again for this frame.
     slices_rewritten: u32,
     pub(super) clients: Vec<SampledClient>,
@@ -352,9 +346,6 @@ struct State {
     last_completion: Option<OwnedFd>,
     /// GLES sampled composer storage since the last submission.
     gles_read: bool,
-    /// A staged frame with new slice versions was not submitted: the next
-    /// submission still owes a wait for GLES.
-    producer_pending: bool,
     /// A failed submission: decline every later frame.
     broken: bool,
     /// Frosts by view and material order, as last submitted.
@@ -598,8 +589,6 @@ struct CachedFrost {
 
 pub(super) struct SceneComposer {
     gpu: Gpu,
-    /// The engine renders slices with Vulkan on `gpu` (`shell_requested`).
-    shell: bool,
     placeholder: Arc<Image>,
     /// Bound as the look of clients without one; never read.
     no_look: Arc<Image>,
@@ -625,8 +614,7 @@ impl SceneComposer {
         render_modifiers: &[Modifier],
         float_render: &[Modifier],
     ) -> Result<Self, String> {
-        let shell = shell_requested();
-        let gpu = Gpu::new(render_node.as_fd(), shell)?;
+        let gpu = Gpu::new(render_node.as_fd())?;
         let placeholder = gpu.placeholder()?;
         let no_look = gpu.look_image(1, &[0.0, 0.0, 0.0, 1.0])?;
         let sampled = gpu.0.sampled_modifiers(Fourcc::Abgr8888);
@@ -653,7 +641,6 @@ impl SceneComposer {
         );
         Ok(Self {
             gpu,
-            shell,
             placeholder,
             no_look,
             gbm: Mutex::new(gbm),
@@ -678,7 +665,6 @@ impl SceneComposer {
                 scratch: Scene::default(),
                 last_completion: None,
                 gles_read: false,
-                producer_pending: false,
                 broken: false,
                 frosts: HashMap::new(),
                 unaccounted: Vec::new(),
@@ -887,44 +873,6 @@ impl SceneComposer {
         lock(&self.dropped).push(key);
     }
 
-    /// Fresh storage for one slice version. Raster thread, context current.
-    pub(super) fn acquire_writer(
-        &self,
-        width: u32,
-        height: u32,
-        gl: &super::GlApi,
-        display: &smithay::backend::egl::EGLDisplay,
-    ) -> Option<SliceWriter> {
-        let (bo, image, egl_image, gl_texture) = self.shared_storage(
-            width,
-            height,
-            Fourcc::Abgr8888,
-            &self.slice_modifiers,
-            gl,
-            display,
-        )?;
-        let allocation = self.next_allocation.fetch_add(1, Ordering::Relaxed);
-        let slice = Slice {
-            _bo: Some(bo),
-            egl_image,
-            gl_texture,
-            image,
-            engine_ref: true,
-            last_serial: 0,
-        };
-        lock(&self.state).slices.insert(allocation, slice);
-        Some(SliceWriter {
-            struct_size: 0,
-            key: SliceKey {
-                allocation,
-                generation: 1,
-            },
-            gl_name: gl_texture,
-            width,
-            height,
-        })
-    }
-
     /// Storage GLES renders into and the composer samples: its buffer, the
     /// imported image, the EGLImage and the GL texture bound to it. The
     /// raster context is current. Takes no composer state.
@@ -1034,21 +982,15 @@ impl SceneComposer {
         lock(&self.state).broken
     }
 
-    /// The device the engine renders on, when it renders with Vulkan.
-    pub(super) fn shell_device(&self) -> Option<ShellDevice> {
-        self.shell.then(|| self.gpu.shell_device())
-    }
-
-    /// Whether the engine renders with Vulkan, so it composes a frame the
-    /// composer cannot stage itself from client copies the composer lends.
-    pub(super) fn lends_textures(&self) -> bool {
-        self.shell
+    /// The device the engine renders on.
+    pub(super) fn shell_device(&self) -> ShellDevice {
+        self.gpu.shell_device()
     }
 
     /// Fresh private storage for one slice version the engine renders with
     /// Impeller Vulkan on the shared queue. Raster thread.
     pub(super) fn acquire_writer_vk(&self, width: u32, height: u32) -> Option<SliceWriterVk> {
-        if !self.shell || width == 0 || height == 0 || width > 16384 || height > 16384 {
+        if width == 0 || height == 0 || width > 16384 || height > 16384 {
             return None;
         }
         let pooled = {
@@ -1140,14 +1082,13 @@ impl SceneComposer {
         }
     }
 
-    /// What `staged` waits for on the GLES side: a fresh fence for new slice
-    /// versions or GLES reads of composer storage, else the last output
-    /// present's fence while it may still run.
-    pub(super) fn producer_wait(&self, staged: &Staged) -> ProducerWait {
+    /// What the next submission waits for on the GLES side: a fresh fence
+    /// for GLES reads of composer storage or unwaited conversions, else the
+    /// last output present's fence while it may still run.
+    pub(super) fn producer_wait(&self) -> ProducerWait {
         let mut state = lock(&self.state);
-        // Vulkan-written slices precede the submission on the same queue.
-        let slices_from_gles = !self.shell && (staged.rewritten || state.producer_pending);
-        if slices_from_gles || state.gles_read || lock(&self.converts).unwaited {
+        // Slices precede the submission on the same queue.
+        if state.gles_read || lock(&self.converts).unwaited {
             return ProducerWait::Fresh;
         }
         match state.last_gles_fence.as_ref().and_then(share) {
@@ -1185,8 +1126,6 @@ impl SceneComposer {
                 state.broken = true;
             }
             state.unaccount(staged.view_id);
-            // The producer wait this submission took is gone with it.
-            state.producer_pending = true;
         } else {
             // `producer_wait` gave a fresh fence while conversions were
             // unwaited: this submission followed them.
@@ -1367,7 +1306,6 @@ impl SceneComposer {
         );
         state.gles_read = false;
         state.last_gles_fence = None;
-        state.producer_pending = false;
         for key in &staged.slices {
             if let Some(slice) = state.slices.get_mut(&key.allocation) {
                 slice.last_serial = serial;
@@ -2234,7 +2172,6 @@ impl SceneComposer {
                 outputs: Vec::new(),
                 remade_why: [0; 7],
                 slices: Vec::new(),
-                rewritten: !scene.rewritten.is_empty(),
                 slices_rewritten: scene.rewritten.len() as u32,
                 clients: Vec::new(),
                 credits: Vec::new(),
@@ -2553,9 +2490,6 @@ impl SceneComposer {
                         None => info!(view = staged.view_id, "no client over the whole output"),
                     }
                 }
-                // The engine stops tracking the new versions now: until a
-                // submission waits for them, they stay owed.
-                state.producer_pending |= staged.rewritten;
                 let ticket = scene.ticket;
                 state.scratch = scene;
                 state.staged = Some((ticket, staged));

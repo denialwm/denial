@@ -1417,9 +1417,6 @@ run_compositor() {
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
 
-    # Impeller Vulkan renders the shell unless DENIAL_VULKAN_SHELL=0 asks
-    # for the GLES shell.
-    export DENIAL_VULKAN_SHELL="${DENIAL_VULKAN_SHELL:-1}"
 
     # deniald exits with 75 to be started again in the same session.
     local status

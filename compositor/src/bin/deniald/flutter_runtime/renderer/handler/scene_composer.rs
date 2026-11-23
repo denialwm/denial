@@ -6,10 +6,10 @@ use super::composer::{
     SampledClient, SceneComposer, Staged, Submitted,
 };
 use super::*;
-use denial_flutter_engine::scene::{Rect, SceneSource, SliceKey, SliceWriter};
+use denial_flutter_engine::scene::{Rect, SceneSource, SliceKey};
 
-/// The composer when the raster context's GPU supports it; otherwise frames
-/// stay on GLES.
+/// The composer when Vulkan opens the raster context's GPU: the shell then
+/// renders with Vulkan too. Otherwise everything renders with GLES.
 pub(super) fn create_scene_composer(
     context: &egl_context::SharedEglContext,
 ) -> Option<SceneComposer> {
@@ -63,12 +63,6 @@ impl FlutterGlHandler {
             .map_or(0, |composer| composer.begin(view_id))
     }
 
-    pub(super) fn composer_acquire_writer(&self, width: u32, height: u32) -> Option<SliceWriter> {
-        let composer = self.scene_composer.as_ref()?;
-        let context = lock(&self.render_context);
-        composer.acquire_writer(width, height, &self.gl, context.context.display())
-    }
-
     pub(super) fn composer_drop_engine_ref(&self, key: SliceKey) {
         if let Some(composer) = &self.scene_composer {
             composer.drop_engine_ref(key);
@@ -89,12 +83,6 @@ impl FlutterGlHandler {
             composer.prepare_gles_read();
         }
         true
-    }
-
-    /// Queues a GPU-side wait for `fence` on the raster context.
-    fn gles_wait(&self, fence: OwnedFd) -> bool {
-        let context = lock(&self.render_context);
-        Self::gles_wait_on(context.context.display(), fence)
     }
 
     fn gles_wait_on(display: &smithay::backend::egl::EGLDisplay, fence: OwnedFd) -> bool {
@@ -415,7 +403,7 @@ impl FlutterGlHandler {
         damage: FrameDamage<'_>,
     ) -> Result<Submitted, ()> {
         let composer: &SceneComposer = self.scene_composer.as_ref().ok_or(())?;
-        let wait = match composer.producer_wait(&staged) {
+        let wait = match composer.producer_wait() {
             ProducerWait::None => None,
             ProducerWait::Existing(fence) => Some(fence),
             ProducerWait::Fresh => {
@@ -511,15 +499,9 @@ impl FlutterGlHandler {
         }
     }
 
-    /// Orders the raster context's later commands after `completion`. When
-    /// the engine draws with GLES its next frame follows at once, so the
-    /// wait is queued now; with the Vulkan shell it waits in `gles_owed`
-    /// for the next GLES command.
+    /// Orders the raster context's later commands after `completion`: the
+    /// wait is kept in `gles_owed` until the next GLES command.
     fn composer_gles_owe(&self, completion: &OwnedFd) {
-        if !self.composer_lends_textures() {
-            self.composer_gles_wait_for(completion);
-            return;
-        }
         match completion.try_clone() {
             Ok(fence) => {
                 let mut owed = lock(&self.gles_owed);
@@ -530,21 +512,6 @@ impl FlutterGlHandler {
                 warn!(%error, "could not keep a composed frame's fence");
                 super::composer::wait_completion(completion);
             }
-        }
-    }
-
-    /// Orders the raster context's later commands after `completion`: a
-    /// GPU-side wait, or a CPU wait when that cannot be queued.
-    fn composer_gles_wait_for(&self, completion: &OwnedFd) {
-        let queued = match completion.try_clone() {
-            Ok(fence) => self.gles_wait(fence),
-            Err(error) => {
-                warn!(%error, "could not share a composed frame's fence");
-                false
-            }
-        };
-        if !queued {
-            super::composer::wait_completion(completion);
         }
     }
 
@@ -679,10 +646,11 @@ impl FlutterGlHandler {
         }
     }
 
+    /// Whether the engine renders with Vulkan: exactly when the composer
+    /// runs. It then composes a frame the composer cannot stage itself from
+    /// client copies the composer lends.
     pub(super) fn composer_lends_textures(&self) -> bool {
-        self.scene_composer
-            .as_ref()
-            .is_some_and(SceneComposer::lends_textures)
+        self.scene_composer.is_some()
     }
 
     /// Render-thread shutdown, raster context current.

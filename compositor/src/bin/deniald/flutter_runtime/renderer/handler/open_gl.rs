@@ -502,7 +502,10 @@ impl OpenGlHandler for FlutterGlHandler {
         width: u32,
         height: u32,
     ) -> Option<denial_flutter_engine::scene::SliceWriter> {
-        self.composer_acquire_writer(width, height)
+        // The engine renders the shell with GLES only without the composer,
+        // and then into its own targets.
+        let _ = (width, height);
+        None
     }
 
     fn scene_acquire_writer_vk(
@@ -538,7 +541,7 @@ impl OpenGlHandler for FlutterGlHandler {
 
     fn vulkan_renderer(&self) -> Option<denial_flutter_engine::VulkanRenderer> {
         use ash::vk::Handle;
-        let device = self.scene_composer.as_ref()?.shell_device()?;
+        let device = self.scene_composer.as_ref()?.shell_device();
         Some(denial_flutter_engine::VulkanRenderer {
             version: device.version,
             instance: device.instance.as_raw() as *mut c_void,
