@@ -1775,19 +1775,19 @@ fn lent_images_come_back_after_the_engine_read_them() {
 }
 
 /// A draw or material an opaque draw above holds whole is left out; one
-/// that reaches past every cover is drawn.
+/// that reaches past every cover is drawn. A client is hidden on the target
+/// only under a cover: off the target, another output may show it.
 #[test]
 #[ignore = "needs a GPU"]
 fn what_an_opaque_draw_hides_is_left_out() {
     let rig = rig(1, false);
-    let staged = |cover: [i32; 4], spill: bool| {
+    let (w, h) = (f64::from(W), f64::from(H));
+    let staged = |cover: [i32; 4], destination: Option<[f64; 4]>| {
         let (mut draws, mut steps) = scene(&rig, 1, false);
-        if spill {
-            // The slice reaches past the target on every side.
-            let (w, h) = (f64::from(W), f64::from(H));
+        if let Some(destination) = destination {
             let blit = SliceBlit {
                 source: [0.0, 0.0, w, h],
-                destination: [-20.0, -20.0, w + 20.0, h + 20.0],
+                destination,
             };
             draws[0] = record::slice_blit(
                 &blit,
@@ -1821,22 +1821,32 @@ fn what_an_opaque_draw_hides_is_left_out() {
         staged.draws = draws;
         staged.steps = steps;
         staged.covers.push((1, cover));
+        // Draw 0 shows client texture 7.
+        staged.client_draws.push((7, 0));
         super::cull(&mut staged, (W, H));
         staged
     };
     let whole = [0, 0, W as i32, H as i32];
-    let hidden = staged(whole, false);
+    let hidden = staged(whole, None);
     assert_eq!((hidden.culled_draws, hidden.culled_materials), (1, 1));
+    assert_eq!(hidden.hidden_textures, [7]);
     assert!(matches!(hidden.steps.as_slice(), [Step::Draws(batch)] if batch.first == 1));
     // One pixel short of the slice: the slice shows, the material does not.
-    let short = staged([1, 0, W as i32, H as i32], false);
+    let short = staged([1, 0, W as i32, H as i32], None);
     assert_eq!((short.culled_draws, short.culled_materials), (0, 1));
+    assert_eq!(short.shown_textures, [7]);
     assert_eq!(short.steps.len(), 2);
     // A cover never hides its own draw.
     assert!(matches!(short.steps.last(), Some(Step::Draws(batch)) if batch.first == 1));
     // What a draw puts past the target needs no cover.
-    let spilled = staged(whole, true);
+    // The slice reaches past the target on every side.
+    let spilled = staged(whole, Some([-20.0, -20.0, w + 20.0, h + 20.0]));
     assert_eq!((spilled.culled_draws, spilled.culled_materials), (1, 1));
+    // A client wholly off the target (and its cover, a copy of it) is left
+    // out and is not hidden.
+    let off = staged(whole, Some([w + 10.0, 0.0, 2.0 * w + 10.0, h]));
+    assert_eq!(off.culled_draws, 2);
+    assert!(off.hidden_textures.is_empty() && off.shown_textures.is_empty());
 }
 
 /// Every pixel an opaque window claims to cover is the client's colour

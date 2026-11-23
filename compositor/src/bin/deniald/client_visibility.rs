@@ -3,9 +3,11 @@
 //! gives a window it cannot see one frame callback a second instead of one
 //! per refresh, so a client nobody sees stops drawing frames nobody shows.
 //!
-//! A texture is hidden when the last composed frame of some output left it
-//! out and no output's last composed frame showed it. An output whose frame
-//! the composer did not draw reports nothing.
+//! A texture is hidden when the last composed frame of some output hid it
+//! under opaque draws and no output's last composed frame showed it. A
+//! texture off an output is not hidden there: another output shows it. An
+//! output whose last frame the composer did not draw hides nothing and keeps
+//! showing what its last composed frame showed.
 
 use std::sync::Mutex;
 
@@ -45,10 +47,13 @@ pub(crate) fn composed(view_id: i64, shown: &[i64], hidden: &[i64]) {
     view.hidden.extend_from_slice(hidden);
 }
 
-/// `view_id` showed a frame the composer did not draw, or went away: what it
-/// left out is unknown.
+/// `view_id` showed a frame the composer did not draw: what it hides is
+/// unknown. What it showed last stays shown, so a client on that output
+/// keeps its frames until the composer draws the output again.
 pub(crate) fn forget(view_id: i64) {
-    views().retain(|view| view.view_id != view_id);
+    if let Some(view) = views().iter_mut().find(|view| view.view_id == view_id) {
+        view.hidden.clear();
+    }
 }
 
 /// Whether the textures of `texture_ids` (a window's surfaces) are all
@@ -90,6 +95,11 @@ mod tests {
         // The composer did not draw output 1's frame.
         forget(1);
         assert!(!all_hidden(&[20]));
-        forget(2);
+        // Output 2 hid 10 under an opaque window, but output 1, whose last
+        // frame the composer did not draw, showed it last.
+        composed(2, &[], &[10]);
+        assert!(!all_hidden(&[10]));
+        composed(1, &[], &[]);
+        composed(2, &[], &[]);
     }
 }

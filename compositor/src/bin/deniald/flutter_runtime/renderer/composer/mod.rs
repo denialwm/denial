@@ -291,8 +291,9 @@ pub(super) struct Staged {
     culled_materials: u32,
     /// Each client texture's draw record, in draw order.
     client_draws: Vec<(i64, u32)>,
-    /// Client textures with a draw that changes pixels, and those the scene
-    /// holds that change none (`cull`).
+    /// Client textures with a draw that changes pixels, and those whose
+    /// draws opaque draws above hide (`cull`). A texture off this target is
+    /// neither: another output may show it.
     shown_textures: Vec<i64>,
     hidden_textures: Vec<i64>,
     /// Diagnostic: whether the topmost client drawn over the whole target
@@ -2488,6 +2489,15 @@ impl SceneComposer {
     }
 }
 
+/// Why `cull` leaves a draw out.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hidden {
+    /// It changes no pixel of the target.
+    OffTarget,
+    /// Opaque draws above hold it whole.
+    Covered,
+}
+
 /// Leaves out what opaque draws above hide: a hidden draw gets a quad
 /// without area, a hidden material (its frost, its glass and the window
 /// over it) its step. Only one cover must hold a hidden draw whole; the
@@ -2503,11 +2513,19 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
     let target = [0, 0, size.0 as i32, size.1 as i32];
     let hidden = |above: &[[i32; 4]], bounds: [i32; 4]| {
         let bounds = record::pixels_intersect(bounds, target);
-        record::pixels_empty(bounds)
-            || above
-                .iter()
-                .any(|&cover| record::pixels_contain(cover, bounds))
+        if record::pixels_empty(bounds) {
+            Some(Hidden::OffTarget)
+        } else if above
+            .iter()
+            .any(|&cover| record::pixels_contain(cover, bounds))
+        {
+            Some(Hidden::Covered)
+        } else {
+            None
+        }
     };
+    // Draws hidden under covers: their clients are hidden on this target.
+    let mut covered = Vec::new();
     let mut steps = std::mem::take(&mut staged.steps);
     let mut kept = Vec::with_capacity(steps.len());
     while let Some(step) = steps.pop() {
@@ -2516,9 +2534,12 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                 let mut shown = 0;
                 for index in (batch.first..batch.first + batch.count).rev() {
                     let draw = &mut staged.draws[index as usize];
-                    if hidden(&above, draw.bounds(size)) {
+                    if let Some(why) = hidden(&above, draw.bounds(size)) {
                         draw.hide();
                         staged.culled_draws += 1;
+                        if why == Hidden::Covered {
+                            covered.push(index);
+                        }
                     } else {
                         shown += 1;
                     }
@@ -2544,10 +2565,13 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                     ),
                     None => output,
                 };
-                if hidden(&above, bounds) {
+                if let Some(why) = hidden(&above, bounds) {
                     staged.culled_materials += 1;
                     if let Some(window) = &material.window {
                         staged.draws[window.draw as usize].hide();
+                        if why == Hidden::Covered {
+                            covered.push(window.draw);
+                        }
                     }
                 } else {
                     kept.push(Step::Material(material));
@@ -2565,8 +2589,9 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
             }
         }
     }
-    for &(texture_id, _) in &staged.client_draws {
-        if !staged.shown_textures.contains(&texture_id)
+    for &(texture_id, index) in &staged.client_draws {
+        if covered.contains(&index)
+            && !staged.shown_textures.contains(&texture_id)
             && !staged.hidden_textures.contains(&texture_id)
         {
             staged.hidden_textures.push(texture_id);
