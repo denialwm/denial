@@ -1,0 +1,1 @@
+page fps 144 (25 samples)

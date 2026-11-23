@@ -1,0 +1,12 @@
+window 30 s, GPU busy 8%, GPU power 17 W
+process                          CPU % core  GPU ms/s
+niri                                   29.7      79.8
+chromium:renderer                      26.2       0.0
+chromium:gpu-process                   13.8       0.0
+chromium:browser                        2.9       0.0
+mpvpaper                                2.3       0.0
+python3                                 0.5       0.0
+top                                     0.5       0.0
+all of the user                        76.3      79.8
+package power 17.15 W
+NVIDIA board 16.6 W, busy 19%

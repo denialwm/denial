@@ -6,10 +6,63 @@ panel and once on the discrete GPU, under the same scripted load:
 | Setup | What ran |
 |---|---|
 | Denial 0.6.8 (release) | The published `denial`, `denial-flutter-engine` and `denial-plugin-manager` 0.6.8 Arch packages, their own shell bundle, default GLES composition, Xwayland. |
-| Denial local | `deniald` c943a9d6… built from `dev` 473977f2 (opaque-region covers, damage-limited cross-GPU copy) plus the uncommitted pacing of hidden clients described below, without Xwayland (`cargo build --no-default-features --features flutter`); the engine from the Flutter fork bfac097493d and the shell AOT the workstation runs; `--vulkan-composer` with `DENIAL_VULKAN_SHELL=1`. |
+| Denial local | `deniald` c943a9d6… built from `dev` 473977f2 (opaque-region covers, damage-limited cross-GPU copy) plus the pacing of hidden clients described below (since committed as `dev` 3e6251f8), without Xwayland (`cargo build --no-default-features --features flutter`); the engine from the Flutter fork bfac097493d and the shell AOT the workstation runs; `--vulkan-composer` with `DENIAL_VULKAN_SHELL=1`. |
 | niri 26.04 + Noctalia 5.6 | niri with Noctalia as its shell (bar, wallpaper, panels), started by `niri-session`, no X11 support. |
 
 All charts and tables in one file: [comparison.pdf](comparison.pdf): the table of all six runs, then one page per pair and GPU.
+
+**Correction.** Every niri run in the six-run tables and charts had
+Noctalia's first-start setup wizard open: an empty `~/.config/noctalia`
+opens it at each start. The wizard is one more window to compose, and in
+fullscreen it kept niri from scanning the kiosk page out directly. Those niri
+numbers are too high, in fullscreen far too high. The runs below were made
+later the same day without the wizard; they replace the niri rows.
+
+## Later runs: Chromium and Firefox, no wizard
+
+Denial here is `dev` after 54ebe6cb with two changes made that afternoon:
+- Chromium-based browsers count as opaque when they withdraw their opaque
+  region. Chromium 156 with its own title bar sends `set_opaque_region(nil)`
+  once the desktop portal offers a file chooser, so Denial blurred the whole
+  area behind it unseen.
+- The shell draws no backdrop behind a window that declares its interior
+  opaque. Firefox declares everything but its rounded corners opaque; only
+  those few pixels showed the blur.
+
+niri ran with Noctalia's wizard turned off (`~/.config/noctalia/bench.toml`
+with `[shell]` / `setup_wizard_enabled = false`). The load is the same as
+below; `BROWSER=firefox` plays the video window and the kiosk page in Firefox
+159 instead of Chromium 156. [runset.sh](runset.sh) starts each session and
+runs the phases. On the 890M: compositor CPU % of a core, its GPU time in
+ms/s (the shell included for Denial) and package power. On the RTX 4060:
+compositor CPU, package power and the RTX 4060 board's power.
+
+| Run | Desktop | Fullscreen |
+|---|---|---|
+| Denial + Chromium on 890M | 6.3%, 55.1 ms/s, 7.3 W | 8.2%, 73.1 ms/s, 10.2 W |
+| niri + Chromium on 890M | 8.9%, 42.5 ms/s, 8.1 W | 8.6%, 0.4 ms/s, 8.2 W |
+| Denial + Firefox on 890M | 4.4%, 80.2 ms/s, 10.5 W | 3.9%, 80.9 ms/s, 18.2 W |
+| niri + Firefox on 890M | 9.4%, 57.0 ms/s, 13.2 W | 11.5%, 0.4 ms/s, 15.1 W |
+| Denial + Chromium on RTX 4060 | 10.7%, 7.6 W, 15.4 W | 12.3%, 10.6 W, 16.5 W |
+| niri + Chromium on RTX 4060 | 27.2%, 9.4 W, 16.0 W | 29.7%, 17.2 W, 16.6 W |
+| Denial + Firefox on RTX 4060 | 8.9%, 13.3 W, 16.0 W | 6.4%, 19.0 W, 17.4 W |
+| niri + Firefox on RTX 4060 | 27.5%, 16.0 W, 16.2 W | 37.3%, 20.9 W, 16.5 W |
+
+The Firefox runs above predate the backdrop change. Measured alone on the
+890M, desktop phase, two rounds each, the shell before and after it: Firefox
+76–89 → 66–77 ms/s of Denial GPU time; the composer's glass for its window
+went from about 255 to 94 µs a frame. Chromium was unchanged (49–58 ms/s):
+its exception already covered it.
+
+- **Fullscreen is the gap.** niri scans the browser's buffer out directly
+  (0.4 ms/s). Denial composes it: one draw of the fullscreen client, about
+  400 µs a frame on the 890M, which is nearly all of its 73–81 ms/s.
+  `docs/direct_scanout.md` is the design for scanning out without a modeset.
+- **On the desktop** Denial uses less CPU and less package power than niri
+  with either browser; niri uses less compositor GPU time.
+- **On the RTX 4060** Denial uses less than half of niri's CPU in every
+  phase. The RTX 4060 board draws 15–17 W under either compositor once it
+  renders, so the display GPU renders by default.
 
 ## Machine and load
 
@@ -130,8 +183,9 @@ MiB, % of one core, ms of 890M GPU time per second, W.
 - **On the 890M,** Denial local uses the least CPU of the three (6.5% / 5.7%
   of a core, desktop / fullscreen, against 9.2% / 10.9% for niri and
   11.6% / 8.1% for 0.6.8). niri uses less compositor GPU time on the desktop
-  (53 against 80 ms/s); in fullscreen Denial local uses less (73 against
-  84 ms/s). Package power is within run-to-run spread of each other: 7.9
+  (53 against 80 ms/s). The fullscreen comparison here is wrong: niri's 84
+  ms/s came from the setup wizard (see the correction above); without it
+  niri scans out directly at 0.4 ms/s. Package power is within run-to-run spread of each other: 7.9
   against 8.2 W on the desktop, 11.8 against 10.3 W in fullscreen (see
   Repeatability). Summed over every client and the compositor, the fullscreen
   phase under Denial local used 39% of a core and 230 ms/s of GPU time, under
@@ -286,7 +340,9 @@ Denial set to the Stacking layout and the Blur transparency mode in
 
 which starts from a copy of the normal config in `niri-config.kdl.orig`,
 starts Noctalia through `noctalia.sh` and adds the output, the render GPU and
-the window rules, blur behind every window among them. Then, with the
+the window rules, blur behind every window among them. Turn Noctalia's setup
+wizard off first (`~/.config/noctalia/bench.toml`: `[shell]`,
+`setup_wizard_enabled = false`), or it opens at every start. Then, with the
 session under test running:
 
 ```sh
@@ -301,7 +357,10 @@ results. bench.sh gives Chromium the app ID `bench-video` and starts kitty with
 [flip.html](flip.html) flips the whole page between two colors every 700 ms,
 handy for checking where a window landed. [switch.sh](switch.sh) `amd|nvidia`
 installs the local build from `~/.cache/denial/lab/bench-local` on the chosen
-render GPU and restarts greetd. Results land in `~/.cache/bench/results`. Copy them to
+render GPU and restarts greetd: the 890M unless `nvidia` is asked for, so the
+NVIDIA line in `session.conf.orig` stays commented out.
+`runset.sh denial|niri amd|nvidia LABEL [firefox]` switches greetd to that
+session and runs phases.sh. Results land in `~/.cache/bench/results`. Copy them to
 `results/` here and run `python3 make_charts.py` (matplotlib): it writes
 `charts/*.svg`, `comparison.pdf` and the tables above.
 [power-probe.sh](power-probe.sh) `LABEL [SECONDS]`, run during a phase,

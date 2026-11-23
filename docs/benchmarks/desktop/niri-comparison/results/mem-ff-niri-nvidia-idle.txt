@@ -1,0 +1,8 @@
+process                          PSS    anon    file   shmem     RSS    VRAM     GTT  NV fb  (MiB)
+noctalia                       143.6    51.6    92.0     0.0   200.8     0.0     0.0     57
+niri                           140.3    39.4   101.0     0.0   187.3    41.4    10.0     38
+fcitx5                          65.1    21.9    43.2     0.0    83.0     0.0     0.0      0
+at-spi2-registr                 58.2    52.3     5.9     0.0   652.3     0.0     0.0      0
+nvidia-smi                      25.9    20.3     5.6     0.0    28.2     0.0     0.0      0
+xdg-desktop-por                 21.5    11.2    10.0     0.3    47.4     0.0     0.0      0
+wireplumber                     19.5     8.8    10.7     0.0    33.9     0.0     0.0      0

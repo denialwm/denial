@@ -1,0 +1,338 @@
+{
+ "at-spi-bus-laun": {
+  "processes": 1,
+  "pss": 811,
+  "pss_anon": 660,
+  "pss_file": 150,
+  "pss_shmem": 0,
+  "rss": 7864,
+  "swap": 0
+ },
+ "at-spi2-registr": {
+  "processes": 87,
+  "pss": 60545,
+  "pss_anon": 54816,
+  "pss_file": 5729,
+  "pss_shmem": 0,
+  "rss": 683708,
+  "swap": 0
+ },
+ "bash": {
+  "processes": 3,
+  "pss": 1891,
+  "pss_anon": 1040,
+  "pss_file": 851,
+  "pss_shmem": 0,
+  "rss": 13340,
+  "swap": 0
+ },
+ "bench.sh": {
+  "processes": 1,
+  "pss": 632,
+  "pss_anon": 336,
+  "pss_file": 296,
+  "pss_shmem": 0,
+  "rss": 4472,
+  "swap": 0
+ },
+ "chrome_crashpad:browser": {
+  "processes": 2,
+  "pss": 2455,
+  "pss_anon": 708,
+  "pss_file": 1747,
+  "pss_shmem": 0,
+  "rss": 8436,
+  "swap": 0
+ },
+ "chromium:browser": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 2048,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_oa": 0.0,
+  "gpu_vram": 12,
+  "processes": 1,
+  "pss": 234956,
+  "pss_anon": 95800,
+  "pss_file": 117571,
+  "pss_shmem": 21584,
+  "rss": 338452,
+  "swap": 0
+ },
+ "chromium:gpu-process": {
+  "gpu_nvidia_fb": 13312,
+  "processes": 1,
+  "pss": 100451,
+  "pss_anon": 40096,
+  "pss_file": 59789,
+  "pss_shmem": 565,
+  "rss": 199484,
+  "swap": 0
+ },
+ "chromium:renderer": {
+  "processes": 3,
+  "pss": 180923,
+  "pss_anon": 92026,
+  "pss_file": 88004,
+  "pss_shmem": 889,
+  "rss": 408928,
+  "swap": 0
+ },
+ "chromium:utility": {
+  "processes": 2,
+  "pss": 42642,
+  "pss_anon": 22461,
+  "pss_file": 19695,
+  "pss_shmem": 484,
+  "rss": 131616,
+  "swap": 0
+ },
+ "chromium:zygote": {
+  "processes": 3,
+  "pss": 26427,
+  "pss_anon": 16061,
+  "pss_file": 9370,
+  "pss_shmem": 994,
+  "rss": 134172,
+  "swap": 0
+ },
+ "dbus-broker": {
+  "processes": 2,
+  "pss": 2056,
+  "pss_anon": 1828,
+  "pss_file": 228,
+  "pss_shmem": 0,
+  "rss": 7180,
+  "swap": 0
+ },
+ "dbus-broker-lau": {
+  "processes": 2,
+  "pss": 1009,
+  "pss_anon": 684,
+  "pss_file": 317,
+  "pss_shmem": 8,
+  "rss": 8212,
+  "swap": 0
+ },
+ "dconf-service": {
+  "processes": 1,
+  "pss": 696,
+  "pss_anon": 536,
+  "pss_file": 160,
+  "pss_shmem": 0,
+  "rss": 6800,
+  "swap": 0
+ },
+ "fcitx5": {
+  "processes": 1,
+  "pss": 68883,
+  "pss_anon": 24716,
+  "pss_file": 44167,
+  "pss_shmem": 0,
+  "rss": 92156,
+  "swap": 0
+ },
+ "fish": {
+  "processes": 2,
+  "pss": 8957,
+  "pss_anon": 2940,
+  "pss_file": 6017,
+  "pss_shmem": 0,
+  "rss": 20228,
+  "swap": 0
+ },
+ "grep": {
+  "processes": 2,
+  "pss": 678,
+  "pss_anon": 428,
+  "pss_file": 250,
+  "pss_shmem": 0,
+  "rss": 5964,
+  "swap": 0
+ },
+ "head": {
+  "processes": 1,
+  "pss": 306,
+  "pss_anon": 116,
+  "pss_file": 190,
+  "pss_shmem": 0,
+  "rss": 2660,
+  "swap": 0
+ },
+ "journalctl": {
+  "processes": 1,
+  "pss": 7240,
+  "pss_anon": 640,
+  "pss_file": 6600,
+  "pss_shmem": 0,
+  "rss": 12836,
+  "swap": 0
+ },
+ "kitten": {
+  "processes": 2,
+  "pss": 45980,
+  "pss_anon": 28460,
+  "pss_file": 17520,
+  "pss_shmem": 0,
+  "rss": 64336,
+  "swap": 0
+ },
+ "kitty": {
+  "gpu_nvidia_fb": 11264,
+  "processes": 1,
+  "pss": 70398,
+  "pss_anon": 42200,
+  "pss_file": 27992,
+  "pss_shmem": 205,
+  "rss": 143908,
+  "swap": 0
+ },
+ "mpvpaper": {
+  "gpu_nvidia_fb": 449536,
+  "processes": 1,
+  "pss": 332718,
+  "pss_anon": 114620,
+  "pss_file": 201703,
+  "pss_shmem": 16395,
+  "rss": 408840,
+  "swap": 0
+ },
+ "niri": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 21792,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_nvidia_fb": 40960,
+  "gpu_oa": 0.0,
+  "gpu_vram": 58088,
+  "processes": 1,
+  "pss": 135065,
+  "pss_anon": 45508,
+  "pss_file": 89391,
+  "pss_shmem": 166,
+  "rss": 208560,
+  "swap": 0
+ },
+ "niri-session": {
+  "processes": 1,
+  "pss": 594,
+  "pss_anon": 316,
+  "pss_file": 278,
+  "pss_shmem": 0,
+  "rss": 4368,
+  "swap": 0
+ },
+ "noctalia": {
+  "gpu_nvidia_fb": 60416,
+  "processes": 1,
+  "pss": 118683,
+  "pss_anon": 49272,
+  "pss_file": 69397,
+  "pss_shmem": 13,
+  "rss": 200800,
+  "swap": 0
+ },
+ "nvidia-smi": {
+  "processes": 1,
+  "pss": 24865,
+  "pss_anon": 20784,
+  "pss_file": 4081,
+  "pss_shmem": 0,
+  "rss": 28872,
+  "swap": 0
+ },
+ "pipewire": {
+  "processes": 1,
+  "pss": 6322,
+  "pss_anon": 4620,
+  "pss_file": 1672,
+  "pss_shmem": 30,
+  "rss": 12696,
+  "swap": 0
+ },
+ "pipewire-pulse": {
+  "processes": 1,
+  "pss": 2092,
+  "pss_anon": 1336,
+  "pss_file": 756,
+  "pss_shmem": 0,
+  "rss": 9040,
+  "swap": 0
+ },
+ "poltergeist": {
+  "processes": 1,
+  "pss": 6206,
+  "pss_anon": 2092,
+  "pss_file": 4114,
+  "pss_shmem": 0,
+  "rss": 9332,
+  "swap": 0
+ },
+ "python3": {
+  "processes": 1,
+  "pss": 8171,
+  "pss_anon": 6388,
+  "pss_file": 1783,
+  "pss_shmem": 0,
+  "rss": 14060,
+  "swap": 0
+ },
+ "systemctl": {
+  "processes": 1,
+  "pss": 1232,
+  "pss_anon": 652,
+  "pss_file": 580,
+  "pss_shmem": 0,
+  "rss": 6500,
+  "swap": 0
+ },
+ "top": {
+  "processes": 1,
+  "pss": 2905,
+  "pss_anon": 2228,
+  "pss_file": 677,
+  "pss_shmem": 0,
+  "rss": 6516,
+  "swap": 0
+ },
+ "wireplumber": {
+  "processes": 1,
+  "pss": 17112,
+  "pss_anon": 9008,
+  "pss_file": 8098,
+  "pss_shmem": 6,
+  "rss": 34672,
+  "swap": 0
+ },
+ "xdg-desktop-por": {
+  "processes": 2,
+  "pss": 18270,
+  "pss_anon": 11440,
+  "pss_file": 6573,
+  "pss_shmem": 256,
+  "rss": 48684,
+  "swap": 0
+ },
+ "xdg-document-po": {
+  "processes": 1,
+  "pss": 1378,
+  "pss_anon": 676,
+  "pss_file": 702,
+  "pss_shmem": 0,
+  "rss": 8200,
+  "swap": 0
+ },
+ "xdg-permission-": {
+  "processes": 1,
+  "pss": 673,
+  "pss_anon": 532,
+  "pss_file": 141,
+  "pss_shmem": 0,
+  "rss": 7264,
+  "swap": 0
+ }
+}

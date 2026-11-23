@@ -1,0 +1,376 @@
+{
+ "at-spi-bus-laun": {
+  "processes": 1,
+  "pss": 829,
+  "pss_anon": 668,
+  "pss_file": 160,
+  "pss_shmem": 0,
+  "rss": 7992,
+  "swap": 0
+ },
+ "at-spi2-registr": {
+  "processes": 78,
+  "pss": 54517,
+  "pss_anon": 49144,
+  "pss_file": 5373,
+  "pss_shmem": 0,
+  "rss": 613004,
+  "swap": 0
+ },
+ "bash": {
+  "processes": 4,
+  "pss": 2441,
+  "pss_anon": 1488,
+  "pss_file": 953,
+  "pss_shmem": 0,
+  "rss": 17900,
+  "swap": 0
+ },
+ "bench.sh": {
+  "processes": 1,
+  "pss": 576,
+  "pss_anon": 336,
+  "pss_file": 240,
+  "pss_shmem": 0,
+  "rss": 4420,
+  "swap": 0
+ },
+ "chrome_crashpad:browser": {
+  "processes": 4,
+  "pss": 3430,
+  "pss_anon": 1416,
+  "pss_file": 2014,
+  "pss_shmem": 0,
+  "rss": 16864,
+  "swap": 0
+ },
+ "chromium:browser": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 4096,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_oa": 0.0,
+  "gpu_vram": 24,
+  "processes": 2,
+  "pss": 337019,
+  "pss_anon": 185756,
+  "pss_file": 127177,
+  "pss_shmem": 24084,
+  "rss": 650800,
+  "swap": 0
+ },
+ "chromium:gpu-process": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 194596,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_oa": 0.0,
+  "gpu_vram": 20876,
+  "processes": 2,
+  "pss": 101114,
+  "pss_anon": 59822,
+  "pss_file": 38935,
+  "pss_shmem": 2355,
+  "rss": 300336,
+  "swap": 0
+ },
+ "chromium:renderer": {
+  "processes": 6,
+  "pss": 240586,
+  "pss_anon": 140026,
+  "pss_file": 96709,
+  "pss_shmem": 3846,
+  "rss": 783816,
+  "swap": 0
+ },
+ "chromium:utility": {
+  "processes": 4,
+  "pss": 70117,
+  "pss_anon": 47093,
+  "pss_file": 21952,
+  "pss_shmem": 1070,
+  "rss": 269268,
+  "swap": 0
+ },
+ "chromium:zygote": {
+  "processes": 6,
+  "pss": 42890,
+  "pss_anon": 31702,
+  "pss_file": 10191,
+  "pss_shmem": 994,
+  "rss": 267584,
+  "swap": 0
+ },
+ "dbus-broker": {
+  "processes": 2,
+  "pss": 1928,
+  "pss_anon": 1700,
+  "pss_file": 228,
+  "pss_shmem": 0,
+  "rss": 7068,
+  "swap": 0
+ },
+ "dbus-broker-lau": {
+  "processes": 2,
+  "pss": 1015,
+  "pss_anon": 684,
+  "pss_file": 323,
+  "pss_shmem": 8,
+  "rss": 8284,
+  "swap": 0
+ },
+ "dconf-service": {
+  "processes": 1,
+  "pss": 702,
+  "pss_anon": 536,
+  "pss_file": 166,
+  "pss_shmem": 0,
+  "rss": 6800,
+  "swap": 0
+ },
+ "denial-polkit-a": {
+  "processes": 1,
+  "pss": 3328,
+  "pss_anon": 660,
+  "pss_file": 2668,
+  "pss_shmem": 0,
+  "rss": 8128,
+  "swap": 0
+ },
+ "denial-portal": {
+  "processes": 1,
+  "pss": 3208,
+  "pss_anon": 612,
+  "pss_file": 2596,
+  "pss_shmem": 0,
+  "rss": 5400,
+  "swap": 0
+ },
+ "deniald": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 149548,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_nvidia_fb": 2048,
+  "gpu_oa": 0.0,
+  "gpu_vram": 206416,
+  "processes": 1,
+  "pss": 267216,
+  "pss_anon": 152144,
+  "pss_file": 115064,
+  "pss_shmem": 8,
+  "rss": 329396,
+  "swap": 0
+ },
+ "fcitx5": {
+  "processes": 1,
+  "pss": 69906,
+  "pss_anon": 24700,
+  "pss_file": 45206,
+  "pss_shmem": 0,
+  "rss": 92396,
+  "swap": 0
+ },
+ "fish": {
+  "processes": 1,
+  "pss": 6915,
+  "pss_anon": 1460,
+  "pss_file": 5455,
+  "pss_shmem": 0,
+  "rss": 9940,
+  "swap": 0
+ },
+ "grep": {
+  "processes": 2,
+  "pss": 668,
+  "pss_anon": 424,
+  "pss_file": 244,
+  "pss_shmem": 0,
+  "rss": 5736,
+  "swap": 0
+ },
+ "head": {
+  "processes": 1,
+  "pss": 344,
+  "pss_anon": 116,
+  "pss_file": 228,
+  "pss_shmem": 0,
+  "rss": 2700,
+  "swap": 0
+ },
+ "journalctl": {
+  "processes": 1,
+  "pss": 7100,
+  "pss_anon": 644,
+  "pss_file": 6456,
+  "pss_shmem": 0,
+  "rss": 12648,
+  "swap": 0
+ },
+ "kitten": {
+  "processes": 2,
+  "pss": 48702,
+  "pss_anon": 30716,
+  "pss_file": 17986,
+  "pss_shmem": 0,
+  "rss": 67500,
+  "swap": 0
+ },
+ "kitty": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 19684,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_oa": 0.0,
+  "gpu_vram": 29516,
+  "processes": 1,
+  "pss": 64693,
+  "pss_anon": 46580,
+  "pss_file": 18109,
+  "pss_shmem": 4,
+  "rss": 129712,
+  "swap": 0
+ },
+ "mpvpaper": {
+  "gpu_cpu": 0,
+  "gpu_doorbell": 0.0,
+  "gpu_gds": 0.0,
+  "gpu_gtt": 28432,
+  "gpu_gws": 0.0,
+  "gpu_mmioremap": 0.0,
+  "gpu_oa": 0.0,
+  "gpu_vram": 153844,
+  "processes": 1,
+  "pss": 113756,
+  "pss_anon": 77956,
+  "pss_file": 35796,
+  "pss_shmem": 4,
+  "rss": 180184,
+  "swap": 0
+ },
+ "nvidia-smi": {
+  "processes": 1,
+  "pss": 23657,
+  "pss_anon": 20784,
+  "pss_file": 2873,
+  "pss_shmem": 0,
+  "rss": 28888,
+  "swap": 0
+ },
+ "pipewire": {
+  "processes": 1,
+  "pss": 6282,
+  "pss_anon": 4592,
+  "pss_file": 1660,
+  "pss_shmem": 30,
+  "rss": 12668,
+  "swap": 0
+ },
+ "pipewire-pulse": {
+  "processes": 1,
+  "pss": 2084,
+  "pss_anon": 1336,
+  "pss_file": 748,
+  "pss_shmem": 0,
+  "rss": 9040,
+  "swap": 0
+ },
+ "poltergeist": {
+  "processes": 1,
+  "pss": 6195,
+  "pss_anon": 2092,
+  "pss_file": 4103,
+  "pss_shmem": 0,
+  "rss": 9332,
+  "swap": 0
+ },
+ "python3": {
+  "processes": 1,
+  "pss": 8072,
+  "pss_anon": 6292,
+  "pss_file": 1780,
+  "pss_shmem": 0,
+  "rss": 13952,
+  "swap": 0
+ },
+ "sh": {
+  "processes": 1,
+  "pss": 586,
+  "pss_anon": 328,
+  "pss_file": 258,
+  "pss_shmem": 0,
+  "rss": 4460,
+  "swap": 0
+ },
+ "systemctl": {
+  "processes": 1,
+  "pss": 1220,
+  "pss_anon": 656,
+  "pss_file": 564,
+  "pss_shmem": 0,
+  "rss": 6492,
+  "swap": 0
+ },
+ "top": {
+  "processes": 1,
+  "pss": 2883,
+  "pss_anon": 2224,
+  "pss_file": 659,
+  "pss_shmem": 0,
+  "rss": 6516,
+  "swap": 0
+ },
+ "waitpid": {
+  "processes": 1,
+  "pss": 143,
+  "pss_anon": 104,
+  "pss_file": 39,
+  "pss_shmem": 0,
+  "rss": 2408,
+  "swap": 0
+ },
+ "wireplumber": {
+  "processes": 1,
+  "pss": 17240,
+  "pss_anon": 8992,
+  "pss_file": 8242,
+  "pss_shmem": 6,
+  "rss": 34656,
+  "swap": 0
+ },
+ "xdg-desktop-por": {
+  "processes": 3,
+  "pss": 18843,
+  "pss_anon": 12324,
+  "pss_file": 6261,
+  "pss_shmem": 256,
+  "rss": 55540,
+  "swap": 0
+ },
+ "xdg-document-po": {
+  "processes": 1,
+  "pss": 1383,
+  "pss_anon": 684,
+  "pss_file": 699,
+  "pss_shmem": 0,
+  "rss": 8236,
+  "swap": 0
+ },
+ "xdg-permission-": {
+  "processes": 1,
+  "pss": 677,
+  "pss_anon": 536,
+  "pss_file": 141,
+  "pss_shmem": 0,
+  "rss": 7292,
+  "swap": 0
+ }
+}

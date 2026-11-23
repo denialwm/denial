@@ -1,0 +1,13 @@
+window 30 s, GPU busy 10%, GPU power 14 W
+process                          CPU % core  GPU ms/s
+firefox                                19.4      16.2
+niri                                    9.4      57.0
+mpvpaper                                2.5     100.1
+RDD Process                             2.2      63.4
+file:// Content                         3.0       0.0
+Privileged Cont                         1.6       0.0
+top                                     0.5       0.0
+python3                                 0.5       0.0
+all of the user                        39.5     237.1
+package power 13.21 W
+NVIDIA board 4.0 W, busy 0%

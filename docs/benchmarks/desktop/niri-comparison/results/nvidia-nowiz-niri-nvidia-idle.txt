@@ -1,0 +1,4 @@
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command 
+# Idx           #    C/G      %      %      %      %      %      %     MB     MB    name 
+    0     159361     G      -      -      -      -      -      -     40      0    niri           
+    0     159407     G      -      -      -      -      -      -     57      0    noctalia       

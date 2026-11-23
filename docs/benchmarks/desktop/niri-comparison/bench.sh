@@ -1,6 +1,7 @@
 #!/bin/bash
 # bench.sh desktop|full|stop|measure SECONDS LABEL
 # Same load for every compositor: every client on the AMD GPU.
+# BROWSER=firefox plays the video window and the kiosk page in Firefox instead of Chromium.
 B=~/.cache/bench
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 export WAYLAND_DISPLAY=$(cd $XDG_RUNTIME_DIR && ls wayland-* | grep -v lock | head -1)
@@ -13,21 +14,49 @@ fi
 unset DISPLAY
 run() { setsid "$@" >/dev/null 2>&1 < /dev/null & }
 runlog() { setsid "$@" >/dev/null 2>$B/kiosk.log < /dev/null & }
+# Firefox prints the page's console to stdout.
+runlogall() { setsid "$@" >$B/kiosk.log 2>&1 < /dev/null & }
+# firefox_profile DIR [WIDTH HEIGHT]: a fresh profile that autoplays, prints the page's
+# console to stderr and opens its window at WIDTH×HEIGHT.
+firefox_profile() {
+  rm -rf $1; mkdir -p $1
+  cat > $1/user.js <<P
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("media.autoplay.default", 0);
+user_pref("devtools.console.stdout.content", true);
+P
+  [ -n "$2" ] && echo "{\"chrome://browser/content/browser.xhtml\":{\"main-window\":{\"width\":\"$2\",\"height\":\"$3\",\"sizemode\":\"normal\"}}}" > $1/xulstore.json
+}
 case $1 in
 desktop)
   run mpvpaper -o "no-audio loop hwdec=vaapi" '*' $B/wall.mp4
   sleep 1
-  run chromium --class=bench-video --ozone-platform=wayland --user-data-dir=/tmp/bench-chromium --no-first-run \
-      --no-default-browser-check --autoplay-policy=no-user-gesture-required \
-      --new-window --window-size=1100,700 file://$B/video.html
+  if [ "$BROWSER" = firefox ]; then
+    firefox_profile /tmp/bench-firefox 1070 660
+    run firefox --new-instance --name bench-video --profile /tmp/bench-firefox file://$B/video.html
+  else
+    run chromium --class=bench-video --ozone-platform=wayland --user-data-dir=/tmp/bench-chromium --no-first-run \
+        --no-default-browser-check --autoplay-policy=no-user-gesture-required \
+        --new-window --window-size=1100,700 file://$B/video.html
+  fi
   run kitty -o remember_window_size=no -o initial_window_width=700 -o initial_window_height=450 top -d 1
   ;;
 full)
-  runlog chromium --ozone-platform=wayland --user-data-dir=/tmp/bench-kiosk --no-first-run \
-      --no-default-browser-check --enable-logging=stderr --kiosk file://$B/full.html
+  if [ "$BROWSER" = firefox ]; then
+    firefox_profile /tmp/bench-kiosk-firefox
+    runlogall firefox --new-instance --kiosk --profile /tmp/bench-kiosk-firefox file://$B/full.html
+  else
+    runlog chromium --ozone-platform=wayland --user-data-dir=/tmp/bench-kiosk --no-first-run \
+        --no-default-browser-check --enable-logging=stderr --kiosk file://$B/full.html
+  fi
   ;;
 stop)
-  pkill -f 'user-data-dir=/tmp/bench-' ; pkill -x mpvpaper; pkill -f 'initial_window_width'
+  pkill -f 'user-data-dir=/tmp/bench-' ; pkill -f 'profile /tmp/bench-'; pkill -x mpvpaper; pkill -f 'initial_window_width'
   ;;
 measure)
   # measure SECONDS LABEL: CPU, GPU time, package power over the window, then memory.
