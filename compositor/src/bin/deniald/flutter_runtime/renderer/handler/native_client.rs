@@ -59,6 +59,8 @@ struct NativeSnapshot {
     /// Per plan layer: the presentation that advanced with its buffer, or
     /// `None` while the layer has no current buffer.
     presentations: Vec<Option<denial_flutter_engine::ExternalTexturePresentation>>,
+    /// What changed between recent buffers, beside `inputs`.
+    histories: Vec<DamageHistory>,
 }
 #[derive(Default)]
 pub(super) struct NativeClientState {
@@ -71,6 +73,8 @@ pub(super) struct NativeClientState {
     misses: u64,
     draws: u64,
     probe_modifier: Option<Modifier>,
+    /// The plan revision each native window's damage was last given for.
+    damage_revisions: HashMap<i64, u64>,
 }
 pub(in crate::flutter_runtime) struct NativeInputSample {
     texture_id: i64,
@@ -275,6 +279,7 @@ impl FlutterGlHandler {
         let mut state = lock(&self.native_clients);
         state.registry.remove(texture_id);
         state.images.remove(&texture_id);
+        state.damage_revisions.remove(&texture_id);
         drop(state);
         if let Some(composer) = &self.scene_composer {
             composer.forget_texture(texture_id);
@@ -282,6 +287,58 @@ impl FlutterGlHandler {
     }
     pub(in crate::flutter_runtime) fn take_native_window_fallback(&self) -> bool {
         self.native_fallback_pending.swap(false, Ordering::AcqRel)
+    }
+    /// The plans of the native windows among `texture_ids`: None for one
+    /// whose plan changed since its damage was last given, which changed
+    /// whole.
+    pub(super) fn native_window_plans(
+        &self,
+        texture_ids: &[i64],
+    ) -> Vec<(i64, Option<Arc<VersionedWindowPlan>>)> {
+        let mut state = lock(&self.native_clients);
+        let state = &mut *state;
+        texture_ids
+            .iter()
+            .filter_map(|texture_id| {
+                let plan = state.registry.get(*texture_id)?;
+                let previous = state.damage_revisions.insert(*texture_id, plan.revision);
+                Some((
+                    *texture_id,
+                    (previous == Some(plan.revision)).then_some(plan),
+                ))
+            })
+            .collect()
+    }
+    /// What changed in a native window's merged image: where its layers'
+    /// inputs changed. None when that is not known, so it changed whole: an
+    /// input changed outside this frame's textures or has no image.
+    pub(super) fn native_window_damage(
+        plan: &VersionedWindowPlan,
+        taken: &HashMap<i64, Option<(Vec<[f64; 4]>, [f64; 2])>>,
+        sources: &HashMap<i64, ExternalTextureSlot>,
+    ) -> Option<Vec<[f64; 4]>> {
+        let plan = &plan.plan;
+        let mut rects = Vec::new();
+        for layer in &plan.layers {
+            match taken.get(&layer.texture_id) {
+                Some(Some((changed, [width, height]))) => {
+                    rects.extend(changed.iter().filter_map(|[x, y, w, h]| {
+                        plan.window_damage(
+                            layer,
+                            Some([x * width, y * height, w * width, h * height]),
+                        )
+                    }));
+                }
+                Some(None) => rects.extend(plan.window_damage(layer, None)),
+                None => {
+                    let slot = sources.get(&layer.texture_id)?;
+                    if slot.current.is_none() || slot.has_unreported_damage() {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(rects)
     }
     pub(super) fn uses_native_window_texture(&self, texture_id: i64) -> bool {
         texture_id >= (1_i64 << 62)
@@ -311,17 +368,22 @@ impl FlutterGlHandler {
             .drawn(&slots.iter().map(Option::is_some).collect::<Vec<_>>());
         let mut inputs = Vec::with_capacity(plan.plan.layers.len());
         let mut presentations = Vec::with_capacity(plan.plan.layers.len());
+        let mut histories = Vec::with_capacity(plan.plan.layers.len());
         for ((layer, slot), drawn) in plan.plan.layers.iter().zip(slots).zip(drawn) {
             let slot = slot.filter(|_| drawn);
             presentations.push(slot.map(|slot| slot.presentation));
-            if let Some(source) = slot.and_then(|slot| slot.current.clone()) {
+            if let Some(slot) = slot
+                && let Some(source) = slot.current.clone()
+            {
                 inputs.push((layer.texture_id, source));
+                histories.push(slot.history.clone());
             }
         }
         Some(NativeSnapshot {
             plan,
             inputs,
             presentations,
+            histories,
         })
     }
     /// A native window for the Vulkan composer: the layers the GLES pass
@@ -336,6 +398,7 @@ impl FlutterGlHandler {
             plan,
             inputs,
             presentations,
+            histories,
         } = self.native_snapshot(texture_id).ok_or("native window plan")?;
         // Layers without a current buffer are left out of both.
         let presented = plan
@@ -349,7 +412,9 @@ impl FlutterGlHandler {
         let size = (presented.width, presented.height);
         let mut layers = Vec::with_capacity(inputs.len());
         let mut unseen = Vec::new();
-        for (layer, (input_id, source)) in presented.layers.iter().zip(inputs) {
+        for ((layer, (input_id, source)), history) in
+            presented.layers.iter().zip(inputs).zip(histories)
+        {
             if source.color().is_some_and(|color| {
                 color.transform(scene).is_some() || color.alpha != Default::default()
             }) {
@@ -387,6 +452,7 @@ impl FlutterGlHandler {
                 uv: [upper_left.uv, upper_right.uv, lower_left.uv],
                 limits,
                 opacity: layer.opacity,
+                history,
             });
         }
         Ok(Client::Merged {
@@ -466,6 +532,7 @@ impl FlutterGlHandler {
             plan,
             inputs,
             presentations,
+            ..
         } = self.native_snapshot(texture_id)?;
         let result = (|| -> Result<PreparedExternalTexture, String> {
             let presented = plan

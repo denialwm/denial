@@ -384,6 +384,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             surface_buffer_revisions: HashMap::new(),
             #[cfg(feature = "flutter")]
+            surface_damage_commits: std::sync::Mutex::default(),
+            #[cfg(feature = "flutter")]
             next_buffer_revision: 1,
             surface_ids: HashMap::new(),
             surfaces_by_id: HashMap::new(),

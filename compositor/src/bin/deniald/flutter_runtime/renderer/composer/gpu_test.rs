@@ -111,7 +111,7 @@ struct Rig {
 
 fn rig(slices: usize, bottom_up: bool) -> Rig {
     let fd = node();
-    let gpu = Gpu::new(fd.as_fd()).expect("Vulkan composer device");
+    let gpu = Gpu::new(fd.as_fd(), false).expect("Vulkan composer device");
     let gbm = GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(fd))).expect("GBM");
     let target_buffer = allocate(&gbm);
     let target = gpu
@@ -193,6 +193,208 @@ fn check(bottom_up: bool) {
     }
     let (count, first) = mismatches(&rig.target_buffer);
     assert_eq!(count, 0, "first mismatch {first:?}");
+}
+
+/// A composer on the test node with one imported output buffer, 1.
+fn composer_with_target() -> (super::SceneComposer, GbmBuffer) {
+    let device = DrmDeviceFd::new(smithay::utils::DeviceFd::from(node()));
+    let composer = super::SceneComposer::new(device, &[Modifier::Linear], &[]).expect("composer");
+    let gbm = GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(node()))).unwrap();
+    let target = allocate(&gbm);
+    composer.add_target(1, &target.export().unwrap());
+    (composer, target)
+}
+
+/// A frame of `view_id` that draws nothing.
+fn empty_staged(view_id: i64) -> super::Staged {
+    super::Staged {
+        view_id,
+        output_from_scene: Matrix3::IDENTITY,
+        scene_revision: 1,
+        draws: Vec::new(),
+        glasses: Vec::new(),
+        clips: Vec::new(),
+        edges: Vec::new(),
+        steps: Vec::new(),
+        backdrop_tokens: Vec::new(),
+        engine_tokens: Vec::new(),
+        outputs: Vec::new(),
+        remade_why: [0; 7],
+        slices: Vec::new(),
+        rewritten: false,
+        clients: Vec::new(),
+        credits: Vec::new(),
+        omitted: Vec::new(),
+        uploads: Vec::new(),
+        merges: Vec::new(),
+        merged_windows: Vec::new(),
+        merges_reused: 0,
+        converted: 0,
+        covers: Vec::new(),
+        culled_draws: 0,
+        culled_materials: 0,
+        full_cover: None,
+    }
+}
+
+const NO_DAMAGE: super::FrameDamage<'static> = super::FrameDamage {
+    frame: &[],
+    buffer: &[],
+};
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_failed_submission_leaves_the_composer_usable() {
+    let (composer, _target) = composer_with_target();
+    // An output buffer the composer never imported.
+    let failed = composer.submit(&mut empty_staged(-1), 2, NO_DAMAGE, None);
+    assert!(failed.is_err());
+    assert!(!composer.broken());
+    // The view's next frame draws, redrawing and reporting all of it.
+    let submitted = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("the next frame draws");
+    let added = submitted.added.expect("the whole target is reported");
+    assert_eq!(
+        (added.left, added.top, added.right, added.bottom),
+        (0.0, 0.0, f64::from(W), f64::from(H))
+    );
+    if let Some(completion) = submitted.completion {
+        assert!(wait_fd(completion.as_fd(), 5000));
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_frame_lost_after_submission_is_redrawn_whole() {
+    let (composer, _target) = composer_with_target();
+    let whole = (0.0, 0.0, f64::from(W), f64::from(H));
+    let rect = |submitted: &super::Submitted| {
+        submitted
+            .added
+            .map(|added| (added.left, added.top, added.right, added.bottom))
+    };
+    let finish = |submitted: super::Submitted| {
+        if let Some(completion) = submitted.completion {
+            assert!(wait_fd(completion.as_fd(), 5000));
+        }
+    };
+    // Drawn frames add nothing to the engine's damage.
+    for _ in 0..2 {
+        let drawn = composer
+            .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+            .expect("frame");
+        assert_eq!(rect(&drawn), None);
+        finish(drawn);
+    }
+    // Drawn, but its copy or handoff failed: the retry, with no new damage,
+    // reports the whole target so every buffer slot is repaired.
+    composer.frame_lost(-1);
+    let retry = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("retry");
+    assert_eq!(rect(&retry), Some(whole));
+    finish(retry);
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn frames_without_a_completion_file_are_tracked_by_their_fence() {
+    let (composer, _target) = composer_with_target();
+    // Fill every frame, each known complete only by its fence.
+    for _ in 0..super::MAX_FRAMES * 2 {
+        let submitted = composer
+            .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+            .expect("frame");
+        drop(submitted);
+        let mut state = super::lock(&composer.state);
+        for frame in &mut state.frames {
+            frame.forget_completion();
+        }
+    }
+    // Still usable, and the frames retire.
+    let start = Instant::now();
+    let submitted = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("a frame completed by its fence");
+    assert!(start.elapsed() < super::FRAME_WAIT);
+    if let Some(completion) = submitted.completion {
+        assert!(wait_fd(completion.as_fd(), 5000));
+    }
+    assert!(!composer.broken());
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_stuck_gpu_returns_control_instead_of_hanging() {
+    let (composer, _target) = composer_with_target();
+    // Every frame in flight on a completion that never signals.
+    let mut writers = Vec::new();
+    {
+        let mut state = super::lock(&composer.state);
+        while state.frames.len() < super::MAX_FRAMES {
+            let mut frame = Frame::new(&composer.gpu).expect("frame");
+            let (read, write) = std::io::pipe().expect("pipe");
+            frame.set_stuck(OwnedFd::from(read));
+            writers.push(write);
+            state.frames.push(frame);
+        }
+    }
+    let start = Instant::now();
+    let result = composer.submit(&mut empty_staged(-1), 1, NO_DAMAGE, None);
+    let waited = start.elapsed();
+    assert!(result.is_err(), "no frame was free");
+    assert!(
+        waited >= super::FRAME_WAIT && waited < super::FRAME_WAIT * 2,
+        "{waited:?}"
+    );
+    assert!(!composer.broken());
+    // The frames complete: the next submits.
+    for frame in &mut super::lock(&composer.state).frames {
+        frame.unstick();
+    }
+    drop(writers);
+    let submitted = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("a frame completed");
+    if let Some(completion) = submitted.completion {
+        assert!(wait_fd(completion.as_fd(), 5000));
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn clients_are_offered_only_layouts_the_composer_samples() {
+    use smithay::backend::allocator::Format;
+    use smithay::backend::allocator::format::FormatSet;
+    use std::os::unix::fs::MetadataExt;
+
+    let device_number = std::fs::File::from(node())
+        .metadata()
+        .expect("render node metadata")
+        .rdev();
+    // No driver has this modifier: the vendor byte is unassigned.
+    let unknown = Modifier::from(0x7f00_0000_0000_0001);
+    let format = |code, modifier| Format { code, modifier };
+    let offered: FormatSet = [
+        format(Fourcc::Abgr8888, Modifier::Linear),
+        format(Fourcc::Abgr8888, unknown),
+        format(Fourcc::Abgr8888, Modifier::Invalid),
+        format(Fourcc::Nv12, unknown),
+    ]
+    .into_iter()
+    .collect();
+    let sampled = super::device::sampled_client_formats(device_number, &offered)
+        .expect("a Vulkan device behind the render node");
+    let kept: Vec<Format> = sampled.iter().copied().collect();
+    assert_eq!(
+        kept,
+        [
+            format(Fourcc::Abgr8888, Modifier::Linear),
+            format(Fourcc::Abgr8888, Modifier::Invalid),
+            format(Fourcc::Nv12, unknown),
+        ]
+    );
 }
 
 #[test]
@@ -624,6 +826,129 @@ fn glass_on_a_flipped_output_is_upright() {
     assert_eq!(pixel(&rig.target_buffer, 20, 64), gray, "outside the glass");
 }
 
+/// Scene coordinates of local point (x, y) turned by `angle` about the
+/// target's centre, as the close animation turns a window.
+fn turned(angle: f32, x: f32, y: f32) -> (u32, u32) {
+    let (c, s) = (angle.cos(), angle.sin());
+    let (cx, cy) = (W as f32 * 0.5, H as f32 * 0.5);
+    let (dx, dy) = (x - cx, y - cy);
+    (
+        (c * dx - s * dy + cx).round() as u32,
+        (s * dx + c * dy + cy).round() as u32,
+    )
+}
+
+fn turned_local(angle: f32) -> EntryLocal {
+    let (c, s) = (angle.cos(), angle.sin());
+    let (cx, cy) = (W as f32 * 0.5, H as f32 * 0.5);
+    EntryLocal {
+        scene_from_local: Matrix3([
+            c,
+            -s,
+            cx - c * cx + s * cy,
+            s,
+            c,
+            cy - s * cx - c * cy,
+            0.0,
+            0.0,
+            1.0,
+        ]),
+        ..record::tests::plain_local()
+    }
+}
+
+/// Black glass with one rounded corner, turned: it draws in its own frame,
+/// so its rounded corner turns with it and the corners of its target bounds
+/// keep the scene.
+#[test]
+#[ignore = "needs a GPU"]
+fn turned_glass_draws_in_its_own_frame() {
+    let mut rig = rig(1, false);
+    let gray = [128, 128, 128, 255];
+    fill_with(&mut rig.slices[0].0, |_, _| gray);
+    let material = record::tests::glass_material(
+        [40.0, 20.0, 216.0, 108.0],
+        [[40.0; 2], [0.0; 2], [0.0; 2], [0.0; 2]],
+    );
+    let angle = 0.3;
+    let draw = record::material(
+        &material,
+        &turned_local(angle),
+        ClipSpan::default(),
+        &record::tests::flip(H),
+        rig.target.size,
+    )
+    .expect("supported material")
+    .expect("visible material");
+    let frost = Arc::new(Frost::new(&rig.gpu, draw.plan).expect("frost"));
+    let (draws, steps) = steps_with(&rig, &draw, &frost, true);
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    submit_and_wait(&rig, &mut frame, &draws, &[draw.glass], &steps);
+    let dark = |color: [u8; 4]| color[..3].iter().all(|&c| c < 8);
+    // Memory rows are scene rows on a flipped output.
+    let at = |(x, y): (u32, u32)| pixel(&rig.target_buffer, x, y);
+    assert!(dark(at(turned(angle, 128.0, 64.0))), "the glass draws");
+    assert!(
+        dark(at(turned(angle, 208.0, 28.0))),
+        "the square corner turned with the glass"
+    );
+    assert_eq!(
+        at(turned(angle, 45.0, 25.0)),
+        gray,
+        "the rounded corner turned with the glass"
+    );
+    assert_eq!(
+        at(turned(angle, 128.0, 10.0)),
+        gray,
+        "above the turned top edge, within the target bounds"
+    );
+}
+
+/// A turned blur covers its own rectangle: the corners of its target
+/// bounds keep the scene unblurred.
+#[test]
+#[ignore = "needs a GPU"]
+fn turned_blur_covers_its_own_rectangle() {
+    let mut rig = rig(1, false);
+    let checker = |x: u32, y: u32| {
+        if ((x / 8) + (y / 8)) % 2 == 0 {
+            [0, 0, 0, 255]
+        } else {
+            [255, 255, 255, 255]
+        }
+    };
+    fill_with(&mut rig.slices[0].0, checker);
+    let mut material = record::tests::glass_material([40.0, 20.0, 216.0, 108.0], [[0.0; 2]; 4]);
+    material.glass = None;
+    material.sigma = [8.0; 2];
+    let angle = 0.3;
+    let draw = record::material(
+        &material,
+        &turned_local(angle),
+        ClipSpan::default(),
+        &record::tests::flip(H),
+        rig.target.size,
+    )
+    .expect("supported material")
+    .expect("visible material");
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    let at = |(x, y): (u32, u32)| pixel(&rig.target_buffer, x, y);
+    // The scene alone, for what the blur must leave untouched.
+    let (draws, steps) = scene(&rig, 1, false);
+    submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
+    let outside = turned(angle, 128.0, 10.0);
+    let unblurred = at(outside);
+    let frost = Arc::new(Frost::new(&rig.gpu, draw.plan).expect("frost"));
+    let (draws, steps) = steps_with(&rig, &draw, &frost, true);
+    submit_and_wait(&rig, &mut frame, &draws, &[draw.glass], &steps);
+    let centre = at(turned(angle, 128.0, 64.0));
+    assert!(
+        (60..=200).contains(&centre[0]),
+        "the blur averages the checker: {centre:?}"
+    );
+    assert_eq!(at(outside), unblurred, "outside the turned rectangle");
+}
+
 /// A blur over a stripe that moves: a reused frost keeps the old stripe,
 /// a fresh one shows the new one.
 #[test]
@@ -978,6 +1303,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
             both.count = 2;
             both
         }],
+        area: None,
     }];
     let steps = [Step::Draws(batch(&merged, true, 3))];
     let uploads = [
@@ -1024,24 +1350,71 @@ fn native_window_layers_merge_as_the_gles_pass() {
         let above = top(63 - (x - 32), 31 - (y - 16)).map(|c| f32::from(c) / 255.0 * 0.5);
         std::array::from_fn(|c| above[c] + below[c] * (1.0 - above[3]))
     };
-    let mut wrong = None;
-    rig.target_buffer
-        .map(0, 0, W, H, |mapping| {
-            for row in 0..H {
-                for x in 0..W {
-                    let at = row as usize * mapping.stride() as usize + x as usize * 4;
-                    let got: [u8; 4] = mapping.buffer()[at..at + 4].try_into().unwrap();
-                    // A top-down image lands bottom-up in the target.
-                    let want = expected(x, H - 1 - row).map(|c| (c * 255.0).round() as i32);
-                    let off = (0..4).any(|c| (i32::from(got[c]) - want[c]).abs() > 1);
-                    if off && wrong.is_none() {
-                        wrong = Some((x, row, got, want));
+    let first_wrong = |expected: &dyn Fn(u32, u32) -> [f32; 4]| {
+        let mut wrong = None;
+        rig.target_buffer
+            .map(0, 0, W, H, |mapping| {
+                for row in 0..H {
+                    for x in 0..W {
+                        let at = row as usize * mapping.stride() as usize + x as usize * 4;
+                        let got: [u8; 4] = mapping.buffer()[at..at + 4].try_into().unwrap();
+                        // A top-down image lands bottom-up in the target.
+                        let want = expected(x, H - 1 - row).map(|c| (c * 255.0).round() as i32);
+                        let off = (0..4).any(|c| (i32::from(got[c]) - want[c]).abs() > 1);
+                        if off && wrong.is_none() {
+                            wrong = Some((x, row, got, want));
+                        }
                     }
                 }
-            }
-        })
-        .expect("map target");
-    assert_eq!(wrong, None, "first pixel off by more than one");
+            })
+            .expect("map target");
+        wrong
+    };
+    assert_eq!(
+        first_wrong(&expected),
+        None,
+        "first pixel off by more than one"
+    );
+
+    // Drawn again within an area, without the upper layer: the area shows
+    // the layer below, and the rest of the image stays as it was.
+    let area = [40, 20, 30, 20];
+    let merges = [Merge {
+        image: Arc::clone(&merged),
+        batches: vec![batch(&below, false, 0)],
+        area: Some(area),
+    }];
+    assert!(frame.idle());
+    let done = frame
+        .submit(
+            2,
+            &rig.target,
+            &draws,
+            &[],
+            &[],
+            &[],
+            &merges,
+            &steps,
+            &[],
+            WHOLE,
+            None,
+        )
+        .expect("submit");
+    if let Some(done) = done {
+        assert!(wait_fd(done.as_fd(), 5000), "submission did not complete");
+    }
+    let in_area = |x: u32, y: u32| {
+        (area[0]..area[0] + area[2]).contains(&x) && (area[1]..area[1] + area[3]).contains(&y)
+    };
+    let expected_after = |x: u32, y: u32| match in_area(x, y) {
+        true => pattern(x, y).map(|c| f32::from(c) / 255.0),
+        false => expected(x, y),
+    };
+    assert_eq!(
+        first_wrong(&expected_after),
+        None,
+        "first pixel off by more than one after a partial merge"
+    );
 }
 
 /// A slice drawn through a path clip, a five-pointed star drawn in one
@@ -1275,4 +1648,267 @@ fn a_frost_remade_in_a_partial_frame_matches_a_full_redraw() {
         differing, 0,
         "a grown partial frame differs from a full one"
     );
+}
+
+/// Copies every client as `image` (None: GLES cannot read it either).
+struct CopyAs {
+    image: Option<Arc<Image>>,
+    calls: u32,
+}
+
+impl super::Resolve for CopyAs {
+    fn client(&mut self, _: i64, _: Rect) -> Result<super::Client, super::Decline> {
+        unreachable!("the test resolves no scene")
+    }
+
+    fn copy(&mut self, _: &super::SampledClient) -> Result<Option<Arc<Image>>, super::Decline> {
+        self.calls += 1;
+        Ok(self.image.clone())
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_client_the_composer_cannot_import_is_copied_by_gles() {
+    let (composer, _target) = composer_with_target();
+    let gbm = GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(node()))).unwrap();
+    // A format the composer does not sample.
+    let bo = gbm
+        .create_buffer_object_with_modifiers::<()>(W, H, Fourcc::R8, [Modifier::Linear].into_iter())
+        .expect("linear R8 buffer");
+    let sampled = super::SampledClient {
+        texture_id: 7,
+        generation: 1,
+        source: super::super::ExternalTextureSource::Dmabuf {
+            dmabuf: GbmBuffer::from_bo(bo, false).export().unwrap(),
+            buffer_guard: None,
+            revision: 1,
+            feedback: None,
+            color: None,
+        },
+    };
+    let mut state = super::lock(&composer.state);
+    let mut uploads = Vec::new();
+    let mut copy = CopyAs {
+        image: Some(Arc::clone(&composer.placeholder)),
+        calls: 0,
+    };
+    let resolved = composer
+        .client_image(&mut state, &mut uploads, &sampled, &mut copy)
+        .expect("not declined");
+    assert!(
+        matches!(&resolved, super::Resolved::Copied(image) if Arc::ptr_eq(image, &composer.placeholder))
+    );
+    assert_eq!(copy.calls, 1);
+    // Unreadable by GLES too: left out, as the GLES pass does.
+    let mut unreadable = CopyAs {
+        image: None,
+        calls: 0,
+    };
+    let resolved = composer
+        .client_image(&mut state, &mut uploads, &sampled, &mut unreadable)
+        .expect("not declined");
+    assert!(matches!(resolved, super::Resolved::Unreadable));
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn conversions_are_waited_for_until_a_submission_succeeds() {
+    let (composer, _target) = composer_with_target();
+    let staged = empty_staged(-1);
+    assert!(matches!(
+        composer.producer_wait(&staged),
+        super::ProducerWait::None
+    ));
+    // GLES converted a client.
+    super::lock(&composer.converts).unwaited = true;
+    assert!(matches!(
+        composer.producer_wait(&staged),
+        super::ProducerWait::Fresh
+    ));
+    // A failed submission did not wait for it.
+    assert!(
+        composer
+            .submit(&mut empty_staged(-1), 2, NO_DAMAGE, None)
+            .is_err()
+    );
+    assert!(super::lock(&composer.converts).unwaited);
+    let submitted = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("frame");
+    if let Some(completion) = submitted.completion {
+        assert!(wait_fd(completion.as_fd(), 5000));
+    }
+    assert!(!super::lock(&composer.converts).unwaited);
+    assert!(matches!(
+        composer.producer_wait(&staged),
+        super::ProducerWait::None
+    ));
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn lent_images_come_back_after_the_engine_read_them() {
+    let (composer, _target) = composer_with_target();
+    // A frame's completion stands in for the GLES fence after the copies.
+    let submitted = composer
+        .submit(&mut empty_staged(-1), 1, NO_DAMAGE, None)
+        .expect("frame");
+    let images = vec![Arc::clone(&composer.placeholder)];
+    let lent = composer
+        .gpu
+        .transfer(images.clone(), true, submitted.completion)
+        .expect("lend");
+    let returned = composer.gpu.transfer(images, false, None).expect("return");
+    let start = std::time::Instant::now();
+    while !(lent.done() && returned.done()) {
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        std::thread::yield_now();
+    }
+    // Neither transfer holds the image once dropped.
+    drop((lent, returned));
+    assert_eq!(Arc::strong_count(&composer.placeholder), 1);
+}
+
+/// A draw or material an opaque draw above holds whole is left out; one
+/// that reaches past every cover is drawn.
+#[test]
+#[ignore = "needs a GPU"]
+fn what_an_opaque_draw_hides_is_left_out() {
+    let rig = rig(1, false);
+    let staged = |cover: [i32; 4], spill: bool| {
+        let (mut draws, mut steps) = scene(&rig, 1, false);
+        if spill {
+            // The slice reaches past the target on every side.
+            let (w, h) = (f64::from(W), f64::from(H));
+            let blit = SliceBlit {
+                source: [0.0, 0.0, w, h],
+                destination: [-20.0, -20.0, w + 20.0, h + 20.0],
+            };
+            draws[0] = record::slice_blit(
+                &blit,
+                rig.slices[0].1.size,
+                false,
+                &record::ndc_from_target(W, H),
+            );
+        }
+        let material = blur_material(&rig, [10.0, 10.0, 50.0, 50.0], 4.0);
+        let mut staged = empty_staged(1);
+        staged.glasses.push(material.glass);
+        staged.outputs.push(material.output);
+        staged.backdrop_tokens.push(Some(1));
+        staged.engine_tokens.push(Some(1));
+        steps.push(Step::Material(MaterialStep {
+            record: 0,
+            plan: material.plan,
+            frost: None,
+            fresh: false,
+            window: None,
+        }));
+        // The cover: the slice again, over everything.
+        draws.push(draws[0]);
+        steps.push(Step::Draws(Batch {
+            image: Arc::clone(&rig.slices[0].1),
+            look: Arc::clone(&rig.no_look),
+            nearest: true,
+            first: 1,
+            count: 1,
+        }));
+        staged.draws = draws;
+        staged.steps = steps;
+        staged.covers.push((1, cover));
+        super::cull(&mut staged, (W, H));
+        staged
+    };
+    let whole = [0, 0, W as i32, H as i32];
+    let hidden = staged(whole, false);
+    assert_eq!((hidden.culled_draws, hidden.culled_materials), (1, 1));
+    assert!(matches!(hidden.steps.as_slice(), [Step::Draws(batch)] if batch.first == 1));
+    // One pixel short of the slice: the slice shows, the material does not.
+    let short = staged([1, 0, W as i32, H as i32], false);
+    assert_eq!((short.culled_draws, short.culled_materials), (0, 1));
+    assert_eq!(short.steps.len(), 2);
+    // A cover never hides its own draw.
+    assert!(matches!(short.steps.last(), Some(Step::Draws(batch)) if batch.first == 1));
+    // What a draw puts past the target needs no cover.
+    let spilled = staged(whole, true);
+    assert_eq!((spilled.culled_draws, spilled.culled_materials), (1, 1));
+}
+
+/// Every pixel an opaque window claims to cover is the client's colour
+/// alone, at its antialiased edges too: what the window hides below may go
+/// undrawn.
+#[test]
+#[ignore = "needs a GPU"]
+fn an_opaque_window_paints_every_pixel_it_covers() {
+    use denial_flutter_engine::scene::WindowStyle;
+    let mut rig = rig(2, false);
+    fill_with(&mut rig.slices[0].0, |_, _| [0, 0, 255, 255]);
+    fill_with(&mut rig.slices[1].0, |_, _| [255, 0, 0, 255]);
+    let client = Arc::clone(&rig.slices[1].1);
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    // Whole pixels, then a scale and edges between pixels.
+    for (scale, rect) in [
+        (1.0, [40.0, 20.0, 216.0, 108.0]),
+        (1.5, [27.3, 13.1, 144.2, 72.6]),
+    ] {
+        let rect = Rect {
+            left: rect[0],
+            top: rect[1],
+            right: rect[2],
+            bottom: rect[3],
+        };
+        let style = WindowStyle {
+            bounds: rect,
+            content_bounds: rect,
+            material_bounds: None,
+            radius: 0.0,
+            frame_color: 0,
+            direct_texture: true,
+        };
+        let local = EntryLocal {
+            scene_from_local: Matrix3([scale, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 1.0]),
+            ..record::tests::plain_local()
+        };
+        let placement = record::Placement::new(rect, client.size, None).expect("placement");
+        let draw = record::window(
+            &local,
+            ClipSpan::default(),
+            &record::ndc_from_target(W, H),
+            &style,
+            &Matrix3::IDENTITY,
+            1.0,
+            Some((&placement, client.size)),
+        )
+        .expect("window draw");
+        let surface = record::window_surface(&Matrix3::IDENTITY, &placement);
+        let [Some([left, top, right, bottom]), None] = draw.opaque(surface, (W, H)) else {
+            panic!("no cover at scale {scale}");
+        };
+        let (mut draws, mut steps) = scene(&rig, 1, false);
+        let index = draws.len() as u32;
+        draws.push(draw);
+        steps.push(Step::Draws(Batch {
+            image: Arc::clone(&client),
+            look: Arc::clone(&rig.no_look),
+            nearest: true,
+            first: index,
+            count: 1,
+        }));
+        submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
+        let inside = pixel(&rig.target_buffer, 128, H - 1 - 50);
+        for y in top..bottom {
+            for x in left..right {
+                let got = pixel(&rig.target_buffer, x as u32, H - 1 - y as u32);
+                assert_eq!(got, inside, "pixel ({x}, {y}) at scale {scale}");
+            }
+        }
+        // The cover reaches the window's edges.
+        let edge = |v: f32| (v * scale).round() as i32;
+        assert!(
+            (left - edge(rect.left)).abs() <= 1 && (right - edge(rect.right)).abs() <= 1,
+            "cover {left}..{right} at scale {scale}"
+        );
+        assert!(frame.idle());
+    }
 }

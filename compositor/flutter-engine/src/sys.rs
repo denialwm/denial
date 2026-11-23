@@ -542,6 +542,10 @@ pub struct FlutterVulkanRendererConfig {
     pub get_instance_proc_address_callback: FlutterVulkanInstanceProcAddressCallback,
     pub get_next_image_callback: FlutterVulkanImageCallback,
     pub present_image_callback: FlutterVulkanPresentCallback,
+    /// Denial fork: the root surface carries frames without drawing.
+    pub denial_begin_frame_callback: BoolCallback,
+    pub denial_present_callback: BoolPresentInfoCallback,
+    pub denial_populate_existing_damage: FlutterFrameBufferWithDamageCallback,
 }
 impl Default for FlutterVulkanRendererConfig {
     fn default() -> Self {

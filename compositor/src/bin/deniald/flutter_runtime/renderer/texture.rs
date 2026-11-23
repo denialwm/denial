@@ -13,6 +13,7 @@ use mapped_shm::{MappedShmPool, MappedShmStorage, PendingMappedShm};
 use native_window_pool::NativeWindowStorage;
 
 pub(in crate::flutter_runtime) use handler::FlutterGlHandler;
+pub(crate) use handler::client_formats;
 
 #[derive(Debug, Default)]
 pub(in crate::flutter_runtime) struct ExternalTextureResourceBudget {
@@ -698,6 +699,14 @@ pub(in crate::flutter_runtime) enum ExternalTextureSource {
 }
 
 impl ExternalTextureSource {
+    /// The buffer's size in pixels.
+    fn pixel_size(&self) -> (u32, u32) {
+        match self {
+            Self::Dmabuf { dmabuf, .. } => (dmabuf.width(), dmabuf.height()),
+            Self::Shm(frame) => (frame.width(), frame.height()),
+        }
+    }
+
     fn feedback(&self) -> Option<crate::surface_feedback::SurfaceFeedback> {
         match self {
             Self::Dmabuf { feedback, .. } => feedback.clone(),
@@ -755,6 +764,98 @@ impl ExternalTextureSource {
     }
 }
 
+/// What changed in a surface's buffer since the frame published before it,
+/// in buffer pixels `[x, y, width, height]`, between two of its commits.
+#[derive(Clone, Debug)]
+pub(crate) struct BufferDamage {
+    pub(crate) since: Option<smithay::backend::renderer::utils::CommitCounter>,
+    pub(crate) commit: smithay::backend::renderer::utils::CommitCounter,
+    pub(crate) rects: Vec<[i32; 4]>,
+}
+
+/// What changed in a texture's pixels over some frames.
+#[derive(Clone, Debug, Default, PartialEq)]
+enum PixelDamage {
+    #[default]
+    Nothing,
+    /// Buffer pixels `[x, y, width, height]`.
+    Rects(Vec<[i32; 4]>),
+    Whole,
+}
+
+impl PixelDamage {
+    /// More rects than this become their bounds.
+    const MAX_RECTS: usize = 16;
+
+    fn join(&mut self, more: Self) {
+        *self = match (std::mem::take(self), more) {
+            (Self::Whole, _) | (_, Self::Whole) => Self::Whole,
+            (Self::Nothing, more) => more,
+            (this, Self::Nothing) => this,
+            (Self::Rects(mut rects), Self::Rects(more)) => {
+                rects.extend(more);
+                if rects.len() > Self::MAX_RECTS {
+                    let bounds = rects.iter().fold(rects[0], |[x, y, w, h], r| {
+                        let (left, top) = (x.min(r[0]), y.min(r[1]));
+                        let right = (x + w).max(r[0] + r[2]);
+                        let bottom = (y + h).max(r[1] + r[3]);
+                        [left, top, right - left, bottom - top]
+                    });
+                    rects = vec![bounds];
+                }
+                Self::Rects(rects)
+            }
+        };
+    }
+}
+
+/// The generations that last became a slot's current, oldest first, each
+/// with what changed from the one before it.
+#[derive(Clone, Debug, Default)]
+pub(in crate::flutter_runtime) struct DamageHistory(VecDeque<HistoryEntry>);
+
+#[derive(Clone, Debug)]
+struct HistoryEntry {
+    generation: u64,
+    previous: Option<u64>,
+    damage: PixelDamage,
+}
+
+impl DamageHistory {
+    const KEPT: usize = 8;
+
+    fn push(&mut self, generation: u64, previous: Option<u64>, damage: PixelDamage) {
+        if self.0.len() == Self::KEPT {
+            self.0.pop_front();
+        }
+        self.0.push_back(HistoryEntry {
+            generation,
+            previous,
+            damage,
+        });
+    }
+
+    /// The buffer pixels that changed from generation `old` to `new`
+    /// (`[x, y, width, height]`); None when that is not known.
+    pub(in crate::flutter_runtime) fn between(&self, old: u64, new: u64) -> Option<Vec<[i32; 4]>> {
+        let mut changed = PixelDamage::Nothing;
+        let mut at = new;
+        for _ in 0..Self::KEPT {
+            if at == old {
+                return match changed {
+                    PixelDamage::Nothing => Some(Vec::new()),
+                    PixelDamage::Rects(rects) => Some(rects),
+                    PixelDamage::Whole => None,
+                };
+            }
+            let entry = self.0.iter().rev().find(|entry| entry.generation == at)?;
+            changed.join(entry.damage.clone());
+            at = entry.previous?;
+        }
+        None
+    }
+}
+
 #[derive(Default)]
 pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     pub(in crate::flutter_runtime) current: Option<ExternalTextureSource>,
@@ -772,6 +873,17 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     output_interval: Duration,
     /// The client outruns the output: keep only its newest generation.
     pub(in crate::flutter_runtime) latest_only: bool,
+    /// The surface commit of the newest frame queued: a frame's damage
+    /// counts only when it follows it.
+    last_commit: Option<smithay::backend::renderer::utils::CommitCounter>,
+    /// What changed from the generation before `queued`, and before
+    /// `lookahead`.
+    queued_damage: PixelDamage,
+    lookahead_damage: PixelDamage,
+    /// What changed in `current` since the engine was last told.
+    unreported: PixelDamage,
+    /// What changed between the generations that last became `current`.
+    pub(in crate::flutter_runtime) history: DamageHistory,
 }
 
 impl ExternalTextureSlot {
@@ -780,9 +892,27 @@ impl ExternalTextureSlot {
         source: ExternalTextureSource,
         expects_sample: bool,
         presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
+        damage: Option<&BufferDamage>,
         now: Instant,
     ) -> bool {
         self.expects_sample = expects_sample;
+        // What this frame changed after the frame queued before it; anything
+        // not known to follow it changed whole.
+        let damage = match damage {
+            Some(damage) => {
+                let follows = damage.since.is_some() && damage.since == self.last_commit;
+                self.last_commit = Some(damage.commit);
+                match follows {
+                    true if damage.rects.is_empty() => PixelDamage::Nothing,
+                    true => PixelDamage::Rects(damage.rects.clone()),
+                    false => PixelDamage::Whole,
+                }
+            }
+            None => {
+                self.last_commit = None;
+                PixelDamage::Whole
+            }
+        };
         let changed = presentation.is_some_and(|next| next != self.desired_presentation);
         if let Some(next) = presentation {
             self.desired_presentation = next;
@@ -825,8 +955,11 @@ impl ExternalTextureSlot {
         // for the next tick drew it empty, and an opaque one also hid the
         // surfaces below it, which showed as a black frame.
         if self.current.is_none() && self.queued.is_none() {
+            self.history
+                .push(source.generation(), None, PixelDamage::Whole);
             self.current = Some(source);
             self.presentation = self.desired_presentation;
+            self.unreported = PixelDamage::Whole;
             self.current_sampled = false;
             self.earlier_commits = [self.earlier_commits[1], Some(now)];
             return true;
@@ -841,12 +974,18 @@ impl ExternalTextureSlot {
             .is_some_and(|first| now.saturating_duration_since(first) < self.output_interval);
         self.earlier_commits = [self.earlier_commits[1], Some(now)];
         if self.queued.is_none() || self.latest_only {
+            // Generations dropped here changed pixels too.
+            let mut joined = std::mem::take(&mut self.queued_damage);
+            joined.join(std::mem::take(&mut self.lookahead_damage));
+            joined.join(damage);
             self.queued = Some(source);
             self.queued_presentation = self.desired_presentation;
+            self.queued_damage = joined;
             self.lookahead = None;
         } else {
             self.lookahead = Some(source);
             self.lookahead_presentation = self.desired_presentation;
+            self.lookahead_damage.join(damage);
         }
         true
     }
@@ -858,12 +997,94 @@ impl ExternalTextureSlot {
         {
             return false;
         }
+        let damage = match self.presentation == self.queued_presentation {
+            true => std::mem::take(&mut self.queued_damage),
+            false => PixelDamage::Whole,
+        };
+        if let Some(queued) = &self.queued {
+            self.history.push(
+                queued.generation(),
+                self.current.as_ref().map(ExternalTextureSource::generation),
+                damage.clone(),
+            );
+        }
+        self.unreported.join(damage);
         self.current = self.queued.take();
         self.presentation = self.queued_presentation;
         self.queued = self.lookahead.take();
         self.queued_presentation = self.lookahead_presentation;
+        self.queued_damage = std::mem::take(&mut self.lookahead_damage);
         self.current_sampled = false;
         true
+    }
+
+    /// What changed in `current` since the last call, as unit rects of the
+    /// rect the engine paints it into (`[x, y, width, height]`); None when it
+    /// changed whole or the mapping is not known.
+    pub(in crate::flutter_runtime) fn take_unit_damage(&mut self) -> Option<Vec<[f64; 4]>> {
+        let rects = match std::mem::take(&mut self.unreported) {
+            PixelDamage::Nothing => return Some(Vec::new()),
+            PixelDamage::Whole => return None,
+            PixelDamage::Rects(rects) => rects,
+        };
+        let (width, height) = self.current.as_ref()?.pixel_size();
+        let image = [0.0, 0.0, f64::from(width), f64::from(height)];
+        let presentation = &self.presentation;
+        // The engine draws `source` into `destination` of a width × height
+        // canvas, or the whole image when there is no presentation. A
+        // backing strip samples one texel of the image: it may change with
+        // any pixel.
+        let (source, destination, canvas) = if presentation.width > 0.0 {
+            if presentation.background[2] > 0.0 && presentation.background[3] > 0.0 {
+                return None;
+            }
+            (
+                presentation.source,
+                presentation.destination,
+                [presentation.width, presentation.height],
+            )
+        } else {
+            (image, image, [image[2], image[3]])
+        };
+        if source[2] <= 0.0 || source[3] <= 0.0 || canvas[0] <= 0.0 || canvas[1] <= 0.0 {
+            return None;
+        }
+        let scale = [destination[2] / source[2], destination[3] / source[3]];
+        Some(
+            rects
+                .into_iter()
+                .filter_map(|[x, y, w, h]| {
+                    // A texel beside a change can blend into it when scaled.
+                    let left = (f64::from(x) - 1.0).max(source[0]);
+                    let top = (f64::from(y) - 1.0).max(source[1]);
+                    let right = (f64::from(x + w) + 1.0).min(source[0] + source[2]);
+                    let bottom = (f64::from(y + h) + 1.0).min(source[1] + source[3]);
+                    (right > left && bottom > top).then(|| {
+                        let map_x =
+                            |v: f64| (destination[0] + (v - source[0]) * scale[0]) / canvas[0];
+                        let map_y =
+                            |v: f64| (destination[1] + (v - source[1]) * scale[1]) / canvas[1];
+                        let (x0, y0) = (map_x(left), map_y(top));
+                        [x0, y0, map_x(right) - x0, map_y(bottom) - y0]
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// The size of the canvas `take_unit_damage` is a unit of: the
+    /// presentation's, or the current image's.
+    pub(in crate::flutter_runtime) fn canvas_size(&self) -> Option<[f64; 2]> {
+        if self.presentation.width > 0.0 {
+            return Some([self.presentation.width, self.presentation.height]);
+        }
+        let (width, height) = self.current.as_ref()?.pixel_size();
+        Some([f64::from(width), f64::from(height)])
+    }
+
+    /// Whether `current` changed since its damage was last taken.
+    pub(in crate::flutter_runtime) fn has_unreported_damage(&self) -> bool {
+        self.unreported != PixelDamage::Nothing
     }
 
     pub(in crate::flutter_runtime) fn has_queued(&self) -> bool {
@@ -1053,6 +1274,8 @@ pub(crate) struct ExternalTextureFrame {
     pub presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
     source: ExternalTextureSource,
     pub(crate) expects_sample: bool,
+    /// What changed since the surface's previous frame; None: unknown.
+    pub(crate) damage: Option<BufferDamage>,
 }
 
 impl ExternalTextureFrame {
@@ -1062,6 +1285,10 @@ impl ExternalTextureFrame {
             ExternalTextureSource::Shm(frame) => frame.feedback = token,
         }
     }
+    pub(crate) fn set_damage(&mut self, damage: BufferDamage) {
+        self.damage = Some(damage);
+    }
+
     pub(crate) fn with_feedback(
         mut self,
         token: Option<crate::surface_feedback::SurfaceFeedback>,
@@ -1114,6 +1341,7 @@ impl ExternalTextureFrame {
                 color: None,
             },
             expects_sample,
+            damage: None,
         }
     }
 
@@ -1129,6 +1357,7 @@ impl ExternalTextureFrame {
                 color: None,
             },
             expects_sample: false,
+            damage: None,
         }
     }
 
@@ -1149,6 +1378,7 @@ impl ExternalTextureFrame {
             presentation: None,
             source,
             expects_sample,
+            damage: None,
         }
     }
 }
@@ -1199,6 +1429,89 @@ mod cache_retirement_tests {
     use super::*;
 
     #[test]
+    fn slot_reports_client_damage_only_while_commits_follow() {
+        use smithay::backend::renderer::utils::CommitCounter;
+        let interval = Duration::from_millis(7);
+        let start = Instant::now();
+        let at = |millis| start + Duration::from_millis(millis);
+        let source = |revision| {
+            ExternalTextureSource::Shm(
+                ShmTextureFrame::new_owned(100, 50, revision, vec![0; 100 * 50 * 4]).unwrap(),
+            )
+        };
+        let damage = |since: Option<usize>, commit: usize, rects: Vec<[i32; 4]>| BufferDamage {
+            since: since.map(CommitCounter::from),
+            commit: CommitCounter::from(commit),
+            rects,
+        };
+        let tick = |slot: &mut ExternalTextureSlot| {
+            slot.current_sampled = true;
+            slot.advance(interval);
+        };
+        let take = |slot: &mut ExternalTextureSlot| {
+            slot.take_unit_damage().map(|rects| {
+                rects
+                    .into_iter()
+                    .map(|rect| rect.map(|value| (value * 1e6).round() / 1e6))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let mut slot = ExternalTextureSlot::default();
+        // The first buffer is new as a whole.
+        slot.queue(source(1), true, None, Some(&damage(None, 1, vec![])), at(0));
+        assert_eq!(take(&mut slot), None);
+        assert_eq!(take(&mut slot), Some(vec![]));
+
+        // A following commit damages its rect, one texel wider, in unit
+        // coordinates of the image.
+        slot.queue(
+            source(2),
+            true,
+            None,
+            Some(&damage(Some(1), 2, vec![[10, 10, 8, 8]])),
+            at(8),
+        );
+        tick(&mut slot);
+        assert_eq!(take(&mut slot), Some(vec![[0.09, 0.18, 0.1, 0.2]]));
+
+        // Two frames between takes join.
+        slot.queue(
+            source(3),
+            true,
+            None,
+            Some(&damage(Some(2), 3, vec![[0, 0, 9, 4]])),
+            at(16),
+        );
+        tick(&mut slot);
+        slot.queue(
+            source(4),
+            true,
+            None,
+            Some(&damage(Some(3), 4, vec![[90, 45, 10, 5]])),
+            at(24),
+        );
+        tick(&mut slot);
+        assert_eq!(
+            take(&mut slot),
+            Some(vec![[0.0, 0.0, 0.1, 0.1], [0.89, 0.88, 0.11, 0.12]])
+        );
+
+        // A missed commit, or a frame without damage, changes it whole.
+        slot.queue(
+            source(5),
+            true,
+            None,
+            Some(&damage(Some(5), 6, vec![[0, 0, 1, 1]])),
+            at(32),
+        );
+        tick(&mut slot);
+        assert_eq!(take(&mut slot), None);
+        slot.queue(source(6), true, None, None, at(40));
+        tick(&mut slot);
+        assert_eq!(take(&mut slot), None);
+    }
+
+    #[test]
     fn slot_keeps_a_jittered_successor_but_only_the_newest_of_a_fast_client() {
         let interval = Duration::from_millis(7);
         let start = Instant::now();
@@ -1218,16 +1531,16 @@ mod cache_retirement_tests {
         };
         let mut slot = ExternalTextureSlot::default();
         // The first buffer shows at once; there is nothing to pace against.
-        slot.queue(source(1), true, None, at(0));
+        slot.queue(source(1), true, None, None, at(0));
         assert_eq!(generations(&slot), [Some(1), None, None]);
         assert!(!tick(&mut slot));
 
         // Commits at the output's rate keep the successor through a straddled
         // tick and through missed ones.
-        slot.queue(source(2), true, None, at(6_900));
-        slot.queue(source(3), true, None, at(7_100));
+        slot.queue(source(2), true, None, None, at(6_900));
+        slot.queue(source(3), true, None, None, at(7_100));
         assert_eq!(generations(&slot), [Some(1), Some(2), Some(3)]);
-        slot.queue(source(4), true, None, at(14_000));
+        slot.queue(source(4), true, None, None, at(14_000));
         assert!(!slot.latest_only);
         assert_eq!(generations(&slot), [Some(1), Some(2), Some(4)]);
         assert!(tick(&mut slot));
@@ -1237,15 +1550,15 @@ mod cache_retirement_tests {
         // Three commits within one interval: only the newest stays queued,
         // and later fast commits replace it.
         for (revision, micros) in [(5, 20_000), (6, 22_000), (7, 24_000), (8, 26_000)] {
-            slot.queue(source(revision), true, None, at(micros));
+            slot.queue(source(revision), true, None, None, at(micros));
         }
         assert!(slot.latest_only);
         assert_eq!(generations(&slot), [Some(4), Some(8), None]);
 
         // Back at the output's rate, the successor is kept again.
         assert!(tick(&mut slot));
-        slot.queue(source(9), true, None, at(33_000));
-        slot.queue(source(10), true, None, at(40_000));
+        slot.queue(source(9), true, None, None, at(33_000));
+        slot.queue(source(10), true, None, None, at(40_000));
         assert!(!slot.latest_only);
         assert_eq!(generations(&slot), [Some(8), Some(9), Some(10)]);
     }

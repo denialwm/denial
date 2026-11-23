@@ -1,6 +1,6 @@
 //! Backdrop materials on the composer's queue: each material's frost is the
 //! target as drawn so far, copied out of its region, halved with linear
-//! blits and blurred with two Gaussian passes. Recorded inline into the
+//! blits and blurred with two Gaussian passes of the engine's strength. Recorded inline into the
 //! frame's command buffer, between its draws, so a frame stays one submit.
 //!
 //! A frost is reused while the engine reports the scene below the material
@@ -171,9 +171,16 @@ pub(super) unsafe fn record(
     ]);
     // Target row y is memory row H - 1 - y: copy the region's memory rows
     // upside down, so the tile is top-down in target pixels.
-    let [left, top, right, bottom] = plan.region.map(|value| value as u32);
-    let height = target.size.1;
     let (width0, height0) = plan.level_size(0);
+    // Level 0 halves the pixels it covers exactly (or copies the region).
+    let (covered_width, covered_height) = if plan.halvings > 0 {
+        FrostPlan::covered_extent(plan.region_size(), (width0, height0))
+    } else {
+        plan.region_size()
+    };
+    let [left, top] = [plan.region[0] as u32, plan.region[1] as u32];
+    let (right, bottom) = (left + covered_width, top + covered_height);
+    let height = target.size.1;
     let blit = |source: vk::Image,
                 source_layer: u32,
                 from: [vk::Offset3D; 2],
@@ -229,8 +236,9 @@ pub(super) unsafe fn record(
             BLIT_DESTINATION,
             BLIT_SOURCE,
         )]);
-        let (from_width, from_height) = plan.level_size(level - 1);
         let (to_width, to_height) = plan.level_size(level);
+        let (from_width, from_height) =
+            FrostPlan::covered_extent(plan.level_size(level - 1), (to_width, to_height));
         blit(
             tile,
             level - 1,
@@ -307,11 +315,10 @@ pub(super) unsafe fn record(
             d.cmd_end_rendering(command);
         }
     };
-    let constants = |step: [f32; 2], sigma: f32| BlurPass {
+    let constants = |step: [f32; 2], sigma: f32, radius: f32| BlurPass {
         step,
         sigma: sigma.max(0.0001),
-        // Three standard deviations, as the region's margin.
-        radius: (3.0 * sigma).ceil().clamp(0.0, 64.0),
+        radius: radius.clamp(0.0, 64.0),
     };
     // SAFETY: upheld by the caller.
     unsafe {
@@ -333,7 +340,7 @@ pub(super) unsafe fn record(
     pass(
         &frost.scratch,
         &frost.tile,
-        constants([1.0 / width as f32, 0.0], plan.sigma[0]),
+        constants([1.0 / width as f32, 0.0], plan.sigma[0], plan.radius[0]),
     );
     dependency(&[
         barrier(frost.scratch.image, whole, ATTACHMENT, SAMPLED),
@@ -342,7 +349,7 @@ pub(super) unsafe fn record(
     pass(
         &frost.tile,
         &frost.scratch,
-        constants([0.0, 1.0 / height as f32], plan.sigma[1]),
+        constants([0.0, 1.0 / height as f32], plan.sigma[1], plan.radius[1]),
     );
     dependency(&[barrier(tile, level_range(last, 1), ATTACHMENT, SAMPLED)]);
     Ok(())

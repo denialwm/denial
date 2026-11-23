@@ -67,6 +67,6 @@ angle_vulkan_loader_dir = "//flutter/third_party/vulkan-deps/vulkan-loader/src"
 angle_vulkan_tools_dir = "//flutter/third_party/vulkan-deps/vulkan-tools/src"
 angle_lunarg_vulkantools_dir =
     "//flutter/third_party/vulkan-deps/lunarg-vulkantools/src"
-shell_enable_vulkan = false
+shell_enable_vulkan = true
 test_enable_vulkan = false
-skia_use_vulkan = false
+skia_use_vulkan = true

@@ -339,6 +339,48 @@ impl NativeWindowPlan {
         })
     }
 
+    /// Where `rect` of `layer`'s input canvas (`[x, y, width, height]`, or
+    /// all of it when None) shows in the merged image, as a unit rect of the
+    /// window's canvas; None when none of it shows.
+    pub(super) fn window_damage(
+        &self,
+        layer: &NativeWindowLayer,
+        rect: Option<[f64; 4]>,
+    ) -> Option<[f64; 4]> {
+        let shown = match rect {
+            // Rotated layers change where they show as a whole.
+            Some([x, y, width, height]) if layer.transform == 0 => {
+                let changed = layer
+                    .source
+                    .intersection(ClientRect::new(x, y, width, height)?)?;
+                let scale_x = layer.destination.width / layer.source.width;
+                let scale_y = layer.destination.height / layer.source.height;
+                ClientRect::new(
+                    layer.destination.x + (changed.x - layer.source.x) * scale_x,
+                    layer.destination.y + (changed.y - layer.source.y) * scale_y,
+                    changed.width * scale_x,
+                    changed.height * scale_y,
+                )?
+            }
+            _ => layer.destination,
+        };
+        // A texel of the merged image beside a change can blend into it.
+        let margin = 1.0 / self.scale;
+        let shown = ClientRect::new(
+            shown.x - margin,
+            shown.y - margin,
+            shown.width + 2.0 * margin,
+            shown.height + 2.0 * margin,
+        )?
+        .intersection(layer.visible)?;
+        Some([
+            (shown.x - self.canvas.x) / self.canvas.width,
+            (shown.y - self.canvas.y) / self.canvas.height,
+            shown.width / self.canvas.width,
+            shown.height / self.canvas.height,
+        ])
+    }
+
     pub(super) fn vertices(
         &self,
         layer: &NativeWindowLayer,

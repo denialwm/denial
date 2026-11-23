@@ -1730,6 +1730,10 @@ impl WaylandFrontend {
             self.pending_cursor_frame_callback_roots.remove(&object_id);
             self.pending_shm_snapshots.remove(&object_id);
             self.surface_buffer_revisions.remove(&object_id);
+            self.surface_damage_commits
+                .get_mut()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&object_id);
             if let Some(stable_id) = stable_id {
                 self.pointer_constraint_escape.forget_window(stable_id);
                 self.pending_cursor_buffer_surface_ids.remove(&stable_id);

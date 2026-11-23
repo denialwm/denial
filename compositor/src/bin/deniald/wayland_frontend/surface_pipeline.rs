@@ -771,6 +771,13 @@ impl WaylandFrontend {
             <GlesRenderer as Bind<Dmabuf>>::supported_formats(renderer).unwrap_or_default();
         self.set_screencopy_dmabuf_formats(render_formats, render_node);
         let formats = renderer.dmabuf_formats();
+        // Buffers the Vulkan composer cannot sample would keep frames on
+        // GLES; clients choose among layouts both can read.
+        #[cfg(feature = "flutter")]
+        let formats = match render_node {
+            Some(node) => crate::flutter_runtime::client_formats(node.dev_id(), formats),
+            None => formats,
+        };
         let global = if let Some(node) = render_node {
             let feedback = DmabufFeedbackBuilder::new(node.dev_id(), formats).build()?;
             self.dmabuf_render_node = Some(node);
@@ -968,14 +975,18 @@ impl WaylandFrontend {
                         .get(&surface.id())
                         .copied()
                         .unwrap_or_default();
-                    textures.push(ExternalTextureFrame::from_dmabuf(
+                    let mut frame = ExternalTextureFrame::from_dmabuf(
                         texture_id,
                         dmabuf,
                         buffer_guard,
                         release,
                         revision,
                         expects_sample,
-                    ));
+                    );
+                    if let Some(damage) = self.buffer_damage(surface, &renderer_state) {
+                        frame.set_damage(damage);
+                    }
+                    textures.push(frame);
                     (surface_id, width, height)
                 } else if let Some(frame) = self.surface_shm_frames.get(&surface.id()).cloned() {
                     let width = frame.width();
@@ -1054,6 +1065,54 @@ impl WaylandFrontend {
         );
     }
 
+    /// What changed in a dmabuf surface's buffer since its last built
+    /// frame. Damage is given only where the engine paints the buffer as
+    /// is, or through the integral crop of its presentation; anything else
+    /// changes whole. Shm snapshots change whole too: a snapshot need not
+    /// hold the commit the surface is at.
+    #[cfg(feature = "flutter")]
+    fn buffer_damage(
+        &self,
+        surface: &WlSurface,
+        state: &smithay::backend::renderer::utils::RendererSurfaceState,
+    ) -> Option<BufferDamage> {
+        let commit = state.current_commit();
+        let since = self
+            .surface_damage_commits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(surface.id(), commit);
+        // Transformed buffers keep the whole-texture damage.
+        let transform = state.buffer_transform();
+        if transform != Transform::Normal {
+            return None;
+        }
+        let scale = state.buffer_scale().max(1);
+        let logical_size = state.buffer_size()?;
+        let dmabuf = get_dmabuf(state.buffer()?).ok()?;
+        let (width, height) = (dmabuf.width(), dmabuf.height());
+        let source = surface_crop_to_buffer(
+            state.view()?.src,
+            f64::from(scale),
+            transform,
+            logical_size.to_f64(),
+        );
+        let whole = Rectangle::from_size((f64::from(width), f64::from(height)).into());
+        if source != whole && cropped_buffer_canvas(source, transform, width, height).is_none() {
+            return None;
+        }
+        let rects = state
+            .damage_since(since)
+            .iter()
+            .map(|rect| [rect.loc.x, rect.loc.y, rect.size.w, rect.size.h])
+            .collect();
+        Some(BufferDamage {
+            since,
+            commit,
+            rects,
+        })
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn external_texture_frame(
         &self,
@@ -1081,31 +1140,40 @@ impl WaylandFrontend {
                 .and_then(|buffer| get_dmabuf(buffer).ok())
                 .cloned();
             let buffer_guard = dmabuf.as_ref().and_then(|_| renderer_buffer.cloned());
-            (renderable, dmabuf.zip(buffer_guard))
+            let damage = dmabuf
+                .is_some()
+                .then(|| self.buffer_damage(surface, state))
+                .flatten();
+            (
+                renderable,
+                dmabuf.zip(buffer_guard).map(|source| (source, damage)),
+            )
         })?;
         let release = with_states(surface, crate::client_release::current);
         if !renderable {
             return None;
         }
         let texture_id = i64::try_from(surface_id).ok().filter(|id| *id > 0)?;
-        if let Some((dmabuf, buffer_guard)) = dmabuf_source {
+        if let Some(((dmabuf, buffer_guard), damage)) = dmabuf_source {
             let revision = self
                 .surface_buffer_revisions
                 .get(&surface.id())
                 .copied()
                 .unwrap_or_default();
-            return Some(
-                ExternalTextureFrame::from_dmabuf(
-                    texture_id,
-                    dmabuf,
-                    buffer_guard,
-                    release,
-                    revision,
-                    expects_sample,
-                )
-                .with_feedback(with_states(surface, super::presentation::surface_feedback))
-                .with_color(with_states(surface, super::color_management::surface_color)),
-            );
+            let mut frame = ExternalTextureFrame::from_dmabuf(
+                texture_id,
+                dmabuf,
+                buffer_guard,
+                release,
+                revision,
+                expects_sample,
+            )
+            .with_feedback(with_states(surface, super::presentation::surface_feedback))
+            .with_color(with_states(surface, super::color_management::surface_color));
+            if let Some(damage) = damage {
+                frame.set_damage(damage);
+            }
+            return Some(frame);
         }
         self.surface_shm_frames
             .get(&surface.id())

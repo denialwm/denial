@@ -33,12 +33,16 @@
 //! takes), grown by the region of every frost made again; the rest of the
 //! buffer keeps its pixels.
 
+#[path = "convert.rs"]
+mod convert;
 #[path = "device.rs"]
 mod device;
 #[path = "material.rs"]
 mod material;
 #[path = "record.rs"]
 mod record;
+#[path = "shell_queue.rs"]
+mod shell_queue;
 
 use std::collections::HashMap;
 use std::os::fd::{AsFd, OwnedFd};
@@ -47,7 +51,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use denial_flutter_engine::scene::{
     BLEND_SRC, BLEND_SRC_OVER, Matrix3, Rect, Sampling, Scene, SceneEntry, SceneSource, SliceKey,
-    SliceWriter,
+    SliceWriter, SliceWriterVk,
 };
 use denial_flutter_engine::sys;
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf, WeakDmabuf};
@@ -56,12 +60,14 @@ use smithay::backend::allocator::{Fourcc, Modifier};
 use smithay::backend::drm::DrmDeviceFd;
 use tracing::{info, warn};
 
-use device::{
-    Batch, Frame, Gpu, Image, MAX_FRAMES, MaterialStep, Merge, Step, Upload, Usage, WindowDraw,
-};
+pub(super) use convert::ConvertKey;
+pub(super) use device::Image;
+pub(in crate::flutter_runtime) use device::ShellDevice;
+use device::{Batch, Frame, Gpu, MAX_FRAMES, MaterialStep, Merge, Step, Upload, Usage, WindowDraw};
 use material::Frost;
 pub(super) use record::Placement;
 use record::{ClipRecord, ClipSpan, Draw, FrostPlan, Glass};
+pub(in crate::flutter_runtime) use shell_queue::instance_proc as shell_instance_proc;
 
 use crate::output_color::Lut;
 
@@ -70,9 +76,47 @@ pub(super) fn requested() -> bool {
     crate::options::VULKAN_COMPOSER.load(Ordering::Relaxed)
 }
 
+/// The client buffer formats to advertise on the GPU behind the DRM node
+/// `device_number`, out of what GLES imports (`formats`): with the composer,
+/// only layouts it can sample (`device::sampled_client_formats`).
+pub(crate) fn client_formats(
+    device_number: libc::dev_t,
+    formats: smithay::backend::allocator::format::FormatSet,
+) -> smithay::backend::allocator::format::FormatSet {
+    if !requested() {
+        return formats;
+    }
+    match device::sampled_client_formats(device_number, &formats) {
+        Ok(sampled) => {
+            let dropped = formats.iter().count() - sampled.iter().count();
+            tracing::info!(
+                dropped,
+                "client buffer layouts limited to what the Vulkan composer samples"
+            );
+            sampled
+        }
+        Err(error) => {
+            tracing::warn!(%error, "client buffer layouts stay as GLES imports them");
+            formats
+        }
+    }
+}
+
+/// `DENIAL_VULKAN_SHELL=1` with `--vulkan-composer`: the engine renders the
+/// shell with Impeller Vulkan on the composer's device, into private slice
+/// images, instead of GLES.
+pub(super) fn shell_requested() -> bool {
+    requested() && std::env::var_os("DENIAL_VULKAN_SHELL").is_some_and(|value| value == "1")
+}
+
 /// Blocks until a completion fence signals. Failure paths only.
 pub(super) fn wait_completion(fence: &OwnedFd) {
     device::wait_fd(fence.as_fd(), -1);
+}
+
+/// Whether `fence` has signalled. Does not wait.
+pub(super) fn signalled(fence: &OwnedFd) -> bool {
+    device::wait_fd(fence.as_fd(), 0)
 }
 
 /// A copy of `fence` for another waiter, or None once it signalled. A
@@ -112,6 +156,10 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// How long a submission waits for a frame when all are in flight. Frames
+/// complete within a refresh or two; past this the GPU is stuck.
+const FRAME_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// A client import unused for this many submissions is released: each live
 /// shared import costs every submission (~0.7 µs on RADV), and re-importing
 /// costs about 20 submissions' worth. An import whose buffer the client
@@ -119,9 +167,18 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Vulkan's own reference, never the client's `Dmabuf`.
 const CLIENT_IMPORT_IDLE_SUBMITS: u64 = 64;
 
+/// Retired Vulkan slice images kept for later versions of the same size,
+/// at most this many bytes: every slice version the engine renders is a
+/// fresh image, and the engine buckets slice sizes, so most reuse one.
+const SLICE_POOL_BYTES: u64 = 96 << 20;
+
+/// A pooled slice image unused for this many submissions is destroyed.
+const SLICE_POOL_IDLE_SUBMITS: u64 = 240;
+
 /// One version of a slice's storage.
 struct Slice {
-    _bo: GbmBuffer,
+    /// GLES-written slices only; zero GL names for Vulkan-written ones.
+    _bo: Option<GbmBuffer>,
     egl_image: usize,
     gl_texture: u32,
     image: Arc<Image>,
@@ -212,6 +269,9 @@ pub(super) struct Staged {
     pub(super) clients: Vec<SampledClient>,
     /// Inputs of merged windows reused as they are: shown again, not read.
     pub(super) credits: Vec<SampledClient>,
+    /// Buffers nothing can read: not shown, only let go so the texture
+    /// moves on (no presentation feedback).
+    pub(super) omitted: Vec<SampledClient>,
     /// SHM pixels the frame copies before it draws.
     uploads: Vec<Upload>,
     /// Native windows merged before the frame draws, and what each image
@@ -222,6 +282,32 @@ pub(super) struct Staged {
     merged_windows: Vec<MergedWindow>,
     /// Merged windows shown from the image a submission drew.
     merges_reused: u32,
+    /// Clients shown from an image GLES converted or copied.
+    converted: u32,
+    /// Target pixels draws paint opaque, by draw record, in draw order.
+    covers: Vec<(u32, [i32; 4])>,
+    /// Draws and materials hidden under opaque draws above them.
+    culled_draws: u32,
+    culled_materials: u32,
+    /// Diagnostic: whether the topmost client drawn over the whole target
+    /// covers it, else why not; None without such a client.
+    full_cover: Option<Option<&'static str>>,
+}
+
+impl Staged {
+    /// Diagnostic: notes whether `draw`, when it reaches over the whole
+    /// target, covers it.
+    fn note_cover(
+        &mut self,
+        draw: &Draw,
+        size: (u32, u32),
+        why: impl FnOnce() -> Option<&'static str>,
+    ) {
+        let target = [0, 0, size.0 as i32, size.1 as i32];
+        if record::pixels_contain(draw.bounds(size), target) {
+            self.full_cover = Some(why());
+        }
+    }
 }
 
 struct MergedWindow {
@@ -234,6 +320,9 @@ struct MergedWindow {
 struct State {
     targets: HashMap<u32, Arc<Image>>,
     slices: HashMap<u64, Slice>,
+    /// Retired Vulkan-written slice images and the submission count when
+    /// they retired, oldest first; the GPU no longer uses any of them.
+    slice_pool: Vec<(u64, Image)>,
     clients: HashMap<WeakDmabuf, ClientImport>,
     /// By texture ID.
     uploads: HashMap<i64, ShmImport>,
@@ -273,6 +362,8 @@ struct State {
     /// construction: GLES waits for every submission (handler).
     last_gles_fence: Option<OwnedFd>,
     tally: Tally,
+    /// Diagnostic: the last `Staged::full_cover` logged, by view.
+    full_covers: HashMap<i64, Option<Option<&'static str>>>,
 }
 
 impl State {
@@ -284,6 +375,9 @@ impl State {
         }
     }
 }
+
+/// The scene revision bit of a frame the engine composed itself.
+const ENGINE_COMPOSED: u64 = 1 << 63;
 
 /// What composed the output frames while the composer is on, logged at 1,
 /// 100, 1 000, 10 000… frames: how many Vulkan drew, how many GLES drew and
@@ -303,6 +397,11 @@ struct Tally {
     /// Native windows merged with Vulkan, and shown again from their image.
     merges_made: u64,
     merges_reused: u64,
+    /// Clients shown from a GLES conversion or copy.
+    converted: u64,
+    /// Vulkan frames the engine composed itself after the composer declined
+    /// its scene (`declines`).
+    engine_frames: u64,
     /// Vulkan frames that redrew part of the target, none of it, and the
     /// share of target pixels redrawn over all Vulkan frames.
     partial_frames: u64,
@@ -314,6 +413,9 @@ struct Tally {
     remade_why: [u64; 7],
     empty_frames: u64,
     redrawn: f64,
+    /// Draws and materials not drawn: opaque draws above hide them.
+    culled_draws: u64,
+    culled_materials: u64,
 }
 
 impl Tally {
@@ -349,6 +451,10 @@ impl Tally {
         }
         self.merges_made += staged.merges.len() as u64;
         self.merges_reused += u64::from(staged.merges_reused);
+        self.converted += u64::from(staged.converted);
+        self.culled_draws += u64::from(staged.culled_draws);
+        self.culled_materials += u64::from(staged.culled_materials);
+        self.engine_frames += u64::from(staged.scene_revision & ENGINE_COMPOSED != 0);
         self.vulkan_frames += 1;
         self.log();
     }
@@ -389,6 +495,8 @@ impl Tally {
             frosts_untracked = self.frosts_untracked,
             merges_made = self.merges_made,
             merges_reused = self.merges_reused,
+            converted = self.converted,
+            engine_frames = self.engine_frames,
             partial_frames = self.partial_frames,
             engine_damage_percent = format_args!(
                 "{:.1}",
@@ -406,6 +514,8 @@ impl Tally {
             reused = self.remade_why[5],
             uncached = self.remade_why[6],
             empty_frames = self.empty_frames,
+            culled_draws = self.culled_draws,
+            culled_materials = self.culled_materials,
             redrawn_percent = format_args!(
                 "{:.1}",
                 self.redrawn * 100.0 / self.vulkan_frames.max(1) as f64
@@ -422,6 +532,10 @@ struct CachedFrost {
     /// The engine's token for the material, tracked or not: what the engine
     /// asks the composer to pin.
     engine_token: Option<i64>,
+    /// `engine_token` when no other material of its frame had it: a
+    /// material's identity across layered builds. Grouped materials share
+    /// one token.
+    identity: Option<i64>,
     /// The layered build it was last shown in.
     scene_revision: u64,
     /// The engine reported a change in its region since then.
@@ -430,11 +544,19 @@ struct CachedFrost {
 
 pub(super) struct SceneComposer {
     gpu: Gpu,
+    /// The engine renders slices with Vulkan on `gpu` (`shell_requested`).
+    shell: bool,
     placeholder: Arc<Image>,
     /// Bound as the look of clients without one; never read.
     no_look: Arc<Image>,
     gbm: Mutex<GbmDevice<DrmDeviceFd>>,
     slice_modifiers: Vec<Modifier>,
+    /// What EGL renders ABGR16161616F with and Vulkan samples; empty when
+    /// none, then half-float conversions decline.
+    float_modifiers: Vec<Modifier>,
+    /// Clients GLES converted for the composer (convert.rs). Taken after
+    /// `state` when both are held.
+    converts: Mutex<convert::Pool>,
     next_allocation: AtomicU64,
     dropped: Mutex<Vec<SliceKey>>,
     state: Mutex<State>,
@@ -442,12 +564,15 @@ pub(super) struct SceneComposer {
 
 impl SceneComposer {
     /// `render_node` is the DRM node the raster context renders with;
-    /// `render_modifiers` what EGL renders ABGR8888 with.
+    /// `render_modifiers` what EGL renders ABGR8888 with, `float_render`
+    /// what it renders ABGR16161616F with.
     pub(super) fn new(
         render_node: DrmDeviceFd,
         render_modifiers: &[Modifier],
+        float_render: &[Modifier],
     ) -> Result<Self, String> {
-        let gpu = Gpu::new(render_node.as_fd())?;
+        let shell = shell_requested();
+        let gpu = Gpu::new(render_node.as_fd(), shell)?;
         let placeholder = gpu.placeholder()?;
         let no_look = gpu.look_image(1, &[0.0, 0.0, 0.0, 1.0])?;
         let sampled = gpu.0.sampled_modifiers(Fourcc::Abgr8888);
@@ -459,23 +584,34 @@ impl SceneComposer {
         if slice_modifiers.is_empty() {
             return Err("no ABGR8888 modifier both EGL renders and Vulkan samples".into());
         }
+        let float_sampled = gpu.0.sampled_modifiers(Fourcc::Abgr16161616f);
+        let float_modifiers: Vec<_> = float_render
+            .iter()
+            .copied()
+            .filter(|modifier| *modifier != Modifier::Invalid && float_sampled.contains(modifier))
+            .collect();
         let gbm = GbmDevice::new(render_node)
             .map_err(|error| format!("Vulkan composer GBM device: {error}"))?;
         info!(
             modifiers = ?slice_modifiers,
+            float = ?float_modifiers,
             "Vulkan scene composer slice storage"
         );
         Ok(Self {
             gpu,
+            shell,
             placeholder,
             no_look,
             gbm: Mutex::new(gbm),
             slice_modifiers,
+            float_modifiers,
+            converts: convert::pool(),
             next_allocation: AtomicU64::new(1),
             dropped: Mutex::new(Vec::new()),
             state: Mutex::new(State {
                 targets: HashMap::new(),
                 slices: HashMap::new(),
+                slice_pool: Vec::new(),
                 clients: HashMap::new(),
                 uploads: HashMap::new(),
                 merged: HashMap::new(),
@@ -495,6 +631,7 @@ impl SceneComposer {
                 last_gles_fence: None,
                 looks: Vec::new(),
                 tally: Tally::default(),
+                full_covers: HashMap::new(),
             }),
         })
     }
@@ -513,6 +650,7 @@ impl SceneComposer {
     /// Releases what finished submissions held and destroys slice versions
     /// nothing uses any more. Raster thread, raster context current.
     pub(super) fn reap(&self, gl: &super::GlApi, display: &super::EGLDisplayHandle) {
+        self.reap_conversions(gl, display);
         let dropped = std::mem::take(&mut *lock(&self.dropped));
         let mut state = lock(&self.state);
         let mut completed = state.completed;
@@ -549,12 +687,31 @@ impl SceneComposer {
             })
             .map(|(allocation, _)| *allocation)
             .collect();
+        let serial = state.serial;
         for allocation in retired {
-            if let Some(slice) = state.slices.remove(&allocation) {
-                destroy_gl(gl, display, &slice);
+            let Some(slice) = state.slices.remove(&allocation) else {
+                continue;
+            };
+            destroy_gl(gl, display, &slice);
+            // A Vulkan-written version nothing else holds goes to the pool.
+            if slice.egl_image == 0
+                && let Ok(image) = Arc::try_unwrap(slice.image)
+            {
+                state.slice_pool.push((serial, image));
             }
         }
-        let serial = state.serial;
+        state
+            .slice_pool
+            .retain(|(retired, _)| serial - retired < SLICE_POOL_IDLE_SUBMITS);
+        let mut bytes: u64 = state
+            .slice_pool
+            .iter()
+            .map(|(_, image)| slice_bytes(image))
+            .sum();
+        while bytes > SLICE_POOL_BYTES {
+            let (_, oldest) = state.slice_pool.remove(0);
+            bytes -= slice_bytes(&oldest);
+        }
         state.clients.retain(|weak, import| {
             !weak.is_gone() && serial - import.last_serial < CLIENT_IMPORT_IDLE_SUBMITS
         });
@@ -566,6 +723,7 @@ impl SceneComposer {
     /// Drops a texture's SHM image once its source is gone; frames that
     /// still sample it hold it until they complete.
     pub(super) fn forget_texture(&self, texture_id: i64) {
+        self.forget_conversions(texture_id);
         let mut state = lock(&self.state);
         let retired = (
             state.uploads.remove(&texture_id),
@@ -597,6 +755,11 @@ impl SceneComposer {
         let mut state = lock(&self.state);
         state.unaccount(view_id);
         state.tally.gles();
+    }
+
+    /// The view's last frame never reached the screen.
+    pub(super) fn frame_lost(&self, view_id: i64) {
+        lock(&self.state).unaccount(view_id);
     }
 
     /// Why the composer did not draw a staged frame.
@@ -639,6 +802,16 @@ impl SceneComposer {
 
     /// A begun frame the composer will not draw: the engine composes it or
     /// drops it, after planning its damage (maybe with pins).
+    /// The raster task ended: a staged frame its view's root present did
+    /// not take is dropped with the client buffers it holds, and the view
+    /// redraws whole.
+    pub(super) fn abandon_staged(&self) {
+        let mut state = lock(&self.state);
+        if let Some((_, staged)) = state.staged.take() {
+            state.unaccount(staged.view_id);
+        }
+    }
+
     pub(super) fn cancel(&self, ticket: u64) {
         let mut state = lock(&self.state);
         if state
@@ -666,63 +839,23 @@ impl SceneComposer {
         gl: &super::GlApi,
         display: &smithay::backend::egl::EGLDisplay,
     ) -> Option<SliceWriter> {
-        if width == 0 || height == 0 || width > 16384 || height > 16384 {
-            return None;
-        }
-        let bo = {
-            let gbm = lock(&self.gbm);
-            let raw = gbm
-                .create_buffer_object_with_modifiers::<()>(
-                    width,
-                    height,
-                    Fourcc::Abgr8888,
-                    self.slice_modifiers.iter().copied(),
-                )
-                .map_err(|error| warn!(%error, width, height, "composer slice allocation failed"))
-                .ok()?;
-            GbmBuffer::from_bo(raw, false)
-        };
-        let dmabuf = bo
-            .export()
-            .map_err(|error| warn!(%error, "composer slice export failed"))
-            .ok()?;
-        let image = self
-            .gpu
-            .import(&dmabuf, Usage::Sampled)
-            .map_err(|error| warn!(%error, "composer slice import failed"))
-            .ok()?;
-        let egl_image = display
-            .create_image_from_dmabuf(&dmabuf)
-            .map_err(|error| warn!(%error, "composer slice EGLImage failed"))
-            .ok()?;
-        let mut gl_texture = 0;
-        // SAFETY: the raster context is current (the engine's contract for
-        // acquire_writer); the image is live.
-        let error = unsafe {
-            let _ = (gl.get_error)();
-            (gl.gen_textures)(1, &mut gl_texture);
-            (gl.bind_texture)(super::gl::TEXTURE_2D, gl_texture);
-            (gl.image_target_texture)(super::gl::TEXTURE_2D, egl_image.cast());
-            (gl.bind_texture)(super::gl::TEXTURE_2D, 0);
-            (gl.get_error)()
-        };
+        let (bo, image, egl_image, gl_texture) = self.shared_storage(
+            width,
+            height,
+            Fourcc::Abgr8888,
+            &self.slice_modifiers,
+            gl,
+            display,
+        )?;
         let allocation = self.next_allocation.fetch_add(1, Ordering::Relaxed);
         let slice = Slice {
-            _bo: bo,
-            egl_image: egl_image as usize,
+            _bo: Some(bo),
+            egl_image,
             gl_texture,
             image,
             engine_ref: true,
             last_serial: 0,
         };
-        if gl_texture == 0 || error != super::gl::NO_ERROR {
-            warn!(
-                error = format_args!("{error:#x}"),
-                "composer slice GL binding failed"
-            );
-            destroy_gl(gl, &display.get_display_handle(), &slice);
-            return None;
-        }
         lock(&self.state).slices.insert(allocation, slice);
         Some(SliceWriter {
             struct_size: 0,
@@ -734,6 +867,185 @@ impl SceneComposer {
             width,
             height,
         })
+    }
+
+    /// Storage GLES renders into and the composer samples: its buffer, the
+    /// imported image, the EGLImage and the GL texture bound to it. The
+    /// raster context is current. Takes no composer state.
+    fn shared_storage(
+        &self,
+        width: u32,
+        height: u32,
+        fourcc: Fourcc,
+        modifiers: &[Modifier],
+        gl: &super::GlApi,
+        display: &smithay::backend::egl::EGLDisplay,
+    ) -> Option<(GbmBuffer, Arc<Image>, usize, u32)> {
+        if width == 0 || height == 0 || width > 16384 || height > 16384 {
+            return None;
+        }
+        // GBM picks among them: only those the image imports with, and
+        // without one whose allocation did not import.
+        let mut modifiers = self.gpu.0.importable(fourcc, (width, height), modifiers);
+        let (bo, image, egl_image) = loop {
+            if modifiers.is_empty() {
+                warn!(
+                    width,
+                    height,
+                    ?fourcc,
+                    "no composer storage modifier imports at this size"
+                );
+                return None;
+            }
+            let bo = {
+                let gbm = lock(&self.gbm);
+                let raw = gbm
+                    .create_buffer_object_with_modifiers::<()>(
+                        width,
+                        height,
+                        fourcc,
+                        modifiers.iter().copied(),
+                    )
+                    .map_err(
+                        |error| warn!(%error, width, height, "composer storage allocation failed"),
+                    )
+                    .ok()?;
+                GbmBuffer::from_bo(raw, false)
+            };
+            let dmabuf = bo
+                .export()
+                .map_err(|error| warn!(%error, "composer storage export failed"))
+                .ok()?;
+            let imported = self
+                .gpu
+                .import(&dmabuf, Usage::Sampled)
+                .map_err(|error| error.to_string())
+                .and_then(|image| {
+                    display
+                        .create_image_from_dmabuf(&dmabuf)
+                        .map(|egl_image| (image, egl_image))
+                        .map_err(|error| format!("EGLImage: {error}"))
+                });
+            match imported {
+                Ok((image, egl_image)) => break (bo, image, egl_image),
+                Err(error) => {
+                    let chosen = smithay::backend::allocator::Buffer::format(&dmabuf).modifier;
+                    warn!(%error, ?chosen, "composer storage import failed; trying another modifier");
+                    let before = modifiers.len();
+                    modifiers.retain(|modifier| *modifier != chosen);
+                    if modifiers.len() == before {
+                        return None;
+                    }
+                }
+            }
+        };
+        let mut gl_texture = 0;
+        let mut previous_texture = 0;
+        // SAFETY: the raster context is current (the engine's contract for
+        // acquire_writer, the stage's for conversions); the image is live.
+        // The engine's texture binding is put back.
+        let error = unsafe {
+            let _ = (gl.get_error)();
+            (gl.get_integer_v)(super::gl::TEXTURE_BINDING_2D, &mut previous_texture);
+            (gl.gen_textures)(1, &mut gl_texture);
+            (gl.bind_texture)(super::gl::TEXTURE_2D, gl_texture);
+            (gl.image_target_texture)(super::gl::TEXTURE_2D, egl_image.cast());
+            (gl.bind_texture)(super::gl::TEXTURE_2D, previous_texture as u32);
+            (gl.get_error)()
+        };
+        if gl_texture == 0 || error != super::gl::NO_ERROR {
+            warn!(
+                error = format_args!("{error:#x}"),
+                "composer storage GL binding failed"
+            );
+            // SAFETY: as above; the texture and image have not escaped.
+            unsafe {
+                if gl_texture != 0 {
+                    (gl.delete_textures)(1, &gl_texture);
+                }
+                smithay::backend::egl::ffi::egl::DestroyImageKHR(
+                    display.get_display_handle().handle,
+                    egl_image as *const std::ffi::c_void,
+                );
+            }
+            return None;
+        }
+        Some((bo, image, egl_image as usize, gl_texture))
+    }
+
+    /// The device was lost: every later frame declines.
+    pub(super) fn broken(&self) -> bool {
+        lock(&self.state).broken
+    }
+
+    /// The device the engine renders on, when it renders with Vulkan.
+    pub(super) fn shell_device(&self) -> Option<ShellDevice> {
+        self.shell.then(|| self.gpu.shell_device())
+    }
+
+    /// Whether the engine renders with Vulkan, so it composes a frame the
+    /// composer cannot stage itself from client copies the composer lends.
+    pub(super) fn lends_textures(&self) -> bool {
+        self.shell
+    }
+
+    /// Fresh private storage for one slice version the engine renders with
+    /// Impeller Vulkan on the shared queue. Raster thread.
+    pub(super) fn acquire_writer_vk(&self, width: u32, height: u32) -> Option<SliceWriterVk> {
+        if !self.shell || width == 0 || height == 0 || width > 16384 || height > 16384 {
+            return None;
+        }
+        let pooled = {
+            let mut state = lock(&self.state);
+            let found = state
+                .slice_pool
+                .iter()
+                .rposition(|(_, image)| image.size == (width, height));
+            found.map(|index| state.slice_pool.remove(index).1)
+        };
+        // A pooled image's contents are discarded: the engine clears every
+        // slice it renders, from UNDEFINED.
+        let image = if let Some(image) = pooled {
+            image
+        } else {
+            self.gpu
+                .private_image(
+                    (width, height),
+                    1,
+                    ash::vk::ImageUsageFlags::COLOR_ATTACHMENT
+                        | ash::vk::ImageUsageFlags::INPUT_ATTACHMENT
+                        | ash::vk::ImageUsageFlags::SAMPLED
+                        | ash::vk::ImageUsageFlags::TRANSFER_SRC
+                        | ash::vk::ImageUsageFlags::TRANSFER_DST,
+                )
+                .map_err(|error| warn!(%error, width, height, "composer slice allocation failed"))
+                .ok()?
+        };
+        let writer = SliceWriterVk {
+            struct_size: 0,
+            key: SliceKey {
+                allocation: self.next_allocation.fetch_add(1, Ordering::Relaxed),
+                generation: 1,
+            },
+            image: ash::vk::Handle::as_raw(image.image),
+            image_view: ash::vk::Handle::as_raw(image.view),
+            format: image.format.as_raw() as u32,
+            layout: ash::vk::ImageLayout::UNDEFINED.as_raw() as u32,
+            width,
+            height,
+        };
+        let slice = Slice {
+            _bo: None,
+            egl_image: 0,
+            gl_texture: 0,
+            image: Arc::new(image),
+            engine_ref: true,
+            last_serial: 0,
+        };
+        lock(&self.state)
+            .slices
+            .insert(writer.key.allocation, slice);
+        Some(writer)
     }
 
     /// The engine composes a frame itself from composer storage. GLES is
@@ -777,7 +1089,9 @@ impl SceneComposer {
     /// present's fence while it may still run.
     pub(super) fn producer_wait(&self, staged: &Staged) -> ProducerWait {
         let mut state = lock(&self.state);
-        if staged.rewritten || state.producer_pending || state.gles_read {
+        // Vulkan-written slices precede the submission on the same queue.
+        let slices_from_gles = !self.shell && (staged.rewritten || state.producer_pending);
+        if slices_from_gles || state.gles_read || lock(&self.converts).unwaited {
             return ProducerWait::Fresh;
         }
         match state.last_gles_fence.as_ref().and_then(share) {
@@ -790,8 +1104,11 @@ impl SceneComposer {
     }
 
     /// Draws `staged` into `framebuffer` after `wait`. Returns the
-    /// submission's completion, None when it already completed. A failure
-    /// disables the composer.
+    /// submission's completion, None when it already completed.
+    ///
+    /// A failed submission draws nothing and leaves the composer usable:
+    /// the view's next frame redraws and reports everything, and waits for
+    /// all GLES work. Only a lost device disables the composer.
     pub(super) fn submit(
         &self,
         staged: &mut Staged,
@@ -799,12 +1116,73 @@ impl SceneComposer {
         damage: FrameDamage<'_>,
         wait: Option<OwnedFd>,
     ) -> Result<Submitted, String> {
-        let mut state = lock(&self.state);
-        let result = Self::submit_locked(&mut state, &self.gpu, staged, framebuffer, damage, wait);
+        let (mut state, result) = match self.lock_free_frame() {
+            Ok(mut state) => {
+                let result =
+                    Self::submit_locked(&mut state, &self.gpu, staged, framebuffer, damage, wait);
+                (state, result)
+            }
+            Err(error) => (lock(&self.state), Err(error)),
+        };
         if result.is_err() {
-            state.broken = true;
+            if device::device_lost() {
+                state.broken = true;
+            }
+            state.unaccount(staged.view_id);
+            // The producer wait this submission took is gone with it.
+            state.producer_pending = true;
+        } else {
+            // `producer_wait` gave a fresh fence while conversions were
+            // unwaited: this submission followed them.
+            self.conversions_waited();
         }
         result
+    }
+
+    /// The state, once a frame is free to record or one more may be made.
+    /// With every frame in flight, waits for the oldest outside the lock,
+    /// for at most `FRAME_WAIT`: the GPU has stopped completing work.
+    fn lock_free_frame(&self) -> Result<std::sync::MutexGuard<'_, State>, String> {
+        let deadline = std::time::Instant::now() + FRAME_WAIT;
+        loop {
+            let mut state = lock(&self.state);
+            if state.frames.len() < MAX_FRAMES || state.frames.iter_mut().any(Frame::idle) {
+                return Ok(state);
+            }
+            if device::device_lost() {
+                return Err("Vulkan composer: device lost".into());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "Vulkan composer: no frame completed within {} ms",
+                    FRAME_WAIT.as_millis()
+                ));
+            }
+            let oldest = state
+                .frames
+                .iter()
+                .min_by_key(|frame| frame.serial)
+                .and_then(Frame::pending_completion);
+            drop(state);
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let waited = match oldest {
+                Some(completion) => device::wait_fd(
+                    completion.as_fd(),
+                    left.as_millis().min(i32::MAX as u128) as i32,
+                ),
+                // Tracked by its fence alone (its completion could not be
+                // exported or copied): look again shortly.
+                None => {
+                    std::thread::sleep(left.min(std::time::Duration::from_millis(1)));
+                    false
+                }
+            };
+            if waited {
+                // The sync file signals just before the fence: let the
+                // fence catch up rather than spin on the lock.
+                std::thread::yield_now();
+            }
+        }
     }
 
     fn submit_locked(
@@ -826,16 +1204,8 @@ impl SceneComposer {
                 state.frames.push(Frame::new(gpu)?);
                 state.frames.len() - 1
             }
-            None => {
-                // Every frame in flight: wait for the oldest.
-                let oldest = (0..state.frames.len())
-                    .min_by_key(|&index| state.frames[index].serial)
-                    .unwrap_or(0);
-                while !state.frames[oldest].idle() {
-                    std::thread::yield_now();
-                }
-                oldest
-            }
+            // `lock_free_frame` returns with a frame free or room for one.
+            None => return Err("Vulkan composer: every frame in flight".into()),
         };
         let (output_from_scene, size) = (staged.output_from_scene, target.size);
         let to_target = |rects| target_damage(rects, output_from_scene, size);
@@ -962,6 +1332,7 @@ impl SceneComposer {
                                 plan: material.plan,
                                 backdrop_token: staged.backdrop_tokens[material.record as usize],
                                 engine_token: staged.engine_tokens[material.record as usize],
+                                identity: unique_token(&staged.engine_tokens, material.record),
                                 scene_revision: staged.scene_revision,
                                 damaged: false,
                             },
@@ -976,7 +1347,14 @@ impl SceneComposer {
             .frosts
             .retain(|&(view, order), _| view != staged.view_id || order < count);
         state.last_completion = completion.as_ref().and_then(share);
-        state.unaccounted.retain(|&view| view != view_id);
+        if staged.scene_revision & ENGINE_COMPOSED != 0 {
+            // The engine drew this frame: the next one the composer draws
+            // redraws and reports the whole target, so no pixels of two
+            // renderers mix.
+            state.unaccount(view_id);
+        } else {
+            state.unaccounted.retain(|&view| view != view_id);
+        }
         let added = (!record::pixels_empty(added))
             .then(|| scene_rect(&output_from_scene, added))
             .flatten();
@@ -997,16 +1375,27 @@ impl SceneComposer {
                 continue;
             };
             let token = staged.backdrop_tokens[material.record as usize];
+            let engine_token = unique_token(&staged.engine_tokens, material.record);
             let cached = state.frosts.get(&(staged.view_id, material.record));
             let region = material.plan.region;
             let below_changed = remade
                 .iter()
                 .any(|&output| record::pixels_overlap(output, region));
-            // A tracked token says whether the scene below changed; else no
-            // engine damage in the frost's region within one layered build.
+            // A tracked token says whether the scene below changed. Else no
+            // engine damage in the frost's region since it was made, for the
+            // same material: the one this order names within one layered
+            // build, or across builds the one with the same engine token, one
+            // no other material of either frame shares (it changes with the
+            // scene below; grouped materials share one). The composer
+            // accounts every frame's damage to its frosts; a frame it did
+            // not draw drops them.
             let unchanged = |cached: &CachedFrost| match token {
                 Some(_) => cached.backdrop_token == token,
-                None => !cached.damaged && cached.scene_revision == staged.scene_revision,
+                None => {
+                    !cached.damaged
+                        && (cached.scene_revision == staged.scene_revision
+                            || (engine_token.is_some() && cached.identity == engine_token))
+                }
             };
             if let Some(cached) = cached {
                 // Diagnostic: why a cached frost is made again.
@@ -1016,7 +1405,10 @@ impl SceneComposer {
                     2
                 } else if token.is_some() && cached.backdrop_token != token {
                     3
-                } else if token.is_none() && cached.scene_revision != staged.scene_revision {
+                } else if token.is_none()
+                    && cached.scene_revision != staged.scene_revision
+                    && (engine_token.is_none() || cached.identity != engine_token)
+                {
                     4
                 } else if token.is_none() && cached.damaged {
                     5
@@ -1060,10 +1452,27 @@ impl SceneComposer {
         state.uploads.clear();
         state.frosts.clear();
         state.targets.clear();
+        drop(state);
+        self.shutdown_conversions(gl, display);
     }
 }
 
+/// Material `record`'s engine token when no other material of the frame has
+/// it.
+fn unique_token(tokens: &[Option<i64>], record: u32) -> Option<i64> {
+    let token = tokens[record as usize]?;
+    (tokens.iter().filter(|&&other| other == Some(token)).count() == 1).then_some(token)
+}
+
+/// What a pooled slice image holds, RGBA8.
+fn slice_bytes(image: &Image) -> u64 {
+    u64::from(image.size.0) * u64::from(image.size.1) * 4
+}
+
 fn destroy_gl(gl: &super::GlApi, display: &super::EGLDisplayHandle, slice: &Slice) {
+    if slice.egl_image == 0 {
+        return;
+    }
     // SAFETY: the raster context is current; the engine no longer uses the
     // texture (drop_engine_ref) and GL keeps storage alive for its own queued
     // commands.
@@ -1104,6 +1513,28 @@ pub(super) enum Client {
         /// The app's look, graded as the client is sampled.
         look: Option<Arc<Lut>>,
     },
+    /// A buffer neither the composer nor GLES can read: not drawn, as the
+    /// GLES pass leaves it out, and still counted as shown so the texture
+    /// moves on to its next buffer.
+    Omitted(SampledClient),
+    /// `sampled`'s pixels as GLES grades them, drawn into `image`
+    /// (`SceneComposer::converted`).
+    Converted {
+        placement: Placement,
+        sampled: SampledClient,
+        image: Arc<Image>,
+    },
+}
+
+/// What the handler resolves while the composer stages a scene. Neither
+/// call may take the composer's state, which `stage` holds.
+pub(super) trait Resolve {
+    /// What texture `texture_id` shows within `bounds`.
+    fn client(&mut self, texture_id: i64, bounds: Rect) -> Result<Client, Decline>;
+    /// `sampled` copied by GLES into an image the composer samples, for a
+    /// buffer the composer could not import or upload; None when GLES
+    /// cannot read it either, so the GLES pass leaves it out too.
+    fn copy(&mut self, sampled: &SampledClient) -> Result<Option<Arc<Image>>, Decline>;
 }
 
 /// A native window whose layers the composer merges, as the GLES pass
@@ -1126,6 +1557,68 @@ pub(super) struct MergedLayer {
     pub(super) uv: [[f32; 2]; 3],
     pub(super) limits: [f32; 4],
     pub(super) opacity: f32,
+    /// What changed between the client's recent buffers.
+    pub(super) history: super::DamageHistory,
+}
+
+impl MergedLayer {
+    /// The image pixels that show `rects` of the client's buffer, as bounds
+    /// `[left, top, right, bottom]` one pixel wider, for filtering, and
+    /// within the quad; None when the mapping is degenerate.
+    fn shown(&self, rects: &[[i32; 4]]) -> Option<[f64; 4]> {
+        let (width, height) = self.sampled.source.pixel_size();
+        let [upper_left, upper_right, lower_left] =
+            self.uv.map(|[u, v]| [f64::from(u), f64::from(v)]);
+        // The quad's corners sample these points: solve a point's position
+        // along the quad's two edges from its texture coordinates.
+        let across = [
+            upper_right[0] - upper_left[0],
+            upper_right[1] - upper_left[1],
+        ];
+        let down = [lower_left[0] - upper_left[0], lower_left[1] - upper_left[1]];
+        let determinant = across[0] * down[1] - across[1] * down[0];
+        if determinant.abs() < 1e-12 || width == 0 || height == 0 {
+            return None;
+        }
+        let [left, top, right, bottom] = self.quad.map(f64::from);
+        let position = |x: f64, y: f64| {
+            let point = [
+                x / f64::from(width) - upper_left[0],
+                y / f64::from(height) - upper_left[1],
+            ];
+            let s = (point[0] * down[1] - point[1] * down[0]) / determinant;
+            let t = (across[0] * point[1] - across[1] * point[0]) / determinant;
+            [left + s * (right - left), top + t * (bottom - top)]
+        };
+        let mut bounds = [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        for &[x, y, w, h] in rects {
+            let (x, y, w, h) = (f64::from(x), f64::from(y), f64::from(w), f64::from(h));
+            for [px, py] in [
+                position(x, y),
+                position(x + w, y),
+                position(x, y + h),
+                position(x + w, y + h),
+            ] {
+                bounds = [
+                    bounds[0].min(px),
+                    bounds[1].min(py),
+                    bounds[2].max(px),
+                    bounds[3].max(py),
+                ];
+            }
+        }
+        Some([
+            (bounds[0] - 1.0).max(left.min(right)),
+            (bounds[1] - 1.0).max(top.min(bottom)),
+            (bounds[2] + 1.0).min(left.max(right)),
+            (bounds[3] + 1.0).min(top.max(bottom)),
+        ])
+    }
 }
 
 /// The storage a client's pixels live in, without keeping it.
@@ -1148,15 +1641,20 @@ struct MergeKey {
     opacity: f32,
 }
 
+impl Backing {
+    fn of(source: &super::ExternalTextureSource) -> Self {
+        match source {
+            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => Self::Dmabuf(dmabuf.weak()),
+            super::ExternalTextureSource::Shm(frame) => Self::Shm(frame.pixels_id()),
+        }
+    }
+}
+
 impl MergeKey {
     fn new(layer: &MergedLayer) -> Self {
-        let backing = match &layer.sampled.source {
-            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => Backing::Dmabuf(dmabuf.weak()),
-            super::ExternalTextureSource::Shm(frame) => Backing::Shm(frame.pixels_id()),
-        };
         Self {
             texture_id: layer.sampled.texture_id,
-            backing,
+            backing: Backing::of(&layer.sampled.source),
             generation: layer.sampled.generation,
             quad: layer.quad,
             uv: layer.uv,
@@ -1169,6 +1667,16 @@ impl MergeKey {
 /// Why a frame stays with the engine.
 pub(super) type Decline = &'static str;
 
+/// A client buffer as the composer reads it.
+enum Resolved {
+    /// Imported or uploaded.
+    Read(Arc<Image>),
+    /// Copied by GLES (`Resolve::copy`).
+    Copied(Arc<Image>),
+    /// Neither the composer nor GLES can read it.
+    Unreadable,
+}
+
 /// Merged native window images the composer keeps, as the GLES pool's
 /// budget.
 const MERGED_BYTES: u64 = 512 << 20;
@@ -1177,13 +1685,80 @@ fn image_bytes((width, height): (u32, u32)) -> u64 {
     u64::from(width) * u64::from(height) * 4
 }
 
+/// The pixels of a merged image that change from the layers it `held` to
+/// `keys`, `[x, y, width, height]`: None when the whole image is drawn
+/// again, Some(None) when nothing that shows changed.
+fn changed_area(
+    held: &[MergeKey],
+    keys: &[MergeKey],
+    layers: &[MergedLayer],
+    (width, height): (u32, u32),
+) -> Option<Option<[u32; 4]>> {
+    if held.len() != keys.len() {
+        return None;
+    }
+    let mut bounds: Option<[f64; 4]> = None;
+    for ((held, key), layer) in held.iter().zip(keys).zip(layers) {
+        if held == key {
+            continue;
+        }
+        // Only a new buffer in the same place, both DMA-BUFs: their
+        // generations name one history.
+        let same_place = held.texture_id == key.texture_id
+            && held.quad == key.quad
+            && held.uv == key.uv
+            && held.limits == key.limits
+            && held.opacity == key.opacity
+            && matches!(
+                (&held.backing, &key.backing),
+                (Backing::Dmabuf(_), Backing::Dmabuf(_))
+            );
+        if !same_place {
+            return None;
+        }
+        let rects = layer.history.between(held.generation, key.generation)?;
+        if rects.is_empty() {
+            continue;
+        }
+        let [left, top, right, bottom] = layer.shown(&rects)?;
+        if right <= left || bottom <= top {
+            continue;
+        }
+        bounds = Some(match bounds {
+            None => [left, top, right, bottom],
+            Some(b) => [
+                b[0].min(left),
+                b[1].min(top),
+                b[2].max(right),
+                b[3].max(bottom),
+            ],
+        });
+    }
+    let Some([left, top, right, bottom]) = bounds else {
+        return Some(None);
+    };
+    let left = left.floor().clamp(0.0, f64::from(width)) as u32;
+    let top = top.floor().clamp(0.0, f64::from(height)) as u32;
+    let right = right.ceil().clamp(0.0, f64::from(width)) as u32;
+    let bottom = bottom.ceil().clamp(0.0, f64::from(height)) as u32;
+    if right <= left || bottom <= top {
+        return Some(None);
+    }
+    Some(Some([left, top, right - left, bottom - top]))
+}
+
 /// Declines a scene whose texture shows other pixels than where it was
 /// drawn before in it: draws share one image per texture, and the handler
 /// credits each staged generation as sampled.
 fn resolved_once(staged: &Staged, sampled: &SampledClient) -> Result<(), Decline> {
-    let changed = staged.clients.iter().any(|seen| {
-        seen.texture_id == sampled.texture_id && !seen.source.same_generation(&sampled.source)
-    });
+    let changed = staged
+        .clients
+        .iter()
+        .chain(&staged.credits)
+        .chain(&staged.omitted)
+        .any(|seen| {
+            seen.texture_id == sampled.texture_id && !seen.source.same_generation(&sampled.source)
+        });
     if changed {
         return Err("texture changed while staging");
     }
@@ -1199,21 +1774,28 @@ impl SceneComposer {
         state: &mut State,
         uploads: &mut Vec<Upload>,
         sampled: &SampledClient,
-    ) -> Result<Arc<Image>, Decline> {
+        resolve: &mut dyn Resolve,
+    ) -> Result<Resolved, Decline> {
         let dmabuf = match &sampled.source {
             super::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf,
             super::ExternalTextureSource::Shm(frame) => {
-                return self.shm_image(state, uploads, sampled.texture_id, frame);
+                return match self.shm_image(state, uploads, sampled.texture_id, frame) {
+                    Ok(image) => Ok(Resolved::Read(image)),
+                    Err(_) => Self::copied(resolve, sampled),
+                };
             }
         };
         let weak = dmabuf.weak();
         if let Some(import) = state.clients.get(&weak) {
-            return Ok(Arc::clone(&import.image));
+            return Ok(Resolved::Read(Arc::clone(&import.image)));
         }
-        let image = self.gpu.import(dmabuf, Usage::Sampled).map_err(|error| {
-            tracing::debug!(%error, "client buffer stays on GLES composition");
-            "client buffer import"
-        })?;
+        let image = match self.gpu.import(dmabuf, Usage::Sampled) {
+            Ok(image) => image,
+            Err(error) => {
+                tracing::debug!(%error, "client buffer copied by GLES for the composer");
+                return Self::copied(resolve, sampled);
+            }
+        };
         state.clients.insert(
             weak,
             ClientImport {
@@ -1221,7 +1803,14 @@ impl SceneComposer {
                 last_serial: state.serial,
             },
         );
-        Ok(image)
+        Ok(Resolved::Read(image))
+    }
+
+    fn copied(resolve: &mut dyn Resolve, sampled: &SampledClient) -> Result<Resolved, Decline> {
+        Ok(match resolve.copy(sampled)? {
+            Some(image) => Resolved::Copied(image),
+            None => Resolved::Unreadable,
+        })
     }
 
     fn shm_image(
@@ -1280,6 +1869,7 @@ impl SceneComposer {
         state: &mut State,
         staged: &mut Staged,
         client: Client,
+        resolve: &mut dyn Resolve,
     ) -> Result<Option<(Arc<Image>, Placement, Option<Arc<Lut>>)>, Decline> {
         match client {
             Client::Missing => Ok(None),
@@ -1289,16 +1879,45 @@ impl SceneComposer {
                 look,
             } => {
                 resolved_once(staged, &sampled)?;
-                let image = self.client_image(state, &mut staged.uploads, &sampled)?;
-                staged.clients.push(sampled);
-                Ok(Some((image, placement, look)))
+                match self.client_image(state, &mut staged.uploads, &sampled, resolve)? {
+                    Resolved::Read(image) => {
+                        staged.clients.push(sampled);
+                        Ok(Some((image, placement, look)))
+                    }
+                    // GLES read it; the pool holds the buffer until a
+                    // present follows that read.
+                    Resolved::Copied(image) => {
+                        staged.converted += 1;
+                        staged.credits.push(sampled);
+                        Ok(Some((image, placement, look)))
+                    }
+                    Resolved::Unreadable => {
+                        staged.omitted.push(sampled);
+                        Ok(None)
+                    }
+                }
+            }
+            Client::Omitted(sampled) => {
+                resolved_once(staged, &sampled)?;
+                staged.omitted.push(sampled);
+                Ok(None)
+            }
+            Client::Converted {
+                placement,
+                sampled,
+                image,
+            } => {
+                resolved_once(staged, &sampled)?;
+                staged.converted += 1;
+                staged.credits.push(sampled);
+                Ok(Some((image, placement, None)))
             }
             Client::Merged {
                 placement,
                 merged,
                 look,
             } => Ok(Some((
-                self.merged_image(state, staged, merged)?,
+                self.merged_image(state, staged, merged, resolve)?,
                 placement,
                 look,
             ))),
@@ -1312,6 +1931,7 @@ impl SceneComposer {
         state: &mut State,
         staged: &mut Staged,
         merged: MergedClient,
+        resolve: &mut dyn Resolve,
     ) -> Result<Arc<Image>, Decline> {
         let keys: Vec<MergeKey> = merged.layers.iter().map(MergeKey::new).collect();
         // Shown twice in one frame: the first resolution stands.
@@ -1346,6 +1966,29 @@ impl SceneComposer {
             });
             return Ok(image);
         }
+        // What changed since the image was last drawn, when only its
+        // layers' buffers did: the rest of the image stays.
+        let area = match cached {
+            Some((image, Some(held))) => changed_area(held, &keys, &merged.layers, image.size),
+            _ => None,
+        };
+        if let Some(None) = area {
+            // Nothing that shows changed.
+            let image = Arc::clone(&cached.expect("changed from a drawn image").0);
+            staged
+                .credits
+                .extend(merged.layers.into_iter().map(|layer| layer.sampled));
+            staged.credits.extend(merged.unseen);
+            staged.merges_reused += 1;
+            staged.merged_windows.push(MergedWindow {
+                texture_id: merged.texture_id,
+                keys,
+                image: Arc::clone(&image),
+                drawn: true,
+            });
+            return Ok(image);
+        }
+        let area = area.flatten();
         let image = match cached {
             Some((image, _)) => Arc::clone(image),
             None => {
@@ -1368,7 +2011,14 @@ impl SceneComposer {
         let mut batches: Vec<Batch> = Vec::with_capacity(merged.layers.len());
         for layer in merged.layers {
             resolved_once(staged, &layer.sampled)?;
-            let input = self.client_image(state, &mut staged.uploads, &layer.sampled)?;
+            let (input, copied) =
+                match self.client_image(state, &mut staged.uploads, &layer.sampled, resolve)? {
+                    Resolved::Read(image) => (image, false),
+                    Resolved::Copied(image) => (image, true),
+                    // The GLES merge cannot read it either and leaves the
+                    // window to its surfaces.
+                    Resolved::Unreadable => return Err("native window input GLES cannot read"),
+                };
             let draw = record::merged_layer(
                 merged.size,
                 layer.quad,
@@ -1389,12 +2039,18 @@ impl SceneComposer {
                     count: 1,
                 }),
             }
-            staged.clients.push(layer.sampled);
+            if copied {
+                staged.converted += 1;
+                staged.credits.push(layer.sampled);
+            } else {
+                staged.clients.push(layer.sampled);
+            }
         }
         staged.credits.extend(merged.unseen);
         staged.merges.push(Merge {
             image: Arc::clone(&image),
             batches,
+            area,
         });
         // The cache takes the image once a submission drew it.
         staged.merged_windows.push(MergedWindow {
@@ -1440,7 +2096,7 @@ impl SceneComposer {
         source: SceneSource<'_>,
         (width, height): (u32, u32),
         copyable: bool,
-        mut resolve: impl FnMut(i64, Rect) -> Result<Client, Decline>,
+        resolve: &mut dyn Resolve,
     ) -> Result<(), Decline> {
         let mut state = lock(&self.state);
         if state.broken || source.ticket() != state.ticket {
@@ -1476,10 +2132,16 @@ impl SceneComposer {
                 rewritten: !scene.rewritten.is_empty(),
                 clients: Vec::new(),
                 credits: Vec::new(),
+                omitted: Vec::new(),
                 uploads: Vec::new(),
                 merges: Vec::new(),
                 merged_windows: Vec::new(),
                 merges_reused: 0,
+                converted: 0,
+                covers: Vec::new(),
+                culled_draws: 0,
+                culled_materials: 0,
+                full_cover: None,
             };
             let push = |staged: &mut Staged,
                         draw: Draw,
@@ -1555,9 +2217,9 @@ impl SceneComposer {
                         local,
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
-                        let client = resolve(*texture_id, *bounds)?;
+                        let client = resolve.client(*texture_id, *bounds)?;
                         let Some((image, placement, look)) =
-                            self.resolved_image(&mut state, &mut staged, client)?
+                            self.resolved_image(&mut state, &mut staged, client, resolve)?
                         else {
                             continue;
                         };
@@ -1566,6 +2228,15 @@ impl SceneComposer {
                             record::texture(local, clips, &ndc_from_scene, &placement, image.size)
                                 .ok_or("texture transform")?
                                 .with_look(look.is_some());
+                        staged.note_cover(&draw, (width, height), || {
+                            draw.why_no_cover(image.opaque, None, (width, height))
+                        });
+                        if image.opaque {
+                            let index = staged.draws.len() as u32;
+                            for cover in draw.opaque(None, (width, height)).into_iter().flatten() {
+                                staged.covers.push((index, cover));
+                            }
+                        }
                         push(
                             &mut staged,
                             draw,
@@ -1584,9 +2255,9 @@ impl SceneComposer {
                         local,
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
-                        let client = resolve(*texture_id, *texture_bounds)?;
+                        let client = resolve.client(*texture_id, *texture_bounds)?;
                         let (image, look) =
-                            match self.resolved_image(&mut state, &mut staged, client)? {
+                            match self.resolved_image(&mut state, &mut staged, client, resolve)? {
                                 Some((image, placement, look)) => (Some((image, placement)), look),
                                 None => (None, None),
                             };
@@ -1632,7 +2303,28 @@ impl SceneComposer {
                             }
                             None => None,
                         };
+                        let surface = image.as_ref().and_then(|(image, placement)| {
+                            image
+                                .opaque
+                                .then(|| record::window_surface(texture_transform, placement))
+                                .flatten()
+                        });
+                        staged.note_cover(&draw, (width, height), || match (&image, &behind) {
+                            (None, _) => Some("window without a client image"),
+                            (Some(_), Some(_)) => Some("window over a material"),
+                            (Some((image, _)), None) => {
+                                draw.why_no_cover(image.opaque, surface, (width, height))
+                            }
+                        });
                         let Some((material, behind)) = behind else {
+                            if surface.is_some() {
+                                let index = staged.draws.len() as u32;
+                                for cover in
+                                    draw.opaque(surface, (width, height)).into_iter().flatten()
+                                {
+                                    staged.covers.push((index, cover));
+                                }
+                            }
                             push(&mut staged, draw, &bound, &look_image, nearest);
                             continue;
                         };
@@ -1707,6 +2399,7 @@ impl SceneComposer {
                     }
                 }
             }
+            cull(&mut staged, (width, height));
             if !self.gpu.records_fit(
                 staged.draws.len(),
                 staged.glasses.len(),
@@ -1719,6 +2412,20 @@ impl SceneComposer {
         })();
         match result {
             Ok(staged) => {
+                if state.full_covers.get(&staged.view_id) != Some(&staged.full_cover) {
+                    state.full_covers.insert(staged.view_id, staged.full_cover);
+                    match staged.full_cover {
+                        Some(None) => info!(
+                            view = staged.view_id,
+                            "a client covers the whole output: what it hides is not drawn"
+                        ),
+                        Some(Some(why)) => info!(
+                            view = staged.view_id,
+                            why, "a client over the whole output is no cover"
+                        ),
+                        None => info!(view = staged.view_id, "no client over the whole output"),
+                    }
+                }
                 // The engine stops tracking the new versions now: until a
                 // submission waits for them, they stay owed.
                 state.producer_pending |= staged.rewritten;
@@ -1733,6 +2440,75 @@ impl SceneComposer {
             }
         }
     }
+}
+
+/// Leaves out what opaque draws above hide: a hidden draw gets a quad
+/// without area, a hidden material (its frost, its glass and the window
+/// over it) its step. Only one cover must hold a hidden draw whole; the
+/// target keeps what is below a cover, so a culled draw changes no pixel.
+///
+/// A cached frost of a material left out keeps taking the engine's damage,
+/// so it is made again when the material shows again.
+fn cull(staged: &mut Staged, size: (u32, u32)) {
+    let mut above: Vec<[i32; 4]> = Vec::new();
+    let mut covers = std::mem::take(&mut staged.covers);
+    // Pixels past the target do not exist: only what a draw changes on it
+    // must be covered, and a draw that changes nothing there is hidden.
+    let target = [0, 0, size.0 as i32, size.1 as i32];
+    let hidden = |above: &[[i32; 4]], bounds: [i32; 4]| {
+        let bounds = record::pixels_intersect(bounds, target);
+        record::pixels_empty(bounds)
+            || above
+                .iter()
+                .any(|&cover| record::pixels_contain(cover, bounds))
+    };
+    let mut steps = std::mem::take(&mut staged.steps);
+    let mut kept = Vec::with_capacity(steps.len());
+    while let Some(step) = steps.pop() {
+        match step {
+            Step::Draws(batch) => {
+                let mut shown = 0;
+                for index in (batch.first..batch.first + batch.count).rev() {
+                    let draw = &mut staged.draws[index as usize];
+                    if hidden(&above, draw.bounds(size)) {
+                        draw.hide();
+                        staged.culled_draws += 1;
+                    } else {
+                        shown += 1;
+                    }
+                    while let Some(&(cover_index, cover)) = covers.last()
+                        && cover_index >= index
+                    {
+                        covers.pop();
+                        if cover_index == index {
+                            above.push(cover);
+                        }
+                    }
+                }
+                if shown > 0 {
+                    kept.push(Step::Draws(batch));
+                }
+            }
+            Step::Material(material) => {
+                let output = staged.outputs[material.record as usize];
+                let bounds = match &material.window {
+                    Some(window) => record::pixels_union(
+                        output,
+                        staged.draws[window.draw as usize].bounds(size),
+                    ),
+                    None => output,
+                };
+                if hidden(&above, bounds) {
+                    staged.culled_materials += 1;
+                } else {
+                    kept.push(Step::Material(material));
+                }
+            }
+        }
+    }
+    kept.reverse();
+    staged.steps = kept;
+    staged.covers = covers;
 }
 
 #[cfg(test)]

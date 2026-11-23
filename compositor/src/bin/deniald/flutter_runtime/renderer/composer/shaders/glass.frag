@@ -23,6 +23,9 @@ void main() {
                           dot(GLASS.scene2.xyz, p));
   const float clip = clipsCoverage(GLASS.clip_first, GLASS.clip_count, scene.xy / scene.z);
   // No discard: derivatives stay defined for the whole quad.
+  // A turned blur's edge, antialiased over one physical pixel as
+  // Impeller's analytic edges; before any branch, it takes derivatives.
+  const float bounds = GLASS.shaped_blur != 0u ? edge(boundsDistance(v_target)) : 1.0;
   const vec4 material = GLASS.mode == kModeGlass ? glass(v_target) : sampleFrost(v_target);
-  frag_color = material * (GLASS.opacity * clip);
+  frag_color = material * (GLASS.opacity * clip * bounds);
 }

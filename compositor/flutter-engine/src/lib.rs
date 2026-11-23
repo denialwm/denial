@@ -43,7 +43,7 @@ type SetTexturePresentationCallback = unsafe extern "C" fn(
 pub use host::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineEvent, EngineHost,
     EngineProject, HostError, OpenGlHandler, PlatformMessage, PresentFrame, PresentView,
-    ScheduledTask,
+    ScheduledTask, VulkanRenderer,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -227,6 +227,29 @@ impl fmt::Display for EngineError {
 
 impl Error for EngineError {}
 
+/// What changed in one texture's next frame (`Engine::set_texture_damage`).
+#[derive(Clone, Copy, Debug)]
+pub struct TextureDamage<'a> {
+    pub texture_id: i64,
+    /// `[x, y, width, height]` in unit coordinates of the rect the texture is
+    /// painted into. Empty: nothing changed.
+    pub rects: &'a [[f64; 4]],
+}
+
+#[repr(C)]
+struct DenialFlutterTextureDamage {
+    struct_size: usize,
+    texture_id: i64,
+    rect_count: usize,
+    rects: *const f64,
+}
+
+type SetTextureDamage = unsafe extern "C" fn(
+    sys::FlutterEngine,
+    *const DenialFlutterTextureDamage,
+    usize,
+) -> sys::FlutterEngineResult;
+
 type RenderOutputsWithCompletion = unsafe extern "C" fn(
     sys::FlutterEngine,
     *const i64,
@@ -298,6 +321,7 @@ pub struct EngineLibrary {
         u64,
     ) -> sys::FlutterEngineResult,
     render_outputs_with_completion: Option<RenderOutputsWithCompletion>,
+    set_texture_damage: Option<SetTextureDamage>,
     set_external_texture_gl_state_callback: unsafe extern "C" fn(
         sys::FlutterEngine,
         Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
@@ -379,6 +403,14 @@ impl EngineLibrary {
                 .get::<RenderOutputsWithCompletion>(
                     b"DenialFlutterEngineRenderOutputsWithCompletion\0",
                 )
+                .ok()
+                .map(|function| *function)
+        };
+        // SAFETY: this additive extension has the signature of
+        // `SetTextureDamage`; an engine without it damages textures whole.
+        let set_texture_damage = unsafe {
+            library
+                .get::<SetTextureDamage>(b"DenialFlutterEngineSetTextureDamage\0")
                 .ok()
                 .map(|function| *function)
         };
@@ -465,6 +497,7 @@ impl EngineLibrary {
             schedule_frame_for_external_textures,
             render_outputs,
             render_outputs_with_completion,
+            set_texture_damage,
             set_external_texture_gl_state_callback,
             set_texture_presentation_callback,
             set_scene_composer,
@@ -999,6 +1032,34 @@ impl RunningEngine {
         // custom API synchronously copies all texture identifiers.
         check_result("ScheduleFrameForExternalTextures", unsafe {
             function(self.handle, texture_ids.as_ptr(), texture_ids.len())
+        })
+    }
+
+    /// What changed in each texture's next frame, for the frame transaction
+    /// that follows: rects `[x, y, width, height]` in unit coordinates of the
+    /// rect the texture is painted into. A texture the transaction names
+    /// without damage here changed whole. Does nothing on an engine without
+    /// the extension.
+    pub fn set_texture_damage(&self, damage: &[TextureDamage<'_>]) -> Result<(), EngineError> {
+        let Some(function) = self.library.set_texture_damage else {
+            return Ok(());
+        };
+        if damage.is_empty() {
+            return Ok(());
+        }
+        let items = damage
+            .iter()
+            .map(|texture| DenialFlutterTextureDamage {
+                struct_size: std::mem::size_of::<DenialFlutterTextureDamage>(),
+                texture_id: texture.texture_id,
+                rect_count: texture.rects.len(),
+                rects: texture.rects.as_ptr().cast(),
+            })
+            .collect::<Vec<_>>();
+        // SAFETY: the engine is live; the items and their rects stay readable
+        // while the call copies them synchronously.
+        check_result("SetTextureDamage", unsafe {
+            function(self.handle, items.as_ptr(), items.len())
         })
     }
 

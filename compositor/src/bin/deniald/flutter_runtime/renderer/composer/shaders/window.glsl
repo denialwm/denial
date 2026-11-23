@@ -22,14 +22,26 @@ vec4 graded(uint index, vec4 color) {
   return clamp(vec4(looked * alpha, alpha), 0.0, 1.0);
 }
 
-// Bounds with one corner radius.
+// Local units per target pixel, from how the window's frame maps to the
+// target. Unlike fwidth of a distance, it does not jump where the distance
+// turns from one edge to the other (a square corner's diagonal): there
+// fwidth sums both axes, and a corner pixel whole inside the window was
+// drawn partly transparent.
+float localPixel(vec2 local) {
+  const vec2 dx = dFdx(local);
+  const vec2 dy = dFdy(local);
+  return sqrt(max(abs(dx.x * dy.y - dx.y * dy.x), 1e-12));
+}
+
+// Bounds with one corner radius: whole where a pixel's centre is half a
+// pixel inside.
 float roundedCoverage(vec2 position, vec4 bounds, float corner_radius) {
   vec2 half_size = max((bounds.zw - bounds.xy) * 0.5, vec2(0.0));
   corner_radius = clamp(corner_radius, 0.0, min(half_size.x, half_size.y));
   vec2 q = abs(position - (bounds.xy + bounds.zw) * 0.5) - half_size +
            corner_radius;
   float d = min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - corner_radius;
-  return edge(d);
+  return clamp(0.5 - d / localPixel(position), 0.0, 1.0);
 }
 
 vec2 surfaceUv(uint index, vec2 local) {

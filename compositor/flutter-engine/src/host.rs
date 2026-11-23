@@ -86,6 +86,22 @@ pub struct CompositorBackingStore {
     pub user_data: usize,
 }
 
+/// The Vulkan device the engine renders on instead of OpenGL: the
+/// embedder's own, shared with the engine (`OpenGlHandler::vulkan_renderer`).
+pub struct VulkanRenderer {
+    /// VK_API_VERSION the instance was created with.
+    pub version: u32,
+    /// VkInstance, VkPhysicalDevice, VkDevice, VkQueue.
+    pub instance: *mut c_void,
+    pub physical_device: *mut c_void,
+    pub device: *mut c_void,
+    pub queue_family_index: u32,
+    pub queue: *mut c_void,
+    /// Exactly what the instance and device were created with.
+    pub instance_extensions: Vec<&'static CStr>,
+    pub device_extensions: Vec<&'static CStr>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BackingStoreRequest {
     pub view_id: i64,
@@ -136,6 +152,20 @@ pub trait OpenGlHandler: Send + Sync + 'static {
     }
     fn populate_existing_damage(&self, framebuffer: isize, damage: &mut Vec<sys::FlutterRect>);
     fn resolve_proc(&self, name: &CStr) -> *mut c_void;
+
+    /// Renders the engine with Impeller Vulkan on this device instead of
+    /// OpenGL. Requires the scene composer: output frames reach the screen
+    /// only through it. `make_current` then opens each raster pass, and
+    /// `present` closes it with framebuffer 0; backing stores keep their
+    /// framebuffer as identity and are never drawn into by the engine.
+    fn vulkan_renderer(&self) -> Option<VulkanRenderer> {
+        None
+    }
+
+    /// `vkGetInstanceProcAddr` for the engine on `vulkan_renderer`'s device.
+    fn resolve_vulkan_proc(&self, _instance: *mut c_void, _name: &CStr) -> *mut c_void {
+        ptr::null_mut()
+    }
     fn event(&self, event: EngineEvent);
 
     /// Runs on Flutter's render thread after every raster task which was
@@ -176,6 +206,17 @@ pub trait OpenGlHandler: Send + Sync + 'static {
         None
     }
 
+    /// Raster thread: fresh storage for one slice the engine renders with
+    /// Impeller Vulkan (`vulkan_renderer`).
+    fn scene_acquire_writer_vk(
+        &self,
+        _ticket: u64,
+        _width: u32,
+        _height: u32,
+    ) -> Option<crate::scene::SliceWriterVk> {
+        None
+    }
+
     /// Raster thread: the frame's scene; copy it before returning. `false`
     /// has the engine compose the frame.
     fn scene_stage(&self, _scene: crate::scene::SceneSource<'_>) -> bool {
@@ -198,6 +239,34 @@ pub trait OpenGlHandler: Send + Sync + 'static {
     /// whether the composer holds the backdrop made from `token`, so the
     /// engine need not repaint what that backdrop reads.
     fn scene_pin_backdrop(&self, _ticket: u64, _token: i64) -> bool {
+        false
+    }
+
+    /// Raster thread, Vulkan renderer: the image showing client texture
+    /// `texture_id` for the engine's own composition of frame `ticket`, valid
+    /// until `scene_return_textures_vk(ticket)`.
+    fn scene_resolve_texture_vk(
+        &self,
+        _ticket: u64,
+        _texture_id: i64,
+    ) -> Option<crate::scene::TextureImageVk> {
+        None
+    }
+
+    /// Raster thread, before the engine submits that composition: every
+    /// resolved image readable by later submissions on the queue. False
+    /// skips the frame.
+    fn scene_lend_textures_vk(&self, _ticket: u64) -> bool {
+        false
+    }
+
+    /// Raster thread, after the engine submitted that composition or gave it
+    /// up: take the images back.
+    fn scene_return_textures_vk(&self, _ticket: u64) {}
+
+    /// Whether the composer lends client images, so the engine composes frames
+    /// it cannot stage (Vulkan renderer).
+    fn scene_lends_textures(&self) -> bool {
         false
     }
 
@@ -359,6 +428,8 @@ struct CallbackState {
     ) -> sys::FlutterEngineResult,
     raster_sentinel_pending: AtomicBool,
     render_shutdown: RenderShutdownBarrier,
+    /// The engine renders with Vulkan: backing stores are Vulkan stores.
+    vulkan: bool,
 }
 
 #[derive(Default)]
@@ -517,6 +588,7 @@ struct EngineHostState {
     _argv_pointers: Vec<*const std::ffi::c_char>,
     _dart_argv: Vec<CString>,
     _dart_argv_pointers: Vec<*const std::ffi::c_char>,
+    _vulkan_extensions: [Vec<*const std::ffi::c_char>; 2],
 }
 
 pub struct EngineHost {
@@ -604,7 +676,11 @@ impl EngineHost {
         let dart_argv = dart_arguments.to_vec();
         let dart_argv_pointers = dart_argv.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
 
+        let vulkan_renderer = handler
+            .vulkan_renderer()
+            .filter(|_| handler.scene_composer_enabled());
         let mut callback_state = Box::new(CallbackState {
+            vulkan: vulkan_renderer.is_some(),
             handler,
             platform_thread: thread::current().id(),
             platform_message_budget: Arc::new(PlatformMessageBudget::default()),
@@ -633,9 +709,49 @@ impl EngineHost {
             present_with_info: Some(present),
             populate_existing_damage: Some(populate_existing_damage),
         };
-        let renderer = Box::new(sys::FlutterRendererConfig {
-            type_: sys::FlutterRendererType_kOpenGL,
-            __bindgen_anon_1: sys::FlutterRendererConfig__bindgen_ty_1 { open_gl },
+        let mut vulkan_extensions: [Vec<*const std::ffi::c_char>; 2] = Default::default();
+        let renderer = Box::new(match &vulkan_renderer {
+            None => sys::FlutterRendererConfig {
+                type_: sys::FlutterRendererType_kOpenGL,
+                __bindgen_anon_1: sys::FlutterRendererConfig__bindgen_ty_1 { open_gl },
+            },
+            Some(device) => {
+                vulkan_extensions = [
+                    device
+                        .instance_extensions
+                        .iter()
+                        .map(|name| name.as_ptr())
+                        .collect(),
+                    device
+                        .device_extensions
+                        .iter()
+                        .map(|name| name.as_ptr())
+                        .collect(),
+                ];
+                let vulkan = sys::FlutterVulkanRendererConfig {
+                    struct_size: mem::size_of::<sys::FlutterVulkanRendererConfig>(),
+                    version: device.version,
+                    instance: device.instance,
+                    physical_device: device.physical_device,
+                    device: device.device,
+                    queue_family_index: device.queue_family_index,
+                    queue: device.queue,
+                    enabled_instance_extension_count: vulkan_extensions[0].len(),
+                    enabled_instance_extensions: vulkan_extensions[0].as_mut_ptr(),
+                    enabled_device_extension_count: vulkan_extensions[1].len(),
+                    enabled_device_extensions: vulkan_extensions[1].as_mut_ptr(),
+                    get_instance_proc_address_callback: Some(resolve_vulkan_proc),
+                    get_next_image_callback: Some(vulkan_next_image),
+                    present_image_callback: Some(vulkan_present_image),
+                    denial_begin_frame_callback: Some(make_current),
+                    denial_present_callback: Some(present),
+                    denial_populate_existing_damage: Some(populate_existing_damage),
+                };
+                sys::FlutterRendererConfig {
+                    type_: sys::FlutterRendererType_kVulkan,
+                    __bindgen_anon_1: sys::FlutterRendererConfig__bindgen_ty_1 { vulkan },
+                }
+            }
         });
         let platform_runner = Box::new(sys::FlutterTaskRunnerDescription {
             struct_size: mem::size_of::<sys::FlutterTaskRunnerDescription>(),
@@ -710,6 +826,20 @@ impl EngineHost {
                 cancel: scene_cancel,
                 prepare_gles_read: scene_prepare_gles_read,
                 pin_backdrop: scene_pin_backdrop,
+                acquire_writer_vk: scene_acquire_writer_vk,
+                resolve_texture_vk: None,
+                lend_textures_vk: None,
+                return_textures_vk: None,
+            };
+            let composer = if callback_state.handler.scene_lends_textures() {
+                crate::scene::RawComposer {
+                    resolve_texture_vk: Some(scene_resolve_texture_vk),
+                    lend_textures_vk: Some(scene_lend_textures_vk),
+                    return_textures_vk: Some(scene_return_textures_vk),
+                    ..composer
+                }
+            } else {
+                composer
             };
             // SAFETY: `state` outlives the engine (see above) and every
             // trampoline contains panics.
@@ -737,6 +867,7 @@ impl EngineHost {
                 _argv_pointers: argv_pointers,
                 _dart_argv: dart_argv,
                 _dart_argv_pointers: dart_argv_pointers,
+                _vulkan_extensions: vulkan_extensions,
             })),
         })
     }
@@ -953,6 +1084,59 @@ unsafe extern "C" fn present(data: *mut c_void, info: *const sys::FlutterPresent
 
 unsafe extern "C" fn backing_store_released(_user_data: *mut c_void) {}
 
+/// What every Vulkan output store describes: no image (the engine never
+/// draws into one), R8G8B8A8_UNORM.
+static DESCRIBED_VULKAN_IMAGE: sys::FlutterVulkanImage = sys::FlutterVulkanImage {
+    struct_size: mem::size_of::<sys::FlutterVulkanImage>(),
+    image: 0,
+    format: 37,
+};
+
+unsafe extern "C" fn resolve_vulkan_proc(
+    data: *mut c_void,
+    instance: sys::FlutterVulkanInstanceHandle,
+    name: *const std::ffi::c_char,
+) -> *mut c_void {
+    if name.is_null() {
+        return ptr::null_mut();
+    }
+    dispatch(data, ptr::null_mut(), |state| {
+        // SAFETY: the engine passes a NUL-terminated procedure name.
+        let name = unsafe { CStr::from_ptr(name) };
+        state.handler.resolve_vulkan_proc(instance, name)
+    })
+}
+
+/// The implicit view's swapchain image. Denial has no implicit view under
+/// Vulkan, so the engine never asks; a call is logged and gets no image.
+unsafe extern "C" fn vulkan_next_image(
+    data: *mut c_void,
+    _info: *const sys::FlutterFrameInfo,
+) -> sys::FlutterVulkanImage {
+    dispatch(data, (), |state| {
+        state
+            .handler
+            .log("denial", "engine asked for an implicit-view Vulkan image");
+    });
+    sys::FlutterVulkanImage {
+        struct_size: mem::size_of::<sys::FlutterVulkanImage>(),
+        image: 0,
+        format: 37,
+    }
+}
+
+unsafe extern "C" fn vulkan_present_image(
+    data: *mut c_void,
+    _image: *const sys::FlutterVulkanImage,
+) -> bool {
+    dispatch(data, false, |state| {
+        state
+            .handler
+            .log("denial", "engine presented an implicit-view Vulkan image");
+        false
+    })
+}
+
 unsafe extern "C" fn create_backing_store(
     config: *const sys::FlutterBackingStoreConfig,
     backing_store_out: *mut sys::FlutterBackingStore,
@@ -984,6 +1168,28 @@ unsafe extern "C" fn create_backing_store(
         };
         if store.framebuffer == 0 {
             return false;
+        }
+        if state.vulkan {
+            // The engine never draws into an output store under Vulkan (the
+            // scene composer does): the store carries the framebuffer as
+            // its identity and describes no image.
+            let vulkan = sys::FlutterVulkanBackingStore {
+                struct_size: mem::size_of::<sys::FlutterVulkanBackingStore>(),
+                image: &DESCRIBED_VULKAN_IMAGE,
+                user_data: store.framebuffer as usize as *mut c_void,
+                destruction_callback: Some(backing_store_released),
+            };
+            // SAFETY: as for the OpenGL store below.
+            unsafe {
+                *backing_store_out = sys::FlutterBackingStore {
+                    struct_size: mem::size_of::<sys::FlutterBackingStore>(),
+                    user_data: store.user_data as *mut c_void,
+                    type_: sys::FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan,
+                    did_update: true,
+                    __bindgen_anon_1: sys::FlutterBackingStore__bindgen_ty_1 { vulkan },
+                };
+            }
+            return true;
         }
         let framebuffer = sys::FlutterOpenGLFramebuffer {
             target: store.format,
@@ -1101,9 +1307,20 @@ unsafe fn decode_backing_store(
     }
     // SAFETY: the caller establishes callback-scoped readability.
     let backing_store = unsafe { &*backing_store };
-    if backing_store.struct_size < mem::size_of::<sys::FlutterBackingStore>()
-        || backing_store.type_ != sys::FlutterBackingStoreType_kFlutterBackingStoreTypeOpenGL
-    {
+    if backing_store.struct_size < mem::size_of::<sys::FlutterBackingStore>() {
+        return None;
+    }
+    if backing_store.type_ == sys::FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan {
+        // SAFETY: the active union member follows from the validated type.
+        let vulkan = unsafe { backing_store.__bindgen_anon_1.vulkan };
+        let framebuffer = u32::try_from(vulkan.user_data as usize).ok()?;
+        return (framebuffer != 0).then_some(CompositorBackingStore {
+            framebuffer,
+            format: 0,
+            user_data: backing_store.user_data as usize,
+        });
+    }
+    if backing_store.type_ != sys::FlutterBackingStoreType_kFlutterBackingStoreTypeOpenGL {
         return None;
     }
     // SAFETY: the active union member follows from the validated store type.
@@ -1389,6 +1606,28 @@ unsafe extern "C" fn scene_acquire_writer(
     })
 }
 
+unsafe extern "C" fn scene_acquire_writer_vk(
+    data: *mut c_void,
+    ticket: u64,
+    width: u32,
+    height: u32,
+    writer: *mut crate::scene::SliceWriterVk,
+) -> bool {
+    if writer.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        let Some(mut acquired) = state.handler.scene_acquire_writer_vk(ticket, width, height)
+        else {
+            return false;
+        };
+        acquired.struct_size = mem::size_of::<crate::scene::SliceWriterVk>();
+        // SAFETY: the engine passes a writable writer for this synchronous call.
+        unsafe { writer.write(acquired) };
+        true
+    })
+}
+
 unsafe extern "C" fn scene_stage(data: *mut c_void, scene: *const crate::scene::RawScene) -> bool {
     if scene.is_null() {
         return false;
@@ -1411,6 +1650,39 @@ unsafe extern "C" fn scene_cancel(data: *mut c_void, ticket: u64) {
 unsafe extern "C" fn scene_prepare_gles_read(data: *mut c_void, view_id: i64) -> bool {
     dispatch(data, false, |state| {
         state.handler.scene_prepare_gles_read(view_id)
+    })
+}
+
+unsafe extern "C" fn scene_resolve_texture_vk(
+    data: *mut c_void,
+    ticket: u64,
+    texture_id: i64,
+    image: *mut crate::scene::TextureImageVk,
+) -> bool {
+    if image.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        let Some(mut resolved) = state.handler.scene_resolve_texture_vk(ticket, texture_id) else {
+            return false;
+        };
+        resolved.struct_size = mem::size_of::<crate::scene::TextureImageVk>();
+        resolved.presentation.struct_size = mem::size_of::<crate::ExternalTexturePresentation>();
+        // SAFETY: the engine passes a writable image for this synchronous call.
+        unsafe { image.write(resolved) };
+        true
+    })
+}
+
+unsafe extern "C" fn scene_lend_textures_vk(data: *mut c_void, ticket: u64) -> bool {
+    dispatch(data, false, |state| {
+        state.handler.scene_lend_textures_vk(ticket)
+    })
+}
+
+unsafe extern "C" fn scene_return_textures_vk(data: *mut c_void, ticket: u64) {
+    dispatch(data, (), |state| {
+        state.handler.scene_return_textures_vk(ticket)
     })
 }
 

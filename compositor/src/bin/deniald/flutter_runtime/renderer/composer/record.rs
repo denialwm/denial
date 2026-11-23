@@ -109,6 +109,173 @@ impl Draw {
         self.flags[3] = glass;
         self
     }
+
+    /// Target pixels of `rect` (the draw's local frame), as the corners
+    /// the vertex shader places; None when the draw projects them.
+    fn target_rect(&self, rect: [f32; 4], (width, height): (u32, u32)) -> Option<[f32; 4]> {
+        let [x, y, w] = self.ndc;
+        if w[0] != 0.0 || w[1] != 0.0 || w[2] <= 0.0 {
+            return None;
+        }
+        let corner = |cx: f32, cy: f32| {
+            let ndc = |row: [f32; 4]| (row[0] * cx + row[1] * cy + row[2]) / w[2];
+            (
+                (ndc(x) + 1.0) * width as f32 * 0.5,
+                (1.0 - ndc(y)) * height as f32 * 0.5,
+            )
+        };
+        let (x0, y0) = corner(rect[0], rect[1]);
+        let (x1, y1) = corner(rect[2], rect[3]);
+        Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
+    }
+
+    /// Target pixels the draw can change, rounded out; the whole target
+    /// when it projects its quad.
+    pub(super) fn bounds(&self, size: (u32, u32)) -> [i32; 4] {
+        const SLACK: f32 = 1e-3;
+        match self.target_rect(self.quad, size) {
+            Some([l, t, r, b]) => [
+                (l + SLACK).floor() as i32,
+                (t + SLACK).floor() as i32,
+                (r - SLACK).ceil() as i32,
+                (b - SLACK).ceil() as i32,
+            ],
+            None => [i32::MIN, i32::MIN, i32::MAX, i32::MAX],
+        }
+    }
+
+    /// Whole target pixels `rect` (local) covers when the draw maps it
+    /// without rotation or projection.
+    fn covered(&self, rect: [f32; 4], size: (u32, u32)) -> Option<[i32; 4]> {
+        const SLACK: f32 = 1e-3;
+        let [x, y, _] = self.ndc;
+        let aligned = (x[1] == 0.0 && y[0] == 0.0) || (x[0] == 0.0 && y[1] == 0.0);
+        if !aligned {
+            return None;
+        }
+        let [l, t, r, b] = self.target_rect(rect, size)?;
+        let covered = [
+            (l - SLACK).ceil() as i32,
+            (t - SLACK).ceil() as i32,
+            (r + SLACK).floor() as i32,
+            (b + SLACK).floor() as i32,
+        ];
+        (!pixels_empty(covered)).then_some(covered)
+    }
+
+    /// Target pixels this draw paints opaque, for a client image whose
+    /// alpha is one: a texture or window drawn whole, without clips.
+    /// `surface` is where a window's client lies in its local frame. A
+    /// window's rounded corners leave two rectangles. Its antialiased edges
+    /// cover a pixel whole once its centre is half a pixel inside
+    /// (`edge` in clip_coverage.glsl), so whole pixels inside are covered.
+    pub(super) fn opaque(
+        &self,
+        surface: Option<[f32; 4]>,
+        size: (u32, u32),
+    ) -> [Option<[i32; 4]>; 2] {
+        let whole = self.flags[1] == 0 && self.params[1] == 1.0;
+        match self.flags[0] {
+            KIND_TEXTURE if whole && self.flags[2] == 0 => [self.covered(self.quad, size), None],
+            KIND_WINDOW if whole && self.params[2] == 1.0 && self.flags[2] == 1 => {
+                let Some(surface) = surface else {
+                    return [None, None];
+                };
+                let [l, t, r, b] = [self.window, self.content, surface].into_iter().fold(
+                    [f32::MIN, f32::MIN, f32::MAX, f32::MAX],
+                    |a, b| {
+                        [
+                            a[0].max(b[0]),
+                            a[1].max(b[1]),
+                            a[2].min(b[2]),
+                            a[3].min(b[3]),
+                        ]
+                    },
+                );
+                let radius = self.params[0].max(0.0);
+                if radius == 0.0 {
+                    return [self.covered([l, t, r, b], size), None];
+                }
+                [
+                    self.covered([l + radius, t, r - radius, b], size),
+                    self.covered([l, t + radius, r, b - radius], size),
+                ]
+            }
+            _ => [None, None],
+        }
+    }
+
+    /// Diagnostic: why the draw makes no cover over the target, in the
+    /// order `opaque` checks; None when it covers.
+    pub(super) fn why_no_cover(
+        &self,
+        opaque_image: bool,
+        surface: Option<[f32; 4]>,
+        size: (u32, u32),
+    ) -> Option<&'static str> {
+        if !opaque_image {
+            return Some("client image has alpha or is not imported");
+        }
+        if self.flags[1] != 0 {
+            return Some("clipped");
+        }
+        if self.params[1] != 1.0 {
+            return Some("drawn with opacity");
+        }
+        match self.flags[0] {
+            KIND_TEXTURE if self.flags[2] != 0 => return Some("merged layer"),
+            KIND_TEXTURE => {}
+            KIND_WINDOW if self.params[2] != 1.0 => return Some("surface opacity"),
+            KIND_WINDOW if self.flags[2] != 1 => return Some("window without surface"),
+            KIND_WINDOW if surface.is_none() => return Some("surface turned or projected"),
+            KIND_WINDOW => {}
+            _ => return Some("slice"),
+        }
+        let whole = [0, 0, size.0 as i32, size.1 as i32];
+        match self.opaque(surface, size) {
+            [None, None] => Some("turned or projected"),
+            covers if covers.iter().flatten().any(|&c| pixels_contain(c, whole)) => None,
+            _ => Some("opaque part short of the target"),
+        }
+    }
+
+    /// Draws nothing: a quad without area.
+    pub(super) fn hide(&mut self) {
+        self.quad = [0.0; 4];
+    }
+}
+
+/// Where a window's client lies in the window's local frame: its
+/// placement through `texture_transform`, when that keeps it a rectangle.
+pub(super) fn window_surface(
+    texture_transform: &Matrix3,
+    placement: &Placement,
+) -> Option<[f32; 4]> {
+    let [a, b, c, d, e, f, g, h, i] = texture_transform.0;
+    let aligned = (b == 0.0 && d == 0.0) || (a == 0.0 && e == 0.0);
+    if g != 0.0 || h != 0.0 || i <= 0.0 || !aligned {
+        return None;
+    }
+    let map = |x: f32, y: f32| ((a * x + b * y + c) / i, (d * x + e * y + f) / i);
+    let rect = &placement.destination;
+    let (x0, y0) = map(rect.left, rect.top);
+    let (x1, y1) = map(rect.right, rect.bottom);
+    Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
+}
+
+/// The pixels both hold; empty when they share none.
+pub(super) fn pixels_intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
+    [
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    ]
+}
+
+/// Whether `outer` holds every pixel of `inner`.
+pub(super) fn pixels_contain(outer: [i32; 4], inner: [i32; 4]) -> bool {
+    outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3]
 }
 
 fn rows(m: &Matrix3) -> [[f32; 4]; 3] {
@@ -637,7 +804,8 @@ pub(super) const MODE_BLUR: u32 = 0;
 pub(super) const MODE_GLASS: u32 = 1;
 
 /// One material; std430 layout of `Glass` in `shaders/glass.glsl`. Lengths
-/// are target pixels.
+/// are target pixels; `shape` and `radii` are in the material's own frame
+/// (`to_material`), physical pixels along its axes.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct Glass {
@@ -649,6 +817,12 @@ pub(super) struct Glass {
     frost: [f32; 4],
     frost_limits: [f32; 4],
     tint: [f32; 4],
+    /// Target pixels to the frame `shape` and `radii` are in, rows of a
+    /// 2x3 affine (`Affine::to_material`), and material normals back to
+    /// target pixels (`Affine::normal_transform`).
+    to_material0: [f32; 4],
+    to_material1: [f32; 4],
+    normal_transform: [f32; 4],
     thickness: f32,
     refractive_index: f32,
     dispersion: f32,
@@ -674,26 +848,68 @@ pub(super) struct Glass {
     has_material_bounds: u32,
     /// The first of the `clip_count` clips in the frame's clip buffer.
     clip_first: u32,
-    _pad: [u32; 3],
+    /// A blur turned off the target's axes: it covers `shape` in its own
+    /// frame, not all of `quad`.
+    shaped_blur: u32,
+    _pad: [u32; 2],
 }
 
-const _: () = assert!(std::mem::size_of::<Glass>() == 288);
+const _: () = assert!(std::mem::size_of::<Glass>() == 336);
 
 /// How a material's frost is made: `region` of the target is copied and
-/// halved `halvings` times (each a 2x2 box), then blurred with `sigma`
-/// texels of the result.
+/// halved `halvings` times (each a 2x2 box), then blurred along each axis
+/// with a Gaussian of `sigma` texels of the result, cut at `radius` texels.
+///
+/// The strength is the engine's (Impeller's Gaussian blur): the same scaled
+/// sigma, kernel reach and downscale, so a frame the engine composes frosts
+/// alike. The grid is the target's: a moving material samples the same
+/// texels and does not shimmer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct FrostPlan {
     /// Target pixels: left, top, right, bottom.
     pub(super) region: [i32; 4],
     pub(super) halvings: u32,
     pub(super) sigma: [f32; 2],
+    pub(super) radius: [f32; 2],
+}
+
+/// Impeller's ScaleSigma: a requested sigma as the engine blurs it (Skia's
+/// apparent strength).
+pub(super) fn scale_sigma(sigma: f32) -> f32 {
+    let clamped = sigma.min(500.0);
+    clamped * (1.0 - 3.4e-3 * clamped + 3.4e-6 * clamped * clamped)
+}
+
+/// Impeller's kernel reach for `sigma`, in the same pixels.
+fn blur_radius(sigma: f32) -> f32 {
+    if sigma > 0.5 {
+        (sigma - 0.5) * 1.732_050_8
+    } else {
+        0.0
+    }
+}
+
+/// Impeller's CalculateScale as halvings: none up to sigma 4, then the power
+/// of two that leaves about two texels per sigma, at most 1/16, kept at 1/8
+/// while that kernel stays within 41 taps.
+fn frost_halvings(sigma: f32) -> u32 {
+    if sigma <= 4.0 {
+        return 0;
+    }
+    let exponent = (2.0 / sigma).log2().round().max(-4.0);
+    let exponent = if exponent < -3.0 && 2.0 * (blur_radius(sigma) * 0.125).round() + 1.0 <= 41.0 {
+        exponent + 1.0
+    } else {
+        exponent
+    };
+    (-exponent).max(0.0) as u32
 }
 
 impl FrostPlan {
     /// The frost of `source` (target pixels) blurred by `sigma` target
-    /// pixels and sampled up to `reach` pixels beyond it, within a
-    /// `target`-sized output. None when nothing of it is inside the output.
+    /// pixels (already scaled as the engine scales it) and sampled up to
+    /// `reach` pixels beyond it, within a `target`-sized output. None when
+    /// nothing of it is inside the output.
     ///
     /// An `exact` frost covers `source` only, clamped at its edges, as a
     /// window's backdrop: the scene beyond the window is not its input.
@@ -704,30 +920,22 @@ impl FrostPlan {
         exact: bool,
         target: (u32, u32),
     ) -> Option<Self> {
-        // Blur at the smallest power-of-two scale that keeps at least two
-        // texels per standard deviation, at most 1/8 (sigma 6 at 1/2, 10 at
-        // 1/4, 18 at 1/8).
-        let finest = match (sigma[0] > 0.0, sigma[1] > 0.0) {
-            (true, true) => sigma[0].min(sigma[1]),
-            (false, false) => 0.0,
-            _ => sigma[0].max(sigma[1]),
-        };
-        let mut halvings = 0;
-        while halvings < 3 && finest / f32::from(2u8 << halvings) >= 2.0 {
-            halvings += 1;
-        }
-        // Three standard deviations carry 99.7% of the kernel; two more
-        // pixels cover the antialiased edge, as the engine's input bounds.
-        // The region starts on the halvings' grid, so a moving material
-        // samples the same texels and does not shimmer.
+        let halvings = frost_halvings(sigma[0].max(sigma[1]));
+        let kernel = sigma.map(blur_radius);
+        let cell = if exact { 1 } else { 1i32 << halvings };
+        // What the blurred texel nearest the edge reads: the kernel's taps
+        // on the last level, one more texel the glass's linear read reaches,
+        // and half a texel to its centre, in target pixels; then two pixels
+        // for the antialiased edge, as the engine's input bounds. The
+        // region starts on the halvings' grid, so a moving material samples
+        // the same texels and does not shimmer.
         let margin = |axis: usize| {
             if exact {
-                0.0
-            } else {
-                (3.0 * sigma[axis] + reach[axis]).ceil() + 2.0
+                return 0.0;
             }
+            let taps = (kernel[axis] / cell as f32).round();
+            ((taps + 1.5) * cell as f32 + reach[axis]).ceil() + 2.0
         };
-        let cell = if exact { 1 } else { 1i32 << halvings };
         let down = |value: f32| (value.floor() as i32).div_euclid(cell) * cell;
         let up = |value: f32| -(-(value.ceil() as i32)).div_euclid(cell) * cell;
         let region = [
@@ -743,13 +951,21 @@ impl FrostPlan {
             region,
             halvings,
             sigma: [0.0; 2],
+            radius: [0.0; 2],
         };
-        let (width, height) = plan.region_size();
+        let [left, top, right, bottom] = plan.covered();
         let (last_width, last_height) = plan.level_size(plan.levels() - 1);
-        plan.sigma = [
-            sigma[0] * last_width as f32 / width as f32,
-            sigma[1] * last_height as f32 / height as f32,
+        let scale = [
+            last_width as f32 / (right - left),
+            last_height as f32 / (bottom - top),
         ];
+        for axis in 0..2 {
+            plan.sigma[axis] = sigma[axis] * scale[axis];
+            // The engine drops the outermost pair of a long kernel, where it
+            // carries under 1.6% of the weight.
+            let radius = (kernel[axis] * scale[axis]).round();
+            plan.radius[axis] = if radius >= 16.0 { radius - 1.0 } else { radius };
+        }
         Some(plan)
     }
 
@@ -769,6 +985,8 @@ impl FrostPlan {
 
     /// Level 0 is the region halved once (or as is, without halvings);
     /// further levels are sized as Vulkan sizes mips: halved, rounded down.
+    /// Every halving is an exact 2x2 box of the texels it covers: an odd
+    /// last row or column is left out, never stretched across the level.
     pub(super) fn level_size(&self, level: u32) -> (u32, u32) {
         let (width, height) = self.base_size();
         ((width >> level).max(1), (height >> level).max(1))
@@ -779,8 +997,33 @@ impl FrostPlan {
         if self.halvings == 0 {
             (width, height)
         } else {
-            (width.div_ceil(2), height.div_ceil(2))
+            ((width / 2).max(1), (height / 2).max(1))
         }
+    }
+
+    /// Pixels of the region one level covers, as `level_size` texels:
+    /// `extent` of the level before, halved exactly where it can be.
+    pub(super) fn covered_extent(from: (u32, u32), to: (u32, u32)) -> (u32, u32) {
+        ((to.0 * 2).min(from.0), (to.1 * 2).min(from.1))
+    }
+
+    /// Target pixels the finished frost covers (left, top, right, bottom):
+    /// the region less the rows and columns no halving reached. The glass
+    /// clamps past it to the frost's edge texels.
+    pub(super) fn covered(&self) -> [f32; 4] {
+        let mut extent = self.region_size();
+        if self.halvings > 0 {
+            let mut from = extent;
+            for level in 0..self.levels() {
+                let size = self.level_size(level);
+                // What this level covers of the one before, in its pixels.
+                let (width, height) = Self::covered_extent(from, size);
+                extent = (extent.0.min(width << level), extent.1.min(height << level));
+                from = size;
+            }
+        }
+        let [left, top, ..] = self.region.map(|value| value as f32);
+        [left, top, left + extent.0 as f32, top + extent.1 as f32]
     }
 }
 
@@ -815,33 +1058,48 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> Option<[f32; 4]> {
     (rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
 }
 
-/// A transform that keeps rectangles axis-aligned: scale and translation,
-/// with a flip or a quarter turn (a bottom-up or rotated output).
-struct Axial {
-    m: [f32; 9],
-    /// Local x runs along target y.
-    swap: bool,
-    /// Target pixels per local unit along local x and y.
+/// Local coordinates to target pixels without perspective: the frame
+/// Impeller's glass resolves a material in (`ResolveGlassMaterialDraw`).
+/// Rotation, flips, skew and non-uniform scale all keep the surface exact:
+/// it is evaluated in the material's own frame and its normals are mapped
+/// back to target pixels.
+struct Affine {
+    /// Rows of the 2x3 transform: `[a, b, tx, c, d, ty]`.
+    m: [f32; 6],
+    /// Target pixels per local unit along local x and y (Impeller's
+    /// `GetBasisScaleXY`).
     sx: f32,
     sy: f32,
+    /// The inverse's linear part, rows.
+    inverse: [f32; 4],
 }
 
-impl Axial {
+impl Affine {
     fn new(m: &Matrix3) -> Option<Self> {
         let m = m.0;
-        if m[6] != 0.0 || m[7] != 0.0 || m[8] != 1.0 {
+        if m[6] != 0.0 || m[7] != 0.0 || m[8] == 0.0 || !m[8].is_finite() {
             return None;
         }
-        let swap = if m[1] == 0.0 && m[3] == 0.0 {
-            false
-        } else if m[0] == 0.0 && m[4] == 0.0 {
-            true
-        } else {
+        let w = m[8];
+        let m = [m[0] / w, m[1] / w, m[2] / w, m[3] / w, m[4] / w, m[5] / w];
+        let determinant = m[0] * m[4] - m[1] * m[3];
+        if !determinant.is_finite() || determinant == 0.0 {
             return None;
-        };
+        }
+        let inverse = [
+            m[4] / determinant,
+            -m[1] / determinant,
+            -m[3] / determinant,
+            m[0] / determinant,
+        ];
         let sx = m[0].hypot(m[3]);
         let sy = m[1].hypot(m[4]);
-        (sx > 0.0 && sy > 0.0).then_some(Self { m, swap, sx, sy })
+        (sx > 0.0 && sy > 0.0 && inverse.iter().all(|v| v.is_finite())).then_some(Self {
+            m,
+            sx,
+            sy,
+            inverse,
+        })
     }
 
     fn point(&self, x: f32, y: f32) -> [f32; 2] {
@@ -849,48 +1107,80 @@ impl Axial {
         [m[0] * x + m[1] * y + m[2], m[3] * x + m[4] * y + m[5]]
     }
 
-    /// `rect`'s target pixels: left, top, right, bottom.
+    /// `rect`'s target bounds: left, top, right, bottom.
     fn map(&self, rect: &Rect) -> [f32; 4] {
-        let a = self.point(rect.left, rect.top);
-        let b = self.point(rect.right, rect.bottom);
+        let corners = [
+            self.point(rect.left, rect.top),
+            self.point(rect.right, rect.top),
+            self.point(rect.right, rect.bottom),
+            self.point(rect.left, rect.bottom),
+        ];
+        corners.iter().fold(
+            [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+            |[l, t, r, b], [x, y]| [l.min(*x), t.min(*y), r.max(*x), b.max(*y)],
+        )
+    }
+
+    /// `rect`'s size in the material frame: local lengths scaled by the
+    /// basis lengths.
+    fn material_size(&self, rect: &Rect) -> [f32; 2] {
         [
-            a[0].min(b[0]),
-            a[1].min(b[1]),
-            a[0].max(b[0]),
-            a[1].max(b[1]),
+            (rect.right - rect.left) * self.sx,
+            (rect.bottom - rect.top) * self.sy,
         ]
     }
 
-    /// Local lengths along local x and y as target lengths along target x
-    /// and y.
-    fn target_lengths(&self, [x, y]: [f32; 2]) -> [f32; 2] {
-        let (x, y) = (x * self.sx, y * self.sy);
-        if self.swap { [y, x] } else { [x, y] }
+    /// Target pixels to the material frame of `rect`: its upper left
+    /// corner at the origin, local axes scaled by the basis lengths. Rows
+    /// `[a, b, c, 0]`: material = (a, b) · target + c.
+    fn to_material(&self, rect: &Rect) -> [[f32; 4]; 2] {
+        let i = &self.inverse;
+        let (sx, sy) = (self.sx, self.sy);
+        let basis = [sx * i[0], sx * i[1], sy * i[2], sy * i[3]];
+        let (tx, ty) = (self.m[2], self.m[5]);
+        [
+            [
+                basis[0],
+                basis[1],
+                -(basis[0] * tx + basis[1] * ty) - sx * rect.left,
+                0.0,
+            ],
+            [
+                basis[2],
+                basis[3],
+                -(basis[2] * tx + basis[3] * ty) - sy * rect.top,
+                0.0,
+            ],
+        ]
     }
 
-    /// Corner radii (x, y) of local `shape` (upper left, upper right, lower
-    /// right, lower left) as target pixels at the target corners they land
-    /// on, in the same order; `target` is the mapped shape.
-    fn corner_radii(&self, shape: &Rect, radii: &[[f32; 2]; 4], target: [f32; 4]) -> [f32; 4] {
-        let corners = [
-            (shape.left, shape.top),
-            (shape.right, shape.top),
-            (shape.right, shape.bottom),
-            (shape.left, shape.bottom),
-        ];
-        let centre = [(target[0] + target[2]) * 0.5, (target[1] + target[3]) * 0.5];
-        let mut out = [0.0; 4];
-        for ((x, y), [rx, ry]) in corners.into_iter().zip(radii) {
-            let [px, py] = self.point(x, y);
-            let slot = match (py < centre[1], px < centre[0]) {
-                (true, true) => 0,
-                (true, false) => 1,
-                (false, false) => 2,
-                (false, true) => 3,
-            };
-            out[slot] = (rx * self.sx).min(ry * self.sy);
-        }
-        out
+    /// A material-frame direction to target pixels as a distance-field
+    /// gradient moves: the transpose of `to_material`'s linear part, as
+    /// Impeller's `normal_transform` (`xy` multiplies normal x, `zw` y).
+    fn normal_transform(&self) -> [f32; 4] {
+        let i = &self.inverse;
+        let (sx, sy) = (self.sx, self.sy);
+        [sx * i[0], sx * i[1], sy * i[2], sy * i[3]]
+    }
+
+    /// Material-frame lengths along its x and y as target extents: the
+    /// bounds of those lengths turned into target pixels.
+    fn target_extents(&self, [x, y]: [f32; 2]) -> [f32; 2] {
+        let m = &self.m;
+        let (ux, uy) = (x / self.sx, y / self.sy);
+        [
+            (m[0] * ux).abs() + (m[1] * uy).abs(),
+            (m[3] * ux).abs() + (m[4] * uy).abs(),
+        ]
+    }
+
+    /// A Gaussian of local standard deviations `sigma` as target pixels
+    /// along target x and y: exact for scale, flips and quarter turns and
+    /// for an even blur under any rotation; an uneven blur under rotation
+    /// takes the axis-aligned deviations of its turned ellipse.
+    fn target_sigma(&self, [x, y]: [f32; 2]) -> [f32; 2] {
+        let m = &self.m;
+        [(m[0] * x).hypot(m[1] * y), (m[3] * x).hypot(m[4] * y)]
     }
 }
 
@@ -909,10 +1199,11 @@ pub(super) struct MaterialDraw {
 }
 
 /// A material's record and frost plan. Err when the composer cannot draw it
-/// (a transform other than scale and translation, or one that mirrors x);
-/// Ok(None) when nothing of it is visible. A target that flips y (an output
-/// buffer, bottom-up) keeps the glass upright: corners and light follow the
-/// flip, lengths use its magnitude.
+/// (a perspective or singular transform); Ok(None) when nothing of it is
+/// visible. The surface is evaluated in the material's own frame, as
+/// Impeller's glass: a target that flips y (an output buffer, bottom-up) or
+/// a turned window keeps its corners, and the light stays in target
+/// pixels.
 pub(super) fn material(
     material: &Material,
     local: &EntryLocal,
@@ -957,9 +1248,9 @@ fn material_over(
     window: bool,
 ) -> Result<Option<MaterialDraw>, &'static str> {
     let target_from_local = output_from_scene.then(&local.scene_from_local);
-    let axial = Axial::new(&target_from_local).ok_or("material transform")?;
-    let (sx, sy) = (axial.sx, axial.sy);
-    let map = |rect: &Rect| axial.map(rect);
+    let affine = Affine::new(&target_from_local).ok_or("material transform")?;
+    let (sx, sy) = (affine.sx, affine.sy);
+    let map = |rect: &Rect| affine.map(rect);
     let scene_from_target = output_from_scene.inverse().ok_or("output transform")?;
     let ndc_from_target = ndc_from_target(target.0, target.1);
     let screen = [0.0, 0.0, target.0 as f32, target.1 as f32];
@@ -967,6 +1258,14 @@ fn material_over(
     let Some(bounds) = intersect(whole, screen) else {
         return Ok(None);
     };
+    // Turned off the target's axes, the material's rectangle no longer
+    // fills its target bounds: draws cover it in its own frame.
+    let axis_aligned = {
+        let m = &affine.m;
+        (m[1] == 0.0 && m[3] == 0.0) || (m[0] == 0.0 && m[4] == 0.0)
+    };
+    let [bounds_width, bounds_height] = affine.material_size(&material.bounds);
+    let [to_material0, to_material1] = affine.to_material(&material.bounds);
     let mut record = Glass {
         ndc: rows(&ndc_from_target),
         scene: rows(&scene_from_target),
@@ -974,6 +1273,11 @@ fn material_over(
         clip_count: clips.count,
         clip_first: clips.first,
         mode: MODE_BLUR,
+        shape: [0.0, 0.0, bounds_width, bounds_height],
+        to_material0,
+        to_material1,
+        normal_transform: affine.normal_transform(),
+        shaped_blur: u32::from(!window && !axis_aligned),
         ..Glass::default()
     };
     // Refraction looks inward across the whole surface, so glass frosts its
@@ -987,13 +1291,17 @@ fn material_over(
             let Some(quad) = intersect(shape, bounds) else {
                 return Ok(None);
             };
-            let (width, height) = (shape[2] - shape[0], shape[3] - shape[1]);
+            let [width, height] = affine.material_size(&glass.shape);
             let half_extent = width.min(height) * 0.5;
             // Physical sizes, as GlassFilterContents resolves them.
             let thickness = (glass.thickness * (sx + sy) * 0.5).min(half_extent);
             record.mode = MODE_GLASS;
-            record.shape = shape;
-            record.radii = axial.corner_radii(&glass.shape, &glass.radii, shape);
+            // The surface in its own frame: corners keep their identities
+            // under any flip or turn, and the normals map back to target
+            // pixels (`normal_transform`).
+            record.shape = [0.0, 0.0, width, height];
+            [record.to_material0, record.to_material1] = affine.to_material(&glass.shape);
+            record.radii = glass.radii.map(|[rx, ry]| (rx * sx).min(ry * sy));
             record.tint = straight(glass.tint);
             record.thickness = thickness;
             record.refractive_index = 1.0 + glass.refraction.clamp(0.0, 1.0) * 0.2;
@@ -1018,7 +1326,8 @@ fn material_over(
             // start: past the opposite edge only when the shape is thinner
             // than that (DlGlassImageFilter's inward input bounds).
             let ray = maximum_displacement(glass, thickness) * 9.0 / 8.0;
-            let reach = [(ray - width * 0.5).max(0.0), (ray - height * 0.5).max(0.0)];
+            let reach = affine
+                .target_extents([(ray - width * 0.5).max(0.0), (ray - height * 0.5).max(0.0)]);
             // A window's frost is its bounds' scene.
             (quad, if window { bounds } else { shape }, reach)
         }
@@ -1028,12 +1337,11 @@ fn material_over(
     // its halving grid.
     let tracked = window && clips.is_empty() && bounds == whole;
     record.quad = quad;
-    let sigma = axial.target_lengths(material.sigma);
+    let sigma = affine.target_sigma(material.sigma.map(scale_sigma));
     let Some(plan) = FrostPlan::new(source, sigma, reach, window, target) else {
         return Ok(None);
     };
-    let [l, t, r, b] = plan.region.map(|value| value as f32);
-    record.frost = [l, t, r, b];
+    record.frost = plan.covered();
     let (width, height) = plan.level_size(plan.levels() - 1);
     let (hx, hy) = (0.5 / width as f32, 0.5 / height as f32);
     record.frost_limits = [hx, hy, 1.0 - hx, 1.0 - hy];
@@ -1277,6 +1585,16 @@ pub(super) mod tests {
         Matrix3([1.0, 0.0, 0.0, 0.0, -1.0, height as f32, 0.0, 0.0, 1.0])
     }
 
+    /// Where target pixel `target` lies in the record's material frame.
+    fn material_at(glass: &Glass, [x, y]: [f32; 2]) -> [f32; 2] {
+        let [r0, r1] = [glass.to_material0, glass.to_material1];
+        [r0[0] * x + r0[1] * y + r0[2], r1[0] * x + r1[1] * y + r1[2]]
+    }
+
+    fn close(a: [f32; 2], b: [f32; 2]) -> bool {
+        (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3
+    }
+
     #[test]
     fn flipped_glass_keeps_its_corners_and_light() {
         let radii = [[30.0; 2], [20.0; 2], [10.0; 2], [0.0; 2]];
@@ -1299,11 +1617,22 @@ pub(super) mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(upright.glass.shape, [40.0, 20.0, 216.0, 108.0]);
-        assert_eq!(flipped.glass.shape, [40.0, 20.0, 216.0, 108.0]);
+        // The surface in its own frame, corners in scene order either way.
+        assert_eq!(upright.glass.shape, [0.0, 0.0, 176.0, 88.0]);
+        assert_eq!(flipped.glass.shape, [0.0, 0.0, 176.0, 88.0]);
         assert_eq!(upright.glass.radii, [30.0, 20.0, 10.0, 0.0]);
-        // Target rows run bottom-up: the scene's lower corners come first.
-        assert_eq!(flipped.glass.radii, [0.0, 10.0, 20.0, 30.0]);
+        assert_eq!(flipped.glass.radii, [30.0, 20.0, 10.0, 0.0]);
+        assert_eq!(upright.glass.quad, [40.0, 20.0, 216.0, 108.0]);
+        assert_eq!(flipped.glass.quad, [40.0, 20.0, 216.0, 108.0]);
+        // The scene's upper left: target row 20 upright, 108 flipped.
+        assert!(close(material_at(&upright.glass, [40.0, 20.0]), [0.0, 0.0]));
+        assert!(close(
+            material_at(&flipped.glass, [40.0, 108.0]),
+            [0.0, 0.0]
+        ));
+        // Normals turn with the flip.
+        assert_eq!(upright.glass.normal_transform, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(flipped.glass.normal_transform, [1.0, 0.0, 0.0, -1.0]);
         assert_eq!(flipped.glass.light_angle, 0.5);
         assert_eq!(flipped.glass.thickness, upright.glass.thickness);
         assert_eq!(flipped.plan.sigma, upright.plan.sigma);
@@ -1335,7 +1664,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn quarter_turn_moves_corners_and_swaps_blur_axes() {
+    fn quarter_turn_keeps_corners_and_swaps_blur_axes() {
         let radii = [[30.0; 2], [20.0; 2], [10.0; 2], [0.0; 2]];
         let mut material = glass_material([40.0, 20.0, 216.0, 108.0], radii);
         material.sigma = [6.0, 12.0];
@@ -1350,9 +1679,15 @@ pub(super) mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(draw.glass.shape, [20.0, 40.0, 108.0, 216.0]);
-        // Scene upper left lands at target upper right, and so on.
-        assert_eq!(draw.glass.radii, [0.0, 30.0, 20.0, 10.0]);
+        assert_eq!(draw.glass.quad, [20.0, 40.0, 108.0, 216.0]);
+        assert_eq!(draw.glass.shape, [0.0, 0.0, 176.0, 88.0]);
+        assert_eq!(draw.glass.radii, [30.0, 20.0, 10.0, 0.0]);
+        // The scene's upper left lands at the target's upper right.
+        assert!(close(material_at(&draw.glass, [108.0, 40.0]), [0.0, 0.0]));
+        assert!(close(
+            material_at(&draw.glass, [20.0, 216.0]),
+            [176.0, 88.0]
+        ));
         let upright = super::material(
             &material,
             &plain_local(),
@@ -1366,18 +1701,135 @@ pub(super) mod tests {
             draw.plan.sigma,
             [upright.plan.sigma[1], upright.plan.sigma[0]]
         );
+        assert_eq!(draw.glass.shaped_blur, 0);
+    }
+
+    /// A window turned and shrunk as the close animation does: its glass is
+    /// drawn in its own frame, scaled, within the turned shape's bounds.
+    #[test]
+    fn turned_glass_is_drawn_in_its_own_frame() {
+        let radii = [[30.0; 2], [20.0; 2], [10.0; 2], [0.0; 2]];
+        let mut material = glass_material([40.0, 20.0, 216.0, 108.0], radii);
+        material.sigma = [6.0, 6.0];
+        let (angle, scale) = (0.035f32, 0.8f32);
+        let (c, s) = (angle.cos() * scale, angle.sin() * scale);
+        let local = EntryLocal {
+            scene_from_local: Matrix3([c, -s, 30.0, s, c, 10.0, 0.0, 0.0, 1.0]),
+            ..plain_local()
+        };
+        let draw = super::material(
+            &material,
+            &local,
+            ClipSpan::default(),
+            &Matrix3::IDENTITY,
+            (256, 128),
+        )
+        .expect("a turned material is drawn")
+        .expect("visible");
+        let glass = &draw.glass;
+        assert_eq!(glass.mode, MODE_GLASS);
+        assert!(close(
+            [glass.shape[2], glass.shape[3]],
+            [176.0 * scale, 88.0 * scale]
+        ));
+        assert!(close(
+            [glass.radii[0], glass.radii[1]],
+            [30.0 * scale, 20.0 * scale]
+        ));
+        // Each local corner lands on its material corner.
+        let target = |x: f32, y: f32| [c * x - s * y + 30.0, s * x + c * y + 10.0];
+        for ((x, y), expected) in [
+            ((40.0, 20.0), [0.0, 0.0]),
+            ((216.0, 20.0), [176.0 * scale, 0.0]),
+            ((216.0, 108.0), [176.0 * scale, 88.0 * scale]),
+            ((40.0, 108.0), [0.0, 88.0 * scale]),
+        ] {
+            assert!(close(material_at(glass, target(x, y)), expected));
+        }
+        // The quad bounds the turned corners.
+        let corners =
+            [(40.0, 20.0), (216.0, 20.0), (216.0, 108.0), (40.0, 108.0)].map(|(x, y)| target(x, y));
+        let left = corners.iter().map(|p| p[0]).fold(f32::MAX, f32::min);
+        let bottom = corners.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert!((glass.quad[0] - left).abs() < 1e-3);
+        assert!((glass.quad[3] - bottom).abs() < 1e-3);
+        // Normals map as the inverse transpose: under a rotation, the
+        // material's x normal points along the turned x axis, its y normal
+        // along the turned y axis.
+        let unit = |v: [f32; 2]| {
+            let length = v[0].hypot(v[1]);
+            [v[0] / length, v[1] / length]
+        };
+        let nt = glass.normal_transform;
+        assert!(close(unit([nt[0], nt[1]]), [angle.cos(), angle.sin()]));
+        assert!(close(unit([nt[2], nt[3]]), [-angle.sin(), angle.cos()]));
+        // An even blur keeps its scale under the turn: the same frost as the
+        // window shrunk without turning.
+        let shrunk = EntryLocal {
+            scene_from_local: Matrix3([scale, 0.0, 30.0, 0.0, scale, 10.0, 0.0, 0.0, 1.0]),
+            ..plain_local()
+        };
+        let unturned = super::material(
+            &material,
+            &shrunk,
+            ClipSpan::default(),
+            &Matrix3::IDENTITY,
+            (256, 128),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(close(draw.plan.sigma, unturned.plan.sigma));
+        assert_eq!(draw.plan.halvings, unturned.plan.halvings);
     }
 
     #[test]
-    fn skew_is_declined() {
+    fn a_turned_blur_covers_its_own_rectangle() {
+        let mut material = glass_material([40.0, 20.0, 216.0, 108.0], [[0.0; 2]; 4]);
+        material.glass = None;
+        let turned = EntryLocal {
+            scene_from_local: Matrix3([
+                0.035f32.cos(),
+                -0.035f32.sin(),
+                0.0,
+                0.035f32.sin(),
+                0.035f32.cos(),
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ]),
+            ..plain_local()
+        };
+        let draw = |local: &EntryLocal| {
+            super::material(
+                &material,
+                local,
+                ClipSpan::default(),
+                &Matrix3::IDENTITY,
+                (256, 128),
+            )
+            .unwrap()
+            .unwrap()
+        };
+        assert_eq!(draw(&plain_local()).glass.shaped_blur, 0);
+        let turned = draw(&turned);
+        assert_eq!(turned.glass.shaped_blur, 1);
+        assert!(close(
+            [turned.glass.shape[2], turned.glass.shape[3]],
+            [176.0, 88.0]
+        ));
+    }
+
+    #[test]
+    fn perspective_is_declined() {
         let material = glass_material([40.0, 20.0, 216.0, 108.0], [[0.0; 2]; 4]);
-        let skew = Matrix3([1.0, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let perspective = Matrix3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.001, 0.0, 1.0]);
         assert!(
             super::material(
                 &material,
                 &plain_local(),
                 ClipSpan::default(),
-                &skew,
+                &perspective,
                 (256, 128)
             )
             .is_err()
@@ -1414,14 +1866,46 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn frost_strength_is_the_engines() {
+        // The shell's glass: sigma 18 blurs as 16.92, at 1/8 with a
+        // four-texel kernel; sigma 10 as 9.66 at 1/4.
+        let plan = |sigma: f32| {
+            let sigma = scale_sigma(sigma);
+            FrostPlan::new(
+                [800.0, 400.0, 1000.0, 440.0],
+                [sigma; 2],
+                [0.0; 2],
+                false,
+                (1920, 1200),
+            )
+            .unwrap()
+        };
+        let glass = plan(18.0);
+        assert!((scale_sigma(18.0) - 16.918).abs() < 1e-2);
+        assert_eq!(glass.halvings, 3);
+        assert_eq!(glass.radius, [4.0; 2]);
+        assert_eq!(glass.region[0] % 8, 0);
+        let pill = plan(10.0);
+        assert_eq!((pill.halvings, pill.radius), (2, [4.0; 2]));
+        // Small blurs stay at full size. Past a 41-tap kernel at 1/8 the
+        // engine goes to 1/16, which its scaled sigmas never reach.
+        assert_eq!(plan(4.0).halvings, 0);
+        assert_eq!(plan(500.0).halvings, 3);
+        assert_eq!(frost_halvings(120.0), 4);
+    }
+
+    #[test]
     fn frost_mips_are_sized_as_vulkan_sizes_them() {
         let plan = FrostPlan {
             region: [0, 0, 1366, 9],
             halvings: 3,
             sigma: [0.0; 2],
+            radius: [0.0; 2],
         };
         assert_eq!(plan.levels(), 3);
-        assert_eq!(plan.level_size(0), (683, 5));
+        assert_eq!(plan.level_size(0), (683, 4));
+        // 170 texels of 8x8 pixels; the ninth row is left out.
+        assert_eq!(plan.covered(), [0.0, 0.0, 1360.0, 8.0]);
         assert_eq!(plan.level_size(1), (341, 2));
         assert_eq!(plan.level_size(2), (170, 1));
         // Too small to halve three times: one texel is the last level.
@@ -1429,6 +1913,7 @@ pub(super) mod tests {
             region: [0, 0, 4, 2],
             halvings: 3,
             sigma: [0.0; 2],
+            radius: [0.0; 2],
         };
         assert_eq!(tiny.levels(), 2);
         assert_eq!(tiny.level_size(1), (1, 1));
@@ -1436,6 +1921,7 @@ pub(super) mod tests {
             region: [0, 0, 7, 3],
             halvings: 0,
             sigma: [0.0; 2],
+            radius: [0.0; 2],
         };
         assert_eq!((plain.levels(), plain.level_size(0)), (1, (7, 3)));
     }
@@ -1456,5 +1942,121 @@ pub(super) mod tests {
         // Radii that fit are kept, uneven ones included.
         let uneven = [[70.0, 10.0], [10.0, 10.0], [0.0, 0.0], [5.0, 5.0]];
         assert_eq!(fitted_radii(&rect, uneven), uneven);
+    }
+
+    fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Rect {
+        Rect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    fn whole(opacity: f32) -> EntryLocal {
+        EntryLocal {
+            scene_from_local: Matrix3::IDENTITY,
+            opacity,
+            clips: 0..0,
+            sampling: denial_flutter_engine::scene::Sampling::Linear,
+            freeze: false,
+        }
+    }
+
+    #[test]
+    fn opaque_draws_cover_whole_pixels_and_bounds_round_out() {
+        // Scene to target at scale 2.
+        let ndc =
+            ndc_from_target(200, 100).then(&Matrix3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0]));
+        let placement = Placement {
+            source: [0.0, 0.0, 64.0, 64.0],
+            destination: rect(10.25, 5.0, 60.0, 30.5),
+            strict: false,
+        };
+        let draw = texture(&whole(1.0), ClipSpan::default(), &ndc, &placement, (64, 64)).unwrap();
+        assert_eq!(draw.bounds((200, 100)), [20, 10, 120, 61]);
+        assert_eq!(
+            draw.opaque(None, (200, 100)),
+            [Some([21, 10, 120, 61]), None]
+        );
+        let faded = texture(&whole(0.5), ClipSpan::default(), &ndc, &placement, (64, 64)).unwrap();
+        assert_eq!(faded.opaque(None, (200, 100)), [None, None]);
+        let clipped = texture(
+            &whole(1.0),
+            ClipSpan { first: 0, count: 1 },
+            &ndc,
+            &placement,
+            (64, 64),
+        )
+        .unwrap();
+        assert_eq!(clipped.opaque(None, (200, 100)), [None, None]);
+        // Turned a quarter: still a rectangle.
+        let quarter = ndc_from_target(200, 100)
+            .then(&Matrix3([0.0, -1.0, 100.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]));
+        let turned = texture(
+            &whole(1.0),
+            ClipSpan::default(),
+            &quarter,
+            &placement,
+            (64, 64),
+        )
+        .unwrap();
+        assert_eq!(
+            turned.opaque(None, (200, 100)),
+            [Some([70, 11, 95, 60]), None]
+        );
+        // Turned by another angle: no cover.
+        let (sin, cos) = 0.3f32.sin_cos();
+        let tilted = ndc_from_target(200, 100)
+            .then(&Matrix3([cos, -sin, 50.0, sin, cos, 0.0, 0.0, 0.0, 1.0]));
+        let tilted = texture(
+            &whole(1.0),
+            ClipSpan::default(),
+            &tilted,
+            &placement,
+            (64, 64),
+        )
+        .unwrap();
+        assert_eq!(tilted.opaque(None, (200, 100)), [None, None]);
+    }
+
+    #[test]
+    fn an_opaque_window_covers_its_client_inside_its_corners() {
+        let style = WindowStyle {
+            bounds: rect(0.0, 0.0, 100.0, 100.0),
+            content_bounds: rect(0.0, 0.0, 100.0, 100.0),
+            material_bounds: None,
+            radius: 8.0,
+            frame_color: 0xff000000,
+            direct_texture: true,
+        };
+        let placement = Placement {
+            source: [0.0, 0.0, 100.0, 90.0],
+            destination: rect(0.0, 0.0, 100.0, 90.0),
+            strict: false,
+        };
+        let ndc = ndc_from_target(100, 100);
+        let draw = |surface_opacity: f32| {
+            window(
+                &whole(1.0),
+                ClipSpan::default(),
+                &ndc,
+                &style,
+                &Matrix3::IDENTITY,
+                surface_opacity,
+                Some((&placement, (100, 90))),
+            )
+            .unwrap()
+        };
+        let surface = window_surface(&Matrix3::IDENTITY, &placement);
+        assert_eq!(surface, Some([0.0, 0.0, 100.0, 90.0]));
+        // The quad reaches one past the window for its antialiased edge.
+        assert_eq!(draw(1.0).bounds((100, 100)), [-1, -1, 101, 101]);
+        assert_eq!(
+            draw(1.0).opaque(surface, (100, 100)),
+            [Some([8, 0, 92, 90]), Some([0, 8, 100, 82])]
+        );
+        assert_eq!(draw(0.5).opaque(surface, (100, 100)), [None, None]);
+        assert_eq!(draw(1.0).opaque(None, (100, 100)), [None, None]);
     }
 }

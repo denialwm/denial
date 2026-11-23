@@ -22,7 +22,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 #[cfg(feature = "flutter")]
 use smithay::backend::renderer::utils::{
-    RendererSurfaceStateUserData, with_renderer_surface_state,
+    CommitCounter, RendererSurfaceStateUserData, with_renderer_surface_state,
 };
 use smithay::backend::renderer::{Color32F, Frame, ImportDma, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
@@ -118,7 +118,9 @@ use tracing::{error, info, warn};
 use super::PendingWindowEvent;
 use super::RuntimeState;
 #[cfg(feature = "flutter")]
-use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame};
+use super::flutter_runtime::{
+    BufferDamage, ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame,
+};
 #[cfg(feature = "flutter")]
 use super::frame_scheduler::FrameTick;
 #[cfg(feature = "flutter")]
@@ -514,6 +516,10 @@ pub(super) struct WaylandFrontend {
     pending_shm_snapshots: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
     surface_buffer_revisions: HashMap<ObjectId, u64>,
+    /// The commit of each surface's last built texture frame: the next
+    /// frame's buffer damage is counted from it.
+    #[cfg(feature = "flutter")]
+    surface_damage_commits: std::sync::Mutex<HashMap<ObjectId, CommitCounter>>,
     #[cfg(feature = "flutter")]
     next_buffer_revision: u64,
     surface_ids: HashMap<ObjectId, u64>,

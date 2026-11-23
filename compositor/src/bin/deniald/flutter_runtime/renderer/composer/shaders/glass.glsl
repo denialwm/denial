@@ -18,8 +18,9 @@ struct Glass {
   // Where the material draws: left, top, right, bottom. Behind a window:
   // its material bounds, window-local.
   vec4 quad;
-  // The glass surface and its corner radii: upper left, upper right,
-  // lower right, lower left.
+  // The surface (glass) or the material's bounds (blur), from the origin of
+  // its own frame, and its corner radii: upper left, upper right, lower
+  // right, lower left.
   vec4 shape;
   vec4 radii;
   // The target pixels the frost covers, and its texture coordinate limits.
@@ -27,6 +28,12 @@ struct Glass {
   vec4 frost_limits;
   // Non-premultiplied tint.
   vec4 tint;
+  // Target pixels to the frame `shape` and `radii` are in (rows of a 2x3
+  // affine; Impeller's material coordinates), and that frame's normals back
+  // to target pixels (xy multiplies normal x, zw normal y).
+  vec4 to_material0;
+  vec4 to_material1;
+  vec4 normal_transform;
   float thickness;
   float refractive_index;
   float dispersion;
@@ -51,9 +58,11 @@ struct Glass {
   uint has_material_bounds;
   // The first of the `clip_count` clips in the frame's clip buffer.
   uint clip_first;
+  // A blur turned off the target's axes: it covers `shape`, not all of
+  // `quad`.
+  uint shaped_blur;
   uint pad0;
   uint pad1;
-  uint pad2;
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Glasses {

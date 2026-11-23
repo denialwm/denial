@@ -360,6 +360,8 @@ impl FlutterGlHandler {
     /// frame's samples are finished and released and the runtime is told.
     fn present_gles_fence(&self) -> Option<OwnedFd> {
         let context = lock(&self.render_context);
+        // The fence also follows the composer's submissions.
+        self.gles_catch_up_on(context.context.display());
         let created_fence = {
             let _stage = RenderAuditCallbackTimer::new(
                 self.render_audit.as_ref(),
@@ -397,8 +399,7 @@ impl FlutterGlHandler {
                         // Complete outstanding sampling only so teardown
                         // can release imported client buffers safely. This
                         // frame is not published as an unfenced fallback.
-                        // SAFETY: present runs with the raster context current.
-                        unsafe { (self.gl.finish)() };
+                        self.gles_finish();
                         let sampled = self.seal_sampled_buffers();
                         let _ = self.publish_sampled_buffer_release(None, sampled);
                         let _ = self.events.send(RuntimeEvent::FatalRender {
@@ -415,8 +416,7 @@ impl FlutterGlHandler {
                 // Complete outstanding sampling only so teardown can
                 // release imported client buffers safely. This frame is
                 // not published as an unfenced fallback.
-                // SAFETY: present runs with the raster context current.
-                unsafe { (self.gl.finish)() };
+                self.gles_finish();
                 let sampled = self.seal_sampled_buffers();
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 let _ = self.events.send(RuntimeEvent::FatalRender {
@@ -504,6 +504,65 @@ impl OpenGlHandler for FlutterGlHandler {
         self.composer_acquire_writer(width, height)
     }
 
+    fn scene_acquire_writer_vk(
+        &self,
+        _ticket: u64,
+        width: u32,
+        height: u32,
+    ) -> Option<denial_flutter_engine::scene::SliceWriterVk> {
+        self.scene_composer
+            .as_ref()?
+            .acquire_writer_vk(width, height)
+    }
+
+    fn scene_resolve_texture_vk(
+        &self,
+        ticket: u64,
+        texture_id: i64,
+    ) -> Option<denial_flutter_engine::scene::TextureImageVk> {
+        self.composer_resolve_texture_vk(ticket, texture_id)
+    }
+
+    fn scene_lend_textures_vk(&self, ticket: u64) -> bool {
+        self.composer_lend_textures_vk(ticket)
+    }
+
+    fn scene_return_textures_vk(&self, ticket: u64) {
+        self.composer_return_textures_vk(ticket);
+    }
+
+    fn scene_lends_textures(&self) -> bool {
+        self.composer_lends_textures()
+    }
+
+    fn vulkan_renderer(&self) -> Option<denial_flutter_engine::VulkanRenderer> {
+        use ash::vk::Handle;
+        let device = self.scene_composer.as_ref()?.shell_device()?;
+        Some(denial_flutter_engine::VulkanRenderer {
+            version: device.version,
+            instance: device.instance.as_raw() as *mut c_void,
+            physical_device: device.physical.as_raw() as *mut c_void,
+            device: device.device.as_raw() as *mut c_void,
+            queue_family_index: device.family,
+            queue: device.queue.as_raw() as *mut c_void,
+            instance_extensions: device.instance_extensions,
+            device_extensions: device.device_extensions,
+        })
+    }
+
+    fn resolve_vulkan_proc(&self, instance: *mut c_void, name: &CStr) -> *mut c_void {
+        use ash::vk::Handle;
+        // SAFETY: the engine resolves on the instance it was given, or null
+        // for global commands, with a NUL-terminated name.
+        let function = unsafe {
+            super::composer::shell_instance_proc(
+                ash::vk::Instance::from_raw(instance as u64),
+                name.as_ptr(),
+            )
+        };
+        function.map_or(std::ptr::null_mut(), |function| function as *mut c_void)
+    }
+
     fn scene_stage(&self, scene: denial_flutter_engine::scene::SceneSource<'_>) -> bool {
         self.composer_stage(scene)
     }
@@ -557,6 +616,18 @@ impl OpenGlHandler for FlutterGlHandler {
             self.notify_frame_ready();
         }
         lock(&self.raster_sampled_feedback).clear();
+        // Retired composer storage goes back even when no frame presented.
+        let context_current = lock(&self.render_context).context.is_current();
+        if context_current {
+            self.composer_reap();
+        }
+        // A view's root present takes its staged frame in this task.
+        if let Some(composer) = &self.scene_composer {
+            composer.abandon_staged();
+        }
+        // Client buffers GLES read for the composer go back behind a fence
+        // of their own, whether or not a frame presented.
+        self.composer_release_converted_reads();
         let previous = self.finish_producer_frame();
         if !ready.is_empty() {
             let sampled = self.seal_sampled_buffers();
@@ -581,9 +652,7 @@ impl OpenGlHandler for FlutterGlHandler {
             if batch.is_some() {
                 // The raster transaction returned without present(), so no
                 // exportable fence exists. Match the C++ conservative path.
-                // SAFETY: the sentinel runs on Flutter's render thread after
-                // the abandoned raster task.
-                unsafe { (self.gl.finish)() };
+                self.gles_finish();
                 self.publish_sampled_buffer_release(None, batch);
             }
         }
@@ -760,7 +829,10 @@ impl OpenGlHandler for FlutterGlHandler {
         let Some(pending) = lock(&self.pending_output_presentation).take() else {
             if frame.framebuffer == 0 {
                 // A raster task with no compositor layer still submits its
-                // otherwise unused root SurfaceFrame.
+                // otherwise unused root SurfaceFrame. A frame the composer
+                // did not draw ends here too: what earlier attempts left to
+                // the composer is released, or retries would pile it up.
+                self.composer_reap();
                 return true;
             }
             error!(
@@ -873,8 +945,7 @@ impl OpenGlHandler for FlutterGlHandler {
                 // A failed copy cannot produce a KMS fence. Finish Flutter's
                 // sampling before releasing client buffers, then let the next
                 // acquisition invalidate and recycle this rendering slot.
-                // SAFETY: present runs with the raster context current.
-                unsafe { (self.gl.finish)() };
+                self.gles_finish();
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 return false;
             }
@@ -931,8 +1002,7 @@ impl OpenGlHandler for FlutterGlHandler {
                     Ok(fence) => Some(fence),
                     Err(error) => {
                         warn!(%error, "could not duplicate Flutter render fence; using glFinish for sampled buffers");
-                        // SAFETY: present runs with the raster context current.
-                        unsafe { (self.gl.finish)() };
+                        self.gles_finish();
                         // The fence may be Vulkan's, which glFinish does not
                         // cover.
                         super::composer::wait_completion(fence);
@@ -942,8 +1012,7 @@ impl OpenGlHandler for FlutterGlHandler {
                 None => {
                     // Fence-less output presentation is only reachable after
                     // a synchronous GL completion fallback.
-                    // SAFETY: present runs with the raster context current.
-                    unsafe { (self.gl.finish)() };
+                    self.gles_finish();
                     None
                 }
             };
@@ -1031,6 +1100,11 @@ impl OpenGlHandler for FlutterGlHandler {
             }
             true
         })();
+        if !presented {
+            // Whatever the composer drew never reached the screen: the
+            // view's next frame redraws and reports everything.
+            self.composer_frame_lost(view_id);
+        }
         if presented
             && !self.transfers.contains_key(&framebuffer)
             && let Some(audit) = &self.render_audit

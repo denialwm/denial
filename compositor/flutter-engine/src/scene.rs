@@ -26,6 +26,39 @@ pub struct SliceWriter {
     pub height: u32,
 }
 
+/// Slice storage the engine renders with Impeller Vulkan on the embedder's
+/// queue: a VkImage and a view of all of it, in `layout`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SliceWriterVk {
+    pub struct_size: usize,
+    pub key: SliceKey,
+    pub image: u64,
+    pub image_view: u64,
+    /// VkFormat; R8G8B8A8_UNORM.
+    pub format: u32,
+    /// VkImageLayout.
+    pub layout: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// `DenialFlutterTextureImageVK`: a client image lent to the engine while it
+/// composes a frame the composer could not stage.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextureImageVk {
+    pub struct_size: usize,
+    pub image: u64,
+    pub image_view: u64,
+    /// VkFormat: R8G8B8A8_UNORM, B8G8R8A8_UNORM or R16G16B16A16_SFLOAT.
+    pub format: u32,
+    pub width: u32,
+    pub height: u32,
+    pub has_presentation: bool,
+    pub presentation: crate::ExternalTexturePresentation,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SliceBlit {
@@ -176,6 +209,12 @@ pub(crate) struct RawComposer {
     pub cancel: unsafe extern "C" fn(*mut c_void, u64),
     pub prepare_gles_read: unsafe extern "C" fn(*mut c_void, i64) -> bool,
     pub pin_backdrop: unsafe extern "C" fn(*mut c_void, u64, i64) -> bool,
+    pub acquire_writer_vk:
+        unsafe extern "C" fn(*mut c_void, u64, u32, u32, *mut SliceWriterVk) -> bool,
+    pub resolve_texture_vk:
+        Option<unsafe extern "C" fn(*mut c_void, u64, i64, *mut TextureImageVk) -> bool>,
+    pub lend_textures_vk: Option<unsafe extern "C" fn(*mut c_void, u64) -> bool>,
+    pub return_textures_vk: Option<unsafe extern "C" fn(*mut c_void, u64)>,
 }
 
 /// A 2D projective transform, row-major: `[x', y', w'] = M * [x, y, 1]`.
@@ -486,6 +525,12 @@ impl SceneSource<'_> {
         self.raw.ticket
     }
 
+    /// A scene of one slice the engine composed itself, after the composer
+    /// declined the frame's own scene.
+    pub fn engine_composed(&self) -> bool {
+        self.raw.scene_revision & (1 << 63) != 0
+    }
+
     /// Copies the scene into `scene`, reusing its buffers. False when the
     /// engine described something this embedder cannot show exactly; `scene`
     /// is then partly overwritten, so copy into a scratch scene.
@@ -775,7 +820,14 @@ mod tests {
         assert_eq!(std::mem::size_of::<RawScene>(), 144);
         assert_eq!(std::mem::offset_of!(RawScene, entries), 120);
         assert_eq!(std::mem::offset_of!(RawScene, rewritten), 136);
-        assert_eq!(std::mem::size_of::<RawComposer>(), 72);
+        assert_eq!(std::mem::size_of::<SliceWriterVk>(), 56);
+        assert_eq!(std::mem::size_of::<RawComposer>(), 104);
+        assert_eq!(std::mem::offset_of!(RawComposer, resolve_texture_vk), 80);
+        assert_eq!(std::mem::offset_of!(RawComposer, return_textures_vk), 96);
+        assert_eq!(std::mem::offset_of!(TextureImageVk, has_presentation), 36);
+        assert_eq!(std::mem::offset_of!(TextureImageVk, presentation), 40);
+        assert_eq!(std::mem::size_of::<TextureImageVk>(), 168);
+        assert_eq!(std::mem::offset_of!(RawComposer, acquire_writer_vk), 72);
         assert_eq!(std::mem::offset_of!(RawComposer, prepare_gles_read), 56);
         assert_eq!(std::mem::offset_of!(RawComposer, pin_backdrop), 64);
     }

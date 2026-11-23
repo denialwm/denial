@@ -9,7 +9,7 @@
 //! pipelines and descriptor sets are made once and reused.
 
 use ash::{Entry, vk};
-use smithay::backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf};
+use smithay::backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf, format::FormatSet};
 use std::{
     collections::HashMap,
     ffi::CStr,
@@ -19,11 +19,40 @@ use std::{
 
 use super::material::{self, Frost};
 use super::record::{ClipRecord, Draw, FrostPlan, Glass};
+use super::shell_queue;
 
 type Result<T> = std::result::Result<T, String>;
 
+/// The composer's device was lost: nothing it submits runs any more.
+static DEVICE_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether any composer call reported `VK_ERROR_DEVICE_LOST`.
+pub(super) fn device_lost() -> bool {
+    DEVICE_LOST.load(std::sync::atomic::Ordering::Acquire)
+}
+
 fn vk_error(stage: &str, error: vk::Result) -> String {
+    if error == vk::Result::ERROR_DEVICE_LOST {
+        DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
+    }
     format!("Vulkan composer {stage}: {error:?}")
+}
+
+/// A binary semaphore whose payload exports as a sync file.
+///
+/// # Safety
+/// `device` is live.
+unsafe fn export_semaphore(device: &ash::Device) -> Result<vk::Semaphore> {
+    let mut export = vk::ExportSemaphoreCreateInfo::default()
+        .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+    // SAFETY: upheld by the caller.
+    unsafe {
+        device.create_semaphore(
+            &vk::SemaphoreCreateInfo::default().push_next(&mut export),
+            None,
+        )
+    }
+    .map_err(|e| vk_error("signal semaphore", e))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -133,9 +162,130 @@ pub(super) fn vulkan_format(fourcc: Fourcc) -> Option<(vk::Format, bool)> {
         Fourcc::Abgr2101010 => (vk::Format::A2B10G10R10_UNORM_PACK32, false),
         Fourcc::Xbgr2101010 => (vk::Format::A2B10G10R10_UNORM_PACK32, true),
         Fourcc::Abgr16161616f => (vk::Format::R16G16B16A16_SFLOAT, false),
+        Fourcc::Rgb565 => (vk::Format::R5G6B5_UNORM_PACK16, false),
+        Fourcc::Bgr565 => (vk::Format::B5G6R5_UNORM_PACK16, false),
         Fourcc::Xbgr16161616f => (vk::Format::R16G16B16A16_SFLOAT, true),
         _ => return None,
     })
+}
+
+/// The DRM format modifiers `physical` has for `format`.
+fn query_modifiers(
+    instance: &ash::Instance,
+    physical: vk::PhysicalDevice,
+    format: vk::Format,
+) -> Vec<ModifierSupport> {
+    let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
+    let mut properties = vk::FormatProperties2::default().push_next(&mut list);
+    // SAFETY: two-call query on a live physical device of `instance`.
+    unsafe { instance.get_physical_device_format_properties2(physical, format, &mut properties) };
+    let mut entries = vec![
+        vk::DrmFormatModifierPropertiesEXT::default();
+        list.drm_format_modifier_count as usize
+    ];
+    let mut list = vk::DrmFormatModifierPropertiesListEXT::default()
+        .drm_format_modifier_properties(&mut entries);
+    let mut properties = vk::FormatProperties2::default().push_next(&mut list);
+    // SAFETY: as above, with storage for every entry.
+    unsafe { instance.get_physical_device_format_properties2(physical, format, &mut properties) };
+    entries
+        .iter()
+        .map(|entry| ModifierSupport {
+            modifier: entry.drm_format_modifier,
+            planes: entry.drm_format_modifier_plane_count,
+            features: entry.drm_format_modifier_tiling_features,
+        })
+        .collect()
+}
+
+/// Whether `physical` is the GPU behind the DRM node `device_number`, and
+/// its API version when it is.
+fn drm_node_version(
+    instance: &ash::Instance,
+    physical: vk::PhysicalDevice,
+    device_number: libc::dev_t,
+) -> Option<u32> {
+    // SAFETY: the device belongs to this instance.
+    let extensions =
+        unsafe { instance.enumerate_device_extension_properties(physical) }.unwrap_or_default();
+    if !extensions.iter().any(|extension| {
+        extension
+            .extension_name_as_c_str()
+            .is_ok_and(|own| own == ash::ext::physical_device_drm::NAME)
+    }) {
+        return None;
+    }
+    let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
+    let api_version = {
+        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut drm);
+        // SAFETY: the extension is supported by this device.
+        unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
+        properties.properties.api_version
+    };
+    let node = |major: i64, minor: i64| {
+        libc::major(device_number) as i64 == major && libc::minor(device_number) as i64 == minor
+    };
+    ((drm.has_render != 0 && node(drm.render_major, drm.render_minor))
+        || (drm.has_primary != 0 && node(drm.primary_major, drm.primary_minor)))
+    .then_some(api_version)
+}
+
+/// What clients may allocate their buffers with when the composer samples
+/// them: of `formats`, what GLES imports on the GPU behind the DRM node
+/// `device_number`, the RGB formats only with modifiers Vulkan can sample
+/// there. GLES imports layouts Vulkan cannot (NVIDIA's compressed kinds);
+/// a client that picked one would leave every frame showing it to GLES,
+/// and the Vulkan shell has no GLES to leave it to. Other formats, and
+/// implicit modifiers, stay as GLES has them.
+pub(super) fn sampled_client_formats(
+    device_number: libc::dev_t,
+    formats: &FormatSet,
+) -> Result<FormatSet> {
+    // SAFETY: ash keeps the loaded library alive in the entry.
+    let entry = unsafe { Entry::load() }
+        .map_err(|error| format!("Vulkan composer loader unavailable: {error}"))?;
+    let app = vk::ApplicationInfo::default()
+        .application_name(c"deniald composer formats")
+        .api_version(vk::API_VERSION_1_3);
+    // SAFETY: valid create info; nothing borrowed outlives the call.
+    let instance = unsafe {
+        entry.create_instance(
+            &vk::InstanceCreateInfo::default().application_info(&app),
+            None,
+        )
+    }
+    .map_err(|e| vk_error("create instance", e))?;
+    // SAFETY: the instance is live.
+    let physicals = unsafe { instance.enumerate_physical_devices() }.unwrap_or_default();
+    let physical = physicals
+        .into_iter()
+        .find(|&physical| drm_node_version(&instance, physical, device_number).is_some());
+    let filtered = physical.map(|physical| {
+        let mut support: HashMap<vk::Format, Vec<ModifierSupport>> = HashMap::new();
+        formats
+            .iter()
+            .filter(|format| {
+                let Some((vk_format, _)) = vulkan_format(format.code) else {
+                    return true;
+                };
+                if format.modifier == Modifier::Invalid {
+                    return true;
+                }
+                support
+                    .entry(vk_format)
+                    .or_insert_with(|| query_modifiers(&instance, physical, vk_format))
+                    .iter()
+                    .any(|entry| {
+                        entry.modifier == u64::from(format.modifier)
+                            && entry.features.contains(Usage::Sampled.features())
+                    })
+            })
+            .copied()
+            .collect::<FormatSet>()
+    });
+    // SAFETY: nothing else was created from this instance.
+    unsafe { instance.destroy_instance(None) };
+    filtered.ok_or_else(|| "no Vulkan device behind the render node".into())
 }
 
 struct ModifierSupport {
@@ -151,6 +301,12 @@ pub(super) struct GpuInner {
     pub(super) device: ash::Device,
     queue: vk::Queue,
     family: u32,
+    /// What the instance and device were created with, for the engine when
+    /// it renders on this device (`ShellDevice`).
+    instance_extensions: Vec<&'static CStr>,
+    device_extensions: Vec<&'static CStr>,
+    /// The engine renders slices on this queue (`Gpu::new`).
+    shell: bool,
     memory: vk::PhysicalDeviceMemoryProperties,
     /// The largest storage buffer range a descriptor may name.
     max_storage_range: u64,
@@ -185,7 +341,10 @@ impl Drop for GpuInner {
         // so all work using these objects completed or was abandoned with
         // the device idle (Frame::drop waits).
         unsafe {
-            let _ = self.device.device_wait_idle();
+            {
+                let _queue = shell_queue::lock();
+                let _ = self.device.device_wait_idle();
+            }
             for (_, pipeline) in lock(&self.pipelines).drain() {
                 self.device.destroy_pipeline(pipeline, None);
             }
@@ -245,8 +404,10 @@ pub(super) struct Gpu(pub(super) Arc<GpuInner>);
 
 impl Gpu {
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
-    /// context renders with.
-    pub(super) fn new(render_node: BorrowedFd<'_>) -> Result<Self> {
+    /// context renders with. With `shell`, the engine renders on it too: the
+    /// instance and device add what Impeller requires, and the queue entry
+    /// points the engine resolves take the shared queue lock.
+    pub(super) fn new(render_node: BorrowedFd<'_>, shell: bool) -> Result<Self> {
         let device_number = device_number(render_node.as_raw_fd())?;
         // SAFETY: ash keeps the loaded library alive in the entry.
         let entry = unsafe { Entry::load() }
@@ -261,10 +422,41 @@ impl Gpu {
         let app = vk::ApplicationInfo::default()
             .application_name(c"deniald composer")
             .api_version(vk::API_VERSION_1_3);
+        // Impeller requires a surface and a window-system extension even
+        // when it never presents; Wayland is the one deniald has.
+        let mut instance_extensions: Vec<&'static CStr> = Vec::new();
+        let mut layers: Vec<&'static CStr> = Vec::new();
+        if shell {
+            // SAFETY: a query on the live entry.
+            let available = unsafe { entry.enumerate_instance_extension_properties(None) }
+                .map_err(|e| vk_error("instance extensions", e))?;
+            for name in [ash::khr::surface::NAME, ash::khr::wayland_surface::NAME] {
+                if !available
+                    .iter()
+                    .any(|ext| ext.extension_name_as_c_str().is_ok_and(|own| own == name))
+                {
+                    return Err(format!(
+                        "Vulkan shell needs instance extension {}",
+                        name.to_string_lossy()
+                    ));
+                }
+                instance_extensions.push(name);
+            }
+            // Diagnostic: DENIAL_VULKAN_VALIDATION=1 enables the Khronos
+            // validation layer for the composer and the engine alike.
+            if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
+                layers.push(c"VK_LAYER_KHRONOS_validation");
+            }
+        }
+        let extension_pointers: Vec<_> = instance_extensions.iter().map(|n| n.as_ptr()).collect();
+        let layer_pointers: Vec<_> = layers.iter().map(|n| n.as_ptr()).collect();
         // SAFETY: valid create info; nothing borrowed outlives the call.
         let instance = unsafe {
             entry.create_instance(
-                &vk::InstanceCreateInfo::default().application_info(&app),
+                &vk::InstanceCreateInfo::default()
+                    .application_info(&app)
+                    .enabled_extension_names(&extension_pointers)
+                    .enabled_layer_names(&layer_pointers),
                 None,
             )
         }
@@ -299,25 +491,9 @@ impl Gpu {
                         .is_ok_and(|own| own == name)
                 })
             };
-            if !has(ash::ext::physical_device_drm::NAME) {
+            let Some(api_version) = drm_node_version(&instance, physical, device_number) else {
                 continue;
-            }
-            let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
-            let api_version = {
-                let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut drm);
-                // SAFETY: the extension is supported by this device.
-                unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
-                properties.properties.api_version
             };
-            let node = |major: i64, minor: i64| {
-                libc::major(device_number) as i64 == major
-                    && libc::minor(device_number) as i64 == minor
-            };
-            if !((drm.has_render != 0 && node(drm.render_major, drm.render_minor))
-                || (drm.has_primary != 0 && node(drm.primary_major, drm.primary_minor)))
-            {
-                continue;
-            }
             if api_version < vk::API_VERSION_1_3 || required.iter().any(|name| !has(name)) {
                 return Err(fail(
                     &instance,
@@ -329,9 +505,16 @@ impl Gpu {
             // SAFETY: a query on a device of this instance.
             let families =
                 unsafe { instance.get_physical_device_queue_family_properties(physical) };
-            let Some(family) = families.iter().position(|family| {
-                family.queue_count > 0 && family.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-            }) else {
+            // The engine runs graphics and compute work on the same queue.
+            let wanted = if shell {
+                vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE
+            } else {
+                vk::QueueFlags::GRAPHICS
+            };
+            let Some(family) = families
+                .iter()
+                .position(|family| family.queue_count > 0 && family.queue_flags.contains(wanted))
+            else {
                 return Err(fail(
                     &instance,
                     "Vulkan composer GPU has no graphics queue".into(),
@@ -349,15 +532,48 @@ impl Gpu {
         let mut features13 = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
+        let mut device_extensions: Vec<&'static CStr> = required.to_vec();
+        // Impeller enables what the hardware has of these and assumes the
+        // embedder did the same.
+        let mut features11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut features = vk::PhysicalDeviceFeatures2::default();
+        if shell {
+            // SAFETY: a query on a device of this instance.
+            let extensions = unsafe { instance.enumerate_device_extension_properties(physical) }
+                .unwrap_or_default();
+            if !extensions.iter().any(|ext| {
+                ext.extension_name_as_c_str()
+                    .is_ok_and(|own| own == ash::khr::swapchain::NAME)
+            }) {
+                return Err(fail(
+                    &instance,
+                    "Vulkan shell needs VK_KHR_swapchain".into(),
+                ));
+            }
+            device_extensions.push(ash::khr::swapchain::NAME);
+            let mut supported11 = vk::PhysicalDeviceVulkan11Features::default();
+            let mut supported = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported11);
+            // SAFETY: a query on a Vulkan 1.3 device of this instance.
+            unsafe { instance.get_physical_device_features2(physical, &mut supported) };
+            let base = supported.features;
+            features.features = vk::PhysicalDeviceFeatures::default()
+                .fill_mode_non_solid(base.fill_mode_non_solid == vk::TRUE)
+                .sampler_anisotropy(base.sampler_anisotropy == vk::TRUE);
+            features11 = features11.uniform_and_storage_buffer16_bit_access(
+                supported11.uniform_and_storage_buffer16_bit_access == vk::TRUE,
+            );
+        }
         let priorities = [1.0];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
             .queue_priorities(&priorities)];
-        let names: Vec<_> = required.iter().map(|name| name.as_ptr()).collect();
+        let names: Vec<_> = device_extensions.iter().map(|name| name.as_ptr()).collect();
         let create = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_extension_names(&names)
-            .push_next(&mut features13);
+            .push_next(&mut features13)
+            .push_next(&mut features11)
+            .push_next(&mut features);
         // SAFETY: extensions and features were checked above.
         let device = match unsafe { instance.create_device(physical, &create, None) } {
             Ok(device) => device,
@@ -371,7 +587,15 @@ impl Gpu {
                 instance.get_physical_device_properties(physical).limits,
             )
         };
+        if shell && let Err(error) = shell_queue::install(&entry, instance.handle()) {
+            // SAFETY: nothing was created from the device yet.
+            unsafe { device.destroy_device(None) };
+            return Err(fail(&instance, error));
+        }
         let mut inner = GpuInner {
+            shell,
+            instance_extensions,
+            device_extensions,
             memory_fd: ash::khr::external_memory_fd::Device::new(&instance, &device),
             semaphore_fd: ash::khr::external_semaphore_fd::Device::new(&instance, &device),
             push: ash::khr::push_descriptor::Device::new(&instance, &device),
@@ -407,10 +631,41 @@ impl Gpu {
             drm_major = libc::major(device_number),
             drm_minor = libc::minor(device_number),
             family,
+            shell,
             "Vulkan scene composer initialized"
         );
         Ok(Self(Arc::new(inner)))
     }
+
+    /// The device as the engine's Vulkan renderer takes it.
+    pub(super) fn shell_device(&self) -> ShellDevice {
+        let gpu = &self.0;
+        ShellDevice {
+            version: vk::API_VERSION_1_3,
+            instance: gpu.instance.handle(),
+            physical: gpu.physical,
+            device: gpu.device.handle(),
+            family: gpu.family,
+            queue: gpu.queue,
+            instance_extensions: gpu.instance_extensions.clone(),
+            device_extensions: gpu.device_extensions.clone(),
+        }
+    }
+}
+
+/// What the engine's Vulkan renderer runs on: the composer's own instance,
+/// device and queue. The engine resolves procedures through
+/// `shell_queue::instance_proc`.
+#[derive(Clone)]
+pub(in crate::flutter_runtime) struct ShellDevice {
+    pub(in crate::flutter_runtime) version: u32,
+    pub(in crate::flutter_runtime) instance: vk::Instance,
+    pub(in crate::flutter_runtime) physical: vk::PhysicalDevice,
+    pub(in crate::flutter_runtime) device: vk::Device,
+    pub(in crate::flutter_runtime) family: u32,
+    pub(in crate::flutter_runtime) queue: vk::Queue,
+    pub(in crate::flutter_runtime) instance_extensions: Vec<&'static CStr>,
+    pub(in crate::flutter_runtime) device_extensions: Vec<&'static CStr>,
 }
 
 impl GpuInner {
@@ -606,41 +861,9 @@ impl GpuInner {
         modifier: u64,
     ) -> Option<(u32, vk::FormatFeatureFlags)> {
         let mut modifiers = lock(&self.modifiers);
-        let list = modifiers.entry(format).or_insert_with(|| {
-            let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
-            let mut properties = vk::FormatProperties2::default().push_next(&mut list);
-            // SAFETY: two-call query on the live physical device.
-            unsafe {
-                self.instance.get_physical_device_format_properties2(
-                    self.physical,
-                    format,
-                    &mut properties,
-                )
-            };
-            let mut entries = vec![
-                vk::DrmFormatModifierPropertiesEXT::default();
-                list.drm_format_modifier_count as usize
-            ];
-            let mut list = vk::DrmFormatModifierPropertiesListEXT::default()
-                .drm_format_modifier_properties(&mut entries);
-            let mut properties = vk::FormatProperties2::default().push_next(&mut list);
-            // SAFETY: as above, with storage for every entry.
-            unsafe {
-                self.instance.get_physical_device_format_properties2(
-                    self.physical,
-                    format,
-                    &mut properties,
-                )
-            };
-            entries
-                .iter()
-                .map(|entry| ModifierSupport {
-                    modifier: entry.drm_format_modifier,
-                    planes: entry.drm_format_modifier_plane_count,
-                    features: entry.drm_format_modifier_tiling_features,
-                })
-                .collect()
-        });
+        let list = modifiers
+            .entry(format)
+            .or_insert_with(|| query_modifiers(&self.instance, self.physical, format));
         list.iter()
             .find(|entry| entry.modifier == modifier)
             .map(|entry| (entry.planes, entry.features))
@@ -690,6 +913,29 @@ impl GpuInner {
             })
     }
 
+    /// Those of `candidates` a `size` image of `fourcc` imports with for
+    /// sampling.
+    pub(super) fn importable(
+        &self,
+        fourcc: Fourcc,
+        (width, height): (u32, u32),
+        candidates: &[Modifier],
+    ) -> Vec<Modifier> {
+        let Some((format, _)) = vulkan_format(fourcc) else {
+            return Vec::new();
+        };
+        candidates
+            .iter()
+            .copied()
+            .filter(|modifier| {
+                self.max_extent(format, u64::from(*modifier), Usage::Sampled.flags())
+                    .is_some_and(|(max_width, max_height)| {
+                        width <= max_width && height <= max_height
+                    })
+            })
+            .collect()
+    }
+
     /// Modifiers this device samples `fourcc` with, for slice storage.
     pub(super) fn sampled_modifiers(&self, fourcc: Fourcc) -> Vec<Modifier> {
         let Some((format, _)) = vulkan_format(fourcc) else {
@@ -700,11 +946,8 @@ impl GpuInner {
             .get(&format)
             .map(|list| {
                 list.iter()
-                    .filter(|entry| {
-                        entry
-                            .features
-                            .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE)
-                    })
+                    // As `import` requires for sampled images.
+                    .filter(|entry| entry.features.contains(Usage::Sampled.features()))
                     .map(|entry| Modifier::from(entry.modifier))
                     .collect()
             })
@@ -723,7 +966,7 @@ impl GpuInner {
 
 /// An imported DMA-BUF. Destroyed when the last holder drops it; frames
 /// hold the images they sampled until their submission completed.
-pub(super) struct Image {
+pub(in crate::flutter_runtime) struct Image {
     gpu: Arc<GpuInner>,
     pub(super) image: vk::Image,
     memory: vk::DeviceMemory,
@@ -736,6 +979,22 @@ pub(super) struct Image {
     pub(super) external: bool,
     /// A target materials can copy from.
     pub(super) copyable: bool,
+    /// Sampled with alpha one: a format without alpha.
+    pub(super) opaque: bool,
+}
+
+impl Image {
+    /// What the engine samples of a lent image: its handles, VkFormat and
+    /// size.
+    pub(in crate::flutter_runtime) fn lent(&self) -> (u64, u64, u32, (u32, u32)) {
+        use ash::vk::Handle;
+        (
+            self.image.as_raw(),
+            self.view.as_raw(),
+            self.format.as_raw() as u32,
+            self.size,
+        )
+    }
 }
 
 impl Drop for Image {
@@ -867,6 +1126,7 @@ impl Gpu {
             sampled_layout: vk::ImageLayout::GENERAL,
             external: true,
             copyable,
+            opaque: opaque && usage == Usage::Sampled,
         };
         // SAFETY: queries on live objects.
         let requirements = unsafe { d.get_image_memory_requirements(image) };
@@ -961,6 +1221,7 @@ impl Gpu {
             sampled_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             external: false,
             copyable: false,
+            opaque: false,
         };
         // SAFETY: queries and allocation on the live device.
         unsafe {
@@ -1127,6 +1388,7 @@ impl Gpu {
                 commands(d, command);
                 d.end_command_buffer(command)?;
                 let commands = [vk::CommandBufferSubmitInfo::default().command_buffer(command)];
+                let _queue = shell_queue::lock();
                 d.queue_submit2(
                     gpu.queue,
                     &[vk::SubmitInfo2::default().command_buffer_infos(&commands)],
@@ -1176,6 +1438,7 @@ impl Gpu {
             sampled_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             external: false,
             copyable: false,
+            opaque: false,
         };
         let bytes = (texels.len() * 2) as vk::DeviceSize;
         // SAFETY: allocations on the live device; the staging buffer is
@@ -1397,10 +1660,13 @@ pub(super) struct WindowDraw {
 pub(super) struct Merge {
     pub(super) image: Arc<Image>,
     pub(super) batches: Vec<Batch>,
+    /// The pixels drawn again, `[x, y, width, height]`, the rest kept as a
+    /// submission drew them before; None draws the whole image.
+    pub(super) area: Option<[u32; 4]>,
 }
 
-/// Renders each merge's layers into its image, cleared first, and makes the
-/// image readable by the frame's fragment shaders. Earlier submissions on
+/// Renders each merge's layers into its image, or into its area, cleared
+/// first, and makes the image readable by the frame's fragment shaders. Earlier submissions on
 /// the queue may still sample an image: its writes wait for their reads.
 ///
 /// # Safety
@@ -1423,9 +1689,13 @@ unsafe fn record_merges(
                     .image(merge.image.image)
                     .subresource_range(color_range());
                 if to_draw {
-                    // Cleared below: the old contents need not survive.
+                    // Cleared below: the old contents need not survive,
+                    // unless outside the area drawn.
                     barrier
-                        .old_layout(vk::ImageLayout::UNDEFINED)
+                        .old_layout(match merge.area {
+                            Some(_) => merge.image.sampled_layout,
+                            None => vk::ImageLayout::UNDEFINED,
+                        })
                         .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
                         .src_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
                         .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
@@ -1451,9 +1721,17 @@ unsafe fn record_merges(
         d.cmd_bind_pipeline(command, vk::PipelineBindPoint::GRAPHICS, pipeline);
         for merge in merges {
             let (width, height) = merge.image.size;
+            // The clear and the draws stay within the render area.
+            let [x, y, area_width, area_height] = merge.area.unwrap_or([0, 0, width, height]);
             let area = vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: vk::Extent2D { width, height },
+                offset: vk::Offset2D {
+                    x: x as i32,
+                    y: y as i32,
+                },
+                extent: vk::Extent2D {
+                    width: area_width,
+                    height: area_height,
+                },
             };
             let color = [vk::RenderingAttachmentInfo::default()
                 .image_view(merge.image.view)
@@ -1583,6 +1861,14 @@ pub(super) struct Frame {
     draws_set: vk::DescriptorSet,
     wait: vk::Semaphore,
     signal: vk::Semaphore,
+    /// Signalled by every submission: completion stays known when its
+    /// sync file could not be exported or copied.
+    fence: vk::Fence,
+    /// A submission was made and has not been seen complete.
+    in_flight: bool,
+    /// `signal` was signalled with nothing to wait for it (its export
+    /// failed): it is replaced before the next submission.
+    signal_spent: bool,
     /// The submission's completion, while it may still run.
     pending: Option<OwnedFd>,
     pub(super) serial: u64,
@@ -1695,8 +1981,8 @@ unsafe impl Send for Frame {}
 
 impl Drop for Frame {
     fn drop(&mut self) {
-        if let Some(pending) = self.pending.take() {
-            wait_fd(pending.as_fd_ref(), -1);
+        if self.in_flight {
+            self.wait_fence();
         }
         let d = &self.gpu.device;
         // SAFETY: the submission completed (above); the objects belong to
@@ -1705,6 +1991,7 @@ impl Drop for Frame {
         unsafe {
             d.destroy_semaphore(self.wait, None);
             d.destroy_semaphore(self.signal, None);
+            d.destroy_fence(self.fence, None);
             d.destroy_buffer(self.draws, None);
             d.free_memory(self.draws_memory, None);
             d.destroy_buffer(self.staging, None);
@@ -1727,20 +2014,36 @@ impl AsFdRef for OwnedFd {
 }
 
 /// Whether a sync_file signaled within `timeout_ms` (0 polls, -1 waits).
+/// Whether `fd` became readable within `timeout_ms` (-1: until it does).
 pub(super) fn wait_fd(fd: BorrowedFd<'_>, timeout_ms: i32) -> bool {
     let mut poll = libc::pollfd {
         fd: fd.as_raw_fd(),
         events: libc::POLLIN,
         revents: 0,
     };
+    let deadline = (timeout_ms >= 0)
+        .then(|| std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms as u64));
     loop {
+        // An interrupted wait resumes with what is left of the timeout.
+        let left = deadline.map_or(-1, |deadline| {
+            deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis()
+                .min(i32::MAX as u128) as i32
+        });
         // SAFETY: one valid pollfd.
-        let result = unsafe { libc::poll(&mut poll, 1, timeout_ms) };
+        let result = unsafe { libc::poll(&mut poll, 1, left) };
         if result >= 0 {
             return result > 0;
         }
-        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return false;
+        match std::io::Error::last_os_error().kind() {
+            // Interrupted with time left (or no limit): wait again.
+            std::io::ErrorKind::Interrupted if left != 0 => {}
+            // poll could not allocate: an unbounded wait tries again.
+            std::io::ErrorKind::OutOfMemory if timeout_ms < 0 => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            _ => return false,
         }
     }
 }
@@ -1759,6 +2062,10 @@ impl Frame {
             )
         }
         .map_err(|e| vk_error("command buffer", e))?[0];
+        // Diagnostic: names the composer's buffers in validation reports.
+        if gpu.shell && std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
+            tracing::info!(?command, "composer frame command buffer");
+        }
         let mut frame = Self {
             gpu: Arc::clone(&gpu),
             command,
@@ -1769,6 +2076,9 @@ impl Frame {
             draws_set: vk::DescriptorSet::null(),
             wait: vk::Semaphore::null(),
             signal: vk::Semaphore::null(),
+            fence: vk::Fence::null(),
+            in_flight: false,
+            signal_spent: false,
             pending: None,
             serial: 0,
             keep: Vec::new(),
@@ -1780,19 +2090,15 @@ impl Frame {
             query_kinds: Vec::new(),
             query_instances: 0,
         };
-        let mut export = vk::ExportSemaphoreCreateInfo::default()
-            .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
         // SAFETY: as above.
         unsafe {
             frame.wait = d
                 .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
                 .map_err(|e| vk_error("wait semaphore", e))?;
-            frame.signal = d
-                .create_semaphore(
-                    &vk::SemaphoreCreateInfo::default().push_next(&mut export),
-                    None,
-                )
-                .map_err(|e| vk_error("signal semaphore", e))?;
+            frame.signal = export_semaphore(d)?;
+            frame.fence = d
+                .create_fence(&vk::FenceCreateInfo::default(), None)
+                .map_err(|e| vk_error("frame fence", e))?;
             let layouts = [gpu.draws_layout];
             frame.draws_set = d
                 .allocate_descriptor_sets(
@@ -1818,14 +2124,107 @@ impl Frame {
         Ok(frame)
     }
 
+    /// Test hook: the frame is in flight on a submission that never ends
+    /// (its fence is never submitted); `completion` stands for its sync
+    /// file.
+    #[cfg(test)]
+    pub(super) fn set_stuck(&mut self, completion: OwnedFd) {
+        self.pending = Some(completion);
+        self.in_flight = true;
+    }
+
+    /// Test hook: the stuck submission ended.
+    #[cfg(test)]
+    pub(super) fn unstick(&mut self) {
+        self.completed();
+    }
+
+    /// Forgets the submission's sync file, as when it could not be copied:
+    /// only the fence tells completion.
+    #[cfg(test)]
+    pub(super) fn forget_completion(&mut self) {
+        self.pending = None;
+    }
+
+    /// A copy of the pending submission's completion, None when the frame
+    /// has none.
+    pub(super) fn pending_completion(&self) -> Option<OwnedFd> {
+        if !self.in_flight {
+            return None;
+        }
+        self.pending
+            .as_ref()
+            .and_then(|fd| duplicate(fd.as_fd_ref()).ok())
+    }
+
     /// Whether the last submission completed; true when none is pending.
     /// Releases what it held once it has.
     pub(super) fn idle(&mut self) -> bool {
-        if let Some(pending) = &self.pending {
-            if !wait_fd(pending.as_fd_ref(), 0) {
-                return false;
+        if self.in_flight {
+            // The sync file signals before the fence (signal operation
+            // order): only the fence says the submission is over.
+            // SAFETY: the fence belongs to this frame's device.
+            match unsafe { self.gpu.device.get_fence_status(self.fence) } {
+                Ok(true) => self.completed(),
+                Ok(false) => return false,
+                Err(error) => {
+                    vk_error("frame fence", error);
+                    return false;
+                }
             }
-            self.pending = None;
+        }
+        self.keep.clear();
+        true
+    }
+
+    /// Waits until the submission is over: it completed, or the device is
+    /// lost (its objects may then be destroyed). The wait ends: a GPU that
+    /// stops completing work is reset, which signals or loses.
+    fn wait_fence(&mut self) {
+        loop {
+            // SAFETY: the fence belongs to this frame's device.
+            match unsafe {
+                self.gpu
+                    .device
+                    .wait_for_fences(&[self.fence], true, u64::MAX)
+            } {
+                Ok(()) => {
+                    self.completed();
+                    return;
+                }
+                Err(vk::Result::ERROR_DEVICE_LOST) => {
+                    vk_error("frame fence", vk::Result::ERROR_DEVICE_LOST);
+                    self.in_flight = false;
+                    self.pending = None;
+                    return;
+                }
+                // Out of memory for the wait itself: the fence may still say
+                // the work is over; until then what it uses stays held.
+                Err(_) => {
+                    // SAFETY: the fence belongs to this frame's device.
+                    match unsafe { self.gpu.device.get_fence_status(self.fence) } {
+                        Ok(true) => {
+                            self.completed();
+                            return;
+                        }
+                        Err(vk::Result::ERROR_DEVICE_LOST) => {
+                            vk_error("frame fence", vk::Result::ERROR_DEVICE_LOST);
+                            self.in_flight = false;
+                            self.pending = None;
+                            return;
+                        }
+                        _ => std::thread::sleep(std::time::Duration::from_millis(1)),
+                    }
+                }
+            }
+        }
+    }
+
+    /// The submission completed: what it held and measured is released.
+    fn completed(&mut self) {
+        self.in_flight = false;
+        self.pending = None;
+        {
             if let Some(period) = self.gpu.timing
                 && !self.query_kinds.is_empty()
             {
@@ -1847,7 +2246,6 @@ impl Frame {
             }
         }
         self.keep.clear();
-        true
     }
 
     fn reserve(&mut self, draws: usize, glasses: usize, clips: usize, edges: usize) -> Result<()> {
@@ -1998,7 +2396,18 @@ impl Frame {
         area: [i32; 4],
         wait: Option<OwnedFd>,
     ) -> Result<Option<OwnedFd>> {
-        debug_assert!(self.pending.is_none());
+        debug_assert!(!self.in_flight);
+        let d = &self.gpu.device;
+        if self.signal_spent {
+            // SAFETY: the frame is idle: nothing waits on the old semaphore.
+            unsafe {
+                let fresh = export_semaphore(d)?;
+                d.destroy_semaphore(std::mem::replace(&mut self.signal, fresh), None);
+            }
+            self.signal_spent = false;
+        }
+        // SAFETY: the frame is idle: its fence is not in use.
+        unsafe { d.reset_fences(&[self.fence]) }.map_err(|e| vk_error("reset frame fence", e))?;
         // What the frame redraws (left, top, right, bottom target pixels, as
         // `FrostPlan::region`):
         // the whole target replaces its contents, part of it keeps the rest,
@@ -2393,9 +2802,22 @@ impl Frame {
                     &vk::DependencyInfo::default().image_memory_barriers(&to_sample),
                 );
             }
+            // With the engine on this queue, its slice passes precede this
+            // submission and leave each slice SHADER_READ_ONLY_OPTIMAL, the
+            // layout the composer samples it in: one barrier makes their
+            // writes, and the layout transitions whatever stage Impeller
+            // ended them in, visible to sampling.
+            let slices_written = [vk::MemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)];
+            let memory: &[vk::MemoryBarrier2] = if gpu.shell { &slices_written } else { &[] };
             d.cmd_pipeline_barrier2(
                 command,
-                &vk::DependencyInfo::default().image_memory_barriers(&acquire),
+                &vk::DependencyInfo::default()
+                    .memory_barriers(memory)
+                    .image_memory_barriers(&acquire),
             );
             // One layout for every pipeline: set 0 stays bound throughout.
             d.cmd_bind_descriptor_sets(
@@ -2517,10 +2939,14 @@ impl Frame {
             .command_buffer_infos(&commands)
             .signal_semaphore_infos(&signals);
         // SAFETY: recorded above; the queue is used only behind the
-        // composer's lock.
-        unsafe { d.queue_submit2(gpu.queue, &[submit], vk::Fence::null()) }
-            .map_err(|e| vk_error("submit", e))?;
+        // composer's lock and the shared queue lock.
+        unsafe {
+            let _queue = shell_queue::lock();
+            d.queue_submit2(gpu.queue, &[submit], self.fence)
+        }
+        .map_err(|e| vk_error("submit", e))?;
         self.serial = serial;
+        self.in_flight = true;
         // SAFETY: the signal operation was just submitted.
         let exported = unsafe {
             gpu.semaphore_fd.get_semaphore_fd(
@@ -2532,11 +2958,16 @@ impl Frame {
         let fd = match exported {
             Ok(fd) => fd,
             Err(error) => {
-                // The work is queued but cannot be tracked: let it finish
-                // before anything it reads is released.
-                // SAFETY: the queue is used only behind the composer's lock.
-                let _ = unsafe { d.queue_wait_idle(gpu.queue) };
-                return Err(vk_error("export completion", error));
+                // The signal stays signalled with nothing to wait for it; a
+                // binary semaphore cannot be signalled again, so the next
+                // submission takes a fresh one.
+                self.signal_spent = true;
+                // Nothing downstream can wait for the work: it finishes
+                // here, before the target and the clients it read are
+                // handed on. The fence tells when.
+                let error = vk_error("export completion", error);
+                self.wait_fence();
+                return if device_lost() { Err(error) } else { Ok(None) };
             }
         };
         if fd < 0 {
@@ -2550,12 +2981,212 @@ impl Frame {
             completion.as_fd()
         }) {
             Ok(pending) => self.pending = Some(pending),
-            // Without a copy the frame cannot tell completion: wait now
-            // rather than release what the GPU still reads.
-            Err(_) => {
-                wait_fd(completion.as_fd_ref(), -1);
-            }
+            // Without a copy the fence tells completion.
+            Err(_) => {}
         }
         Ok(Some(completion))
+    }
+}
+
+/// One ownership and layout change of images the engine's Vulkan renderer
+/// samples while it composes a frame the composer could not stage. Lending
+/// waits for `wait` (GLES writes) and moves each image from where the
+/// composer keeps it (FOREIGN and GENERAL for shared images) into
+/// SHADER_READ_ONLY_OPTIMAL on this queue; returning moves it back. Every
+/// later submission on the queue, the engine's included, is in the barrier's
+/// second scope. Keeps the images until its fence signals.
+pub(super) struct Transfer {
+    gpu: Arc<GpuInner>,
+    pool: vk::CommandPool,
+    wait: vk::Semaphore,
+    fence: vk::Fence,
+    submitted: bool,
+    images: Vec<Arc<Image>>,
+}
+
+impl Gpu {
+    pub(super) fn transfer(
+        &self,
+        images: Vec<Arc<Image>>,
+        lend: bool,
+        wait: Option<OwnedFd>,
+    ) -> Result<Transfer> {
+        let gpu = Arc::clone(&self.0);
+        let d = &gpu.device;
+        let mut transfer = Transfer {
+            gpu: Arc::clone(&gpu),
+            pool: vk::CommandPool::null(),
+            wait: vk::Semaphore::null(),
+            fence: vk::Fence::null(),
+            submitted: false,
+            images,
+        };
+        // SAFETY: objects on the live device, destroyed by Drop; the pool is
+        // this transfer's own, so no other thread records into it.
+        let command = unsafe {
+            transfer.pool = d
+                .create_command_pool(
+                    &vk::CommandPoolCreateInfo::default()
+                        .flags(vk::CommandPoolCreateFlags::TRANSIENT)
+                        .queue_family_index(gpu.family),
+                    None,
+                )
+                .map_err(|e| vk_error("transfer command pool", e))?;
+            transfer.fence = d
+                .create_fence(&vk::FenceCreateInfo::default(), None)
+                .map_err(|e| vk_error("transfer fence", e))?;
+            d.allocate_command_buffers(
+                &vk::CommandBufferAllocateInfo::default()
+                    .command_pool(transfer.pool)
+                    .level(vk::CommandBufferLevel::PRIMARY)
+                    .command_buffer_count(1),
+            )
+            .map_err(|e| vk_error("transfer command buffer", e))?[0]
+        };
+        let foreign = vk::QUEUE_FAMILY_FOREIGN_EXT;
+        let barriers: Vec<_> = transfer
+            .images
+            .iter()
+            .map(|image| {
+                let (from, to) = if image.external {
+                    if lend {
+                        (foreign, gpu.family)
+                    } else {
+                        (gpu.family, foreign)
+                    }
+                } else {
+                    (vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED)
+                };
+                let barrier = vk::ImageMemoryBarrier2::default()
+                    .src_queue_family_index(from)
+                    .dst_queue_family_index(to)
+                    .image(image.image)
+                    .subresource_range(color_range());
+                if lend {
+                    barrier
+                        .old_layout(image.sampled_layout)
+                        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                        .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                        .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
+                        .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)
+                } else {
+                    barrier
+                        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                        .new_layout(image.sampled_layout)
+                        .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                }
+            })
+            .collect();
+        // Lending also makes every earlier write on the queue (the engine's
+        // slice renders) visible to sampling.
+        let written = [vk::MemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+            .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
+            .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)];
+        let memory: &[vk::MemoryBarrier2] = if lend { &written } else { &[] };
+        // SAFETY: recording into the command buffer allocated above.
+        unsafe {
+            d.begin_command_buffer(
+                command,
+                &vk::CommandBufferBeginInfo::default()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .map_err(|e| vk_error("begin transfer", e))?;
+            d.cmd_pipeline_barrier2(
+                command,
+                &vk::DependencyInfo::default()
+                    .memory_barriers(memory)
+                    .image_memory_barriers(&barriers),
+            );
+            d.end_command_buffer(command)
+                .map_err(|e| vk_error("end transfer", e))?;
+        }
+        let waits = match wait {
+            Some(fd) => {
+                // SAFETY: a semaphore on the live device, destroyed by Drop;
+                // a temporary import consumes the descriptor on success.
+                unsafe {
+                    transfer.wait = d
+                        .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+                        .map_err(|e| vk_error("transfer semaphore", e))?;
+                    gpu.semaphore_fd
+                        .import_semaphore_fd(
+                            &vk::ImportSemaphoreFdInfoKHR::default()
+                                .semaphore(transfer.wait)
+                                .flags(vk::SemaphoreImportFlags::TEMPORARY)
+                                .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD)
+                                .fd(fd.as_raw_fd()),
+                        )
+                        .map_err(|e| vk_error("import transfer wait", e))?;
+                }
+                let _ = fd.into_raw_fd();
+                vec![
+                    vk::SemaphoreSubmitInfo::default()
+                        .semaphore(transfer.wait)
+                        .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS),
+                ]
+            }
+            None => Vec::new(),
+        };
+        let commands = [vk::CommandBufferSubmitInfo::default().command_buffer(command)];
+        let submit = vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&waits)
+            .command_buffer_infos(&commands);
+        // SAFETY: recorded above; the queue is used behind the shared lock.
+        unsafe {
+            let _queue = shell_queue::lock();
+            d.queue_submit2(gpu.queue, &[submit], transfer.fence)
+        }
+        .map_err(|e| vk_error("submit transfer", e))?;
+        transfer.submitted = true;
+        Ok(transfer)
+    }
+}
+
+impl Gpu {
+    /// Blocks until the shared queue is idle. Failure paths only.
+    pub(super) fn wait_queue_idle(&self) {
+        let _queue = shell_queue::lock();
+        // SAFETY: the queue is used behind the shared lock.
+        if let Err(error) = unsafe { self.0.device.queue_wait_idle(self.0.queue) } {
+            tracing::error!(%error, "could not wait for the Vulkan composer's queue");
+        }
+    }
+}
+
+impl Transfer {
+    /// Its submission completed.
+    pub(super) fn done(&self) -> bool {
+        // SAFETY: a submitted fence of the live device.
+        unsafe { self.gpu.device.get_fence_status(self.fence) }.unwrap_or(true)
+    }
+}
+
+impl Drop for Transfer {
+    fn drop(&mut self) {
+        let d = &self.gpu.device;
+        // SAFETY: a submitted fence of the live device. A device that hangs
+        // gets two seconds.
+        let idle = !self.submitted
+            || unsafe { d.wait_for_fences(&[self.fence], true, 2_000_000_000) }.is_ok();
+        if !idle {
+            // Still in use by a hung queue: keep everything it references.
+            tracing::error!("Vulkan composer transfer did not complete; leaking its images");
+            std::mem::forget(std::mem::take(&mut self.images));
+            return;
+        }
+        // SAFETY: nothing pending uses these objects any more.
+        unsafe {
+            if self.wait != vk::Semaphore::null() {
+                d.destroy_semaphore(self.wait, None);
+            }
+            if self.fence != vk::Fence::null() {
+                d.destroy_fence(self.fence, None);
+            }
+            if self.pool != vk::CommandPool::null() {
+                d.destroy_command_pool(self.pool, None);
+            }
+        }
     }
 }

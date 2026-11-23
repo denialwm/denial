@@ -14,6 +14,21 @@ vec4 sampleFrost(vec2 target) {
   return textureLod(frost_texture, clamp(uv, GLASS.frost_limits.xy, GLASS.frost_limits.zw), 0.0);
 }
 
+// Target pixels to the material's own frame (Impeller's material
+// coordinates).
+vec2 materialPosition(vec2 target) {
+  const vec3 p = vec3(target, 1.0);
+  return vec2(dot(GLASS.to_material0.xyz, p), dot(GLASS.to_material1.xyz, p));
+}
+
+// Signed distance to the material's rectangle in its own frame, physical
+// pixels: a turned blur's edge.
+float boundsDistance(vec2 target) {
+  const vec2 half_size = max(GLASS.shape.zw * 0.5, vec2(0.0001));
+  const vec2 q = abs(materialPosition(target) - half_size) - half_size;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
 float cornerRadius(vec2 centered) {
   if (centered.y < 0.0) {
     return centered.x < 0.0 ? GLASS.radii.x : GLASS.radii.y;
@@ -25,7 +40,7 @@ float cornerRadius(vec2 centered) {
 // that normal can be trusted (it is undefined at a corner's centre).
 void roundedBoxField(vec2 position, out float signed_distance,
                      out vec2 outward_normal, out float normal_confidence) {
-  const vec2 half_size = max((GLASS.shape.zw - GLASS.shape.xy) * 0.5, vec2(0.0001));
+  const vec2 half_size = max(GLASS.shape.zw * 0.5, vec2(0.0001));
   const vec2 centered = position - half_size;
   const float radius =
       clamp(cornerRadius(centered), 0.0, min(half_size.x, half_size.y));
@@ -118,12 +133,16 @@ vec3 tinted(vec3 color) {
 
 // The glass surface at target pixel `target`.
 vec4 glass(vec2 target) {
-  const vec2 position = target - GLASS.shape.xy;
   float signed_distance;
   vec2 outward_normal;
   float normal_confidence;
-  roundedBoxField(position, signed_distance, outward_normal,
+  roundedBoxField(materialPosition(target), signed_distance, outward_normal,
                   normal_confidence);
+  // The field's gradient in target pixels, where refraction and light act.
+  if (dot(outward_normal, outward_normal) > 0.0) {
+    outward_normal = normalize(GLASS.normal_transform.xy * outward_normal.x +
+                               GLASS.normal_transform.zw * outward_normal.y);
+  }
   const float coverage = 1.0 - smoothstep(-2.0, 0.0, signed_distance);
   if (coverage < 0.01) {
     return vec4(0.0);
