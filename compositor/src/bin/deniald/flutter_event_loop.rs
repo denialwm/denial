@@ -850,6 +850,10 @@ impl Session<'_, '_> {
             }
         }
 
+        if drm.is_active() {
+            // The next DRM master may not know plane color pipelines.
+            plane_color::reset_planes(&**drm);
+        }
         if release_drm_master && drm.is_active() {
             // Closing a full display-manager session is an ownership handoff,
             // not a temporary KMS experiment. Release the device before Flutter

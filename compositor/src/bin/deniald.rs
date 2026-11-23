@@ -108,6 +108,9 @@ mod orientation_sensor;
 #[path = "deniald/output_color.rs"]
 mod output_color;
 #[cfg(feature = "flutter")]
+#[path = "deniald/plane_color.rs"]
+mod plane_color;
+#[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
 #[path = "deniald/output_policy.rs"]

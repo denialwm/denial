@@ -1019,6 +1019,12 @@ pub(super) struct OutputSwapchain {
     pub(super) current: usize,
     /// Gamut correction applied when copying Flutter's scene to scanout.
     pub(super) color: Option<super::output_color::OutputColor>,
+    /// The primary plane's color pipeline. When it shows the desktop look and
+    /// correction, nothing copies the scene and `color` is None.
+    pub(super) plane_color: Option<super::plane_color::PlaneColor>,
+    /// Whether a desktop look was loaded when the pool was made, when only
+    /// the look decided whether it has a scene target to copy.
+    pub(super) copies_for_look: Option<bool>,
 }
 
 #[cfg(feature = "flutter")]
@@ -1088,14 +1094,36 @@ impl OutputSwapchains {
                 .into());
             }
 
+            // An SDR output whose primary plane has a color pipeline shows the
+            // look and correction there and renders straight into scanout.
+            // Any other output keeps the pipeline off: the copy does the
+            // work. The frame loop commits it once these pools are installed.
+            let mut plane_color = super::plane_color::PlaneColor::probe(
+                &allocator.drm_fd,
+                scanout.surface.plane(),
+                display_color.correction.map(|correction| correction.matrix),
+            )
+            .unwrap_or_else(|error| {
+                warn!(output = %scanout.output.name, %error, "could not read the plane's color pipelines");
+                None
+            });
+            if let Some(pipeline) = &mut plane_color {
+                pipeline.set_shows(hdr.is_none() && !offscreen_blit);
+            }
+            let plane_colored = plane_color
+                .as_ref()
+                .is_some_and(super::plane_color::PlaneColor::shows);
+
             // Take the first format whose whole pool allocates, imports and
             // registers: a driver may advertise XR30 and still refuse it. HDR
             // scenes are half float; a display that cannot have one shows SDR.
             let mut allocate_pool = |hdr: Option<super::output_color::HdrOutput>| {
-                let color = hdr.map_or(display_color.correction, |hdr| Some(hdr.output_color()));
+                let color = hdr
+                    .map(|hdr| hdr.output_color())
+                    .or(display_color.correction.filter(|_| !plane_colored));
                 let scene_target = if offscreen_blit {
                     SceneTarget::Required
-                } else if color.is_some() || desktop_look {
+                } else if color.is_some() || (desktop_look && !plane_colored) {
                     SceneTarget::IfDirect
                 } else {
                     SceneTarget::None
@@ -1120,6 +1148,7 @@ impl OutputSwapchains {
                                 gamut_correction = display_color.correction.is_some(),
                                 hdr = hdr.is_some(),
                                 desktop_look,
+                                plane_colored,
                                 "allocated output pool"
                             );
                             return Ok((pool, color, scene_target));
@@ -1140,6 +1169,10 @@ impl OutputSwapchains {
                 }
                 result => result?,
             };
+            // Only the look decided this pool's scene target: gaining or
+            // losing one rebuilds it (`synchronize_plane_color`).
+            let copies_for_look =
+                (!offscreen_blit && !plane_colored && color.is_none()).then_some(desktop_look);
             if scene_target == SceneTarget::IfDirect
                 && !buffers.iter().all(|buffer| buffer.render_target.is_some())
             {
@@ -1155,7 +1188,7 @@ impl OutputSwapchains {
             {
                 warn!(output = %scanout.output.name, %error, "the display did not take the HDR signal; showing SDR");
                 if hdr.take().is_some() {
-                    color = display_color.correction;
+                    color = display_color.correction.filter(|_| !plane_colored);
                 }
             }
             if let Some(capability) = display_color.hdr {
@@ -1186,7 +1219,9 @@ impl OutputSwapchains {
                 size: plan.target_size,
                 buffers,
                 current: 0,
+                copies_for_look,
                 color,
+                plane_color,
             });
         }
         super::output_color::set_hdr_displays(hdr_displays);

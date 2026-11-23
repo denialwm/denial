@@ -164,14 +164,13 @@ impl Session<'_, '_> {
             }
         }
         let runtime = &mut **flutter;
-        scheduler.handle_completions(
-            runtime,
-            swapchain
-                .outputs_mut()
-                .ok_or("page-flip completion has no physical output pools")?,
-            scanouts,
-            events,
-        )?;
+        let pools = swapchain
+            .outputs_mut()
+            .ok_or("page-flip completion has no physical output pools")?;
+        scheduler.handle_completions(runtime, pools, scanouts, events)?;
+        // After completions, so a color commit waits for as few flips as
+        // possible.
+        synchronize_plane_color(drm, pools, events);
         for presented in scheduler
             .presented_outputs()
             .iter()
@@ -387,5 +386,50 @@ impl Session<'_, '_> {
             output_control_was_dirty,
             events.output_control_dirty,
         ))
+    }
+}
+
+/// Commits every output's plane to the current desktop look and correction
+/// (a few atomic loads when nothing changed). A plane that refuses its table
+/// is turned off for the session, and the outputs are rebuilt so the scene
+/// copy applies them instead. Outputs that copy their scene only for the
+/// look are rebuilt when it comes or goes.
+fn synchronize_plane_color(
+    drm: &DrmDevice,
+    pools: &mut kms_state::OutputSwapchains,
+    events: &mut RuntimeState,
+) {
+    let look = output_color::desktop_look_present();
+    let mut rebuild = false;
+    for pool in &mut pools.outputs {
+        rebuild |= pool.copies_for_look.is_some_and(|built| built != look);
+        let Some(color) = &mut pool.plane_color else {
+            continue;
+        };
+        let shows = color.shows();
+        if let Err(error) = color.sync(drm) {
+            if shows {
+                warn!(output = ?pool.output_id, %error, "the display refused its color table; rebuilding outputs to copy the scene instead");
+                match color.refuse(drm) {
+                    Ok(()) => rebuild = true,
+                    Err(error) => {
+                        error!(output = ?pool.output_id, %error, "could not turn off the plane's color table; the output keeps it");
+                    }
+                }
+            } else {
+                error!(output = ?pool.output_id, %error, "could not turn off the plane's color table; the scene copy may apply color twice");
+            }
+        }
+    }
+    plane_color::set_look_ready(
+        !pools
+            .outputs
+            .iter()
+            .any(|pool| pool.copies_for_look == Some(false)),
+    );
+    if rebuild && !events.kms_reconfigure_requested {
+        info!("rebuilding output pools for a display color change");
+        events.kms_reconfigure_requested = true;
+        events.topology_dirty = true;
     }
 }

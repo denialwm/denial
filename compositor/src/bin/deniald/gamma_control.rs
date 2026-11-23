@@ -433,6 +433,18 @@ fn probe_output(drm: &DrmDevice, scanout: &Scanout) -> Result<OutputGamma, Box<d
             }
         }
     };
+    // An inherited LUT that is not a full ramp (a boot splash leaves a
+    // 256-entry legacy one) cannot be our base, and must not stay: amdgpu
+    // takes a legacy LUT as an sRGB encode at the output with an implicit
+    // sRGB decode on planes, which a plane color pipeline turns off, so the
+    // picture would be encoded twice. Replace it with our own state now.
+    let replace_inherited = original_blob != 0 && original_ramp.is_none();
+    if replace_inherited {
+        info!(
+            output = scanout.output.name,
+            "replacing an inherited DRM gamma LUT that is not a full ramp"
+        );
+    }
     Ok(OutputGamma {
         crtc: scanout.output.crtc,
         property,
@@ -440,7 +452,7 @@ fn probe_output(drm: &DrmDevice, scanout: &Scanout) -> Result<OutputGamma, Box<d
         original_ramp,
         installed_blob: None,
         external_ramp: None,
-        dirty: false,
+        dirty: replace_inherited,
     })
 }
 

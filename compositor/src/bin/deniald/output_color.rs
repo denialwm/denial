@@ -248,8 +248,17 @@ pub(super) fn desktop_lut() -> Option<Arc<Lut>> {
         .clone()
 }
 
+/// Whether a desktop look is loaded, without taking its lock.
+static DESKTOP_LOOK: AtomicBool = AtomicBool::new(false);
+
+pub(super) fn desktop_look_present() -> bool {
+    DESKTOP_LOOK.load(Ordering::Acquire)
+}
+
 pub(super) fn set_desktop_lut(lut: Option<Lut>) {
+    let present = lut.is_some();
     *DESKTOP_LUT.lock().unwrap_or_else(PoisonError::into_inner) = lut.map(Arc::new);
+    DESKTOP_LOOK.store(present, Ordering::Release);
     DESKTOP_LUT_GENERATION.fetch_add(1, Ordering::AcqRel);
 }
 
