@@ -190,6 +190,7 @@ impl WaylandClientBudget {
             reservation_live: AtomicBool::new(true),
             peer_pid: None,
             peer_uid: None,
+            chromium_browser: false,
         })
     }
 }
@@ -266,6 +267,8 @@ fn opaque_regions_signature(regions: Option<&[Rectangle<i32, Logical>]>) -> (usi
 pub(super) struct DenialClientState {
     pub(super) peer_pid: Option<i32>,
     pub(super) peer_uid: Option<u32>,
+    /// A Chromium-based browser: see `app_specific`.
+    pub(super) chromium_browser: bool,
     compositor_state: CompositorClientState,
     /// `f64` bits of the scale this client draws apps at; see `app_scale`.
     apps_scale: AtomicU64,
@@ -284,6 +287,7 @@ impl Default for DenialClientState {
             reservation_live: AtomicBool::new(true),
             peer_pid: None,
             peer_uid: None,
+            chromium_browser: false,
         }
     }
 }

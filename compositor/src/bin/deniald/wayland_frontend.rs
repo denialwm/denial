@@ -146,6 +146,8 @@ use super::wire::{
 
 #[path = "wayland_frontend/app_scale.rs"]
 mod app_scale;
+#[path = "wayland_frontend/app_specific.rs"]
+mod app_specific;
 #[path = "wayland_frontend/clipboard.rs"]
 mod clipboard_io;
 #[path = "wayland_frontend/color_management.rs"]
@@ -1245,6 +1247,8 @@ fn init_listener(
                 client_state.peer_pid = Some(credentials.pid);
                 client_state.peer_uid = Some(credentials.uid);
             }
+            client_state.chromium_browser =
+                app_specific::is_chromium_browser(client_state.peer_pid);
             client_state.set_apps_scale(app_scale::connection_scale(
                 client_state.peer_pid,
                 frontend.settings.apps_scale(),

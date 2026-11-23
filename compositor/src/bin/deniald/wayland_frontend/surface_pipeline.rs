@@ -1650,6 +1650,23 @@ impl WaylandFrontend {
                     opacity_class = WindowOpacityClass::FullyOpaque;
                 }
             }
+            // App-specific: a Chromium browser that declares no opaque
+            // region is opaque all the same (`app_specific`).
+            if opacity_class != WindowOpacityClass::FullyOpaque
+                && opacity * window_opacity == 1.0
+                && surface
+                    .client()
+                    .and_then(|client| {
+                        client
+                            .get_data::<handlers::DenialClientState>()
+                            .map(|state| state.chromium_browser)
+                    })
+                    .unwrap_or(false)
+                && with_renderer_surface_state(&surface, |state| state.opaque_regions().is_none())
+                    .unwrap_or(false)
+            {
+                opacity_class = WindowOpacityClass::FullyOpaque;
+            }
             let description = WindowDescription {
                 object_id: stable_id,
                 surface_id: stable_id,
