@@ -404,13 +404,36 @@ abstract final class DesktopMetrics {
 
 /// Clips a window to its owning output viewport.
 ///
-/// This clip is invariant across overview, switcher, workspace, minimize, and
-/// pinned-window presentation. Only an actively dragged window may cross its
-/// owning output while the drag is in progress.
+/// A window belongs to one output and its workspace. Whatever presents it as
+/// part of that output stays inside it: overview, switcher, a workspace
+/// change, minimize, pinned windows and a managed layout's tiles. Two windows
+/// cross their output: one being dragged, and one that rests where the user
+/// left it ([restsFree], see [desktopWindowRestsFree]).
 Rect? desktopOutputClip({
   required bool activelyDragging,
   required Rect? outputRect,
-}) => activelyDragging ? null : outputRect;
+  bool restsFree = false,
+}) => activelyDragging || restsFree ? null : outputRect;
+
+/// Whether [placement] rests where the user left it and shows on every output
+/// it lies over: a window of the stacking layout that nothing presents
+/// elsewhere ([transformed]) and whose output is not changing workspace
+/// ([workspaceChanging]). A maximized or fullscreen window fills its own
+/// output and keeps to it, and so does a tile: a managed layout places it
+/// inside one output, or scrolls it off that output's edge.
+bool desktopWindowRestsFree({
+  required DesktopWindowLayout windowLayout,
+  required DesktopWindowPlacement placement,
+  required bool transformed,
+  required bool workspaceChanging,
+}) =>
+    windowLayout == DesktopWindowLayout.stacking &&
+    !transformed &&
+    !workspaceChanging &&
+    !placement.minimized &&
+    !placement.maximized &&
+    !placement.fullscreen &&
+    !placement.layoutPreviewing;
 
 enum DesktopPanel { none, launcher, dashboard }
 

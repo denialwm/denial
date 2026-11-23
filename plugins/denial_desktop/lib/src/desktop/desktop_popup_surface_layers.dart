@@ -3,6 +3,7 @@ import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -94,9 +95,27 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
               )
             : this.frame;
         final transformed = overview || switching || offscreenMinimized;
+        final windowLayout = ref.watch(
+          shellSettingsProvider.select(
+            (settings) => settings.layout.windowLayout,
+          ),
+        );
+        final workspaceChanging = ref.watch(
+          desktopWorkspaceProvider.select(
+            (state) =>
+                state.workspaceTransitions[this.placement.monitorId] != null,
+          ),
+        );
+        // The popups show wherever their window does.
         final outputClip = desktopOutputClip(
           activelyDragging: placement.dragging,
           outputRect: outputPixelGrid?.logicalRect,
+          restsFree: desktopWindowRestsFree(
+            windowLayout: windowLayout,
+            placement: placement,
+            transformed: transformed || minimized,
+            workspaceChanging: workspaceChanging,
+          ),
         );
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,

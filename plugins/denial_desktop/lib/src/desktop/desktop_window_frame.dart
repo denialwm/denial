@@ -334,9 +334,18 @@ class DesktopWindowFrame extends ConsumerWidget {
         switching ||
         desktopWidget ||
         offscreenMinimized;
+    final windowLayout = ref.watch(
+      shellSettingsProvider.select((settings) => settings.layout.windowLayout),
+    );
     final outputClip = desktopOutputClip(
       activelyDragging: placement.dragging,
       outputRect: outputRect,
+      restsFree: desktopWindowRestsFree(
+        windowLayout: windowLayout,
+        placement: placement,
+        transformed: transformed || minimized,
+        workspaceChanging: workspaceTransition != null,
+      ),
     );
     final frame = desktopPixelAlignedWindowFrame(
       frame: liveFrame,

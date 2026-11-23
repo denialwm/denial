@@ -235,9 +235,18 @@ class _DesktopInputLayoutPublisherState
         output.monitorId: output.logicalRect,
     };
     Rect? outputClipFor(DesktopWindowPlacement placement) {
+      // As the window's frame clips what it draws: a window that shows on
+      // two outputs takes presses on both.
       return desktopOutputClip(
         activelyDragging: placement.dragging,
         outputRect: outputRects[placement.monitorId],
+        restsFree: desktopWindowRestsFree(
+          windowLayout: source.windowLayout,
+          placement: placement,
+          transformed: false,
+          workspaceChanging:
+              desktop.workspaceTransitions[placement.monitorId] != null,
+        ),
       );
     }
 

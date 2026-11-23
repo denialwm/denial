@@ -652,12 +652,26 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         continue;
       }
       final closeId = _nextCloseId++;
+      // A window closes on the outputs it was shown on.
       final outputClip = desktopOutputClip(
         activelyDragging: placement.dragging,
         outputRect: desktopOutputPixelGridForMonitor(
           oldWidget.displayLayout,
           placement.monitorId,
         )?.logicalRect,
+        restsFree: desktopWindowRestsFree(
+          windowLayout: ref.read(shellSettingsProvider).layout.windowLayout,
+          placement: placement,
+          transformed:
+              oldWidget.desktop.isInOverview(window.objectId) ||
+              DesktopWindowSwitcherLayout.contains(
+                oldWidget.windowSwitcher,
+                window.objectId,
+              ),
+          workspaceChanging:
+              oldWidget.desktop.workspaceTransitions[placement.monitorId] !=
+              null,
+        ),
       );
       _closingWindows[closeId] = ClosingDesktopWindow(
         id: closeId,
