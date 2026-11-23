@@ -73,6 +73,6 @@ struct Glass {
   uint pad4;
 };
 
-layout(std430, set = 0, binding = 1) readonly buffer Glasses {
+layout(std430, set = 0, binding = 1) restrict readonly buffer Glasses {
   Glass glasses[];
 };

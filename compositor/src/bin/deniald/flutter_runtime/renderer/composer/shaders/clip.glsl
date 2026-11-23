@@ -19,7 +19,7 @@ struct Clip {
 };
 
 // The frame's clips; draws and glass records name a run of them.
-layout(std430, set = 0, binding = 2) readonly buffer Clips {
+layout(std430, set = 0, binding = 2) restrict readonly buffer Clips {
   Clip clips[];
 };
 #endif

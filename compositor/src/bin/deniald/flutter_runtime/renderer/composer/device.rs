@@ -3014,6 +3014,16 @@ impl Frame {
                     pipeline.set(wanted);
                 }
             };
+            // The glass program's record index (glass.frag's `GlassPass`).
+            let push_glass = |record: u32| {
+                d.cmd_push_constants(
+                    command,
+                    gpu.layout,
+                    vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &record.to_ne_bytes(),
+                );
+            };
             let mut bound: Option<(vk::ImageView, bool, vk::ImageView)> = None;
             for step in steps {
                 match step {
@@ -3036,6 +3046,7 @@ impl Frame {
                         bound = None;
                         use_pipeline(glass);
                         push_images(image, false, None, None);
+                        push_glass(*record);
                         d.cmd_draw(command, 4, 1, 0, *record);
                         stamp(Some(gpu_timing::GLASS));
                     }
@@ -3065,6 +3076,7 @@ impl Frame {
                         } else {
                             use_pipeline(glass);
                             push_images(&frost.tile, false, None, None);
+                            push_glass(material.record);
                             d.cmd_draw(command, 4, 1, 0, material.record);
                             stamp(Some(gpu_timing::GLASS));
                         }

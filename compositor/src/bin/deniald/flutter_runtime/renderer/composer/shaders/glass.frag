@@ -10,14 +10,20 @@
 
 layout(set = 1, binding = 0) uniform sampler2D frost_texture;
 
+// The record, pushed per draw: uniform across the draw, so Adreno loads it
+// once rather than per pixel (a flat varying index reads the storage buffer
+// per pixel).
+layout(push_constant) uniform GlassPass {
+  uint record;
+} pass;
+
 layout(location = 0) in vec2 v_target;
-layout(location = 1) flat in uint v_glass;
 layout(location = 0) out vec4 frag_color;
 
 #include "glass_shading.glsl"
 
 void main() {
-  glass_index = v_glass;
+  glass_index = pass.record;
   const vec3 p = vec3(v_target, 1.0);
   const vec3 scene = vec3(dot(GLASS.scene0.xyz, p), dot(GLASS.scene1.xyz, p),
                           dot(GLASS.scene2.xyz, p));

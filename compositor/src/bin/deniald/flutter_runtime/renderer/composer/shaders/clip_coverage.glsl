@@ -1,7 +1,7 @@
 // Clip coverage for fragment shaders; needs clip.glsl.
 
 // Path clips' polygon edges in their clips' spaces: x0, y0, x1, y1.
-layout(std430, set = 0, binding = 3) readonly buffer Edges {
+layout(std430, set = 0, binding = 3) restrict readonly buffer Edges {
   vec4 edges[];
 };
 
