@@ -55,6 +55,7 @@ impl FlutterGlHandler {
                 revision: _,
                 feedback: _,
                 color: _,
+                opaque: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
@@ -924,14 +925,14 @@ impl OpenGlHandler for FlutterGlHandler {
                 .is_some_and(|target| target.needs_blit());
             // GLES already waits for the submission (composer_submit), so the
             // copy to scanout reads what Vulkan drew.
-            let blit_ok = {
+            let scanout_area = {
                 let _stage = RenderAuditCallbackTimer::new(
                     self.render_audit.as_ref(),
                     RenderAuditStage::PresentBlit,
                 );
                 self.blit_to_scanout(framebuffer, frame.buffer_damage)
             };
-            if !blit_ok {
+            let Some(scanout_area) = scanout_area else {
                 // Vulkan may still read what this transaction sampled.
                 self.composer_wait_idle();
                 if let Some(gpu_timing) = &self.gpu_timing {
@@ -948,7 +949,7 @@ impl OpenGlHandler for FlutterGlHandler {
                 self.gles_finish();
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 return false;
-            }
+            };
             if composed.is_none()
                 && let Some(gpu_timing) = &self.gpu_timing
             {
@@ -1035,7 +1036,7 @@ impl OpenGlHandler for FlutterGlHandler {
                 let owner = lock(&self.completion_owner).clone();
                 let frame_damage = frame.frame_damage.to_vec();
                 let buffer_damage = frame.buffer_damage.to_vec();
-                let submitted = transfer.submit(source_fence, Box::new(move |completion| {
+                let submitted = transfer.submit(source_fence, scanout_area, Box::new(move |completion| {
                     let Some(handler) = owner.upgrade() else { return; };
                     if handler.shutdown_started.load(Ordering::Acquire) { return; }
                     match completion {

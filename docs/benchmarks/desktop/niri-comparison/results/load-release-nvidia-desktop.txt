@@ -1,0 +1,13 @@
+window 30 s, GPU busy 2%, GPU power 10 W
+process                          CPU % core  GPU ms/s
+chromium:renderer                      22.5       0.0
+deniald                                18.2      21.0
+chromium:gpu-process                    8.2       0.0
+mpvpaper                                6.4       0.0
+chromium:browser                        2.3       0.0
+python3                                 0.8       0.0
+top                                     0.6       0.0
+kitty                                   0.2       0.0
+all of the user                        59.4      21.0
+package power 8.48 W
+NVIDIA board 15.7 W, busy 13%

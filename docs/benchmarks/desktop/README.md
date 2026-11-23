@@ -387,3 +387,9 @@ separate candidates with source archives and executable hashes. The service
 launcher omits `--start-locked`. Previous bundle selection is retained as
 `/home/logix/denial-benchmark/selection-before.json`. Switching back requires
 the user's direction under Denial's deployment policy.
+
+## Compositor comparison
+
+[niri-comparison/](niri-comparison/README.md): Denial 0.6.8, Denial local and
+niri + Noctalia under the same load on `.18`, each rendering on the Radeon 890M
+and on the RTX 4060, with memory, CPU, GPU time and power (2026-11-23).

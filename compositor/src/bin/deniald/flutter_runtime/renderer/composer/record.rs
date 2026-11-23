@@ -209,12 +209,12 @@ impl Draw {
     /// order `opaque` checks; None when it covers.
     pub(super) fn why_no_cover(
         &self,
-        opaque_image: bool,
+        opaque_client: bool,
         surface: Option<[f32; 4]>,
         size: (u32, u32),
     ) -> Option<&'static str> {
-        if !opaque_image {
-            return Some("client image has alpha or is not imported");
+        if !opaque_client {
+            return Some("client image has alpha and no opaque region, or is not imported");
         }
         if self.flags[1] != 0 {
             return Some("clipped");

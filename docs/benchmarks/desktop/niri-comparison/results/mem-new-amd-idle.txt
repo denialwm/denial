@@ -1,0 +1,7 @@
+process                          PSS    anon    file   shmem     RSS    VRAM     GTT  NV fb  (MiB)
+deniald                        291.4   134.8   156.6     0.0   306.6   160.1    18.0      2
+fcitx5                          66.4    22.6    43.8     0.0    83.3     0.0     0.0      0
+at-spi2-registr                 64.5    58.4     6.1     0.0   730.2     0.0     0.0      0
+xdg-desktop-por                 24.1    12.0    11.8     0.3    54.4     0.0     0.0      0
+nvidia-smi                      23.6    20.3     3.3     0.0    28.2     0.0     0.0      0
+wireplumber                     20.3     8.8    11.5     0.0    34.7     0.0     0.0      0

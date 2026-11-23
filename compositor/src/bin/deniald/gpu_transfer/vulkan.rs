@@ -704,14 +704,45 @@ impl VulkanTransfer {
     /// released before fence completion. The worker then samples on destination
     /// GLES and exports that final writer's fence for KMS.
     pub fn copy(&mut self, pair: &TransferPair) -> Result<()> {
-        self.copy_timed(pair, None)
+        self.copy_timed(pair, None, None)
     }
 
+    /// Copies `area` (pixel rectangles inside the image, see
+    /// `TransferTarget::submit`; None: all of it). An empty area copies
+    /// nothing and submits nothing.
     pub(super) fn copy_timed(
         &mut self,
         pair: &TransferPair,
         mut timing: Option<&mut super::Timings>,
+        area: Option<&[[i32; 4]]>,
     ) -> Result<()> {
+        let regions: Vec<vk::BufferImageCopy> = match area {
+            None => vec![pair.0.region],
+            Some(rects) => rects
+                .iter()
+                .map(|&[x, y, width, height]| {
+                    let whole = pair.0.region;
+                    // Buffer texels are addressed from bufferOffset, not from
+                    // imageOffset: start at the rectangle's first texel.
+                    let texel = u64::from(y as u32) * u64::from(whole.buffer_row_length)
+                        + u64::from(x as u32);
+                    whole
+                        .buffer_offset(whole.buffer_offset + texel * 4)
+                        .image_offset(vk::Offset3D { x, y, z: 0 })
+                        .image_extent(vk::Extent3D {
+                            width: width as u32,
+                            height: height as u32,
+                            depth: 1,
+                        })
+                })
+                .collect(),
+        };
+        if regions.is_empty() {
+            if let Some(timing) = timing.as_deref_mut() {
+                timing.vk_gpu_us = None;
+            }
+            return Ok(());
+        }
         let start = timing.as_ref().map(|_| std::time::Instant::now());
         if self.poisoned {
             return Err("Vulkan transfer helper is poisoned after a failed submission".into());
@@ -786,7 +817,7 @@ impl VulkanTransfer {
                 pair.0.image,
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 pair.0.buffer,
-                &[pair.0.region],
+                &regions,
             );
             let release_image = vk::ImageMemoryBarrier::default()
                 .src_access_mask(vk::AccessFlags::TRANSFER_READ)

@@ -1,0 +1,7 @@
+window 20 s, GPU busy 0%, GPU power 3 W
+process                          CPU % core  GPU ms/s
+python3                                 1.1       0.0
+noctalia                                0.3       0.0
+all of the user                         1.4       0.1
+package power 2.97 W
+NVIDIA board 4.2 W, busy 0%

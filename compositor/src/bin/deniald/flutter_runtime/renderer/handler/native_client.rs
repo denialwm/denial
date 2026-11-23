@@ -564,6 +564,7 @@ impl FlutterGlHandler {
                 revision: storage.allocation_id,
                 feedback: None,
                 color: None,
+                opaque: false,
             };
             let mut output = self
                 .prepare_source_with_gl(texture_id, source)

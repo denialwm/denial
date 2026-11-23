@@ -1,0 +1,6 @@
+window 20 s, GPU busy 0%, GPU power 3 W
+process                          CPU % core  GPU ms/s
+python3                                 1.2       0.0
+deniald                                 0.6       0.8
+all of the user                         2.0       0.8
+package power 3.06 W

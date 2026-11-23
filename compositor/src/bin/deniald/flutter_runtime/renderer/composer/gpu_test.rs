@@ -1685,6 +1685,7 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
             revision: 1,
             feedback: None,
             color: None,
+            opaque: false,
         },
     };
     let mut state = super::lock(&composer.state);

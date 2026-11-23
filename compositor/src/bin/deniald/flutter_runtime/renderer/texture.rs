@@ -511,6 +511,8 @@ pub(crate) struct ShmTextureFrame {
     rgba: Arc<ShmPixelStorage>,
     feedback: Option<crate::surface_feedback::SurfaceFeedback>,
     color: Option<Arc<crate::color_space::SurfaceColor>>,
+    /// The surface's opaque region covers it: see `ExternalTextureSource::opaque`.
+    opaque: bool,
 }
 
 impl ShmTextureFrame {
@@ -554,6 +556,7 @@ impl ShmTextureFrame {
             revision,
             feedback: None,
             color: None,
+            opaque: false,
             // Keep the snapshot's Vec allocation intact. Converting Vec<u8>
             // into Arc<[u8]> may copy the complete client frame.
             rgba: Arc::new(ShmPixelStorage {
@@ -578,6 +581,7 @@ impl ShmTextureFrame {
             revision,
             feedback: None,
             color: None,
+            opaque: false,
             rgba: Arc::new(ShmPixelStorage {
                 pixels: None,
                 pool: Weak::new(),
@@ -694,6 +698,8 @@ pub(in crate::flutter_runtime) enum ExternalTextureSource {
         revision: u64,
         feedback: Option<crate::surface_feedback::SurfaceFeedback>,
         color: Option<Arc<crate::color_space::SurfaceColor>>,
+        /// See `ExternalTextureSource::opaque`.
+        opaque: bool,
     },
     Shm(ShmTextureFrame),
 }
@@ -720,6 +726,16 @@ impl ExternalTextureSource {
         match self {
             Self::Dmabuf { color, .. } => color.clone(),
             Self::Shm(frame) => frame.color.clone(),
+        }
+    }
+
+    /// The surface shows these pixels at full opacity and its opaque region
+    /// (`wl_surface.set_opaque_region`) covers all of it: what lies under it
+    /// cannot be seen, whatever alpha the buffer's format carries.
+    pub(in crate::flutter_runtime) fn opaque(&self) -> bool {
+        match self {
+            Self::Dmabuf { opaque, .. } => *opaque,
+            Self::Shm(frame) => frame.opaque,
         }
     }
 
@@ -1319,6 +1335,20 @@ impl ExternalTextureFrame {
         self.source.color()
     }
 
+    /// Whether the surface declared these pixels opaque: see
+    /// `ExternalTextureSource::opaque`.
+    pub(crate) fn set_opaque(&mut self, value: bool) {
+        match &mut self.source {
+            ExternalTextureSource::Dmabuf { opaque, .. } => *opaque = value,
+            ExternalTextureSource::Shm(frame) => frame.opaque = value,
+        }
+    }
+
+    pub(crate) fn with_opaque(mut self, value: bool) -> Self {
+        self.set_opaque(value);
+        self
+    }
+
     pub(crate) fn from_dmabuf(
         texture_id: i64,
         dmabuf: Dmabuf,
@@ -1339,6 +1369,7 @@ impl ExternalTextureFrame {
                 revision,
                 feedback: None,
                 color: None,
+                opaque: false,
             },
             expects_sample,
             damage: None,
@@ -1355,6 +1386,7 @@ impl ExternalTextureFrame {
                 revision,
                 feedback: None,
                 color: None,
+                opaque: false,
             },
             expects_sample: false,
             damage: None,
@@ -1368,6 +1400,7 @@ impl ExternalTextureFrame {
                 revision: frame.revision,
                 feedback: frame.feedback.clone(),
                 color: frame.color.clone(),
+                opaque: frame.opaque,
                 buffer_guard: Some(ExternalBufferGuard::OwnedShm { frame }),
             }
         } else {

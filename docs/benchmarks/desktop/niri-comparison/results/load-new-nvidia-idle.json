@@ -1,0 +1,123 @@
+{
+ "gpu_busy_percent": 0.0,
+ "gpu_power_w": 3.7154683544303797,
+ "processes": {
+  "(sd-pam)": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "at-spi-bus-laun": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "at-spi2-registr": {
+   "cpu_percent": 0.09971965851291763,
+   "gpu_ms_per_s": 0.0
+  },
+  "bash": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "bench.sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dbus-broker": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dbus-broker-lau": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dconf-service": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "denial-portal": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "deniald": {
+   "cpu_percent": 1.7450940239760584,
+   "gpu_ms_per_s": 0.08313214093639114
+  },
+  "fcitx5": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "fish": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "grep": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "journalctl": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "nvidia-smi": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "phases.sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "pipewire": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "pipewire-pulse": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "poltergeist": {
+   "cpu_percent": 0.049859829256458814,
+   "gpu_ms_per_s": 0.0
+  },
+  "python3": {
+   "cpu_percent": 1.3462153899243883,
+   "gpu_ms_per_s": 0.0
+  },
+  "sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "sshd-session": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "systemctl": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "systemd": {
+   "cpu_percent": 0.09971965851291763,
+   "gpu_ms_per_s": 0.0
+  },
+  "waitpid": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "wireplumber": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-desktop-por": {
+   "cpu_percent": 0.09971965851291763,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-document-po": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-permission-": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  }
+ },
+ "seconds": 20.05622592200234
+}

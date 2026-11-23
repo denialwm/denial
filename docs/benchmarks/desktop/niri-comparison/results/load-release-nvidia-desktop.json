@@ -1,0 +1,167 @@
+{
+ "gpu_busy_percent": 2.092436974789916,
+ "gpu_power_w": 9.779848739495797,
+ "processes": {
+  "(sd-pam)": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "Xwayland": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "at-spi-bus-laun": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "at-spi2-registr": {
+   "cpu_percent": 0.06665813219936619,
+   "gpu_ms_per_s": 0.0
+  },
+  "bash": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "bench.sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "chrome_crashpad:browser": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "chromium:browser": {
+   "cpu_percent": 2.299705560878133,
+   "gpu_ms_per_s": 0.0
+  },
+  "chromium:gpu-process": {
+   "cpu_percent": 8.165621194422359,
+   "gpu_ms_per_s": 0.0
+  },
+  "chromium:renderer": {
+   "cpu_percent": 22.530448683385774,
+   "gpu_ms_per_s": 0.0
+  },
+  "chromium:utility": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "chromium:zygote": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dbus-broker": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dbus-broker-lau": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "dconf-service": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "denial-portal": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "deniald": {
+   "cpu_percent": 18.23099915652665,
+   "gpu_ms_per_s": 21.042396970372568
+  },
+  "fcitx5": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "fish": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "grep": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "journalctl": {
+   "cpu_percent": 0.06665813219936619,
+   "gpu_ms_per_s": 0.0
+  },
+  "kitten": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "kitty": {
+   "cpu_percent": 0.23330346269778168,
+   "gpu_ms_per_s": 0.0
+  },
+  "mpvpaper": {
+   "cpu_percent": 6.36585162503947,
+   "gpu_ms_per_s": 0.0
+  },
+  "nvidia-smi": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "phases.sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "pipewire": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "pipewire-pulse": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "poltergeist": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "python3": {
+   "cpu_percent": 0.7998975863923942,
+   "gpu_ms_per_s": 0.0
+  },
+  "sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "sshd-session": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "systemctl": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "systemd": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "top": {
+   "cpu_percent": 0.5999231897942956,
+   "gpu_ms_per_s": 0.0
+  },
+  "waitpid": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "wireplumber": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-desktop-por": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-document-po": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "xdg-permission-": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  }
+ },
+ "seconds": 30.003841001998808
+}

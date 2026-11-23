@@ -17,6 +17,11 @@ use native_client::NativeClientState;
 
 /// Window grading on the render thread: one 3D texture per app look, and
 /// the graded copy of each window texture that needs one.
+/// What a present changed in the buffer KMS shows since that buffer was last
+/// presented: pixel rectangles `[x, y, width, height]` counted in memory rows
+/// from the buffer's start, or None for all of it.
+pub(in crate::flutter_runtime) type ScanoutArea = Option<Vec<[i32; 4]>>;
+
 #[derive(Default)]
 struct WindowGrades {
     looks: Vec<(Arc<crate::output_color::Lut>, u32)>,
@@ -1308,11 +1313,14 @@ impl FlutterGlHandler {
     /// Copies a presented scene target to its scanout buffer. `repainted` is
     /// the frame's buffer damage: what Flutter repainted in the scene target
     /// since this pair was last presented.
+    /// Copies the scene target into the buffer KMS shows when they differ.
+    /// Returns what changed in that buffer since it was last presented
+    /// (`ScanoutArea`), or None when the copy failed.
     pub(in crate::flutter_runtime) fn blit_to_scanout(
         &self,
         render_framebuffer: u32,
         repainted: &[sys::FlutterRect],
-    ) -> bool {
+    ) -> Option<ScanoutArea> {
         let target = lock(&self.targets)
             .iter()
             .find(|target| target.render_framebuffer == render_framebuffer)
@@ -1322,10 +1330,15 @@ impl FlutterGlHandler {
                 framebuffer = render_framebuffer,
                 "Flutter presented an unknown physical-output target"
             );
-            return false;
+            return None;
         };
+        let mut region = DamageRegion::empty(target.size.width, target.size.height);
+        region.replace_from_flutter(repainted);
+        let mut rects = [[0; 4]; MAX_DAMAGE_RECTS];
+        let count = region.write_pixel_rects(&mut rects);
         if !target.needs_blit() {
-            return true;
+            // KMS shows the scene target itself: what the frame repainted.
+            return Some((!region.is_full()).then(|| rects[..count].to_vec()));
         }
         // The copy reads what the composer drew.
         self.gles_catch_up();
@@ -1333,7 +1346,7 @@ impl FlutterGlHandler {
         let mut shader_blit_slot = lock(&self.shader_blit);
         let Some(shader_blit) = shader_blit_slot.as_mut() else {
             error!("offscreen Flutter target has no shader-copy pipeline");
-            return false;
+            return None;
         };
         let look_generation = crate::output_color::desktop_lut_generation();
         if shader_blit.look_generation != look_generation {
@@ -1366,13 +1379,9 @@ impl FlutterGlHandler {
             .iter_mut()
             .find(|target| target.render_framebuffer == render_framebuffer)
             .is_some_and(|target| target.copied.replace(state) == Some(state));
-        let mut region = DamageRegion::empty(target.size.width, target.size.height);
-        region.replace_from_flutter(repainted);
-        let mut rects = [[0; 4]; MAX_DAMAGE_RECTS];
-        let count = region.write_pixel_rects(&mut rects);
         let area = (same_state && !region.is_full()).then(|| &rects[..count]);
         if area.is_some_and(<[_]>::is_empty) {
-            return true;
+            return Some(Some(Vec::new()));
         }
 
         if let Err(error) = copy_to_scanout(
@@ -1403,9 +1412,9 @@ impl FlutterGlHandler {
                 error = format_args!("{error:#x}"),
                 "Flutter scene-to-scanout shader copy failed"
             );
-            return false;
+            return None;
         }
-        true
+        Some(area.map(<[_]>::to_vec))
     }
 
     pub(in crate::flutter_runtime) fn set_texture_apps(&self, apps: HashMap<i64, Arc<str>>) {
@@ -1794,6 +1803,7 @@ impl FlutterGlHandler {
                 revision: _,
                 feedback: _,
                 color: _,
+                opaque: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();

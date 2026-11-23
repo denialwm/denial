@@ -1526,6 +1526,20 @@ pub(super) enum Client {
     },
 }
 
+impl Client {
+    /// The client's surface declared its pixels opaque through its opaque
+    /// region: it hides what lies under it even when its buffer's format
+    /// carries alpha.
+    fn declared_opaque(&self) -> bool {
+        match self {
+            Self::Image { sampled, .. } | Self::Converted { sampled, .. } => {
+                sampled.source.opaque()
+            }
+            Self::Missing | Self::Merged { .. } | Self::Omitted(_) => false,
+        }
+    }
+}
+
 /// What the handler resolves while the composer stages a scene. Neither
 /// call may take the composer's state, which `stage` holds.
 pub(super) trait Resolve {
@@ -2218,20 +2232,22 @@ impl SceneComposer {
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *bounds)?;
+                        let declared_opaque = client.declared_opaque();
                         let Some((image, placement, look)) =
                             self.resolved_image(&mut state, &mut staged, client, resolve)?
                         else {
                             continue;
                         };
+                        let opaque = image.opaque || declared_opaque;
                         let look_image = self.look_image(&mut state, look.as_ref())?;
                         let draw =
                             record::texture(local, clips, &ndc_from_scene, &placement, image.size)
                                 .ok_or("texture transform")?
                                 .with_look(look.is_some());
                         staged.note_cover(&draw, (width, height), || {
-                            draw.why_no_cover(image.opaque, None, (width, height))
+                            draw.why_no_cover(opaque, None, (width, height))
                         });
-                        if image.opaque {
+                        if opaque {
                             let index = staged.draws.len() as u32;
                             for cover in draw.opaque(None, (width, height)).into_iter().flatten() {
                                 staged.covers.push((index, cover));
@@ -2256,6 +2272,7 @@ impl SceneComposer {
                     } => {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *texture_bounds)?;
+                        let declared_opaque = client.declared_opaque();
                         let (image, look) =
                             match self.resolved_image(&mut state, &mut staged, client, resolve)? {
                                 Some((image, placement, look)) => (Some((image, placement)), look),
@@ -2303,18 +2320,18 @@ impl SceneComposer {
                             }
                             None => None,
                         };
-                        let surface = image.as_ref().and_then(|(image, placement)| {
-                            image
-                                .opaque
+                        let opaque = image
+                            .as_ref()
+                            .is_some_and(|(image, _)| image.opaque || declared_opaque);
+                        let surface = image.as_ref().and_then(|(_, placement)| {
+                            opaque
                                 .then(|| record::window_surface(texture_transform, placement))
                                 .flatten()
                         });
                         staged.note_cover(&draw, (width, height), || match (&image, &behind) {
                             (None, _) => Some("window without a client image"),
                             (Some(_), Some(_)) => Some("window over a material"),
-                            (Some((image, _)), None) => {
-                                draw.why_no_cover(image.opaque, surface, (width, height))
-                            }
+                            (Some(_), None) => draw.why_no_cover(opaque, surface, (width, height)),
                         });
                         let Some((material, behind)) = behind else {
                             if surface.is_some() {

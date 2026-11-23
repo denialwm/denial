@@ -1,0 +1,16 @@
+process                          PSS    anon    file   shmem     RSS    VRAM     GTT  NV fb  (MiB)
+deniald                        354.2   191.3   162.8     0.0   437.6    37.2    34.4    239
+chromium:browser               328.6   183.5   121.4    23.8   639.1     0.0     4.0      0
+mpvpaper                       320.6   110.9   193.6    16.0   398.3     0.0     0.0    439
+chromium:renderer              253.8   156.8    94.5     2.5   781.1     0.0     0.0      0
+chromium:gpu-process           153.7    75.3    76.8     1.5   387.7     0.0     0.0     50
+Xwayland                        96.1    70.5    25.6     0.0   158.0     0.0     0.0      2
+kitty                           68.9    44.0    24.9     0.0   142.7     0.0     0.0     42
+fcitx5                          68.0    23.6    44.4     0.0    90.0     0.0     0.0      0
+chromium:utility                65.7    43.7    20.9     1.0   258.3     0.0     0.0      0
+at-spi2-registr                 63.4    57.8     5.6     0.0   722.5     0.0     0.0      0
+kitten                          46.7    30.0    16.6     0.0    64.8     0.0     0.0      0
+chromium:zygote                 44.2    32.3     9.9     1.9   260.8     0.0     0.0      0
+nvidia-smi                      23.1    20.3     2.8     0.0    28.2     0.0     0.0      0
+xdg-desktop-por                 18.2    12.0     5.9     0.2    53.8     0.0     0.0      0
+wireplumber                     17.0     8.8     8.2     0.0    34.7     0.0     0.0      0

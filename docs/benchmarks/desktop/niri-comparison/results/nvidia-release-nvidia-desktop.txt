@@ -1,0 +1,7 @@
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command 
+# Idx           #    C/G      %      %      %      %      %      %     MB     MB    name 
+    0     297132   C+G      7      1      -      -      -      -    243      0    deniald        
+    0     297140     G      -      -      -      -      -      -      2      0    Xwayland       
+    0     297542   C+G      -      -      -      3      -      -    439      0    mpvpaper       
+    0     297591     G      -      -      -      -      -      -     42      0    kitty          
+    0     297642   C+G      5      0      -      -      -      -     15      0    bench-chromium 

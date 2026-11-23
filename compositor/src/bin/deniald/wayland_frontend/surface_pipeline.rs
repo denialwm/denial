@@ -281,6 +281,31 @@ mod popup_visible_geometry_tests {
     }
 }
 
+/// Whether a surface hides what lies under it: shown at full opacity, with an
+/// opaque region (`wl_surface.set_opaque_region`) that covers all it shows.
+/// The Vulkan composer then leaves out what it covers even when the buffer's
+/// format carries alpha.
+#[cfg(feature = "flutter")]
+fn surface_opaque(
+    states: &smithay::wayland::compositor::SurfaceData,
+    renderer_state: &smithay::backend::renderer::utils::RendererSurfaceState,
+) -> bool {
+    let opacity = states
+        .cached_state
+        .get::<AlphaModifierSurfaceCachedState>()
+        .current()
+        .multiplier_f32()
+        .unwrap_or(1.0);
+    opacity == 1.0
+        && renderer_state.view().is_some_and(|view| {
+            renderer_state.opaque_regions().is_some_and(|regions| {
+                Rectangle::from_size(view.dst)
+                    .subtract_rects(regions.iter().copied())
+                    .is_empty()
+            })
+        })
+}
+
 /// Maps a rectangle in a [`cropped_buffer_canvas`] back to buffer pixels.
 #[cfg(feature = "flutter")]
 pub(crate) fn canvas_rect_to_buffer(
@@ -951,12 +976,7 @@ impl WaylandFrontend {
                 // still advance so producers are not waiting for an impossible sample.
                 let expects_sample =
                     expects_sample && opacity > 0.0 && self.surface_expects_sample(surface_id);
-                let opaque = opacity == 1.0
-                    && renderer_state.opaque_regions().is_some_and(|regions| {
-                        Rectangle::from_size(view.dst)
-                            .subtract_rects(regions.iter().copied())
-                            .is_empty()
-                    });
+                let opaque = surface_opaque(states, &renderer_state);
                 let dmabuf = renderer_buffer
                     .and_then(|buffer| get_dmabuf(buffer).ok())
                     .cloned();
@@ -1012,6 +1032,7 @@ impl WaylandFrontend {
                 {
                     frame.set_feedback(super::presentation::surface_feedback(states));
                     frame.set_color(super::color_management::surface_color(states));
+                    frame.set_opaque(opaque);
                     frame.presentation = Some(canvas.unwrap_or_default());
                 }
                 let (width, height, source) = match canvas {
@@ -1153,6 +1174,17 @@ impl WaylandFrontend {
         if !renderable {
             return None;
         }
+        let opaque = with_states(surface, |states| {
+            states
+                .data_map
+                .get::<RendererSurfaceStateUserData>()
+                .is_some_and(|renderer_state| {
+                    let renderer_state = renderer_state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    surface_opaque(states, &renderer_state)
+                })
+        });
         let texture_id = i64::try_from(surface_id).ok().filter(|id| *id > 0)?;
         if let Some(((dmabuf, buffer_guard), damage)) = dmabuf_source {
             let revision = self
@@ -1169,7 +1201,8 @@ impl WaylandFrontend {
                 expects_sample,
             )
             .with_feedback(with_states(surface, super::presentation::surface_feedback))
-            .with_color(with_states(surface, super::color_management::surface_color));
+            .with_color(with_states(surface, super::color_management::surface_color))
+            .with_opaque(opaque);
             if let Some(damage) = damage {
                 frame.set_damage(damage);
             }
@@ -1182,6 +1215,7 @@ impl WaylandFrontend {
                 ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
                     .with_feedback(with_states(surface, super::presentation::surface_feedback))
                     .with_color(with_states(surface, super::color_management::surface_color))
+                    .with_opaque(opaque)
             })
     }
 
