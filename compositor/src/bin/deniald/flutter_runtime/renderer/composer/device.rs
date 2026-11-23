@@ -1655,6 +1655,14 @@ pub(super) struct WindowDraw {
     pub(super) nearest: bool,
 }
 
+/// Pixels a frame takes from the output buffer shown before it rather than
+/// drawing them again: `rects` (left, top, right, bottom target pixels, as
+/// the frame's area) of `source`, which holds that frame whole.
+pub(super) struct Repair<'a> {
+    pub(super) source: &'a Arc<Image>,
+    pub(super) rects: &'a [[i32; 4]],
+}
+
 /// A native window's layers merged into its image before the frame draws:
 /// `batches` name the layers' draw records, in paint order.
 pub(super) struct Merge {
@@ -1902,7 +1910,8 @@ mod gpu_timing {
     pub(super) const FROST: u8 = 4;
     pub(super) const GLASS: u8 = 5;
     pub(super) const WINDOW_GLASS: u8 = 6;
-    const NAMES: [&str; 7] = [
+    pub(super) const REPAIR: u8 = 7;
+    const NAMES: [&str; 8] = [
         "uploads",
         "merges",
         "clear",
@@ -1910,21 +1919,22 @@ mod gpu_timing {
         "frosts",
         "glass",
         "window_glass",
+        "repair",
     ];
 
     struct Sums {
         frames: u64,
         total: f64,
-        parts: [f64; 7],
-        counts: [u64; 7],
+        parts: [f64; 8],
+        counts: [u64; 8],
         instances: u64,
     }
 
     static SUMS: Mutex<Sums> = Mutex::new(Sums {
         frames: 0,
         total: 0.0,
-        parts: [0.0; 7],
-        counts: [0; 7],
+        parts: [0.0; 8],
+        counts: [0; 8],
         instances: 0,
     });
 
@@ -1947,7 +1957,7 @@ mod gpu_timing {
         }
         if sums.frames == 1000 {
             let f = sums.frames as f64;
-            let parts: Vec<String> = (0..7)
+            let parts: Vec<String> = (0..8)
                 .map(|kind| {
                     format!(
                         "{}={:.0}us/{:.1}",
@@ -1967,8 +1977,8 @@ mod gpu_timing {
             *sums = Sums {
                 frames: 0,
                 total: 0.0,
-                parts: [0.0; 7],
-                counts: [0; 7],
+                parts: [0.0; 8],
+                counts: [0; 8],
                 instances: 0,
             };
         }
@@ -2394,6 +2404,7 @@ impl Frame {
         steps: &[Step],
         uploads: &[Upload],
         area: [i32; 4],
+        repair: Option<Repair<'_>>,
         wait: Option<OwnedFd>,
     ) -> Result<Option<OwnedFd>> {
         debug_assert!(!self.in_flight);
@@ -2434,6 +2445,54 @@ impl Frame {
             },
         };
         let draws_target = area.extent.width > 0 && area.extent.height > 0;
+        // The rest of what the frame changes comes from the buffer shown
+        // before it, copied in before the frame draws.
+        let repair = repair.filter(|repair| {
+            draws_target
+                && !whole
+                && !repair.rects.is_empty()
+                && target.copyable
+                && repair.source.copyable
+                && repair.source.size == target.size
+                && repair.source.format == target.format
+                && !Arc::ptr_eq(repair.source, target)
+        });
+        let layer = || vk::ImageSubresourceLayers {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            mip_level: 0,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+        let repair_regions: Vec<vk::ImageCopy> = repair
+            .iter()
+            .flat_map(|repair| repair.rects)
+            .filter_map(|&[l, t, r, b]| {
+                let [l, t, r, b] = [
+                    l.clamp(0, width as i32),
+                    t.clamp(0, height as i32),
+                    r.clamp(0, width as i32),
+                    b.clamp(0, height as i32),
+                ];
+                (r > l && b > t).then(|| {
+                    let offset = vk::Offset3D {
+                        x: l,
+                        y: height as i32 - b,
+                        z: 0,
+                    };
+                    vk::ImageCopy::default()
+                        .src_subresource(layer())
+                        .dst_subresource(layer())
+                        .src_offset(offset)
+                        .dst_offset(offset)
+                        .extent(vk::Extent3D {
+                            width: (r - l) as u32,
+                            height: (b - t) as u32,
+                            depth: 1,
+                        })
+                })
+            })
+            .collect();
+        let repair = repair.filter(|_| !repair_regions.is_empty());
         self.reserve(draws.len(), glasses.len(), clips.len(), edges.len())?;
         // Each upload's pixels, packed into staging in order.
         let mut copies = Vec::with_capacity(uploads.len());
@@ -2570,7 +2629,19 @@ impl Frame {
                     .src_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
             }
         };
-        let target_acquire = if whole {
+        let target_acquire = if repair.is_some() {
+            // The repair copy took it already.
+            vk::ImageMemoryBarrier2::default()
+                .old_layout(vk::ImageLayout::GENERAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .src_stage_mask(vk::PipelineStageFlags2::COPY)
+                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .dst_access_mask(
+                    vk::AccessFlags2::COLOR_ATTACHMENT_READ
+                        | vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                )
+        } else if whole {
             // The target's old contents are replaced: no ownership to take,
             // nothing to keep.
             vk::ImageMemoryBarrier2::default()
@@ -2616,6 +2687,20 @@ impl Frame {
                     .subresource_range(color_range())
             }))
             .collect();
+        let mut release = release;
+        if let Some(repair) = &repair {
+            release.push(
+                vk::ImageMemoryBarrier2::default()
+                    .old_layout(vk::ImageLayout::GENERAL)
+                    .new_layout(vk::ImageLayout::GENERAL)
+                    .src_queue_family_index(gpu.family)
+                    .dst_queue_family_index(foreign)
+                    .src_stage_mask(vk::PipelineStageFlags2::COPY)
+                    .image(repair.source.image)
+                    .subresource_range(color_range()),
+            );
+            self.keep.push(Arc::clone(repair.source));
+        }
         let attachment = |load: vk::AttachmentLoadOp| {
             [vk::RenderingAttachmentInfo::default()
                 .image_view(target.view)
@@ -2728,6 +2813,41 @@ impl Frame {
                 d.cmd_reset_query_pool(command, queries, 0, gpu_timing::SLOTS);
             }
             stamp(None);
+            if let Some(repair) = &repair {
+                // Earlier submissions on this queue wrote the source and may
+                // still read the target: the copy waits for both. Both stay
+                // GENERAL, so nothing decompresses.
+                let acquire = |image: vk::Image, access: vk::AccessFlags2| {
+                    vk::ImageMemoryBarrier2::default()
+                        .old_layout(vk::ImageLayout::GENERAL)
+                        .new_layout(vk::ImageLayout::GENERAL)
+                        .src_queue_family_index(foreign)
+                        .dst_queue_family_index(gpu.family)
+                        .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                        .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
+                        .dst_stage_mask(vk::PipelineStageFlags2::COPY)
+                        .dst_access_mask(access)
+                        .image(image)
+                        .subresource_range(color_range())
+                };
+                let to_copy = [
+                    acquire(repair.source.image, vk::AccessFlags2::TRANSFER_READ),
+                    acquire(target.image, vk::AccessFlags2::TRANSFER_WRITE),
+                ];
+                d.cmd_pipeline_barrier2(
+                    command,
+                    &vk::DependencyInfo::default().image_memory_barriers(&to_copy),
+                );
+                d.cmd_copy_image(
+                    command,
+                    repair.source.image,
+                    vk::ImageLayout::GENERAL,
+                    target.image,
+                    vk::ImageLayout::GENERAL,
+                    &repair_regions,
+                );
+                stamp(Some(gpu_timing::REPAIR));
+            }
             if !uploads.is_empty() {
                 // Earlier submissions on this queue may still sample or
                 // write the image: the copy waits for both.

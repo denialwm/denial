@@ -248,6 +248,35 @@ impl Draw {
     pub(super) fn hidden(&self) -> bool {
         self.quad == [0.0; 4]
     }
+
+    /// The slice or client texture's quad in target pixels, when it maps
+    /// onto the target by scale and translation alone; None for windows and
+    /// turned or projected draws.
+    pub(super) fn flat_rect(&self, size: (u32, u32)) -> Option<[f32; 4]> {
+        let [x, y, _] = self.ndc;
+        let flat = self.flags[0] != KIND_WINDOW
+            && !self.hidden()
+            && x[1] == 0.0
+            && y[0] == 0.0
+            && x[0] != 0.0
+            && y[1] != 0.0;
+        flat.then(|| self.target_rect(self.quad, size)).flatten()
+    }
+
+    /// This draw limited to `rect`, target pixels within `flat_rect`: the
+    /// same pixels there, nothing elsewhere. Every per-pixel value follows
+    /// the local position, so pieces of one draw sharing an edge meet
+    /// exactly.
+    pub(super) fn piece(&self, rect: [f32; 4], (width, height): (u32, u32)) -> Self {
+        let [x, y, w] = self.ndc;
+        let local_x = |px: f32| ((px / width as f32 * 2.0 - 1.0) * w[2] - x[2]) / x[0];
+        let local_y = |py: f32| ((1.0 - py / height as f32 * 2.0) * w[2] - y[2]) / y[1];
+        let (x0, x1) = (local_x(rect[0]), local_x(rect[2]));
+        let (y0, y1) = (local_y(rect[1]), local_y(rect[3]));
+        let mut piece = *self;
+        piece.quad = [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)];
+        piece
+    }
 }
 
 /// Where a window's client lies in the window's local frame: its
@@ -266,6 +295,28 @@ pub(super) fn window_surface(
     let (x0, y0) = map(rect.left, rect.top);
     let (x1, y1) = map(rect.right, rect.bottom);
     Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
+}
+
+/// What of `rect` lies outside `hole`: up to four rectangles.
+pub(super) fn rect_subtract(rect: [f32; 4], hole: [f32; 4], out: &mut Vec<[f32; 4]>) {
+    let [l, t, r, b] = rect;
+    if hole[0] >= r || hole[2] <= l || hole[1] >= b || hole[3] <= t {
+        out.push(rect);
+        return;
+    }
+    if hole[1] > t {
+        out.push([l, t, r, hole[1]]);
+    }
+    if hole[3] < b {
+        out.push([l, hole[3], r, b]);
+    }
+    let (top, bottom) = (t.max(hole[1]), b.min(hole[3]));
+    if hole[0] > l {
+        out.push([l, top, hole[0], bottom]);
+    }
+    if hole[2] < r {
+        out.push([hole[2], top, r, bottom]);
+    }
 }
 
 /// The pixels both hold; empty when they share none.

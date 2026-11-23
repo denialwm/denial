@@ -14,7 +14,7 @@ use smithay::backend::allocator::{Fourcc, Modifier};
 use smithay::backend::drm::DrmDeviceFd;
 
 use super::device::{
-    Batch, Frame, Gpu, Image, MaterialStep, Merge, Step, Upload, Usage, WindowDraw, wait_fd,
+    self, Batch, Frame, Gpu, Image, MaterialStep, Merge, Step, Upload, Usage, WindowDraw, wait_fd,
 };
 use super::material::Frost;
 use super::record::{self, ClipSpan};
@@ -186,6 +186,7 @@ fn check(bottom_up: bool) {
             &[],
             WHOLE,
             None,
+            None,
         )
         .expect("submit");
     if let Some(done) = done {
@@ -222,6 +223,7 @@ fn empty_staged(view_id: i64) -> super::Staged {
         remade_why: [0; 7],
         slices: Vec::new(),
         rewritten: false,
+        slices_rewritten: 0,
         clients: Vec::new(),
         credits: Vec::new(),
         omitted: Vec::new(),
@@ -233,6 +235,7 @@ fn empty_staged(view_id: i64) -> super::Staged {
         covers: Vec::new(),
         culled_draws: 0,
         culled_materials: 0,
+        split_draws: 0,
         client_draws: Vec::new(),
         shown_textures: Vec::new(),
         hidden_textures: Vec::new(),
@@ -469,6 +472,7 @@ fn shm_upload_draws_exactly_and_is_overwritten() {
                 &[upload],
                 WHOLE,
                 None,
+                None,
             )
             .expect("submit");
         if let Some(done) = done {
@@ -510,6 +514,7 @@ fn time(label: &str, slices: usize, bands: u32) {
                 &batches,
                 &[],
                 WHOLE,
+                None,
                 None,
             )
             .expect("submit");
@@ -634,6 +639,7 @@ fn submit_area_and_wait(
             &[],
             area,
             None,
+            None,
         )
         .expect("submit");
     if let Some(done) = done {
@@ -730,6 +736,7 @@ fn material_timing() {
                     &steps,
                     &[],
                     WHOLE,
+                    None,
                     None,
                 )
                 .expect("submit");
@@ -1201,6 +1208,7 @@ fn a_draw_reads_any_number_of_clips_from_its_own_run() {
             &[],
             WHOLE,
             None,
+            None,
         )
         .expect("submit");
     if let Some(done) = done {
@@ -1335,6 +1343,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
             &uploads,
             WHOLE,
             None,
+            None,
         )
         .expect("submit");
     if let Some(done) = done {
@@ -1400,6 +1409,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
             &steps,
             &[],
             WHOLE,
+            None,
             None,
         )
         .expect("submit");
@@ -1516,6 +1526,7 @@ fn a_path_clip_fills_by_its_rule_at_pixel_centres() {
                 &batches,
                 &[],
                 WHOLE,
+                None,
                 None,
             )
             .expect("submit");
@@ -1849,6 +1860,68 @@ fn what_an_opaque_draw_hides_is_left_out() {
     assert!(off.hidden_textures.is_empty() && off.shown_textures.is_empty());
 }
 
+/// A flat draw partly under an opaque cover is drawn only where it shows,
+/// and the target gets exactly the pixels the whole draw gives it.
+#[test]
+#[ignore = "needs a GPU"]
+fn a_draw_split_around_a_cover_draws_the_same_pixels() {
+    let mut rig = rig(2, false);
+    fill_with(&mut rig.slices[1].0, |_, _| [9, 99, 199, 255]);
+    let ndc = record::ndc_from_target(W, H);
+    let (w, h) = (f64::from(W), f64::from(H));
+    let whole = [0.0, 0.0, w, h];
+    // Large enough to be worth splitting (`visible_pieces`).
+    let hole = [20.0, 9.0, w - 30.0, h - 10.0];
+    let staged = || {
+        let mut staged = empty_staged(1);
+        for (index, rect) in [whole, hole].into_iter().enumerate() {
+            staged.draws.push(record::slice_blit(
+                &SliceBlit {
+                    source: rect,
+                    destination: rect,
+                },
+                rig.slices[index].1.size,
+                false,
+                &ndc,
+            ));
+            staged.steps.push(Step::Draws(Batch {
+                image: Arc::clone(&rig.slices[index].1),
+                look: Arc::clone(&rig.no_look),
+                nearest: true,
+                first: index as u32,
+                count: 1,
+            }));
+        }
+        staged.covers.push((1, hole.map(|value| value as i32)));
+        staged
+    };
+    let read = |buffer: &GbmBuffer| {
+        buffer
+            .map(0, 0, W, H, |mapping| mapping.buffer().to_vec())
+            .expect("map target")
+    };
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    let whole_draw = staged();
+    submit_and_wait(&rig, &mut frame, &whole_draw.draws, &[], &whole_draw.steps);
+    let expected = read(&rig.target_buffer);
+    fill_with(&mut rig.target_buffer, |_, _| [0, 0, 0, 0]);
+    let mut split = staged();
+    super::cull(&mut split, (W, H));
+    assert_eq!((split.split_draws, split.culled_draws), (1, 0));
+    // The draw, its three other pieces and the cover.
+    let drawn: u32 = split
+        .steps
+        .iter()
+        .map(|step| match step {
+            Step::Draws(batch) => batch.count,
+            Step::Material(_) => 0,
+        })
+        .sum();
+    assert_eq!(drawn, 5);
+    submit_and_wait(&rig, &mut frame, &split.draws, &[], &split.steps);
+    assert!(read(&rig.target_buffer) == expected, "split pixels differ");
+}
+
 /// Every pixel an opaque window claims to cover is the client's colour
 /// alone, at its antialiased edges too: what the window hides below may go
 /// undrawn.
@@ -1925,4 +1998,106 @@ fn an_opaque_window_paints_every_pixel_it_covers() {
         );
         assert!(frame.idle());
     }
+}
+
+/// A frame that draws only its own damage and copies what earlier frames
+/// changed from the buffer shown last ends up with the pixels a frame
+/// drawing everything again would: the shown buffer's.
+#[test]
+#[ignore = "needs a GPU"]
+fn a_frame_copies_earlier_changes_from_the_shown_buffer() {
+    let mut rig = rig(2, false);
+    fill_with(&mut rig.slices[1].0, |x, y| {
+        [255 - (x & 0xff) as u8, 40, (y * 2) as u8, 255]
+    });
+    // The buffer shown last: a second target, of the same kind.
+    let gbm =
+        GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(node()))).expect("GBM");
+    let shown_buffer = allocate(&gbm);
+    let shown = rig
+        .gpu
+        .import(&shown_buffer.export().unwrap(), Usage::Target)
+        .expect("second target import");
+    assert!(
+        rig.target.copyable && shown.copyable,
+        "targets the composer cannot copy"
+    );
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    let mut serial = 0;
+    let mut submit =
+        |target: &Arc<Image>, slice: usize, area: [i32; 4], repair: Option<device::Repair<'_>>| {
+            let (mut draws, mut steps) = scene(&rig, 1, false);
+            if let Some(Step::Draws(batch)) = steps.first_mut() {
+                batch.image = Arc::clone(&rig.slices[slice].1);
+            }
+            draws.truncate(1);
+            serial += 1;
+            let done = frame
+                .submit(
+                    serial,
+                    target,
+                    &draws,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    &steps,
+                    &[],
+                    area,
+                    repair,
+                    None,
+                )
+                .expect("submit");
+            if let Some(done) = done {
+                assert!(wait_fd(done.as_fd(), 5000), "submission did not complete");
+            }
+            assert!(frame.idle());
+        };
+    // The target holds an older frame (slice 1); the shown buffer the last
+    // one (slice 0), which this frame repeats.
+    submit(&rig.target, 1, WHOLE, None);
+    submit(&shown, 0, WHOLE, None);
+    let own = [40, 20, 100, 60];
+    let mut rects = Vec::new();
+    record::rect_subtract(
+        [0.0, 0.0, W as f32, H as f32],
+        own.map(|v| v as f32),
+        &mut rects,
+    );
+    let rects: Vec<[i32; 4]> = rects.iter().map(|rect| rect.map(|v| v as i32)).collect();
+    submit(
+        &rig.target,
+        0,
+        own,
+        Some(device::Repair {
+            source: &shown,
+            rects: &rects,
+        }),
+    );
+    let read = |buffer: &GbmBuffer| {
+        let mut pixels = Vec::new();
+        buffer
+            .map(0, 0, W, H, |mapping| {
+                for row in 0..H {
+                    let at = row as usize * mapping.stride() as usize;
+                    pixels.extend_from_slice(&mapping.buffer()[at..at + W as usize * 4]);
+                }
+            })
+            .expect("map target");
+        pixels
+    };
+    let (got, want) = (read(&rig.target_buffer), read(&shown_buffer));
+    let first = (0..got.len())
+        .step_by(4)
+        .find(|&i| got[i..i + 4] != want[i..i + 4]);
+    assert_eq!(
+        first.map(|i| (
+            (i / 4) as u32 % W,
+            (i / 4) as u32 / W,
+            &got[i..i + 4],
+            &want[i..i + 4]
+        )),
+        None,
+        "first pixel that differs from the shown buffer"
+    );
 }

@@ -266,6 +266,8 @@ pub(super) struct Staged {
     remade_why: [u32; 7],
     slices: Vec<SliceKey>,
     rewritten: bool,
+    /// Shell slices the engine rendered again for this frame.
+    slices_rewritten: u32,
     pub(super) clients: Vec<SampledClient>,
     /// Inputs of merged windows reused as they are: shown again, not read.
     pub(super) credits: Vec<SampledClient>,
@@ -289,6 +291,8 @@ pub(super) struct Staged {
     /// Draws and materials hidden under opaque draws above them.
     culled_draws: u32,
     culled_materials: u32,
+    /// Draws drawn only where covers above leave them visible.
+    split_draws: u32,
     /// Each client texture's draw record, in draw order.
     client_draws: Vec<(i64, u32)>,
     /// Client textures with a draw that changes pixels, and those whose
@@ -360,6 +364,13 @@ struct State {
     /// since the composer's last frame, so the next one redraws and reports
     /// everything.
     unaccounted: Vec<i64>,
+    /// Each view's output buffer as the composer last drew it whole, while
+    /// the view has shown no frame since that the composer did not draw:
+    /// what the next frame copies the changes of earlier frames from.
+    shown: HashMap<i64, Arc<Image>>,
+    /// Catch-up as before: frames draw again everything that changed since
+    /// their buffer was last shown (`DENIAL_COMPOSER_CATCH_UP=redraw`).
+    redraw_catch_up: bool,
     /// App looks as 3D images, while the look lives. Weak: the GLES grades
     /// hold the look too, and each side prunes on its own.
     looks: Vec<(Weak<Lut>, Arc<Image>)>,
@@ -378,8 +389,28 @@ impl State {
     fn unaccount(&mut self, view_id: i64) {
         crate::client_visibility::forget(view_id);
         self.frosts.retain(|&(view, _), _| view != view_id);
+        self.shown.remove(&view_id);
         if !self.unaccounted.contains(&view_id) {
             self.unaccounted.push(view_id);
+        }
+    }
+}
+
+/// Whether frames draw again what changed in earlier frames
+/// (`DENIAL_COMPOSER_CATCH_UP=redraw`) rather than copying it from the
+/// buffer shown last (`copy`, the default). Copying reads and writes those
+/// pixels once; drawing them again may cost less where memory bandwidth is
+/// scarcer than shading.
+fn redraw_catch_up() -> bool {
+    match std::env::var("DENIAL_COMPOSER_CATCH_UP").as_deref() {
+        Ok("redraw") => true,
+        Ok("copy") | Err(_) => false,
+        Ok(other) => {
+            warn!(
+                value = other,
+                "DENIAL_COMPOSER_CATCH_UP is copy or redraw; copying"
+            );
+            false
         }
     }
 }
@@ -424,6 +455,14 @@ struct Tally {
     /// Draws and materials not drawn: opaque draws above hide them.
     culled_draws: u64,
     culled_materials: u64,
+    /// Draws drawn only where opaque draws above leave them visible.
+    split_draws: u64,
+    /// Frames that copied earlier frames' changes from the buffer shown last.
+    repaired: u64,
+    /// Frames for which the engine rendered shell slices again, and how
+    /// many slices.
+    shell_frames: u64,
+    slices_rewritten: u64,
 }
 
 impl Tally {
@@ -462,6 +501,9 @@ impl Tally {
         self.converted += u64::from(staged.converted);
         self.culled_draws += u64::from(staged.culled_draws);
         self.culled_materials += u64::from(staged.culled_materials);
+        self.split_draws += u64::from(staged.split_draws);
+        self.shell_frames += u64::from(staged.slices_rewritten > 0);
+        self.slices_rewritten += u64::from(staged.slices_rewritten);
         self.engine_frames += u64::from(staged.scene_revision & ENGINE_COMPOSED != 0);
         self.vulkan_frames += 1;
         self.log();
@@ -524,6 +566,10 @@ impl Tally {
             empty_frames = self.empty_frames,
             culled_draws = self.culled_draws,
             culled_materials = self.culled_materials,
+            split_draws = self.split_draws,
+            repaired_frames = self.repaired,
+            shell_frames = self.shell_frames,
+            slices_rewritten = self.slices_rewritten,
             redrawn_percent = format_args!(
                 "{:.1}",
                 self.redrawn * 100.0 / self.vulkan_frames.max(1) as f64
@@ -636,6 +682,8 @@ impl SceneComposer {
                 broken: false,
                 frosts: HashMap::new(),
                 unaccounted: Vec::new(),
+                shown: HashMap::new(),
+                redraw_catch_up: redraw_catch_up(),
                 last_gles_fence: None,
                 looks: Vec::new(),
                 tally: Tally::default(),
@@ -1250,8 +1298,34 @@ impl SceneComposer {
                 inputs = record::pixels_union(inputs, material.plan.region);
             }
         }
-        let area = to_target(damage.buffer)
-            .fold(record::pixels_union(added, inputs), record::pixels_union);
+        // What changed in earlier frames, which this buffer has not shown
+        // yet, is copied from the buffer shown last, which holds it: the
+        // frame draws only its own damage. A wallpaper that changes the whole
+        // screen would otherwise make the next frame draw everything again.
+        let own =
+            to_target(damage.frame).fold(record::pixels_union(added, inputs), record::pixels_union);
+        let previous = state
+            .shown
+            .get(&view_id)
+            .filter(|_| !state.redraw_catch_up && !record::pixels_empty(own));
+        let mut repair_rects = Vec::new();
+        if previous.is_some() {
+            let own_f = own.map(|v| v as f32);
+            let mut pieces = Vec::new();
+            for rect in to_target(damage.buffer) {
+                pieces.clear();
+                record::rect_subtract(rect.map(|v| v as f32), own_f, &mut pieces);
+                repair_rects.extend(pieces.iter().map(|piece| piece.map(|v| v as i32)));
+            }
+        }
+        let area = match previous {
+            Some(_) => own,
+            None => to_target(damage.buffer).fold(own, record::pixels_union),
+        };
+        let repair = previous.map(|source| device::Repair {
+            source,
+            rects: &repair_rects,
+        });
         // Client buffers pass to the composer and back to their owner in
         // each submission; one still running may not have handed back what
         // this one takes: start after it. (A GLES wait already follows it.)
@@ -1268,9 +1342,12 @@ impl SceneComposer {
             &staged.steps,
             &staged.uploads,
             area,
+            repair,
             wait,
         )?;
         state.serial = serial;
+        state.shown.insert(view_id, Arc::clone(&target));
+        state.tally.repaired += u64::from(!repair_rects.is_empty());
         let coverage = |rect: [i32; 4]| {
             if record::pixels_empty(rect) {
                 0.0
@@ -1464,6 +1541,7 @@ impl SceneComposer {
         state.clients.clear();
         state.uploads.clear();
         state.frosts.clear();
+        state.shown.clear();
         state.targets.clear();
         drop(state);
         self.shutdown_conversions(gl, display);
@@ -2157,6 +2235,7 @@ impl SceneComposer {
                 remade_why: [0; 7],
                 slices: Vec::new(),
                 rewritten: !scene.rewritten.is_empty(),
+                slices_rewritten: scene.rewritten.len() as u32,
                 clients: Vec::new(),
                 credits: Vec::new(),
                 omitted: Vec::new(),
@@ -2168,6 +2247,7 @@ impl SceneComposer {
                 covers: Vec::new(),
                 culled_draws: 0,
                 culled_materials: 0,
+                split_draws: 0,
                 client_draws: Vec::new(),
                 shown_textures: Vec::new(),
                 hidden_textures: Vec::new(),
@@ -2489,6 +2569,67 @@ impl SceneComposer {
     }
 }
 
+/// The parts of a flat draw that covers above leave visible, when they
+/// spare enough pixels to be worth more draws; None otherwise. Pixels a
+/// frost above reads (`reads`) stay drawn, even under a cover.
+fn visible_pieces(
+    draw: &record::Draw,
+    size: (u32, u32),
+    above: &[[i32; 4]],
+    reads: &[[i32; 4]],
+) -> Option<Vec<[f32; 4]>> {
+    /// Fewer spared pixels than this keep the draw whole.
+    const MIN_SPARED: f32 = 16384.0;
+    /// More pieces than this keep the draw whole.
+    const MAX_PIECES: usize = 8;
+    let rect = draw.flat_rect(size)?;
+    let target = [0.0, 0.0, size.0 as f32, size.1 as f32];
+    let float = |r: [i32; 4]| r.map(|v| v as f32);
+    // What of a rectangle lies on the target.
+    let area = |rect: [f32; 4]| {
+        let [l, t, r, b] = [
+            rect[0].max(target[0]),
+            rect[1].max(target[1]),
+            rect[2].min(target[2]),
+            rect[3].min(target[3]),
+        ];
+        (r - l).max(0.0) * (b - t).max(0.0)
+    };
+    // Covers over the draw, less what frosts read.
+    let mut holes = Vec::new();
+    for &cover in above {
+        let mut parts = vec![float(cover)];
+        for &read in reads {
+            let mut next = Vec::new();
+            for part in parts {
+                record::rect_subtract(part, float(read), &mut next);
+            }
+            parts = next;
+        }
+        holes.extend(parts.into_iter().filter(|hole| {
+            hole[0] < rect[2] && hole[2] > rect[0] && hole[1] < rect[3] && hole[3] > rect[1]
+        }));
+    }
+    if holes.is_empty() {
+        return None;
+    }
+    let mut pieces = vec![rect];
+    for hole in holes {
+        let mut next = Vec::new();
+        for piece in pieces {
+            record::rect_subtract(piece, hole, &mut next);
+        }
+        if next.len() > MAX_PIECES {
+            return None;
+        }
+        pieces = next;
+    }
+    pieces.retain(|&piece| area(piece) > 0.0);
+    let spared = area(rect) - pieces.iter().map(|&piece| area(piece)).sum::<f32>();
+    // Nothing left would mean a covered draw, which `hidden` leaves out.
+    (spared >= MIN_SPARED && !pieces.is_empty()).then_some(pieces)
+}
+
 /// Why `cull` leaves a draw out.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Hidden {
@@ -2526,12 +2667,20 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
     };
     // Draws hidden under covers: their clients are hidden on this target.
     let mut covered = Vec::new();
+    // What the frosts of materials above read from the target: a cover
+    // above them hides nothing there from the draws below.
+    let mut reads: Vec<[i32; 4]> = Vec::new();
     let mut steps = std::mem::take(&mut staged.steps);
     let mut kept = Vec::with_capacity(steps.len());
     while let Some(step) = steps.pop() {
         match step {
             Step::Draws(batch) => {
                 let mut shown = 0;
+                // The batch's runs of draws, topmost first: a draw split
+                // into pieces is followed by its pieces, at the end of the
+                // draw records.
+                let mut runs: Vec<(u32, u32)> = Vec::new();
+                let mut end = batch.first + batch.count;
                 for index in (batch.first..batch.first + batch.count).rev() {
                     let draw = &mut staged.draws[index as usize];
                     if let Some(why) = hidden(&above, draw.bounds(size)) {
@@ -2542,6 +2691,18 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                         }
                     } else {
                         shown += 1;
+                        if let Some(pieces) = visible_pieces(draw, size, &above, &reads) {
+                            let first = staged.draws.len() as u32;
+                            let draw = staged.draws[index as usize];
+                            staged.draws[index as usize] = draw.piece(pieces[0], size);
+                            staged
+                                .draws
+                                .extend(pieces[1..].iter().map(|&piece| draw.piece(piece, size)));
+                            staged.split_draws += 1;
+                            runs.push((index + 1, end - index - 1));
+                            runs.push((first, pieces.len() as u32 - 1));
+                            end = index + 1;
+                        }
                     }
                     while let Some(&(cover_index, cover)) = covers.last()
                         && cover_index >= index
@@ -2552,8 +2713,17 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                         }
                     }
                 }
+                runs.push((batch.first, end - batch.first));
                 if shown > 0 {
-                    kept.push(Step::Draws(batch));
+                    for (first, count) in runs.into_iter().filter(|&(_, count)| count > 0) {
+                        kept.push(Step::Draws(Batch {
+                            image: Arc::clone(&batch.image),
+                            look: Arc::clone(&batch.look),
+                            nearest: batch.nearest,
+                            first,
+                            count,
+                        }));
+                    }
                 }
             }
             Step::Material(material) => {
@@ -2574,6 +2744,7 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                         }
                     }
                 } else {
+                    reads.push(material.plan.region);
                     kept.push(Step::Material(material));
                 }
             }
