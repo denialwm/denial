@@ -233,6 +233,9 @@ fn empty_staged(view_id: i64) -> super::Staged {
         covers: Vec::new(),
         culled_draws: 0,
         culled_materials: 0,
+        client_draws: Vec::new(),
+        shown_textures: Vec::new(),
+        hidden_textures: Vec::new(),
         full_cover: None,
     }
 }

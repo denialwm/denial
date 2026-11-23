@@ -306,6 +306,11 @@ use window_registry::{WindowId, WindowRegistry};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 const XDG_ACTIVATION_TOKEN_LIFETIME: Duration = Duration::from_secs(10);
+/// How often a window or layer surface the composer hides gets its frame
+/// callbacks: once a second, a little early so a client timing them lands
+/// within it.
+#[cfg(feature = "flutter")]
+const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(995);
 
 fn dmabuf_import_queue_has_capacity(pending: usize) -> bool {
     pending < MAX_PENDING_DMABUF_IMPORTS
@@ -504,6 +509,11 @@ pub(super) struct WaylandFrontend {
     output_window_membership: OutputWindowMembership<ObjectId, Window>,
     #[cfg(feature = "flutter")]
     pending_frame_callback_windows: HashSet<ObjectId>,
+    /// When each window or layer surface the composer hides was last given
+    /// its frame callbacks, by root surface: it gets them once per
+    /// `HIDDEN_FRAME_INTERVAL`.
+    #[cfg(feature = "flutter")]
+    hidden_surface_frames: HashMap<ObjectId, Instant>,
     #[cfg(feature = "flutter")]
     minimized_windows: minimized::MinimizedWindows,
     #[cfg(feature = "flutter")]

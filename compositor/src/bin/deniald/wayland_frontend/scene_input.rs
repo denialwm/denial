@@ -339,6 +339,19 @@ impl WaylandFrontend {
             || self.has_pending_screencopies()
     }
 
+    /// Whether the composer's last frames hide every surface `surfaces`
+    /// visits that they hold.
+    #[cfg(feature = "flutter")]
+    fn surfaces_hidden(&self, surfaces: impl FnOnce(&mut dyn FnMut(&WlSurface))) -> bool {
+        let mut texture_ids = Vec::new();
+        surfaces(&mut |surface| {
+            if let Some(id) = self.surface_id(surface) {
+                texture_ids.push(id as i64);
+            }
+        });
+        crate::client_visibility::all_hidden(&texture_ids)
+    }
+
     #[cfg(feature = "flutter")]
     pub fn frame_tick(&mut self, tick: FrameTick) -> Result<(), Box<dyn Error>> {
         let callback_time = self.presentation.timeline_time(tick.render_deadline);
@@ -348,9 +361,21 @@ impl WaylandFrontend {
                 let Some(root) = window.wl_surface() else {
                     continue;
                 };
-                if !self.pending_frame_callback_windows.remove(&root.id()) {
+                if !self.pending_frame_callback_windows.contains(&root.id()) {
                     continue;
                 }
+                // A window the composer hides whole draws frames nobody sees:
+                // it gets one a second, as long as it stays hidden.
+                if self.surfaces_hidden(|each| window.with_surfaces(|surface, _| each(surface)))
+                    && hidden_frame_waits(
+                        &mut self.hidden_surface_frames,
+                        root.id(),
+                        tick.render_deadline,
+                    )
+                {
+                    continue;
+                }
+                self.pending_frame_callback_windows.remove(&root.id());
                 sent = sent.saturating_add(presentation::send_window_frame_callbacks(
                     window,
                     callback_time,
@@ -364,9 +389,20 @@ impl WaylandFrontend {
             let map = layer_map_for_output(&output.output);
             for layer in map.layers() {
                 let root = layer.wl_surface();
-                if !self.pending_layer_frame_callback_roots.remove(&root.id()) {
+                if !self.pending_layer_frame_callback_roots.contains(&root.id()) {
                     continue;
                 }
+                // A wallpaper under a fullscreen window, say.
+                if self.surfaces_hidden(|each| layer.with_surfaces(|surface, _| each(surface)))
+                    && hidden_frame_waits(
+                        &mut self.hidden_surface_frames,
+                        root.id(),
+                        tick.render_deadline,
+                    )
+                {
+                    continue;
+                }
+                self.pending_layer_frame_callback_roots.remove(&root.id());
                 sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
                     root,
                     callback_millis,
@@ -546,4 +582,23 @@ fn window_surface_under(
         point,
         WindowSurfaceType::ALL.difference(WindowSurfaceType::POPUP),
     )
+}
+
+/// Whether a hidden surface tree rooted at `root` waits for its frame
+/// callbacks: it got them less than `HIDDEN_FRAME_INTERVAL` before `now`.
+/// Notes the delivery when it does not wait.
+#[cfg(feature = "flutter")]
+fn hidden_frame_waits(
+    frames: &mut HashMap<ObjectId, Instant>,
+    root: ObjectId,
+    now: Instant,
+) -> bool {
+    if frames
+        .get(&root)
+        .is_some_and(|last| now.saturating_duration_since(*last) < HIDDEN_FRAME_INTERVAL)
+    {
+        return true;
+    }
+    frames.insert(root, now);
+    false
 }

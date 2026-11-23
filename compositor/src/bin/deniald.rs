@@ -13,6 +13,9 @@ mod authentication;
 mod bus;
 #[path = "deniald/client_release.rs"]
 mod client_release;
+#[cfg(feature = "flutter")]
+#[path = "deniald/client_visibility.rs"]
+mod client_visibility;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
 #[path = "deniald/color_grade.rs"]

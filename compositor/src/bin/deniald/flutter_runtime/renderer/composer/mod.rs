@@ -289,6 +289,12 @@ pub(super) struct Staged {
     /// Draws and materials hidden under opaque draws above them.
     culled_draws: u32,
     culled_materials: u32,
+    /// Each client texture's draw record, in draw order.
+    client_draws: Vec<(i64, u32)>,
+    /// Client textures with a draw that changes pixels, and those the scene
+    /// holds that change none (`cull`).
+    shown_textures: Vec<i64>,
+    hidden_textures: Vec<i64>,
     /// Diagnostic: whether the topmost client drawn over the whole target
     /// covers it, else why not; None without such a client.
     full_cover: Option<Option<&'static str>>,
@@ -369,6 +375,7 @@ struct State {
 impl State {
     /// `view_id` showed a frame the composer did not draw.
     fn unaccount(&mut self, view_id: i64) {
+        crate::client_visibility::forget(view_id);
         self.frosts.retain(|&(view, _), _| view != view_id);
         if !self.unaccounted.contains(&view_id) {
             self.unaccounted.push(view_id);
@@ -1275,6 +1282,11 @@ impl SceneComposer {
         state
             .tally
             .vulkan(staged, area, target.size, engine_damage, coverage(added));
+        crate::client_visibility::composed(
+            staged.view_id,
+            &staged.shown_textures,
+            &staged.hidden_textures,
+        );
         state.gles_read = false;
         state.last_gles_fence = None;
         state.producer_pending = false;
@@ -2155,6 +2167,9 @@ impl SceneComposer {
                 covers: Vec::new(),
                 culled_draws: 0,
                 culled_materials: 0,
+                client_draws: Vec::new(),
+                shown_textures: Vec::new(),
+                hidden_textures: Vec::new(),
                 full_cover: None,
             };
             let push = |staged: &mut Staged,
@@ -2247,8 +2262,14 @@ impl SceneComposer {
                         staged.note_cover(&draw, (width, height), || {
                             draw.why_no_cover(opaque, None, (width, height))
                         });
+                        let index = staged.draws.len() as u32;
+                        staged.client_draws.push((
+                            crate::flutter_runtime::renderer::native_window::surface_texture(
+                                *texture_id,
+                            ),
+                            index,
+                        ));
                         if opaque {
-                            let index = staged.draws.len() as u32;
                             for cover in draw.opaque(None, (width, height)).into_iter().flatten() {
                                 staged.covers.push((index, cover));
                             }
@@ -2333,6 +2354,14 @@ impl SceneComposer {
                             (Some(_), Some(_)) => Some("window over a material"),
                             (Some(_), None) => draw.why_no_cover(opaque, surface, (width, height)),
                         });
+                        if image.is_some() {
+                            staged.client_draws.push((
+                                crate::flutter_runtime::renderer::native_window::surface_texture(
+                                    *texture_id,
+                                ),
+                                staged.draws.len() as u32,
+                            ));
+                        }
                         let Some((material, behind)) = behind else {
                             if surface.is_some() {
                                 let index = staged.draws.len() as u32;
@@ -2517,6 +2546,9 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                 };
                 if hidden(&above, bounds) {
                     staged.culled_materials += 1;
+                    if let Some(window) = &material.window {
+                        staged.draws[window.draw as usize].hide();
+                    }
                 } else {
                     kept.push(Step::Material(material));
                 }
@@ -2526,6 +2558,20 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
     kept.reverse();
     staged.steps = kept;
     staged.covers = covers;
+    for &(texture_id, index) in &staged.client_draws {
+        if !staged.draws[index as usize].hidden() {
+            if !staged.shown_textures.contains(&texture_id) {
+                staged.shown_textures.push(texture_id);
+            }
+        }
+    }
+    for &(texture_id, _) in &staged.client_draws {
+        if !staged.shown_textures.contains(&texture_id)
+            && !staged.hidden_textures.contains(&texture_id)
+        {
+            staged.hidden_textures.push(texture_id);
+        }
+    }
 }
 
 #[cfg(test)]

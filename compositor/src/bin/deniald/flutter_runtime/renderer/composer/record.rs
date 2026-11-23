@@ -243,6 +243,11 @@ impl Draw {
     pub(super) fn hide(&mut self) {
         self.quad = [0.0; 4];
     }
+
+    /// Whether `hide` left it out.
+    pub(super) fn hidden(&self) -> bool {
+        self.quad == [0.0; 4]
+    }
 }
 
 /// Where a window's client lies in the window's local frame: its

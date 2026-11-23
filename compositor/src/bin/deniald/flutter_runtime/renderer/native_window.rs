@@ -19,6 +19,16 @@ const NATIVE_WINDOW_TEXTURE_NAMESPACE: u64 = 1 << 62;
 pub(in crate::flutter_runtime) const fn is_native_window_texture(texture_id: i64) -> bool {
     texture_id >= NATIVE_WINDOW_TEXTURE_NAMESPACE as i64
 }
+
+/// The surface texture a scene texture stands for: a merged native window
+/// image stands for its window's root surface.
+pub(in crate::flutter_runtime) const fn surface_texture(texture_id: i64) -> i64 {
+    if is_native_window_texture(texture_id) {
+        texture_id & !(NATIVE_WINDOW_TEXTURE_NAMESPACE as i64)
+    } else {
+        texture_id
+    }
+}
 const MAX_NATIVE_WINDOW_PLANS: usize = 32;
 const MAX_NATIVE_WINDOW_LAYERS: usize = 32;
 const MAX_NATIVE_WINDOW_DIMENSION: u32 = 8192;
