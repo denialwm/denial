@@ -1,6 +1,6 @@
 {
  "gpu_busy_percent": 4.0,
- "gpu_power_w": 16.734275,
+ "gpu_power_w": 14.214716666666668,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -15,7 +15,7 @@
    "gpu_ms_per_s": 0.0
   },
   "at-spi2-registr": {
-   "cpu_percent": 0.03320119080438243,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "bash": {
@@ -31,19 +31,19 @@
    "gpu_ms_per_s": 0.0
   },
   "chromium:browser": {
-   "cpu_percent": 5.976214344788837,
+   "cpu_percent": 6.886460893210337,
    "gpu_ms_per_s": 0.0
   },
   "chromium:gpu-process": {
-   "cpu_percent": 21.215560924000375,
+   "cpu_percent": 24.499908946998318,
    "gpu_ms_per_s": 0.0
   },
   "chromium:renderer": {
-   "cpu_percent": 32.27155746185973,
+   "cpu_percent": 35.557975958211074,
    "gpu_ms_per_s": 0.0
   },
   "chromium:utility": {
-   "cpu_percent": 0.09960357241314728,
+   "cpu_percent": 0.033107985063511244,
    "gpu_ms_per_s": 0.0
   },
   "chromium:zygote": {
@@ -67,8 +67,8 @@
    "gpu_ms_per_s": 0.0
   },
   "deniald": {
-   "cpu_percent": 16.00297396771233,
-   "gpu_ms_per_s": 37.42913615400401
+   "cpu_percent": 17.64655603885149,
+   "gpu_ms_per_s": 36.49516938597732
   },
   "fcitx5": {
    "cpu_percent": 0.0,
@@ -91,11 +91,11 @@
    "gpu_ms_per_s": 0.0
   },
   "kitty": {
-   "cpu_percent": 0.23240833563067703,
+   "cpu_percent": 0.16553992531755624,
    "gpu_ms_per_s": 0.0
   },
   "mpvpaper": {
-   "cpu_percent": 5.843409581571308,
+   "cpu_percent": 5.992545296495535,
    "gpu_ms_per_s": 0.0
   },
   "nvidia-smi": {
@@ -119,7 +119,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 0.46481667126135406,
+   "cpu_percent": 0.6621597012702249,
    "gpu_ms_per_s": 0.0
   },
   "sh": {
@@ -135,11 +135,11 @@
    "gpu_ms_per_s": 0.0
   },
   "systemd": {
-   "cpu_percent": 0.06640238160876485,
+   "cpu_percent": 0.033107985063511244,
    "gpu_ms_per_s": 0.0
   },
   "top": {
-   "cpu_percent": 0.5644202436745014,
+   "cpu_percent": 0.4966197759526686,
    "gpu_ms_per_s": 0.0
   },
   "waitpid": {
@@ -163,5 +163,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 30.11940161700477
+ "seconds": 30.204193885000677
 }

@@ -1,6 +1,6 @@
 {
- "gpu_busy_percent": 7.875,
- "gpu_power_w": 17.7619125,
+ "gpu_busy_percent": 8.0,
+ "gpu_power_w": 18.50906666666667,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -11,7 +11,7 @@
    "gpu_ms_per_s": 0.0
   },
   "at-spi2-registr": {
-   "cpu_percent": 0.04977186418518649,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "bash": {
@@ -27,19 +27,19 @@
    "gpu_ms_per_s": 0.0
   },
   "chromium:browser": {
-   "cpu_percent": 2.6876806660000705,
+   "cpu_percent": 2.8539601499868725,
    "gpu_ms_per_s": 0.0
   },
   "chromium:gpu-process": {
-   "cpu_percent": 12.293650453741066,
+   "cpu_percent": 14.535285415049419,
    "gpu_ms_per_s": 0.0
   },
   "chromium:renderer": {
-   "cpu_percent": 25.085019549333992,
+   "cpu_percent": 27.842704253941697,
    "gpu_ms_per_s": 0.0
   },
   "chromium:utility": {
-   "cpu_percent": 0.04977186418518649,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "chromium:zygote": {
@@ -79,26 +79,30 @@
    "gpu_ms_per_s": 0.0
   },
   "kitty": {
-   "cpu_percent": 0.19908745674074596,
+   "cpu_percent": 0.09955674941814671,
    "gpu_ms_per_s": 0.0
   },
   "mpvpaper": {
-   "cpu_percent": 6.321026751518685,
+   "cpu_percent": 6.570745461597682,
    "gpu_ms_per_s": 0.0
   },
   "niri": {
-   "cpu_percent": 35.88551407751946,
-   "gpu_ms_per_s": 80.72192639842827
+   "cpu_percent": 31.824974230667564,
+   "gpu_ms_per_s": 82.1031724718849
   },
   "niri-session": {
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "noctalia": {
-   "cpu_percent": 0.14931559255555948,
+   "cpu_percent": 0.09955674941814671,
    "gpu_ms_per_s": 0.0
   },
   "nvidia-smi": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "phases.sh": {
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
@@ -115,7 +119,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 0.5474905060370514,
+   "cpu_percent": 0.49778374709073353,
    "gpu_ms_per_s": 0.0
   },
   "sshd-session": {
@@ -131,7 +135,7 @@
    "gpu_ms_per_s": 0.0
   },
   "top": {
-   "cpu_percent": 0.49771864185186493,
+   "cpu_percent": 0.49778374709073353,
    "gpu_ms_per_s": 0.0
   },
   "wireplumber": {
@@ -139,7 +143,7 @@
    "gpu_ms_per_s": 0.0
   },
   "xdg-desktop-por": {
-   "cpu_percent": 0.04977186418518649,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "xdg-document-po": {
@@ -151,5 +155,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 20.09167260200047
+ "seconds": 30.133567212000344
 }

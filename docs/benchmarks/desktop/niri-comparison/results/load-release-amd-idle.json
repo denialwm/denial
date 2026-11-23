@@ -1,6 +1,6 @@
 {
  "gpu_busy_percent": 0.0,
- "gpu_power_w": 3.192886075949367,
+ "gpu_power_w": 3.5564430379746836,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -15,7 +15,7 @@
    "gpu_ms_per_s": 0.0
   },
   "at-spi2-registr": {
-   "cpu_percent": 0.0499756533984279,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "bash": {
@@ -43,8 +43,8 @@
    "gpu_ms_per_s": 0.0
   },
   "deniald": {
-   "cpu_percent": 0.6496834941795626,
-   "gpu_ms_per_s": 0.7975023813631938
+   "cpu_percent": 0.6996263309409142,
+   "gpu_ms_per_s": 0.7907428158040257
   },
   "fcitx5": {
    "cpu_percent": 0.0,
@@ -54,8 +54,20 @@
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
+  "grep": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
   "journalctl": {
-   "cpu_percent": 0.0499756533984279,
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "nvidia-smi": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "phases.sh": {
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "pipewire": {
@@ -71,7 +83,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 1.1994156815622694,
+   "cpu_percent": 1.0994128057642938,
    "gpu_ms_per_s": 0.0
   },
   "sh": {
@@ -87,7 +99,7 @@
    "gpu_ms_per_s": 0.0
   },
   "systemd": {
-   "cpu_percent": 0.0999513067968558,
+   "cpu_percent": 0.09994661870584488,
    "gpu_ms_per_s": 0.0
   },
   "waitpid": {
@@ -99,7 +111,7 @@
    "gpu_ms_per_s": 0.0
   },
   "xdg-desktop-por": {
-   "cpu_percent": 0.0,
+   "cpu_percent": 0.04997330935292244,
    "gpu_ms_per_s": 0.0
   },
   "xdg-document-po": {
@@ -111,5 +123,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 20.00974338499509
+ "seconds": 20.010681961000046
 }

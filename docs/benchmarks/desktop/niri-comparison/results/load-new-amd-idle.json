@@ -1,6 +1,6 @@
 {
  "gpu_busy_percent": 0.0,
- "gpu_power_w": 3.1946075949367088,
+ "gpu_power_w": 3.419240506329114,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -11,7 +11,7 @@
    "gpu_ms_per_s": 0.0
   },
   "at-spi2-registr": {
-   "cpu_percent": 0.0,
+   "cpu_percent": 0.049990959729825056,
    "gpu_ms_per_s": 0.0
   },
   "bash": {
@@ -39,8 +39,8 @@
    "gpu_ms_per_s": 0.0
   },
   "deniald": {
-   "cpu_percent": 0.5497960284773925,
-   "gpu_ms_per_s": 0.12693255866808967
+   "cpu_percent": 0.5499005570280755,
+   "gpu_ms_per_s": 0.0
   },
   "fcitx5": {
    "cpu_percent": 0.0,
@@ -55,7 +55,7 @@
    "gpu_ms_per_s": 0.0
   },
   "journalctl": {
-   "cpu_percent": 0.049981457134308405,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "nvidia-smi": {
@@ -75,11 +75,11 @@
    "gpu_ms_per_s": 0.0
   },
   "poltergeist": {
-   "cpu_percent": 0.049981457134308405,
+   "cpu_percent": 0.049990959729825056,
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 1.099592056954785,
+   "cpu_percent": 1.099801114056151,
    "gpu_ms_per_s": 0.0
   },
   "sh": {
@@ -95,7 +95,7 @@
    "gpu_ms_per_s": 0.0
   },
   "systemd": {
-   "cpu_percent": 0.049981457134308405,
+   "cpu_percent": 0.049990959729825056,
    "gpu_ms_per_s": 0.0
   },
   "waitpid": {
@@ -107,7 +107,7 @@
    "gpu_ms_per_s": 0.0
   },
   "xdg-desktop-por": {
-   "cpu_percent": 0.0,
+   "cpu_percent": 0.049990959729825056,
    "gpu_ms_per_s": 0.0
   },
   "xdg-document-po": {
@@ -119,5 +119,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 20.00741989800008
+ "seconds": 20.003616762000092
 }

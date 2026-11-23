@@ -1,7 +1,7 @@
 window 20 s, GPU busy 0%, GPU power 4 W
 process                          CPU % core  GPU ms/s
-deniald                                 1.9       1.4
+deniald                                 1.5       1.0
 python3                                 1.1       0.0
-all of the user                         3.1       1.4
-package power 3.27 W
-NVIDIA board 4.2 W, busy 1%
+all of the user                         2.7       1.0
+package power 3.46 W
+NVIDIA board 3.9 W, busy 0%

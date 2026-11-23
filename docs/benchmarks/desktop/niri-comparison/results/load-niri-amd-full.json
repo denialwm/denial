@@ -1,6 +1,6 @@
 {
- "gpu_busy_percent": 15.100840336134453,
- "gpu_power_w": 11.104117647058825,
+ "gpu_busy_percent": 15.46218487394958,
+ "gpu_power_w": 11.716613445378151,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -27,19 +27,19 @@
    "gpu_ms_per_s": 0.0
   },
   "chromium:browser": {
-   "cpu_percent": 3.562249680941269,
+   "cpu_percent": 3.5325208138640614,
    "gpu_ms_per_s": 0.0
   },
   "chromium:gpu-process": {
-   "cpu_percent": 15.147884157273623,
-   "gpu_ms_per_s": 91.61363283862204
+   "cpu_percent": 14.629968276286068,
+   "gpu_ms_per_s": 84.06753702212389
   },
   "chromium:renderer": {
-   "cpu_percent": 14.648503360879989,
+   "cpu_percent": 14.396688599898816,
    "gpu_ms_per_s": 0.0
   },
   "chromium:utility": {
-   "cpu_percent": 0.06658410618581813,
+   "cpu_percent": 0.06665133611064268,
    "gpu_ms_per_s": 0.0
   },
   "chromium:zygote": {
@@ -66,6 +66,10 @@
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
+  "grep": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
   "journalctl": {
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
@@ -75,24 +79,32 @@
    "gpu_ms_per_s": 0.0
   },
   "kitty": {
-   "cpu_percent": 0.19975231855745437,
-   "gpu_ms_per_s": 0.5025208695493061
+   "cpu_percent": 0.099977004165964,
+   "gpu_ms_per_s": 0.23593259951846127
   },
   "mpvpaper": {
-   "cpu_percent": 3.9950463711490873,
-   "gpu_ms_per_s": 118.54009290256371
+   "cpu_percent": 3.7991261583066316,
+   "gpu_ms_per_s": 106.16106546239803
   },
   "niri": {
-   "cpu_percent": 11.485758317053627,
-   "gpu_ms_per_s": 83.23278391162866
+   "cpu_percent": 10.797516449924114,
+   "gpu_ms_per_s": 83.84570377959493
   },
   "niri-session": {
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "noctalia": {
-   "cpu_percent": 0.23304437165036343,
-   "gpu_ms_per_s": 0.0019032067991623324
+   "cpu_percent": 0.13330267222128536,
+   "gpu_ms_per_s": 0.0007458951024142021
+  },
+  "nvidia-smi": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
+  },
+  "phases.sh": {
+   "cpu_percent": 0.0,
+   "gpu_ms_per_s": 0.0
   },
   "pipewire": {
    "cpu_percent": 0.0,
@@ -107,7 +119,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 0.9654695396943627,
+   "cpu_percent": 0.8331417013830333,
    "gpu_ms_per_s": 0.0
   },
   "sshd-session": {
@@ -123,7 +135,7 @@
    "gpu_ms_per_s": 0.0
   },
   "top": {
-   "cpu_percent": 0.5659649025794541,
+   "cpu_percent": 0.49988502082982,
    "gpu_ms_per_s": 0.0
   },
   "wireplumber": {
@@ -143,5 +155,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 30.037198283003818
+ "seconds": 30.006900337000843
 }

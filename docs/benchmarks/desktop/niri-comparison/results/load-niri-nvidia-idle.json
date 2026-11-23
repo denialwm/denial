@@ -1,6 +1,6 @@
 {
  "gpu_busy_percent": 0.0,
- "gpu_power_w": 3.148696202531646,
+ "gpu_power_w": 3.270253164556962,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -51,15 +51,15 @@
    "gpu_ms_per_s": 0.0
   },
   "niri": {
-   "cpu_percent": 0.04999796582527447,
-   "gpu_ms_per_s": 0.12991596434953884
+   "cpu_percent": 0.09998049028203042,
+   "gpu_ms_per_s": 0.14993419255384755
   },
   "niri-session": {
    "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "noctalia": {
-   "cpu_percent": 0.29998779495164685,
+   "cpu_percent": 0.3499317159871065,
    "gpu_ms_per_s": 0.0
   },
   "nvidia-smi": {
@@ -83,7 +83,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 1.0999552481560384,
+   "cpu_percent": 1.0997853931023345,
    "gpu_ms_per_s": 0.0
   },
   "sshd-session": {
@@ -115,5 +115,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 20.000813702994492
+ "seconds": 20.003902705000655
 }

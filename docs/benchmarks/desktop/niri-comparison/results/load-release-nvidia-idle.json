@@ -1,6 +1,6 @@
 {
  "gpu_busy_percent": 0.0,
- "gpu_power_w": 3.6262250000000003,
+ "gpu_power_w": 3.775873417721519,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -43,8 +43,8 @@
    "gpu_ms_per_s": 0.0
   },
   "deniald": {
-   "cpu_percent": 1.8766201378643506,
-   "gpu_ms_per_s": 1.4460095970267446
+   "cpu_percent": 1.4986682945186105,
+   "gpu_ms_per_s": 0.9632177418905545
   },
   "fcitx5": {
    "cpu_percent": 0.0,
@@ -83,7 +83,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 1.0864642903425188,
+   "cpu_percent": 1.1489790257976016,
    "gpu_ms_per_s": 0.0
   },
   "sh": {
@@ -99,7 +99,7 @@
    "gpu_ms_per_s": 0.0
   },
   "systemd": {
-   "cpu_percent": 0.09876948094022898,
+   "cpu_percent": 0.09991121963457404,
    "gpu_ms_per_s": 0.0
   },
   "waitpid": {
@@ -123,5 +123,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 20.249169895003433
+ "seconds": 20.017771850999452
 }

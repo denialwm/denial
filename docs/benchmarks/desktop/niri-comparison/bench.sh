@@ -17,17 +17,17 @@ case $1 in
 desktop)
   run mpvpaper -o "no-audio loop hwdec=vaapi" '*' $B/wall.mp4
   sleep 1
-  run chromium --ozone-platform=wayland --user-data-dir=/tmp/bench-chromium --no-first-run \
+  run chromium --class=bench-video --ozone-platform=wayland --user-data-dir=/tmp/bench-chromium --no-first-run \
       --no-default-browser-check --autoplay-policy=no-user-gesture-required \
       --new-window --window-size=1100,700 file://$B/video.html
-  run kitty -o initial_window_width=700 -o initial_window_height=450 top -d 1
+  run kitty -o remember_window_size=no -o initial_window_width=700 -o initial_window_height=450 top -d 1
   ;;
 full)
   runlog chromium --ozone-platform=wayland --user-data-dir=/tmp/bench-kiosk --no-first-run \
       --no-default-browser-check --enable-logging=stderr --kiosk file://$B/full.html
   ;;
 stop)
-  pkill -f 'user-data-dir=/tmp/bench-' ; pkill -x mpvpaper; pkill -f 'kitty -o initial_window_width'
+  pkill -f 'user-data-dir=/tmp/bench-' ; pkill -x mpvpaper; pkill -f 'initial_window_width'
   ;;
 measure)
   # measure SECONDS LABEL: CPU, GPU time, package power over the window, then memory.

@@ -1,1 +1,1 @@
-package power 16.46 W
+package power 10.52 W

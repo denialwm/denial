@@ -1,6 +1,6 @@
 {
- "gpu_busy_percent": 17.2,
- "gpu_power_w": 15.671925,
+ "gpu_busy_percent": 14.0,
+ "gpu_power_w": 12.245591666666666,
  "processes": {
   "(sd-pam)": {
    "cpu_percent": 0.0,
@@ -27,19 +27,19 @@
    "gpu_ms_per_s": 0.0
   },
   "chromium:browser": {
-   "cpu_percent": 4.714363229291791,
+   "cpu_percent": 3.447367555129195,
    "gpu_ms_per_s": 0.0
   },
   "chromium:gpu-process": {
-   "cpu_percent": 17.595862757215844,
-   "gpu_ms_per_s": 101.04144805870305
+   "cpu_percent": 14.31983445976742,
+   "gpu_ms_per_s": 107.3120037863426
   },
   "chromium:renderer": {
-   "cpu_percent": 14.441887357337531,
+   "cpu_percent": 12.993923861640809,
    "gpu_ms_per_s": 0.0
   },
   "chromium:utility": {
-   "cpu_percent": 0.0663994821027013,
+   "cpu_percent": 0.09944329485949599,
    "gpu_ms_per_s": 0.0
   },
   "chromium:zygote": {
@@ -63,8 +63,8 @@
    "gpu_ms_per_s": 0.0
   },
   "deniald": {
-   "cpu_percent": 4.61476400613774,
-   "gpu_ms_per_s": 68.99952105152823
+   "cpu_percent": 5.734563336897603,
+   "gpu_ms_per_s": 73.32982665359819
   },
   "fcitx5": {
    "cpu_percent": 0.0,
@@ -79,7 +79,7 @@
    "gpu_ms_per_s": 0.0
   },
   "journalctl": {
-   "cpu_percent": 0.0,
+   "cpu_percent": 0.06629552990633066,
    "gpu_ms_per_s": 0.0
   },
   "kitten": {
@@ -87,15 +87,15 @@
    "gpu_ms_per_s": 0.0
   },
   "kitty": {
-   "cpu_percent": 0.16599870525675328,
-   "gpu_ms_per_s": 0.5269369940395432
+   "cpu_percent": 0.09944329485949599,
+   "gpu_ms_per_s": 0.23681664901748037
   },
   "mpvpaper": {
-   "cpu_percent": 2.5563800609540004,
-   "gpu_ms_per_s": 88.87902613777574
+   "cpu_percent": 1.0275807135481252,
+   "gpu_ms_per_s": 49.47763479873236
   },
   "nvidia-smi": {
-   "cpu_percent": 0.03319974105135065,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "phases.sh": {
@@ -115,7 +115,7 @@
    "gpu_ms_per_s": 0.0
   },
   "python3": {
-   "cpu_percent": 0.46479637471890917,
+   "cpu_percent": 0.5966597691569759,
    "gpu_ms_per_s": 0.0
   },
   "sh": {
@@ -131,11 +131,11 @@
    "gpu_ms_per_s": 0.0
   },
   "systemd": {
-   "cpu_percent": 0.09959922315405194,
+   "cpu_percent": 0.0,
    "gpu_ms_per_s": 0.0
   },
   "top": {
-   "cpu_percent": 0.5643955978729611,
+   "cpu_percent": 0.4972164742974799,
    "gpu_ms_per_s": 0.0
   },
   "waitpid": {
@@ -159,5 +159,5 @@
    "gpu_ms_per_s": 0.0
   }
  },
- "seconds": 30.12071685900446
+ "seconds": 30.167946509000103
 }

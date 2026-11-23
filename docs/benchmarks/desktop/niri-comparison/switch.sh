@@ -9,7 +9,7 @@ sudo -n cp $B/session.conf.orig /etc/denial/session.conf
 sudo -n sed -i "s#^DENIAL_RENDER_DEVICE=.*#DENIAL_RENDER_DEVICE=/dev/dri/by-path/$dev-render#; s#^export DENIAL_FLUTTER_BUNDLE=.*#export DENIAL_FLUTTER_BUNDLE=$L/shell#" /etc/denial/session.conf
 [ "$2" = audit ] || sudo -n sed -i 's/^export DENIAL_RENDER_AUDIT=1/#export DENIAL_RENDER_AUDIT=1/' /etc/denial/session.conf
 sudo -n systemctl restart greetd.service
-for i in $(seq 40); do pgrep -x deniald >/dev/null || break; sleep 0.5; done
+for i in $(seq 40); do pgrep -x 'deniald|niri' >/dev/null || break; sleep 0.5; done
 sudo -n rm -f /run/greetd-denial-initial-session && sudo -n systemctl restart greetd.service
 for i in $(seq 40); do pgrep -x deniald >/dev/null && break; sleep 0.5; done
 sleep 8
