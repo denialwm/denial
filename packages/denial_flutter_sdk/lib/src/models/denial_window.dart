@@ -421,6 +421,11 @@ class DenialWindow {
   bool get isContentTranslucent =>
       opacityClass == DenialWindowOpacityClass.contentTranslucent;
 
+  /// Whether a backdrop behind this window shows through its content. A
+  /// window whose interior is declared opaque needs none: its rounded corners
+  /// and antialiased border show what is behind them unblurred.
+  bool get showsBackdrop => opacity < 1.0 || isContentTranslucent;
+
   /// Texture-backed surfaces drawn inside the toplevel frame itself.
   ///
   /// Desktop widgets use this narrower visibility set because popup surfaces

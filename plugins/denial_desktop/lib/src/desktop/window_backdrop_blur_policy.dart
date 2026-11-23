@@ -12,5 +12,5 @@ bool desktopWindowNeedsBackdropTexture({
   if (window.isLocalFlutter) {
     return localContentTranslucent || shellOpacity < 1.0;
   }
-  return !window.isOpaque || shellOpacity < 1.0;
+  return window.showsBackdrop || shellOpacity < 1.0;
 }
