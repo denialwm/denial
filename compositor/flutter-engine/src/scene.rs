@@ -489,6 +489,8 @@ pub enum SceneEntry {
         /// A placed slice: its blit scales, sampled linearly. Otherwise
         /// blits copy pixel for pixel, nearest.
         linear: bool,
+        /// The group opacity a placed slice draws at; 1 for the others.
+        opacity: f32,
         /// Range into [`Scene::blits`].
         blits: std::ops::Range<usize>,
     },
@@ -740,12 +742,18 @@ unsafe fn copy_scene(raw: &RawScene, scene: &mut Scene) -> bool {
                 scene
                     .blits
                     .extend_from_slice(unsafe { borrowed(entry.blits, entry.blit_count) });
+                let linear = Sampling::from_raw(entry.sampling) != Sampling::Nearest;
                 scene.entries.push(SceneEntry::Slice {
                     key: entry.slice,
                     bottom_up: entry.slice_bottom_up,
                     storage_width: entry.slice_storage_width,
                     storage_height: entry.slice_storage_height,
-                    linear: Sampling::from_raw(entry.sampling) != Sampling::Nearest,
+                    linear,
+                    opacity: if linear {
+                        entry.surface_opacity as f32
+                    } else {
+                        1.0
+                    },
                     blits: first..scene.blits.len(),
                 });
             }

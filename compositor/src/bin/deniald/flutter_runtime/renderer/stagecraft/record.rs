@@ -253,6 +253,11 @@ impl Draw {
         self.quad = [0.0; 4];
     }
 
+    /// What the draw shows: `KIND_SLICE`, `KIND_TEXTURE` or `KIND_WINDOW`.
+    pub(super) fn kind(&self) -> u32 {
+        self.flags[0]
+    }
+
     /// Whether `hide` left it out.
     pub(super) fn hidden(&self) -> bool {
         self.quad == [0.0; 4]
@@ -423,8 +428,14 @@ pub(super) fn slice_blit(
     }
 }
 
+/// Draws a slice at a group opacity: a placed slice's.
+pub(super) fn fade(draw: &mut Draw, opacity: f32) {
+    draw.params[1] *= opacity;
+}
+
 /// Puts a slice draw inside a material: the material's clips (scene
-/// coordinates, which `scene_from_target` maps target pixels to) and opacity.
+/// coordinates, which `scene_from_target` maps target pixels to) and opacity,
+/// over the slice's own.
 pub(super) fn inside_material(
     draw: &mut Draw,
     clips: ClipSpan,
@@ -434,7 +445,7 @@ pub(super) fn inside_material(
     draw.scene = rows(scene_from_target);
     draw.flags[1] = clips.count;
     draw.clip_first = clips.first;
-    draw.params[1] = opacity;
+    draw.params[1] *= opacity;
 }
 
 /// Where a client image lands: its source texels, the local destination,
@@ -1839,6 +1850,20 @@ pub(super) mod tests {
             let (u, _) = uv(&draw, 20.25, 25.5);
             assert!((u * 64.0 - 22.0).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn faded_slice_inside_a_material_takes_both_opacities() {
+        let blit = SliceBlit {
+            source: [0.0, 0.0, 8.0, 8.0],
+            destination: [0.0, 0.0, 8.0, 8.0],
+        };
+        let mut draw = slice_blit(&blit, (8, 8), false, &ndc_from_target(8, 8));
+        assert_eq!(draw.params[1], 1.0);
+        fade(&mut draw, 0.5);
+        let clips = ClipSpan { first: 0, count: 0 };
+        inside_material(&mut draw, clips, 0.5, &Matrix3::IDENTITY);
+        assert_eq!(draw.params[1], 0.25);
     }
 
     #[test]

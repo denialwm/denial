@@ -1951,7 +1951,12 @@ mod gpu_timing {
     pub(super) const GLASS: u8 = 5;
     pub(super) const WINDOW_GLASS: u8 = 6;
     pub(super) const REPAIR: u8 = 7;
-    const NAMES: [&str; 8] = [
+    /// Draw batches by what they show: `DRAWS` shell slices drawn pixel for
+    /// pixel, then placed slices, client textures and windows.
+    pub(super) const DRAWS_PLACED: u8 = 8;
+    pub(super) const DRAWS_TEXTURE: u8 = 9;
+    pub(super) const DRAWS_WINDOW: u8 = 10;
+    const NAMES: [&str; 11] = [
         "uploads",
         "merges",
         "clear",
@@ -1960,21 +1965,24 @@ mod gpu_timing {
         "glass",
         "window_glass",
         "repair",
+        "draws_placed",
+        "draws_texture",
+        "draws_window",
     ];
 
     struct Sums {
         frames: u64,
         total: f64,
-        parts: [f64; 8],
-        counts: [u64; 8],
+        parts: [f64; 11],
+        counts: [u64; 11],
         instances: u64,
     }
 
     static SUMS: Mutex<Sums> = Mutex::new(Sums {
         frames: 0,
         total: 0.0,
-        parts: [0.0; 8],
-        counts: [0; 8],
+        parts: [0.0; 11],
+        counts: [0; 11],
         instances: 0,
     });
 
@@ -1997,7 +2005,7 @@ mod gpu_timing {
         }
         if sums.frames == 1000 {
             let f = sums.frames as f64;
-            let parts: Vec<String> = (0..8)
+            let parts: Vec<String> = (0..11)
                 .map(|kind| {
                     format!(
                         "{}={:.0}us/{:.1}",
@@ -2017,8 +2025,8 @@ mod gpu_timing {
             *sums = Sums {
                 frames: 0,
                 total: 0.0,
-                parts: [0.0; 8],
-                counts: [0; 8],
+                parts: [0.0; 11],
+                counts: [0; 11],
                 instances: 0,
             };
         }
@@ -3036,7 +3044,12 @@ impl Frame {
                         }
                         d.cmd_draw(command, 4, batch.count, 0, batch.first);
                         instances += batch.count;
-                        stamp(Some(gpu_timing::DRAWS));
+                        stamp(Some(match draws[batch.first as usize].kind() {
+                            super::record::KIND_SLICE if batch.nearest => gpu_timing::DRAWS,
+                            super::record::KIND_SLICE => gpu_timing::DRAWS_PLACED,
+                            super::record::KIND_TEXTURE => gpu_timing::DRAWS_TEXTURE,
+                            _ => gpu_timing::DRAWS_WINDOW,
+                        }));
                     }
                     Step::Material(MaterialStep {
                         frozen: Some((image, _)),

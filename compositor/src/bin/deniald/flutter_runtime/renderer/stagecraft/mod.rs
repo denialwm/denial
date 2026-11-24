@@ -2347,6 +2347,7 @@ impl SceneComposer {
                         storage_width,
                         storage_height,
                         linear,
+                        opacity,
                         blits,
                     } => {
                         let slice = state.slices.get(&key.allocation).ok_or("unknown slice")?;
@@ -2359,6 +2360,7 @@ impl SceneComposer {
                         for blit in &scene.blits[blits.clone()] {
                             let mut draw =
                                 record::slice_blit(blit, image.size, *bottom_up, &ndc_from_target);
+                            record::fade(&mut draw, *opacity);
                             if let Some(&(clips, opacity)) = open.last() {
                                 record::inside_material(
                                     &mut draw,
