@@ -222,6 +222,7 @@ fn empty_staged(view_id: i64) -> super::Staged {
         engine_tokens: Vec::new(),
         outputs: Vec::new(),
         remade_why: [0; 6],
+        frosts_allocated: 0,
         slices: Vec::new(),
         slices_rewritten: 0,
         clients: Vec::new(),
@@ -1000,6 +1001,67 @@ fn frost_is_kept_or_remade_as_asked() {
     assert!(old > 60 && new < 4, "reused frost: {old}, {new}");
     let (old, new) = brightness(150, true);
     assert!(old < 4 && new > 60, "fresh frost: {old}, {new}");
+}
+
+/// A frost made in images with room, after a larger white frost filled
+/// them, draws as one made in images of its own size: its passes and glass
+/// read its texels only. The regions are the materials themselves, as a
+/// window's exact frost, so taps at the edges reach past the texels.
+#[test]
+#[ignore = "needs a GPU"]
+fn a_frost_in_roomy_images_matches_an_exact_one() {
+    let mut rig = rig(1, false);
+    let rect = [37.0, 21.0, 211.0, 99.0];
+    // A white stripe across the material's right edge.
+    let stripe = |x: u32, _| {
+        if (196..204).contains(&x) {
+            [255, 255, 255, 255]
+        } else {
+            [0, 0, 0, 255]
+        }
+    };
+    let exact_region = |rig: &Rig, rect: [f32; 4]| {
+        let mut draw = blur_material(rig, rect, 6.0);
+        draw.plan.region = rect.map(|value| value as i32);
+        draw
+    };
+    let draw = exact_region(&rig, rect);
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    let mut image = |rig: &mut Rig, frost: &Arc<Frost>, draw: &record::MaterialDraw| {
+        let mut glass = draw.glass;
+        glass.place_frost(&draw.plan, frost.last_storage());
+        let (draws, steps) = steps_with(rig, draw, frost, true);
+        submit_and_wait(rig, &mut frame, &draws, &[glass], &steps);
+        let mut pixels = Vec::new();
+        for row in 0..H {
+            for x in 0..W {
+                pixels.push(pixel(&rig.target_buffer, x, row));
+            }
+        }
+        pixels
+    };
+    fill_with(&mut rig.slices[0].0, stripe);
+    let exact = Arc::new(Frost::new(&rig.gpu, draw.plan).expect("frost"));
+    let expected = image(&mut rig, &exact, &draw);
+    // Fill the roomy images white past the smaller plan's texels.
+    let larger = exact_region(&rig, [30.0, 15.0, 225.0, 110.0]);
+    let roomy = Arc::new(Frost::with_room(&rig.gpu, larger.plan).expect("frost"));
+    assert!(
+        roomy.fits(&draw.plan),
+        "the smaller plan fits the larger room"
+    );
+    assert!(roomy.last_storage() != exact.last_storage());
+    fill_with(&mut rig.slices[0].0, |_, _| [255, 255, 255, 255]);
+    image(&mut rig, &roomy, &larger);
+    fill_with(&mut rig.slices[0].0, stripe);
+    let got = image(&mut rig, &roomy, &draw);
+    let worst = expected
+        .iter()
+        .zip(&got)
+        .map(|(a, b)| (0..4).map(|c| a[c].abs_diff(b[c])).max().unwrap())
+        .max()
+        .unwrap();
+    assert!(worst <= 1, "largest channel difference {worst}");
 }
 
 /// A half-transparent black client over a white scene, with black glass

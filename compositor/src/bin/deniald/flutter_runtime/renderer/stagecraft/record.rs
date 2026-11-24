@@ -1097,6 +1097,26 @@ impl Draw {
 }
 
 impl Glass {
+    /// Maps the glass onto its frost, `plan`'s last level at the top left of
+    /// `storage` texels (the frost images' last level).
+    pub(super) fn place_frost(&mut self, plan: &FrostPlan, storage: (u32, u32)) {
+        let (width, height) = plan.level_size(plan.levels() - 1);
+        let [left, top, right, bottom] = plan.covered();
+        let (sw, sh) = (storage.0 as f32, storage.1 as f32);
+        self.frost = [
+            left,
+            top,
+            left + (right - left) * sw / width as f32,
+            top + (bottom - top) * sh / height as f32,
+        ];
+        self.frost_limits = [
+            0.5 / sw,
+            0.5 / sh,
+            (width as f32 - 0.5) / sw,
+            (height as f32 - 0.5) / sh,
+        ];
+    }
+
     /// Feeds everything that decides the glass's pixels but its frost into
     /// `state`: the record and its clips.
     pub(super) fn hash_into(
@@ -1618,10 +1638,7 @@ fn material_over(
     let Some(plan) = FrostPlan::new(source, sigma, reach, window, target) else {
         return Ok(None);
     };
-    record.frost = plan.covered();
-    let (width, height) = plan.level_size(plan.levels() - 1);
-    let (hx, hy) = (0.5 / width as f32, 0.5 / height as f32);
-    record.frost_limits = [hx, hy, 1.0 - hx, 1.0 - hy];
+    record.place_frost(&plan, plan.level_size(plan.levels() - 1));
     // A window draws over its bounds (its quad may be window-local material
     // bounds); a blur or glass within its quad, antialiased.
     let drawn = if window { bounds } else { quad };

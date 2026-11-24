@@ -285,6 +285,8 @@ pub(super) struct Staged {
     /// below, plan, token, what they read, reused), and frosts without a
     /// cache.
     remade_why: [u32; 6],
+    /// Frosts that took new images: none cached fit.
+    frosts_allocated: u32,
     slices: Vec<SliceKey>,
     /// Shell slices the engine rendered again for this frame.
     slices_rewritten: u32,
@@ -467,6 +469,7 @@ struct Tally {
     engine_damage: f64,
     added_damage: f64,
     remade_why: [u64; 6],
+    frosts_allocated: u64,
     empty_frames: u64,
     redrawn: f64,
     /// Draws and materials not drawn: opaque draws above hide them.
@@ -500,6 +503,7 @@ impl Tally {
         for (total, count) in self.remade_why.iter_mut().zip(staged.remade_why) {
             *total += u64::from(count);
         }
+        self.frosts_allocated += u64::from(staged.frosts_allocated);
         let pixels = if record::pixels_empty(area) {
             0
         } else {
@@ -583,6 +587,7 @@ impl Tally {
             remade_read = self.remade_why[3],
             reused = self.remade_why[4],
             uncached = self.remade_why[5],
+            frosts_allocated = self.frosts_allocated,
             empty_frames = self.empty_frames,
             culled_draws = self.culled_draws,
             culled_materials = self.culled_materials,
@@ -1453,6 +1458,7 @@ impl SceneComposer {
             backdrop_tokens,
             outputs,
             remade_why,
+            frosts_allocated,
             ..
         } = staged;
         // What each step drew so far, in paint order: where, and a
@@ -1521,11 +1527,15 @@ impl SceneComposer {
                 Some(cached) if cached.frost.fits(&material.plan) => {
                     (Arc::clone(&cached.frost), None)
                 }
-                _ => (Arc::new(Frost::new(gpu, material.plan)?), None),
+                _ => {
+                    *frosts_allocated += 1;
+                    (Arc::new(Frost::with_room(gpu, material.plan)?), None)
+                }
             };
             if kept.is_none() {
                 remade.push(outputs[record]);
             }
+            glasses[record].place_frost(&material.plan, frost.last_storage());
             material.frost = Some(frost);
             material.fresh = kept.is_none();
             material.below = below;
@@ -2267,6 +2277,7 @@ impl SceneComposer {
                 engine_tokens: Vec::new(),
                 outputs: Vec::new(),
                 remade_why: [0; 6],
+                frosts_allocated: 0,
                 slices: Vec::new(),
                 slices_rewritten: scene.rewritten.len() as u32,
                 clients: Vec::new(),

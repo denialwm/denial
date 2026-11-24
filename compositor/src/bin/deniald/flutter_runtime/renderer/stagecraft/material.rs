@@ -5,7 +5,10 @@
 //!
 //! A frost is reused while the engine reports the scene below the material
 //! unchanged (its backdrop token) and the plan is the same; only the glass
-//! draw is recorded then.
+//! draw is recorded then. Its images are kept while their sizes fit the
+//! plan: a frost that grows or shrinks frame to frame (a window scaled by an
+//! animation) is made again in the same images, with room to grow, and
+//! takes new ones only once it outgrows them or uses less than half.
 
 use std::sync::Arc;
 
@@ -16,24 +19,37 @@ use super::record::FrostPlan;
 
 type Result<T> = std::result::Result<T, String>;
 
-/// Images one material's frost lives in.
+/// Images one material's frost lives in. A plan's texels sit at their top
+/// left; the rest is room the frost may grow into.
 pub(super) struct Frost {
     /// The copied region and its halvings, one mip level each. Its view
     /// shows the last level: the finished frost.
     pub(super) tile: Arc<Image>,
     /// The horizontal pass's result, the vertical pass's input.
     pub(super) scratch: Arc<Image>,
-    region_size: (u32, u32),
+    /// Level 0's texels the images hold.
+    storage: (u32, u32),
     halvings: u32,
+    levels: u32,
 }
 
 impl Frost {
+    /// Images exactly `plan`'s size.
     pub(super) fn new(gpu: &Gpu, plan: FrostPlan) -> Result<Self> {
-        let size = plan.level_size(0);
-        let last = plan.level_size(plan.levels() - 1);
+        Self::holding(gpu, plan, plan.level_size(0))
+    }
+
+    /// Images with room for `plan` to grow by a quarter on each axis.
+    pub(super) fn with_room(gpu: &Gpu, plan: FrostPlan) -> Result<Self> {
+        Self::holding(gpu, plan, room(plan.level_size(0)))
+    }
+
+    fn holding(gpu: &Gpu, plan: FrostPlan, storage: (u32, u32)) -> Result<Self> {
+        let levels = plan.levels();
+        let last = level(storage, levels - 1);
         let tile = gpu.private_image(
-            size,
-            plan.levels(),
+            storage,
+            levels,
             vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::TRANSFER_SRC
                 | vk::ImageUsageFlags::SAMPLED
@@ -47,15 +63,42 @@ impl Frost {
         Ok(Self {
             tile: Arc::new(tile),
             scratch: Arc::new(scratch),
-            region_size: plan.region_size(),
+            storage,
             halvings: plan.halvings,
+            levels,
         })
     }
 
-    /// Whether these images have `plan`'s sizes.
+    /// Whether `plan` can be made in these images: its levels fit, and they
+    /// hold no more than twice the room `with_room` would give it.
     pub(super) fn fits(&self, plan: &FrostPlan) -> bool {
-        self.region_size == plan.region_size() && self.halvings == plan.halvings
+        let (width, height) = plan.level_size(0);
+        let (room_width, room_height) = room((width, height));
+        let area = |(w, h): (u32, u32)| u64::from(w) * u64::from(h);
+        self.halvings == plan.halvings
+            && self.levels == plan.levels()
+            && width <= self.storage.0
+            && height <= self.storage.1
+            && area(self.storage) <= 2 * area((room_width, room_height))
     }
+
+    /// The last level's texels the images hold: what the glass and the blur
+    /// passes map texture coordinates over.
+    pub(super) fn last_storage(&self) -> (u32, u32) {
+        level(self.storage, self.levels - 1)
+    }
+}
+
+/// Level 0's texels for a plan of `size` to grow into: a quarter more on
+/// each axis, in steps of 16.
+fn room((width, height): (u32, u32)) -> (u32, u32) {
+    let grown = |value: u32| (value + value / 4).next_multiple_of(16);
+    (grown(width), grown(height))
+}
+
+/// Mip `level`'s size of an image `size` at level 0, as Vulkan sizes it.
+fn level((width, height): (u32, u32), level: u32) -> (u32, u32) {
+    ((width >> level).max(1), (height >> level).max(1))
 }
 
 fn barrier(
@@ -315,8 +358,20 @@ pub(super) unsafe fn record(
             d.cmd_end_rendering(command);
         }
     };
+    // Both passes read and write the plan's texels at the top left of the
+    // last level's storage, clamped to them as the sampler clamps at an
+    // image's edges.
+    let (storage_width, storage_height) = frost.last_storage();
+    let (sw, sh) = (storage_width as f32, storage_height as f32);
     let constants = |step: [f32; 2], sigma: f32, radius: f32| BlurPass {
+        limits: [
+            0.5 / sw,
+            0.5 / sh,
+            (width as f32 - 0.5) / sw,
+            (height as f32 - 0.5) / sh,
+        ],
         step,
+        scale: [width as f32 / sw, height as f32 / sh],
         sigma: sigma.max(0.0001),
         radius: radius.clamp(0.0, 64.0),
     };
@@ -340,7 +395,7 @@ pub(super) unsafe fn record(
     pass(
         &frost.scratch,
         &frost.tile,
-        constants([1.0 / width as f32, 0.0], plan.sigma[0], plan.radius[0]),
+        constants([1.0 / sw, 0.0], plan.sigma[0], plan.radius[0]),
     );
     dependency(&[
         barrier(frost.scratch.image, whole, ATTACHMENT, SAMPLED),
@@ -349,7 +404,7 @@ pub(super) unsafe fn record(
     pass(
         &frost.tile,
         &frost.scratch,
-        constants([0.0, 1.0 / height as f32], plan.sigma[1], plan.radius[1]),
+        constants([0.0, 1.0 / sh], plan.sigma[1], plan.radius[1]),
     );
     dependency(&[barrier(tile, level_range(last, 1), ATTACHMENT, SAMPLED)]);
     Ok(())

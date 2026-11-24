@@ -110,7 +110,9 @@ pub(super) const FROST_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BlurPass {
+    pub(super) limits: [f32; 4],
     pub(super) step: [f32; 2],
+    pub(super) scale: [f32; 2],
     pub(super) sigma: f32,
     pub(super) radius: f32,
 }
