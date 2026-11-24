@@ -847,7 +847,21 @@ mod tests {
         assert_eq!(std::mem::offset_of!(RawEntry, material), 336);
         assert_eq!(std::mem::offset_of!(RawEntry, clip_paths), 352);
         assert_eq!(std::mem::size_of::<RawClipPath>(), 40);
-        assert_eq!(std::mem::size_of::<RawMaterial>(), 344);
+        assert_eq!(std::mem::size_of::<RawMaterial>(), 464);
+        assert_eq!(std::mem::offset_of!(RawMaterial, has_frozen_frost), 344);
+        assert_eq!(std::mem::offset_of!(RawMaterial, frozen_frost), 352);
+        assert_eq!(
+            std::mem::offset_of!(RawMaterial, frozen_frost_bottom_up),
+            368
+        );
+        assert_eq!(
+            std::mem::offset_of!(RawMaterial, frozen_frost_storage_width),
+            372
+        );
+        assert_eq!(std::mem::offset_of!(RawMaterial, frozen_frost_width), 380);
+        assert_eq!(std::mem::offset_of!(RawMaterial, frozen_frost_rect), 392);
+        assert_eq!(std::mem::offset_of!(RawMaterial, frozen_overlay), 424);
+        assert_eq!(std::mem::offset_of!(RawMaterial, frozen_opacity), 456);
         assert_eq!(std::mem::offset_of!(RawMaterial, content_clip), 56);
         assert_eq!(std::mem::offset_of!(RawMaterial, backdrop_token), 96);
         assert_eq!(std::mem::offset_of!(RawMaterial, shape), 120);
