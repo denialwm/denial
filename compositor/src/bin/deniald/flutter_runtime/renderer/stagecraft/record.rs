@@ -376,8 +376,9 @@ fn texel_limits(source: [f32; 4], size: (f32, f32), strict: bool) -> [f32; 4] {
 }
 
 /// One rectangle of a slice: `blit.destination` in target pixels sampling
-/// `blit.source` in slice coordinates, nearest and strict, as the engine's
-/// slice blit.
+/// `blit.source` in slice coordinates, strict, as the engine's slice blit.
+/// Same-size blits copy pixel for pixel (nearest); a placed slice's blit
+/// scales its source onto the destination (linear).
 pub(super) fn slice_blit(
     blit: &SliceBlit,
     storage: (u32, u32),
@@ -387,12 +388,26 @@ pub(super) fn slice_blit(
     let (ws, hs) = (storage.0 as f32, storage.1 as f32);
     let [dl, dt, dr, db] = blit.destination.map(|value| value as f32);
     let [sl, st, sr, sb] = blit.source.map(|value| value as f32);
-    // u = (x - dl + sl) / Ws; row = y - dt + st, flipped in bottom-up storage.
-    let uv_x = [1.0 / ws, 0.0, (sl - dl) / ws, 0.0];
+    // Source pixels per target pixel.
+    let ratio = |source: f32, destination: f32| {
+        if destination > 0.0 {
+            source / destination
+        } else {
+            1.0
+        }
+    };
+    let (kx, ky) = (ratio(sr - sl, dr - dl), ratio(sb - st, db - dt));
+    // u = (sl + (x - dl)·kx) / Ws; row = st + (y - dt)·ky, flipped in
+    // bottom-up storage.
+    let uv_x = [kx / ws, 0.0, (sl - dl * kx) / ws, 0.0];
     let (uv_y, row_top, row_bottom) = if bottom_up {
-        ([0.0, -1.0 / hs, (hs + dt - st) / hs, 0.0], hs - sb, hs - st)
+        (
+            [0.0, -ky / hs, (hs - st + dt * ky) / hs, 0.0],
+            hs - sb,
+            hs - st,
+        )
     } else {
-        ([0.0, 1.0 / hs, (st - dt) / hs, 0.0], st, sb)
+        ([0.0, ky / hs, (st - dt * ky) / hs, 0.0], st, sb)
     };
     let limits = texel_limits([sl, row_top, sr, row_bottom], (ws, hs), true);
     Draw {
@@ -1797,6 +1812,33 @@ pub(super) mod tests {
         let draw = slice_blit(&blit, (64, 32), false, &ndc_from_target(100, 100));
         let (u, v) = uv(&draw, 20.0, 30.0);
         assert!((u - 5.0 / 64.0).abs() < 1e-6 && (v - 2.0 / 32.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn placed_slice_scales_its_source_onto_the_destination() {
+        // A placed slice shown at half its raster's size, at fractional
+        // target edges.
+        let blit = SliceBlit {
+            source: [2.0, 4.0, 42.0, 24.0],
+            destination: [10.25, 20.5, 30.25, 30.5],
+        };
+        for bottom_up in [false, true] {
+            let draw = slice_blit(&blit, (64, 32), bottom_up, &ndc_from_target(100, 100));
+            let row = |v: f32| {
+                if bottom_up {
+                    32.0 * (1.0 - v)
+                } else {
+                    32.0 * v
+                }
+            };
+            let (u, v) = uv(&draw, 10.25, 20.5);
+            assert!((u * 64.0 - 2.0).abs() < 1e-4 && (row(v) - 4.0).abs() < 1e-4);
+            let (u, v) = uv(&draw, 30.25, 30.5);
+            assert!((u * 64.0 - 42.0).abs() < 1e-4 && (row(v) - 24.0).abs() < 1e-4);
+            // A target pixel centre halfway across reads source x 22.
+            let (u, _) = uv(&draw, 20.25, 25.5);
+            assert!((u * 64.0 - 22.0).abs() < 1e-4);
+        }
     }
 
     #[test]

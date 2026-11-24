@@ -2346,6 +2346,7 @@ impl SceneComposer {
                         bottom_up,
                         storage_width,
                         storage_height,
+                        linear,
                         blits,
                     } => {
                         let slice = state.slices.get(&key.allocation).ok_or("unknown slice")?;
@@ -2366,7 +2367,7 @@ impl SceneComposer {
                                     &scene_from_target,
                                 );
                             }
-                            push(&mut staged, draw, &image, content, &self.no_look, true);
+                            push(&mut staged, draw, &image, content, &self.no_look, !*linear);
                         }
                     }
                     SceneEntry::Texture {

@@ -486,6 +486,9 @@ pub enum SceneEntry {
         bottom_up: bool,
         storage_width: u32,
         storage_height: u32,
+        /// A placed slice: its blit scales, sampled linearly. Otherwise
+        /// blits copy pixel for pixel, nearest.
+        linear: bool,
         /// Range into [`Scene::blits`].
         blits: std::ops::Range<usize>,
     },
@@ -742,6 +745,7 @@ unsafe fn copy_scene(raw: &RawScene, scene: &mut Scene) -> bool {
                     bottom_up: entry.slice_bottom_up,
                     storage_width: entry.slice_storage_width,
                     storage_height: entry.slice_storage_height,
+                    linear: Sampling::from_raw(entry.sampling) != Sampling::Nearest,
                     blits: first..scene.blits.len(),
                 });
             }
