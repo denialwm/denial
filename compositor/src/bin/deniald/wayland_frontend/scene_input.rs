@@ -87,7 +87,8 @@ impl WaylandFrontend {
         match self.routed_pointer_target {
             RoutedPointerTarget::Flutter => {
                 self.pending_cursor_state = None;
-                self.pending_cursor_position = None;
+                self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
+                self.pending_cursor_state = Some(CursorPublication::Named("default"));
             }
             RoutedPointerTarget::Client(_) => {
                 self.pending_cursor_state = Some(self.resolved_client_cursor_publication());

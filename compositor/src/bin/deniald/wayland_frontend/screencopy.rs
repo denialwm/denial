@@ -1781,6 +1781,14 @@ impl WaylandFrontend {
         !self.screencopy.pending.is_empty()
     }
 
+    #[cfg(feature = "flutter")]
+    pub(crate) fn needs_composited_cursor(&self, id: OutputId) -> bool {
+        self.screencopy
+            .pending
+            .iter()
+            .any(|r| r.target.output() == Some(id) && r.target.overlay_cursor)
+    }
+
     pub(crate) fn has_pending_screencopy_for_output(&self, output: OutputId) -> bool {
         self.screencopy
             .pending

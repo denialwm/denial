@@ -37,10 +37,18 @@ impl FlutterRuntime {
 
         self.cursor_output = output;
         self.install_cursor_texture_membership(&desired);
+        self.cursor_scene.capture_client_image(&frames, true);
         self.changed_texture_scratch.clear();
-        self.handler
-            .set_external_texture_sources(frames.drain(..), &mut self.changed_texture_scratch);
-        self.stage_changed_textures();
+        self.handler.stage_texture_sources(
+            frames.drain(..),
+            &mut self.changed_texture_scratch,
+            self.cursor_scene.plane_output.is_some(),
+        );
+        // Keep the current source available for a fallback transaction. A
+        // compatible cursor on its own plane needs no primary frame.
+        if self.cursor_scene.plane_output.is_none() {
+            self.stage_changed_textures();
+        }
         for texture_id in &desired {
             if self.registered_external_textures.insert(*texture_id) {
                 self.host()
@@ -64,14 +72,20 @@ impl FlutterRuntime {
                 .extend(retired);
         }
 
-        let engine = self
-            .host
-            .as_ref()
-            .expect("Flutter runtime is shutting down")
-            .engine();
-        let update = self.wire.encode_cursor_state(&state)?;
-        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        self.cursor_scene.set_state(&state);
         self.cursor_texture_ids = desired;
+        if self.cursor_scene.configured() {
+            // Native raster transactions hold their own source guards.
+            self.acknowledge_cursor_epoch(epoch)?;
+        } else {
+            // An already compiled shell can still use the previous ABI.
+            let update = self.wire.encode_cursor_state(&state)?;
+            self.host
+                .as_ref()
+                .ok_or("Flutter runtime is shutting down")?
+                .engine()
+                .send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        }
         Ok((state, frames))
     }
 
@@ -90,10 +104,18 @@ impl FlutterRuntime {
                 );
             }
         }
+        self.cursor_scene.capture_client_image(&frames, false);
         self.changed_texture_scratch.clear();
-        self.handler
-            .set_external_texture_sources(frames.drain(..), &mut self.changed_texture_scratch);
-        self.stage_changed_textures();
+        self.handler.stage_texture_sources(
+            frames.drain(..),
+            &mut self.changed_texture_scratch,
+            self.cursor_scene.plane_output.is_some(),
+        );
+        // Keep the current source available for a fallback transaction. A
+        // compatible cursor on its own plane needs no primary frame.
+        if self.cursor_scene.plane_output.is_none() {
+            self.stage_changed_textures();
+        }
         Ok(frames)
     }
 

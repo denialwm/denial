@@ -52,7 +52,8 @@ impl ClientImage {
     }
 }
 /// The latest plan with the buffers its layers currently show.
-struct NativeSnapshot {
+#[derive(Clone)]
+pub(in crate::flutter_runtime) struct NativeSnapshot {
     plan: Arc<VersionedWindowPlan>,
     /// Current buffers in layer order, for the layers that have one.
     inputs: Vec<(i64, ExternalTextureSource)>,
@@ -65,6 +66,11 @@ struct NativeSnapshot {
 #[derive(Default)]
 pub(super) struct NativeClientState {
     registry: NativeWindowRegistry,
+    cursor_placement: Option<denial_flutter_engine::ExternalTexturePresentation>,
+    cursor_snapshot: Option<Arc<NativeSnapshot>>,
+    pending_cursor_inputs: Option<Arc<NativeSnapshot>>,
+    cursor_update: Option<Instant>,
+    cursor_submits: u64,
     images: HashMap<i64, ClientImage>,
     pool: Option<Arc<NativeWindowPool>>,
     pass: Option<NativeWindowGl>,
@@ -270,6 +276,125 @@ impl FlutterGlHandler {
             }
         }
     }
+    pub(in crate::flutter_runtime) fn stage_cursor_plan(&self, plan: Option<NativeWindowPlan>) {
+        let mut state = lock(&self.native_clients);
+        state.pending_cursor_inputs = None;
+        if let Some(plan) = plan {
+            state.registry.upsert(plan);
+        } else {
+            state
+                .registry
+                .remove(crate::flutter_runtime::cursor_scene::TEXTURE);
+        }
+    }
+
+    /// Motion and unrelated shell frames share the immutable source buffers.
+    /// Only the platform thread prepares these. Raster holds its own Arc.
+    pub(in crate::flutter_runtime) fn cursor_inputs(
+        &self,
+        refresh: bool,
+    ) -> Option<Arc<NativeSnapshot>> {
+        let mut state = lock(&self.native_clients);
+        if !refresh && let Some(snapshot) = &state.pending_cursor_inputs {
+            return Some(snapshot.clone());
+        }
+        drop(state);
+        let snapshot = self
+            .snapshot_inputs(crate::flutter_runtime::cursor_scene::TEXTURE)
+            .map(Arc::new);
+        state = lock(&self.native_clients);
+        state.pending_cursor_inputs = snapshot.clone();
+        snapshot
+    }
+
+    pub(in crate::flutter_runtime) fn place_cursor(
+        &self,
+        placement: Option<denial_flutter_engine::ExternalTexturePresentation>,
+        snapshot: Option<Arc<NativeSnapshot>>,
+        update: Option<Instant>,
+    ) {
+        let mut state = lock(&self.native_clients);
+        state.cursor_placement = placement;
+        state.cursor_snapshot = snapshot;
+        state.cursor_update = update;
+    }
+
+    pub(super) fn record_cursor_submit(&self) {
+        let mut state = lock(&self.native_clients);
+        let Some(update) = state.cursor_update.take() else {
+            return;
+        };
+        state.cursor_submits += 1;
+        if state.cursor_submits <= 4 || state.cursor_submits.is_multiple_of(128) {
+            info!(
+                submissions = state.cursor_submits,
+                update_to_submit_us = update.elapsed().as_micros() as u64,
+                "Stagecraft submitted the visible cursor with Vulkan"
+            );
+        }
+    }
+
+    pub(super) fn cursor_placement(
+        &self,
+    ) -> Option<denial_flutter_engine::ExternalTexturePresentation> {
+        lock(&self.native_clients).cursor_placement
+    }
+
+    /// A single unrotated cursor image can be sampled directly, including
+    /// when only part of it is visible at the atlas edge. Keep the tree
+    /// merge for rotated, translucent or multi-surface cursors.
+    pub(super) fn direct_cursor(
+        &self,
+    ) -> Option<(
+        i64,
+        ExternalTextureSource,
+        denial_flutter_engine::ExternalTexturePresentation,
+    )> {
+        let (snapshot, mut placement) = {
+            let state = lock(&self.native_clients);
+            (state.cursor_snapshot.clone()?, state.cursor_placement?)
+        };
+        let [(id, source)] = snapshot.inputs.as_slice() else {
+            return None;
+        };
+        let [layer] = snapshot.plan.plan.layers.as_slice() else {
+            return None;
+        };
+        if layer.transform != 0
+            || layer.opacity != 1.
+            || layer.destination != snapshot.plan.plan.canvas
+        {
+            return None;
+        }
+        let input = snapshot.presentations.first()?.as_ref()?;
+        if !reproduces_presentation(input) {
+            return None;
+        }
+        let rect = layer.source;
+        let [sx, sy, sw, sh] = crate::wayland_frontend::canvas_rect_to_buffer(
+            Some(input),
+            [rect.x, rect.y, rect.width, rect.height],
+        );
+        let [x, y, w, h] = placement.source;
+        let width = snapshot.plan.plan.canvas.width * snapshot.plan.plan.scale;
+        let height = snapshot.plan.plan.canvas.height * snapshot.plan.plan.scale;
+        placement.source = [
+            sx + x / width * sw,
+            sy + y / height * sh,
+            w / width * sw,
+            h / height * sh,
+        ];
+        Some((*id, source.clone(), placement))
+    }
+
+    pub(super) fn cursor_image_placement(
+        &self,
+    ) -> Option<denial_flutter_engine::ExternalTexturePresentation> {
+        self.direct_cursor()
+            .map(|(_, _, p)| p)
+            .or_else(|| self.cursor_placement())
+    }
+
     pub(in crate::flutter_runtime) fn expand_native_texture_changes(&self, changed: &mut Vec<i64>) {
         lock(&self.native_clients)
             .registry
@@ -341,16 +466,27 @@ impl FlutterGlHandler {
         Some(rects)
     }
     pub(super) fn uses_native_window_texture(&self, texture_id: i64) -> bool {
-        texture_id >= (1_i64 << 62)
-            && lock(&self.native_clients)
-                .registry
-                .handles_texture(texture_id)
+        texture_id == crate::flutter_runtime::cursor_scene::TEXTURE
+            || texture_id >= (1_i64 << 62)
+                && lock(&self.native_clients)
+                    .registry
+                    .handles_texture(texture_id)
     }
     /// Plans follow each scene commit at once, while a newly mapped
     /// subsurface's first buffer becomes current only at the next frame
     /// tick. Until then that layer is not drawn, as in the surface tree, and
     /// the layers it covers are drawn instead.
     fn native_snapshot(&self, texture_id: i64) -> Option<NativeSnapshot> {
+        if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE {
+            return lock(&self.native_clients)
+                .cursor_snapshot
+                .as_deref()
+                .cloned();
+        }
+        self.snapshot_inputs(texture_id)
+    }
+
+    fn snapshot_inputs(&self, texture_id: i64) -> Option<NativeSnapshot> {
         let plan = lock(&self.native_clients).registry.get(texture_id)?;
         let sources = lock(&self.external_texture_sources);
         let slots = plan
@@ -394,6 +530,52 @@ impl FlutterGlHandler {
         bounds: denial_flutter_engine::scene::Rect,
     ) -> Result<super::stagecraft::Client, super::stagecraft::Decline> {
         use super::stagecraft::{Client, MergedClient, MergedLayer, Placement, SampledClient};
+        let cursor = texture_id == crate::flutter_runtime::cursor_scene::TEXTURE;
+        if cursor && let Some((id, source, presentation)) = self.direct_cursor() {
+            let size = match &source {
+                ExternalTextureSource::Dmabuf { dmabuf, .. } => {
+                    (dmabuf.width() as u32, dmabuf.height() as u32)
+                }
+                ExternalTextureSource::Shm(frame) => (frame.width(), frame.height()),
+            };
+            let placement =
+                Placement::new(bounds, size, Some(&presentation)).ok_or("cursor placement")?;
+            let sampled = SampledClient {
+                texture_id: id,
+                generation: source.generation(),
+                source,
+            };
+            let color = sampled.source.color();
+            let needs_conversion = color
+                .as_deref()
+                .is_some_and(|c| c.needs_pass(crate::output_color::scene_encoding()));
+            if !needs_conversion
+                && !matches!(&sampled.source, ExternalTextureSource::Dmabuf {buffer_guard:Some(guard),..} if guard.owned_native().is_some())
+            {
+                return Ok(Client::Image {
+                    placement,
+                    sampled,
+                    look: None,
+                });
+            }
+            let grade = color.as_deref().map(|c| Grade {
+                transform: c.transform(crate::output_color::scene_encoding()),
+                alpha: c.alpha,
+                look: None,
+            });
+            return Ok(match self.composer_convert(&sampled, grade)? {
+                Some(image) => Client::Converted {
+                    placement,
+                    sampled,
+                    image,
+                },
+                None => Client::Omitted(sampled),
+            });
+        }
+        let placement = cursor.then(|| self.cursor_placement()).flatten();
+        if cursor && placement.is_none() {
+            return Ok(Client::Missing);
+        }
         let NativeSnapshot {
             plan,
             inputs,
@@ -458,7 +640,8 @@ impl FlutterGlHandler {
             });
         }
         Ok(Client::Merged {
-            placement: Placement::new(bounds, size, None).ok_or("native window placement")?,
+            placement: Placement::new(bounds, size, placement.as_ref())
+                .ok_or("native window placement")?,
             merged: MergedClient {
                 texture_id,
                 size,
@@ -482,6 +665,11 @@ impl FlutterGlHandler {
         &self,
         texture_id: i64,
     ) -> Option<PreparedExternalTexture> {
+        if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE
+            && self.direct_cursor().is_some()
+        {
+            return None;
+        }
         let snapshot = self.native_snapshot(texture_id)?;
         let keys = snapshot
             .inputs
@@ -526,6 +714,18 @@ impl FlutterGlHandler {
         &self,
         texture_id: i64,
     ) -> Option<PreparedExternalTexture> {
+        if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE
+            && let Some((id, source, _)) = self.direct_cursor()
+        {
+            let mut prepared = self.prepare_source_with_gl(id, source)?;
+            prepared.native_samples.push(NativeInputSample {
+                texture_id: id,
+                generation: prepared.source_generation,
+                feedback: prepared.feedback.take(),
+            });
+            prepared.texture_id = texture_id;
+            return Some(prepared);
+        }
         if let Some(prepared) = self.prepare_native_without_gl(texture_id) {
             return Some(prepared);
         }

@@ -60,7 +60,7 @@ impl Session<'_, '_> {
         }
         let volition_events = std::mem::take(&mut events.volition_events);
         let Some(stall) =
-            scheduler.acknowledge_volition_events(volition_events, scanouts, events)?
+            scheduler.acknowledge_volition_events(flutter, volition_events, scanouts, events)?
         else {
             return Ok(false);
         };
@@ -319,6 +319,13 @@ impl Session<'_, '_> {
             ..
         } = self;
         for tick in frame_scheduler.output_ticks().iter().copied() {
+            if !frame_scheduler
+                .render_requests()
+                .iter()
+                .any(|r| r.tick.output == tick.output)
+            {
+                scheduler.cursor_tick(tick.output);
+            }
             events.frontend_mut().frame_tick(tick)?;
             scheduler.process_screencopies_at_tick(
                 tick,

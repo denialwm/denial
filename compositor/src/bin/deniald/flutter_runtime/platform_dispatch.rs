@@ -120,6 +120,19 @@ impl FlutterRuntime {
         // Release Flutter's request handle before dispatching any
         // asynchronous Denial response. The shell receives request/reply
         // data on its dedicated ordered native-to-Flutter channel.
+        if message.channel.as_bytes() == b"denial/cursor_benchmark" {
+            let ok = self.benchmark_cursor(&message.data)?;
+            self.host()
+                .respond(&mut message, if ok { b"ok" } else { b"unavailable" })?;
+            return Ok(());
+        }
+        if message.channel.as_bytes() == b"denial/cursor_theme" {
+            if let Err(error) = self.cursor_scene.configure(&message.data) {
+                warn!(%error, "invalid Stagecraft cursor configuration");
+            }
+            self.host().respond(&mut message, &[])?;
+            return Ok(());
+        }
         if message.channel.as_bytes() == fingerprint_scene::CHANNEL.to_bytes() {
             let response = self.handle_fingerprint_scene(&message.data);
             self.host().respond(&mut message, &response)?;

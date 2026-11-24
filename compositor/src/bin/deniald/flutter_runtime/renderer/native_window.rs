@@ -35,15 +35,15 @@ const MAX_NATIVE_WINDOW_DIMENSION: u32 = 8192;
 const MAX_NATIVE_WINDOW_PIXELS: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ClientRect {
-    pub(super) x: f64,
-    pub(super) y: f64,
-    pub(super) width: f64,
-    pub(super) height: f64,
+pub(in crate::flutter_runtime) struct ClientRect {
+    pub(in crate::flutter_runtime) x: f64,
+    pub(in crate::flutter_runtime) y: f64,
+    pub(in crate::flutter_runtime) width: f64,
+    pub(in crate::flutter_runtime) height: f64,
 }
 
 impl ClientRect {
-    pub(super) fn new(x: f64, y: f64, width: f64, height: f64) -> Option<Self> {
+    pub(in crate::flutter_runtime) fn new(x: f64, y: f64, width: f64, height: f64) -> Option<Self> {
         let rect = Self {
             x,
             y,
@@ -172,18 +172,18 @@ impl NativeWindowLayer {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct NativeWindowPlan {
+pub(in crate::flutter_runtime) struct NativeWindowPlan {
     pub(super) window_id: u64,
     pub(super) texture_id: i64,
-    pub(super) canvas: ClientRect,
-    pub(super) scale: f64,
+    pub(in crate::flutter_runtime) canvas: ClientRect,
+    pub(in crate::flutter_runtime) scale: f64,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) layers: Vec<NativeWindowLayer>,
 }
 
 impl NativeWindowPlan {
-    pub(super) fn new(
+    pub(in crate::flutter_runtime) fn new(
         window_id: u64,
         canvas: ClientRect,
         scale: f64,
@@ -275,7 +275,7 @@ impl NativeWindowPlan {
             }
         }
         // Preserve the existing zero-copy route for a single contributing image.
-        if contributing < 2 {
+        if contributing < 2 && window_id != crate::flutter_runtime::cursor_scene::WINDOW {
             return None;
         }
         layers.reverse();
@@ -440,7 +440,9 @@ impl NativeWindowRegistry {
         {
             return Some(Arc::clone(previous));
         }
-        if !self.plans.contains_key(&plan.texture_id) && self.plans.len() >= MAX_NATIVE_WINDOW_PLANS
+        if !self.plans.contains_key(&plan.texture_id)
+            && plan.texture_id != crate::flutter_runtime::cursor_scene::TEXTURE
+            && self.plans.len() >= MAX_NATIVE_WINDOW_PLANS
         {
             return None;
         }

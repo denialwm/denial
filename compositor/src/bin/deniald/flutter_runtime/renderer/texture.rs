@@ -591,7 +591,7 @@ impl ShmTextureFrame {
         }
     }
 
-    pub(in crate::flutter_runtime) fn pixels(&self) -> &[u8] {
+    pub(crate) fn pixels(&self) -> &[u8] {
         self.rgba
             .pixels
             .as_deref()
@@ -610,6 +610,10 @@ impl ShmTextureFrame {
 
     pub(crate) fn height(&self) -> u32 {
         self.height
+    }
+
+    pub(crate) fn same_cursor_pixels(&self, other: &Self) -> bool {
+        self.revision == other.revision && Arc::ptr_eq(&self.rgba, &other.rgba)
     }
 
     pub(crate) fn pixels_if_single(&self) -> Option<[u8; 4]> {
@@ -903,6 +907,13 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
 }
 
 impl ExternalTextureSlot {
+    pub(in crate::flutter_runtime) fn reset_cursor_queue(&mut self) {
+        *self = Self {
+            desired_presentation: self.desired_presentation,
+            ..Self::default()
+        };
+    }
+
     pub(in crate::flutter_runtime) fn queue(
         &mut self,
         source: ExternalTextureSource,
@@ -1295,6 +1306,19 @@ pub(crate) struct ExternalTextureFrame {
 }
 
 impl ExternalTextureFrame {
+    pub(in crate::flutter_runtime) fn plane_cursor_image(&self) -> Option<ShmTextureFrame> {
+        let ExternalTextureSource::Shm(image) = &self.source else {
+            return None;
+        };
+        (image.feedback.is_none()
+            && image
+                .color
+                .as_deref()
+                .is_none_or(|color| !color.needs_pass(crate::output_color::scene_encoding()))
+            && self.presentation.is_none_or(|p| p.width == 0.0))
+        .then(|| image.clone())
+    }
+
     pub(crate) fn set_feedback(&mut self, token: Option<crate::surface_feedback::SurfaceFeedback>) {
         match &mut self.source {
             ExternalTextureSource::Dmabuf { feedback, .. } => *feedback = token,
@@ -1460,6 +1484,30 @@ pub(in crate::flutter_runtime) fn contain_ffi_unwind(callback: impl FnOnce()) ->
 #[cfg(test)]
 mod cache_retirement_tests {
     use super::*;
+
+    #[test]
+    fn cursor_fallback_uses_the_latest_frame_even_when_stagecraft_never_sampled() {
+        let mut slot = ExternalTextureSlot::default();
+        let source = |revision| {
+            ExternalTextureSource::Shm(
+                ShmTextureFrame::new_owned(1, 1, revision, vec![0, 0, 0, 255]).unwrap(),
+            )
+        };
+        let presentation = denial_flutter_engine::ExternalTexturePresentation {
+            width: 32.,
+            height: 32.,
+            ..Default::default()
+        };
+        let now = Instant::now();
+        slot.queue(source(1), true, Some(presentation), None, now);
+        slot.queue(source(2), true, None, None, now);
+        assert!(!slot.advance(Duration::from_millis(7)));
+        slot.reset_cursor_queue();
+        slot.queue(source(3), true, None, None, now);
+        assert_eq!(slot.current.as_ref().unwrap().generation(), 3);
+        assert_eq!(slot.presentation, presentation);
+        assert!(!slot.has_queued());
+    }
 
     #[test]
     fn slot_reports_client_damage_only_while_commits_follow() {

@@ -239,8 +239,11 @@ pub(super) fn synchronize_wayland_cursor(
         let textures = runtime.sync_cursor_buffers(textures)?;
         frontend.recycle_cursor_buffer_updates(textures);
     }
-    if let Some((x, y)) = position {
+    if (frontend.clipboard_drag_needs_position() || !runtime.has_stagecraft_cursor())
+        && let Some((x, y)) = position
+    {
         runtime.send_cursor_position(x, y)?;
     }
+    runtime.update_cursor_scene(position)?;
     Ok(())
 }

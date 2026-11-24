@@ -412,7 +412,7 @@ struct DrmModeCloseFb {
 
 const _: () = assert!(std::mem::size_of::<DrmModeCloseFb>() == 8);
 
-fn close_scanout_framebuffer(
+pub(super) fn close_scanout_framebuffer(
     drm: &DrmDeviceFd,
     handle: framebuffer::Handle,
 ) -> std::io::Result<()> {
@@ -2256,6 +2256,23 @@ struct AliasedPlanarBuffer {
     offsets: [u32; 4],
 }
 
+pub(super) fn cursor_framebuffer(
+    drm: &DrmDeviceFd,
+    size: (u32, u32),
+    pitch: u32,
+    handle: BufferHandle,
+) -> std::io::Result<framebuffer::Handle> {
+    let buffer = AliasedPlanarBuffer {
+        size,
+        format: Fourcc::Argb8888,
+        modifier: None,
+        handles: [Some(handle), None, None, None],
+        pitches: [pitch, 0, 0, 0],
+        offsets: [0; 4],
+    };
+    drm.add_planar_framebuffer(&buffer, FbCmd2Flags::empty())
+}
+
 impl PlanarBuffer for AliasedPlanarBuffer {
     fn size(&self) -> (u32, u32) {
         self.size
@@ -2750,8 +2767,8 @@ fn capture_owned_framebuffer(
     Ok(alias)
 }
 
-fn named_property<H>(
-    drm: &DrmDevice,
+pub(super) fn named_property<H>(
+    drm: &impl ControlDevice,
     object: H,
     expected_name: &str,
 ) -> Result<property::Handle, Box<dyn Error>>
@@ -2781,8 +2798,7 @@ where
 
 /// Release non-primary planes left latched by the previous DRM master.
 ///
-/// Denial composites its pointer into the Flutter scene and never programs a
-/// hardware cursor plane. A display manager can nevertheless
+/// A display manager can
 /// leave a cursor or overlay plane bound when it releases DRM master, causing
 /// the kernel to scan that stale image out above every Denial frame. Refusing
 /// this best-effort cleanup must not prevent the session from starting.

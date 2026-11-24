@@ -328,6 +328,11 @@ pub(super) struct Staged {
 }
 
 impl Staged {
+    pub(super) fn shows_cursor(&self) -> bool {
+        self.shown_textures
+            .contains(&(crate::flutter_runtime::cursor_scene::WINDOW as i64))
+    }
+
     /// Diagnostic: notes whether `draw`, when it reaches over the whole
     /// target, covers it.
     fn note_cover(

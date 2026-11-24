@@ -221,17 +221,14 @@ fn synchronize_flutter_scene_and_input(
     output_control: &output_control::OutputControlPublisher,
     runtime: &mut flutter_runtime::FlutterRuntime,
     background_services_due: bool,
-    frame_scheduler: &mut frame_scheduler::FrameScheduler,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
     if background_services_due {
         synchronize_flutter_window_management(runtime, events)?;
     }
     synchronize_flutter_scene(output_control, runtime, events)?;
-    collect_flutter_output_damage(runtime, frame_scheduler);
     synchronize_flutter_input_layout(runtime, events)?;
-    synchronize_wayland_cursor(runtime, events)?;
-    Ok(())
+    synchronize_wayland_cursor(runtime, events)
 }
 
 fn output_control_publication_deferred(events: &RuntimeState) -> bool {
@@ -386,7 +383,8 @@ impl Session<'_, '_> {
             events,
             ..
         } = self;
-        frame_scheduler.wants_ticks()
+        self.scheduler.cursor_pending()
+            || frame_scheduler.wants_ticks()
             || runtime.wants_output_ticks()
             || events.scene_sync.pending_metadata_revision().is_some()
             || events.scene_sync.pending_buffer_revision().is_some()
@@ -641,9 +639,17 @@ impl Session<'_, '_> {
                 &self.output_control,
                 self.flutter,
                 background_services_due,
-                &mut self.frame_scheduler,
                 &mut self.events,
             )?;
+            self.scheduler.sync_cursor(
+                self.flutter,
+                self.swapchain.outputs().ok_or("missing output pools")?,
+                &self.events,
+                self.screenshot_manager
+                    .as_ref()
+                    .is_some_and(|m| m.request_id().is_some()),
+            );
+            collect_flutter_output_damage(self.flutter, &mut self.frame_scheduler);
             if dispatch_when_background_slice_expires(
                 background_started,
                 self.event_loop,

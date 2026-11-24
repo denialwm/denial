@@ -401,6 +401,7 @@ impl FlutterRuntime {
 
         let mut tagged_requests = requests.to_vec();
         for request in &mut tagged_requests {
+            request.hardware_cursor = self.cursor_scene.plane_output == Some(request.tick.output);
             request.fingerprint_epoch = self.fingerprint_scene.render_epoch(request.tick.output);
         }
         let completion_id = self
@@ -527,9 +528,35 @@ impl FlutterRuntime {
             timeline_vsync_timestamps(now_nanos, observation_delay, target_after_deadline);
 
         // The engine damages a marked texture only where its client did.
-        let texture_damage = self
+        let mut texture_damage = self
             .handler
             .take_external_texture_damage(&self.render_texture_scratch);
+        let cursor_placement = self
+            .cursor_scene
+            .placement
+            .filter(|_| self.cursor_scene.plane_output.is_none());
+        let cursor_snapshot = cursor_placement.and_then(|_| {
+            let refresh = self
+                .render_texture_scratch
+                .iter()
+                .any(|id| self.cursor_texture_ids.contains(id) || *id == cursor_scene::ARTWORK);
+            self.handler.cursor_inputs(refresh)
+        });
+        let cursor_update = self
+            .cursor_scene
+            .last_update
+            .filter(|_| self.render_texture_scratch.contains(&cursor_scene::TEXTURE));
+        if self.render_texture_scratch.contains(&cursor_scene::TEXTURE) {
+            let outputs = self
+                .render_outputs
+                .iter()
+                .filter(|o| self.render_view_scratch.contains(&o.render_view_id.get()))
+                .map(|o| o.output_id);
+            let rects = self.cursor_scene.damage(outputs);
+            texture_damage.retain(|(id, _)| *id != cursor_scene::TEXTURE);
+            texture_damage.push((cursor_scene::TEXTURE, rects));
+            self.cursor_scene.audit_render(flutter_tick.is_some());
+        }
         if !texture_damage.is_empty() {
             let damage = texture_damage
                 .iter()
@@ -553,10 +580,19 @@ impl FlutterRuntime {
                 frame_start_nanos,
                 frame_target_nanos,
                 completion_id,
-                move |id| begin_handler.begin_output_authorization(id),
+                move |id| {
+                    begin_handler.place_cursor(
+                        cursor_placement,
+                        cursor_snapshot.clone(),
+                        cursor_update,
+                    );
+                    begin_handler.begin_output_authorization(id);
+                },
                 move |id| handler.complete_output_authorization(id),
             )
         } else {
+            self.handler
+                .place_cursor(cursor_placement, cursor_snapshot, cursor_update);
             engine.render_outputs(
                 &self.render_view_scratch,
                 &self.render_texture_scratch,

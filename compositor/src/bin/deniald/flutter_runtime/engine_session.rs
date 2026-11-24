@@ -220,6 +220,8 @@ impl FlutterRuntime {
             Arc::clone(&factory.library),
             Some(crate::cpu_scheduling::set_flutter_thread_priority),
         )?;
+        host.engine()
+            .register_external_texture(cursor_scene::TEXTURE)?;
         if let Some(locale) = locale_from_environment(|name| std::env::var(name).ok()) {
             host.engine()
                 .update_locales(std::slice::from_ref(&locale))?;
@@ -321,6 +323,7 @@ impl FlutterRuntime {
             cursor_texture_ids: HashSet::new(),
             retired_cursor_texture_ids: BTreeMap::new(),
             cursor_epoch: 0,
+            cursor_scene: cursor_scene::CursorScene::new(project.assets.clone()),
             cursor_output: None,
             render_outputs: runtime_render_outputs,
             render_output_configuration: render_outputs,
@@ -619,6 +622,7 @@ impl FlutterRuntime {
             .window_close_texture_leases
             .next_expiry()
             .into_iter()
+            .chain(self.cursor_scene.deadline)
             .chain(self.retiring_native_textures.values().copied())
             .min()
             .map(|deadline| deadline.saturating_duration_since(now));

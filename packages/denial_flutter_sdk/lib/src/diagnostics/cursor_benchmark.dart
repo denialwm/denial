@@ -1,31 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' show Timeline;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show FramePhase, FrameTiming, Offset;
 
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 
 import '../models/display_layout.dart';
 
 /// Explicitly enabled lab instrumentation, never an application input source.
 /// Commands use a private Unix socket and move the existing shell cursor only.
 class CursorBenchmark {
-  CursorBenchmark({
-    required TickerProvider vsync,
-    required this.layout,
-    required this.move,
-    required this.restore,
-    required this.available,
-  }) {
-    _ticker = vsync.createTicker(_tick);
-  }
+  CursorBenchmark({required this.layout});
 
   final DisplayLayout? Function() layout;
-  final void Function(Offset) move;
-  final void Function() restore;
-  final bool Function() available;
-  late final Ticker _ticker;
+  static const _channel = BasicMessageChannel<String>(
+    'denial/cursor_benchmark',
+    StringCodec(),
+  );
+  Timer? _timer;
+  bool _moving = false;
   ServerSocket? _server;
   String? _path;
   final Set<Socket> _clients = {};
@@ -94,7 +90,7 @@ class CursorBenchmark {
       if (!requested) client.destroy();
     });
     client.listen(
-      (packet) {
+      (packet) async {
         if (requested) return;
         bytes.addAll(packet);
         if (bytes.length > 4096) {
@@ -112,14 +108,24 @@ class CursorBenchmark {
           }
           switch (request['method']) {
             case 'run':
-              _start(client, request);
+              if (running || await _channel.send('begin') != 'ok') {
+                throw StateError(
+                  'Cursor unavailable or a benchmark is already running',
+                );
+              }
+              try {
+                _start(client, request);
+              } catch (_) {
+                await _channel.send('restore');
+                rethrow;
+              }
             case 'status':
               _send(client, {
                 'event': 'status',
                 'version': 1,
                 'pid': pid,
                 'running': running,
-                'available': available(),
+                'available': await _channel.send('status') == 'ok',
                 'outputs': [
                   for (final output in layout()?.outputs ?? <DisplayOutput>[])
                     _outputJson(output),
@@ -155,7 +161,6 @@ class CursorBenchmark {
 
   void _start(Socket client, Map<String, dynamic> request) {
     if (running) throw StateError('A benchmark is already running');
-    if (!available()) throw StateError('The shell cursor is unavailable');
     final currentLayout = layout();
     if (currentLayout == null || currentLayout.outputs.isEmpty) {
       throw StateError('No display layout');
@@ -185,17 +190,20 @@ class CursorBenchmark {
       Duration(microseconds: circle.totalUs) + const Duration(seconds: 10),
       () => cancel('frame_clock_stalled'),
     );
-    _ticker.start();
+    final clock = Stopwatch()..start();
+    final interval = Duration(
+      microseconds: (1000000 / output.refreshRate.clamp(1, 1000)).round(),
+    );
+    _timer = Timer.periodic(interval, (_) => _tick(clock.elapsed));
   }
 
   void _tick(Duration elapsed) {
     final circle = _circle;
     if (circle == null) return;
-    final now =
-        SchedulerBinding.instance.currentSystemFrameTimeStamp.inMicroseconds;
+    final now = Timeline.now;
     if (elapsed.inMicroseconds >= circle.totalUs) {
       _measureEnd = now;
-      _ticker.stop();
+      _timer?.cancel();
       _send(_runClient!, {'event': 'measurement_end', 'vsync_us': now});
       // Release engines batch timing reports. Drain them outside CPU sampling.
       _drain = Timer(const Duration(milliseconds: 1500), _finish);
@@ -212,7 +220,17 @@ class CursorBenchmark {
       }
       _tickTimes.add(now);
     }
-    move(circle.at(elapsed));
+    if (_moving) return;
+    _moving = true;
+    final point = circle.at(elapsed);
+    _channel
+        .send(jsonEncode([point.dx, point.dy]))
+        .then((answer) {
+          if (identical(circle, _circle) && answer != 'ok') {
+            cancel('cursor_changed');
+          }
+        })
+        .whenComplete(() => _moving = false);
   }
 
   void _recordTimings(List<FrameTiming> timings) {
@@ -279,13 +297,13 @@ class CursorBenchmark {
   }
 
   void _clear() {
-    _ticker.stop();
+    _timer?.cancel();
     _watchdog?.cancel();
     _drain?.cancel();
     SchedulerBinding.instance.removeTimingsCallback(_recordTimings);
     _circle = null;
     _runClient = null;
-    restore();
+    unawaited(_channel.send('restore'));
     _timings.clear();
     _tickTimes.clear();
   }
@@ -293,7 +311,7 @@ class CursorBenchmark {
   void dispose() {
     _disposed = true;
     cancel('disposed');
-    _ticker.dispose();
+    _timer?.cancel();
     for (final client in _clients.toList()) {
       client.destroy();
     }

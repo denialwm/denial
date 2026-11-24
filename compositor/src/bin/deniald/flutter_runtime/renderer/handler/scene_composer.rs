@@ -263,7 +263,7 @@ impl FlutterGlHandler {
     /// GLES draws `sampled` through `grade` (None: an exact copy) into an
     /// image the composer samples; None when GLES cannot read the buffer,
     /// which the GLES pass then leaves out too. Raster context current.
-    fn composer_convert(
+    pub(super) fn composer_convert(
         &self,
         sampled: &SampledClient,
         grade: Option<Grade>,
@@ -428,6 +428,9 @@ impl FlutterGlHandler {
         };
         match composer.submit(&mut staged, framebuffer, damage, wait) {
             Ok(submitted) => {
+                if staged.shows_cursor() {
+                    self.record_cursor_submit();
+                }
                 // Every later GLES command, whatever it samples (cached
                 // client images included) and whichever output it renders,
                 // runs after this submission: one GPU-side wait.
@@ -597,7 +600,9 @@ impl FlutterGlHandler {
         // GL keeps what its queued copy reads.
         drop(prepared);
         let (image, image_view, format, (width, height)) = image?.lent();
-        let presentation = {
+        let presentation = if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE {
+            self.cursor_image_placement()
+        } else {
             let sources = lock(&self.external_texture_sources);
             sources
                 .get(&texture_id)

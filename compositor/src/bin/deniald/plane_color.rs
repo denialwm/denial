@@ -162,7 +162,8 @@ impl PlaneColor {
         else {
             return Ok(None);
         };
-        let property::ValueType::Enum(pipelines) = drm.get_property(pipeline_property)?.value_type()
+        let property::ValueType::Enum(pipelines) =
+            drm.get_property(pipeline_property)?.value_type()
         else {
             return Ok(None);
         };
@@ -239,6 +240,10 @@ impl PlaneColor {
         self.shows = shows;
     }
 
+    pub(super) fn cursor_gamut(&self) -> Option<[f32; 9]> {
+        self.gamut.filter(|_| self.shows)
+    }
+
     pub(super) fn shows(&self) -> bool {
         self.shows
     }
@@ -257,8 +262,8 @@ impl PlaneColor {
         }
         let look = self.shows.then(super::output_color::desktop_lut).flatten();
         let gamut = self.gamut.filter(|_| self.shows && corrected);
-        let table =
-            (look.is_some() || gamut.is_some()).then(|| bake(self.lut_size, look.as_deref(), gamut));
+        let table = (look.is_some() || gamut.is_some())
+            .then(|| bake(self.lut_size, look.as_deref(), gamut));
         let result = self.apply(drm, table.as_deref());
         // Turning off is retried only at the next epoch: a failing blocking
         // commit every iteration would stall the loop.
@@ -282,7 +287,11 @@ impl PlaneColor {
 
     /// Shows `table` (U0.32 RGB entries, red fastest) through the plane, or
     /// no color work when None.
-    fn apply(&self, drm: &impl ControlDevice, table: Option<&[[u32; 3]]>) -> Result<(), Box<dyn Error>> {
+    fn apply(
+        &self,
+        drm: &impl ControlDevice,
+        table: Option<&[[u32; 3]]>,
+    ) -> Result<(), Box<dyn Error>> {
         let mut request = AtomicModeReq::new();
         let blob = match table {
             Some(table) => {
@@ -335,9 +344,9 @@ pub(super) fn bake(size: usize, look: Option<&Lut>, gamut: Option<[f32; 9]>) -> 
                 if let Some(matrix) = gamut {
                     rgb = correct(&matrix, rgb);
                 }
-                table.push(rgb.map(|value| {
-                    (value.clamp(0.0, 1.0) * f64::from(u32::MAX)).round() as u32
-                }));
+                table.push(
+                    rgb.map(|value| (value.clamp(0.0, 1.0) * f64::from(u32::MAX)).round() as u32),
+                );
             }
         }
     }
@@ -346,7 +355,7 @@ pub(super) fn bake(size: usize, look: Option<&Lut>, gamut: Option<[f32; 9]>) -> 
 
 /// The copy shader's correction: gamma 2.2 decode, the gamut matrix
 /// (column-major), gamma 2.2 encode, clamped as it clamps.
-fn correct(matrix: &[f32; 9], rgb: [f64; 3]) -> [f64; 3] {
+pub(super) fn correct(matrix: &[f32; 9], rgb: [f64; 3]) -> [f64; 3] {
     let linear = rgb.map(|value| value.clamp(0.0, 1.0).powf(2.2));
     std::array::from_fn(|row| {
         let light = (0..3)
@@ -409,7 +418,11 @@ mod tests {
 
     #[test]
     fn red_runs_fastest_and_ends_reach_the_range() {
-        let table = bake(17, None, Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]));
+        let table = bake(
+            17,
+            None,
+            Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        );
         assert_eq!(table.len(), 17 * 17 * 17);
         assert_eq!(table[0], [0, 0, 0]);
         assert_eq!(table[16], [u32::MAX, 0, 0]);
@@ -427,7 +440,10 @@ mod tests {
         for (index, (entry, other)) in table.iter().zip(&reference).enumerate() {
             let r = index % 17;
             let expected = (r as f64 / 16.0 * f64::from(u32::MAX)).round() as i64;
-            assert!((i64::from(entry[0]) - expected).abs() <= 256, "node {index}");
+            assert!(
+                (i64::from(entry[0]) - expected).abs() <= 256,
+                "node {index}"
+            );
             for channel in 0..3 {
                 assert!((i64::from(entry[channel]) - i64::from(other[channel])).abs() <= 256);
             }
@@ -450,8 +466,11 @@ mod tests {
             .open(&path)
             .unwrap_or_else(|error| panic!("{path}: {error}"));
         let drm = DrmDeviceFd::new(DeviceFd::from(OwnedFd::from(file)));
-        drm.set_client_capability(smithay::reexports::drm::ClientCapability::UniversalPlanes, true)
-            .expect("universal planes");
+        drm.set_client_capability(
+            smithay::reexports::drm::ClientCapability::UniversalPlanes,
+            true,
+        )
+        .expect("universal planes");
         drm.set_client_capability(smithay::reexports::drm::ClientCapability::Atomic, true)
             .expect("atomic");
         drm_ffi::set_capability(drm.as_fd(), DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, true)
@@ -485,7 +504,10 @@ mod tests {
         // Swaps red and green in linear light: a neutral stays neutral, a
         // primary moves to the other channel.
         let swap = [0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-        assert_eq!(correct(&swap, [0.5, 0.5, 0.5]).map(|v| (v * 1e6).round()), [500000.0; 3]);
+        assert_eq!(
+            correct(&swap, [0.5, 0.5, 0.5]).map(|v| (v * 1e6).round()),
+            [500000.0; 3]
+        );
         assert_eq!(correct(&swap, [1.0, 0.0, 0.0]), [0.0, 1.0, 0.0]);
     }
 }

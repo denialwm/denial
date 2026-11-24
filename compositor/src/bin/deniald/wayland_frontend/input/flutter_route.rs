@@ -643,12 +643,12 @@ pub(super) fn deliver_routed_flutter_pointer_motion(
     let Some((x, y)) = position else {
         return;
     };
+    if let Some(frontend) = state.wayland.as_mut() {
+        frontend.queue_cursor_position();
+    }
     match target {
         RoutedPointerTarget::Flutter => state.flutter_input.handle_pointer_motion_at(x, y),
         RoutedPointerTarget::Client(_) => {
-            if let Some(frontend) = state.wayland.as_mut() {
-                frontend.queue_cursor_position();
-            }
             // This is intentionally retried for every client-routed sample.
             // A Flutter-owned drag keeps its Down lifecycle until drop, so the
             // first eligible Remove can occur after the route itself changed.

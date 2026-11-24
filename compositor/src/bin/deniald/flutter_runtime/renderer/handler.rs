@@ -796,6 +796,15 @@ impl FlutterGlHandler {
         frames: impl IntoIterator<Item = ExternalTextureFrame>,
         changed: &mut Vec<i64>,
     ) {
+        self.stage_texture_sources(frames, changed, false);
+    }
+
+    pub(in crate::flutter_runtime) fn stage_texture_sources(
+        &self,
+        frames: impl IntoIterator<Item = ExternalTextureFrame>,
+        changed: &mut Vec<i64>,
+        cursor_on_plane: bool,
+    ) {
         let now = Instant::now();
         let mut sources = lock(&self.external_texture_sources);
         for ExternalTextureFrame {
@@ -807,6 +816,12 @@ impl FlutterGlHandler {
         } in frames
         {
             let slot = sources.entry(texture_id).or_default();
+            if cursor_on_plane {
+                // The cursor plane consumes this stream independently. Stagecraft
+                // must see the latest image immediately on the handoff frame,
+                // even when its previous image was never sampled by a shader.
+                slot.reset_cursor_queue();
+            }
             let latest_only = slot.latest_only;
             if slot.queue(source, expects_sample, presentation, damage.as_ref(), now) {
                 changed.push(texture_id);

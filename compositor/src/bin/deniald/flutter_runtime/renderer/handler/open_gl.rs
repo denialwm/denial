@@ -1163,6 +1163,9 @@ impl OpenGlHandler for FlutterGlHandler {
         &self,
         texture_id: i64,
     ) -> Option<denial_flutter_engine::ExternalTexturePresentation> {
+        if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE {
+            return self.cursor_image_placement();
+        }
         let sources = lock(&self.external_texture_sources);
         let presentation = sources.get(&texture_id)?.presentation;
         (presentation.width > 0.0).then_some(presentation)

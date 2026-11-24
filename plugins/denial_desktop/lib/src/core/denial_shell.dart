@@ -133,7 +133,6 @@ class DenialShell extends ConsumerWidget {
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
     );
-    final bridge = ref.watch(denialBridgeProvider);
     final hideCursor = ref.watch(
       screenshotSelectionProvider.select(
         (session) => session?.hidesCursor ?? false,
@@ -159,23 +158,18 @@ class DenialShell extends ConsumerWidget {
       scene: fingerprint,
       locked: locked,
       onLaidOut: ref.read(fingerprintSceneProvider.notifier).laidOut,
-      child: ShellCursorHost(
+      child: StagecraftCursor(
         theme:
             effectivePresentation == ReferenceShellProfile.desktop ||
                 split != null
             ? cursorTheme
             : ShellCursorThemes.bibataModernIce,
-        platformCursorShapes: bridge.cursorShapes,
-        platformCursorStates: bridge.cursorStates,
-        platformCursorPositions: bridge.cursorPositions,
-        platformDragIcons: bridge.dragIcons,
-        hideCursor: hideCursor,
-        displayLayout: displayLayout,
-        cursorSize: appearance.cursorSize,
-        onCursorStatePresented: bridge.acknowledgeCursorPresented,
+        layout: displayLayout,
         benchmarkSocket: ref.watch(
           startupEnvironmentProvider,
         )['DENIAL_CURSOR_BENCHMARK_SOCKET'],
+        hidden: hideCursor,
+        size: appearance.cursorSize,
         child: ShellOverlayHost(child: scene),
       ),
     );

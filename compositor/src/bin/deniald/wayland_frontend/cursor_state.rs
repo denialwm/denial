@@ -449,11 +449,14 @@ impl WaylandFrontend {
             }
         };
         self.pending_cursor_state = Some(active_state);
-        self.pending_cursor_position = cursor_position_for_modality(
-            visible && matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_)),
-            self.flutter_scene_pointer_position(),
-        );
+        self.pending_cursor_position =
+            cursor_position_for_modality(visible, self.flutter_scene_pointer_position());
         self.update_cursor_output_membership();
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(crate) fn clipboard_drag_needs_position(&self) -> bool {
+        self.clipboard_drag_active
     }
 
     #[cfg(feature = "flutter")]
