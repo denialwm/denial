@@ -15,28 +15,28 @@
     "flutter_version": "3.47.5",
     "flutter_revision": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1",
     "engine_artifact_revision": "af7e796e161ae0bb1ff0758c71a7105418bd9ded",
-    "engine_content_hash": "3d64d63bebfd91486190b42f6ffd4786e0538d8a",
+    "engine_content_hash": "17c17ecff0c289efdf6d8df7816fd4d182f45944",
     "dart_version": "3.13.4",
     "dart_revision": "b530c21f7de367b94fb04787bfed9d8e989d75e8",
     "skia_revision": "8df24be66531469e576a806749a0202ae26b8d08",
     "flutter_repository": "https://github.com/denialwm/flutter.git",
-    "flutter_fork_revision": "9835a9190dfc07a26f241a35ede4a4086d19e31d",
+    "flutter_fork_revision": "1d76c81bb8795a6ae93ab0de20f6beae4e05c724",
     "skia_repository": "https://github.com/denialwm/skia.git",
     "skia_fork_revision": "5b495e3e15a59ee76af882d83316d351654c1e88"
   },
   "source_lock": {
     "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
-    "sha256": "29e55351d78c3ed142dcea8c80f245d83de6a77b2cb093fd1bac1aafcf5aad80"
+    "sha256": "f37149635dba485f2227a1a74b309dae8e288611867f5b151391b955bcf5d9f4"
   },
   "abi": {
     "official_embedder_header_sha256": "94122469b254a932394bb5bb5c625317426eefd6e23d4366e32372c70ac5be37",
-    "denial_embedder_header_sha256": "a2daae4090ce2923f859366fb9cf362b1ab003c0fc578e632a6ef3faf1bb62f8",
+    "denial_embedder_header_sha256": "e792c1537e5c494fb87f88f4b7cb1f7b47bf4e4aaa493ef4410309185095b213",
     "generated_rust_bindings_sha256": "526a05b0ad7eba363b00fbaea36d9aa0aa9c4a1d05f9435f75652b89f5907ac1"
   },
   "artifacts": {
-    "gn_args_sha256": "41263b05a50055e0543978caf58570cadc523d13c5a976303813a25f3139a9df",
-    "libflutter_engine_sha256": "87a99eb82b0ab08971893eefe154b7e257c00bdbeb68f1c6a9b145f584394658",
-    "libflutter_engine_build_id": "6f80b85aa26095e4bceff8959cb4bfa21ce8a28e",
+    "gn_args_sha256": "97ab69f2825644d5977dfd583bcd1def210c9f1e9a00115df9aec2496b896177",
+    "libflutter_engine_sha256": "f13e54a048bb1a4b0845cb170ef05f7c7ec01d68c919a22583bd3e565dcd25db",
+    "libflutter_engine_build_id": "e3b0cc881a481fe8b717ef9d08b4db6ed4bc3c1f",
     "icudtl_sha256": "325a86063d26334c2eabe1743cea073b612540fbf3d8fc2ef0b5708e3763a8c7"
   },
   "assurances": {
