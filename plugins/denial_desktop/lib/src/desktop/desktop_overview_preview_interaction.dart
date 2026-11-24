@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
@@ -200,21 +202,22 @@ class _DesktopOverviewPreviewInteractionState
                   widget.child,
                   IgnorePointer(
                     child: DesktopVisibilityFade(
-                      child: AnimatedContainer(
+                      // The ring keeps its shape and fades by opacity: the
+                      // compositor then draws the one recorded ring at each
+                      // step of the fade, while the window moves, instead of
+                      // a new window-sized picture every frame. Unselected,
+                      // nothing is painted at all.
+                      child: AnimatedOpacity(
                         duration: Motion.tile,
                         curve: Motion.standard,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: context.shellTheme.accent.withValues(
-                              alpha: widget.selected ? 1.0 : 0.0,
-                            ),
-                            width: widget.selected
-                                ? _selectionRingWidth /
-                                      widget.previewScale.clamp(0.05, 4.0)
-                                : 0.0,
-                          ),
-                          borderRadius: BorderRadius.circular(
-                            context.shellTheme.windowRadius,
+                        opacity: widget.selected ? 1.0 : 0.0,
+                        child: CustomPaint(
+                          painter: _SelectionRingPainter(
+                            color: context.shellTheme.accent,
+                            width:
+                                _selectionRingWidth /
+                                widget.previewScale.clamp(0.05, 4.0),
+                            radius: context.shellTheme.windowRadius,
                           ),
                         ),
                       ),
@@ -228,6 +231,64 @@ class _DesktopOverviewPreviewInteractionState
       ),
     );
   }
+}
+
+/// The selection ring: a rounded stroke inside the preview's edge, as a
+/// uniform [Border] with a radius paints it.
+///
+/// It is drawn in four bands (top and bottom with the corners, then the two
+/// sides), each clipped to its own part. The ring's paint region is then
+/// those bands rather than the whole window, and the compositor blends only
+/// them, not the transparent inside.
+class _SelectionRingPainter extends CustomPainter {
+  const _SelectionRingPainter({
+    required this.color,
+    required this.width,
+    required this.radius,
+  });
+
+  final Color color;
+  final double width;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (width <= 0 || size.isEmpty) return;
+    final ring = RRect.fromRectAndRadius(
+      (Offset.zero & size).deflate(width / 2),
+      Radius.circular(math.max(0.0, radius - width / 2)),
+    );
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width;
+    // The corners reach as far in as the radius, the sides only the width;
+    // the bands take a little more for the inner edge's antialiasing.
+    const fringe = 2.0;
+    final band = math.min(math.max(radius, width) + fringe, size.height / 2);
+    final side = math.min(width + fringe, size.width / 2);
+    final bands = [
+      Rect.fromLTRB(0, 0, size.width, band),
+      Rect.fromLTRB(0, size.height - band, size.width, size.height),
+      Rect.fromLTRB(0, band, side, size.height - band),
+      Rect.fromLTRB(size.width - side, band, size.width, size.height - band),
+    ];
+    for (final rect in bands) {
+      if (rect.isEmpty) continue;
+      canvas
+        ..save()
+        // Hard clips meet without a seam or a pixel blended twice.
+        ..clipRect(rect, doAntiAlias: false)
+        ..drawRRect(ring, paint)
+        ..restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SelectionRingPainter oldDelegate) =>
+      color != oldDelegate.color ||
+      width != oldDelegate.width ||
+      radius != oldDelegate.radius;
 }
 
 /// How much a window laid out in [layout] is shrunk to show in [shown].
