@@ -480,6 +480,10 @@ struct Tally {
     /// many slices.
     shell_frames: u64,
     slices_rewritten: u64,
+    /// Slice images the engine took for a new version: from the pool, or
+    /// freshly allocated.
+    slices_pooled: u64,
+    slices_allocated: u64,
 }
 
 impl Tally {
@@ -586,6 +590,8 @@ impl Tally {
             repaired_frames = self.repaired,
             shell_frames = self.shell_frames,
             slices_rewritten = self.slices_rewritten,
+            slices_pooled = self.slices_pooled,
+            slices_allocated = self.slices_allocated,
             redrawn_percent = format_args!(
                 "{:.1}",
                 self.redrawn * 100.0 / self.vulkan_frames.max(1) as f64
@@ -1032,7 +1038,10 @@ impl SceneComposer {
                 })
                 .min_by_key(|(_, (_, image))| u64::from(image.size.0) * u64::from(image.size.1))
                 .map(|(index, _)| index);
-            found.map(|index| state.slice_pool.remove(index).1)
+            let pooled = found.map(|index| state.slice_pool.remove(index).1);
+            state.tally.slices_pooled += u64::from(pooled.is_some());
+            state.tally.slices_allocated += u64::from(pooled.is_none());
+            pooled
         };
         // A pooled image's contents are discarded: the engine clears every
         // slice it renders, from UNDEFINED.
