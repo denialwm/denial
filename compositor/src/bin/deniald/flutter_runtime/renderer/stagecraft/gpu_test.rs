@@ -111,7 +111,7 @@ struct Rig {
 
 fn rig(slices: usize, bottom_up: bool) -> Rig {
     let fd = node();
-    let gpu = Gpu::new(fd.as_fd()).expect("Vulkan composer device");
+    let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
     let gbm = GbmDevice::new(DrmDeviceFd::new(smithay::utils::DeviceFd::from(fd))).expect("GBM");
     let target_buffer = allocate(&gbm);
     let target = gpu
@@ -2039,7 +2039,7 @@ fn a_frame_copies_earlier_changes_from_the_shown_buffer() {
         .expect("second target import");
     assert!(
         rig.target.copyable && shown.copyable,
-        "targets the composer cannot copy"
+        "targets Stagecraft cannot copy"
     );
     let mut frame = Frame::new(&rig.gpu).expect("frame");
     let mut serial = 0;

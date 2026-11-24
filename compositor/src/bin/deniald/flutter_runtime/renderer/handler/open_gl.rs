@@ -559,7 +559,7 @@ impl OpenGlHandler for FlutterGlHandler {
         // SAFETY: the engine resolves on the instance it was given, or null
         // for global commands, with a NUL-terminated name.
         let function = unsafe {
-            super::composer::shell_instance_proc(
+            super::stagecraft::shell_instance_proc(
                 ash::vk::Instance::from_raw(instance as u64),
                 name.as_ptr(),
             )
@@ -881,7 +881,7 @@ impl OpenGlHandler for FlutterGlHandler {
                 Some(staged) => match self.composer_submit(
                     staged,
                     framebuffer,
-                    super::composer::FrameDamage {
+                    super::stagecraft::FrameDamage {
                         frame: frame.frame_damage,
                         buffer: frame.buffer_damage,
                     },
@@ -1009,7 +1009,7 @@ impl OpenGlHandler for FlutterGlHandler {
                         self.gles_finish();
                         // The fence may be Vulkan's, which glFinish does not
                         // cover.
-                        super::composer::wait_completion(fence);
+                        super::stagecraft::wait_completion(fence);
                         None
                     }
                 },

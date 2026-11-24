@@ -392,14 +392,16 @@ impl FlutterGlHandler {
         &self,
         texture_id: i64,
         bounds: denial_flutter_engine::scene::Rect,
-    ) -> Result<super::composer::Client, super::composer::Decline> {
-        use super::composer::{Client, MergedClient, MergedLayer, Placement, SampledClient};
+    ) -> Result<super::stagecraft::Client, super::stagecraft::Decline> {
+        use super::stagecraft::{Client, MergedClient, MergedLayer, Placement, SampledClient};
         let NativeSnapshot {
             plan,
             inputs,
             presentations,
             histories,
-        } = self.native_snapshot(texture_id).ok_or("native window plan")?;
+        } = self
+            .native_snapshot(texture_id)
+            .ok_or("native window plan")?;
         // Layers without a current buffer are left out of both.
         let presented = plan
             .plan

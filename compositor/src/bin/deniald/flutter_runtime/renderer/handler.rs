@@ -2,8 +2,6 @@
 
 use super::*;
 
-#[path = "composer/mod.rs"]
-mod composer;
 #[path = "handler/gpu_deadline.rs"]
 mod gpu_deadline;
 #[path = "handler/native_client.rs"]
@@ -12,8 +10,10 @@ pub(super) mod native_client;
 mod open_gl;
 #[path = "handler/scene_composer.rs"]
 mod scene_composer;
-pub(crate) use composer::client_formats;
+#[path = "stagecraft/mod.rs"]
+mod stagecraft;
 use native_client::NativeClientState;
+pub(crate) use stagecraft::client_formats;
 
 /// Window grading on the render thread: one 3D texture per app look, and
 /// the graded copy of each window texture that needs one.
@@ -195,7 +195,7 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     producer: ProducerArbiter,
     shutdown_started: AtomicBool,
     /// `None` where Vulkan cannot open the GPU: frames stay on GLES.
-    scene_composer: Option<composer::SceneComposer>,
+    scene_composer: Option<stagecraft::SceneComposer>,
     /// Composer submissions the raster context has not waited for yet. With
     /// the Vulkan shell GLES draws nothing in most frames: the wait is
     /// queued before its next command (`gles_catch_up`), not per frame.

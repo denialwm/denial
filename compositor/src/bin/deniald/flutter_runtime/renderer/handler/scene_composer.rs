@@ -1,7 +1,7 @@
-//! The handler's side of the Vulkan scene composer: what each client texture
+//! The handler's side of Stagecraft, the Vulkan scene composer: what each client texture
 //! shows, and the composed present.
 
-use super::composer::{
+use super::stagecraft::{
     Client, ConvertKey, Decline, FrameDamage, Image, Placement, ProducerWait, Resolve,
     SampledClient, SceneComposer, Staged, Submitted,
 };
@@ -13,7 +13,7 @@ use denial_flutter_engine::scene::{Rect, SceneSource, SliceKey};
 pub(super) fn create_scene_composer(
     context: &egl_context::SharedEglContext,
 ) -> Option<SceneComposer> {
-    if !super::composer::requested() {
+    if !super::stagecraft::requested() {
         if denial_core::environment::flag("DENIAL_NO_VULKAN") {
             info!("DENIAL_NO_VULKAN: the shell and output frames render with GLES");
         }
@@ -49,11 +49,11 @@ pub(super) fn create_scene_composer(
     })();
     match created {
         Ok(composer) => {
-            info!("Vulkan scene composer enabled");
+            info!("Stagecraft enabled");
             Some(composer)
         }
         Err(error) => {
-            warn!(%error, "Vulkan scene composer unavailable; composing with GLES");
+            warn!(%error, "Stagecraft unavailable; composing with GLES");
             None
         }
     }
@@ -92,7 +92,7 @@ impl FlutterGlHandler {
         match EGLFence::import(display, fence).and_then(|fence| fence.wait(display)) {
             Ok(()) => true,
             Err(error) => {
-                error!(%error, "GLES could not wait for the Vulkan composer");
+                error!(%error, "GLES could not wait for Stagecraft");
                 false
             }
         }
@@ -115,7 +115,7 @@ impl FlutterGlHandler {
     pub(super) fn gles_catch_up_on(&self, display: &smithay::backend::egl::EGLDisplay) {
         let owed = std::mem::take(&mut *lock(&self.gles_owed));
         for fence in owed {
-            if !super::composer::signalled(&fence) && !Self::gles_wait_on(display, fence) {
+            if !super::stagecraft::signalled(&fence) && !Self::gles_wait_on(display, fence) {
                 self.composer_wait_idle();
             }
         }
@@ -124,7 +124,7 @@ impl FlutterGlHandler {
     /// `glFinish`, which also waits for every composer submission.
     pub(super) fn gles_finish(&self) {
         for fence in std::mem::take(&mut *lock(&self.gles_owed)) {
-            super::composer::wait_completion(&fence);
+            super::stagecraft::wait_completion(&fence);
         }
         // SAFETY: callers run on the render thread with the raster context
         // current.
@@ -268,7 +268,7 @@ impl FlutterGlHandler {
         sampled: &SampledClient,
         grade: Option<Grade>,
     ) -> Result<Option<Arc<Image>>, Decline> {
-        let composer = self.scene_composer.as_ref().ok_or("no composer")?;
+        let composer = self.scene_composer.as_ref().ok_or("no Stagecraft")?;
         let display = {
             let context = lock(&self.render_context);
             if !context.context.is_current() {
@@ -420,7 +420,7 @@ impl FlutterGlHandler {
                 match exported {
                     Ok(fence) => Some(fence),
                     Err(error) => {
-                        error!(%error, "could not fence GLES work for the Vulkan composer");
+                        error!(%error, "could not fence GLES work for Stagecraft");
                         return Err(());
                     }
                 }
@@ -462,9 +462,9 @@ impl FlutterGlHandler {
             }
             Err(error) => {
                 if composer.broken() {
-                    error!(%error, "Vulkan composer device lost; it draws no more frames");
+                    error!(%error, "Stagecraft device lost; it draws no more frames");
                 } else {
-                    error!(%error, "Vulkan composer submission failed; frame not drawn");
+                    error!(%error, "Stagecraft submission failed; frame not drawn");
                 }
                 Err(())
             }
@@ -508,12 +508,12 @@ impl FlutterGlHandler {
         match completion.try_clone() {
             Ok(fence) => {
                 let mut owed = lock(&self.gles_owed);
-                owed.retain(|fence| !super::composer::signalled(fence));
+                owed.retain(|fence| !super::stagecraft::signalled(fence));
                 owed.push(fence);
             }
             Err(error) => {
                 warn!(%error, "could not keep a composed frame's fence");
-                super::composer::wait_completion(completion);
+                super::stagecraft::wait_completion(completion);
             }
         }
     }

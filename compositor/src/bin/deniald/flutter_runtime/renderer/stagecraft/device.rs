@@ -39,7 +39,7 @@ fn vk_error(stage: &str, error: vk::Result) -> String {
     if error == vk::Result::ERROR_DEVICE_LOST {
         DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
     }
-    format!("Vulkan composer {stage}: {error:?}")
+    format!("Stagecraft {stage}: {error:?}")
 }
 
 /// A binary semaphore whose payload exports as a sync file.
@@ -247,9 +247,9 @@ pub(super) fn sampled_client_formats(
 ) -> Result<FormatSet> {
     // SAFETY: ash keeps the loaded library alive in the entry.
     let entry = unsafe { Entry::load() }
-        .map_err(|error| format!("Vulkan composer loader unavailable: {error}"))?;
+        .map_err(|error| format!("Stagecraft loader unavailable: {error}"))?;
     let app = vk::ApplicationInfo::default()
-        .application_name(c"deniald composer formats")
+        .application_name(c"deniald Stagecraft formats")
         .api_version(vk::API_VERSION_1_3);
     // SAFETY: valid create info; nothing borrowed outlives the call.
     let instance = unsafe {
@@ -384,7 +384,7 @@ fn device_number(fd: RawFd) -> Result<libc::dev_t> {
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
     if unsafe { libc::fstat(fd, &mut stat) } != 0 {
         return Err(format!(
-            "Vulkan composer render node: {}",
+            "Stagecraft render node: {}",
             std::io::Error::last_os_error()
         ));
     }
@@ -396,7 +396,7 @@ fn file_identity(fd: BorrowedFd<'_>) -> Result<(libc::dev_t, libc::ino_t)> {
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
     if unsafe { libc::fstat(fd.as_raw_fd(), &mut stat) } != 0 {
         return Err(format!(
-            "Vulkan composer DMA-BUF: {}",
+            "Stagecraft DMA-BUF: {}",
             std::io::Error::last_os_error()
         ));
     }
@@ -405,7 +405,7 @@ fn file_identity(fd: BorrowedFd<'_>) -> Result<(libc::dev_t, libc::ino_t)> {
 
 fn duplicate(fd: BorrowedFd<'_>) -> Result<OwnedFd> {
     fd.try_clone_to_owned()
-        .map_err(|error| format!("Vulkan composer could not duplicate a descriptor: {error}"))
+        .map_err(|error| format!("Stagecraft could not duplicate a descriptor: {error}"))
 }
 
 /// The composer's GPU. Cloning shares it.
@@ -421,16 +421,16 @@ impl Gpu {
         let device_number = device_number(render_node.as_raw_fd())?;
         // SAFETY: ash keeps the loaded library alive in the entry.
         let entry = unsafe { Entry::load() }
-            .map_err(|error| format!("Vulkan composer loader unavailable: {error}"))?;
+            .map_err(|error| format!("Stagecraft loader unavailable: {error}"))?;
         // SAFETY: a query on the live entry.
         let version = unsafe { entry.try_enumerate_instance_version() }
             .map_err(|e| vk_error("loader version", e))?
             .unwrap_or(vk::API_VERSION_1_0);
         if version < vk::API_VERSION_1_3 {
-            return Err("Vulkan composer needs Vulkan 1.3".into());
+            return Err("Stagecraft needs Vulkan 1.3".into());
         }
         let app = vk::ApplicationInfo::default()
-            .application_name(c"deniald composer")
+            .application_name(c"deniald Stagecraft")
             .api_version(vk::API_VERSION_1_3);
         // Impeller requires a surface and a window-system extension even
         // when it never presents; Wayland is the one deniald has.
@@ -521,7 +521,7 @@ impl Gpu {
             else {
                 return Err(fail(
                     &instance,
-                    "Vulkan composer GPU has no graphics queue".into(),
+                    "Stagecraft GPU has no graphics queue".into(),
                 ));
             };
             matched = Some((physical, family as u32));
@@ -530,7 +530,7 @@ impl Gpu {
         let Some((physical, family)) = matched else {
             return Err(fail(
                 &instance,
-                "Vulkan composer found no Vulkan device for the render node".into(),
+                "Stagecraft found no Vulkan device for the render node".into(),
             ));
         };
         let mut features13 = vk::PhysicalDeviceVulkan13Features::default()
@@ -639,7 +639,7 @@ impl Gpu {
                 allocation_sizes: AllocationSizes::new(32 << 20, 4 << 20)
                     .with_max_device_memblock_size(128 << 20),
             })
-            .map_err(|e| format!("Vulkan composer allocator: {e}"))?,
+            .map_err(|e| format!("Stagecraft allocator: {e}"))?,
         ));
         // SAFETY: the name is a NUL-terminated array of the live device.
         let properties = unsafe { inner.instance.get_physical_device_properties(physical) };
@@ -648,7 +648,7 @@ impl Gpu {
             drm_major = libc::major(device_number),
             drm_minor = libc::minor(device_number),
             family,
-            "Vulkan scene composer initialized; the shell renders with Vulkan"
+            "Stagecraft initialized; the shell renders with Vulkan"
         );
         Ok(Self(Arc::new(inner)))
     }
@@ -1029,7 +1029,7 @@ impl Drop for Image {
             && let Some(allocator) = lock(&self.gpu.allocator).as_mut()
             && let Err(error) = allocator.free(allocation)
         {
-            tracing::warn!(%error, "Vulkan composer: freeing private image memory");
+            tracing::warn!(%error, "Stagecraft: freeing private image memory");
         }
     }
 }
@@ -1057,10 +1057,10 @@ impl Gpu {
         let gpu = &self.0;
         let format = dmabuf.format();
         let (vk_format, opaque) = vulkan_format(format.code)
-            .ok_or_else(|| format!("Vulkan composer cannot import {:?}", format.code))?;
+            .ok_or_else(|| format!("Stagecraft cannot import {:?}", format.code))?;
         let modifier = u64::from(format.modifier);
         if format.modifier == Modifier::Invalid {
-            return Err("Vulkan composer needs an explicit modifier".into());
+            return Err("Stagecraft needs an explicit modifier".into());
         }
         let planes = dmabuf.num_planes();
         let features = match gpu.modifier_support(vk_format, modifier) {
@@ -1071,7 +1071,7 @@ impl Gpu {
             }
             _ => {
                 return Err(format!(
-                    "Vulkan composer cannot import {:?} with modifier {modifier:#x} and {planes} planes",
+                    "Stagecraft cannot import {:?} with modifier {modifier:#x} and {planes} planes",
                     format.code
                 ));
             }
@@ -1083,7 +1083,7 @@ impl Gpu {
         };
         if width == 0 || height == 0 || !fits(usage.flags()) {
             return Err(format!(
-                "Vulkan composer cannot import a {width}x{height} image with modifier {modifier:#x}"
+                "Stagecraft cannot import a {width}x{height} image with modifier {modifier:#x}"
             ));
         }
         // Materials copy their backdrop out of the target where the layout
@@ -1097,13 +1097,11 @@ impl Gpu {
             usage.flags()
         };
         let mut handles = dmabuf.handles();
-        let first = handles
-            .next()
-            .ok_or("Vulkan composer DMA-BUF has no plane")?;
+        let first = handles.next().ok_or("Stagecraft DMA-BUF has no plane")?;
         let identity = file_identity(first)?;
         for handle in handles {
             if file_identity(handle)? != identity {
-                return Err("Vulkan composer does not import disjoint planes".into());
+                return Err("Stagecraft does not import disjoint planes".into());
             }
         }
         let layouts: Vec<_> = dmabuf
@@ -1167,7 +1165,7 @@ impl Gpu {
                 requirements.memory_type_bits & fd_properties.memory_type_bits,
                 vk::MemoryPropertyFlags::empty(),
             )
-            .ok_or("Vulkan composer found no memory type for the DMA-BUF")?;
+            .ok_or("Stagecraft found no memory type for the DMA-BUF")?;
         let fd = duplicate(first)?;
         let mut import = vk::ImportMemoryFdInfoKHR::default()
             .handle_type(DMA_BUF)
@@ -1255,7 +1253,7 @@ impl Gpu {
             let requirements = d.get_image_memory_requirements(image);
             let allocation = lock(&gpu.allocator)
                 .as_mut()
-                .ok_or("Vulkan composer: allocator gone")?
+                .ok_or("Stagecraft: allocator gone")?
                 .allocate(&AllocationCreateDesc {
                     name: "private image",
                     requirements,
@@ -1263,7 +1261,7 @@ impl Gpu {
                     linear: false,
                     allocation_scheme: AllocationScheme::GpuAllocatorManaged,
                 })
-                .map_err(|e| format!("Vulkan composer private image memory: {e}"))?;
+                .map_err(|e| format!("Stagecraft private image memory: {e}"))?;
             let (memory, at) = (allocation.memory(), allocation.offset());
             // Dropping `private` frees it, bound or not.
             private.allocation = Some(allocation);
@@ -1348,7 +1346,7 @@ impl Gpu {
         .limits
         .max_image_dimension2_d;
         if size.0 > largest || size.1 > largest {
-            return Err(format!("Vulkan composer: SHM image above {largest} pixels").into());
+            return Err(format!("Stagecraft: SHM image above {largest} pixels").into());
         }
         let mut image = self.private_image(
             size,
@@ -1377,7 +1375,7 @@ impl Gpu {
             .max_image_dimension2_d
             .min(limits.max_framebuffer_height);
         if size.0 == 0 || size.1 == 0 || size.0 > width || size.1 > height {
-            return Err(format!("Vulkan composer: merged window outside {width}x{height}").into());
+            return Err(format!("Stagecraft: merged window outside {width}x{height}").into());
         }
         Ok(Arc::new(self.private_image(
             size,
@@ -1434,7 +1432,7 @@ impl Gpu {
         let gpu = &self.0;
         let d = &gpu.device;
         if size == 0 || texels.len() != (size as usize).pow(3) * 4 {
-            return Err("Vulkan composer: look with a wrong texel count".into());
+            return Err("Stagecraft: look with a wrong texel count".into());
         }
         let format = vk::Format::R16G16B16A16_SFLOAT;
         let create = vk::ImageCreateInfo::default()
@@ -1478,7 +1476,7 @@ impl Gpu {
                     requirements.memory_type_bits,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 )
-                .ok_or("Vulkan composer found no device memory")?;
+                .ok_or("Stagecraft found no device memory")?;
             look.memory = d
                 .allocate_memory(
                     &vk::MemoryAllocateInfo::default()
@@ -1516,7 +1514,7 @@ impl Gpu {
                         vk::MemoryPropertyFlags::HOST_VISIBLE
                             | vk::MemoryPropertyFlags::HOST_COHERENT,
                     )
-                    .ok_or("Vulkan composer found no host-visible memory")?;
+                    .ok_or("Stagecraft found no host-visible memory")?;
                 let memory = d
                     .allocate_memory(
                         &vk::MemoryAllocateInfo::default()
@@ -2012,7 +2010,7 @@ mod gpu_timing {
                 total_us = format!("{:.0}", sums.total / f),
                 instances = format!("{:.1}", sums.instances as f64 / f),
                 parts = parts.join(" "),
-                "composer GPU time per submission (part=time/count)"
+                "Stagecraft GPU time per submission (part=time/count)"
             );
             *sums = Sums {
                 frames: 0,
@@ -2114,7 +2112,7 @@ impl Frame {
         .map_err(|e| vk_error("command buffer", e))?[0];
         // Diagnostic: names the composer's buffers in validation reports.
         if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
-            tracing::info!(?command, "composer frame command buffer");
+            tracing::info!(?command, "Stagecraft frame command buffer");
         }
         let mut frame = Self {
             gpu: Arc::clone(&gpu),
@@ -2329,7 +2327,7 @@ impl Frame {
                     requirements.memory_type_bits,
                     vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                 )
-                .ok_or("Vulkan composer found no host-visible memory")?;
+                .ok_or("Stagecraft found no host-visible memory")?;
             self.draws_memory = d
                 .allocate_memory(
                     &vk::MemoryAllocateInfo::default()
@@ -2403,7 +2401,7 @@ impl Frame {
                     requirements.memory_type_bits,
                     vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                 )
-                .ok_or("Vulkan composer found no host-visible memory")?;
+                .ok_or("Stagecraft found no host-visible memory")?;
             self.staging_memory = d
                 .allocate_memory(
                     &vk::MemoryAllocateInfo::default()
@@ -2540,7 +2538,7 @@ impl Frame {
         for upload in uploads {
             let pixels = upload.frame.pixels();
             if upload.image.size != (upload.frame.width(), upload.frame.height()) {
-                return Err("Vulkan composer: upload into an image of another size".into());
+                return Err("Stagecraft: upload into an image of another size".into());
             }
             copies.push((staged_bytes, pixels));
             staged_bytes += pixels.len() as u64;
@@ -2628,7 +2626,7 @@ impl Frame {
                     let frost = material
                         .frost
                         .as_ref()
-                        .ok_or("Vulkan composer: material without frost images")?;
+                        .ok_or("Stagecraft: material without frost images")?;
                     [Some(&frost.tile), Some(&frost.scratch)]
                 }
             };
@@ -2649,7 +2647,7 @@ impl Frame {
             .iter()
             .any(|step| matches!(step, Step::Material(material) if material.fresh));
         if fresh_frost && !target.copyable {
-            return Err("Vulkan composer: materials on a target it cannot copy".into());
+            return Err("Stagecraft: materials on a target it cannot copy".into());
         }
         let foreign = vk::QUEUE_FAMILY_FOREIGN_EXT;
         // Sampled images stay GENERAL: ownership moves, the layout does not,
@@ -3337,7 +3335,7 @@ impl Gpu {
         let _queue = shell_queue::lock();
         // SAFETY: the queue is used behind the shared lock.
         if let Err(error) = unsafe { self.0.device.queue_wait_idle(self.0.queue) } {
-            tracing::error!(%error, "could not wait for the Vulkan composer's queue");
+            tracing::error!(%error, "could not wait for Stagecraft's queue");
         }
     }
 }
@@ -3359,7 +3357,7 @@ impl Drop for Transfer {
             || unsafe { d.wait_for_fences(&[self.fence], true, 2_000_000_000) }.is_ok();
         if !idle {
             // Still in use by a hung queue: keep everything it references.
-            tracing::error!("Vulkan composer transfer did not complete; leaking its images");
+            tracing::error!("Stagecraft transfer did not complete; leaking its images");
             std::mem::forget(std::mem::take(&mut self.images));
             return;
         }

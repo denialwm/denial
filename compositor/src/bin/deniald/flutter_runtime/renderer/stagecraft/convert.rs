@@ -163,7 +163,7 @@ impl SceneComposer {
             tracing::warn!(
                 texture_id = sampled.texture_id,
                 error = format_args!("{error:#x}"),
-                "GLES could not convert a client for the composer"
+                "GLES could not convert a client for Stagecraft"
             );
             // Not reused: its storage may be what failed.
             pool.retired.push(target);
@@ -279,7 +279,7 @@ impl SceneComposer {
                 true
             }
             Err(error) => {
-                tracing::error!(%error, "Vulkan composer could not lend client copies");
+                tracing::error!(%error, "Stagecraft could not lend client copies");
                 false
             }
         }
@@ -309,7 +309,7 @@ impl SceneComposer {
                     // Not given back: never reused. The engine may still be
                     // sampling them, which no fence of ours covers, so they
                     // go only once the queue is idle.
-                    tracing::error!(%error, "Vulkan composer could not take client copies back");
+                    tracing::error!(%error, "Stagecraft could not take client copies back");
                     self.gpu.wait_queue_idle();
                     pool.retired.extend(lending.targets);
                     return;

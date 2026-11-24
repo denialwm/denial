@@ -1,7 +1,10 @@
-//! Vulkan scene composer. Wherever Vulkan opens the GPU, Denial renders with
-//! Vulkan alone: the engine renders the shell with Impeller Vulkan on this
-//! module's device and queue, into private slice images, and the composer
-//! draws each output frame from them. Where Vulkan cannot open the GPU there
+//! Stagecraft, Denial's Vulkan scene composer (docs/STAGECRAFT.md). The
+//! engine half is the Flutter fork's layered mode: it cuts each frame into
+//! slices and stages them (`DenialStageScene`, embedder.h); this module draws
+//! them. Wherever Vulkan opens the GPU, Denial renders with Vulkan alone: the
+//! engine renders the shell with Impeller Vulkan on this module's device and
+//! queue, into private slice images, and the composer draws each output frame
+//! from them. Where Vulkan cannot open the GPU there
 //! is no composer and everything renders with GLES; never half of each.
 //!
 //! Each output frame it can describe, the engine stages as an ordered list of
@@ -94,7 +97,7 @@ pub(crate) fn client_formats(
             let dropped = formats.iter().count() - sampled.iter().count();
             tracing::info!(
                 dropped,
-                "client buffer layouts limited to what the Vulkan composer samples"
+                "client buffer layouts limited to what Stagecraft samples"
             );
             sampled
         }
@@ -124,7 +127,7 @@ fn share(fence: &OwnedFd) -> Option<OwnedFd> {
     match fence.try_clone() {
         Ok(copy) => Some(copy),
         Err(error) => {
-            warn!(%error, "could not share a composer fence; waiting on the CPU");
+            warn!(%error, "could not share a Stagecraft fence; waiting on the CPU");
             device::wait_fd(fence.as_fd(), -1);
             None
         }
@@ -652,11 +655,11 @@ impl SceneComposer {
             .filter(|modifier| *modifier != Modifier::Invalid && float_sampled.contains(modifier))
             .collect();
         let gbm = GbmDevice::new(render_node)
-            .map_err(|error| format!("Vulkan composer GBM device: {error}"))?;
+            .map_err(|error| format!("Stagecraft GBM device: {error}"))?;
         info!(
             modifiers = ?slice_modifiers,
             float = ?float_modifiers,
-            "Vulkan scene composer slice storage"
+            "Stagecraft slice storage"
         );
         Ok(Self {
             gpu,
@@ -916,7 +919,7 @@ impl SceneComposer {
                     width,
                     height,
                     ?fourcc,
-                    "no composer storage modifier imports at this size"
+                    "no Stagecraft storage modifier imports at this size"
                 );
                 return None;
             }
@@ -930,14 +933,14 @@ impl SceneComposer {
                         modifiers.iter().copied(),
                     )
                     .map_err(
-                        |error| warn!(%error, width, height, "composer storage allocation failed"),
+                        |error| warn!(%error, width, height, "Stagecraft storage allocation failed"),
                     )
                     .ok()?;
                 GbmBuffer::from_bo(raw, false)
             };
             let dmabuf = bo
                 .export()
-                .map_err(|error| warn!(%error, "composer storage export failed"))
+                .map_err(|error| warn!(%error, "Stagecraft storage export failed"))
                 .ok()?;
             let imported = self
                 .gpu
@@ -953,7 +956,7 @@ impl SceneComposer {
                 Ok((image, egl_image)) => break (bo, image, egl_image),
                 Err(error) => {
                     let chosen = smithay::backend::allocator::Buffer::format(&dmabuf).modifier;
-                    warn!(%error, ?chosen, "composer storage import failed; trying another modifier");
+                    warn!(%error, ?chosen, "Stagecraft storage import failed; trying another modifier");
                     let before = modifiers.len();
                     modifiers.retain(|modifier| *modifier != chosen);
                     if modifiers.len() == before {
@@ -979,7 +982,7 @@ impl SceneComposer {
         if gl_texture == 0 || error != super::gl::NO_ERROR {
             warn!(
                 error = format_args!("{error:#x}"),
-                "composer storage GL binding failed"
+                "Stagecraft storage GL binding failed"
             );
             // SAFETY: as above; the texture and image have not escaped.
             unsafe {
@@ -1046,7 +1049,7 @@ impl SceneComposer {
                         | ash::vk::ImageUsageFlags::TRANSFER_SRC
                         | ash::vk::ImageUsageFlags::TRANSFER_DST,
                 )
-                .map_err(|error| warn!(%error, width, height, "composer slice allocation failed"))
+                .map_err(|error| warn!(%error, width, height, "Stagecraft slice allocation failed"))
                 .ok()?
         };
         let writer = SliceWriterVk {
@@ -1096,7 +1099,7 @@ impl SceneComposer {
         if let Some(fence) = &state.last_completion
             && !device::wait_fd(fence.as_fd(), -1)
         {
-            tracing::error!("could not wait for the Vulkan composer's last submission");
+            tracing::error!("could not wait for Stagecraft's last submission");
         }
     }
 
@@ -1176,11 +1179,11 @@ impl SceneComposer {
                 return Ok(state);
             }
             if device::device_lost() {
-                return Err("Vulkan composer: device lost".into());
+                return Err("Stagecraft: device lost".into());
             }
             if std::time::Instant::now() >= deadline {
                 return Err(format!(
-                    "Vulkan composer: no frame completed within {} ms",
+                    "Stagecraft: no frame completed within {} ms",
                     FRAME_WAIT.as_millis()
                 ));
             }
@@ -1223,7 +1226,7 @@ impl SceneComposer {
             .targets
             .get(&framebuffer)
             .cloned()
-            .ok_or("staged frame for an output buffer the composer did not import")?;
+            .ok_or("staged frame for an output buffer Stagecraft did not import")?;
         let index = match state.frames.iter_mut().position(Frame::idle) {
             Some(index) => index,
             None if state.frames.len() < MAX_FRAMES => {
@@ -1231,7 +1234,7 @@ impl SceneComposer {
                 state.frames.len() - 1
             }
             // `lock_free_frame` returns with a frame free or room for one.
-            None => return Err("Vulkan composer: every frame in flight".into()),
+            None => return Err("Stagecraft: every frame in flight".into()),
         };
         let (output_from_scene, size) = (staged.output_from_scene, target.size);
         let to_target = |rects| target_damage(rects, output_from_scene, size);
@@ -1918,7 +1921,7 @@ impl SceneComposer {
         let image = match self.gpu.import(dmabuf, Usage::Sampled) {
             Ok(image) => image,
             Err(error) => {
-                tracing::debug!(%error, "client buffer copied by GLES for the composer");
+                tracing::debug!(%error, "client buffer copied by GLES for Stagecraft");
                 return Self::copied(resolve, sampled);
             }
         };
@@ -2234,7 +2237,7 @@ impl SceneComposer {
         state.looks.retain(|(look, _)| look.strong_count() > 0);
         let result = (|| {
             if !source.copy_into(&mut scene) {
-                return Err("scene the composer cannot describe");
+                return Err("scene Stagecraft cannot describe");
             }
             let ndc_from_target = record::ndc_from_target(width, height);
             let ndc_from_scene = ndc_from_target.then(&scene.output_from_scene);
@@ -2436,7 +2439,7 @@ impl SceneComposer {
                         let behind = match backdrop {
                             Some(material) => {
                                 if !copyable {
-                                    return Err("output buffer the composer cannot copy");
+                                    return Err("output buffer Stagecraft cannot copy");
                                 }
                                 record::window_material(
                                     material,
@@ -2513,7 +2516,7 @@ impl SceneComposer {
                     }
                     SceneEntry::MaterialBegin { material, local } => {
                         if !copyable {
-                            return Err("output buffer the composer cannot copy");
+                            return Err("output buffer Stagecraft cannot copy");
                         }
                         // Backdrop layers have no content clip (window
                         // materials do, and the engine keeps those).
