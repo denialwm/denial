@@ -6491,6 +6491,12 @@ abstract class AppLocalizations {
   /// **'{voltage} V'**
   String voltageVolts(String voltage);
 
+  /// Playback volume of a phone call, shown when the volume buttons adjust it.
+  ///
+  /// In en, this message translates to:
+  /// **'In-call volume'**
+  String get callVolumeTitle;
+
   /// English UI text for volumeTitle.
   ///
   /// In en, this message translates to:

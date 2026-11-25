@@ -82,6 +82,7 @@ class DenialBridge {
     platform.bind({
       'denial/input_deck_state': _inputDeck.handleState,
       wire.denialWireToFlutterChannel: _events.handleMessage,
+      'denial/call_volume_state': _audio.handleCallVolume,
       'denial/audio_state': _audio.handleState,
       'denial/audio_streams_state': _audio.handleStreams,
       'denial/audio_devices_state': _audio.handleDevices,
@@ -135,6 +136,7 @@ class DenialBridge {
 
   Stream<DenialDragIcon?> get dragIcons => _events.dragIcons;
 
+  Stream<DenialCallVolume> get callVolumes => _audio.callVolumes;
   Stream<DenialAudioState> get audioStates => _audio.audioStates;
 
   Stream<List<DenialAudioStream>> get audioStreamStates =>
@@ -710,6 +712,8 @@ class DenialBridge {
   void sendHapticTap() => _session.sendHapticTap();
 
   Future<double?> readAudioLevel() => _audio.readAudioLevel();
+
+  void setCallVolume(int step) => _audio.setCallVolume(step);
 
   void setAudioLevel(int percent, {required int requestSerial}) =>
       _audio.setAudioLevel(percent, requestSerial: requestSerial);

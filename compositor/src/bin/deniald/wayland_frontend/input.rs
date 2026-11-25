@@ -2637,17 +2637,33 @@ fn start_system_control_repeat(state: &mut RuntimeState, keycode: u32) {
 
 #[cfg(feature = "flutter")]
 fn dispatch_system_control_repeat(state: &mut RuntimeState, xkb_keycode: u32) -> bool {
-    if !state.flutter_active || state.secure_session_locked() {
+    if !state.flutter_active {
         return false;
     }
     let Some(evdev_keycode) = xkb_keycode.checked_sub(8) else {
         return false;
     };
     let disposition = state.native_escape_shortcut.observe(evdev_keycode, true);
+    if state.secure_session_locked() {
+        return adjust_locked_call(state, &disposition);
+    }
     if !disposition.repeats_with_timer() {
         return false;
     }
     execute_shortcut_disposition(state, disposition)
+}
+
+#[cfg(feature = "flutter")]
+fn adjust_locked_call(state: &RuntimeState, disposition: &ShortcutDisposition) -> bool {
+    let up = match disposition {
+        ShortcutDisposition::RequestVolumeUp => true,
+        ShortcutDisposition::RequestVolumeDown => false,
+        _ => return false,
+    };
+    if let Some(controls) = &state.system_controls {
+        controls.adjust_locked_call(up);
+    }
+    true
 }
 
 fn intercept_native_escape(
@@ -2679,6 +2695,12 @@ fn intercept_native_escape(
     }
     #[cfg(feature = "flutter")]
     if state.secure_session_locked() {
+        if adjust_locked_call(state, &disposition) {
+            if key_state == KeyState::Pressed {
+                start_system_control_repeat(state, xkb_keycode);
+            }
+            return true;
+        }
         return match disposition {
             ShortcutDisposition::Forward => false,
             ShortcutDisposition::RequestLock => {

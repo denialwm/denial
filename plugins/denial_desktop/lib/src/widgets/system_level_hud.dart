@@ -51,6 +51,7 @@ class SystemLevelHudLayer extends ConsumerWidget {
     }
     final isBrightness = hud.kind == SystemLevelHudKind.brightness;
     final l10n = context.l10n;
+    final call = hud.callVolumeMax != null;
 
     return Positioned.fromRect(
       rect: rect,
@@ -67,11 +68,19 @@ class SystemLevelHudLayer extends ConsumerWidget {
                 .completeDismissal(hud.revision),
             icon: isBrightness
                 ? Icons.brightness_6_rounded
+                : call
+                ? Icons.call_rounded
                 : _volumeIcon(hud.level, hud.muted),
-            title: isBrightness ? l10n.brightnessTitle : l10n.volumeTitle,
+            title: isBrightness
+                ? l10n.brightnessTitle
+                : call
+                ? l10n.callVolumeTitle
+                : l10n.volumeTitle,
             detail: isBrightness ? output.name : null,
             semanticLabel: isBrightness
                 ? l10n.outputBrightnessSemantics(output.name)
+                : call
+                ? l10n.callVolumeTitle
                 : l10n.outputVolumeSemantics,
             inactiveColor: isBrightness
                 ? context.shellColors.brightnessTrack

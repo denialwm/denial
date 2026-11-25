@@ -4881,6 +4881,8 @@
       }
     }
   },
+  "callVolumeTitle": "In-call volume",
+  "@callVolumeTitle": {"description": "Playback volume of a phone call, shown when the volume buttons adjust it."},
   "volumeTitle": "Volume",
   "@volumeTitle": {
     "description": "English UI text for volumeTitle."

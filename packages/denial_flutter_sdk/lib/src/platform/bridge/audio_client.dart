@@ -11,6 +11,9 @@ final class BridgeAudioClient {
 
   final BridgeContext _context;
   static const String _audioChannel = 'denial/audio';
+  final _callVolumes = StreamController<DenialCallVolume>.broadcast(sync: true);
+  Stream<DenialCallVolume> get callVolumes => _callVolumes.stream;
+
   Set<Completer<double?>> _pendingAudioReads = {};
   final StreamController<DenialAudioState> _audioStates =
       StreamController<DenialAudioState>.broadcast(sync: true);
@@ -283,6 +286,19 @@ final class BridgeAudioClient {
     );
   }
 
+  Future<ByteData?> handleCallVolume(ByteData? data) async {
+    final volume = SystemControlProtocol.decodeCallVolume(data);
+    if (volume != null && !_callVolumes.isClosed) _callVolumes.add(volume);
+    return null;
+  }
+
+  void setCallVolume(int step) {
+    final payload = SystemControlProtocol.setCallVolume(step);
+    _context.platform
+        .send(_audioChannel, payload)
+        ?.catchError((Object _) => null);
+  }
+
   Future<ByteData?> handleState(ByteData? data) async {
     final update = SystemControlProtocol.decodeAudioState(data);
     if (update == null) return null;
@@ -297,6 +313,7 @@ final class BridgeAudioClient {
           requestSerial: update.requestSerial,
           muted: update.muted,
           limitReached: update.limitReached,
+          fromKey: update.fromKey,
           completesRead: pending != null,
         ),
       );
@@ -337,6 +354,7 @@ final class BridgeAudioClient {
       if (!pending.isCompleted) pending.complete(null);
     }
     _pendingAudioReads.clear();
+    unawaited(_callVolumes.close());
     unawaited(_audioStates.close());
     unawaited(_audioStreamStates.close());
     unawaited(_audioDeviceStates.close());

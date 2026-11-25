@@ -1302,14 +1302,12 @@ pub(super) fn run_audio_worker(
     events: SystemControlEventSender,
     subscription_commands: SyncSender<AudioCommand>,
 ) {
-    let api = match PulseApi::load() {
-        Ok(api) => api,
-        Err(error) => {
-            warn!(%error, "native audio controls are unavailable");
-            while !matches!(commands.recv(), Ok(AudioCommand::Stop) | Err(_)) {}
-            return;
-        }
-    };
+    let api = PulseApi::load()
+        .inspect_err(|error| {
+            warn!(%error, "native media audio controls are unavailable");
+        })
+        .ok();
+    let mut calls = call_volume::CallVolume::default();
     let mut connection: Option<PulseConnection> = None;
     let mut failure_latched = false;
     'worker: while let Ok(first) = commands.recv() {
@@ -1337,7 +1335,17 @@ pub(super) fn run_audio_worker(
                     request_serial = serial;
                     state_requested = true;
                 }
+                AudioCommand::SetCallVolume(step) => {
+                    calls.handle(call_volume::Change::Set(step), &events);
+                }
+                #[cfg(feature = "flutter")]
+                AudioCommand::AdjustCallOnly(up) => {
+                    calls.handle(call_volume::Change::Step(up), &events);
+                }
                 AudioCommand::Adjust(next) => {
+                    if calls.handle(call_volume::Change::Step(next > 0.0), &events) {
+                        return true;
+                    }
                     adjusted = true;
                     if let Some(current) = level.as_mut() {
                         *current = (*current + next).clamp(0.0, MAX_AUDIO_LEVEL);
@@ -1377,8 +1385,12 @@ pub(super) fn run_audio_worker(
                 break 'worker;
             }
         }
+        if !(state_requested || streams_requested || devices_requested) {
+            continue;
+        }
+        let Some(api) = &api else { continue };
         if connection.is_none() {
-            match PulseConnection::connect(&api, subscription_commands.clone()) {
+            match PulseConnection::connect(api, subscription_commands.clone()) {
                 Ok(active) => connection = Some(active),
                 Err(error) => {
                     if !std::mem::replace(&mut failure_latched, true) {
@@ -1393,17 +1405,17 @@ pub(super) fn run_audio_worker(
         };
         let mut operation_failed = false;
         if let Some(level) = level {
-            operation_failed |= set_pulse_level(&api, active, level).is_none();
+            operation_failed |= set_pulse_level(api, active, level).is_none();
         }
         if !operation_failed && delta != 0.0 {
-            operation_failed |= adjust_pulse_level(&api, active, delta).is_none();
+            operation_failed |= adjust_pulse_level(api, active, delta).is_none();
         }
         if !operation_failed && toggle_mute {
-            operation_failed |= toggle_pulse_mute(&api, active).is_none();
+            operation_failed |= toggle_pulse_mute(api, active).is_none();
         }
         if !operation_failed {
             for (stream_id, stream_level) in stream_levels {
-                if set_pulse_stream_level(&api, active, stream_id, stream_level).is_none() {
+                if set_pulse_stream_level(api, active, stream_id, stream_level).is_none() {
                     // A stream can legitimately disappear between the UI
                     // snapshot and this write. Refresh the list without
                     // discarding the otherwise healthy Pulse connection.
@@ -1412,13 +1424,14 @@ pub(super) fn run_audio_worker(
             }
         }
         if !operation_failed && let Some(name) = selected_device {
-            operation_failed |= set_pulse_output_device(&api, active, &name).is_none();
+            operation_failed |= set_pulse_output_device(api, active, &name).is_none();
         }
         if !operation_failed && state_requested {
-            if let Some((level, muted)) = read_pulse_state(&api, active) {
+            if let Some((level, muted)) = read_pulse_state(api, active) {
                 let _ = events.try_send(SystemControlEvent::AudioLevel {
                     level,
                     muted,
+                    from_key: adjusted,
                     limit_reached: adjusted && (level <= 0.0 || level >= 1.0),
                     request_serial,
                 });
@@ -1427,14 +1440,14 @@ pub(super) fn run_audio_worker(
             }
         }
         if !operation_failed && streams_requested {
-            if let Some(streams) = query_sink_inputs(&api, active) {
+            if let Some(streams) = query_sink_inputs(api, active) {
                 let _ = events.try_send(SystemControlEvent::AudioStreams(streams));
             } else {
                 operation_failed = true;
             }
         }
         if !operation_failed && devices_requested {
-            if let Some(devices) = query_audio_devices(&api, active) {
+            if let Some(devices) = query_audio_devices(api, active) {
                 let _ = events.try_send(SystemControlEvent::AudioDevices(devices));
             } else {
                 operation_failed = true;
@@ -1445,13 +1458,13 @@ pub(super) fn run_audio_worker(
                 warn!("native PulseAudio operation failed; reconnecting");
             }
             if let Some(mut active) = connection.take() {
-                active.close(&api);
+                active.close(api);
             }
         } else {
             failure_latched = false;
         }
     }
-    if let Some(mut active) = connection {
-        active.close(&api);
+    if let (Some(mut active), Some(api)) = (connection, &api) {
+        active.close(api);
     }
 }

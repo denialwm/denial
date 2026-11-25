@@ -10,8 +10,9 @@ Flutter channels are outside this inventory.
 | `denial/input_deck` | Dart → native | UTF-8 JSON, at most 1 KiB | Embedded-shell input display selection, raw evdev keys, relative motion, buttons, finger axes and touch-cancellation acknowledgements |
 | `denial/input_deck_state` | Native → Dart | UTF-8 JSON | Mapped touch outputs, availability, active reservation and current XKB key legends |
 | `denial/haptics` | Dart → native | 1 byte | Prewarm or tap through the optional hapticd system D-Bus service |
-| `denial/audio` | Dart → native | bounded fixed packet | Read/set default output and enumerate/control application streams |
-| `denial/audio_state` | Native → Dart | 5 bytes | Level and request serial |
+| `denial/audio` | Dart → native | bounded fixed packet | Read/set default output, enumerate/control application streams, or set active call playback (opcode 6 and a little-endian uint32 step) |
+| `denial/audio_state` | Native → Dart | 8 bytes | Media level, request serial, mute, limit reached and hardware key flag |
+| `denial/call_volume_state` | Native → Dart | 3 little-endian uint32 values | Previous, applied and maximum hardware call volume steps for the on-screen slider |
 | `denial/audio_streams_state` | Native → Dart | bounded length-prefixed packet | Application stream identities, names, level, and mute state |
 | `denial/authentication` | Dart → native | bounded `DAUT` packet | Synchronize, lock, begin, respond to, or cancel a native PAM attempt |
 | `denial/authentication_state` | Native → Dart | bounded `DAUT` packet | Authoritative lock state, PAM prompts, results, retry cooldown, and advisory fingerprint feedback |

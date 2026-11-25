@@ -19,6 +19,7 @@ export 'src/platform/bridge/user_verification_client.dart'
         DenialUserVerificationClosed;
 export 'src/platform/denial_bridge_models.dart'
     show
+        DenialCallVolume,
         DenialAudioDevice,
         DenialAudioState,
         DenialAudioStream,

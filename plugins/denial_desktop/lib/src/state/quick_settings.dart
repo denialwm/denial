@@ -148,6 +148,11 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     _deferredAudioState = null;
   }
 
+  void endVolumeInteraction() {
+    _volumeInteracting = false;
+    _applyDeferredAudioStateIfIdle();
+  }
+
   void setVolume(double value) {
     _recordVolumeIntent(value);
     _scheduleVolumeApply();

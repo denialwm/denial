@@ -44,6 +44,7 @@ class DenialShellActionEvent {
 }
 
 // The bridge and services share these immutable snapshots without remapping.
+typedef DenialCallVolume = ({int previous, int step, int maximum});
 typedef DenialAudioState = AudioLevelState;
 typedef DenialAudioStream = AppAudioStream;
 typedef DenialAudioDevice = AudioOutputDevice;

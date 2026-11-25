@@ -122,7 +122,11 @@ pub(super) fn synchronize_system_control_events(
         return Ok(());
     };
     if events.secure_session_locked() {
-        runtime.drain_audio_requests().for_each(drop);
+        for request in runtime.drain_audio_requests() {
+            if matches!(request, system_controls::AudioRequest::SetCallVolume(_)) {
+                controls.handle_audio_request(request);
+            }
+        }
         runtime.drain_brightness_requests().for_each(drop);
         while let Some(request) = events.control.system.pop_front() {
             let (_, reply) = request.into_parts();
@@ -153,6 +157,7 @@ pub(super) fn synchronize_system_control_events(
                             Some(SystemControlWaitKind::AudioDevices)
                         }
                         system_controls::AudioRequest::SetLevel { .. }
+                        | system_controls::AudioRequest::SetCallVolume(_)
                         | system_controls::AudioRequest::SetStreamLevel { .. }
                         | system_controls::AudioRequest::SetDevice { .. } => None,
                     };
@@ -225,11 +230,13 @@ fn resolve_system_control_waits(
     update: &system_controls::SystemControlEvent,
 ) {
     let (kind, result) = match update {
+        system_controls::SystemControlEvent::CallVolume { .. } => return,
         system_controls::SystemControlEvent::AudioLevel {
             level,
             muted,
             limit_reached,
             request_serial,
+            ..
         } => (
             SystemControlWaitKind::AudioLevel,
             json!({

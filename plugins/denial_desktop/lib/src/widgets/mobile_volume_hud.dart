@@ -9,6 +9,7 @@ import 'package:denial_flutter_sdk/effects.dart';
 import 'package:denial_flutter_sdk/input.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
+import 'package:denial_flutter_sdk/state.dart' show denialBridgeProvider;
 import 'package:denial_flutter_sdk/system_services.dart';
 
 import '../state/quick_settings.dart';
@@ -40,6 +41,8 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
   Timer? _hideTimer;
   int _revision = 0;
   bool _muted = false;
+  int? _callVolumeMax;
+  int? _lastCallStep;
 
   int? _pointer;
   double _dragStartLevel = 0;
@@ -70,6 +73,18 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
     if (hud.kind != SystemLevelHudKind.audio || !hud.visible) return;
     if (hud.revision == _revision) return;
     _revision = hud.revision;
+    final targetChanged = _callVolumeMax != hud.callVolumeMax;
+    if (targetChanged && _pointer != null) {
+      if (_callVolumeMax == null) {
+        ref.read(quickSettingsProvider.notifier).endVolumeInteraction();
+      }
+      _pointer = null;
+      _motion.release();
+    }
+    _callVolumeMax = hud.callVolumeMax;
+    _lastCallStep = hud.callVolumeMax == null
+        ? null
+        : (hud.level * hud.callVolumeMax!).round();
     _muted = hud.muted;
     _motion.reduced = MediaQuery.disableAnimationsOf(context);
     _motion.muted = hud.muted;
@@ -87,6 +102,7 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
       _motion.present(
         level: hud.level,
         from: hud.previousLevel,
+        targetChanged: targetChanged,
         direction: direction,
         limit: hud.limitReached,
       );
@@ -113,7 +129,9 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
     _dragTravel = 0;
     _pointerDownAt = _clock.elapsed;
     _atLimit = false;
-    ref.read(quickSettingsProvider.notifier).beginVolumeInteraction();
+    if (_callVolumeMax == null) {
+      ref.read(quickSettingsProvider.notifier).beginVolumeInteraction();
+    }
     _motion.grab(true);
   }
 
@@ -122,11 +140,11 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
     _dragTravel += event.delta.dy;
     final raw = _dragStartLevel - _dragTravel / _trackHeight(rest);
     final level = raw.clamp(0.0, 1.0).toDouble();
-    _motion.follow(raw);
+    _motion.follow(raw < 0 || raw > 1 ? raw : _snap(level));
     final atLimit = raw <= 0 || raw >= 1;
     if (atLimit && !_atLimit) ref.read(hapticsServiceProvider).pulse();
     _atLimit = atLimit;
-    ref.read(quickSettingsProvider.notifier).setDashboardVolume(level);
+    _setLevel(level, commit: false);
   }
 
   void _pointerUp(PointerEvent event, Rect rest, Offset localInRest) {
@@ -142,17 +160,37 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
       final track = _trackHeight(rest);
       final bottom = rest.height - (rest.height - track) / 2;
       level = ((bottom - localInRest.dy) / track).clamp(0.0, 1.0).toDouble();
-      _motion.pour(level);
+      _motion.pour(_snap(level));
     }
     _motion.release();
-    ref.read(quickSettingsProvider.notifier).commitDashboardVolume(level);
+    _setLevel(level, commit: true);
     _armHide();
+  }
+
+  double _snap(double level) {
+    final maximum = _callVolumeMax;
+    return maximum == null ? level : (level * maximum).round() / maximum;
+  }
+
+  void _setLevel(double level, {required bool commit}) {
+    final maximum = _callVolumeMax;
+    if (maximum != null) {
+      final step = (level * maximum).round();
+      if (_lastCallStep != step || commit) {
+        _lastCallStep = step;
+        ref.read(denialBridgeProvider).setCallVolume(step);
+      }
+    } else if (commit) {
+      ref.read(quickSettingsProvider.notifier).commitDashboardVolume(level);
+    } else {
+      ref.read(quickSettingsProvider.notifier).setDashboardVolume(level);
+    }
   }
 
   void _step(double delta) {
     final level = (_motion.levelTarget + delta).clamp(0.0, 1.0).toDouble();
     _motion.pour(level);
-    ref.read(quickSettingsProvider.notifier).commitDashboardVolume(level);
+    _setLevel(level, commit: true);
     _armHide();
   }
 
@@ -184,6 +222,7 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
       shadow: const Color(0x59000000),
     );
     final percent = (_motion.levelTarget * 100).round();
+    final increment = _callVolumeMax == null ? 0.05 : 1 / _callVolumeMax!;
     // The touch area is the capsule at rest, a little wider: it never moves
     // with the animation, so the input layout is published once.
     final touch = Rect.fromLTRB(
@@ -235,16 +274,18 @@ class _MobileVolumeHudState extends ConsumerState<MobileVolumeHud>
             child: Semantics(
               container: true,
               slider: true,
-              label: context.l10n.outputVolumeSemantics,
+              label: _callVolumeMax == null
+                  ? context.l10n.outputVolumeSemantics
+                  : context.l10n.callVolumeTitle,
               value: context.l10n.percentCompact(_muted ? 0 : percent),
               increasedValue: context.l10n.percentCompact(
-                (percent + 5).clamp(0, 100),
+                ((_motion.levelTarget + increment) * 100).round().clamp(0, 100),
               ),
               decreasedValue: context.l10n.percentCompact(
-                (percent - 5).clamp(0, 100),
+                ((_motion.levelTarget - increment) * 100).round().clamp(0, 100),
               ),
-              onIncrease: () => _step(0.05),
-              onDecrease: () => _step(-0.05),
+              onIncrease: () => _step(increment),
+              onDecrease: () => _step(-increment),
               child: Listener(
                 behavior: HitTestBehavior.opaque,
                 onPointerDown: (event) => _pointerDown(event, rest),
@@ -359,7 +400,9 @@ class _VolumeMotion extends ChangeNotifier {
     required double from,
     int direction = 0,
     bool limit = false,
+    bool targetChanged = false,
   }) {
+    if (targetChanged) _level.set(from);
     final arriving = !_shown;
     _shown = true;
     if (arriving) {

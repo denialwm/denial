@@ -3478,6 +3478,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get callVolumeTitle => '通话音量';
+
+  @override
   String get volumeTitle => '音量';
 
   @override

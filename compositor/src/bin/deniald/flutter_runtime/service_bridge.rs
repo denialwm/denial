@@ -541,15 +541,30 @@ impl FlutterRuntime {
                 muted,
                 limit_reached,
                 request_serial,
+                from_key,
             } => {
-                let mut packet = [0u8; 7];
+                let mut packet = [0u8; 8];
                 packet[0] = (level.clamp(0.0, 1.0) * 100.0).round() as u8;
                 packet[1..5].copy_from_slice(&request_serial.to_le_bytes());
                 packet[5] = u8::from(*muted);
                 packet[6] = u8::from(*limit_reached);
+                packet[7] = u8::from(*from_key);
                 self.host()
                     .engine()
                     .send_platform_message(AUDIO_STATE_CHANNEL, &packet)?;
+            }
+            crate::system_controls::SystemControlEvent::CallVolume {
+                previous,
+                step,
+                maximum,
+            } => {
+                let mut packet = [0u8; 12];
+                packet[..4].copy_from_slice(&previous.to_le_bytes());
+                packet[4..8].copy_from_slice(&step.to_le_bytes());
+                packet[8..].copy_from_slice(&maximum.to_le_bytes());
+                self.host()
+                    .engine()
+                    .send_platform_message(c"denial/call_volume_state", &packet)?;
             }
             crate::system_controls::SystemControlEvent::AudioStreams(streams) => {
                 let payload_size = streams.iter().try_fold(size_of::<u32>(), |size, stream| {

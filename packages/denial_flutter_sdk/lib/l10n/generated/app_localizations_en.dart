@@ -3650,6 +3650,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get callVolumeTitle => 'In-call volume';
+
+  @override
   String get volumeTitle => 'Volume';
 
   @override
