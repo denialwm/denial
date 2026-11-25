@@ -916,6 +916,7 @@ impl SettingsManager {
 
     /// The user's lights: which are on, in which colour, and whether they go
     /// dark with the screen (by default they do).
+    #[cfg(feature = "flutter")]
     pub(super) fn lights(&self) -> super::lights::LightSettings {
         let Some(section) = self.document.get("lights").and_then(Value::as_object) else {
             return super::lights::LightSettings::default();
