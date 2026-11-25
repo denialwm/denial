@@ -914,6 +914,38 @@ impl SettingsManager {
         ((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)).then_some((x, y))
     }
 
+    /// The user's lights: which are on, in which colour, and whether they go
+    /// dark with the screen (by default they do).
+    pub(super) fn lights(&self) -> super::lights::LightSettings {
+        let Some(section) = self.document.get("lights").and_then(Value::as_object) else {
+            return super::lights::LightSettings::default();
+        };
+        let lights = section
+            .get("leds")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(name, light)| {
+                let color = light
+                    .get("color")
+                    .and_then(Value::as_str)
+                    .and_then(super::lights::parse_color)?;
+                Some(super::lights::LightSetting {
+                    name: name.clone(),
+                    on: light.get("on").and_then(Value::as_bool).unwrap_or(false),
+                    color,
+                })
+            })
+            .collect();
+        super::lights::LightSettings {
+            off_with_screen: section
+                .get("offWithScreen")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            lights,
+        }
+    }
+
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
         parse_workspace_settings(&self.document).unwrap_or_default()
     }

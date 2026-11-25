@@ -380,9 +380,15 @@ impl Session<'_, '_> {
         }
         ambient_display::synchronize_wake(flutter, scanouts, events);
         release_sleep_delay_if_ready(scanouts, events);
-        events.wifi_power_save.sync(scanouts.iter().any(|scanout| {
+        let lit = scanouts.iter().any(|scanout| {
             scanout.powered && !events.ambient_display.refreshing(scanout.output.id)
-        }));
+        });
+        events.wifi_power_save.sync(lit);
+        let revision = events.frontend().settings.revision();
+        if events.lights.stale(revision, lit) {
+            let wanted = events.frontend().settings.lights();
+            events.lights.apply(revision, lit, &wanted);
+        }
         // The output publisher normally clears this bit at the start of the
         // iteration, so a transition to dirty here asks for one publication
         // boundary before more work. During confirmation rollback publication is
