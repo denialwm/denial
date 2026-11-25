@@ -139,6 +139,23 @@ boundaries may change before 1.0.
   and the status bar steps aside; a swipe down from the top edge still opens
   the shade.
 - Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
+- During a phone call the volume keys and the on-screen slider set the call's
+  volume, through Phonewave's `callaudio`, and the slider shows its level;
+  ringing and everything after hangup stay on media volume. On the lock
+  screen the keys still reach the call. Settings shows In-call volume beside
+  Media under Sound, during or between calls.
+- Phone shoulder triggers that send `KEY_MACRO1` and `KEY_MACRO2` touch the
+  screen where the user placed them for the app in front. The shade's
+  Trigger points tile opens the editor over the app: drag L and R to their
+  spots, hold one to clear it. The spots are kept per app under
+  `phoneTriggers`.
+- Settings has a Lights page for a device's own multicolor LEDs, such as a
+  phone's logo, fan or trigger lights, shown only where there are some. Each
+  light is on or off in a colour, purple until another is chosen, and the
+  lights can go dark with the screen. Denial sets them at startup and
+  keeps them as chosen (`lights`).
+- Settings switches bypass charging on batteries whose driver offers it: the
+  device runs from the charger and the battery neither charges nor drains.
 
 ### Changed
 
@@ -232,6 +249,13 @@ boundaries may change before 1.0.
 - Started through UWSM, Denial finds its logind session: `loginctl
   lock-session` locks it, logind sees whether it is locked, and it no longer
   retries the lookup every two seconds.
+- In the stacking layout, moving or resizing a maximized window with Super
+  and the mouse starts from its maximized size instead of snapping back to
+  its earlier size first. Super+W and the restore button still bring the
+  earlier size back.
+- On a machine with two GPUs, Denial no longer opens the other card's driver:
+  a session on a Radeon kept `/dev/nvidia0` open. Applications Denial starts
+  can still use either GPU.
 
 ## [0.5.1] - 2026-10-11
 
