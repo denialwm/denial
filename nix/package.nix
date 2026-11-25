@@ -39,6 +39,8 @@ let
       "compositor"
       "packaging/arch/denial-portals.conf"
       "packaging/arch/denial.portal"
+      # The cursor scene's tests draw this theme.
+      "packages/denial_flutter_sdk/assets/cursors/bibata_modern_ice"
       "protocol"
     ];
     inherit version buildIdentity;
