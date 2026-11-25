@@ -509,6 +509,16 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  /// Saves where the shoulder triggers touch in [appId], as screen fractions.
+  void setPhoneTriggerPoints(String appId, ShellTriggerPoints points) {
+    if (appId.isEmpty) return;
+    _update(
+      state.copyWith(
+        phoneTriggers: state.phoneTriggers.withPoints(appId, points),
+      ),
+    );
+  }
+
   void setIdleDpmsEnabled(bool value) {
     _update(
       state.copyWith(power: state.power.copyWith(idleDpmsEnabled: value)),

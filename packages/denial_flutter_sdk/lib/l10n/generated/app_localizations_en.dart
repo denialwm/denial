@@ -5518,4 +5518,14 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get mobilePowerTapToRestartDenial =>
       'Tap again to restart Denial. Open apps close.';
+
+  @override
+  String get triggerPointsTile => 'Trigger points';
+
+  @override
+  String get triggerPointsHint =>
+      'Drag L and R to where each shoulder trigger should touch. Hold one to clear it.';
+
+  @override
+  String get triggerPointsReset => 'Clear both';
 }

@@ -9849,6 +9849,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap again to restart Denial. Open apps close.'**
   String get mobilePowerTapToRestartDenial;
+
+  /// Quick settings tile that places where the phone's shoulder triggers touch in the app in front.
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger points'**
+  String get triggerPointsTile;
+
+  /// Hint at the top of the shoulder trigger editor, shown over the app.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag L and R to where each shoulder trigger should touch. Hold one to clear it.'**
+  String get triggerPointsHint;
+
+  /// Shoulder trigger editor button that removes both touch spots for this app.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear both'**
+  String get triggerPointsReset;
 }
 
 class _AppLocalizationsDelegate

@@ -1123,6 +1123,7 @@ class ShellSettings {
     this.notifications = const ShellNotificationSettings(),
     this.sound = const ShellSoundSettings(),
     this.applicationEnvironment = const ShellApplicationEnvironmentSettings(),
+    this.phoneTriggers = const ShellPhoneTriggerSettings(),
   });
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
@@ -1140,6 +1141,7 @@ class ShellSettings {
   final ShellNotificationSettings notifications;
   final ShellSoundSettings sound;
   final ShellApplicationEnvironmentSettings applicationEnvironment;
+  final ShellPhoneTriggerSettings phoneTriggers;
 
   ShellSettings copyWith({
     InputDeckSettings? inputDeck,
@@ -1153,6 +1155,7 @@ class ShellSettings {
     ShellNotificationSettings? notifications,
     ShellSoundSettings? sound,
     ShellApplicationEnvironmentSettings? applicationEnvironment,
+    ShellPhoneTriggerSettings? phoneTriggers,
   }) {
     return ShellSettings(
       inputDeck: inputDeck ?? this.inputDeck,
@@ -1167,6 +1170,7 @@ class ShellSettings {
       sound: sound ?? this.sound,
       applicationEnvironment:
           applicationEnvironment ?? this.applicationEnvironment,
+      phoneTriggers: phoneTriggers ?? this.phoneTriggers,
     );
   }
 
@@ -1468,6 +1472,10 @@ class ShellSettings {
       patch['applicationEnvironment'] = applicationEnvironment.toJson();
     }
 
+    if (phoneTriggers != previous.phoneTriggers) {
+      patch['phoneTriggers'] = phoneTriggers.toJson();
+    }
+
     return patch;
   }
 
@@ -1565,6 +1573,7 @@ class ShellSettings {
       'sound': sound.toJson(),
       'inputDeck': inputDeck.toJson(),
       'applicationEnvironment': applicationEnvironment.toJson(),
+      'phoneTriggers': phoneTriggers.toJson(),
     };
   }
 
@@ -1969,6 +1978,7 @@ class ShellSettings {
       applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
         json['applicationEnvironment'],
       ),
+      phoneTriggers: ShellPhoneTriggerSettings.fromJson(json['phoneTriggers']),
     );
   }
 
@@ -1985,7 +1995,8 @@ class ShellSettings {
         other.power == power &&
         other.notifications == notifications &&
         other.sound == sound &&
-        other.applicationEnvironment == applicationEnvironment;
+        other.applicationEnvironment == applicationEnvironment &&
+        other.phoneTriggers == phoneTriggers;
   }
 
   @override
@@ -2001,7 +2012,99 @@ class ShellSettings {
     notifications,
     sound,
     applicationEnvironment,
+    phoneTriggers,
   );
+}
+
+/// Where a phone's shoulder triggers touch, per app id. deniald reads it
+/// when a trigger is pressed: each spot is a fraction of the phone's screen
+/// in its current orientation, `null` where the trigger touches nothing.
+@immutable
+class ShellPhoneTriggerSettings {
+  const ShellPhoneTriggerSettings({this.apps = const {}});
+
+  final Map<String, ShellTriggerPoints> apps;
+
+  ShellTriggerPoints pointsFor(String appId) =>
+      apps[appId] ?? const ShellTriggerPoints();
+
+  ShellPhoneTriggerSettings withPoints(
+    String appId,
+    ShellTriggerPoints points,
+  ) => ShellPhoneTriggerSettings(
+    apps: Map<String, ShellTriggerPoints>.unmodifiable({
+      ...apps,
+      appId: points,
+    }),
+  );
+
+  /// Every app is written, cleared ones with `null` sides: the document is
+  /// merged, so a missing side would keep its old spot.
+  Map<String, Object?> toJson() => <String, Object?>{
+    for (final entry in apps.entries) entry.key: entry.value.toJson(),
+  };
+
+  factory ShellPhoneTriggerSettings.fromJson(Object? json) {
+    if (json is! Map) return const ShellPhoneTriggerSettings();
+    return ShellPhoneTriggerSettings(
+      apps: Map<String, ShellTriggerPoints>.unmodifiable({
+        for (final entry in json.entries)
+          if (entry.key is String && (entry.key as String).isNotEmpty)
+            entry.key as String: ShellTriggerPoints.fromJson(entry.value),
+      }),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShellPhoneTriggerSettings && mapEquals(other.apps, apps);
+
+  @override
+  int get hashCode => Object.hashAllUnordered(
+    apps.entries.map((entry) => Object.hash(entry.key, entry.value)),
+  );
+}
+
+/// The left and right trigger's spots for one app, as screen fractions.
+@immutable
+class ShellTriggerPoints {
+  const ShellTriggerPoints({this.left, this.right});
+
+  final Offset? left;
+  final Offset? right;
+
+  bool get isEmpty => left == null && right == null;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'left': _encode(left),
+    'right': _encode(right),
+  };
+
+  factory ShellTriggerPoints.fromJson(Object? json) {
+    if (json is! Map) return const ShellTriggerPoints();
+    return ShellTriggerPoints(
+      left: _decode(json['left']),
+      right: _decode(json['right']),
+    );
+  }
+
+  static List<double>? _encode(Offset? point) =>
+      point == null ? null : <double>[point.dx, point.dy];
+
+  static Offset? _decode(Object? value) {
+    if (value is! List || value.length != 2) return null;
+    final [x, y] = value;
+    if (x is! num || y is! num) return null;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return Offset(x.toDouble(), y.toDouble());
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShellTriggerPoints && other.left == left && other.right == right;
+
+  @override
+  int get hashCode => Object.hash(left, right);
 }
 
 String _fontFamily(Object? value, String fallback) {

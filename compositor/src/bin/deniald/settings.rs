@@ -897,6 +897,23 @@ impl SettingsManager {
             .unwrap_or(DEFAULT_CALLS_APP)
     }
 
+    /// Where a shoulder trigger touches for an app: a fraction of the phone's
+    /// screen, `trigger` 0 left and 1 right.
+    pub(super) fn trigger_point(&self, app_id: &str, trigger: usize) -> Option<(f64, f64)> {
+        let side = ["left", "right"].get(trigger)?;
+        let point = self
+            .document
+            .get("phoneTriggers")?
+            .get(app_id)?
+            .get(side)?
+            .as_array()?;
+        let [x, y] = point.as_slice() else {
+            return None;
+        };
+        let (x, y) = (x.as_f64()?, y.as_f64()?);
+        ((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)).then_some((x, y))
+    }
+
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
         parse_workspace_settings(&self.document).unwrap_or_default()
     }

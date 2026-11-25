@@ -5251,4 +5251,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get mobilePowerTapToRestartDenial => '再次点按以重启 Denial。打开的应用会关闭。';
+
+  @override
+  String get triggerPointsTile => '肩键触点';
+
+  @override
+  String get triggerPointsHint => '将 L 和 R 拖到每个肩键要点按的位置。长按可清除。';
+
+  @override
+  String get triggerPointsReset => '全部清除';
 }

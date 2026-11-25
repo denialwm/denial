@@ -80,6 +80,9 @@ pub(super) mod edge_swipe;
 pub(super) mod flutter_route;
 #[path = "input/tablet.rs"]
 mod tablet;
+#[cfg(feature = "flutter")]
+#[path = "input/trigger_touch.rs"]
+mod trigger_touch;
 #[path = "input/wayland_route.rs"]
 mod wayland_route;
 
@@ -1948,6 +1951,15 @@ fn process_input_event(
         if key_event.key_code().raw() == 143 + 8 {
             state.wake_key_pressed |= key_event.state() == KeyState::Pressed;
             return false;
+        }
+        // Shoulder triggers become touches and reach no client as keys.
+        if let Some(trigger) = trigger_touch::trigger(key_event.key_code().raw()) {
+            return trigger_touch::handle(
+                state,
+                trigger,
+                key_event.state() == KeyState::Pressed,
+                key_event.time(),
+            );
         }
         if key_event.key_code().raw() == 116 + 8 {
             state.power_button.note_key(
