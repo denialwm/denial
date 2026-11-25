@@ -1059,6 +1059,10 @@ pub(in super::super) fn release_client_geometry_for_shell_grab(
     state: &mut RuntimeState,
     window: &smithay::desktop::Window,
 ) {
+    let was_maximized = state
+        .frontend()
+        .managed_window_presentation(window)
+        .maximized;
     let client_constraints_cleared =
         super::super::window_management::clear_client_geometry_constraints(window);
 
@@ -1074,7 +1078,12 @@ pub(in super::super) fn release_client_geometry_for_shell_grab(
             let surface_id = surface.id();
             let presentation = frontend.take_shell_presentation(&surface_id);
             let shell_owned = presentation.is_some();
-            if layout_managed {
+            if !layout_managed && was_maximized {
+                // The drag takes over the maximized rectangle. Only an explicit
+                // restore should apply the saved normal rectangle.
+                frontend.clear_restore_geometry(&surface_id);
+            }
+            if layout_managed || was_maximized {
                 return (Some(frontend.window_geometry_target(window)), shell_owned);
             }
             let restore = presentation
