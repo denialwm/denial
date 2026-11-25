@@ -29,6 +29,9 @@ mod open_file_limit;
 #[cfg(feature = "flutter")]
 #[path = "deniald/dpms.rs"]
 mod dpms;
+#[cfg(feature = "flutter")]
+#[path = "deniald/drm_vulkan.rs"]
+mod drm_vulkan;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[cfg(feature = "flutter")]

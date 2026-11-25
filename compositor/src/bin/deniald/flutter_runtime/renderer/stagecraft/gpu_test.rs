@@ -369,6 +369,45 @@ fn a_stuck_gpu_returns_control_instead_of_hanging() {
     }
 }
 
+/// Run in its own test process with a second, differently driven GPU.
+#[test]
+#[ignore = "set DENIAL_COMPOSER_TEST_NODE and DENIAL_COMPOSER_TEST_UNUSED_NODE"]
+fn compositor_leaves_the_other_render_node_closed() {
+    use smithay::backend::allocator::format::FormatSet;
+    use std::os::unix::fs::MetadataExt;
+
+    let selected = std::fs::File::from(node());
+    let selected_dev = selected.metadata().unwrap().rdev();
+    let unused = std::env::var_os("DENIAL_COMPOSER_TEST_UNUSED_NODE").unwrap();
+    let unused_dev = std::fs::metadata(&unused).unwrap().rdev();
+    assert_ne!(selected_dev, unused_dev);
+    device::sampled_client_formats(selected_dev, &FormatSet::default()).unwrap();
+    let gpu = Gpu::new(selected.as_fd()).expect("compositor device");
+    let unused_open = std::fs::read_dir("/proc/self/fd").unwrap().any(|fd| {
+        fd.ok()
+            .and_then(|fd| std::fs::metadata(fd.path()).ok())
+            .is_some_and(|stat| stat.rdev() == unused_dev)
+    });
+    assert!(!unused_open, "compositor holds {unused:?}");
+
+    // A client inheriting this process's environment can use the other GPU
+    // while the compositor still owns its device.
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "clients_are_offered_only_layouts_the_composer_samples",
+            "--ignored",
+        ])
+        .env("DENIAL_COMPOSER_TEST_NODE", unused)
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{}",
+        String::from_utf8_lossy(&child.stdout)
+    );
+    drop(gpu);
+}
+
 #[test]
 #[ignore = "needs a GPU"]
 fn clients_are_offered_only_layouts_the_composer_samples() {

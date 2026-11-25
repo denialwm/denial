@@ -8,6 +8,7 @@
 //! scene below it changed), one submit, one semaphore export. Imports,
 //! pipelines and descriptor sets are made once and reused.
 
+use crate::drm_vulkan::DrmInstance;
 use ash::{Entry, vk};
 use gpu_allocator::{
     AllocationSizes, MemoryLocation,
@@ -253,19 +254,14 @@ pub(super) fn sampled_client_formats(
     let app = vk::ApplicationInfo::default()
         .application_name(c"deniald Stagecraft formats")
         .api_version(vk::API_VERSION_1_3);
-    // SAFETY: valid create info; nothing borrowed outlives the call.
-    let instance = unsafe {
-        entry.create_instance(
-            &vk::InstanceCreateInfo::default().application_info(&app),
-            None,
-        )
-    }
-    .map_err(|e| vk_error("create instance", e))?;
+    let owner = DrmInstance::new(entry, device_number, &app, &[], &[])
+        .map_err(|e| vk_error("create instance", e))?;
+    let instance = &owner.instance;
     // SAFETY: the instance is live.
     let physicals = unsafe { instance.enumerate_physical_devices() }.unwrap_or_default();
     let physical = physicals
         .into_iter()
-        .find(|&physical| drm_node_version(&instance, physical, device_number).is_some());
+        .find(|&physical| drm_node_version(instance, physical, device_number).is_some());
     let filtered = physical.map(|physical| {
         let mut support: HashMap<vk::Format, Vec<ModifierSupport>> = HashMap::new();
         formats
@@ -279,7 +275,7 @@ pub(super) fn sampled_client_formats(
                 }
                 support
                     .entry(vk_format)
-                    .or_insert_with(|| query_modifiers(&instance, physical, vk_format))
+                    .or_insert_with(|| query_modifiers(instance, physical, vk_format))
                     .iter()
                     .any(|entry| {
                         entry.modifier == u64::from(format.modifier)
@@ -289,8 +285,6 @@ pub(super) fn sampled_client_formats(
             .copied()
             .collect::<FormatSet>()
     });
-    // SAFETY: nothing else was created from this instance.
-    unsafe { instance.destroy_instance(None) };
     filtered.ok_or_else(|| "no Vulkan device behind the render node".into())
 }
 
@@ -301,15 +295,13 @@ struct ModifierSupport {
 }
 
 pub(super) struct GpuInner {
-    _entry: Entry,
-    instance: ash::Instance,
+    vulkan: DrmInstance,
     physical: vk::PhysicalDevice,
     pub(super) device: ash::Device,
     queue: vk::Queue,
     family: u32,
     /// What the instance and device were created with, for the engine when
     /// it renders on this device (`ShellDevice`).
-    instance_extensions: Vec<&'static CStr>,
     device_extensions: Vec<&'static CStr>,
     memory: vk::PhysicalDeviceMemoryProperties,
     /// The largest storage buffer range a descriptor may name.
@@ -376,7 +368,6 @@ impl Drop for GpuInner {
             self.device
                 .destroy_descriptor_set_layout(self.image_layout, None);
             self.device.destroy_device(None);
-            self.instance.destroy_instance(None);
         }
     }
 }
@@ -436,46 +427,19 @@ impl Gpu {
             .api_version(vk::API_VERSION_1_3);
         // Impeller requires a surface and a window-system extension even
         // when it never presents; Wayland is the one deniald has.
-        let mut instance_extensions: Vec<&'static CStr> = Vec::new();
         let mut layers: Vec<&'static CStr> = Vec::new();
-        // SAFETY: a query on the live entry.
-        let available = unsafe { entry.enumerate_instance_extension_properties(None) }
-            .map_err(|e| vk_error("instance extensions", e))?;
-        for name in [ash::khr::surface::NAME, ash::khr::wayland_surface::NAME] {
-            if !available
-                .iter()
-                .any(|ext| ext.extension_name_as_c_str().is_ok_and(|own| own == name))
-            {
-                return Err(format!(
-                    "Vulkan shell needs instance extension {}",
-                    name.to_string_lossy()
-                ));
-            }
-            instance_extensions.push(name);
-        }
-        // Diagnostic: DENIAL_VULKAN_VALIDATION=1 enables the Khronos
-        // validation layer for the composer and the engine alike.
         if std::env::var_os("DENIAL_VULKAN_VALIDATION").is_some() {
             layers.push(c"VK_LAYER_KHRONOS_validation");
         }
-        let extension_pointers: Vec<_> = instance_extensions.iter().map(|n| n.as_ptr()).collect();
-        let layer_pointers: Vec<_> = layers.iter().map(|n| n.as_ptr()).collect();
-        // SAFETY: valid create info; nothing borrowed outlives the call.
-        let instance = unsafe {
-            entry.create_instance(
-                &vk::InstanceCreateInfo::default()
-                    .application_info(&app)
-                    .enabled_extension_names(&extension_pointers)
-                    .enabled_layer_names(&layer_pointers),
-                None,
-            )
-        }
+        let owner = DrmInstance::new(
+            entry,
+            device_number,
+            &app,
+            &[ash::khr::surface::NAME, ash::khr::wayland_surface::NAME],
+            &layers,
+        )
         .map_err(|e| vk_error("create instance", e))?;
-        let fail = |instance: &ash::Instance, error: String| {
-            // SAFETY: nothing else was created from this instance yet.
-            unsafe { instance.destroy_instance(None) };
-            error
-        };
+        let instance = &owner.instance;
         let required = [
             ash::khr::external_memory_fd::NAME,
             ash::ext::external_memory_dma_buf::NAME,
@@ -485,10 +449,8 @@ impl Gpu {
             ash::khr::external_semaphore_fd::NAME,
         ];
         // SAFETY: the instance is live.
-        let physicals = match unsafe { instance.enumerate_physical_devices() } {
-            Ok(physicals) => physicals,
-            Err(e) => return Err(fail(&instance, vk_error("enumerate devices", e))),
-        };
+        let physicals = unsafe { instance.enumerate_physical_devices() }
+            .map_err(|e| vk_error("enumerate devices", e))?;
         let mut matched = None;
         for physical in physicals {
             // SAFETY: the device belongs to this instance.
@@ -501,16 +463,15 @@ impl Gpu {
                         .is_ok_and(|own| own == name)
                 })
             };
-            let Some(api_version) = drm_node_version(&instance, physical, device_number) else {
+            let Some(api_version) = drm_node_version(instance, physical, device_number) else {
                 continue;
             };
             if api_version < vk::API_VERSION_1_3 || required.iter().any(|name| !has(name)) {
-                return Err(fail(
-                    &instance,
+                return Err(
                     "Vulkan composer GPU lacks Vulkan 1.3 or DMA-BUF, modifier, FOREIGN, \
                      push-descriptor or semaphore-fd support"
                         .into(),
-                ));
+                );
             }
             // SAFETY: a query on a device of this instance.
             let families =
@@ -521,19 +482,13 @@ impl Gpu {
                 .iter()
                 .position(|family| family.queue_count > 0 && family.queue_flags.contains(wanted))
             else {
-                return Err(fail(
-                    &instance,
-                    "Stagecraft GPU has no graphics queue".into(),
-                ));
+                return Err("Stagecraft GPU has no graphics queue".into());
             };
             matched = Some((physical, family as u32));
             break;
         }
         let Some((physical, family)) = matched else {
-            return Err(fail(
-                &instance,
-                "Stagecraft found no Vulkan device for the render node".into(),
-            ));
+            return Err("Stagecraft found no Vulkan device for the render node".into());
         };
         let mut features13 = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
@@ -548,10 +503,7 @@ impl Gpu {
             ext.extension_name_as_c_str()
                 .is_ok_and(|own| own == ash::khr::swapchain::NAME)
         }) {
-            return Err(fail(
-                &instance,
-                "Vulkan shell needs VK_KHR_swapchain".into(),
-            ));
+            return Err("Vulkan shell needs VK_KHR_swapchain".into());
         }
         device_extensions.push(ash::khr::swapchain::NAME);
         let mut supported11 = vk::PhysicalDeviceVulkan11Features::default();
@@ -580,10 +532,8 @@ impl Gpu {
             .push_next(&mut features11)
             .push_next(&mut features);
         // SAFETY: extensions and features were checked above.
-        let device = match unsafe { instance.create_device(physical, &create, None) } {
-            Ok(device) => device,
-            Err(e) => return Err(fail(&instance, vk_error("create device", e))),
-        };
+        let device = unsafe { instance.create_device(physical, &create, None) }
+            .map_err(|e| vk_error("create device", e))?;
         // SAFETY: queries with a validated family.
         let (memory, queue, limits) = unsafe {
             (
@@ -592,19 +542,17 @@ impl Gpu {
                 instance.get_physical_device_properties(physical).limits,
             )
         };
-        if let Err(error) = shell_queue::install(&entry, instance.handle()) {
+        if let Err(error) = shell_queue::install(&owner.entry, instance.handle()) {
             // SAFETY: nothing was created from the device yet.
             unsafe { device.destroy_device(None) };
-            return Err(fail(&instance, error));
+            return Err(error);
         }
         let mut inner = GpuInner {
-            instance_extensions,
             device_extensions,
-            memory_fd: ash::khr::external_memory_fd::Device::new(&instance, &device),
-            semaphore_fd: ash::khr::external_semaphore_fd::Device::new(&instance, &device),
-            push: ash::khr::push_descriptor::Device::new(&instance, &device),
-            _entry: entry,
-            instance,
+            memory_fd: ash::khr::external_memory_fd::Device::new(instance, &device),
+            semaphore_fd: ash::khr::external_semaphore_fd::Device::new(instance, &device),
+            push: ash::khr::push_descriptor::Device::new(instance, &device),
+            vulkan: owner,
             physical,
             device,
             queue,
@@ -633,7 +581,7 @@ impl Gpu {
         // more blocks gets them doubled, up to 128 MiB.
         inner.allocator = Mutex::new(Some(
             Allocator::new(&AllocatorCreateDesc {
-                instance: inner.instance.clone(),
+                instance: inner.vulkan.instance.clone(),
                 device: inner.device.clone(),
                 physical_device: physical,
                 debug_settings: Default::default(),
@@ -644,7 +592,12 @@ impl Gpu {
             .map_err(|e| format!("Stagecraft allocator: {e}"))?,
         ));
         // SAFETY: the name is a NUL-terminated array of the live device.
-        let properties = unsafe { inner.instance.get_physical_device_properties(physical) };
+        let properties = unsafe {
+            inner
+                .vulkan
+                .instance
+                .get_physical_device_properties(physical)
+        };
         tracing::info!(
             device = %properties.device_name_as_c_str().map(|name| name.to_string_lossy()).unwrap_or_default(),
             drm_major = libc::major(device_number),
@@ -660,12 +613,12 @@ impl Gpu {
         let gpu = &self.0;
         ShellDevice {
             version: vk::API_VERSION_1_3,
-            instance: gpu.instance.handle(),
+            instance: gpu.vulkan.instance.handle(),
             physical: gpu.physical,
             device: gpu.device.handle(),
             family: gpu.family,
             queue: gpu.queue,
-            instance_extensions: gpu.instance_extensions.clone(),
+            instance_extensions: gpu.vulkan.extensions.clone(),
             device_extensions: gpu.device_extensions.clone(),
         }
     }
@@ -881,7 +834,7 @@ impl GpuInner {
         let mut modifiers = lock(&self.modifiers);
         let list = modifiers
             .entry(format)
-            .or_insert_with(|| query_modifiers(&self.instance, self.physical, format));
+            .or_insert_with(|| query_modifiers(&self.vulkan.instance, self.physical, format));
         list.iter()
             .find(|entry| entry.modifier == modifier)
             .map(|entry| (entry.planes, entry.features))
@@ -914,11 +867,13 @@ impl GpuInner {
                         vk::ImageFormatProperties2::default().push_next(&mut external_properties);
                     // SAFETY: a query with valid chained structs.
                     unsafe {
-                        self.instance.get_physical_device_image_format_properties2(
-                            self.physical,
-                            &info,
-                            &mut properties,
-                        )
+                        self.vulkan
+                            .instance
+                            .get_physical_device_image_format_properties2(
+                                self.physical,
+                                &info,
+                                &mut properties,
+                            )
                     }
                     .ok()?;
                     properties.image_format_properties.max_extent
@@ -1342,6 +1297,7 @@ impl Gpu {
         // SAFETY: a query on the live instance.
         let largest = unsafe {
             self.0
+                .vulkan
                 .instance
                 .get_physical_device_properties(self.0.physical)
         }
@@ -1365,6 +1321,7 @@ impl Gpu {
         // SAFETY: a query on the live instance.
         let limits = unsafe {
             self.0
+                .vulkan
                 .instance
                 .get_physical_device_properties(self.0.physical)
         }

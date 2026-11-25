@@ -5,6 +5,8 @@
 mod bus;
 #[path = "deniald/cpu_scheduling.rs"]
 mod cpu_scheduling;
+#[path = "deniald/drm_vulkan.rs"]
+mod drm_vulkan;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[path = "deniald/gpu_transfer/mod.rs"]

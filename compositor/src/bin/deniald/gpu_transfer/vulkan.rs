@@ -5,6 +5,7 @@
 //! uses a bounded host fence wait rather than sync-file semaphore interop.
 //! Imports are pooled in `TransferPair`, including strong DMA-BUF leases.
 
+use crate::drm_vulkan::DrmInstance;
 use ash::{Entry, vk};
 use smithay::backend::allocator::{
     Buffer, Fourcc, Modifier,
@@ -27,22 +28,9 @@ fn vk_error(stage: &str, error: vk::Result) -> String {
     format!("Vulkan transfer {stage}: {error:?}")
 }
 
-struct InstanceOwner {
-    instance: ash::Instance,
-    // The dynamic library must outlive every dispatch table.
-    _entry: Entry,
-}
-
-impl Drop for InstanceOwner {
-    fn drop(&mut self) {
-        // SAFETY: All devices retain this owner and have already been destroyed.
-        unsafe { self.instance.destroy_instance(None) };
-    }
-}
-
 struct DeviceOwner {
     device: ash::Device,
-    instance: Arc<InstanceOwner>,
+    instance: Arc<DrmInstance>,
     physical: vk::PhysicalDevice,
     fd_api: ash::khr::external_memory_fd::Device,
     memory: vk::PhysicalDeviceMemoryProperties,
@@ -122,14 +110,10 @@ impl VulkanTransfer {
         }
         let instance_version = version.min(vk::API_VERSION_1_2);
         let app = vk::ApplicationInfo::default().api_version(instance_version);
-        let create = vk::InstanceCreateInfo::default().application_info(&app);
-        // SAFETY: Valid create-info and no borrowed pointers retained by Vulkan.
-        let instance = unsafe { entry.create_instance(&create, None) }
-            .map_err(|e| vk_error("create instance", e))?;
-        let root = Arc::new(InstanceOwner {
-            instance,
-            _entry: entry,
-        });
+        let root = Arc::new(
+            DrmInstance::new(entry, device_number, &app, &[], &[])
+                .map_err(|e| vk_error("create instance", e))?,
+        );
         let required = [
             ash::ext::physical_device_drm::NAME,
             ash::khr::external_memory_fd::NAME,
