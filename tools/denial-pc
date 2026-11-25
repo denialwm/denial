@@ -136,6 +136,7 @@ ENGINE_TEST_STORE="${DENIAL_PC_ENGINE_TEST_STORE:-$CACHE_HOME/denial/engine-test
 ENGINE_TEST_CURRENT="$ENGINE_TEST_STORE/current"
 ENGINE_TEST_NEXT="$ENGINE_TEST_STORE/next-session"
 RENDER_AUDIT_NEXT="$BUILD_ROOT/render-audit-next-session"
+RENDER_AHEAD_OFF_NEXT="$BUILD_ROOT/render-ahead-off-next-session"
 ENGINE_TEST_SOURCE_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-$CANONICAL_FLUTTER_SOURCE}"
 ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_ROOT/engine/src/out/denial_host_release}"
 SESSION_ENGINE_SHA256=""
@@ -242,6 +243,8 @@ Commands:
                     Run the staged engine test (normally invoked by a display manager)
   audit-arm         Turn the render audit on for the next development login only
   audit-cancel      Cancel a pending one-shot render audit
+  render-ahead-off-arm     Turn rendering ahead off for the next development login only
+  render-ahead-off-cancel  Cancel a pending one-shot render-ahead-off login
   doctor            Show prerequisites and built artifact state
   install-session   Add the display-manager entry and Denial portal routing
   install-settings-entry
@@ -554,8 +557,16 @@ file_sha256() {
     sha256sum -- "$1" | cut -d' ' -f1
 }
 
+# The local engine's checksum names the engine only when nothing pinned
+# another: a package build pins the locked engine with
+# DENIAL_PC_ENGINE_SOURCE, even when the bundle step built a local one from
+# Flutter and Skia trees with uncommitted changes.
+engine_is_local() {
+    [[ -z "${DENIAL_PC_ENGINE_SOURCE:-}" && -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]
+}
+
 prebuilt_engine_sha256() {
-    if [[ -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]; then
+    if engine_is_local; then
         cut -d' ' -f1 < "$PREBUILT_ENGINE_LOCAL_SHA256"
     elif [[ -f "$PREBUILT_ENGINE_SHA256" ]]; then
         cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
@@ -573,7 +584,7 @@ verify_prebuilt_engine() {
 }
 
 prebuilt_engine_label() {
-    if [[ -f "$PREBUILT_ENGINE_LOCAL_SHA256" ]]; then
+    if engine_is_local; then
         printf 'local\n'
     else
         printf 'pinned\n'
@@ -1406,6 +1417,7 @@ run_compositor() {
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
 
+
     # deniald exits with 75 to be started again in the same session.
     local status
     while true; do
@@ -1491,6 +1503,21 @@ cancel_render_audit() {
     fi
 }
 
+arm_render_ahead_off() {
+    mkdir -p -- "$(dirname -- "$RENDER_AHEAD_OFF_NEXT")"
+    : > "$RENDER_AHEAD_OFF_NEXT"
+    printf 'Armed rendering ahead off for the next Denial development login only.\n'
+}
+
+cancel_render_ahead_off() {
+    if [[ -e "$RENDER_AHEAD_OFF_NEXT" ]]; then
+        rm -f -- "$RENDER_AHEAD_OFF_NEXT"
+        printf 'Cancelled the pending one-shot render-ahead-off login.\n'
+    else
+        printf 'No one-shot render-ahead-off login is armed.\n'
+    fi
+}
+
 run_display_manager_session() {
     install_settings_desktop_entry
     install_welcome_desktop_entries
@@ -1500,6 +1527,10 @@ run_display_manager_session() {
     if [[ -e "$RENDER_AUDIT_NEXT" ]]; then
         rm -f -- "$RENDER_AUDIT_NEXT"
         export DENIAL_RENDER_AUDIT=1
+    fi
+    if [[ -e "$RENDER_AHEAD_OFF_NEXT" ]]; then
+        rm -f -- "$RENDER_AHEAD_OFF_NEXT"
+        export DENIAL_RENDER_AHEAD=0
     fi
     if [[ ! -e "$ENGINE_TEST_NEXT" && ! -L "$ENGINE_TEST_NEXT" ]]; then
         run_session
@@ -1984,6 +2015,8 @@ case "${1:-}" in
     engine-test-session) run_engine_test_session ;;
     audit-arm) arm_render_audit ;;
     audit-cancel) cancel_render_audit ;;
+    render-ahead-off-arm) arm_render_ahead_off ;;
+    render-ahead-off-cancel) cancel_render_ahead_off ;;
     doctor) doctor ;;
     install-session) install_session ;;
     install-settings-entry) install_settings_desktop_entry ;;

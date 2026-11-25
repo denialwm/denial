@@ -60,7 +60,7 @@ impl Session<'_, '_> {
         }
         let volition_events = std::mem::take(&mut events.volition_events);
         let Some(stall) =
-            scheduler.acknowledge_volition_events(volition_events, scanouts, events)?
+            scheduler.acknowledge_volition_events(flutter, volition_events, scanouts, events)?
         else {
             return Ok(false);
         };
@@ -164,14 +164,13 @@ impl Session<'_, '_> {
             }
         }
         let runtime = &mut **flutter;
-        scheduler.handle_completions(
-            runtime,
-            swapchain
-                .outputs_mut()
-                .ok_or("page-flip completion has no physical output pools")?,
-            scanouts,
-            events,
-        )?;
+        let pools = swapchain
+            .outputs_mut()
+            .ok_or("page-flip completion has no physical output pools")?;
+        scheduler.handle_completions(runtime, pools, scanouts, events)?;
+        // After completions, so a color commit waits for as few flips as
+        // possible.
+        synchronize_plane_color(drm, pools, events);
         for presented in scheduler
             .presented_outputs()
             .iter()
@@ -320,6 +319,13 @@ impl Session<'_, '_> {
             ..
         } = self;
         for tick in frame_scheduler.output_ticks().iter().copied() {
+            if !frame_scheduler
+                .render_requests()
+                .iter()
+                .any(|r| r.tick.output == tick.output)
+            {
+                scheduler.cursor_tick(tick.output);
+            }
             events.frontend_mut().frame_tick(tick)?;
             scheduler.process_screencopies_at_tick(
                 tick,
@@ -374,9 +380,15 @@ impl Session<'_, '_> {
         }
         ambient_display::synchronize_wake(flutter, scanouts, events);
         release_sleep_delay_if_ready(scanouts, events);
-        events.wifi_power_save.sync(scanouts.iter().any(|scanout| {
+        let lit = scanouts.iter().any(|scanout| {
             scanout.powered && !events.ambient_display.refreshing(scanout.output.id)
-        }));
+        });
+        events.wifi_power_save.sync(lit);
+        let revision = events.frontend().settings.revision();
+        if events.lights.stale(revision, lit) {
+            let wanted = events.frontend().settings.lights();
+            events.lights.apply(revision, lit, &wanted);
+        }
         // The output publisher normally clears this bit at the start of the
         // iteration, so a transition to dirty here asks for one publication
         // boundary before more work. During confirmation rollback publication is
@@ -387,5 +399,50 @@ impl Session<'_, '_> {
             output_control_was_dirty,
             events.output_control_dirty,
         ))
+    }
+}
+
+/// Commits every output's plane to the current desktop look and correction
+/// (a few atomic loads when nothing changed). A plane that refuses its table
+/// is turned off for the session, and the outputs are rebuilt so the scene
+/// copy applies them instead. Outputs that copy their scene only for the
+/// look are rebuilt when it comes or goes.
+fn synchronize_plane_color(
+    drm: &DrmDevice,
+    pools: &mut kms_state::OutputSwapchains,
+    events: &mut RuntimeState,
+) {
+    let look = output_color::desktop_look_present();
+    let mut rebuild = false;
+    for pool in &mut pools.outputs {
+        rebuild |= pool.copies_for_look.is_some_and(|built| built != look);
+        let Some(color) = &mut pool.plane_color else {
+            continue;
+        };
+        let shows = color.shows();
+        if let Err(error) = color.sync(drm) {
+            if shows {
+                warn!(output = ?pool.output_id, %error, "the display refused its color table; rebuilding outputs to copy the scene instead");
+                match color.refuse(drm) {
+                    Ok(()) => rebuild = true,
+                    Err(error) => {
+                        error!(output = ?pool.output_id, %error, "could not turn off the plane's color table; the output keeps it");
+                    }
+                }
+            } else {
+                error!(output = ?pool.output_id, %error, "could not turn off the plane's color table; the scene copy may apply color twice");
+            }
+        }
+    }
+    plane_color::set_look_ready(
+        !pools
+            .outputs
+            .iter()
+            .any(|pool| pool.copies_for_look == Some(false)),
+    );
+    if rebuild && !events.kms_reconfigure_requested {
+        info!("rebuilding output pools for a display color change");
+        events.kms_reconfigure_requested = true;
+        events.topology_dirty = true;
     }
 }

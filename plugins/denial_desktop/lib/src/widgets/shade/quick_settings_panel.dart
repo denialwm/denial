@@ -13,6 +13,7 @@ import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/state.dart';
 
+import '../../state/phone_triggers.dart';
 import '../../state/quick_settings.dart';
 import '../../state/reference_shell_presentation.dart';
 import '../../state/reference_shell_profile.dart';
@@ -773,6 +774,13 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
                 .length ??
             0) <=
         1;
+    // The shoulder triggers touch in the app in front: its spots are
+    // placed over it.
+    final triggerApp = ref.watch(phoneTriggersAvailableProvider)
+        ? ref.watch(
+            referenceShellProvider.select((state) => state.foregroundWindow),
+          )
+        : null;
     final footerTiles = [
       if (rotationLock.supported)
         QuickTile(
@@ -816,12 +824,27 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           },
         ),
     ];
+    final triggerTile = triggerApp == null
+        ? null
+        : QuickTile(
+            icon: Icons.gamepad_rounded,
+            title: l10n.triggerPointsTile,
+            subtitle: triggerApp.title,
+            active: false,
+            onTap: () {
+              ref.read(referenceShellProvider.notifier).closeQuickSettings();
+              ref
+                  .read(triggerPointsEditorProvider.notifier)
+                  .open(triggerApp.appId);
+            },
+          );
     final view = MediaQuery.sizeOf(context);
     return QuickSettingsTiles(
       expansionProgress: progress,
       // The wider landscape columns get tiles taller in proportion.
       heightFactor: view.width > view.height ? _landscapeShadeGrowth : 1,
       footerTiles: footerTiles,
+      spareTile: triggerTile,
       mobileDataTile: const MobileDataTile(),
       brightnessControl: const _BrightnessRangeBar(),
       volumeControl: const _VolumeRangeBar(),
@@ -876,7 +899,7 @@ class _BrightnessRangeBar extends ConsumerWidget {
     );
     final brightness = ref.watch(
       displayBrightnessProvider.select(
-        (state) => state.levels[output?.monitorId] ?? 0.72,
+        (state) => state.levels[output?.monitorId],
       ),
     );
     final controller = ref.read(displayBrightnessProvider.notifier);

@@ -246,6 +246,135 @@ void main() {
     expect(theme.accentSrgb, 0x123456);
   });
 
+  test('a place is a rule, and its bytes are the ones native verifies', () {
+    final codec = DenialWireCodec();
+    final bytes = codec.encodeWindowPlace(
+      requestId: 77,
+      windowId: 0x100000042,
+      place: const model.DenialWindowPlace.area(
+        Rect.fromLTWH(0.5, 0, 0.5, 1),
+        monitorId: 7,
+      ),
+      apply: true,
+    );
+
+    expect(
+      bytes,
+      File('../protocol/golden/dart_window_place.denw').readAsBytesSync(),
+    );
+    final resolve = Envelope(
+      codec.encodeWindowPlace(
+        requestId: 78,
+        windowId: 42,
+        place: const model.DenialWindowPlace.free(
+          Rect.fromLTWH(100.4, 200.6, 800, 30),
+        ),
+        apply: false,
+      )!,
+    );
+    final request = resolve.payload as WindowRequest;
+    expect(resolve.requestId, 78);
+    expect(request.kind, WindowRequestKind.ResolveWindowPlace);
+    expect(request.placeKind, WindowPlaceKind.Free);
+    expect(request.geometry!.x, 100);
+    expect(request.geometry!.y, 201);
+    expect(request.geometry!.height, 64);
+
+    Uint8List? place(model.DenialWindowPlace place, {int requestId = 1}) =>
+        codec.encodeWindowPlace(
+          requestId: requestId,
+          windowId: 42,
+          place: place,
+          apply: true,
+        );
+    expect(place(const model.DenialWindowPlace.restore()), isNotNull);
+    expect(place(const model.DenialWindowPlace.maximized()), isNotNull);
+    // An answer needs a request to come back under.
+    expect(
+      place(const model.DenialWindowPlace.restore(), requestId: 0),
+      isNull,
+    );
+    // A share never leaves the work area.
+    expect(
+      place(const model.DenialWindowPlace.area(Rect.fromLTWH(0.6, 0, 0.5, 1))),
+      isNull,
+    );
+    expect(
+      place(const model.DenialWindowPlace.fullscreen(monitorId: -2)),
+      isNull,
+    );
+  });
+
+  test('a place answer carries the rectangle the window got', () {
+    final codec = DenialWireCodec();
+    WindowResponse response({
+      required WindowPlaceStatus status,
+      bool success = true,
+    }) => WindowResponse(
+      WindowResponseObjectBuilder(
+        kind: WindowResponseKind.Place,
+        success: success,
+        windowId: 42,
+        placeStatus: status,
+        frame: WireRectObjectBuilder(x: 960, y: 46, width: 960, height: 1034),
+        geometry: WireRectObjectBuilder(x: 961, y: 80, width: 958, height: 999),
+        monitorId: 7,
+      ).toBytes(),
+    );
+
+    final adjusted = codec.decodeWindowPlaceResult(
+      response(status: WindowPlaceStatus.Adjusted),
+    )!;
+    expect(adjusted.status, model.DenialWindowPlaceStatus.adjusted);
+    expect(adjusted.windowId, 42);
+    expect(adjusted.frame, const Rect.fromLTWH(960, 46, 960, 1034));
+    expect(adjusted.contentRect, const Rect.fromLTWH(961, 80, 958, 999));
+    expect(adjusted.monitorId, 7);
+
+    final refused = codec.decodeWindowPlaceResult(
+      response(status: WindowPlaceStatus.Refused, success: false),
+    )!;
+    expect(refused, const model.DenialWindowPlaceResult.refused(42));
+    expect(refused.refused, isTrue);
+  });
+
+  test('the shell declares its frame and starts drags by window', () {
+    final codec = DenialWireCodec();
+    final frame = codec.encodeWindowFrame(
+      const model.DenialWindowFrameMargins(
+        left: 1,
+        top: 34,
+        right: 1,
+        bottom: 1,
+      ),
+      maximized: const model.DenialWindowFrameMargins(top: 34),
+    );
+    expect(
+      frame,
+      File('../protocol/golden/dart_window_frame.denw').readAsBytesSync(),
+    );
+    expect(
+      codec.encodeWindowFrame(const model.DenialWindowFrameMargins.all(257)),
+      isNull,
+    );
+
+    final move = Envelope(codec.encodeWindowDrag(42)!).payload as WindowRequest;
+    expect(move.kind, WindowRequestKind.BeginWindowMove);
+    expect(move.windowId, 42);
+    expect(move.flags, 0);
+    final resize =
+        Envelope(
+              codec.encodeWindowDrag(
+                42,
+                resize: model.DenialWindowResizeEdge.bottomRight,
+              )!,
+            ).payload
+            as WindowRequest;
+    expect(resize.kind, WindowRequestKind.BeginWindowResize);
+    expect(resize.flags, 2 | 8);
+    expect(codec.encodeWindowDrag(0), isNull);
+  });
+
   test('overview layout drops use a distinct configure flag', () {
     final bytes = DenialWireCodec().encodeWindowRequest(
       WindowRequestKind.ConfigureWindow,

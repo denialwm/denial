@@ -63,6 +63,8 @@ use super::super::{RuntimeState, logical_axis_scroll_delta};
 use super::ClientSurface;
 #[cfg(feature = "flutter")]
 use super::FlutterPointerPress;
+#[cfg(feature = "flutter")]
+use super::FlutterTouchPress;
 use super::WaylandFrontend;
 use super::input_source::{InputBatchEvent, LibinputBatchSource};
 #[cfg(feature = "flutter")]
@@ -78,9 +80,14 @@ pub(super) mod edge_swipe;
 pub(super) mod flutter_route;
 #[path = "input/tablet.rs"]
 mod tablet;
+#[cfg(feature = "flutter")]
+#[path = "input/trigger_touch.rs"]
+mod trigger_touch;
 #[path = "input/wayland_route.rs"]
 mod wayland_route;
 
+#[cfg(feature = "flutter")]
+pub(super) use flutter_route::begin_shell_window_grab;
 #[cfg(feature = "flutter")]
 use flutter_route::process_flutter_input_event;
 use flutter_route::process_wayland_keyboard_transition;
@@ -235,109 +242,175 @@ const MAX_CLIENT_POINTER_PRESSES: usize = 16;
 pub(super) struct ShellKeyStroke {
     pub(super) evdev_keycode: u32,
     pub(super) shift: bool,
+    /// The AltGr key to hold, for a character on the layout's third level.
+    pub(super) level3: Option<u32>,
 }
 
 #[cfg(feature = "flutter")]
-fn shell_text_key_stroke(character: char) -> Option<ShellKeyStroke> {
-    let (evdev_keycode, shift) = match character {
-        'a'..='z' => (
-            [
-                30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22,
-                47, 17, 45, 21, 44,
-            ][usize::from(character as u8 - b'a')],
-            false,
-        ),
-        'A'..='Z' => (
-            [
-                30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22,
-                47, 17, 45, 21, 44,
-            ][usize::from(character as u8 - b'A')],
-            true,
-        ),
-        '1' => (2, false),
-        '2' => (3, false),
-        '3' => (4, false),
-        '4' => (5, false),
-        '5' => (6, false),
-        '6' => (7, false),
-        '7' => (8, false),
-        '8' => (9, false),
-        '9' => (10, false),
-        '0' => (11, false),
-        '!' => (2, true),
-        '@' => (3, true),
-        '#' => (4, true),
-        '$' => (5, true),
-        '%' => (6, true),
-        '^' => (7, true),
-        '&' => (8, true),
-        '*' => (9, true),
-        '(' => (10, true),
-        ')' => (11, true),
-        '-' => (12, false),
-        '_' => (12, true),
-        '=' => (13, false),
-        '+' => (13, true),
-        '[' => (26, false),
-        '{' => (26, true),
-        ']' => (27, false),
-        '}' => (27, true),
-        ';' => (39, false),
-        ':' => (39, true),
-        '\'' => (40, false),
-        '"' => (40, true),
-        '`' => (41, false),
-        '~' => (41, true),
-        '\\' => (43, false),
-        '|' => (43, true),
-        ',' => (51, false),
-        '<' => (51, true),
-        '.' => (52, false),
-        '>' => (52, true),
-        '/' => (53, false),
-        '?' => (53, true),
-        ' ' => (57, false),
-        _ => return None,
-    };
-    Some(ShellKeyStroke {
-        evdev_keycode,
-        shift,
+const XKB_KEYCODE_OFFSET: u32 = 8;
+
+/// The keys a character is typed with: the main block, keypad aside, so
+/// digits and signs come from the row a hand would use. The key between
+/// left Shift and Z comes last: only ISO keyboards have it, and a US layout
+/// elsewhere reads it as another key.
+#[cfg(feature = "flutter")]
+const SHELL_TEXT_KEY_GROUPS: [&[u32]; 2] = [&SHELL_MAIN_KEYS, &[KEY_102ND]];
+
+#[cfg(feature = "flutter")]
+const KEY_102ND: u32 = 86;
+
+/// Escape to Right Shift, then Space: evdev 1 to 54 and 57. 55 is the
+/// keypad's asterisk.
+#[cfg(feature = "flutter")]
+const SHELL_MAIN_KEYS: [u32; 55] = {
+    let mut keys = [0; 55];
+    let mut index = 0;
+    while index < 54 {
+        keys[index] = index as u32 + 1;
+        index += 1;
+    }
+    keys[54] = 57;
+    keys
+};
+
+/// Which key of the active layout types each character, alone, with Shift,
+/// with AltGr or with both. A layout types what it shows: `a` is the key
+/// right of Tab on AZERTY, `@` is AltGr with `ò` on the Italian layout.
+#[cfg(feature = "flutter")]
+struct ShellLayoutKeys {
+    state: xkb::State,
+    layout: xkb::LayoutIndex,
+    levels: Vec<(xkb::ModMask, bool, Option<u32>)>,
+}
+
+#[cfg(feature = "flutter")]
+impl ShellLayoutKeys {
+    fn new(keymap: &xkb::Keymap, layout: xkb::LayoutIndex) -> Self {
+        let shift = 1_u32
+            .checked_shl(keymap.mod_get_index(xkb::MOD_NAME_SHIFT))
+            .unwrap_or(0);
+        let mut levels = vec![(0, false, None), (shift, true, None)];
+        // AltGr is the right Alt key where it gives ISO_Level3_Shift, else
+        // any key that does; the mask is what pressing it sets.
+        const RIGHT_ALT: u32 = 100;
+        let level3 = std::iter::once(RIGHT_ALT).chain(1..=255).find(|evdev| {
+            keymap
+                .key_get_syms_by_level(Keycode::new(evdev + XKB_KEYCODE_OFFSET), layout, 0)
+                .iter()
+                .any(|sym| sym.raw() == xkb::keysyms::KEY_ISO_Level3_Shift)
+        });
+        if let Some(evdev) = level3 {
+            let mut pressed = xkb::State::new(keymap);
+            pressed.update_key(
+                Keycode::new(evdev + XKB_KEYCODE_OFFSET),
+                xkb::KeyDirection::Down,
+            );
+            let mask = pressed.serialize_mods(xkb::STATE_MODS_DEPRESSED);
+            if mask != 0 {
+                levels.push((mask, false, Some(evdev)));
+                levels.push((mask | shift, true, Some(evdev)));
+            }
+        }
+        Self {
+            state: xkb::State::new(keymap),
+            layout,
+            levels,
+        }
+    }
+
+    fn stroke(&mut self, character: char) -> Option<ShellKeyStroke> {
+        // Plain and Shift before AltGr, and within each the main keys first.
+        for levels in [&self.levels[..2], &self.levels[2..]] {
+            for keys in SHELL_TEXT_KEY_GROUPS {
+                for &(mask, shift, level3) in levels {
+                    self.state.update_mask(mask, 0, 0, 0, 0, self.layout);
+                    for &evdev in keys {
+                        let keycode = Keycode::new(evdev + XKB_KEYCODE_OFFSET);
+                        if self.state.key_get_utf32(keycode) == u32::from(character) {
+                            return Some(ShellKeyStroke {
+                                evdev_keycode: evdev,
+                                shift,
+                                level3,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// The key that types each character of `text` in the active layout, none
+/// for a character it lacks.
+#[cfg(feature = "flutter")]
+fn shell_text_key_strokes(
+    state: &mut RuntimeState,
+    keyboard: &KeyboardHandle<RuntimeState>,
+    text: &str,
+) -> Vec<Option<ShellKeyStroke>> {
+    keyboard.with_xkb_state(state, |context| {
+        let xkb = context.xkb().lock().unwrap();
+        let layout = xkb.active_layout().0;
+        // SAFETY: the keymap and the states made from it end with this call.
+        let mut keys = ShellLayoutKeys::new(unsafe { xkb.keymap() }, layout);
+        text.chars()
+            .map(|character| keys.stroke(character))
+            .collect()
     })
 }
 
 #[cfg(feature = "flutter")]
-fn shell_named_key_stroke(key: &str) -> Option<ShellKeyStroke> {
-    let (evdev_keycode, shift) = match key {
-        "Escape" => (1, false),
-        "Alt" => (56, false),
-        "BackSpace" | "Backspace" => (14, false),
-        "Tab" => (15, false),
-        "Return" | "Enter" => (28, false),
-        "space" | "Space" => (57, false),
-        "Up" => (103, false),
-        "Left" => (105, false),
-        "Right" => (106, false),
-        "Down" => (108, false),
-        "Delete" => (111, false),
-        "comma" => (51, false),
-        "period" => (52, false),
-        "slash" => (53, false),
-        "backslash" => (43, false),
-        "minus" => (12, false),
-        "equal" => (13, false),
-        "apostrophe" => (40, false),
-        "semicolon" => (39, false),
-        "colon" => (39, true),
-        "bracketleft" => (26, false),
-        "bracketright" => (27, false),
-        value if value.chars().count() == 1 => shell_text_key_stroke(value.chars().next()?)
-            .map(|stroke| (stroke.evdev_keycode, stroke.shift))?,
-        _ => return None,
+fn shell_named_key_stroke(
+    state: &mut RuntimeState,
+    keyboard: &KeyboardHandle<RuntimeState>,
+    key: &str,
+) -> Option<ShellKeyStroke> {
+    // Keys every layout keeps in place.
+    let fixed = match key {
+        "Escape" => Some(1),
+        "Alt" => Some(56),
+        "BackSpace" | "Backspace" => Some(14),
+        "Tab" => Some(15),
+        "Return" | "Enter" => Some(28),
+        "space" | "Space" => Some(57),
+        "Up" => Some(103),
+        "Left" => Some(105),
+        "Right" => Some(106),
+        "Down" => Some(108),
+        "Delete" => Some(111),
+        _ => None,
     };
-    Some(ShellKeyStroke {
-        evdev_keycode,
-        shift,
-    })
+    if let Some(evdev_keycode) = fixed {
+        return Some(ShellKeyStroke {
+            evdev_keycode,
+            shift: false,
+            level3: None,
+        });
+    }
+    let character = match key {
+        "comma" => ',',
+        "period" => '.',
+        "slash" => '/',
+        "backslash" => '\\',
+        "minus" => '-',
+        "equal" => '=',
+        "apostrophe" => '\'',
+        "semicolon" => ';',
+        "colon" => ':',
+        "bracketleft" => '[',
+        "bracketright" => ']',
+        value => {
+            let mut characters = value.chars();
+            match (characters.next(), characters.next()) {
+                (Some(character), None) => character,
+                _ => return None,
+            }
+        }
+    };
+    shell_text_key_strokes(state, keyboard, character.encode_utf8(&mut [0; 4]))
+        .pop()
+        .flatten()
 }
 
 #[cfg(feature = "flutter")]
@@ -348,7 +421,6 @@ fn inject_shell_key_stroke(
     ctrl: bool,
     time: InputTime,
 ) -> bool {
-    const XKB_KEYCODE_OFFSET: u32 = 8;
     const LEFT_CTRL: u32 = 29;
     const LEFT_SHIFT: u32 = 42;
 
@@ -366,6 +438,10 @@ fn inject_shell_key_stroke(
     let inject_shift = stroke.shift && !modifiers.shift;
     let ctrl_keycode = Keycode::new(LEFT_CTRL + XKB_KEYCODE_OFFSET);
     let shift_keycode = Keycode::new(LEFT_SHIFT + XKB_KEYCODE_OFFSET);
+    let level3_keycode = stroke
+        .level3
+        .map(|evdev| Keycode::new(evdev + XKB_KEYCODE_OFFSET))
+        .filter(|keycode| !keyboard.pressed_keys().contains(keycode));
     let mut delivered = false;
     let mut send = |state: &mut RuntimeState, keycode: Keycode, key_state: KeyState| {
         delivered |= process_keyboard_transition(state, keycode, key_state, time);
@@ -377,8 +453,14 @@ fn inject_shell_key_stroke(
     if inject_shift {
         send(state, shift_keycode, KeyState::Pressed);
     }
+    if let Some(level3) = level3_keycode {
+        send(state, level3, KeyState::Pressed);
+    }
     send(state, keycode, KeyState::Pressed);
     send(state, keycode, KeyState::Released);
+    if let Some(level3) = level3_keycode {
+        send(state, level3, KeyState::Released);
+    }
     if inject_shift {
         send(state, shift_keycode, KeyState::Released);
     }
@@ -396,12 +478,10 @@ pub(super) fn inject_shell_key_transition(
     key_state: KeyState,
     time: InputTime,
 ) -> bool {
-    const XKB_KEYCODE_OFFSET: u32 = 8;
-
     // Held modified keys require explicit modifier ownership. The OSK uses
     // this lifecycle for unmodified Backspace and to hold Alt around a key;
     // complete modified taps continue through inject_shell_key_stroke().
-    if stroke.shift {
+    if stroke.shift || stroke.level3.is_some() {
         return false;
     }
     let keycode = Keycode::new(stroke.evdev_keycode + XKB_KEYCODE_OFFSET);
@@ -459,6 +539,7 @@ pub(super) fn navigate_back(state: &mut RuntimeState, window: &smithay::desktop:
         ShellKeyStroke {
             evdev_keycode: EVDEV_KEY_BACK,
             shift: false,
+            level3: None,
         },
         false,
         time,
@@ -470,8 +551,9 @@ pub(super) fn navigate_back(state: &mut RuntimeState, window: &smithay::desktop:
 ///
 /// These transitions enter the same focus, XKB, shortcut, Flutter and Wayland
 /// router as libinput keyboard events. The software keyboard is an input
-/// source; only text the keymap cannot type, and replacements of the word
-/// before the cursor, go to the focused editor as input-method commits.
+/// source typing through the active layout; only text that layout cannot
+/// type, and replacements of the word before the cursor, go to the focused
+/// editor as input-method commits.
 pub(crate) fn dispatch_shell_keyboard(
     state: &mut RuntimeState,
     command: &super::super::wire::KeyboardCommand,
@@ -500,17 +582,18 @@ pub(crate) fn dispatch_shell_keyboard(
             frontend.set_keyboard_height(*height, *duration_ms);
             true
         }
-        super::super::wire::KeyboardCommand::Text(text)
-            if text
-                .chars()
-                .any(|character| shell_text_key_stroke(character).is_none()) =>
-        {
-            // The keymap types ASCII only; an editor takes any text.
-            let frontend = state.frontend_mut();
-            match frontend.commit_shell_keyboard_text(None, text) {
-                Some(delivered) => delivered,
-                None => type_shell_text(state, &keyboard, text, time),
+        super::super::wire::KeyboardCommand::NextLayout => {
+            cycle_keyboard_layout(state, true);
+            true
+        }
+        super::super::wire::KeyboardCommand::Text(text) => {
+            // An editor takes any text, the layout only its own characters.
+            if shell_text_key_strokes(state, &keyboard, text).contains(&None)
+                && let Some(delivered) = state.frontend_mut().commit_shell_keyboard_text(None, text)
+            {
+                return delivered;
             }
+            type_shell_text(state, &keyboard, text, time)
         }
         super::super::wire::KeyboardCommand::Replace { replaced, text } => {
             let frontend = state.frontend_mut();
@@ -522,7 +605,8 @@ pub(crate) fn dispatch_shell_keyboard(
                 }
                 None => {
                     // No text-input: erase the word with keys and retype it.
-                    let Some(backspace) = shell_named_key_stroke("BackSpace") else {
+                    let Some(backspace) = shell_named_key_stroke(state, &keyboard, "BackSpace")
+                    else {
                         return false;
                     };
                     for _ in replaced.chars() {
@@ -532,11 +616,8 @@ pub(crate) fn dispatch_shell_keyboard(
                 }
             }
         }
-        super::super::wire::KeyboardCommand::Text(text) => {
-            type_shell_text(state, &keyboard, text, time)
-        }
         super::super::wire::KeyboardCommand::Key { key, ctrl, phase } => {
-            let Some(stroke) = shell_named_key_stroke(key) else {
+            let Some(stroke) = shell_named_key_stroke(state, &keyboard, key) else {
                 warn!(%key, "ignored unsupported shell keyboard key");
                 return false;
             };
@@ -563,9 +644,10 @@ fn type_shell_text(
     time: InputTime,
 ) -> bool {
     let mut delivered = false;
-    for character in text.chars() {
-        let Some(stroke) = shell_text_key_stroke(character) else {
-            warn!(%character, "ignored character unsupported by the shell keyboard keymap");
+    let strokes = shell_text_key_strokes(state, keyboard, text);
+    for (character, stroke) in text.chars().zip(strokes) {
+        let Some(stroke) = stroke else {
+            warn!(%character, "ignored character the active keyboard layout lacks");
             continue;
         };
         delivered |= inject_shell_key_stroke(state, keyboard, stroke, false, time);
@@ -708,6 +790,61 @@ fn projected_touch_point(
             rect.y - source.y * rect.height / source.height,
         ));
     (origin + Point::from((x, y)), origin)
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod layout_key_tests {
+    use super::*;
+
+    fn keys(layout: &str) -> ShellLayoutKeys {
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let keymap = xkb::Keymap::new_from_names(
+            &context,
+            "evdev",
+            "pc105",
+            layout,
+            "",
+            None,
+            xkb::KEYMAP_COMPILE_NO_FLAGS,
+        )
+        .expect("the keymap compiles");
+        ShellLayoutKeys::new(&keymap, 0)
+    }
+
+    fn stroke(evdev_keycode: u32, shift: bool, level3: Option<u32>) -> Option<ShellKeyStroke> {
+        Some(ShellKeyStroke {
+            evdev_keycode,
+            shift,
+            level3,
+        })
+    }
+
+    #[test]
+    fn each_layout_types_its_own_characters() {
+        let mut us = keys("us");
+        assert_eq!(us.stroke('a'), stroke(30, false, None));
+        assert_eq!(us.stroke('A'), stroke(30, true, None));
+        assert_eq!(us.stroke('1'), stroke(2, false, None));
+        assert_eq!(us.stroke('@'), stroke(3, true, None));
+        assert_eq!(us.stroke('è'), None);
+        // Not the keypad's asterisk, nor the ISO key US reads as another.
+        assert_eq!(us.stroke('*'), stroke(9, true, None));
+        assert_eq!(us.stroke('<'), stroke(51, true, None));
+
+        let mut azerty = keys("fr");
+        assert_eq!(azerty.stroke('a'), stroke(16, false, None));
+        assert_eq!(azerty.stroke('q'), stroke(30, false, None));
+        assert_eq!(azerty.stroke('1'), stroke(2, true, None));
+        assert_eq!(azerty.stroke('é'), stroke(3, false, None));
+        assert_eq!(azerty.stroke('@'), stroke(11, false, Some(100)));
+        assert_eq!(azerty.stroke('*'), stroke(43, false, None));
+        assert_eq!(azerty.stroke('<'), stroke(86, false, None));
+
+        let mut italian = keys("it");
+        assert_eq!(italian.stroke('-'), stroke(53, false, None));
+        assert_eq!(italian.stroke('è'), stroke(26, false, None));
+        assert_eq!(italian.stroke('@'), stroke(16, false, Some(100)));
+    }
 }
 
 #[cfg(all(test, feature = "flutter"))]
@@ -1815,6 +1952,15 @@ fn process_input_event(
             state.wake_key_pressed |= key_event.state() == KeyState::Pressed;
             return false;
         }
+        // Shoulder triggers become touches and reach no client as keys.
+        if let Some(trigger) = trigger_touch::trigger(key_event.key_code().raw()) {
+            return trigger_touch::handle(
+                state,
+                trigger,
+                key_event.state() == KeyState::Pressed,
+                key_event.time(),
+            );
+        }
         if key_event.key_code().raw() == 116 + 8 {
             state.power_button.note_key(
                 key_event.device().sysname(),
@@ -2073,6 +2219,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             .map(|frontend| frontend.touch_gestures.cancel_all())
             .unwrap_or_default();
         touch_gestures::apply_actions(state, actions);
+        flutter_route::end_shell_touch_grab(state, InputTime::now());
     }
     if reset.keyboard {
         state.native_escape_shortcut.reset();
@@ -2117,6 +2264,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             frontend.client_pointer_buttons.clear();
             frontend.client_pointer_presses.clear();
             frontend.flutter_pointer_press = None;
+            frontend.shell_window_grab_active = false;
             frontend.set_clipboard_drag_active(false);
             frontend.retired_pointer_buttons.clear();
             frontend.set_routed_pointer_target(RoutedPointerTarget::Flutter);
@@ -2489,17 +2637,33 @@ fn start_system_control_repeat(state: &mut RuntimeState, keycode: u32) {
 
 #[cfg(feature = "flutter")]
 fn dispatch_system_control_repeat(state: &mut RuntimeState, xkb_keycode: u32) -> bool {
-    if !state.flutter_active || state.secure_session_locked() {
+    if !state.flutter_active {
         return false;
     }
     let Some(evdev_keycode) = xkb_keycode.checked_sub(8) else {
         return false;
     };
     let disposition = state.native_escape_shortcut.observe(evdev_keycode, true);
+    if state.secure_session_locked() {
+        return adjust_locked_call(state, &disposition);
+    }
     if !disposition.repeats_with_timer() {
         return false;
     }
     execute_shortcut_disposition(state, disposition)
+}
+
+#[cfg(feature = "flutter")]
+fn adjust_locked_call(state: &RuntimeState, disposition: &ShortcutDisposition) -> bool {
+    let up = match disposition {
+        ShortcutDisposition::RequestVolumeUp => true,
+        ShortcutDisposition::RequestVolumeDown => false,
+        _ => return false,
+    };
+    if let Some(controls) = &state.system_controls {
+        controls.adjust_locked_call(up);
+    }
+    true
 }
 
 fn intercept_native_escape(
@@ -2531,6 +2695,12 @@ fn intercept_native_escape(
     }
     #[cfg(feature = "flutter")]
     if state.secure_session_locked() {
+        if adjust_locked_call(state, &disposition) {
+            if key_state == KeyState::Pressed {
+                start_system_control_repeat(state, xkb_keycode);
+            }
+            return true;
+        }
         return match disposition {
             ShortcutDisposition::Forward => false,
             ShortcutDisposition::RequestLock => {
@@ -3014,6 +3184,7 @@ fn release_pointer_to_shell(state: &mut RuntimeState) {
         frontend.client_pointer_buttons.clear();
         frontend.client_pointer_presses.clear();
         frontend.flutter_pointer_press = None;
+        frontend.shell_window_grab_active = false;
         frontend.set_clipboard_drag_active(false);
         let mut pressed_buttons = std::mem::take(&mut frontend.wayland_pointer_buttons)
             .into_iter()

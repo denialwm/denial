@@ -87,8 +87,10 @@ impl KeyboardLayout {
         }
     }
 
-    /// The mobile shell's letters layer on a `width` x `row_height` keyboard
-    /// (logical pixels), with its padding, gaps and second-row inset.
+    /// The mobile shell's US letters layer on a `width` x `row_height`
+    /// keyboard (logical pixels), with its padding and gaps. The second row's
+    /// nine letters are as wide as the first row's ten, half a key of space
+    /// at each side.
     pub fn phone(width: f32, row_height: f32) -> Self {
         let compact = width < 560.0;
         let padding = if compact { 8.0 } else { 12.0 };
@@ -97,7 +99,7 @@ impl KeyboardLayout {
         let inner = width - 2.0 * padding;
         let rows: [(&[(Option<u8>, f32)], f32); 3] = [
             (&row_keys(b"qwertyuiop"), 0.0),
-            (&row_keys(b"asdfghjkl"), 28.0f32.min(inner * 0.08)),
+            (&row_keys(b"asdfghjkl"), 0.5 * (inner + gap) / 10.0),
             (&with_ends(b"zxcvbnm"), 0.0),
         ];
         let mut out = Vec::new();

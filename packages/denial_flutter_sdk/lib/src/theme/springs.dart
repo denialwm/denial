@@ -61,6 +61,14 @@ abstract final class ShellSprings {
   static const motor.Motion cardReturn = motor.SpringMotion(Motion.bouncy);
   static const motor.Motion cardDismiss = motor.SpringMotion(Motion.snappy);
 
+  /// The status bar sliding off the top over a full-screen app, and back
+  /// when the app leaves full screen. Normalised; it lands exactly, so the
+  /// bar stops drawing once it is out of sight.
+  static const motor.Motion statusBar = motor.SpringMotion(
+    Motion.snappy,
+    snapToEnd: true,
+  );
+
   /// Content changing in place, such as a placeholder giving way to the
   /// app's first frame.
   static const motor.Motion contentFade = motor.CupertinoMotion(

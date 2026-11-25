@@ -585,6 +585,7 @@ class _RenderBackdropSlice extends RenderBox {
 
   @override
   void dispose() {
+    _frozenLayer.layer = null;
     _shader?.dispose();
     _shader = null;
     super.dispose();
@@ -619,9 +620,10 @@ class _RenderBackdropSlice extends RenderBox {
     }
     final overlay = alpha > 0 ? _overlayColor.withValues(alpha: alpha) : null;
     if (opacity > 0 &&
-        _paintMaterial(canvas, toFrame, offset, shape, opacity, overlay)) {
+        _paintMaterial(context, toFrame, offset, shape, opacity, overlay)) {
       return;
     }
+    _frozenLayer.layer = null;
     if (overlay != null) {
       canvas.drawRRect(shape, Paint()..color = overlay);
     }
@@ -630,7 +632,7 @@ class _RenderBackdropSlice extends RenderBox {
   /// Returns whether the material also drew [overlay], as the glass shader
   /// does in the same pass.
   bool _paintMaterial(
-    Canvas canvas,
+    PaintingContext context,
     Matrix4 toFrame,
     Offset offset,
     RRect shape,
@@ -650,10 +652,36 @@ class _RenderBackdropSlice extends RenderBox {
       );
       // The shader masks itself to the window's shape.
       if (shader != null) {
-        canvas.drawRect(shape.outerRect, _glassPaint..shader = shader);
+        final layer = _frozenLayer.layer ??= _FrozenGlassLayer();
+        if (!layer.update(
+          glass: _glassFilter(glass, shape),
+          frost: _backdrop.image,
+          frostRect: _frostRect(toFrame, offset),
+          overlay: overlay ?? const Color(0x00000000),
+          opacity: opacity,
+        )) {
+          _frozenLayer.layer = null;
+          context.canvas.drawRect(
+            shape.outerRect,
+            _glassPaint..shader = shader,
+          );
+          return true;
+        }
+        context.pushLayer(
+          layer,
+          (context, offset) => context.canvas.drawRect(
+            shape.outerRect,
+            _glassPaint..shader = shader,
+          ),
+          Offset.zero,
+        );
+      } else {
+        _frozenLayer.layer = null;
       }
       return true;
     }
+    _frozenLayer.layer = null;
+    final canvas = context.canvas;
     final fromFrame = Matrix4.tryInvert(toFrame);
     if (fromFrame == null) return false;
     final image = _backdrop.image;
@@ -684,6 +712,52 @@ class _RenderBackdropSlice extends RenderBox {
   }
 
   final _glassPaint = Paint();
+
+  /// Carries the glass to a compositor that draws it from the frost
+  /// (Denial's scene composer); the shader draw is its child, for every
+  /// other.
+  final LayerHandle<_FrozenGlassLayer> _frozenLayer =
+      LayerHandle<_FrozenGlassLayer>();
+
+  /// The frost's rect in paint coordinates.
+  Rect _frostRect(Matrix4 toFrame, Offset offset) {
+    final fromFrame = Matrix4.tryInvert(toFrame);
+    if (fromFrame == null) return Rect.zero;
+    return MatrixUtils.transformRect(fromFrame, _backdrop.rect).shift(offset);
+  }
+
+  /// window_glass.frag's material as engine glass over [shape]. The engine
+  /// scales lengths with the transform, while this glass keeps its depth
+  /// on screen: the thickness is given in local units that make the same
+  /// physical depth.
+  ui.ImageFilter _glassFilter(WindowGlassShading glass, RRect shape) {
+    final global = getTransformTo(null).storage;
+    final scaleX =
+        math.sqrt(global[0] * global[0] + global[1] * global[1]) *
+        _devicePixelRatio;
+    final scaleY =
+        math.sqrt(global[4] * global[4] + global[5] * global[5]) *
+        _devicePixelRatio;
+    final scale = math.max((scaleX + scaleY) / 2, 1e-6);
+    return ui.ImageFilter.glass(
+      shape: shape,
+      thickness: glass.thickness * _devicePixelRatio / scale,
+      refraction: glass.refraction,
+      dispersion: glass.dispersion,
+      saturation: glass.saturation,
+      tint: glass.tint,
+      tintStrength: glass.tintStrength,
+      brightness: glass.brightness,
+      lightAngle: glass.lightAngle,
+      lightIntensity: glass.lightIntensity,
+      edgeStrength: glass.edgeStrength,
+      bevelWidthScale: glass.bevelWidthScale,
+      refractionDepthScale: glass.refractionDepthScale,
+      rimWidth: glass.rimWidth,
+      rimFalloff: glass.rimFalloff,
+      oppositeLightStrength: glass.oppositeLightStrength,
+    );
+  }
 
   /// Sets the uniforms of window_glass.frag. Its lengths are physical pixels.
   /// The shape follows the full on-screen scale, but the glass keeps its
@@ -794,4 +868,54 @@ class _RenderBackdropSlice extends RenderBox {
 
   ui.Image? _boundFrost;
   ui.Image? _boundShaded;
+}
+
+/// Denial glass over a frost made once for a scene (SceneBuilder
+/// .pushFrozenGlass). Its children draw the same material for a compositor
+/// that does not draw it from the frost.
+class _FrozenGlassLayer extends ContainerLayer {
+  ui.ImageFilter? _glass;
+  ui.Image? _frost;
+  Rect _frostRect = Rect.zero;
+  Color _overlay = const Color(0x00000000);
+  double _opacity = 1;
+
+  /// Returns false when the frost cannot be described: the children then
+  /// draw the material inline.
+  bool update({
+    required ui.ImageFilter glass,
+    required ui.Image frost,
+    required Rect frostRect,
+    required Color overlay,
+    required double opacity,
+  }) {
+    if (!frostRect.isFinite || frostRect.isEmpty) return false;
+    if (glass != _glass ||
+        !identical(frost, _frost) ||
+        frostRect != _frostRect ||
+        overlay != _overlay ||
+        opacity != _opacity) {
+      _glass = glass;
+      _frost = frost;
+      _frostRect = frostRect;
+      _overlay = overlay;
+      _opacity = opacity;
+      markNeedsAddToScene();
+    }
+    return true;
+  }
+
+  @override
+  void addToScene(ui.SceneBuilder builder) {
+    engineLayer = builder.pushFrozenGlass(
+      glass: _glass!,
+      frost: _frost!,
+      frostRect: _frostRect,
+      overlay: _overlay,
+      opacity: _opacity,
+      oldLayer: engineLayer as ui.FrozenGlassEngineLayer?,
+    );
+    addChildrenToScene(builder);
+    builder.pop();
+  }
 }

@@ -69,12 +69,16 @@ class _AlignedSystemBarRequestObjectBuilder extends fb.ObjectBuilder {
     required this.monitorIds,
     required this.systemBarThickness,
     required this.maximizePadding,
+    this.outputMonitorId = -1,
   });
 
   final generated.SystemBarSide side;
   final List<int> monitorIds;
   final double systemBarThickness;
   final double maximizePadding;
+
+  /// With a monitor id, the thickness and padding are that output's alone.
+  final int outputMonitorId;
 
   @override
   int finish(fb.Builder builder) {
@@ -83,6 +87,9 @@ class _AlignedSystemBarRequestObjectBuilder extends fb.ObjectBuilder {
     builder.addUint8(0, generated.WindowRequestKind.ConfigureSystemBar.value);
     builder.addUint8(5, side.value);
     builder.addOffset(6, monitorIdsOffset);
+    if (outputMonitorId != -1) {
+      builder.addInt64(8, outputMonitorId);
+    }
     builder.addFloat64(10, systemBarThickness);
     builder.addFloat64(11, maximizePadding);
     return builder.endTable();
@@ -121,6 +128,28 @@ int _writeAlignedInt64Vector(fb.Builder builder, List<int> values) {
     builder.putInt64(values[index]);
   }
   return builder.endStructVector(values.length);
+}
+
+generated.WireInsetsObjectBuilder _insetsBuilder(
+  DenialWindowFrameMargins margins,
+) {
+  return generated.WireInsetsObjectBuilder(
+    left: margins.left,
+    top: margins.top,
+    right: margins.right,
+    bottom: margins.bottom,
+  );
+}
+
+/// [rect] as native accepts a window rectangle: whole pixels, on the scene,
+/// no smaller than a window can be.
+Rect denialWireWindowGeometry(Rect rect) {
+  return Rect.fromLTWH(
+    rect.left.round().clamp(0, 16384).toDouble(),
+    rect.top.round().clamp(0, 16384).toDouble(),
+    rect.width.round().clamp(64, 16384).toDouble(),
+    rect.height.round().clamp(64, 16384).toDouble(),
+  );
 }
 
 generated.WireRectObjectBuilder _rectBuilder(Rect rect) {

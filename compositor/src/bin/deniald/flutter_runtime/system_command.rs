@@ -73,6 +73,7 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "LISTEN_PID",
     "SYSTEMD_EXEC_PID",
     "DENIAL_NO_RT",
+    "DENIAL_NO_VULKAN",
     "DENIAL_LAUNCH_REQUEST_ID",
     "DENIA_LAUNCH_REQUEST_ID",
     "DENIAL_SOCKET",
@@ -933,6 +934,7 @@ fn application_command(
                 return Err(io::Error::from_raw_os_error(result));
             }
             crate::cpu_scheduling::reset_application_scheduling()?;
+            crate::open_file_limit::restore_in_child()?;
             Ok(())
         });
     }

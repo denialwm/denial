@@ -27,7 +27,8 @@ class ShellWallpaper extends ConsumerWidget {
   static const String assetPath = defaultShellWallpaperAsset;
 
   /// Names of the outputs a client's own wallpaper covers, such as a live
-  /// wallpaper. They are painted black and their picture is not loaded.
+  /// wallpaper. Nothing is painted there and their picture is not loaded:
+  /// the frame is cleared to black under the client.
   final Set<String> coveredOutputs;
 
   /// Called from paint whenever the wallpaper repaints, with the boundary
@@ -72,50 +73,55 @@ class ShellWallpaper extends ConsumerWidget {
           });
         }
 
-        return _WallpaperBoundary(
-          onPainted: onPainted,
-          child: ColoredBox(
-            color: context.shellColors.launchSurface,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                WallpaperScene(
-                  assignment: wallpaper.assignment,
+        final scenes = Stack(
+          fit: StackFit.expand,
+          children: [
+            WallpaperScene(
+              assignment: wallpaper.assignment,
+              outputs: outputs,
+              spanRect: spanRect,
+              spanPixelSize: spanPixelSize,
+              coveredOutputs: coveredOutputs,
+            ),
+            if (animateOutgoing)
+              TweenAnimationBuilder<double>(
+                key: ValueKey<int>(wallpaper.transitionId),
+                tween: Tween<double>(begin: 0.0, end: 1.0),
+                duration: Motion.wallpaperReveal,
+                curve: Motion.md3Emphasized,
+                onEnd: () => _completeTransition(ref, wallpaper.transitionId),
+                builder: (context, progress, child) {
+                  return ClipPath(
+                    clipper: _ExpandingWallpaperHoleClipper(
+                      targetRect: transitionRect,
+                      originFraction: wallpaper.revealOriginFraction,
+                      progress: progress,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: child,
+                  );
+                },
+                child: WallpaperScene(
+                  assignment: outgoing,
                   outputs: outputs,
                   spanRect: spanRect,
                   spanPixelSize: spanPixelSize,
                   coveredOutputs: coveredOutputs,
                 ),
-                if (animateOutgoing)
-                  TweenAnimationBuilder<double>(
-                    key: ValueKey<int>(wallpaper.transitionId),
-                    tween: Tween<double>(begin: 0.0, end: 1.0),
-                    duration: Motion.wallpaperReveal,
-                    curve: Motion.md3Emphasized,
-                    onEnd: () =>
-                        _completeTransition(ref, wallpaper.transitionId),
-                    builder: (context, progress, child) {
-                      return ClipPath(
-                        clipper: _ExpandingWallpaperHoleClipper(
-                          targetRect: transitionRect,
-                          originFraction: wallpaper.revealOriginFraction,
-                          progress: progress,
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: child,
-                      );
-                    },
-                    child: WallpaperScene(
-                      assignment: outgoing,
-                      outputs: outputs,
-                      spanRect: spanRect,
-                      spanPixelSize: spanPixelSize,
-                      coveredOutputs: coveredOutputs,
-                    ),
-                  ),
-              ],
-            ),
-          ),
+              ),
+          ],
+        );
+        // With outputs covered, each uncovered output fills its own
+        // rectangle instead (WallpaperScene), so nothing is painted under
+        // a covering client.
+        return _WallpaperBoundary(
+          onPainted: onPainted,
+          child: coveredOutputs.isEmpty
+              ? ColoredBox(
+                  color: context.shellColors.launchSurface,
+                  child: scenes,
+                )
+              : scenes,
         );
       },
     );
@@ -249,7 +255,9 @@ class WallpaperScene extends StatelessWidget {
   final Rect spanRect;
   final Size spanPixelSize;
 
-  /// Outputs painted black instead of their picture.
+  /// Outputs that show nothing instead of their picture (black from the
+  /// frame's clear): painting black there would draw the whole display once
+  /// more under the client on every frame it redraws.
   final Set<String> coveredOutputs;
 
   @override
@@ -272,26 +280,25 @@ class WallpaperScene extends StatelessWidget {
             ),
           ),
         for (final output in outputs)
-          Positioned.fromRect(
-            rect: output.logicalRect,
-            child: coveredOutputs.contains(output.name)
-                ? ColoredBox(
-                    key: ValueKey<String>('wallpaper-covered-${output.name}'),
-                    color: const Color(0xff000000),
-                  )
-                : _WallpaperImage(
-                    key: ValueKey<String>(
-                      'wallpaper-image-output-${output.name}',
-                    ),
-                    resource: assignment.forOutput(output.name),
-                    targetPixelSize: output.pixelSize,
-                    alignment: Alignment(
-                      assignment.alignmentForOutput(output.name).x,
-                      assignment.alignmentForOutput(output.name).y,
-                    ),
-                    zoom: assignment.zoomForOutput(output.name),
+          if (!coveredOutputs.contains(output.name))
+            Positioned.fromRect(
+              rect: output.logicalRect,
+              child: _filled(
+                context,
+                _WallpaperImage(
+                  key: ValueKey<String>(
+                    'wallpaper-image-output-${output.name}',
                   ),
-          ),
+                  resource: assignment.forOutput(output.name),
+                  targetPixelSize: output.pixelSize,
+                  alignment: Alignment(
+                    assignment.alignmentForOutput(output.name).x,
+                    assignment.alignmentForOutput(output.name).y,
+                  ),
+                  zoom: assignment.zoomForOutput(output.name),
+                ),
+              ),
+            ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)
           Positioned.fromRect(
             rect: spanRect,
@@ -313,6 +320,12 @@ class WallpaperScene extends StatelessWidget {
       ],
     );
   }
+
+  /// ShellWallpaper fills the whole canvas only when no output is covered;
+  /// otherwise each picture fills its own output until it is decoded.
+  Widget _filled(BuildContext context, Widget image) => coveredOutputs.isEmpty
+      ? image
+      : ColoredBox(color: context.shellColors.launchSurface, child: image);
 }
 
 class _WallpaperDarknessLayer extends StatelessWidget {

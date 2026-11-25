@@ -9,6 +9,7 @@ import '../widgets/desktop_window_switcher.dart';
 import 'desktop_home_layout.dart';
 import 'desktop_minimize_layer_handoff.dart';
 import 'desktop_pixel_alignment.dart';
+import 'desktop_plugin_window_frame.dart';
 import 'desktop_popup_surface_layers.dart';
 import 'desktop_window_frame.dart';
 import 'desktop_workspace.dart';
@@ -133,7 +134,7 @@ List<Widget> buildDesktopWindowLayers({
     );
     final frame = desktopPixelAlignedWindowFrame(
       frame: arrangedFrame,
-      contentInset: placement.frameBorder,
+      contentInsets: placement.frameMargins,
       devicePixelRatio: outputPixelGrid?.scale ?? devicePixelRatio,
       pixelGridOrigin: outputPixelGrid?.logicalRect.topLeft ?? Offset.zero,
       enabled: !overview && !departing && !switching && !minimizedIdle,
@@ -175,12 +176,34 @@ List<Widget> buildDesktopWindowLayers({
     final held = desktopWidget || departing
         ? const <DenialWindow>[]
         : heldLayers[placement.objectId] ?? const <DenialWindow>[];
+    // A plugin's frame takes presses on a band around a resting window. It
+    // lies under the window and over everything below it.
+    final frameReach = placement.frameReach;
+    if (frameReach != EdgeInsets.zero &&
+        visible &&
+        !placement.minimized &&
+        !overview &&
+        !departing &&
+        !switching) {
+      layers.add(
+        DesktopWindowFrameReach(
+          key: ValueKey<String>('desktop-frame-reach-${placement.objectId}'),
+          window: window,
+          frame: frame,
+          active: active && !desktopVisible,
+          margins: placement.frameMargins,
+          reach: frameReach,
+          scale: placement.frameScale,
+        ),
+      );
+    }
     layers.add(
       DesktopWindowFrame(
         key: windowFrameKeys.putIfAbsent(placement.objectId, () => GlobalKey()),
         window: window,
         placement: placement,
         frame: frame,
+        unalignedFrameOrigin: arrangedFrame.topLeft,
         minimized: !visible,
         desktopWidget: desktopWidget,
         offscreenMinimized: minimizingForeground || offscreenMinimized,
@@ -212,6 +235,7 @@ List<Widget> buildDesktopWindowLayers({
           window: window,
           placement: placement,
           frame: frame,
+          unalignedFrameOrigin: arrangedFrame.topLeft,
           minimized: !visible,
           offscreenMinimized: minimizingForeground || offscreenMinimized,
           overviewActive: desktop.overviewActive,

@@ -45,6 +45,13 @@ pub(in super::super) fn cancel_captured_touch_routes(
         (flutter_slots, cancel_client, touch)
     };
     state.flutter_input.cancel_touch_slots(&flutter_slots);
+    if state
+        .frontend()
+        .shell_touch_grab_slot
+        .is_some_and(|slot| slots.contains(&slot))
+    {
+        end_shell_touch_grab(state, InputTime::now());
+    }
     if let Some(touch) = touch {
         touch.cancel(state);
         if touch.is_grabbed() {
@@ -52,6 +59,66 @@ pub(in super::super) fn cancel_captured_touch_routes(
         }
     }
     cancel_client
+}
+
+/// Moves the window grab a contact drives to where the contact is now.
+#[cfg(feature = "flutter")]
+fn move_shell_touch_grab(
+    state: &mut RuntimeState,
+    position: Point<f64, Logical>,
+    time: InputTime,
+) -> bool {
+    let pointer = state
+        .frontend()
+        .seat
+        .get_pointer()
+        .expect("seat has no pointer");
+    if !pointer.is_grabbed() {
+        // The grab ended by itself. The contact has nothing left to drive.
+        return false;
+    }
+    // The cursor stays where the mouse left it: only the grab follows the
+    // contact.
+    pointer.motion(
+        state,
+        None,
+        &MotionEvent {
+            location: position,
+            serial: SERIAL_COUNTER.next_serial(),
+            time,
+        },
+    );
+    pointer.frame(state);
+    true
+}
+
+/// Ends the window grab a contact drives: the contact lifted or was taken
+/// away. Returns whether a contact drove one.
+#[cfg(feature = "flutter")]
+pub(in super::super) fn end_shell_touch_grab(state: &mut RuntimeState, time: InputTime) -> bool {
+    let Some(frontend) = state.wayland.as_mut() else {
+        return false;
+    };
+    if frontend.shell_touch_grab_slot.take().is_none() {
+        return false;
+    }
+    frontend.shell_window_grab_active = false;
+    let pointer = frontend.seat.get_pointer().expect("seat has no pointer");
+    if !pointer.is_grabbed() {
+        return true;
+    }
+    // The grab began with a primary press seeded for it; this is its release.
+    pointer.button(
+        state,
+        &ButtonEvent {
+            button: BTN_LEFT,
+            state: ButtonState::Released,
+            serial: SERIAL_COUNTER.next_serial(),
+            time,
+        },
+    );
+    pointer.frame(state);
+    true
 }
 
 /// Follows a client contact that started in a shell edge-swipe region. Once
@@ -292,6 +359,11 @@ pub(super) fn process_flutter_input_event(
                         frontend.text_input.note_flutter_touch();
                     }
                     frontend.flutter_touch_slots.insert(slot);
+                    frontend.flutter_touch_press = Some(FlutterTouchPress {
+                        slot,
+                        time: touch_event.time(),
+                        location: position,
+                    });
                     let scale = frontend.atlas_scale;
                     state.flutter_input.handle_touch_at(
                         &event,
@@ -382,6 +454,9 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return move_shell_touch_grab(state, position, touch_event.time());
+            }
             let flutter_target = state.frontend().flutter_touch_slots.contains(&slot);
             if flutter_target {
                 let scale = state.frontend().atlas_scale;
@@ -454,6 +529,9 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return end_shell_touch_grab(state, touch_event.time());
+            }
             let flutter_target = state.frontend_mut().flutter_touch_slots.remove(&slot);
             if flutter_target {
                 state.flutter_input.handle(&event);
@@ -525,6 +603,9 @@ pub(super) fn process_flutter_input_event(
             if gesture_consumed {
                 return flush_clients;
             }
+            if state.frontend().shell_touch_grab_slot == Some(slot) {
+                return end_shell_touch_grab(state, touch_event.time());
+            }
             let flutter_target = state.frontend_mut().flutter_touch_slots.remove(&slot);
             if flutter_target {
                 state.flutter_input.handle(&event);
@@ -562,12 +643,12 @@ pub(super) fn deliver_routed_flutter_pointer_motion(
     let Some((x, y)) = position else {
         return;
     };
+    if let Some(frontend) = state.wayland.as_mut() {
+        frontend.queue_cursor_position();
+    }
     match target {
         RoutedPointerTarget::Flutter => state.flutter_input.handle_pointer_motion_at(x, y),
         RoutedPointerTarget::Client(_) => {
-            if let Some(frontend) = state.wayland.as_mut() {
-                frontend.queue_cursor_position();
-            }
             // This is intentionally retried for every client-routed sample.
             // A Flutter-owned drag keeps its Down lifecycle until drop, so the
             // first eligible Remove can occur after the route itself changed.
@@ -978,6 +1059,10 @@ pub(in super::super) fn release_client_geometry_for_shell_grab(
     state: &mut RuntimeState,
     window: &smithay::desktop::Window,
 ) {
+    let was_maximized = state
+        .frontend()
+        .managed_window_presentation(window)
+        .maximized;
     let client_constraints_cleared =
         super::super::window_management::clear_client_geometry_constraints(window);
 
@@ -993,7 +1078,12 @@ pub(in super::super) fn release_client_geometry_for_shell_grab(
             let surface_id = surface.id();
             let presentation = frontend.take_shell_presentation(&surface_id);
             let shell_owned = presentation.is_some();
-            if layout_managed {
+            if !layout_managed && was_maximized {
+                // The drag takes over the maximized rectangle. Only an explicit
+                // restore should apply the saved normal rectangle.
+                frontend.clear_restore_geometry(&surface_id);
+            }
+            if layout_managed || was_maximized {
                 return (Some(frontend.window_geometry_target(window)), shell_owned);
             }
             let restore = presentation
@@ -1245,6 +1335,260 @@ pub(super) fn begin_super_pointer_grab(
     true
 }
 
+/// Starts a compositor-owned move or resize of `window_id` from the pointer
+/// press the shell holds: the press went down on something the shell draws,
+/// a title bar or a border, and the shell asks for the window to follow.
+///
+/// `edges` (`WINDOW_RESIZE_*`) makes it a resize. Flutter keeps the press it
+/// began with and is told when the button comes up, so its own gesture ends
+/// normally; the window itself has one writer for the whole drag, this grab.
+#[cfg(feature = "flutter")]
+pub(in super::super) fn begin_shell_window_grab(
+    state: &mut RuntimeState,
+    window_id: u64,
+    edges: Option<u32>,
+) -> bool {
+    let pointer = state
+        .frontend()
+        .seat
+        .get_pointer()
+        .expect("seat has no pointer");
+    if state.secure_session_locked()
+        || pointer.is_grabbed()
+        || state.frontend().clipboard_drag_active
+        || state.frontend().shell_window_grab_active
+    {
+        warn!(
+            window_id,
+            "refused a shell window drag: the pointer is not free"
+        );
+        return false;
+    }
+    let edges = match edges {
+        None => None,
+        Some(edges) => {
+            let Some(edges) = xdg_toplevel::ResizeEdge::try_from(edges)
+                .ok()
+                .and_then(ResizeEdges::from_xdg)
+            else {
+                return false;
+            };
+            Some(edges)
+        }
+    };
+    let change = if edges.is_some() {
+        WindowPlacementChange::Resize
+    } else {
+        WindowPlacementChange::Move
+    };
+    // A drag starts from what the shell holds: the primary button, or failing
+    // that its latest contact, which then drives the grab as the button would.
+    let (press, touch_slot) = {
+        let frontend = state.frontend();
+        let button = state
+            .flutter_input
+            .pointer_captured()
+            .then_some(frontend.flutter_pointer_press)
+            .flatten();
+        let touch = frontend
+            .flutter_touch_press
+            .filter(|touch| frontend.flutter_touch_slots.contains(&touch.slot));
+        match (button, touch) {
+            (Some(press), _) => (press, None),
+            (None, Some(touch)) => (
+                FlutterPointerPress {
+                    button: BTN_LEFT,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time: touch.time,
+                    location: touch.location,
+                },
+                Some(touch.slot),
+            ),
+            (None, None) => {
+                // The other buttons have no press to hand over.
+                warn!(
+                    window_id,
+                    "refused a shell window drag: the shell holds no primary press or touch"
+                );
+                return false;
+            }
+        }
+    };
+    let serial = press.serial;
+    let local = state.frontend().is_local_flutter_window(window_id);
+
+    // Everything that can still refuse is decided before the press is taken.
+    enum Target {
+        Local(super::super::super::wire::WindowGeometry),
+        Tiled(smithay::desktop::Window, Rectangle<i32, Logical>),
+        Floating(
+            smithay::desktop::Window,
+            Point<i32, Logical>,
+            Rectangle<i32, Logical>,
+        ),
+    }
+    let target = if local {
+        let Some(geometry) = state.frontend().local_flutter_window_geometry(window_id) else {
+            return false;
+        };
+        Target::Local(geometry)
+    } else {
+        let Some(window) = state.frontend().window_for_id(window_id) else {
+            warn!(window_id, "refused a shell window drag of a stale window");
+            return false;
+        };
+        {
+            let frontend = state.frontend();
+            // Fullscreen and compositor-owned viewports do not move.
+            if frontend.managed_window_presentation(&window).fullscreen
+                || frontend.exact_window_geometry(&window).is_some()
+                || frontend.mobile_window_geometry(&window).is_some()
+            {
+                return false;
+            }
+        }
+        release_client_geometry_for_shell_grab(state, &window);
+        let frontend = state.frontend();
+        let geometry = frontend.window_geometry_target(&window);
+        if frontend.window_is_layout_managed(&window) {
+            Target::Tiled(window, geometry)
+        } else {
+            if edges.is_some() && !frontend.window_accepts_grab_updates(&window) {
+                return false;
+            }
+            let location = frontend.space.element_location(&window).unwrap_or_default();
+            Target::Floating(window, location, geometry)
+        }
+    };
+
+    state.frontend_mut().flutter_pointer_press = None;
+    match &target {
+        Target::Local(_) => {
+            if !super::super::window_management::activate_local_flutter_window(state, window_id) {
+                return false;
+            }
+        }
+        Target::Tiled(window, _) | Target::Floating(window, _, _) => {
+            super::super::window_management::activate_window(state, window, serial);
+        }
+    }
+    // Shell-owned pointer presses deliberately do not enter Smithay's seat
+    // state. Seed the press now so the grab can tell when it is released.
+    pointer.button(
+        state,
+        &ButtonEvent {
+            button: press.button,
+            state: ButtonState::Pressed,
+            serial,
+            time: press.time,
+        },
+    );
+    let start_data = GrabStartData {
+        focus: None,
+        button: press.button,
+        location: press.location,
+    };
+    state.frontend_mut().shell_window_grab_active = true;
+    if let Some(slot) = touch_slot {
+        // The contact is the grab's from here on. The shell sees it cancelled,
+        // so none of its gestures goes on beside the drag.
+        let frontend = state.frontend_mut();
+        frontend.flutter_touch_press = None;
+        frontend.flutter_touch_slots.remove(&slot);
+        frontend.shell_touch_grab_slot = Some(slot);
+        state.flutter_input.cancel_touch_slots(&[slot]);
+    }
+    match target {
+        Target::Local(geometry) => {
+            super::super::window_management::queue_local_flutter_window_placement(
+                state,
+                window_id,
+                WindowPlacementPhase::Begin,
+                change,
+            );
+            let grab = match edges {
+                None => LocalFlutterWindowGrab::new_move(start_data, window_id, geometry),
+                Some(edges) => {
+                    LocalFlutterWindowGrab::new_resize(start_data, window_id, geometry, edges)
+                }
+            };
+            pointer.set_grab(state, grab, serial, Focus::Clear);
+        }
+        Target::Tiled(window, geometry) => {
+            state
+                .frontend_mut()
+                .set_compositor_pointer_grab_active(true);
+            super::super::queue_transient_window_placement(
+                state,
+                &window,
+                geometry,
+                WindowPlacementPhase::Begin,
+                change,
+            );
+            match edges {
+                None => pointer.set_grab(
+                    state,
+                    TileMoveGrab::new(start_data, window, geometry),
+                    serial,
+                    Focus::Clear,
+                ),
+                // The layout decides which boundary the pointer drives.
+                Some(_) => {
+                    let edges = LayoutResizeEdges::from_pointer(press.location, geometry, None);
+                    pointer.set_grab(
+                        state,
+                        TileResizeGrab::new(start_data, window, edges),
+                        serial,
+                        Focus::Clear,
+                    );
+                }
+            }
+        }
+        Target::Floating(window, location, geometry) => {
+            state
+                .frontend_mut()
+                .set_compositor_pointer_grab_active(true);
+            super::super::queue_window_placement(
+                state,
+                &window,
+                geometry,
+                WindowPlacementPhase::Begin,
+                change,
+            );
+            match edges {
+                None => pointer.set_grab(
+                    state,
+                    MoveSurfaceGrab::new_compositor(start_data, window, location),
+                    serial,
+                    Focus::Clear,
+                ),
+                Some(edges) => {
+                    state.frontend().prepare_window_interactive_resize(
+                        &window,
+                        geometry.size,
+                        false,
+                    );
+                    pointer.set_grab(
+                        state,
+                        ResizeSurfaceGrab::new_compositor(
+                            start_data,
+                            window,
+                            edges,
+                            location,
+                            geometry.size,
+                        ),
+                        serial,
+                        Focus::Clear,
+                    );
+                }
+            }
+        }
+    }
+    pointer.frame(state);
+    state.scene_sync.mark_dirty();
+    true
+}
+
 pub(super) fn process_wayland_keyboard_transition(
     state: &mut RuntimeState,
     keycode: Keycode,
@@ -1424,6 +1768,20 @@ pub(in super::super) fn route_pointer_button(
             }
             _ => {}
         }
+    }
+    if button_state == ButtonState::Released
+        && state.frontend().shell_touch_grab_slot.is_none()
+        && std::mem::take(&mut state.frontend_mut().shell_window_grab_active)
+        && pointer_grabbed
+        && !secure_locked
+    {
+        // The grab consumes this release. Flutter still holds the press the
+        // drag began with; without its release the shell's gesture, and its
+        // pointer capture, would never end.
+        state.synchronize_flutter_pointer_position();
+        state
+            .flutter_input
+            .handle_pointer_button(button_code, button_state);
     }
     if clipboard_drag_active && button_state == ButtonState::Released {
         // A compositor-owned DnD grab still mirrors the terminal

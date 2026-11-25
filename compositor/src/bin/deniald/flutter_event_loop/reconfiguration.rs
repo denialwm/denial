@@ -67,8 +67,9 @@ impl Session<'_, '_> {
             kms_reconfigure_requested,
             resident_geometry_reconfigure_requested,
         } = request;
-        let ConfiguredOutputs { outputs, selection } =
-            connected_outputs(drm_scanner, drm, max_outputs, output_configuration)?;
+        let ConfiguredOutputs {
+            outputs, selection, ..
+        } = connected_outputs(drm_scanner, drm, max_outputs, output_configuration)?;
         policy_journal.record(&selection);
         // The DPMS debounce judges connectors. A fallback output and the panels
         // under a closed lid are lit or dark by policy, so they are left out: a

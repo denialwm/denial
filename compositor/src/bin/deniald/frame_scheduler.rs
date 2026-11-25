@@ -61,6 +61,7 @@ pub(super) struct OutputFrameRequest {
     pub(super) dirty_serial: u64,
     pub(super) lock_frame_token: u64,
     pub(super) fingerprint_epoch: u64,
+    pub(super) hardware_cursor: bool,
 }
 
 #[derive(Debug, Default)]
@@ -364,6 +365,7 @@ impl FrameScheduler {
                 dirty_serial: dirty.serial,
                 lock_frame_token: 0,
                 fingerprint_epoch: 0,
+                hardware_cursor: false,
             });
             self.render_texture_ids
                 .extend(dirty.texture_ids.keys().copied());

@@ -65,6 +65,7 @@ class PhoneDeskLayout {
       systemBarThickness: layout.systemBarThickness,
       maximizePadding: layout.maximizePadding,
       outputs: desks,
+      shellMetrics: layout.shellMetrics,
     );
   }
 

@@ -34,15 +34,90 @@ impl ClientRelease {
         })
     }
 
-    /// Record `fence`, a submission that sampled the buffer. Submissions
-    /// complete in order, so the newest one covers every earlier sample.
+    /// Record `fence`, a submission that sampled the buffer. Submissions on
+    /// one queue complete in order, so the newest covers every earlier
+    /// sample. The Vulkan composer adds a second queue: a sample on the other
+    /// one that may still run is merged in.
     #[cfg(feature = "flutter")]
     pub(crate) fn sampled_by(&self, fence: &Arc<OwnedFd>) {
-        *self
+        let mut sampled = self
             .sampled
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::clone(fence));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if crate::options::VULKAN_COMPOSER.load(std::sync::atomic::Ordering::Relaxed)
+            && let Some(previous) = sampled.as_ref()
+            && !Arc::ptr_eq(previous, fence)
+            && !signalled(previous)
+        {
+            match merge(previous, fence) {
+                Ok(merged) => {
+                    *sampled = Some(Arc::new(merged));
+                    return;
+                }
+                Err(error) => {
+                    warn!(%error, "could not merge release fences; waiting for the earlier one");
+                    wait(previous);
+                }
+            }
+        }
+        *sampled = Some(Arc::clone(fence));
     }
+}
+
+#[cfg(feature = "flutter")]
+fn poll_fence(fence: &OwnedFd, timeout_ms: i32) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut pollfd = libc::pollfd {
+        fd: fence.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: one valid pollfd for a live descriptor.
+        let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if ready >= 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return ready > 0;
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn signalled(fence: &OwnedFd) -> bool {
+    poll_fence(fence, 0)
+}
+
+#[cfg(feature = "flutter")]
+fn wait(fence: &OwnedFd) {
+    poll_fence(fence, -1);
+}
+
+/// A sync_file that signals once both do (SYNC_IOC_MERGE).
+#[cfg(feature = "flutter")]
+fn merge(first: &OwnedFd, second: &OwnedFd) -> std::io::Result<OwnedFd> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    #[repr(C)]
+    struct SyncMergeData {
+        name: [u8; 32],
+        fd2: i32,
+        fence: i32,
+        flags: u32,
+        pad: u32,
+    }
+    const SYNC_IOC_MERGE: libc::c_ulong = 0xc030_3e03;
+    let mut data = SyncMergeData {
+        name: *b"denial-client-release\0\0\0\0\0\0\0\0\0\0\0",
+        fd2: second.as_raw_fd(),
+        fence: -1,
+        flags: 0,
+        pad: 0,
+    };
+    // SAFETY: SYNC_IOC_MERGE reads fd2 and writes `fence` in this struct.
+    let result = unsafe { libc::ioctl(first.as_raw_fd(), SYNC_IOC_MERGE, &mut data) };
+    if result < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: the kernel returned a new descriptor the caller owns.
+    Ok(unsafe { OwnedFd::from_raw_fd(data.fence) })
 }
 
 impl Drop for ClientRelease {
@@ -55,7 +130,11 @@ impl Drop for ClientRelease {
         if let Some(fence) = sampled {
             match self.point.import_sync_file(fence.as_fd()) {
                 Ok(()) => return,
-                Err(error) => warn!(%error, "could not attach a release fence; signalling now"),
+                Err(error) => {
+                    warn!(%error, "could not attach a release fence; signalling once it signals");
+                    #[cfg(feature = "flutter")]
+                    wait(&fence);
+                }
             }
         }
         if let Err(error) = self.point.signal() {

@@ -31,6 +31,9 @@ pub(super) struct WindowEventState {
     pub(super) published_ids: HashSet<u64>,
     /// Windows a replacement Flutter generation receives as already mapped.
     pub(super) restored_ids: BTreeSet<u64>,
+    /// Answers to place requests. They name a request, not a scene window,
+    /// so they never wait for a window to be published.
+    pub(super) place_results: VecDeque<wire::WindowPlaceResult>,
 }
 
 /// libinput devices by sysname, for each kind deniald configures or reads.
@@ -76,6 +79,8 @@ pub(super) struct RuntimeState {
     pub(super) screen_off_touch: screen_off_touch::Filter,
     #[cfg(feature = "flutter")]
     pub(super) wifi_power_save: wifi_power_save::WifiPowerSave,
+    #[cfg(feature = "flutter")]
+    pub(super) lights: lights::Lights,
     pub(super) pending: HashSet<crtc::Handle>,
     pub(super) completed_page_flips: VecDeque<PageFlipCompletion>,
     pub(super) presentation_timings: HashMap<crtc::Handle, presentation_clock::ModeTiming>,
@@ -416,6 +421,13 @@ impl RuntimeState {
             || !std::mem::take(&mut self.replacement_flutter_rehydration_pending)
         {
             return;
+        }
+        if self
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.settle_shell_frames())
+        {
+            self.scene_sync.mark_dirty();
         }
         let (window_focus, workspace_states) = self.wayland.as_ref().map_or_else(
             || (None, Vec::new()),

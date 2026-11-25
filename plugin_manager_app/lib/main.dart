@@ -78,7 +78,11 @@ class _PluginManagerAppState extends State<PluginManagerApp> {
             : ShellBrandColors.defaultAccent,
         fontFamily: appearance['fontFamily'] as String? ?? '',
         cornerRadiusScale:
-            (appearance['cornerRadiusScale'] as num?)?.toDouble() ?? 1,
+            (appearance['interfaceCornerRadiusScale'] as num?)?.toDouble() ??
+            const ShellAppearanceSettings().interfaceCornerRadiusScale,
+        windowCornerRadiusScale:
+            (appearance['windowCornerRadiusScale'] as num?)?.toDouble() ??
+            const ShellAppearanceSettings().windowCornerRadiusScale,
         panelOpacity:
             (appearance['panelOpacity'] as num?)?.toDouble() ??
             ShellOpacity.panel,

@@ -4881,6 +4881,8 @@
       }
     }
   },
+  "callVolumeTitle": "In-call volume",
+  "@callVolumeTitle": {"description": "Playback volume of a phone call, shown when the volume buttons adjust it."},
   "volumeTitle": "Volume",
   "@volumeTitle": {
     "description": "English UI text for volumeTitle."
@@ -7125,5 +7127,11 @@
   "powerConfirmRestartDenialBody": "Open apps close and Denial starts again.",
   "@powerConfirmRestartDenialBody": {"description": "Body of the confirmation before Denial restarts."},
   "mobilePowerTapToRestartDenial": "Tap again to restart Denial. Open apps close.",
-  "@mobilePowerTapToRestartDenial": {"description": "Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial."}
+  "@mobilePowerTapToRestartDenial": {"description": "Mobile power menu: shown after Restart Denial is tapped once; a second tap restarts Denial."},
+  "triggerPointsTile": "Trigger points",
+  "@triggerPointsTile": {"description": "Quick settings tile that places where the phone's shoulder triggers touch in the app in front."},
+  "triggerPointsHint": "Drag L and R to where each shoulder trigger should touch. Hold one to clear it.",
+  "@triggerPointsHint": {"description": "Hint at the top of the shoulder trigger editor, shown over the app."},
+  "triggerPointsReset": "Clear both",
+  "@triggerPointsReset": {"description": "Shoulder trigger editor button that removes both touch spots for this app."}
 }

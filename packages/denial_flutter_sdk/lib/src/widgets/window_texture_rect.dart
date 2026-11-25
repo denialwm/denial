@@ -38,7 +38,7 @@ class WindowTextureRect extends StatelessWidget {
     final theme = ShellTheme.of(context);
     final glass =
         applyBackdrop &&
-        !window.isOpaque &&
+        window.showsBackdrop &&
         theme.backdropBlurEnabled &&
         (theme.transparencyMode == ShellTransparencyMode.glass ||
             theme.backdropBlurSigma > 0);

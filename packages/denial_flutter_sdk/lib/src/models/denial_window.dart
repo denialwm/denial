@@ -238,6 +238,7 @@ class DenialWindow {
     this.opacityClass = DenialWindowOpacityClass.contentTranslucent,
     this.pet,
     this.keyboardInset = false,
+    this.clientTitleBar = false,
   });
 
   final int objectId;
@@ -292,6 +293,11 @@ class DenialWindow {
   /// (denial-insets-v1 keyboard inset), so the mobile shell leaves it in
   /// place while the keyboard is shown instead of lifting it.
   final bool keyboardInset;
+
+  /// The client draws its own title bar (it asked for client-side
+  /// decorations). A decorated window's frame then leaves its title bar out
+  /// and keeps the rest: its top edge is as wide as its side ones.
+  final bool clientTitleBar;
 
   /// The window holding this layer surface, if it is a pet one holds. A held
   /// pet is drawn and hit with that window instead of in its layer's plane.
@@ -415,6 +421,11 @@ class DenialWindow {
   bool get isContentTranslucent =>
       opacityClass == DenialWindowOpacityClass.contentTranslucent;
 
+  /// Whether a backdrop behind this window shows through its content. A
+  /// window whose interior is declared opaque needs none: its rounded corners
+  /// and antialiased border show what is behind them unblurred.
+  bool get showsBackdrop => opacity < 1.0 || isContentTranslucent;
+
   /// Texture-backed surfaces drawn inside the toplevel frame itself.
   ///
   /// Desktop widgets use this narrower visibility set because popup surfaces
@@ -499,6 +510,7 @@ class DenialWindow {
         other.suppressAnimations == suppressAnimations &&
         other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
         other.serverSideDecorated == serverSideDecorated &&
+        other.clientTitleBar == clientTitleBar &&
         other.contentKind == contentKind &&
         other.heldBy?.windowId == heldBy?.windowId &&
         other.pet?.below == pet?.below;
@@ -544,6 +556,7 @@ class DenialWindow {
         other.suppressAnimations == suppressAnimations &&
         other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
         other.serverSideDecorated == serverSideDecorated &&
+        other.clientTitleBar == clientTitleBar &&
         other.opacity == opacity &&
         other.statusColorArgb == statusColorArgb &&
         other.contentX == contentX &&
@@ -601,6 +614,7 @@ class DenialWindow {
     suppressAnimations,
     restoredAcrossFlutterRestart,
     serverSideDecorated,
+    clientTitleBar,
     opacity,
     statusColorArgb,
     contentX,

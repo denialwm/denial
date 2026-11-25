@@ -412,7 +412,7 @@ struct DrmModeCloseFb {
 
 const _: () = assert!(std::mem::size_of::<DrmModeCloseFb>() == 8);
 
-fn close_scanout_framebuffer(
+pub(super) fn close_scanout_framebuffer(
     drm: &DrmDeviceFd,
     handle: framebuffer::Handle,
 ) -> std::io::Result<()> {
@@ -1019,6 +1019,12 @@ pub(super) struct OutputSwapchain {
     pub(super) current: usize,
     /// Gamut correction applied when copying Flutter's scene to scanout.
     pub(super) color: Option<super::output_color::OutputColor>,
+    /// The primary plane's color pipeline. When it shows the desktop look and
+    /// correction, nothing copies the scene and `color` is None.
+    pub(super) plane_color: Option<super::plane_color::PlaneColor>,
+    /// Whether a desktop look was loaded when the pool was made, when only
+    /// the look decided whether it has a scene target to copy.
+    pub(super) copies_for_look: Option<bool>,
 }
 
 #[cfg(feature = "flutter")]
@@ -1088,14 +1094,36 @@ impl OutputSwapchains {
                 .into());
             }
 
+            // An SDR output whose primary plane has a color pipeline shows the
+            // look and correction there and renders straight into scanout.
+            // Any other output keeps the pipeline off: the copy does the
+            // work. The frame loop commits it once these pools are installed.
+            let mut plane_color = super::plane_color::PlaneColor::probe(
+                &allocator.drm_fd,
+                scanout.surface.plane(),
+                display_color.correction.map(|correction| correction.matrix),
+            )
+            .unwrap_or_else(|error| {
+                warn!(output = %scanout.output.name, %error, "could not read the plane's color pipelines");
+                None
+            });
+            if let Some(pipeline) = &mut plane_color {
+                pipeline.set_shows(hdr.is_none() && !offscreen_blit);
+            }
+            let plane_colored = plane_color
+                .as_ref()
+                .is_some_and(super::plane_color::PlaneColor::shows);
+
             // Take the first format whose whole pool allocates, imports and
             // registers: a driver may advertise XR30 and still refuse it. HDR
             // scenes are half float; a display that cannot have one shows SDR.
             let mut allocate_pool = |hdr: Option<super::output_color::HdrOutput>| {
-                let color = hdr.map_or(display_color.correction, |hdr| Some(hdr.output_color()));
+                let color = hdr
+                    .map(|hdr| hdr.output_color())
+                    .or(display_color.correction.filter(|_| !plane_colored));
                 let scene_target = if offscreen_blit {
                     SceneTarget::Required
-                } else if color.is_some() || desktop_look {
+                } else if color.is_some() || (desktop_look && !plane_colored) {
                     SceneTarget::IfDirect
                 } else {
                     SceneTarget::None
@@ -1120,6 +1148,7 @@ impl OutputSwapchains {
                                 gamut_correction = display_color.correction.is_some(),
                                 hdr = hdr.is_some(),
                                 desktop_look,
+                                plane_colored,
                                 "allocated output pool"
                             );
                             return Ok((pool, color, scene_target));
@@ -1140,6 +1169,10 @@ impl OutputSwapchains {
                 }
                 result => result?,
             };
+            // Only the look decided this pool's scene target: gaining or
+            // losing one rebuilds it (`synchronize_plane_color`).
+            let copies_for_look =
+                (!offscreen_blit && !plane_colored && color.is_none()).then_some(desktop_look);
             if scene_target == SceneTarget::IfDirect
                 && !buffers.iter().all(|buffer| buffer.render_target.is_some())
             {
@@ -1155,7 +1188,7 @@ impl OutputSwapchains {
             {
                 warn!(output = %scanout.output.name, %error, "the display did not take the HDR signal; showing SDR");
                 if hdr.take().is_some() {
-                    color = display_color.correction;
+                    color = display_color.correction.filter(|_| !plane_colored);
                 }
             }
             if let Some(capability) = display_color.hdr {
@@ -1186,7 +1219,9 @@ impl OutputSwapchains {
                 size: plan.target_size,
                 buffers,
                 current: 0,
+                copies_for_look,
                 color,
+                plane_color,
             });
         }
         super::output_color::set_hdr_displays(hdr_displays);
@@ -2221,6 +2256,23 @@ struct AliasedPlanarBuffer {
     offsets: [u32; 4],
 }
 
+pub(super) fn cursor_framebuffer(
+    drm: &DrmDeviceFd,
+    size: (u32, u32),
+    pitch: u32,
+    handle: BufferHandle,
+) -> std::io::Result<framebuffer::Handle> {
+    let buffer = AliasedPlanarBuffer {
+        size,
+        format: Fourcc::Argb8888,
+        modifier: None,
+        handles: [Some(handle), None, None, None],
+        pitches: [pitch, 0, 0, 0],
+        offsets: [0; 4],
+    };
+    drm.add_planar_framebuffer(&buffer, FbCmd2Flags::empty())
+}
+
 impl PlanarBuffer for AliasedPlanarBuffer {
     fn size(&self) -> (u32, u32) {
         self.size
@@ -2715,8 +2767,8 @@ fn capture_owned_framebuffer(
     Ok(alias)
 }
 
-fn named_property<H>(
-    drm: &DrmDevice,
+pub(super) fn named_property<H>(
+    drm: &impl ControlDevice,
     object: H,
     expected_name: &str,
 ) -> Result<property::Handle, Box<dyn Error>>
@@ -2746,8 +2798,7 @@ where
 
 /// Release non-primary planes left latched by the previous DRM master.
 ///
-/// Denial composites its pointer into the Flutter scene and never programs a
-/// hardware cursor plane. A display manager can nevertheless
+/// A display manager can
 /// leave a cursor or overlay plane bound when it releases DRM master, causing
 /// the kernel to scan that stale image out above every Denial frame. Refusing
 /// this best-effort cleanup must not prevent the session from starting.
@@ -2782,6 +2833,109 @@ pub(super) fn release_inherited_planes(drm: &DrmDevice) {
         planes = ?inherited.planes,
         "released planes inherited from the previous DRM master"
     );
+}
+
+/// Turns off displays the configuration leaves off but a previous DRM master
+/// left lit. Kept lit, a display shows that session's last picture, and
+/// turning it on later fails: a hotplug never takes over an active CRTC that
+/// Denial does not own (#243). A CRTC a lit output will use is left to that
+/// output's own modeset.
+pub(super) fn release_unlit_outputs(
+    drm: &DrmDevice,
+    unlit: &[connector::Handle],
+    lit: &[ConnectedOutput],
+) {
+    let released = match unlit_output_request(drm, unlit, lit) {
+        Ok(Some(released)) => released,
+        Ok(None) => return,
+        Err(error) => {
+            warn!("could not inspect displays left lit by the previous DRM master: {error}");
+            return;
+        }
+    };
+    if let Err(error) = drm.atomic_commit(
+        AtomicCommitFlags::ALLOW_MODESET | AtomicCommitFlags::TEST_ONLY,
+        released.request.clone(),
+    ) {
+        warn!(
+            connectors = ?released.connectors,
+            "turning off displays left lit was rejected by TEST_ONLY: {error}"
+        );
+        return;
+    }
+    if let Err(error) = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, released.request) {
+        warn!(
+            connectors = ?released.connectors,
+            "could not turn off displays left lit: {error}"
+        );
+        return;
+    }
+    info!(
+        connectors = ?released.connectors,
+        crtcs = ?released.crtcs,
+        "turned off displays the previous DRM master left lit"
+    );
+}
+
+struct UnlitOutputRequest {
+    request: AtomicModeReq,
+    connectors: Vec<u32>,
+    crtcs: Vec<u32>,
+}
+
+fn unlit_output_request(
+    drm: &DrmDevice,
+    unlit: &[connector::Handle],
+    lit: &[ConnectedOutput],
+) -> Result<Option<UnlitOutputRequest>, Box<dyn Error>> {
+    let mut request = AtomicModeReq::new();
+    let mut connectors = Vec::new();
+    let mut crtcs = BTreeSet::new();
+    for &connector in unlit {
+        let Some(encoder) = drm.get_connector(connector, false)?.current_encoder() else {
+            continue;
+        };
+        let Some(crtc) = drm.get_encoder(encoder)?.crtc() else {
+            continue;
+        };
+        if lit.iter().any(|output| output.crtc == crtc) || drm.get_crtc(crtc)?.mode().is_none() {
+            continue;
+        }
+        let Some(connector_crtc) = optional_named_property(drm, connector, "CRTC_ID")? else {
+            continue;
+        };
+        let (Some(active), Some(mode)) = (
+            optional_named_property(drm, crtc, "ACTIVE")?,
+            optional_named_property(drm, crtc, "MODE_ID")?,
+        ) else {
+            continue;
+        };
+        request.add_raw_property(connector.into(), connector_crtc, 0);
+        connectors.push(u32::from(connector));
+        if !crtcs.insert(u32::from(crtc)) {
+            continue;
+        }
+        request.add_raw_property(crtc.into(), active, 0);
+        request.add_raw_property(crtc.into(), mode, 0);
+        for plane in drm.plane_handles()? {
+            if drm.get_plane(plane)?.crtc() != Some(crtc) {
+                continue;
+            }
+            let (Some(framebuffer), Some(plane_crtc)) = (
+                optional_named_property(drm, plane, "FB_ID")?,
+                optional_named_property(drm, plane, "CRTC_ID")?,
+            ) else {
+                continue;
+            };
+            request.add_raw_property(plane.into(), framebuffer, 0);
+            request.add_raw_property(plane.into(), plane_crtc, 0);
+        }
+    }
+    Ok((!connectors.is_empty()).then(|| UnlitOutputRequest {
+        request,
+        connectors,
+        crtcs: crtcs.into_iter().collect(),
+    }))
 }
 
 struct InheritedPlaneRequest {

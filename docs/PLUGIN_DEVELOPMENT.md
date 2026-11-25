@@ -559,7 +559,9 @@ the smallest capability in your feature constructors/helpers, such as
 or `ShellMediaServices` for playback controls. The supplied `ShellServices` bundle
 implements all of them, so existing plugin calls remain valid.
 
-`ShellAudioServices` supplies output volume and begin/change/commit interactions;
+`ShellAudioServices` supplies output volume, whether an audio service has
+reported it (`volumeAvailable`; show the volume as unavailable until then) and
+begin/change/commit interactions;
 `ShellConnectivityServices` supplies the connected Wi-Fi network and its current
 signal strength. `controls.dart` exposes the shared themed `RangeBar`,
 `VerticalRangeBar` and `WifiStatusIcon` for consistent desktop/mobile controls.
@@ -576,6 +578,143 @@ Pub dependencies, so plugins and standalone clients need no runtime asset copies
 New plugin-owned assets belong in that plugin's manifest and package namespace.
 For low-level analysis use `tools/denial-pc plugin-check`: upstream Flutter's cached
 `dart:ui` declarations do not contain Denial's native window-plane API.
+
+## Place and drag windows
+
+A shell says where a window belongs and the compositor turns that into pixels.
+It never computes a client's rectangle itself: the frame, the window's size
+limits, the layout and the work area are applied in one place, and the same
+call works for every window, whoever draws it.
+
+```dart
+final bridge = ref.read(denialBridgeProvider);
+
+// The left half of the window's own work area.
+final result = await bridge.placeWindow(
+  window,
+  const DenialWindowPlace.area(Rect.fromLTWH(0, 0, 0.5, 1)),
+);
+if (!result.refused) {
+  // result.frame is the outer rectangle, result.contentRect the client's.
+}
+```
+
+`DenialWindowPlace` is one of four rules:
+
+| Place | Meaning |
+|---|---|
+| `free(frame)` | The outer frame at a rectangle in scene coordinates. |
+| `area(share, monitorId:)` | A share of an output's work area, in fractions of it. `maximized()` is the whole of it. Shares that touch in fractions touch in pixels, and the share is resolved again when the work area changes. |
+| `fullscreen(monitorId:)` | The whole output. |
+| `restore()` | Back to the last free place. |
+
+Every call is answered once, under its own request: `applied` when the window
+is exactly where the place says, `adjusted` when its size limits or its layout
+decided otherwise (the answer carries the rectangle it got), `refused` when
+nothing changed. Use the answer instead of comparing later snapshots with what
+you asked for.
+
+`resolveWindowPlace` takes the same arguments, changes nothing and answers
+with the rectangle the place would give. A snap preview is that rectangle,
+drawn while the user still holds the window; letting go sends the same place
+through `placeWindow`.
+
+To let the user drag a window by something the shell draws (a title bar, a
+resize handle), hand the press to the compositor:
+
+```dart
+Listener(
+  onPointerDown: (event) {
+    final mouse = event.kind == PointerDeviceKind.mouse;
+    if (!mouse || event.buttons == kPrimaryButton) {
+      bridge.beginWindowMove(window);
+    }
+  },
+  child: titleBar,
+)
+```
+
+`beginWindowMove` and `beginWindowResize(window, edge)` take over the press
+the shell holds: the primary mouse button, or else its latest touch. The
+compositor moves the window with the pointer or the finger, applies the
+layout's own rules (a tile is dragged as a tile), reports each step through
+`windowEvents` and ends the drag when the button is released or the finger
+lifts. The shell receives the button's release; a touch it sees cancelled the
+moment the drag begins, so no tap or long press follows. Do not also move the
+window from Dart during the drag.
+
+A shell that draws window frames declares them once, when it starts:
+
+```dart
+bridge.configureWindowFrame(
+  const DenialWindowFrameMargins(left: 1, top: 34, right: 1, bottom: 1),
+  maximized: const DenialWindowFrameMargins(top: 34),
+);
+```
+
+The margins are what the shell draws around a decorated window's content, in
+logical pixels per side. The compositor subtracts them wherever it turns a
+frame into content, so maximize, tiling, pet holds and every place agree with
+the frame on screen. Without `maximized`, a maximized window keeps its frame
+only where the layout draws one. A declaration lasts as long as the shell that
+made it.
+
+## Draw window frames
+
+A plugin that provides `ShellWindowFrame` draws the frame of every decorated
+window on the reference desktop: title bar, borders and their controls. The
+desktop declares the plugin's margins to the compositor, puts the window's
+content in the hole they leave and gives the margins to the shell's input, so
+the plugin only draws and reacts.
+
+```dart
+@Provides(ShellWindowFrame)
+final class TitledFrame implements ShellWindowFrame {
+  const TitledFrame();
+
+  @override
+  DenialWindowFrameMargins get margins =>
+      const DenialWindowFrameMargins(left: 1, top: 32, right: 1, bottom: 1);
+
+  @override
+  DenialWindowFrameMargins? get maximizedMargins =>
+      const DenialWindowFrameMargins(top: 32);
+
+  @override
+  Widget build(BuildContext context, {required ShellWindowFrameContext frame}) =>
+      TitleBar(frame: frame);
+}
+```
+
+Declare it in `pubspec.yaml` as
+`package:denial_flutter_sdk/window_frames.dart#ShellWindowFrame`. One frame
+plugin can be selected at a time; without one the desktop draws its own border.
+
+- `build` returns one widget laid out over the content and its margins
+  together. It is painted under the content, so paint only on the margins: a
+  translucent window shows whatever lies under it.
+- `frame.window` is the window, `frame.active` and `frame.maximized` its state,
+  `frame.margins` the margins in effect and `frame.services` the host services,
+  such as `buildApplicationIcon`.
+- The frame acts with the bridge's own calls and keeps no window state:
+  `beginWindowMove` and `beginWindowResize` from a primary mouse press or a
+  touch,
+  `placeWindow` with `DenialWindowPlace.maximized()` or `.restore()`,
+  `minimizeWindow`, `closeWindow`. The desktop redraws from what the
+  compositor did.
+- Pointers reach the frame only on its margins. In the overview, the window
+  switcher and while a window minimizes or closes, `frame.interactive` is false
+  and it receives none.
+- `reach` asks for presses on a band outside the frame, per side, for resize
+  handles wider than a thin border. `buildReach` returns what takes them: a
+  widget laid out over the frame and the band together, hit only on the band,
+  that paints nothing. The band lies under its window and over whatever is
+  beside it; a maximized window has none, and `frame.reach` says what is in
+  effect. Return zero margins from `reach` to have no band.
+- Margins are read once when the shell starts and must not change afterwards.
+  Corners are square: the content is not clipped to a rounded frame.
+
+`denial_window_frames` in the plugin collection is a complete example.
 
 ## Make an action available to shortcuts
 

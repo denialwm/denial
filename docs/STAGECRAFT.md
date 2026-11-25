@@ -1,10 +1,30 @@
-# Layered composition
+# Stagecraft
+
+Stagecraft is how Denial renders: Flutter's renderer, Impeller, renders the
+shell in layers, and deniald composes those layers with the windows, blur and
+glass in one GPU pass. The shell stays plain Flutter; shells and plugins need
+no code of their own for it.
+
+It has two halves:
+
+| Half | What it does | Where |
+|---|---|---|
+| Layered mode (engine) | Cuts each frame into slices at windows, glass, textures and repaint boundaries, renders the slices that changed into images Stagecraft owns, and stages the frame as an ordered list | Flutter fork: `flow/embedded_views.h` (`DenialCutEntry`), `shell/platform/embedder/embedder_external_view_embedder.cc` (`SubmitDenialLayered`, `DenialStageScene`), `embedder.h` |
+| Composer (deniald) | Draws the staged list into the output buffer with Vulkan: slices, client windows, frosts and glass | `compositor/src/bin/deniald/flutter_runtime/renderer/stagecraft/`, `renderer/handler/scene_composer.rs`; the C interface in `compositor/flutter-engine/src/scene.rs` |
+
+Where Vulkan cannot open the GPU, the engine composes the slices itself with
+GLES; the rest of this document describes the layered mode both use. Inside
+the code the deniald half keeps the name composer (`SceneComposer`), and its
+switches keep their names (`DENIAL_COMPOSER_GPU_TIMING`,
+`DENIAL_COMPOSER_CATCH_UP`). Its log lines say Stagecraft.
+
+## Layered composition
 
 Design contract for agents. Accepted 2026-10-16. Phases 1 and 3 and part of
 phase 2 are implemented in the Flutter fork and always on; the phase table
 records status.
 
-## Problem
+### Problem
 
 Flutter partial repaint is per output buffer. Any damage, such as an animated
 wallpaper texture or a client buffer under glass, re-rasterizes everything
@@ -12,7 +32,7 @@ intersecting it through Impeller, whose per-frame CPU is O(scene)
 (`docs/benchmarks`, render bench 2026-10-14). Shell content that did not change
 is redrawn every frame.
 
-## Model
+### Model
 
 One bundle, one engine, one widget tree. The layer tree marks **cuts** in
 paint order. What lies between two consecutive cuts is a **slice**. The engine
@@ -39,7 +59,7 @@ Rules:
 - Fixed "four layers" are rejected: a windows layer cannot host per-window
   glass and re-renders on any window change.
 
-## Seam
+### Seam
 
 Flutter's embedder compositor protocol inside the fork, not a new deniald
 protocol. Cuts are platform views registered during preroll
@@ -54,7 +74,7 @@ No Dart change: `WindowSurfaceLayer`, `BackdropFilterLayer` and
 `TextureLayer` become cuts in the fork on Denial output views. Dart
 primitives (`WindowPlane`, `ShellBackdropBlur`, `Texture`) are unchanged.
 
-## Fork implementation
+### Fork implementation
 
 Always on for Denial output views (negative view ids), with no switch
 (2026-10-16). Other views keep the upstream path.
@@ -122,7 +142,7 @@ until it changes.
 - `shell/common/rasterizer.cc`: asks the embedder for the mode and routes
   recompositions to `ExternalViewEmbedder::DenialRecompose`.
 
-## Telemetry
+### Telemetry
 
 With `DENIAL_RENDER_AUDIT=1` as well, the engine logs one line per output
 view and second, beside deniald's "Flutter per-output render audit":
@@ -151,7 +171,7 @@ same build instead of allocating. Times are
 raster-thread CPU before the present callback, not GPU time. `tools/denial-benchmark --capture-audit` summarizes
 these lines per phase.
 
-## Phases
+### Phases
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -163,7 +183,7 @@ these lines per phase.
 Test device: OnePlus Pad 4 (`/mnt/development/onepluspad4`). Benchmarks:
 `tools/denial-benchmark`, records in `docs/benchmarks/desktop`.
 
-## Known costs
+### Known costs
 
 - Animated (direct) frames still record every layer's display list; only
   texture-only frames skip Preroll and Paint.
@@ -180,7 +200,7 @@ Test device: OnePlus Pad 4 (`/mnt/development/onepluspad4`). Benchmarks:
   flush and submit behind the present fence (`EGLFence::create`), not
   composition.
 
-## Results (Pad 4, 2026-10-16)
+### Results (Pad 4, 2026-10-16)
 
 Scenario `frame-delivery-off02` (Firefox, Settings and the native render
 workload; CPU clamped to 2.112 GHz, GPU to 646 MHz): deniald process CPU in

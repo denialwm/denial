@@ -372,6 +372,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             pending_frame_callback_windows: HashSet::new(),
             #[cfg(feature = "flutter")]
+            hidden_surface_frames: HashMap::new(),
+            #[cfg(feature = "flutter")]
             minimized_windows: Default::default(),
             #[cfg(feature = "flutter")]
             pending_layer_frame_callback_roots: HashSet::new(),
@@ -383,6 +385,8 @@ impl WaylandFrontend {
             pending_shm_snapshots: HashSet::new(),
             #[cfg(feature = "flutter")]
             surface_buffer_revisions: HashMap::new(),
+            #[cfg(feature = "flutter")]
+            surface_damage_commits: std::sync::Mutex::default(),
             #[cfg(feature = "flutter")]
             next_buffer_revision: 1,
             surface_ids: HashMap::new(),
@@ -418,6 +422,16 @@ impl WaylandFrontend {
             client_popup_grab: None,
             #[cfg(feature = "flutter")]
             flutter_pointer_press: None,
+            #[cfg(feature = "flutter")]
+            shell_window_grab_active: false,
+            #[cfg(feature = "flutter")]
+            flutter_touch_press: None,
+            #[cfg(feature = "flutter")]
+            shell_touch_grab_slot: None,
+            shell_frames: ShellFrames::default(),
+            output_shell_frames: std::collections::HashMap::new(),
+            #[cfg(feature = "flutter")]
+            shell_frames_declared: false,
             #[cfg(feature = "flutter")]
             clipboard_drag_active: false,
             #[cfg(feature = "flutter")]
@@ -552,6 +566,7 @@ impl WaylandFrontend {
             touch_transform,
             tablet_output_mappings: HashMap::new(),
             pointer_location,
+            pointer_frame_has_relative: false,
             cursor_status: CursorImageStatus::default_named(),
             atlas_origin,
             atlas_scale,

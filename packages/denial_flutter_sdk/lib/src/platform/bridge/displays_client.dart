@@ -152,6 +152,35 @@ final class BridgeDisplaysClient {
     );
   }
 
+  /// The system bar's thickness and the maximize padding on one output
+  /// alone; both null forgets them.
+  Future<DisplayLayout?> configureOutputWorkArea({
+    required int monitorId,
+    double? systemBarThickness,
+    double? maximizePadding,
+  }) {
+    final requestId = _context.platform.nextRequestId();
+    final bytes = _context.codec.encodeOutputWorkArea(
+      requestId: requestId,
+      monitorId: monitorId,
+      systemBarThickness: systemBarThickness,
+      maximizePadding: maximizePadding,
+    );
+    if (bytes == null) {
+      return Future<DisplayLayout?>.value(null);
+    }
+    final completer = Completer<DisplayLayout?>();
+    _pendingDisplayRequests[requestId] = completer;
+    _context.sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingDisplayRequests.remove(requestId);
+        return null;
+      },
+    );
+  }
+
   Future<DenialOutputConfiguration> readOutputConfiguration() async {
     final result = await _context.control.request('outputs.get');
     return DenialOutputConfiguration.fromJson(result);

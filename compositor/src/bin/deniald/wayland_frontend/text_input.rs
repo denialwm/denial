@@ -586,6 +586,8 @@ pub(crate) struct SoftwareKeyboardState {
     pub content_hint: u32,
     pub content_purpose: u32,
     pub activation_serial: u64,
+    /// An input method client composes the focused editor's text.
+    pub input_method: bool,
 }
 
 #[derive(Debug)]
@@ -770,6 +772,8 @@ impl TextInputManager {
             content_hint,
             content_purpose,
             activation_serial: self.keyboard_activation_serial(),
+            // The frontend, which owns the input method, fills it in.
+            input_method: false,
         }
     }
 
@@ -797,6 +801,7 @@ impl TextInputManager {
             content_hint: editor.content_hint,
             content_purpose: editor.content_purpose,
             activation_serial: self.keyboard_activation_serial(),
+            input_method: false,
         }
     }
 
@@ -1192,7 +1197,10 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(crate) fn software_keyboard_state(&self) -> SoftwareKeyboardState {
-        self.text_input.software_keyboard_state()
+        SoftwareKeyboardState {
+            input_method: self.input_method.serves_editor(),
+            ..self.text_input.software_keyboard_state()
+        }
     }
 
     #[cfg(feature = "flutter")]

@@ -117,6 +117,17 @@ impl OutputTransform {
         }
     }
 
+    /// Maps normalized desktop coordinates to the connector's native axes.
+    pub const fn logical_to_native(self, x: f64, y: f64) -> (f64, f64) {
+        let inverse = match self {
+            Self::Rotate90 => Self::Rotate270,
+            Self::Rotate270 => Self::Rotate90,
+            // Reflections, the half turn and identity are self-inverse.
+            other => other,
+        };
+        inverse.native_to_logical(x, y)
+    }
+
     /// Applies a cardinal rotation after this output's fixed panel-mount
     /// transform. Keeping the two operations separate lets automatic device
     /// orientation remain transient while `transform=` continues to describe

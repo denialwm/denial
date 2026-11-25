@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/settings.dart';
+import 'package:denial_flutter_sdk/surfaces.dart' show ShellScaleViewport;
 
 import '../state/system_level_hud.dart';
 
@@ -25,7 +26,8 @@ class SystemLevelHudLayer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hud = ref.watch(systemLevelHudProvider);
-    final output = _outputFor(ref.watch(deskDisplayLayoutProvider), hud);
+    final layout = ref.watch(deskDisplayLayoutProvider);
+    final output = _outputFor(layout, hud);
     if (hud == null || output == null || !showsTransientOverlay(context, ref)) {
       return const SizedBox.shrink();
     }
@@ -33,35 +35,57 @@ class SystemLevelHudLayer extends ConsumerWidget {
     final placement = ref.watch(
       shellSettingsProvider.select((settings) => settings.overlays.systemHud),
     );
-    final rect = placement.resolve(output.logicalRect, fixedHeight: _height);
+    // Laid out in the shell's own units, drawn that many times as large.
+    final shellScale = layout?.shellScaleOf(output.monitorId) ?? 1.0;
+    final origin = output.logicalRect.topLeft;
+    final rect = ShellScale.toScreen(
+      placement.resolve(
+        ShellScale.toShell(output.logicalRect, origin, shellScale),
+        fixedHeight: _height,
+      ),
+      origin,
+      shellScale,
+    );
     if (rect.isEmpty) {
       return const SizedBox.shrink();
     }
     final isBrightness = hud.kind == SystemLevelHudKind.brightness;
     final l10n = context.l10n;
+    final call = hud.callVolumeMax != null;
 
     return Positioned.fromRect(
       rect: rect,
       child: IgnorePointer(
-        child: _SystemLevelHudCard(
-          level: hud.level,
-          limitReached: hud.limitReached,
-          revision: hud.revision,
-          visible: hud.visible,
-          onDismissed: () => ref
-              .read(systemLevelHudProvider.notifier)
-              .completeDismissal(hud.revision),
-          icon: isBrightness
-              ? Icons.brightness_6_rounded
-              : _volumeIcon(hud.level, hud.muted),
-          title: isBrightness ? l10n.brightnessTitle : l10n.volumeTitle,
-          detail: isBrightness ? output.name : null,
-          semanticLabel: isBrightness
-              ? l10n.outputBrightnessSemantics(output.name)
-              : l10n.outputVolumeSemantics,
-          inactiveColor: isBrightness
-              ? context.shellColors.brightnessTrack
-              : context.shellColors.volumeTrack,
+        child: ShellScaleViewport(
+          scale: shellScale,
+          child: _SystemLevelHudCard(
+            level: hud.level,
+            limitReached: hud.limitReached,
+            revision: hud.revision,
+            visible: hud.visible,
+            onDismissed: () => ref
+                .read(systemLevelHudProvider.notifier)
+                .completeDismissal(hud.revision),
+            icon: isBrightness
+                ? Icons.brightness_6_rounded
+                : call
+                ? Icons.call_rounded
+                : _volumeIcon(hud.level, hud.muted),
+            title: isBrightness
+                ? l10n.brightnessTitle
+                : call
+                ? l10n.callVolumeTitle
+                : l10n.volumeTitle,
+            detail: isBrightness ? output.name : null,
+            semanticLabel: isBrightness
+                ? l10n.outputBrightnessSemantics(output.name)
+                : call
+                ? l10n.callVolumeTitle
+                : l10n.outputVolumeSemantics,
+            inactiveColor: isBrightness
+                ? context.shellColors.brightnessTrack
+                : context.shellColors.volumeTrack,
+          ),
         ),
       ),
     );

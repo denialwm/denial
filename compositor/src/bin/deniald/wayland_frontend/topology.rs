@@ -139,25 +139,33 @@ impl WaylandFrontend {
             .outputs
             .iter()
             .any(|entry| bar.outputs.contains(&entry.connector));
+        let entry = self.outputs.iter().find(|entry| match output {
+            Some(output) => entry.output == *output,
+            None => entry.logical_geometry == geometry,
+        });
+        let on_output = match entry {
+            Some(entry) => self.work_area.on_output(&entry.connector),
+            None => crate::options::OutputWorkArea {
+                system_bar_thickness: bar.thickness,
+                maximize_padding: self.work_area.maximize_padding,
+            },
+        };
         let hosts_bar = bar.side != SystemBarSide::Hidden
             && bar.thickness > 0.0
-            && self.outputs.iter().any(|entry| {
+            && on_output.system_bar_thickness > 0.0
+            && entry.is_some_and(|entry| {
                 let configured = has_configured_host && bar.outputs.contains(&entry.connector);
                 let automatic = !has_configured_host && Some(entry.id) == self.ticker_output;
-                (configured || automatic)
-                    && match output {
-                        Some(output) => entry.output == *output,
-                        None => entry.logical_geometry == geometry,
-                    }
+                configured || automatic
             });
         let bar_side = hosts_bar.then_some(bar.side);
-        let padding = self.work_area.maximize_padding;
+        let padding = on_output.maximize_padding;
         let padding = if padding.is_finite() {
             (padding.ceil() as i32).max(0)
         } else {
             0
         };
-        let bar_thickness = (bar.thickness.ceil() as i32).max(0);
+        let bar_thickness = (on_output.system_bar_thickness.ceil() as i32).max(0);
         let inset = |side: SystemBarSide| {
             if bar_side == Some(side) {
                 bar_thickness
@@ -190,6 +198,10 @@ impl WaylandFrontend {
         }
         self.work_area = work_area;
         self.arrange_layout_windows();
+        // Maximize and shares of the work area are rules; the layout above
+        // already placed its own windows again.
+        #[cfg(feature = "flutter")]
+        self.replace_shell_placed_windows();
     }
 
     /// Native identity can change without any mode/CRTC/layout change (late

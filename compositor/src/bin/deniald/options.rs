@@ -5,7 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
@@ -79,6 +79,18 @@ pub(super) struct WorkAreaOptions {
     pub(super) system_bar: SystemBarOptions,
     /// Logical pixels between a maximized window and bar-free output edges.
     pub(super) maximize_padding: f64,
+    /// The bar's thickness and the padding on single outputs, by connector,
+    /// where they differ from those above: the shell's own scale differs by
+    /// screen.
+    pub(super) outputs: std::collections::BTreeMap<String, OutputWorkArea>,
+}
+
+/// The system bar's thickness and the maximize padding on one output, in its
+/// logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct OutputWorkArea {
+    pub(super) system_bar_thickness: f64,
+    pub(super) maximize_padding: f64,
 }
 
 impl Default for WorkAreaOptions {
@@ -86,7 +98,21 @@ impl Default for WorkAreaOptions {
         Self {
             system_bar: SystemBarOptions::default(),
             maximize_padding: DEFAULT_MAXIMIZE_PADDING,
+            outputs: std::collections::BTreeMap::new(),
         }
+    }
+}
+
+impl WorkAreaOptions {
+    /// The bar's thickness and the padding on the output `connector`.
+    pub(super) fn on_output(&self, connector: &str) -> OutputWorkArea {
+        self.outputs
+            .get(connector)
+            .copied()
+            .unwrap_or(OutputWorkArea {
+                system_bar_thickness: self.system_bar.thickness,
+                maximize_padding: self.maximize_padding,
+            })
     }
 }
 
@@ -100,6 +126,12 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     }
     Ok(padding)
 }
+
+/// Output frames the Flutter engine can describe are composed with Vulkan
+/// instead of the engine's GLES pass, on every GPU rendered in hardware, and
+/// the shell renders with Vulkan with them. Where Vulkan cannot open that GPU,
+/// or `DENIAL_NO_VULKAN` asks, both stay on GLES.
+pub(crate) static VULKAN_COMPOSER: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
 pub(super) struct Options {
@@ -395,6 +427,7 @@ impl Options {
             maximize_padding: maximize_padding_argument
                 .or(maximize_padding)
                 .unwrap_or(DEFAULT_MAXIMIZE_PADDING),
+            outputs: std::collections::BTreeMap::new(),
         };
 
         if frames != 0 && commit_seconds != 0 {
@@ -443,6 +476,12 @@ impl Options {
         if flutter_offscreen_blit && flutter_bundle.is_none() {
             return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
         }
+        VULKAN_COMPOSER.store(
+            flutter_bundle.is_some()
+                && !software_rendering
+                && !denial_core::environment::flag("DENIAL_NO_VULKAN"),
+            Ordering::Relaxed,
+        );
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
             && flutter_bundle.is_none()
         {

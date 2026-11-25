@@ -58,7 +58,13 @@ pub(super) enum SystemControlEvent {
         level: f64,
         muted: bool,
         limit_reached: bool,
+        from_key: bool,
         request_serial: u32,
+    },
+    CallVolume {
+        previous: u32,
+        step: u32,
+        maximum: u32,
     },
     AudioStreams(Vec<AudioStreamState>),
     AudioDevices(Vec<AudioDeviceState>),
@@ -72,6 +78,7 @@ pub(super) enum SystemControlEvent {
 pub(super) enum AudioRequest {
     ReadLevel,
     SetLevel { level: f64, request_serial: u32 },
+    SetCallVolume(u32),
     RequestStreams,
     SetStreamLevel { stream_id: u32, level: f64 },
     RequestDevices,
@@ -144,7 +151,10 @@ pub(super) fn decode_audio_request(packet: &[u8]) -> Result<AudioRequest, AudioR
                 name: name.to_owned(),
             })
         }
-        [command, ..] if matches!(*command, 0..=5) || packet.is_empty() => {
+        [6, a, b, c, d] => Ok(AudioRequest::SetCallVolume(u32::from_le_bytes([
+            *a, *b, *c, *d,
+        ]))),
+        [command, ..] if matches!(*command, 0..=6) || packet.is_empty() => {
             Err(AudioRequestDecodeError::InvalidSize(packet.len()))
         }
         [command, ..] => Err(AudioRequestDecodeError::UnsupportedCommand(*command)),
@@ -241,13 +251,24 @@ pub(super) fn decode_brightness_request(
 
 enum AudioCommand {
     ReadLevel,
-    SetLevel { level: f64, request_serial: u32 },
+    SetLevel {
+        level: f64,
+        request_serial: u32,
+    },
     Adjust(f64),
+    #[cfg(feature = "flutter")]
+    AdjustCallOnly(bool),
     ToggleMute,
+    SetCallVolume(u32),
     RequestStreams,
-    SetStreamLevel { stream_id: u32, level: f64 },
+    SetStreamLevel {
+        stream_id: u32,
+        level: f64,
+    },
     RequestDevices,
-    SetDevice { name: String },
+    SetDevice {
+        name: String,
+    },
     Stop,
 }
 
@@ -547,6 +568,13 @@ impl SystemControls {
         self.adjust_audio(-CONTROL_STEP);
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn adjust_locked_call(&self, up: bool) {
+        let _ = self
+            .audio_commands
+            .try_send(AudioCommand::AdjustCallOnly(up));
+    }
+
     pub(super) fn toggle_mute(&self) {
         let _ = self.audio_commands.try_send(AudioCommand::ToggleMute);
     }
@@ -561,6 +589,7 @@ impl SystemControls {
                 level,
                 request_serial,
             },
+            AudioRequest::SetCallVolume(step) => AudioCommand::SetCallVolume(step),
             AudioRequest::RequestStreams => AudioCommand::RequestStreams,
             AudioRequest::SetStreamLevel { stream_id, level } => {
                 AudioCommand::SetStreamLevel { stream_id, level }
@@ -733,6 +762,8 @@ impl Drop for SystemControls {
 mod audio;
 #[path = "system_controls/brightness.rs"]
 mod brightness;
+#[path = "system_controls/call_volume.rs"]
+mod call_volume;
 #[cfg(feature = "flutter")]
 #[path = "system_controls/session.rs"]
 mod session;

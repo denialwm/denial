@@ -126,7 +126,12 @@ abstract interface class ShellTelemetryServices {
 
 /// Output volume shares the host's state and interaction reconciliation.
 abstract interface class ShellAudioServices {
+  /// The output volume, 0 while [volumeAvailable] is false.
   ProviderListenable<double> get volume;
+
+  /// Whether an audio service has reported the volume. Until it has, show the
+  /// volume as unavailable: interactions are ignored.
+  ProviderListenable<bool> get volumeAvailable;
   void beginVolumeInteraction();
   void setVolume(double value);
   void commitVolume(double value);

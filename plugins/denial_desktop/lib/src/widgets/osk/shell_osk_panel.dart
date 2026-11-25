@@ -11,6 +11,7 @@ import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
 
 import 'package:denial_desktop/src/state/reference_shell_metrics.dart';
+import 'package:denial_desktop/src/widgets/osk/osk_layouts.dart';
 
 enum ShellOskKeyAction { text, key, space, backspace, enter, replace }
 
@@ -107,9 +108,16 @@ class ShellOskWordRequest {
 /// panel, and in a row above the keys of a portrait one while [shortcuts];
 /// a key at the strip's right end shows and hides that row. Ctrl and Alt
 /// hold for the next key; Backspace and the arrows repeat while held.
+///
+/// The letters follow [layout]. With [onNextLayout] a language key beside
+/// the numbers key switches to the next layout, and the space bar names
+/// the current one, [layoutName].
 class ShellOskPanel extends StatefulWidget {
   const ShellOskPanel({
     super.key,
+    this.layout,
+    this.layoutName,
+    this.onNextLayout,
     this.onKey,
     this.onKeyDown,
     this.textInputStates,
@@ -118,6 +126,11 @@ class ShellOskPanel extends StatefulWidget {
     this.shortcuts = false,
     this.onShortcutsChanged,
   });
+
+  /// The letters to show; US QWERTY without one.
+  final OskLetterLayout? layout;
+  final String? layoutName;
+  final VoidCallback? onNextLayout;
 
   final ValueChanged<ShellOskKeyIntent>? onKey;
 
@@ -185,17 +198,6 @@ class _Autocorrection {
   final String correction;
   final String separator;
 }
-
-/// Accented letters a long press offers, per language.
-const _accents = <String, Map<String, List<String>>>{
-  'it': {
-    'a': ['à'],
-    'e': ['è', 'é'],
-    'i': ['ì'],
-    'o': ['ò'],
-    'u': ['ù'],
-  },
-};
 
 /// Every row but the bottom one is this much taller than it.
 const _tallRow = 1.067;
@@ -319,7 +321,18 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
             previous.activationSerial != input.activationSerial ||
             previous.contentPurpose != input.contentPurpose ||
             previous.contentHint != input.contentHint);
-    if (begins) setState(_beginEditor);
+    if (begins) {
+      setState(_beginEditor);
+    } else if (input.inputMethod != previous?.inputMethod) {
+      // An input method takes the field a moment after it opens: drop the
+      // sentence capital and suggestions it would turn into other words.
+      setState(() {
+        _requestedWord = null;
+        _prediction = null;
+        _strip.value = const [];
+        _updateAutoShift();
+      });
+    }
   }
 
   void _beginEditor() {
@@ -348,7 +361,10 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
 
   _AutoCapitals get _autoCapitals {
     final input = _input;
-    if (input == null || !input.active) return _AutoCapitals.none;
+    // An input method composes what the keys spell; a capital changes it.
+    if (input == null || !input.active || input.inputMethod) {
+      return _AutoCapitals.none;
+    }
     final hint = input.contentHint;
     const refused =
         _ContentType.hintLowercase |
@@ -438,13 +454,14 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     return _typed.substring(start);
   }
 
-  /// Suggestions suit the editor.
+  /// Suggestions suit the editor, and no input method offers its own.
   bool get _predicts {
     final input = _input;
     if (widget.onPredict == null || input == null || !input.active) {
       return false;
     }
     if (input.legacy ||
+        input.inputMethod ||
         input.contentHint &
                 (_ContentType.hintHidden | _ContentType.hintSensitive) !=
             0) {
@@ -551,10 +568,13 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     });
   }
 
+  /// The layout's own accents first, then those of the languages
+  /// predictions are installed for.
   List<String> _accentsFor(_OskKeySpec spec) {
     if (!spec.isLetter) return const [];
     return {
-      for (final language in _languages) ...?_accents[language]?[spec.value],
+      for (final language in {_layout.language, ..._languages})
+        ...?oskAccents[language]?[spec.value],
     }.toList(growable: false);
   }
 
@@ -731,9 +751,12 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
       _sendCursorKey(_modifiedKey(named));
       return;
     }
-    final accents = touch?.accents;
-    final plain = accents?[touch!.accent] ?? spec.value ?? '';
-    final text = capital && spec.isLetter ? plain.toUpperCase() : plain;
+    final accent = touch == null ? null : touch.accents?[touch.accent];
+    final text = accent == null
+        ? spec.outputText(capital: capital)
+        : capital
+        ? accent.toUpperCase()
+        : accent;
     if (text.isNotEmpty && _separators.contains(text)) {
       _sendSeparator(ShellOskKeyIntent.text(text), text);
       return;
@@ -802,6 +825,8 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
         _sendCursorKey(_modifiedKey('Left'));
       case _OskControl.arrowRight:
         _sendCursorKey(_modifiedKey('Right'));
+      case _OskControl.language:
+        widget.onNextLayout?.call();
     }
   }
 
@@ -906,6 +931,22 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
 
   // Layout.
 
+  static final _usLayout = oskLetterLayout('us', '');
+
+  OskLetterLayout get _layout => widget.layout ?? _usLayout;
+
+  (OskLetterLayout, bool)? _lettersFor;
+  List<_OskRowData> _letters = const [];
+
+  List<_OskRowData> get _letterRows {
+    final key = (_layout, widget.onNextLayout != null);
+    if (_lettersFor != key) {
+      _lettersFor = key;
+      _letters = _buildLetterRows(_layout, languageKey: key.$2);
+    }
+    return _letters;
+  }
+
   List<_OskRowData> get _rows => switch (_layer) {
     _OskLayer.letters => _letterRows,
     _OskLayer.numbers => _numberRows,
@@ -1001,6 +1042,9 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
                               rect: key.rect,
                               child: _OskKeyCap(
                                 spec: key.spec,
+                                spaceLabel: widget.onNextLayout == null
+                                    ? null
+                                    : widget.layoutName,
                                 shift: _shift,
                                 ctrlArmed: _ctrlArmed,
                                 altArmed: _altArmed,
@@ -1232,7 +1276,9 @@ class _OskGeometry {
           row.keys,
           left: keysLeft,
           width: keysWidth,
-          inset: math.min(row.sideInset, keysWidth * 0.08),
+          inset: row.columns > 0
+              ? row.sideKeys * (keysWidth + keyGap) / row.columns
+              : math.min(row.sideInset, keysWidth * 0.08),
           y: y,
           height: height,
           keyGap: keyGap,
@@ -1369,6 +1415,7 @@ class _OskGeometry {
 class _OskKeyCap extends StatelessWidget {
   const _OskKeyCap({
     required this.spec,
+    this.spaceLabel,
     required this.shift,
     required this.ctrlArmed,
     required this.altArmed,
@@ -1378,6 +1425,9 @@ class _OskKeyCap extends StatelessWidget {
   });
 
   final _OskKeySpec spec;
+
+  /// Shown on the space bar in place of its icon.
+  final String? spaceLabel;
   final _Shift shift;
   final bool ctrlArmed;
   final bool altArmed;
@@ -1438,7 +1488,13 @@ class _OskKeyCap extends StatelessWidget {
           ),
         ),
         child: Center(
-          child: icon == null
+          child: control == _OskControl.space && spaceLabel != null
+              ? _OskKeyLabel(
+                  label: spaceLabel!,
+                  color: context.shellColors.textSecondary,
+                  size: _OskLabelSize.shortcut,
+                )
+              : icon == null
               ? _OskKeyLabel(
                   label: spec.labelText(
                     capital: capital,
@@ -1734,35 +1790,50 @@ enum _OskControl {
   arrowDown,
   arrowLeft,
   arrowRight,
+  language,
 }
 
 class _OskRowData {
-  const _OskRowData(this.keys, {this.sideInset = 0});
+  const _OskRowData(
+    this.keys, {
+    this.sideInset = 0,
+    this.sideKeys = 0,
+    this.columns = 0,
+  });
 
   final List<_OskKeySpec> keys;
   final double sideInset;
+
+  /// With [columns], the row is as wide as that many letters, and leaves
+  /// [sideKeys] letters of space at each side: its keys line up with a
+  /// longer row's.
+  final double sideKeys;
+  final int columns;
 }
 
 class _OskKeySpec {
-  const _OskKeySpec.text(this.value, {this.flex = 10})
+  const _OskKeySpec.text(this.value, {this.flex = 10, this.capital})
     : control = null,
       icon = null;
 
   const _OskKeySpec.control(this.control, {this.icon, this.flex = 14})
-    : value = null;
+    : value = null,
+      capital = null;
 
   final String? value;
   final _OskControl? control;
   final IconData? icon;
   final int flex;
 
+  /// The capital where it is not the letter's `toUpperCase`.
+  final String? capital;
+
+  /// A letter of a script with capitals.
   bool get isLetter {
     final text = value;
-    if (text == null || text.length != 1) {
-      return false;
-    }
-    final code = text.codeUnitAt(0);
-    return code >= 97 && code <= 122;
+    return text != null &&
+        text.length == 1 &&
+        text.toUpperCase() != text.toLowerCase();
   }
 
   bool get showsPopup => control == null;
@@ -1795,7 +1866,7 @@ class _OskKeySpec {
 
   String outputText({required bool capital}) {
     final text = value ?? '';
-    return capital && isLetter ? text.toUpperCase() : text;
+    return capital && isLetter ? this.capital ?? text.toUpperCase() : text;
   }
 
   String labelText({
@@ -1851,6 +1922,7 @@ class _OskKeySpec {
       _OskControl.arrowDown => l10n.oskArrowDown,
       _OskControl.arrowLeft => l10n.oskArrowLeft,
       _OskControl.arrowRight => l10n.oskArrowRight,
+      _OskControl.language => l10n.settingsShortcutActionNextKeyboardLayout,
       null => labelText(
         capital: shift != _Shift.off,
         ctrlArmed: false,
@@ -1882,7 +1954,7 @@ class _OskKeySpec {
     }
     if (isLetter) {
       // A capital is the letter with Shift.
-      return capital ? text.toUpperCase() : text;
+      return outputText(capital: capital);
     }
     return switch (text) {
       ',' => 'comma',
@@ -1916,65 +1988,83 @@ class _OskKeySpec {
   }
 }
 
-const _letterRows = [
-  _OskRowData([
-    _OskKeySpec.text('q'),
-    _OskKeySpec.text('w'),
-    _OskKeySpec.text('e'),
-    _OskKeySpec.text('r'),
-    _OskKeySpec.text('t'),
-    _OskKeySpec.text('y'),
-    _OskKeySpec.text('u'),
-    _OskKeySpec.text('i'),
-    _OskKeySpec.text('o'),
-    _OskKeySpec.text('p'),
-  ]),
-  _OskRowData([
-    _OskKeySpec.text('a'),
-    _OskKeySpec.text('s'),
-    _OskKeySpec.text('d'),
-    _OskKeySpec.text('f'),
-    _OskKeySpec.text('g'),
-    _OskKeySpec.text('h'),
-    _OskKeySpec.text('j'),
-    _OskKeySpec.text('k'),
-    _OskKeySpec.text('l'),
-  ], sideInset: 28),
-  _OskRowData([
-    _OskKeySpec.control(
-      _OskControl.shift,
-      icon: Icons.keyboard_arrow_up_rounded,
-      flex: 15,
-    ),
-    _OskKeySpec.text('z'),
-    _OskKeySpec.text('x'),
-    _OskKeySpec.text('c'),
-    _OskKeySpec.text('v'),
-    _OskKeySpec.text('b'),
-    _OskKeySpec.text('n'),
-    _OskKeySpec.text('m'),
-    _OskKeySpec.control(
-      _OskControl.backspace,
-      icon: Icons.backspace_rounded,
-      flex: 15,
-    ),
-  ]),
-  _OskRowData([
-    _OskKeySpec.control(_OskControl.symbols, flex: 17),
-    _OskKeySpec.text(',', flex: 10),
-    _OskKeySpec.control(
-      _OskControl.space,
-      icon: Icons.space_bar_rounded,
-      flex: 46,
-    ),
-    _OskKeySpec.text('.', flex: 10),
-    _OskKeySpec.control(
-      _OskControl.enter,
-      icon: Icons.keyboard_return_rounded,
-      flex: 17,
-    ),
-  ]),
-];
+/// The letters layer: [layout]'s three rows, every letter as wide as in
+/// its longest row, and the bottom row, with the language key when
+/// [languageKey].
+List<_OskRowData> _buildLetterRows(
+  OskLetterLayout layout, {
+  required bool languageKey,
+}) {
+  final rows = layout.keys;
+  final third = rows[2].length;
+  // Shift and Backspace take at least a letter's width each.
+  final columns = math.max(math.max(rows[0].length, rows[1].length), third + 2);
+  List<_OskKeySpec> letters(List<String> keys) => [
+    for (final key in keys)
+      _OskKeySpec.text(key, capital: layout.capitals[key]),
+  ];
+  _OskRowData row(List<String> keys) => _OskRowData(
+    letters(keys),
+    sideKeys: (columns - keys.length) / 2,
+    columns: columns,
+  );
+  final edge = (columns - third) * 5;
+  return [
+    row(rows[0]),
+    row(rows[1]),
+    _OskRowData([
+      _OskKeySpec.control(
+        _OskControl.shift,
+        icon: Icons.keyboard_arrow_up_rounded,
+        flex: edge,
+      ),
+      ...letters(rows[2]),
+      _OskKeySpec.control(
+        _OskControl.backspace,
+        icon: Icons.backspace_rounded,
+        flex: edge,
+      ),
+    ]),
+    languageKey ? _languageBottomRow : _letterBottomRow,
+  ];
+}
+
+const _letterBottomRow = _OskRowData([
+  _OskKeySpec.control(_OskControl.symbols, flex: 17),
+  _OskKeySpec.text(',', flex: 10),
+  _OskKeySpec.control(
+    _OskControl.space,
+    icon: Icons.space_bar_rounded,
+    flex: 46,
+  ),
+  _OskKeySpec.text('.', flex: 10),
+  _OskKeySpec.control(
+    _OskControl.enter,
+    icon: Icons.keyboard_return_rounded,
+    flex: 17,
+  ),
+]);
+
+const _languageBottomRow = _OskRowData([
+  _OskKeySpec.control(_OskControl.symbols, flex: 17),
+  _OskKeySpec.control(
+    _OskControl.language,
+    icon: Icons.language_rounded,
+    flex: 10,
+  ),
+  _OskKeySpec.text(',', flex: 10),
+  _OskKeySpec.control(
+    _OskControl.space,
+    icon: Icons.space_bar_rounded,
+    flex: 36,
+  ),
+  _OskKeySpec.text('.', flex: 10),
+  _OskKeySpec.control(
+    _OskControl.enter,
+    icon: Icons.keyboard_return_rounded,
+    flex: 17,
+  ),
+]);
 
 const _numberRows = [
   _OskRowData([

@@ -16,6 +16,7 @@ import '../state/desktop_window_close_effect.dart';
 import 'package:denial_flutter_sdk/backdrop_blur_level.dart';
 
 import '../theme/cursor_themes.dart';
+import 'shell_scale.dart';
 
 import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/tokens.dart';
@@ -116,8 +117,8 @@ class ShellAppearanceSettings {
     this.accentSource = ShellAccentSource.custom,
     this.customAccentColor = const Color(0xff6b3f73),
     this.fontFamily = '',
-    this.cornerRadiusScale = 0.5,
-    this.monitorCornerRadiusScale = 0.5,
+    this.windowCornerRadiusScale = 0.5,
+    this.interfaceCornerRadiusScale = 1.2,
     this.panelOpacity = 0.5,
     this.cardOpacity = 0.4421052631578947,
     this.transparencyMode = ShellTransparencyMode.glass,
@@ -131,17 +132,21 @@ class ShellAppearanceSettings {
     this.cursorSize = shellCursorDefaultSize,
     this.cursorThemeId = 'bibata_modern_ice',
     this.allowClientCursorSurfaces = true,
+    this.shellScales = const <String, double>{},
   });
 
   final DesktopColorSchemePreference colorSchemePreference;
   final ShellAccentSource accentSource;
   final Color customAccentColor;
   final String fontFamily;
-  final double cornerRadiusScale;
 
-  /// The corners on a monitor beside a phone, whose own scale is tuned for
-  /// the mobile shell.
-  final double monitorCornerRadiusScale;
+  /// The corners of windows, on every screen, and the outermost corners of
+  /// shell panels, so panels and windows share one shape.
+  final double windowCornerRadiusScale;
+
+  /// The corners of everything inside the shell's panels: cards, tiles,
+  /// buttons, fields.
+  final double interfaceCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -156,13 +161,19 @@ class ShellAppearanceSettings {
   final String cursorThemeId;
   final bool allowClientCursorSurfaces;
 
+  /// How much larger than its screen's scale the desktop shell draws itself
+  /// on each screen, by output name: the system bar, panels, menus and window
+  /// frames, not the windows. A screen missing here takes
+  /// [ShellScale.automatic].
+  final Map<String, double> shellScales;
+
   ShellAppearanceSettings copyWith({
     DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
     Color? customAccentColor,
     String? fontFamily,
-    double? cornerRadiusScale,
-    double? monitorCornerRadiusScale,
+    double? windowCornerRadiusScale,
+    double? interfaceCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -176,6 +187,7 @@ class ShellAppearanceSettings {
     double? cursorSize,
     String? cursorThemeId,
     bool? allowClientCursorSurfaces,
+    Map<String, double>? shellScales,
   }) {
     return ShellAppearanceSettings(
       colorSchemePreference:
@@ -183,9 +195,10 @@ class ShellAppearanceSettings {
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
       fontFamily: fontFamily ?? this.fontFamily,
-      cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
-      monitorCornerRadiusScale:
-          monitorCornerRadiusScale ?? this.monitorCornerRadiusScale,
+      windowCornerRadiusScale:
+          windowCornerRadiusScale ?? this.windowCornerRadiusScale,
+      interfaceCornerRadiusScale:
+          interfaceCornerRadiusScale ?? this.interfaceCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -204,6 +217,7 @@ class ShellAppearanceSettings {
       cursorThemeId: cursorThemeId ?? this.cursorThemeId,
       allowClientCursorSurfaces:
           allowClientCursorSurfaces ?? this.allowClientCursorSurfaces,
+      shellScales: shellScales ?? this.shellScales,
     );
   }
 
@@ -214,8 +228,8 @@ class ShellAppearanceSettings {
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
         other.fontFamily == fontFamily &&
-        other.cornerRadiusScale == cornerRadiusScale &&
-        other.monitorCornerRadiusScale == monitorCornerRadiusScale &&
+        other.windowCornerRadiusScale == windowCornerRadiusScale &&
+        other.interfaceCornerRadiusScale == interfaceCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -228,7 +242,8 @@ class ShellAppearanceSettings {
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
         other.cursorSize == cursorSize &&
         other.cursorThemeId == cursorThemeId &&
-        other.allowClientCursorSurfaces == allowClientCursorSurfaces;
+        other.allowClientCursorSurfaces == allowClientCursorSurfaces &&
+        mapEquals(other.shellScales, shellScales);
   }
 
   @override
@@ -237,8 +252,8 @@ class ShellAppearanceSettings {
     accentSource,
     customAccentColor,
     fontFamily,
-    cornerRadiusScale,
-    monitorCornerRadiusScale,
+    windowCornerRadiusScale,
+    interfaceCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,
@@ -252,6 +267,9 @@ class ShellAppearanceSettings {
     cursorSize,
     cursorThemeId,
     allowClientCursorSurfaces,
+    Object.hashAllUnordered(
+      shellScales.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
   );
 }
 
@@ -305,6 +323,7 @@ class ShellAnimationSettings {
 class ShellLayoutSettings {
   const ShellLayoutSettings({
     this.windowLayout = DesktopWindowLayout.stacking,
+    this.windowFrames = false,
     this.keyboardResizeStep = '2%',
     this.scrollingLayoutPreserveSwapSizes = true,
     this.scrollingLayoutWheelSpeed = scrollingLayoutWheelSpeedDefault,
@@ -324,6 +343,11 @@ class ShellLayoutSettings {
 
   final DesktopWindowLayout windowLayout;
 
+  /// Whether the stacking layout draws Denial's own window frames, a title
+  /// bar with caption buttons, around decorated windows. Other layouts and a
+  /// window frame plugin ignore it.
+  final bool windowFrames;
+
   /// Native-validated pixel or percentage amount, preserved across UI saves.
   final String keyboardResizeStep;
   final bool scrollingLayoutPreserveSwapSizes;
@@ -342,6 +366,7 @@ class ShellLayoutSettings {
 
   ShellLayoutSettings copyWith({
     DesktopWindowLayout? windowLayout,
+    bool? windowFrames,
     String? keyboardResizeStep,
     bool? scrollingLayoutPreserveSwapSizes,
     double? scrollingLayoutWheelSpeed,
@@ -360,6 +385,7 @@ class ShellLayoutSettings {
   }) {
     return ShellLayoutSettings(
       windowLayout: windowLayout ?? this.windowLayout,
+      windowFrames: windowFrames ?? this.windowFrames,
       keyboardResizeStep: keyboardResizeStep ?? this.keyboardResizeStep,
       scrollingLayoutPreserveSwapSizes:
           scrollingLayoutPreserveSwapSizes ??
@@ -392,6 +418,7 @@ class ShellLayoutSettings {
   bool operator ==(Object other) {
     return other is ShellLayoutSettings &&
         other.windowLayout == windowLayout &&
+        other.windowFrames == windowFrames &&
         other.keyboardResizeStep == keyboardResizeStep &&
         other.scrollingLayoutPreserveSwapSizes ==
             scrollingLayoutPreserveSwapSizes &&
@@ -413,6 +440,7 @@ class ShellLayoutSettings {
   @override
   int get hashCode => Object.hash(
     windowLayout,
+    windowFrames,
     keyboardResizeStep,
     scrollingLayoutPreserveSwapSizes,
     scrollingLayoutWheelSpeed,
@@ -1095,6 +1123,7 @@ class ShellSettings {
     this.notifications = const ShellNotificationSettings(),
     this.sound = const ShellSoundSettings(),
     this.applicationEnvironment = const ShellApplicationEnvironmentSettings(),
+    this.phoneTriggers = const ShellPhoneTriggerSettings(),
   });
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
@@ -1112,6 +1141,7 @@ class ShellSettings {
   final ShellNotificationSettings notifications;
   final ShellSoundSettings sound;
   final ShellApplicationEnvironmentSettings applicationEnvironment;
+  final ShellPhoneTriggerSettings phoneTriggers;
 
   ShellSettings copyWith({
     InputDeckSettings? inputDeck,
@@ -1125,6 +1155,7 @@ class ShellSettings {
     ShellNotificationSettings? notifications,
     ShellSoundSettings? sound,
     ShellApplicationEnvironmentSettings? applicationEnvironment,
+    ShellPhoneTriggerSettings? phoneTriggers,
   }) {
     return ShellSettings(
       inputDeck: inputDeck ?? this.inputDeck,
@@ -1139,6 +1170,7 @@ class ShellSettings {
       sound: sound ?? this.sound,
       applicationEnvironment:
           applicationEnvironment ?? this.applicationEnvironment,
+      phoneTriggers: phoneTriggers ?? this.phoneTriggers,
     );
   }
 
@@ -1182,13 +1214,14 @@ class ShellSettings {
       if (appearance.fontFamily != before.fontFamily) {
         section['fontFamily'] = appearance.fontFamily;
       }
-      if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
-        section['cornerRadiusScale'] = appearance.cornerRadiusScale;
+      if (appearance.windowCornerRadiusScale !=
+          before.windowCornerRadiusScale) {
+        section['windowCornerRadiusScale'] = appearance.windowCornerRadiusScale;
       }
-      if (appearance.monitorCornerRadiusScale !=
-          before.monitorCornerRadiusScale) {
-        section['monitorCornerRadiusScale'] =
-            appearance.monitorCornerRadiusScale;
+      if (appearance.interfaceCornerRadiusScale !=
+          before.interfaceCornerRadiusScale) {
+        section['interfaceCornerRadiusScale'] =
+            appearance.interfaceCornerRadiusScale;
       }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
@@ -1238,6 +1271,9 @@ class ShellSettings {
         section['allowClientCursorSurfaces'] =
             appearance.allowClientCursorSurfaces;
       }
+      if (!mapEquals(appearance.shellScales, before.shellScales)) {
+        section['shellScales'] = appearance.shellScales;
+      }
       patch['appearance'] = section;
     }
 
@@ -1249,6 +1285,9 @@ class ShellSettings {
       }
       if (layout.windowLayout != before.windowLayout) {
         section['windowLayout'] = layout.windowLayout.name;
+      }
+      if (layout.windowFrames != before.windowFrames) {
+        section['windowFrames'] = layout.windowFrames;
       }
       if (layout.scrollingLayoutPreserveSwapSizes !=
           before.scrollingLayoutPreserveSwapSizes) {
@@ -1433,6 +1472,10 @@ class ShellSettings {
       patch['applicationEnvironment'] = applicationEnvironment.toJson();
     }
 
+    if (phoneTriggers != previous.phoneTriggers) {
+      patch['phoneTriggers'] = phoneTriggers.toJson();
+    }
+
     return patch;
   }
 
@@ -1448,8 +1491,8 @@ class ShellSettings {
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
         'fontFamily': appearance.fontFamily,
-        'cornerRadiusScale': appearance.cornerRadiusScale,
-        'monitorCornerRadiusScale': appearance.monitorCornerRadiusScale,
+        'windowCornerRadiusScale': appearance.windowCornerRadiusScale,
+        'interfaceCornerRadiusScale': appearance.interfaceCornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
         'transparencyMode': appearance.transparencyMode.name,
@@ -1465,9 +1508,11 @@ class ShellSettings {
         'cursorSize': appearance.cursorSize,
         'cursorThemeId': appearance.cursorThemeId,
         'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
+        'shellScales': appearance.shellScales,
       },
       'layout': <String, Object?>{
         'windowLayout': layout.windowLayout.name,
+        'windowFrames': layout.windowFrames,
         'keyboardResizeStep': layout.keyboardResizeStep,
         'scrollingLayoutPreserveSwapSizes':
             layout.scrollingLayoutPreserveSwapSizes,
@@ -1528,6 +1573,7 @@ class ShellSettings {
       'sound': sound.toJson(),
       'inputDeck': inputDeck.toJson(),
       'applicationEnvironment': applicationEnvironment.toJson(),
+      'phoneTriggers': phoneTriggers.toJson(),
     };
   }
 
@@ -1551,26 +1597,6 @@ class ShellSettings {
             hoverTriggerEnabled: legacyHoverTriggersEnabled,
           )
         : defaults.overlays.dashboard;
-    var legacyCornerRadiusScale = defaults.appearance.cornerRadiusScale;
-    if (appearanceJson.containsKey('panelRadius')) {
-      legacyCornerRadiusScale =
-          _number(
-            appearanceJson['panelRadius'],
-            ShellRadii.panel,
-            0,
-            ShellRadii.panel * ShellRoundness.maximum,
-          ) /
-          ShellRadii.panel;
-    } else if (appearanceJson.containsKey('windowRadius')) {
-      legacyCornerRadiusScale =
-          _number(
-            appearanceJson['windowRadius'],
-            ShellRadii.window,
-            0,
-            ShellRadii.window * ShellRoundness.maximum,
-          ) /
-          ShellRadii.window;
-    }
     final outputNames = <String>[];
     for (final value in _list(layoutJson['systemBarOutputs'])) {
       if (value is! String) {
@@ -1646,15 +1672,15 @@ class ShellSettings {
           appearanceJson['fontFamily'],
           defaults.appearance.fontFamily,
         ),
-        cornerRadiusScale: _number(
-          appearanceJson['cornerRadiusScale'],
-          legacyCornerRadiusScale,
+        windowCornerRadiusScale: _number(
+          appearanceJson['windowCornerRadiusScale'],
+          defaults.appearance.windowCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),
-        monitorCornerRadiusScale: _number(
-          appearanceJson['monitorCornerRadiusScale'],
-          defaults.appearance.monitorCornerRadiusScale,
+        interfaceCornerRadiusScale: _number(
+          appearanceJson['interfaceCornerRadiusScale'],
+          defaults.appearance.interfaceCornerRadiusScale,
           ShellRoundness.minimum,
           ShellRoundness.maximum,
         ),
@@ -1724,6 +1750,7 @@ class ShellSettings {
             appearanceJson['allowClientCursorSurfaces'] is bool
             ? appearanceJson['allowClientCursorSurfaces'] as bool
             : defaults.appearance.allowClientCursorSurfaces,
+        shellScales: _shellScales(appearanceJson['shellScales']),
       ),
       layout: ShellLayoutSettings(
         keyboardResizeStep: layoutJson['keyboardResizeStep'] is String
@@ -1734,6 +1761,9 @@ class ShellSettings {
           layoutJson['windowLayout'],
           defaults.layout.windowLayout,
         ),
+        windowFrames: layoutJson['windowFrames'] is bool
+            ? layoutJson['windowFrames'] as bool
+            : defaults.layout.windowFrames,
         scrollingLayoutWheelSpeed: _number(
           layoutJson['scrollingLayoutWheelSpeed'],
           defaults.layout.scrollingLayoutWheelSpeed,
@@ -1948,6 +1978,7 @@ class ShellSettings {
       applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
         json['applicationEnvironment'],
       ),
+      phoneTriggers: ShellPhoneTriggerSettings.fromJson(json['phoneTriggers']),
     );
   }
 
@@ -1964,7 +1995,8 @@ class ShellSettings {
         other.power == power &&
         other.notifications == notifications &&
         other.sound == sound &&
-        other.applicationEnvironment == applicationEnvironment;
+        other.applicationEnvironment == applicationEnvironment &&
+        other.phoneTriggers == phoneTriggers;
   }
 
   @override
@@ -1980,7 +2012,99 @@ class ShellSettings {
     notifications,
     sound,
     applicationEnvironment,
+    phoneTriggers,
   );
+}
+
+/// Where a phone's shoulder triggers touch, per app id. deniald reads it
+/// when a trigger is pressed: each spot is a fraction of the phone's screen
+/// in its current orientation, `null` where the trigger touches nothing.
+@immutable
+class ShellPhoneTriggerSettings {
+  const ShellPhoneTriggerSettings({this.apps = const {}});
+
+  final Map<String, ShellTriggerPoints> apps;
+
+  ShellTriggerPoints pointsFor(String appId) =>
+      apps[appId] ?? const ShellTriggerPoints();
+
+  ShellPhoneTriggerSettings withPoints(
+    String appId,
+    ShellTriggerPoints points,
+  ) => ShellPhoneTriggerSettings(
+    apps: Map<String, ShellTriggerPoints>.unmodifiable({
+      ...apps,
+      appId: points,
+    }),
+  );
+
+  /// Every app is written, cleared ones with `null` sides: the document is
+  /// merged, so a missing side would keep its old spot.
+  Map<String, Object?> toJson() => <String, Object?>{
+    for (final entry in apps.entries) entry.key: entry.value.toJson(),
+  };
+
+  factory ShellPhoneTriggerSettings.fromJson(Object? json) {
+    if (json is! Map) return const ShellPhoneTriggerSettings();
+    return ShellPhoneTriggerSettings(
+      apps: Map<String, ShellTriggerPoints>.unmodifiable({
+        for (final entry in json.entries)
+          if (entry.key is String && (entry.key as String).isNotEmpty)
+            entry.key as String: ShellTriggerPoints.fromJson(entry.value),
+      }),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShellPhoneTriggerSettings && mapEquals(other.apps, apps);
+
+  @override
+  int get hashCode => Object.hashAllUnordered(
+    apps.entries.map((entry) => Object.hash(entry.key, entry.value)),
+  );
+}
+
+/// The left and right trigger's spots for one app, as screen fractions.
+@immutable
+class ShellTriggerPoints {
+  const ShellTriggerPoints({this.left, this.right});
+
+  final Offset? left;
+  final Offset? right;
+
+  bool get isEmpty => left == null && right == null;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'left': _encode(left),
+    'right': _encode(right),
+  };
+
+  factory ShellTriggerPoints.fromJson(Object? json) {
+    if (json is! Map) return const ShellTriggerPoints();
+    return ShellTriggerPoints(
+      left: _decode(json['left']),
+      right: _decode(json['right']),
+    );
+  }
+
+  static List<double>? _encode(Offset? point) =>
+      point == null ? null : <double>[point.dx, point.dy];
+
+  static Offset? _decode(Object? value) {
+    if (value is! List || value.length != 2) return null;
+    final [x, y] = value;
+    if (x is! num || y is! num) return null;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return Offset(x.toDouble(), y.toDouble());
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShellTriggerPoints && other.left == left && other.right == right;
+
+  @override
+  int get hashCode => Object.hash(left, right);
 }
 
 String _fontFamily(Object? value, String fallback) {
@@ -2071,6 +2195,26 @@ double _number(Object? value, double fallback, double minimum, double maximum) {
     return fallback;
   }
   return result.clamp(minimum, maximum).toDouble();
+}
+
+Map<String, double> _shellScales(Object? value) {
+  if (value is! Map) {
+    return const <String, double>{};
+  }
+  final scales = <String, double>{};
+  for (final entry in value.entries) {
+    final name = entry.key;
+    final scale = entry.value;
+    if (name is String &&
+        name.isNotEmpty &&
+        scale is num &&
+        scale.isFinite &&
+        scale >= ShellScale.minimum &&
+        scale <= ShellScale.maximum) {
+      scales[name] = scale.toDouble();
+    }
+  }
+  return Map<String, double>.unmodifiable(scales);
 }
 
 int _integer(Object? value, int fallback, int minimum, int maximum) {

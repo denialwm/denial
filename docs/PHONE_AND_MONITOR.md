@@ -60,8 +60,6 @@ in. Its settings change only the desk:
 - **Windows** is `layout.windowLayout`: stacking, tiling (`dwindle`) or
   scrolling. The phone always fills its panel, so the setting only reaches
   the desk.
-- **Roundness** is `appearance.monitorCornerRadiusScale`, 0.5 unless set. The
-  phone keeps `appearance.cornerRadiusScale`.
 - **Wallpaper** writes the monitor's own entries in the wallpaper file:
   `outputs`, `outputAlignments` and `outputZooms`, keyed by connector. A
   wallpaper picked for the phone replaces the built-in panel's entries and

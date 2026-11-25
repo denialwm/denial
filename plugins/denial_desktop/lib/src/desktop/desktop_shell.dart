@@ -12,6 +12,7 @@ import 'package:denial_flutter_sdk/shell.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:denial_flutter_sdk/system_services.dart';
 import 'package:denial_flutter_sdk/wallpaper.dart';
+import 'package:denial_flutter_sdk/window_frames.dart' show ShellWindowFrame;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -78,10 +79,83 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ref.read(quickSettingsProvider);
       ref.read(desktopPowerModesProvider);
     });
-    _shellActionSubscription = ref
-        .read(denialBridgeProvider)
-        .shellActions
-        .listen(_handleShellAction);
+    final bridge = ref.read(denialBridgeProvider);
+    _useWindowFrame(ref.read(desktopWindowFrameProvider));
+    _useOutputScales(ref.read(deskDisplayLayoutProvider));
+    _declareWindowFrames();
+    // A frame chosen later, such as the stacking layout's title bars turned
+    // on or off, keeps every window's content where it is, as the compositor
+    // does, before anything builds with it.
+    ref.listenManual<ShellWindowFrame?>(desktopWindowFrameProvider, (_, next) {
+      final changed = ref
+          .read(desktopWorkspaceProvider.notifier)
+          .changeFramesKeepingContent(() => _useWindowFrame(next));
+      if (changed) {
+        _declareWindowFrames();
+      }
+    });
+    _shellActionSubscription = bridge.shellActions.listen(_handleShellAction);
+  }
+
+  /// The window frame whose margins the metrics hold.
+  ShellWindowFrame? _windowFrame;
+
+  /// Takes the margins of [frame], or of the desktop's own border without
+  /// one. Returns whether the frame changed.
+  bool _useWindowFrame(ShellWindowFrame? frame) {
+    if (identical(frame, _windowFrame) && _windowFrameApplied) {
+      return false;
+    }
+    _windowFrame = frame;
+    _windowFrameApplied = true;
+    DesktopMetrics.useWindowFrameMargins(
+      frame?.margins,
+      maximized: frame?.maximizedMargins,
+      reach: frame?.reach,
+    );
+    return true;
+  }
+
+  bool _windowFrameApplied = false;
+
+  /// Takes the shell's own scale on each output from [layout]. Returns
+  /// whether the frames changed with it.
+  bool _useOutputScales(DisplayLayout? layout) {
+    final scales = <int, ({double shell, double screen})>{
+      if (layout != null)
+        for (final output in layout.outputs)
+          if (layout.shellMetrics[output.monitorId] case final metrics?)
+            output.monitorId: (shell: metrics.scale, screen: output.scale),
+    };
+    return DesktopMetrics.useOutputScales(scales);
+  }
+
+  /// Tells the compositor the frame this desktop draws: on every output, then
+  /// on each output where the shell's own scale makes it larger. The frame
+  /// has one source, and the compositor subtracts exactly this wherever it
+  /// turns a window's frame into its content.
+  void _declareWindowFrames() {
+    final bridge = ref.read(denialBridgeProvider);
+    DenialWindowFrameMargins margins(EdgeInsets insets) =>
+        DenialWindowFrameMargins(
+          left: insets.left,
+          top: insets.top,
+          right: insets.right,
+          bottom: insets.bottom,
+        );
+    final maximizedMargins = DesktopMetrics.maximizedFrameMargins;
+    bridge.configureWindowFrame(
+      margins(DesktopMetrics.frameMargins),
+      maximized: maximizedMargins == null ? null : margins(maximizedMargins),
+    );
+    for (final monitorId in DesktopMetrics.scaledOutputs) {
+      final maximized = DesktopMetrics.maximizedFrameMarginsOn(monitorId);
+      bridge.configureWindowFrame(
+        margins(DesktopMetrics.frameMarginsOn(monitorId)),
+        maximized: maximized == null ? null : margins(maximized),
+        monitorId: monitorId,
+      );
+    }
   }
 
   @override
@@ -965,6 +1039,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     );
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
     final nativeDisplayLayout = ref.watch(deskDisplayLayoutProvider);
+    // Placements read their frames from the metrics as they build, so the
+    // metrics change before anything below builds.
+    final frameChanged = _useWindowFrame(ref.watch(desktopWindowFrameProvider));
+    if (_useOutputScales(nativeDisplayLayout) || frameChanged) {
+      scheduleMicrotask(() {
+        if (mounted) _declareWindowFrames();
+      });
+    }
     // DENIAL_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
     // (no native bridge) while still rendering layout-dependent chrome such
     // as the system bar, for styling work without restarting deniald.
@@ -984,59 +1066,54 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
     final scene = DefaultTextStyle(
       style: context.shellTheme.text.base,
-      child: ColoredBox(
-        color: context.shellColors.background,
-        child: LayoutBuilder(
-          builder: (context, constraints) => DesktopOverviewKeyboard(
-            active: desktop.overviewActive,
-            onNavigate: _moveOverviewSelection,
-            onActivate: _activateOverviewSelection,
-            onDismiss: _dismissOverview,
-            child: DesktopScene(
-              viewSize: constraints.biggest,
-              windows: windows,
-              layerSurfaces: layerSurfaces,
-              desktop: desktop,
-              closeEffect: animations.windowCloseEffect,
-              minimizedWindowPlacement: minimizedWindowPlacement,
-              panelTravel: animations.panelTravel,
-              panelDurationScale: animations.durationScale,
-              windowSwitcher: windowSwitcher,
-              displayLayout: displayLayout,
-              showFrameTimingOverlay: ref.watch(
-                shellFrameTimingOverlayProvider,
-              ),
-              wallpaperSelectorVisible: wallpaperSelectorVisible,
-              shellOutputRect: shellOutput?.logicalRect,
-              mainOutputRect: mainOutput?.logicalRect,
-              applicationSearchFocusNode: _applicationSearchFocusNode,
-              onOpenLauncher: _openLauncher,
-              onDismissPanel: _closePanels,
-              onOpenDashboard: _openDashboard,
-              onToggleDashboard: _toggleDashboard,
-              onCloseWallpaperSelector: _closeWallpaperSelector,
-              onOpenSettings: _openSettings,
-              onOpenPowerSettings: _openPowerSettings,
-              onToggleLauncher: _toggleLauncher,
-              onCancelPanelClose: _cancelPanelClose,
-              onSchedulePanelClose: _schedulePanelClose,
-              onPanelOpened: _panelHoverController.openingCompleted,
-              onLaunchApp: _launchApp,
-              onLaunchLocalApp: _launchLocalApp,
-              onActivateWindow: _activateWindow,
-              onCloseWindow: ref
-                  .read(referenceShellProvider.notifier)
-                  .closeWindow,
-              onOverviewBarrierTap: _handleOverviewBarrierTap,
-              onSelectOverviewWorkspace: _selectOverviewWorkspace,
-              onBeginOverviewDrag: _beginOverviewDrag,
-              onUpdateOverviewDrag: _updateOverviewDrag,
-              onEndOverviewDrag: _endOverviewDrag,
-              onCancelOverviewDrag: _cancelOverviewDrag,
-              onCloseLeaseComplete: ref
-                  .read(denialBridgeProvider)
-                  .completeWindowClose,
-            ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => DesktopOverviewKeyboard(
+          active: desktop.overviewActive,
+          onNavigate: _moveOverviewSelection,
+          onActivate: _activateOverviewSelection,
+          onDismiss: _dismissOverview,
+          child: DesktopScene(
+            viewSize: constraints.biggest,
+            windows: windows,
+            layerSurfaces: layerSurfaces,
+            desktop: desktop,
+            closeEffect: animations.windowCloseEffect,
+            minimizedWindowPlacement: minimizedWindowPlacement,
+            panelTravel: animations.panelTravel,
+            panelDurationScale: animations.durationScale,
+            windowSwitcher: windowSwitcher,
+            displayLayout: displayLayout,
+            showFrameTimingOverlay: ref.watch(shellFrameTimingOverlayProvider),
+            wallpaperSelectorVisible: wallpaperSelectorVisible,
+            shellOutputRect: shellOutput?.logicalRect,
+            mainOutputRect: mainOutput?.logicalRect,
+            applicationSearchFocusNode: _applicationSearchFocusNode,
+            onOpenLauncher: _openLauncher,
+            onDismissPanel: _closePanels,
+            onOpenDashboard: _openDashboard,
+            onToggleDashboard: _toggleDashboard,
+            onCloseWallpaperSelector: _closeWallpaperSelector,
+            onOpenSettings: _openSettings,
+            onOpenPowerSettings: _openPowerSettings,
+            onToggleLauncher: _toggleLauncher,
+            onCancelPanelClose: _cancelPanelClose,
+            onSchedulePanelClose: _schedulePanelClose,
+            onPanelOpened: _panelHoverController.openingCompleted,
+            onLaunchApp: _launchApp,
+            onLaunchLocalApp: _launchLocalApp,
+            onActivateWindow: _activateWindow,
+            onCloseWindow: ref
+                .read(referenceShellProvider.notifier)
+                .closeWindow,
+            onOverviewBarrierTap: _handleOverviewBarrierTap,
+            onSelectOverviewWorkspace: _selectOverviewWorkspace,
+            onBeginOverviewDrag: _beginOverviewDrag,
+            onUpdateOverviewDrag: _updateOverviewDrag,
+            onEndOverviewDrag: _endOverviewDrag,
+            onCancelOverviewDrag: _cancelOverviewDrag,
+            onCloseLeaseComplete: ref
+                .read(denialBridgeProvider)
+                .completeWindowClose,
           ),
         ),
       ),

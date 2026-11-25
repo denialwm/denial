@@ -8,10 +8,20 @@ mod gpu_deadline;
 pub(super) mod native_client;
 #[path = "handler/open_gl.rs"]
 mod open_gl;
+#[path = "handler/scene_composer.rs"]
+mod scene_composer;
+#[path = "stagecraft/mod.rs"]
+mod stagecraft;
 use native_client::NativeClientState;
+pub(crate) use stagecraft::client_formats;
 
 /// Window grading on the render thread: one 3D texture per app look, and
 /// the graded copy of each window texture that needs one.
+/// What a present changed in the buffer KMS shows since that buffer was last
+/// presented: pixel rectangles `[x, y, width, height]` counted in memory rows
+/// from the buffer's start, or None for all of it.
+pub(in crate::flutter_runtime) type ScanoutArea = Option<Vec<[i32; 4]>>;
+
 #[derive(Default)]
 struct WindowGrades {
     looks: Vec<(Arc<crate::output_color::Lut>, u32)>,
@@ -21,7 +31,7 @@ struct WindowGrades {
 /// What a window texture's copy does: the surface's own conversion into the
 /// scene and its alpha mode, then its app's look.
 #[derive(Clone)]
-struct Grade {
+pub(in crate::flutter_runtime) struct Grade {
     transform: Option<crate::color_space::SurfaceTransform>,
     alpha: crate::color_space::AlphaMode,
     look: Option<Arc<crate::output_color::Lut>>,
@@ -41,6 +51,17 @@ impl Grade {
     /// Converted HDR or extended content keeps more than 8 bits.
     fn float(&self) -> bool {
         self.transform.is_some_and(|transform| transform.float)
+    }
+
+    /// The copy pass that grades with look texture `look` (0 for none).
+    fn copy_color(&self, look: u32) -> CopyColor {
+        CopyColor {
+            look,
+            alpha: self.alpha as i32 + 1,
+            convert: self.conversion(),
+            gamut: None,
+            pq_white: 0.0,
+        }
     }
 
     fn conversion(&self) -> Option<Conversion> {
@@ -173,6 +194,12 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     desktop_size: PixelSize,
     producer: ProducerArbiter,
     shutdown_started: AtomicBool,
+    /// `None` where Vulkan cannot open the GPU: frames stay on GLES.
+    scene_composer: Option<stagecraft::SceneComposer>,
+    /// Composer submissions the raster context has not waited for yet. With
+    /// the Vulkan shell GLES draws nothing in most frames: the wait is
+    /// queued before its next command (`gles_catch_up`), not per frame.
+    gles_owed: Mutex<Vec<OwnedFd>>,
 }
 
 impl FlutterGlHandler {
@@ -204,6 +231,7 @@ impl FlutterGlHandler {
         let mut targets = Vec::new();
         let mut broker_descriptors = Vec::new();
         let mut transfers = HashMap::new();
+        let scene_composer = scene_composer::create_scene_composer(&render_context);
 
         for pool in output_pools {
             let width =
@@ -508,6 +536,12 @@ impl FlutterGlHandler {
                 if let Some(Some(transfer)) = pool.transfers.get(buffer_index) {
                     transfers.insert(target.render_framebuffer, Arc::clone(transfer));
                 }
+                if let Some(composer) = &scene_composer {
+                    composer.add_target(
+                        target.render_framebuffer,
+                        render_dmabuf.unwrap_or(scanout_dmabuf),
+                    );
+                }
                 targets.push(target);
             }
             let framebuffers = targets[target_start..]
@@ -623,6 +657,7 @@ impl FlutterGlHandler {
             raster_sampled_buffers: Mutex::new(Vec::new()),
             raster_sampled_feedback: Mutex::new(Vec::new()),
             sampled_buffer_release_fence: Mutex::new(None),
+            gles_owed: Mutex::new(Vec::new()),
             sampled_buffer_batch_pool: Arc::new(Mutex::new(Vec::with_capacity(
                 MAX_RECYCLED_SAMPLED_BUFFER_BATCHES,
             ))),
@@ -652,6 +687,7 @@ impl FlutterGlHandler {
             desktop_size,
             producer: ProducerArbiter::new(),
             shutdown_started: AtomicBool::new(false),
+            scene_composer,
         }))
     }
 
@@ -760,6 +796,15 @@ impl FlutterGlHandler {
         frames: impl IntoIterator<Item = ExternalTextureFrame>,
         changed: &mut Vec<i64>,
     ) {
+        self.stage_texture_sources(frames, changed, false);
+    }
+
+    pub(in crate::flutter_runtime) fn stage_texture_sources(
+        &self,
+        frames: impl IntoIterator<Item = ExternalTextureFrame>,
+        changed: &mut Vec<i64>,
+        cursor_on_plane: bool,
+    ) {
         let now = Instant::now();
         let mut sources = lock(&self.external_texture_sources);
         for ExternalTextureFrame {
@@ -767,11 +812,18 @@ impl FlutterGlHandler {
             source,
             expects_sample,
             presentation,
+            damage,
         } in frames
         {
             let slot = sources.entry(texture_id).or_default();
+            if cursor_on_plane {
+                // The cursor plane consumes this stream independently. Stagecraft
+                // must see the latest image immediately on the handoff frame,
+                // even when its previous image was never sampled by a shader.
+                slot.reset_cursor_queue();
+            }
             let latest_only = slot.latest_only;
-            if slot.queue(source, expects_sample, presentation, now) {
+            if slot.queue(source, expects_sample, presentation, damage.as_ref(), now) {
                 changed.push(texture_id);
             }
             if slot.latest_only != latest_only {
@@ -799,6 +851,40 @@ impl FlutterGlHandler {
                 }
             }
         }
+    }
+
+    /// What changed in each of `texture_ids` since its damage was last
+    /// taken, as unit rects of the rect the engine paints it into. Textures
+    /// that changed whole, or are not known, are left out: the engine
+    /// damages them whole. A native window texture changed where its layers
+    /// did.
+    pub(in crate::flutter_runtime) fn take_external_texture_damage(
+        &self,
+        texture_ids: &[i64],
+    ) -> Vec<(i64, Vec<[f64; 4]>)> {
+        let windows = self.native_window_plans(texture_ids);
+        let mut sources = lock(&self.external_texture_sources);
+        // Per input texture: its unit rects and canvas size, None if whole.
+        let mut taken = HashMap::new();
+        for texture_id in texture_ids {
+            if let Some(slot) = sources.get_mut(texture_id) {
+                let canvas = slot.canvas_size();
+                taken.insert(*texture_id, slot.take_unit_damage().zip(canvas));
+            }
+        }
+        let mut damage = taken
+            .iter()
+            .filter_map(|(texture_id, taken)| Some((*texture_id, taken.as_ref()?.0.clone())))
+            .collect::<Vec<_>>();
+        for (texture_id, plan) in windows {
+            let Some(plan) = plan else {
+                continue;
+            };
+            if let Some(rects) = Self::native_window_damage(&plan, &taken, &sources) {
+                damage.push((texture_id, rects));
+            }
+        }
+        damage
     }
 
     pub(in crate::flutter_runtime) fn advance_all_external_texture_sources(
@@ -934,9 +1020,7 @@ impl FlutterGlHandler {
                 // The event-loop owner disappeared before it could watch the
                 // sync_file. Complete the command stream before retaining the
                 // orphaned event through process teardown.
-                // SAFETY: this helper is called only by render-thread
-                // callbacks while Flutter's GLES context is current.
-                unsafe { (self.gl.finish)() };
+                self.gles_finish();
                 // The compositor receiver no longer exists, so there is no
                 // sound Wayland thread on which to release these guards.
                 // Preserve them through process teardown instead of running
@@ -954,6 +1038,9 @@ impl FlutterGlHandler {
         let retired_shm =
             lock(&self.shm_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
         let retired_grade = lock(&self.window_grades).graded.remove(&texture_id);
+        if let Some(composer) = &self.scene_composer {
+            composer.forget_texture(texture_id);
+        }
         // Dropping a cache reference never issues GL calls. If no Flutter
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
@@ -1108,6 +1195,8 @@ impl FlutterGlHandler {
             .filter_map(|leased| lock(&leased).take())
             .collect::<Vec<_>>();
         if !holds.is_empty() {
+            // Composer frames sampled them too.
+            self.gles_catch_up_on(render_context.context.display());
             let fence = match EGLFence::create(render_context.context.display()) {
                 Ok(fence) => {
                     // SAFETY: the render context is current on this thread.
@@ -1125,8 +1214,7 @@ impl FlutterGlHandler {
                 }
             };
             if fence.is_none() {
-                // SAFETY: the render context is current on this thread.
-                unsafe { (self.gl.finish)() };
+                self.gles_finish();
             }
             self.publish_sampled_buffer_release(
                 fence,
@@ -1240,11 +1328,14 @@ impl FlutterGlHandler {
     /// Copies a presented scene target to its scanout buffer. `repainted` is
     /// the frame's buffer damage: what Flutter repainted in the scene target
     /// since this pair was last presented.
+    /// Copies the scene target into the buffer KMS shows when they differ.
+    /// Returns what changed in that buffer since it was last presented
+    /// (`ScanoutArea`), or None when the copy failed.
     pub(in crate::flutter_runtime) fn blit_to_scanout(
         &self,
         render_framebuffer: u32,
         repainted: &[sys::FlutterRect],
-    ) -> bool {
+    ) -> Option<ScanoutArea> {
         let target = lock(&self.targets)
             .iter()
             .find(|target| target.render_framebuffer == render_framebuffer)
@@ -1254,16 +1345,23 @@ impl FlutterGlHandler {
                 framebuffer = render_framebuffer,
                 "Flutter presented an unknown physical-output target"
             );
-            return false;
+            return None;
         };
+        let mut region = DamageRegion::empty(target.size.width, target.size.height);
+        region.replace_from_flutter(repainted);
+        let mut rects = [[0; 4]; MAX_DAMAGE_RECTS];
+        let count = region.write_pixel_rects(&mut rects);
         if !target.needs_blit() {
-            return true;
+            // KMS shows the scene target itself: what the frame repainted.
+            return Some((!region.is_full()).then(|| rects[..count].to_vec()));
         }
+        // The copy reads what the composer drew.
+        self.gles_catch_up();
 
         let mut shader_blit_slot = lock(&self.shader_blit);
         let Some(shader_blit) = shader_blit_slot.as_mut() else {
             error!("offscreen Flutter target has no shader-copy pipeline");
-            return false;
+            return None;
         };
         let look_generation = crate::output_color::desktop_lut_generation();
         if shader_blit.look_generation != look_generation {
@@ -1296,13 +1394,9 @@ impl FlutterGlHandler {
             .iter_mut()
             .find(|target| target.render_framebuffer == render_framebuffer)
             .is_some_and(|target| target.copied.replace(state) == Some(state));
-        let mut region = DamageRegion::empty(target.size.width, target.size.height);
-        region.replace_from_flutter(repainted);
-        let mut rects = [[0; 4]; MAX_DAMAGE_RECTS];
-        let count = region.write_pixel_rects(&mut rects);
         let area = (same_state && !region.is_full()).then(|| &rects[..count]);
         if area.is_some_and(<[_]>::is_empty) {
-            return true;
+            return Some(Some(Vec::new()));
         }
 
         if let Err(error) = copy_to_scanout(
@@ -1333,9 +1427,9 @@ impl FlutterGlHandler {
                 error = format_args!("{error:#x}"),
                 "Flutter scene-to-scanout shader copy failed"
             );
-            return false;
+            return None;
         }
-        true
+        Some(area.map(<[_]>::to_vec))
     }
 
     pub(in crate::flutter_runtime) fn set_texture_apps(&self, apps: HashMap<i64, Arc<str>>) {
@@ -1450,47 +1544,13 @@ impl FlutterGlHandler {
         while spares.len() > MAX_GRADED_SPARES {
             spares.remove(0);
         }
-        let mut previous_framebuffer = 0;
-        let mut framebuffer = 0;
-        // SAFETY: Flutter runs this callback with its render context current;
-        // the graded texture belongs to that context.
-        let status = unsafe {
-            (self.gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_framebuffer);
-            (self.gl.gen_framebuffers)(1, &mut framebuffer);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, framebuffer);
-            (self.gl.framebuffer_texture_2d)(
-                gl::DRAW_FRAMEBUFFER,
-                gl::COLOR_ATTACHMENT0,
-                gl::TEXTURE_2D,
-                target.texture(),
-                0,
-            );
-            let status = (self.gl.check_framebuffer_status)(gl::DRAW_FRAMEBUFFER);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_framebuffer as u32);
-            status
-        };
-        let copied = if status == gl::FRAMEBUFFER_COMPLETE {
-            copy_to_scanout(
-                self.gl,
-                prepared.name,
-                framebuffer,
-                pixel_size,
-                shader_blit,
-                CopyColor {
-                    look: look_texture,
-                    alpha: grade.alpha as i32 + 1,
-                    convert: grade.conversion(),
-                    gamut: None,
-                    pq_white: 0.0,
-                },
-                None,
-            )
-        } else {
-            Err(status)
-        };
-        // SAFETY: the framebuffer was created above in the current context.
-        unsafe { (self.gl.delete_framebuffers)(1, &framebuffer) };
-        copied?;
+        self.draw_graded(
+            prepared.name,
+            target.texture(),
+            pixel_size,
+            shader_blit,
+            grade.copy_color(look_texture),
+        )?;
         grades.graded.insert(
             prepared.texture_id,
             GradedTexture {
@@ -1504,6 +1564,45 @@ impl FlutterGlHandler {
         );
         grades.prune_looks(self.gl);
         Ok(target)
+    }
+
+    /// Draws texture `source` through `color` into texture `target` of
+    /// `size`. The render context is current.
+    fn draw_graded(
+        &self,
+        source: u32,
+        target: u32,
+        size: PixelSize,
+        shader_blit: ShaderBlit,
+        color: CopyColor,
+    ) -> Result<(), u32> {
+        let mut previous_framebuffer = 0;
+        let mut framebuffer = 0;
+        // SAFETY: the caller keeps the render context current; the target
+        // texture belongs to it.
+        let status = unsafe {
+            (self.gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_framebuffer);
+            (self.gl.gen_framebuffers)(1, &mut framebuffer);
+            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, framebuffer);
+            (self.gl.framebuffer_texture_2d)(
+                gl::DRAW_FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                target,
+                0,
+            );
+            let status = (self.gl.check_framebuffer_status)(gl::DRAW_FRAMEBUFFER);
+            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_framebuffer as u32);
+            status
+        };
+        let copied = if status == gl::FRAMEBUFFER_COMPLETE {
+            copy_to_scanout(self.gl, source, framebuffer, size, shader_blit, color, None)
+        } else {
+            Err(status)
+        };
+        // SAFETY: the framebuffer was created above in the current context.
+        unsafe { (self.gl.delete_framebuffers)(1, &framebuffer) };
+        copied
     }
 
     fn create_graded_texture(
@@ -1587,6 +1686,9 @@ impl FlutterGlHandler {
             return false;
         }
         context.owner = Some(thread::current().id());
+        drop(context);
+        self.composer_shutdown();
+        let mut context = lock(&self.render_context);
         lock(&self.native_clients).destroy();
         let cached_dmabufs = lock(&self.dmabuf_texture_cache).drain();
         let cached_shm = lock(&self.shm_texture_cache).drain();
@@ -1634,7 +1736,7 @@ impl FlutterGlHandler {
                 .any(|binding| binding._owned_native.is_some())
         {
             // Teardown only: no future present can supply a reader fence.
-            unsafe { (self.gl.finish)() };
+            self.gles_finish();
         }
         for binding in retired.drain(..) {
             if !shutting_down && let Some(storage) = &binding._owned_native {
@@ -1716,6 +1818,7 @@ impl FlutterGlHandler {
                 revision: _,
                 feedback: _,
                 color: _,
+                opaque: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();

@@ -210,6 +210,7 @@ mod tests {
                 dirty_serial: 5,
                 lock_frame_token: 0,
                 fingerprint_epoch: 0,
+                hardware_cursor: false,
             },
             rendered_at: Some(now),
             published_at: now,

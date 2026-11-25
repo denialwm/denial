@@ -5,6 +5,9 @@
 - `dart_system_bar.denw` is the Dart-encoded multi-output settings request,
   including its work-area metrics; native verification catches the Dart
   int64-vector alignment requirement and cross-layer geometry drift.
+- `dart_window_place.denw` and `dart_window_frame.denw` are the Dart-encoded
+  window place and frame declaration; native verification proves several
+  inline structs in one request keep their alignment.
 - `native_windows_*.denw` are native-to-Dart compatibility snapshots decoded
   by the Flutter compatibility tests.
 - `empty`, `one`, `eight`, and `many` represent 0, 1, 8, and 32 windows.

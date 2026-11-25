@@ -15,12 +15,17 @@ final systemLevelHudVisibleDurationProvider = Provider<Duration>(
 
 typedef SystemLevelHudSignals = ({
   Stream<DenialAudioState> audio,
+  Stream<DenialCallVolume> calls,
   Stream<DenialBrightnessState> brightness,
 });
 
 final systemLevelHudSignalsProvider = Provider<SystemLevelHudSignals>((ref) {
   final bridge = ref.watch(denialBridgeProvider);
-  return (audio: bridge.audioStates, brightness: bridge.brightnessStates);
+  return (
+    audio: bridge.audioStates,
+    calls: bridge.callVolumes,
+    brightness: bridge.brightnessStates,
+  );
 });
 
 final systemLevelHudAudioSuppressionProvider =
@@ -68,11 +73,13 @@ class SystemLevelHudState {
     required this.visible,
     required this.revision,
     this.monitorId,
+    this.callVolumeMax,
     double? previousLevel,
   }) : previousLevel = previousLevel ?? level;
 
   final SystemLevelHudKind kind;
   final int? monitorId;
+  final int? callVolumeMax;
   final double level;
   final bool muted;
   final bool limitReached;
@@ -88,6 +95,7 @@ class SystemLevelHudState {
     return SystemLevelHudState(
       kind: kind,
       monitorId: monitorId,
+      callVolumeMax: callVolumeMax,
       level: level,
       muted: muted,
       limitReached: limitReached,
@@ -123,6 +131,19 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     );
     cancelOnDispose(brightnessSubscription);
     cancelOnDispose(audioSubscription);
+    cancelOnDispose(
+      signals.calls.listen((call) {
+        if (!isBuildGenerationActive(generation)) return;
+        _show(
+          kind: SystemLevelHudKind.audio,
+          level: call.step / call.maximum,
+          previousLevel: call.previous / call.maximum,
+          muted: false,
+          limitReached: call.step == 0 || call.step == call.maximum,
+          callVolumeMax: call.maximum,
+        );
+      }),
+    );
     ref.onDispose(() {
       _hideTimer?.cancel();
       _hideTimer = null;
@@ -163,11 +184,16 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     final suppressed = _audioSuppression.consume(update.requestSerial);
     // PulseAudio republishes the sink level for stream lifecycle events.
     // Reconciliation reads establish the baseline without presenting the HUD.
-    if (update.completesRead ||
-        (previousLevel == level &&
-            previousMuted == update.muted &&
-            !update.limitReached) ||
-        suppressed) {
+    // A Pulse notification (including a profile switch) must not replace
+    // the call slider. The first media key after hangup can replace it.
+    final showingCall = state?.callVolumeMax != null && state!.visible;
+    if (showingCall && !update.fromKey) return;
+    if (!showingCall &&
+        (update.completesRead ||
+            (previousLevel == level &&
+                previousMuted == update.muted &&
+                !update.limitReached) ||
+            suppressed)) {
       return;
     }
     _show(
@@ -185,6 +211,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     required bool muted,
     required bool limitReached,
     int? monitorId,
+    int? callVolumeMax,
     double? previousLevel,
   }) {
     _hideTimer?.cancel();
@@ -192,6 +219,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
     state = SystemLevelHudState(
       kind: kind,
       monitorId: monitorId,
+      callVolumeMax: callVolumeMax,
       level: level.clamp(0.0, 1.0).toDouble(),
       muted: muted,
       limitReached: limitReached,

@@ -67,6 +67,7 @@ fn release(state: &mut RuntimeState) {
             input::ShellKeyStroke {
                 evdev_keycode: keycode,
                 shift: false,
+                level3: None,
             },
             KeyState::Released,
             time,
@@ -290,6 +291,7 @@ pub(in super::super) fn synchronize_input_deck(
                                 input::ShellKeyStroke {
                                     evdev_keycode: keycode,
                                     shift: false,
+                                    level3: None,
                                 },
                                 if pressed {
                                     KeyState::Pressed

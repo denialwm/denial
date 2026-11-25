@@ -128,6 +128,9 @@ pub(super) fn rebase_kms_scanouts(
     // independently clocked Flutter scheduler must be recreated before it
     // interprets any later page-flip event using its pre-pause ownership.
     events.scanout_rebased = true;
+    // Another DRM master may have changed the planes' color pipelines.
+    #[cfg(feature = "flutter")]
+    plane_color::invalidate();
     events.topology_dirty = true;
     info!(
         outputs = scanouts.iter().filter(|scanout| scanout.powered).count(),

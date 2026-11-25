@@ -205,6 +205,7 @@ void main() {
     expect(tray.getMethod('launchApplication'), isNull);
     final audio = exports.get2('ShellAudioServices') as ClassElement;
     expect(audio.getGetter('volume'), isNotNull);
+    expect(audio.getGetter('volumeAvailable'), isNotNull);
     expect(audio.getMethod('commitVolume'), isNotNull);
     expect(audio.getMethod('activateWindow'), isNull);
     final connectivity =

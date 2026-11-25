@@ -281,6 +281,31 @@ mod popup_visible_geometry_tests {
     }
 }
 
+/// Whether a surface hides what lies under it: shown at full opacity, with an
+/// opaque region (`wl_surface.set_opaque_region`) that covers all it shows.
+/// The Vulkan composer then leaves out what it covers even when the buffer's
+/// format carries alpha.
+#[cfg(feature = "flutter")]
+fn surface_opaque(
+    states: &smithay::wayland::compositor::SurfaceData,
+    renderer_state: &smithay::backend::renderer::utils::RendererSurfaceState,
+) -> bool {
+    let opacity = states
+        .cached_state
+        .get::<AlphaModifierSurfaceCachedState>()
+        .current()
+        .multiplier_f32()
+        .unwrap_or(1.0);
+    opacity == 1.0
+        && renderer_state.view().is_some_and(|view| {
+            renderer_state.opaque_regions().is_some_and(|regions| {
+                Rectangle::from_size(view.dst)
+                    .subtract_rects(regions.iter().copied())
+                    .is_empty()
+            })
+        })
+}
+
 /// Maps a rectangle in a [`cropped_buffer_canvas`] back to buffer pixels.
 #[cfg(feature = "flutter")]
 pub(crate) fn canvas_rect_to_buffer(
@@ -771,6 +796,13 @@ impl WaylandFrontend {
             <GlesRenderer as Bind<Dmabuf>>::supported_formats(renderer).unwrap_or_default();
         self.set_screencopy_dmabuf_formats(render_formats, render_node);
         let formats = renderer.dmabuf_formats();
+        // Buffers the Vulkan composer cannot sample would keep frames on
+        // GLES; clients choose among layouts both can read.
+        #[cfg(feature = "flutter")]
+        let formats = match render_node {
+            Some(node) => crate::flutter_runtime::client_formats(node.dev_id(), formats),
+            None => formats,
+        };
         let global = if let Some(node) = render_node {
             let feedback = DmabufFeedbackBuilder::new(node.dev_id(), formats).build()?;
             self.dmabuf_render_node = Some(node);
@@ -824,19 +856,31 @@ impl WaylandFrontend {
         Ok(())
     }
 
+    /// Queues a client buffer for a test import on the next loop pass.
+    ///
+    /// A refused import is fatal to a client that created its buffer with
+    /// `create_immed`, as Xwayland does, so a full queue never refuses: past
+    /// the bound, a buffer is accepted without the test import. One that then
+    /// fails to import shows nothing and is logged once, like any buffer whose
+    /// import fails later (#254).
     pub(super) fn queue_dmabuf_import(&mut self, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        if !dmabuf_import_queue_has_capacity(self.pending_dmabuf_imports.len()) {
-            if !self.dmabuf_import_queue_saturated {
-                warn!(
-                    limit = MAX_PENDING_DMABUF_IMPORTS,
-                    "rejecting client linux-dmabuf imports until the bounded queue is drained"
-                );
-                self.dmabuf_import_queue_saturated = true;
-            }
-            notifier.failed();
+        if dmabuf_import_queue_has_capacity(self.pending_dmabuf_imports.len()) {
+            self.pending_dmabuf_imports.push((dmabuf, notifier));
             return;
         }
-        self.pending_dmabuf_imports.push((dmabuf, notifier));
+        if !self.dmabuf_import_queue_saturated {
+            warn!(
+                limit = MAX_PENDING_DMABUF_IMPORTS,
+                "accepting client linux-dmabuf buffers without a test import until the queue drains"
+            );
+            self.dmabuf_import_queue_saturated = true;
+        }
+        if let Some(node) = self.dmabuf_render_node {
+            dmabuf.set_node(node);
+        }
+        if notifier.successful::<RuntimeState>().is_err() {
+            warn!("linux-dmabuf client disappeared before import completed");
+        }
     }
 
     /// Appends `root` and its subsurfaces. A layer's composition order is its
@@ -932,12 +976,7 @@ impl WaylandFrontend {
                 // still advance so producers are not waiting for an impossible sample.
                 let expects_sample =
                     expects_sample && opacity > 0.0 && self.surface_expects_sample(surface_id);
-                let opaque = opacity == 1.0
-                    && renderer_state.opaque_regions().is_some_and(|regions| {
-                        Rectangle::from_size(view.dst)
-                            .subtract_rects(regions.iter().copied())
-                            .is_empty()
-                    });
+                let opaque = surface_opaque(states, &renderer_state);
                 let dmabuf = renderer_buffer
                     .and_then(|buffer| get_dmabuf(buffer).ok())
                     .cloned();
@@ -956,14 +995,18 @@ impl WaylandFrontend {
                         .get(&surface.id())
                         .copied()
                         .unwrap_or_default();
-                    textures.push(ExternalTextureFrame::from_dmabuf(
+                    let mut frame = ExternalTextureFrame::from_dmabuf(
                         texture_id,
                         dmabuf,
                         buffer_guard,
                         release,
                         revision,
                         expects_sample,
-                    ));
+                    );
+                    if let Some(damage) = self.buffer_damage(surface, &renderer_state) {
+                        frame.set_damage(damage);
+                    }
+                    textures.push(frame);
                     (surface_id, width, height)
                 } else if let Some(frame) = self.surface_shm_frames.get(&surface.id()).cloned() {
                     let width = frame.width();
@@ -989,6 +1032,7 @@ impl WaylandFrontend {
                 {
                     frame.set_feedback(super::presentation::surface_feedback(states));
                     frame.set_color(super::color_management::surface_color(states));
+                    frame.set_opaque(opaque);
                     frame.presentation = Some(canvas.unwrap_or_default());
                 }
                 let (width, height, source) = match canvas {
@@ -1042,6 +1086,54 @@ impl WaylandFrontend {
         );
     }
 
+    /// What changed in a dmabuf surface's buffer since its last built
+    /// frame. Damage is given only where the engine paints the buffer as
+    /// is, or through the integral crop of its presentation; anything else
+    /// changes whole. Shm snapshots change whole too: a snapshot need not
+    /// hold the commit the surface is at.
+    #[cfg(feature = "flutter")]
+    fn buffer_damage(
+        &self,
+        surface: &WlSurface,
+        state: &smithay::backend::renderer::utils::RendererSurfaceState,
+    ) -> Option<BufferDamage> {
+        let commit = state.current_commit();
+        let since = self
+            .surface_damage_commits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(surface.id(), commit);
+        // Transformed buffers keep the whole-texture damage.
+        let transform = state.buffer_transform();
+        if transform != Transform::Normal {
+            return None;
+        }
+        let scale = state.buffer_scale().max(1);
+        let logical_size = state.buffer_size()?;
+        let dmabuf = get_dmabuf(state.buffer()?).ok()?;
+        let (width, height) = (dmabuf.width(), dmabuf.height());
+        let source = surface_crop_to_buffer(
+            state.view()?.src,
+            f64::from(scale),
+            transform,
+            logical_size.to_f64(),
+        );
+        let whole = Rectangle::from_size((f64::from(width), f64::from(height)).into());
+        if source != whole && cropped_buffer_canvas(source, transform, width, height).is_none() {
+            return None;
+        }
+        let rects = state
+            .damage_since(since)
+            .iter()
+            .map(|rect| [rect.loc.x, rect.loc.y, rect.size.w, rect.size.h])
+            .collect();
+        Some(BufferDamage {
+            since,
+            commit,
+            rects,
+        })
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn external_texture_frame(
         &self,
@@ -1069,31 +1161,52 @@ impl WaylandFrontend {
                 .and_then(|buffer| get_dmabuf(buffer).ok())
                 .cloned();
             let buffer_guard = dmabuf.as_ref().and_then(|_| renderer_buffer.cloned());
-            (renderable, dmabuf.zip(buffer_guard))
+            let damage = dmabuf
+                .is_some()
+                .then(|| self.buffer_damage(surface, state))
+                .flatten();
+            (
+                renderable,
+                dmabuf.zip(buffer_guard).map(|source| (source, damage)),
+            )
         })?;
         let release = with_states(surface, crate::client_release::current);
         if !renderable {
             return None;
         }
+        let opaque = with_states(surface, |states| {
+            states
+                .data_map
+                .get::<RendererSurfaceStateUserData>()
+                .is_some_and(|renderer_state| {
+                    let renderer_state = renderer_state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    surface_opaque(states, &renderer_state)
+                })
+        });
         let texture_id = i64::try_from(surface_id).ok().filter(|id| *id > 0)?;
-        if let Some((dmabuf, buffer_guard)) = dmabuf_source {
+        if let Some(((dmabuf, buffer_guard), damage)) = dmabuf_source {
             let revision = self
                 .surface_buffer_revisions
                 .get(&surface.id())
                 .copied()
                 .unwrap_or_default();
-            return Some(
-                ExternalTextureFrame::from_dmabuf(
-                    texture_id,
-                    dmabuf,
-                    buffer_guard,
-                    release,
-                    revision,
-                    expects_sample,
-                )
-                .with_feedback(with_states(surface, super::presentation::surface_feedback))
-                .with_color(with_states(surface, super::color_management::surface_color)),
-            );
+            let mut frame = ExternalTextureFrame::from_dmabuf(
+                texture_id,
+                dmabuf,
+                buffer_guard,
+                release,
+                revision,
+                expects_sample,
+            )
+            .with_feedback(with_states(surface, super::presentation::surface_feedback))
+            .with_color(with_states(surface, super::color_management::surface_color))
+            .with_opaque(opaque);
+            if let Some(damage) = damage {
+                frame.set_damage(damage);
+            }
+            return Some(frame);
         }
         self.surface_shm_frames
             .get(&surface.id())
@@ -1102,6 +1215,7 @@ impl WaylandFrontend {
                 ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
                     .with_feedback(with_states(surface, super::presentation::surface_feedback))
                     .with_color(with_states(surface, super::color_management::surface_color))
+                    .with_opaque(opaque)
             })
     }
 
@@ -1536,6 +1650,23 @@ impl WaylandFrontend {
                     opacity_class = WindowOpacityClass::FullyOpaque;
                 }
             }
+            // App-specific: a Chromium browser that declares no opaque
+            // region is opaque all the same (`app_specific`).
+            if opacity_class != WindowOpacityClass::FullyOpaque
+                && opacity * window_opacity == 1.0
+                && surface
+                    .client()
+                    .and_then(|client| {
+                        client
+                            .get_data::<handlers::DenialClientState>()
+                            .map(|state| state.chromium_browser)
+                    })
+                    .unwrap_or(false)
+                && with_renderer_surface_state(&surface, |state| state.opaque_regions().is_none())
+                    .unwrap_or(false)
+            {
+                opacity_class = WindowOpacityClass::FullyOpaque;
+            }
             let description = WindowDescription {
                 object_id: stable_id,
                 surface_id: stable_id,
@@ -1583,6 +1714,7 @@ impl WaylandFrontend {
                 opacity_class,
                 pet: None,
                 keyboard_inset: self.keyboard_inset_surface(&surface),
+                client_title_bar: presentation.client_title_bar,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1692,6 +1824,7 @@ impl WaylandFrontend {
                 opacity_class: WindowOpacityClass::FullyOpaque,
                 pet: None,
                 keyboard_inset: false,
+                client_title_bar: false,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -1874,6 +2007,7 @@ impl WaylandFrontend {
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet,
                     keyboard_inset: false,
+                    client_title_bar: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;
@@ -2026,6 +2160,7 @@ impl WaylandFrontend {
                     opacity_class: WindowOpacityClass::ContentTranslucent,
                     pet: None,
                     keyboard_inset: false,
+                    client_title_bar: false,
                 };
                 if let Some(previous) = windows.get_mut(window_count) {
                     *previous = description;

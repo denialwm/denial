@@ -19,21 +19,31 @@ const NATIVE_WINDOW_TEXTURE_NAMESPACE: u64 = 1 << 62;
 pub(in crate::flutter_runtime) const fn is_native_window_texture(texture_id: i64) -> bool {
     texture_id >= NATIVE_WINDOW_TEXTURE_NAMESPACE as i64
 }
+
+/// The surface texture a scene texture stands for: a merged native window
+/// image stands for its window's root surface.
+pub(in crate::flutter_runtime) const fn surface_texture(texture_id: i64) -> i64 {
+    if is_native_window_texture(texture_id) {
+        texture_id & !(NATIVE_WINDOW_TEXTURE_NAMESPACE as i64)
+    } else {
+        texture_id
+    }
+}
 const MAX_NATIVE_WINDOW_PLANS: usize = 32;
 const MAX_NATIVE_WINDOW_LAYERS: usize = 32;
 const MAX_NATIVE_WINDOW_DIMENSION: u32 = 8192;
 const MAX_NATIVE_WINDOW_PIXELS: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ClientRect {
-    pub(super) x: f64,
-    pub(super) y: f64,
-    pub(super) width: f64,
-    pub(super) height: f64,
+pub(in crate::flutter_runtime) struct ClientRect {
+    pub(in crate::flutter_runtime) x: f64,
+    pub(in crate::flutter_runtime) y: f64,
+    pub(in crate::flutter_runtime) width: f64,
+    pub(in crate::flutter_runtime) height: f64,
 }
 
 impl ClientRect {
-    pub(super) fn new(x: f64, y: f64, width: f64, height: f64) -> Option<Self> {
+    pub(in crate::flutter_runtime) fn new(x: f64, y: f64, width: f64, height: f64) -> Option<Self> {
         let rect = Self {
             x,
             y,
@@ -162,18 +172,18 @@ impl NativeWindowLayer {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct NativeWindowPlan {
+pub(in crate::flutter_runtime) struct NativeWindowPlan {
     pub(super) window_id: u64,
     pub(super) texture_id: i64,
-    pub(super) canvas: ClientRect,
-    pub(super) scale: f64,
+    pub(in crate::flutter_runtime) canvas: ClientRect,
+    pub(in crate::flutter_runtime) scale: f64,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) layers: Vec<NativeWindowLayer>,
 }
 
 impl NativeWindowPlan {
-    pub(super) fn new(
+    pub(in crate::flutter_runtime) fn new(
         window_id: u64,
         canvas: ClientRect,
         scale: f64,
@@ -265,7 +275,7 @@ impl NativeWindowPlan {
             }
         }
         // Preserve the existing zero-copy route for a single contributing image.
-        if contributing < 2 {
+        if contributing < 2 && window_id != crate::flutter_runtime::cursor_scene::WINDOW {
             return None;
         }
         layers.reverse();
@@ -339,6 +349,48 @@ impl NativeWindowPlan {
         })
     }
 
+    /// Where `rect` of `layer`'s input canvas (`[x, y, width, height]`, or
+    /// all of it when None) shows in the merged image, as a unit rect of the
+    /// window's canvas; None when none of it shows.
+    pub(super) fn window_damage(
+        &self,
+        layer: &NativeWindowLayer,
+        rect: Option<[f64; 4]>,
+    ) -> Option<[f64; 4]> {
+        let shown = match rect {
+            // Rotated layers change where they show as a whole.
+            Some([x, y, width, height]) if layer.transform == 0 => {
+                let changed = layer
+                    .source
+                    .intersection(ClientRect::new(x, y, width, height)?)?;
+                let scale_x = layer.destination.width / layer.source.width;
+                let scale_y = layer.destination.height / layer.source.height;
+                ClientRect::new(
+                    layer.destination.x + (changed.x - layer.source.x) * scale_x,
+                    layer.destination.y + (changed.y - layer.source.y) * scale_y,
+                    changed.width * scale_x,
+                    changed.height * scale_y,
+                )?
+            }
+            _ => layer.destination,
+        };
+        // A texel of the merged image beside a change can blend into it.
+        let margin = 1.0 / self.scale;
+        let shown = ClientRect::new(
+            shown.x - margin,
+            shown.y - margin,
+            shown.width + 2.0 * margin,
+            shown.height + 2.0 * margin,
+        )?
+        .intersection(layer.visible)?;
+        Some([
+            (shown.x - self.canvas.x) / self.canvas.width,
+            (shown.y - self.canvas.y) / self.canvas.height,
+            shown.width / self.canvas.width,
+            shown.height / self.canvas.height,
+        ])
+    }
+
     pub(super) fn vertices(
         &self,
         layer: &NativeWindowLayer,
@@ -388,7 +440,9 @@ impl NativeWindowRegistry {
         {
             return Some(Arc::clone(previous));
         }
-        if !self.plans.contains_key(&plan.texture_id) && self.plans.len() >= MAX_NATIVE_WINDOW_PLANS
+        if !self.plans.contains_key(&plan.texture_id)
+            && plan.texture_id != crate::flutter_runtime::cursor_scene::TEXTURE
+            && self.plans.len() >= MAX_NATIVE_WINDOW_PLANS
         {
             return None;
         }

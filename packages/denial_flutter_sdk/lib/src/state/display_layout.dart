@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
+import '../settings/shell_scale.dart';
 import '../platform/denial_bridge.dart';
 import '../platform/denial_bridge_provider.dart';
 import 'notifier_lifecycle.dart';
@@ -54,6 +55,9 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     _configuredOutputNames = const <String>[];
     _configuredThickness = null;
     _configuredMaximizePadding = null;
+    _configuredShellScales = const <String, double>{};
+    _desktopPanels = true;
+    _sentOutputWorkAreas.clear();
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
     cancelOnDispose(
@@ -101,6 +105,13 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
   List<String> _configuredOutputNames = const <String>[];
   double? _configuredThickness;
   double? _configuredMaximizePadding;
+  Map<String, double> _configuredShellScales = const <String, double>{};
+  bool _desktopPanels = true;
+
+  /// What each output was last told of its own bar thickness and padding;
+  /// null where it was told to forget them.
+  final Map<int, OutputShellMetrics?> _sentOutputWorkAreas =
+      <int, OutputShellMetrics?>{};
 
   Future<DisplayLayout?> ensureLoaded() {
     final current = state;
@@ -231,22 +242,31 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
 
   /// Applies persisted shell policy without coupling this runtime controller
   /// to the Settings UI or its serialization model.
+  ///
+  /// [shellScales] are the stored shell scales by output name. With
+  /// [desktopPanels] false the mobile shell has the built-in panels, and the
+  /// desktop shell's scale there is 1.
   void applyShellConfiguration({
     required SystemBarSide? side,
     required Iterable<String> outputNames,
     required double systemBarThickness,
     required double maximizePadding,
+    Map<String, double> shellScales = const <String, double>{},
+    bool desktopPanels = true,
   }) {
     _configuredSide = side;
     _configuredOutputNames = List<String>.unmodifiable(outputNames);
     _configuredThickness = systemBarThickness;
     _configuredMaximizePadding = maximizePadding;
+    _configuredShellScales = shellScales;
+    _desktopPanels = desktopPanels;
     final current = state;
     if (current == null) {
       return;
     }
     final configured = _applyConfiguredValues(current);
-    if (!_sameShellConfiguration(current, configured)) {
+    if (!_sameShellConfiguration(current, configured) ||
+        !mapEquals(current.shellMetrics, configured.shellMetrics)) {
       state = configured;
     }
     _publishConfiguredSystemBar(current, configured);
@@ -267,7 +287,7 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
             currentMonitorIds: layout.effectiveSystemBarMonitorIds,
             mainMonitorId: layout.mainOutput?.monitorId,
           );
-    return layout.copyWithSystemBar(
+    final configured = layout.copyWithSystemBar(
       side: side,
       monitorIds: monitorIds,
       thickness: side == SystemBarSide.hidden
@@ -275,6 +295,35 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
           : _configuredThickness ?? layout.systemBarThickness,
       windowPadding: _configuredMaximizePadding ?? layout.maximizePadding,
     );
+    return configured.withShellMetrics(_shellMetrics(configured));
+  }
+
+  /// The shell's own scale on every output where it is not 1, and the bar
+  /// thickness and padding it makes there. The scale is brought as near as
+  /// it takes for the bar to be a whole number of pixels, which the bar then
+  /// fills exactly.
+  Map<int, OutputShellMetrics> _shellMetrics(DisplayLayout layout) {
+    final metrics = <int, OutputShellMetrics>{};
+    for (final output in layout.outputs) {
+      final scale = ShellScale.forDesktop(
+        output,
+        _configuredShellScales,
+        desktopPanels: _desktopPanels,
+      );
+      if (scale == 1.0) continue;
+      final thickness = layout.systemBarThickness;
+      final scaledThickness = ShellScale.length(thickness, scale, output.scale);
+      metrics[output.monitorId] = OutputShellMetrics(
+        scale: thickness > 0.0 ? scaledThickness / thickness : scale,
+        systemBarThickness: scaledThickness,
+        maximizePadding: ShellScale.length(
+          layout.maximizePadding,
+          scale,
+          output.scale,
+        ),
+      );
+    }
+    return metrics;
   }
 
   bool _sameShellConfiguration(DisplayLayout left, DisplayLayout right) {
@@ -287,10 +336,33 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
         );
   }
 
+  /// Tells each output its own bar thickness and padding where the shell's
+  /// scale makes them differ, and to forget them where it no longer does.
+  void _publishOutputWorkAreas(DisplayLayout configured) {
+    for (final output in configured.outputs) {
+      final metrics = configured.shellMetrics[output.monitorId];
+      if (_sentOutputWorkAreas.containsKey(output.monitorId) &&
+          _sentOutputWorkAreas[output.monitorId] == metrics) {
+        continue;
+      }
+      _sentOutputWorkAreas[output.monitorId] = metrics;
+      unawaited(
+        _bridge
+            .configureOutputWorkArea(
+              monitorId: output.monitorId,
+              systemBarThickness: metrics?.systemBarThickness,
+              maximizePadding: metrics?.maximizePadding,
+            )
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
+    }
+  }
+
   void _publishConfiguredSystemBar(
     DisplayLayout native,
     DisplayLayout configured,
   ) {
+    _publishOutputWorkAreas(configured);
     if ((configured.systemBarSide != SystemBarSide.hidden &&
             configured.effectiveSystemBarMonitorIds.isEmpty) ||
         _sameShellConfiguration(native, configured)) {

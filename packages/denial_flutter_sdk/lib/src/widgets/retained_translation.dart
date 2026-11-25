@@ -2,28 +2,64 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
+/// A translation in whole physical pixels, as [RetainedTranslation] shows it.
+///
+/// Without [anchor] the translation itself is rounded. With it, the logical
+/// position the child's resting alignment rounded, measured from the pixel
+/// grid's origin, the child lands where aligning its moved position would put
+/// it. At a fractional scale the two differ by a pixel for half the moves.
+Offset translationOnPixelGrid(
+  Offset translation, {
+  required double? devicePixelRatio,
+  Offset? anchor,
+}) {
+  final scale = devicePixelRatio;
+  if (scale == null || !scale.isFinite || scale <= 0.0) {
+    return translation;
+  }
+  double pixels(double value) => (value * scale).roundToDouble();
+  if (anchor == null) {
+    return Offset(
+      pixels(translation.dx) / scale,
+      pixels(translation.dy) / scale,
+    );
+  }
+  return Offset(
+    (pixels(anchor.dx + translation.dx) - pixels(anchor.dx)) / scale,
+    (pixels(anchor.dy + translation.dy) - pixels(anchor.dy)) / scale,
+  );
+}
+
 /// Moves an already-built subtree directly from a [ValueListenable].
 ///
 /// Translation updates stop at the render-object boundary: they neither
 /// rebuild nor lay out [child]. Hit testing and semantics follow the same
 /// transform. When [devicePixelRatio] is supplied, the translation is snapped
-/// to physical pixels so a retained external texture stays on the atlas grid.
+/// to physical pixels so a retained external texture stays on the atlas grid;
+/// [pixelGridAnchor] snaps it as [translationOnPixelGrid] describes.
 class RetainedTranslation extends SingleChildRenderObjectWidget {
   const RetainedTranslation({
     super.key,
     required this.translation,
     this.enabled = true,
     this.devicePixelRatio,
+    this.pixelGridAnchor,
     super.child,
   });
 
   final ValueListenable<Offset> translation;
   final bool enabled;
   final double? devicePixelRatio;
+  final Offset? pixelGridAnchor;
 
   @override
   RenderObject createRenderObject(BuildContext context) {
-    return _RenderRetainedTranslation(translation, enabled, devicePixelRatio);
+    return _RenderRetainedTranslation(
+      translation,
+      enabled,
+      devicePixelRatio,
+      pixelGridAnchor,
+    );
   }
 
   @override
@@ -31,7 +67,8 @@ class RetainedTranslation extends SingleChildRenderObjectWidget {
     (renderObject as _RenderRetainedTranslation)
       ..translation = translation
       ..enabled = enabled
-      ..devicePixelRatio = devicePixelRatio;
+      ..devicePixelRatio = devicePixelRatio
+      ..pixelGridAnchor = pixelGridAnchor;
   }
 }
 
@@ -40,11 +77,13 @@ class _RenderRetainedTranslation extends RenderTransform {
     this._translation,
     this._enabled,
     this._devicePixelRatio,
+    this._pixelGridAnchor,
   ) : super(transform: Matrix4.identity(), transformHitTests: true);
 
   ValueListenable<Offset> _translation;
   bool _enabled;
   double? _devicePixelRatio;
+  Offset? _pixelGridAnchor;
   Offset? _appliedTranslation;
 
   set translation(ValueListenable<Offset> value) {
@@ -77,6 +116,14 @@ class _RenderRetainedTranslation extends RenderTransform {
     _applyTranslation();
   }
 
+  set pixelGridAnchor(Offset? value) {
+    if (value == _pixelGridAnchor) {
+      return;
+    }
+    _pixelGridAnchor = value;
+    _applyTranslation();
+  }
+
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
@@ -93,14 +140,13 @@ class _RenderRetainedTranslation extends RenderTransform {
   void _handleTranslationChanged() => _applyTranslation();
 
   void _applyTranslation() {
-    var value = _enabled ? _translation.value : Offset.zero;
-    final scale = _devicePixelRatio;
-    if (scale != null && scale.isFinite && scale > 0.0) {
-      value = Offset(
-        (value.dx * scale).roundToDouble() / scale,
-        (value.dy * scale).roundToDouble() / scale,
-      );
-    }
+    final value = _enabled
+        ? translationOnPixelGrid(
+            _translation.value,
+            devicePixelRatio: _devicePixelRatio,
+            anchor: _pixelGridAnchor,
+          )
+        : Offset.zero;
     if (value == _appliedTranslation) {
       return;
     }

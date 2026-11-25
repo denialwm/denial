@@ -3,6 +3,7 @@ import 'package:denial_flutter_sdk/glass_configuration.dart';
 import 'package:denial_flutter_sdk/models.dart';
 import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
+import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +20,7 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
     required this.window,
     required this.placement,
     required this.frame,
+    this.unalignedFrameOrigin,
     required this.minimized,
     required this.offscreenMinimized,
     required this.overviewActive,
@@ -30,6 +32,10 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
   final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
+
+  /// As [DesktopWindowFrame.unalignedFrameOrigin]: popups follow a native
+  /// move on the same pixels as their window.
+  final Offset? unalignedFrameOrigin;
   final bool minimized;
   final bool offscreenMinimized;
   final bool overviewActive;
@@ -89,13 +95,31 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
               )
             : this.frame;
         final transformed = overview || switching || offscreenMinimized;
+        final windowLayout = ref.watch(
+          shellSettingsProvider.select(
+            (settings) => settings.layout.windowLayout,
+          ),
+        );
+        final workspaceChanging = ref.watch(
+          desktopWorkspaceProvider.select(
+            (state) =>
+                state.workspaceTransitions[this.placement.monitorId] != null,
+          ),
+        );
+        // The popups show wherever their window does.
         final outputClip = desktopOutputClip(
           activelyDragging: placement.dragging,
           outputRect: outputPixelGrid?.logicalRect,
+          restsFree: desktopWindowRestsFree(
+            windowLayout: windowLayout,
+            placement: placement,
+            transformed: transformed || minimized,
+            workspaceChanging: workspaceChanging,
+          ),
         );
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,
-          contentInset: placement.frameBorder,
+          contentInsets: placement.frameMargins,
           devicePixelRatio: devicePixelRatio,
           pixelGridOrigin: pixelGridOrigin,
           enabled: !transformed,
@@ -105,15 +129,11 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final drawsServerFrame = transformed
-            ? placement.serverSideDecorated
-            : placement.drawsLiveServerFrame;
-        final contentRect = drawsServerFrame
-            ? frame.deflate(DesktopMetrics.frameBorder)
-            : frame;
-        final retainedContentRect = drawsServerFrame
-            ? placement.frame.deflate(DesktopMetrics.frameBorder)
-            : placement.frame;
+        final drawnMargins = placement.drawnFrameMargins(
+          transformed: transformed,
+        );
+        final contentRect = drawnMargins.deflateRect(frame);
+        final retainedContentRect = drawnMargins.deflateRect(placement.frame);
         final duration = placement.dragging ? Duration.zero : motionDuration;
         final resizing = desktopTextureNeedsResizeSmoothing(
           targetSize: contentRect.size,
@@ -155,9 +175,14 @@ class DesktopPopupSurfaceLayers extends StatelessWidget {
                         dragging: placement.dragging,
                         resizing: placement.resizing,
                         layoutPreviewing: placement.layoutPreviewing,
-                        pixelAlignmentInset: 0.0,
+                        pixelAlignmentInsets: EdgeInsets.zero,
                         pixelGridScale: devicePixelRatio,
                         pixelGridOrigin: pixelGridOrigin,
+                        liveTranslationAnchor: desktopLiveTranslationAnchor(
+                          unalignedFrameOrigin: unalignedFrameOrigin,
+                          frameMargins: placement.frameMargins,
+                          pixelGridOrigin: pixelGridOrigin,
+                        ),
                         alignSizeToDevicePixels: true,
                         globalClipRect: outputClip,
                         // The window primitive composites the client

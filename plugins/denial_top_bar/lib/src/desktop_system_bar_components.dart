@@ -307,7 +307,8 @@ class _SystemBarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
-    final radius = theme.borderRadius(999);
+    // The card is the bar's own outer shape.
+    final radius = theme.outerBorderRadius(999);
     final cardFillTop = accent.cardFillTop(theme);
     final cardFill = accent.cardFill(theme);
     final topFill = highlighted

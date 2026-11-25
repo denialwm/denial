@@ -150,6 +150,9 @@ fn connector_name(connector: &connector::Info) -> String {
 pub(super) struct ConfiguredOutputs {
     pub(super) outputs: Vec<ConnectedOutput>,
     pub(super) selection: output_policy::OutputSelection,
+    /// Connected connectors left off: by the configuration, a closed lid or
+    /// the output limit.
+    pub(super) unlit: Vec<connector::Handle>,
 }
 
 pub(super) fn connected_outputs(
@@ -222,6 +225,10 @@ pub(super) fn configured_outputs(
         &configuration.disabled_outputs,
         configuration.lid_closed,
     );
+    let connected = named
+        .iter()
+        .map(|(_, connector)| connector.info.handle())
+        .collect::<Vec<_>>();
     named.retain(|(name, _)| {
         let lit = selection.lit.contains(name);
         if !lit {
@@ -230,6 +237,14 @@ pub(super) fn configured_outputs(
         lit
     });
     named.truncate(max_outputs);
+    let unlit = connected
+        .into_iter()
+        .filter(|handle| {
+            !named
+                .iter()
+                .any(|(_, connector)| connector.info.handle() == *handle)
+        })
+        .collect();
 
     let outputs = named
         .into_iter()
@@ -300,7 +315,11 @@ pub(super) fn configured_outputs(
             })
         })
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
-    Ok(ConfiguredOutputs { outputs, selection })
+    Ok(ConfiguredOutputs {
+        outputs,
+        selection,
+        unlit,
+    })
 }
 
 #[cfg(feature = "flutter")]

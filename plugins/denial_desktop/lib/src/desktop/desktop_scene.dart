@@ -10,6 +10,7 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/surface_hosting.dart';
+import 'package:denial_flutter_sdk/services.dart' show ShellServicesScope;
 import 'package:denial_flutter_sdk/surfaces.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -231,14 +232,23 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
       dense: denseWindowMode,
       items: <DesktopHomeLayoutItem>[
         for (final placement in outputWindows)
-          DesktopHomeLayoutItem(
-            id: _desktopHomeWindowKey(placement.objectId),
-            contentAspectRatio:
-                placement.contentRect.width / placement.contentRect.height,
-            frameInset: placement.serverSideDecorated
-                ? DesktopMetrics.frameBorder
-                : 0.0,
-          ),
+          // A plugin's frame is scaled with its window as one picture, so
+          // the whole frame keeps its shape.
+          if (DesktopMetrics.customWindowFrame)
+            DesktopHomeLayoutItem(
+              id: _desktopHomeWindowKey(placement.objectId),
+              preferredAspectRatio:
+                  placement.frame.width / placement.frame.height,
+            )
+          else
+            DesktopHomeLayoutItem(
+              id: _desktopHomeWindowKey(placement.objectId),
+              contentAspectRatio:
+                  placement.contentRect.width / placement.contentRect.height,
+              frameInset: placement.serverSideDecorated
+                  ? DesktopMetrics.frameBorderOn(placement.monitorId)
+                  : 0.0,
+            ),
       ],
     );
     for (final placement in outputWindows) {
@@ -642,20 +652,37 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         continue;
       }
       final closeId = _nextCloseId++;
+      // A window closes on the outputs it was shown on.
       final outputClip = desktopOutputClip(
         activelyDragging: placement.dragging,
         outputRect: desktopOutputPixelGridForMonitor(
           oldWidget.displayLayout,
           placement.monitorId,
         )?.logicalRect,
+        restsFree: desktopWindowRestsFree(
+          windowLayout: ref.read(shellSettingsProvider).layout.windowLayout,
+          placement: placement,
+          transformed:
+              oldWidget.desktop.isInOverview(window.objectId) ||
+              DesktopWindowSwitcherLayout.contains(
+                oldWidget.windowSwitcher,
+                window.objectId,
+              ),
+          workspaceChanging:
+              oldWidget.desktop.workspaceTransitions[placement.monitorId] !=
+              null,
+        ),
       );
       _closingWindows[closeId] = ClosingDesktopWindow(
         id: closeId,
         window: window,
         frame: frame,
-        fullscreen:
+        frameMargins:
             placement.fullscreen &&
-            !oldWidget.desktop.isInOverview(window.objectId),
+                !oldWidget.desktop.isInOverview(window.objectId)
+            ? EdgeInsets.zero
+            : placement.drawnFrameMargins(transformed: true),
+        maximized: placement.maximized,
         effect: widget.closeEffect,
         outputClip: outputClip,
       );
@@ -762,6 +789,8 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
     );
     final windowsById = topology.windowsById;
     final desktopVisible = ref.watch(desktopVisibleProvider);
+    // The frame decides how windows are framed and laid out on the desktop.
+    ref.watch(desktopWindowFrameProvider);
     final popupSurfaces = topology.popupSurfaces;
     final placements = topology.placements
         .where(
@@ -824,27 +853,33 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
       ref.watch(desktopSurfacesProvider),
       [
         for (final output in surfaceLayout.outputs)
-          ShellSurfaceEnvironment(
-            output: output,
-            inputOnlyOutputNames: [
-              for (final entry in surfaceLayout.outputs)
-                if (entry.inputOnly) entry.name,
-            ],
-            workArea: surfaceLayout.workAreaOf(output),
-            isMainOutput:
-                output.monitorId == surfaceLayout.mainOutput?.monitorId,
-            defaultOutputSelected: surfaceLayout.hostsDefaultShellSurface(
-              output,
+          // The shell's surfaces are laid out in its own units.
+          ShellSurfaceEnvironment.scaled(
+            ShellSurfaceEnvironment(
+              output: output,
+              inputOnlyOutputNames: [
+                for (final entry in surfaceLayout.outputs)
+                  if (entry.inputOnly) entry.name,
+              ],
+              workArea: surfaceLayout.workAreaOf(output),
+              isMainOutput:
+                  output.monitorId == surfaceLayout.mainOutput?.monitorId,
+              defaultOutputSelected: surfaceLayout.hostsDefaultShellSurface(
+                output,
+              ),
+              workspaceId: desktop.activeWorkspaceFor(output.monitorId),
+              fullscreen: fullscreenMonitorIds.contains(output.monitorId),
+              overview: desktop.overviewActive,
+              desktopVisible: desktopVisible,
+              wallpaperSelectorVisible: wallpaperSelectorVisible,
+              locked: ref.watch(
+                referenceShellProvider.select(
+                  (state) => state.lockLayerVisible,
+                ),
+              ),
+              settings: surfaceSettings,
             ),
-            workspaceId: desktop.activeWorkspaceFor(output.monitorId),
-            fullscreen: fullscreenMonitorIds.contains(output.monitorId),
-            overview: desktop.overviewActive,
-            desktopVisible: desktopVisible,
-            wallpaperSelectorVisible: wallpaperSelectorVisible,
-            locked: ref.watch(
-              referenceShellProvider.select((state) => state.lockLayerVisible),
-            ),
-            settings: surfaceSettings,
+            surfaceLayout.shellScaleOf(output.monitorId),
           ),
       ],
     );
@@ -875,7 +910,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
       occupiedBounds: [
         for (final entry in surfaceEntries)
           if (entry.placement.occupiesDesktop && entry.placement.visible)
-            entry.placement.bounds,
+            entry.environment.toScreen(entry.placement.bounds),
       ],
     );
     final canvas = Offset.zero & viewSize;
@@ -898,7 +933,7 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
             switcher: windowSwitcher,
           );
 
-    return Stack(
+    final planes = Stack(
       fit: StackFit.expand,
       children: [
         ShellWallpaper(
@@ -1051,21 +1086,26 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
                   stageBounds: switcherStageBounds,
                 ),
               const Positioned.fill(child: SystemTrayMenuDismissLayer()),
-              DesktopPanelOverlay(
+              _ShellOutputScale(
                 viewSize: viewSize,
-                shellOutputRect: shellOutputRect,
-                panelTravel: widget.panelTravel,
-                panelDurationScale: widget.panelDurationScale,
-                applicationSearchFocusNode: applicationSearchFocusNode,
-                onOpenLauncher: onOpenLauncher,
-                onDismissPanel: onDismissPanel,
-                onOpenDashboard: onOpenDashboard,
-                onOpenSettings: onOpenSettings,
-                onCancelPanelClose: onCancelPanelClose,
-                onSchedulePanelClose: onSchedulePanelClose,
-                onPanelOpened: widget.onPanelOpened,
-                onLaunchApp: onLaunchApp,
-                onLaunchLocalApp: onLaunchLocalApp,
+                displayLayout: displayLayout,
+                outputRect: shellOutputRect,
+                builder: (viewSize, shellOutputRect) => DesktopPanelOverlay(
+                  viewSize: viewSize,
+                  shellOutputRect: shellOutputRect,
+                  panelTravel: widget.panelTravel,
+                  panelDurationScale: widget.panelDurationScale,
+                  applicationSearchFocusNode: applicationSearchFocusNode,
+                  onOpenLauncher: onOpenLauncher,
+                  onDismissPanel: onDismissPanel,
+                  onOpenDashboard: onOpenDashboard,
+                  onOpenSettings: onOpenSettings,
+                  onCancelPanelClose: onCancelPanelClose,
+                  onSchedulePanelClose: onSchedulePanelClose,
+                  onPanelOpened: widget.onPanelOpened,
+                  onLaunchApp: onLaunchApp,
+                  onLaunchLocalApp: onLaunchLocalApp,
+                ),
               ),
               for (final popup in popupSurfaces)
                 if (popup.geometry case final geometry?)
@@ -1134,6 +1174,57 @@ class _DesktopSceneState extends ConsumerState<DesktopScene> {
         ),
         Positioned.fill(child: ColorTuningLayer(displayRect: mainDisplayRect)),
       ],
+    );
+    // A plugin's window frame reads the services as a surface does.
+    return ShellServicesScope(services: surfaceServices, child: planes);
+  }
+}
+
+/// Builds a layer that spans the scene in the shell's own units on the output
+/// [outputRect], where its scale is not 1: the layer is laid out over that
+/// output alone, [scale] times smaller, and drawn that many times as large.
+/// Elsewhere it spans the whole scene as it is.
+class _ShellOutputScale extends StatelessWidget {
+  const _ShellOutputScale({
+    required this.viewSize,
+    required this.displayLayout,
+    required this.outputRect,
+    required this.builder,
+  });
+
+  final Size viewSize;
+  final DisplayLayout? displayLayout;
+  final Rect? outputRect;
+
+  /// The layer, given the size of the scene and the output's rectangle in it.
+  final Widget Function(Size viewSize, Rect? outputRect) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final outputRect = this.outputRect;
+    final layout = displayLayout;
+    var scale = 1.0;
+    if (outputRect != null && layout != null) {
+      for (final output in layout.outputs) {
+        if (output.logicalRect == outputRect) {
+          scale = layout.shellScaleOf(output.monitorId);
+          break;
+        }
+      }
+    }
+    if (scale == 1.0 || outputRect == null) {
+      return builder(viewSize, outputRect);
+    }
+    final size = outputRect.size / scale;
+    return Positioned.fromRect(
+      rect: outputRect,
+      child: ShellScaleViewport(
+        scale: scale,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [builder(size, Offset.zero & size)],
+        ),
+      ),
     );
   }
 }

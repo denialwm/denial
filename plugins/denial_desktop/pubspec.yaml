@@ -46,5 +46,9 @@ denial_plugin:
     label: Pet shadows
     min: 0
     max: 1
+  - contract: package:denial_flutter_sdk/window_frames.dart#ShellWindowFrame
+    label: Window frame
+    min: 0
+    max: 1
 flutter:
   uses-material-design: true

@@ -16,7 +16,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 use super::super::output_policy::is_internal_panel;
 use super::super::window_placement_store::WindowPlacementState;
 use super::insets::configure_desktop_toplevel;
-use super::window_management::{shell_content_geometry, shell_draws_server_frame};
+use super::window_management::shell_content_geometry;
 use super::{WaylandFrontend, WaylandOutput, WindowGeometryAuthority};
 
 /// Where a window was on a desk, kept while it is on the phone so it can go
@@ -160,7 +160,7 @@ impl WaylandFrontend {
         let connector = output.connector.clone();
         if to_desk {
             let bounds = self.maximize_work_area(Some(&output.output), output_geometry);
-            let bounds = shell_content_geometry(bounds, shell_draws_server_frame(window));
+            let bounds = shell_content_geometry(bounds, self.frame_for(window));
             let saved = self
                 .window_record_for_surface_mut(&root.id())
                 .and_then(|record| record.desk_placement.take())

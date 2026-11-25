@@ -3,11 +3,35 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:denial_flutter_sdk/src/platform/system_control_protocol.dart';
 import 'package:denial_flutter_sdk/src/platform/bridge/control_client.dart';
 import 'package:denial_flutter_sdk/src/platform/bridge/platform_transport.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('call volume packets carry the actual hardware steps', () {
+    final packet = ByteData(12)
+      ..setUint32(0, 4, Endian.little)
+      ..setUint32(4, 5, Endian.little)
+      ..setUint32(8, 9, Endian.little);
+    expect(SystemControlProtocol.decodeCallVolume(packet), (
+      previous: 4,
+      step: 5,
+      maximum: 9,
+    ));
+    expect(SystemControlProtocol.decodeCallVolume(ByteData(11)), isNull);
+    expect(SystemControlProtocol.decodeCallVolume(ByteData(12)), isNull);
+    packet.setUint32(4, 10, Endian.little);
+    expect(SystemControlProtocol.decodeCallVolume(packet), isNull);
+    expect(SystemControlProtocol.setCallVolume(257).buffer.asUint8List(), [
+      6,
+      1,
+      1,
+      0,
+      0,
+    ]);
+  });
+
   test('native replies are available without a window subscription', () async {
     final handlers = <String, BridgeMessageHandler?>{};
     final reply = Completer<int>();

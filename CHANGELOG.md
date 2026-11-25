@@ -16,9 +16,29 @@ boundaries may change before 1.0.
   with Vulkan: the packages now depend on the Vulkan loader. The Flutter
   Settings application is gone. On a phone the package takes the place of
   `denial-app-settings`.
+- Roundness is two settings: one for window corners and the outer corners
+  of the shell's panels, such as the Dashboard, the launcher, flyouts, menus
+  and notification banners, so panels and windows share one shape
+  (`appearance.windowCornerRadiusScale`, 0.5, shown as 25%), and one for
+  everything inside them, such as cards, tiles and buttons
+  (`appearance.interfaceCornerRadiusScale`, 1.2, shown as 60%). Both
+  hold on the desktop, on a phone and on a monitor beside a phone; inside
+  their windows, apps round their islands, groups and controls with the
+  interface roundness. The roundness kept before
+  (`cornerRadiusScale`, `monitorCornerRadiusScale`,
+  `desktopCornerRadiusScale`, `mobileCornerRadiusScale`) is no longer read,
+  so both start from their defaults.
 
 ### Added
 
+- The on-screen keyboard shows the letters of the active keyboard layout:
+  AZERTY, QWERTZ, the Nordic, Spanish, Portuguese, Turkish, South Slavic,
+  Cyrillic, Greek, Hebrew and Arabic layouts, Dvorak and Colemak. A long
+  press offers the layout language's accents. With more than one layout set,
+  a language key switches to the next, for the hardware keyboard too, and the
+  space bar names the current one.
+  While an input method such as Fcitx serves the text field, the keyboard
+  types through it and leaves suggestions, corrections and capitals to it.
 - An app size apart from the shell's (`apps.scale`, 1 to 3). Apps opened
   after a change draw that many times larger than the screen's scale, at full
   sharpness; X11 apps follow through their DPI. The shell and Droidloom keep
@@ -36,8 +56,7 @@ boundaries may change before 1.0.
   a window on the phone's screen, or opening it from the phone, brings it
   back. With the monitor in use the power button turns off only the phone,
   each screen dims on its own, and unplugging moves the monitor's windows to
-  the phone until it returns. The monitor has its own roundness
-  (`appearance.monitorCornerRadiusScale`) and its own wallpaper, placed and
+  the phone until it returns. The monitor has its own wallpaper, placed and
   zoomed apart from the phone's (`outputZooms` in the wallpaper file). See
   [docs/PHONE_AND_MONITOR.md](docs/PHONE_AND_MONITOR.md).
 - Color management. Output buffers are 10-bit where the display planes allow
@@ -120,6 +139,23 @@ boundaries may change before 1.0.
   and the status bar steps aside; a swipe down from the top edge still opens
   the shade.
 - Wallpapers can be zoomed in, from 1 to 4 times, about their alignment point.
+- During a phone call the volume keys and the on-screen slider set the call's
+  volume, through Phonewave's `callaudio`, and the slider shows its level;
+  ringing and everything after hangup stay on media volume. On the lock
+  screen the keys still reach the call. Settings shows In-call volume beside
+  Media under Sound, during or between calls.
+- Phone shoulder triggers that send `KEY_MACRO1` and `KEY_MACRO2` touch the
+  screen where the user placed them for the app in front. The shade's
+  Trigger points tile opens the editor over the app: drag L and R to their
+  spots, hold one to clear it. The spots are kept per app under
+  `phoneTriggers`.
+- Settings has a Lights page for a device's own multicolor LEDs, such as a
+  phone's logo, fan or trigger lights, shown only where there are some. Each
+  light is on or off in a colour, purple until another is chosen, and the
+  lights can go dark with the screen. Denial sets them at startup and
+  keeps them as chosen (`lights`).
+- Settings switches bypass charging on batteries whose driver offers it: the
+  device runs from the charger and the battery neither charges nor drains.
 
 ### Changed
 
@@ -167,6 +203,14 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- The on-screen keyboard types the character on its key whatever the
+  keyboard layout. It used to type through US key positions, so with French
+  set `a` typed `q`. A character the layout reaches only with AltGr, such as
+  `@` on the Italian layout, is typed with AltGr.
+- A click through an app's transparent part, such as around a desktop pet,
+  reaches the top bar or whatever else of the shell is below it. An X11
+  window that lets clicks through part of itself is drawn without Denial's
+  frame, rounded corners and shadow (#286).
 - Qt and other Xlib apps under Xwayland are scaled: Denial also sets
   `Xft.dpi` in the X resources, which they read instead of XSETTINGS.
 - A quick flick in mobile recents reaches the next card however short it
@@ -205,6 +249,13 @@ boundaries may change before 1.0.
 - Started through UWSM, Denial finds its logind session: `loginctl
   lock-session` locks it, logind sees whether it is locked, and it no longer
   retries the lookup every two seconds.
+- In the stacking layout, moving or resizing a maximized window with Super
+  and the mouse starts from its maximized size instead of snapping back to
+  its earlier size first. Super+W and the restore button still bring the
+  earlier size back.
+- On a machine with two GPUs, Denial no longer opens the other card's driver:
+  a session on a Radeon kept `/dev/nvidia0` open. Applications Denial starts
+  can still use either GPU.
 
 ## [0.5.1] - 2026-10-11
 

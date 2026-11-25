@@ -207,9 +207,14 @@ impl WlrLayerShellHandler for RuntimeState {
             break;
         }
         #[cfg(feature = "flutter")]
-        frontend
-            .pending_layer_frame_callback_roots
-            .remove(&surface.wl_surface().id());
+        {
+            frontend
+                .pending_layer_frame_callback_roots
+                .remove(&surface.wl_surface().id());
+            frontend
+                .hidden_surface_frames
+                .remove(&surface.wl_surface().id());
+        }
         frontend.remove_surface_state(surface.wl_surface(), false);
         self.scene_sync.mark_dirty();
     }

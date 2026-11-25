@@ -664,6 +664,306 @@ fn configure_window_distinguishes_layout_drops_from_exact_geometry() {
     ));
 }
 
+fn place_request(args: fb::WindowRequestArgs, request_id: u64, sequence: u64) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let request = fb::WindowRequest::create(&mut builder, &args);
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence,
+            request_id,
+            payload_type: fb::Payload::WindowRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn a_place_is_a_rule_and_is_answered_by_its_request() {
+    let left_half = fb::WireRect::new(0.0, 0.0, 0.5, 1.0);
+    let mut bridge = bridge();
+    assert!(
+        bridge
+            .handle(&place_request(
+                fb::WindowRequestArgs {
+                    kind: fb::WindowRequestKind::PlaceWindow,
+                    window_id: 42,
+                    place_kind: fb::WindowPlaceKind::Area,
+                    place_share: Some(&left_half),
+                    monitor_id: 3,
+                    ..Default::default()
+                },
+                9,
+                4,
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        bridge
+            .handle(&place_request(
+                fb::WindowRequestArgs {
+                    kind: fb::WindowRequestKind::ResolveWindowPlace,
+                    window_id: 42,
+                    place_kind: fb::WindowPlaceKind::Restore,
+                    ..Default::default()
+                },
+                10,
+                5,
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![
+            WindowCommand::Place {
+                window_id: 42,
+                request_id: 9,
+                place: WindowPlace::Area {
+                    monitor_id: Some(3),
+                    share: WindowGeometry {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 0.5,
+                        height: 1.0,
+                    },
+                },
+                apply: true,
+            },
+            WindowCommand::Place {
+                window_id: 42,
+                request_id: 10,
+                place: WindowPlace::Restore,
+                apply: false,
+            },
+        ]
+    );
+
+    // Without a request id there is nothing to answer.
+    assert!(matches!(
+        bridge.handle(&place_request(
+            fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::PlaceWindow,
+                window_id: 42,
+                place_kind: fb::WindowPlaceKind::Restore,
+                ..Default::default()
+            },
+            0,
+            6,
+        )),
+        Err(WireError::RequestId)
+    ));
+    // A share never leaves the work area.
+    let beyond = fb::WireRect::new(0.5, 0.0, 0.75, 1.0);
+    assert!(matches!(
+        bridge.handle(&place_request(
+            fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::PlaceWindow,
+                window_id: 42,
+                place_kind: fb::WindowPlaceKind::Area,
+                place_share: Some(&beyond),
+                ..Default::default()
+            },
+            11,
+            7,
+        )),
+        Err(WireError::Geometry)
+    ));
+
+    let answer = bridge
+        .encode_window_place_result(WindowPlaceResult {
+            request_id: 9,
+            window_id: 42,
+            status: WindowPlaceStatus::Adjusted,
+            frame: WindowGeometry {
+                x: 0.0,
+                y: 40.0,
+                width: 960.0,
+                height: 1040.0,
+            },
+            geometry: WindowGeometry {
+                x: 1.0,
+                y: 72.0,
+                width: 958.0,
+                height: 1007.0,
+            },
+            monitor_id: 3,
+        })
+        .unwrap()
+        .to_vec();
+    let envelope = fb::root_as_envelope(&answer).unwrap();
+    assert_eq!(envelope.request_id(), 9);
+    let response = envelope.payload_as_window_response().unwrap();
+    assert_eq!(response.kind(), fb::WindowResponseKind::Place);
+    assert!(response.success());
+    assert_eq!(response.window_id(), 42);
+    assert_eq!(response.place_status(), fb::WindowPlaceStatus::Adjusted);
+    assert_eq!(response.frame().unwrap().height(), 1040.0);
+    assert_eq!(response.geometry().unwrap().y(), 72.0);
+    assert_eq!(response.monitor_id(), 3);
+}
+
+#[test]
+fn a_shell_drag_names_a_window_and_the_edges_it_resizes() {
+    let mut bridge = bridge();
+    let begin = |kind, flags, sequence| {
+        place_request(
+            fb::WindowRequestArgs {
+                kind,
+                window_id: 42,
+                flags,
+                ..Default::default()
+            },
+            0,
+            sequence,
+        )
+    };
+    bridge
+        .handle(&begin(fb::WindowRequestKind::BeginWindowMove, 0, 4))
+        .unwrap();
+    bridge
+        .handle(&begin(
+            fb::WindowRequestKind::BeginWindowResize,
+            WINDOW_RESIZE_BOTTOM | WINDOW_RESIZE_RIGHT,
+            5,
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![
+            WindowCommand::BeginMove { window_id: 42 },
+            WindowCommand::BeginResize {
+                window_id: 42,
+                edges: WINDOW_RESIZE_BOTTOM | WINDOW_RESIZE_RIGHT,
+            },
+        ]
+    );
+    // No edge, both edges of one axis, and unknown bits are not a resize.
+    for (flags, sequence) in [
+        (0, 6),
+        (WINDOW_RESIZE_LEFT | WINDOW_RESIZE_RIGHT, 7),
+        (1 << 4, 8),
+    ] {
+        assert!(matches!(
+            bridge.handle(&begin(
+                fb::WindowRequestKind::BeginWindowResize,
+                flags,
+                sequence
+            )),
+            Err(WireError::Flags)
+        ));
+    }
+}
+
+#[test]
+fn the_shell_declares_the_frame_it_draws() {
+    let frame = fb::WireInsets::new(1.0, 32.0, 1.0, 1.0);
+    let title_bar_only = fb::WireInsets::new(0.0, 32.0, 0.0, 0.0);
+    let mut bridge = bridge();
+    bridge
+        .handle(&place_request(
+            fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::ConfigureWindowFrame,
+                frame_margins: Some(&frame),
+                maximized_frame_margins: Some(&title_bar_only),
+                ..Default::default()
+            },
+            0,
+            4,
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![WindowCommand::ConfigureFrame {
+            monitor_id: None,
+            margins: WindowFrameMargins {
+                left: 1,
+                top: 32,
+                right: 1,
+                bottom: 1,
+            },
+            maximized: Some(WindowFrameMargins {
+                left: 0,
+                top: 32,
+                right: 0,
+                bottom: 0,
+            }),
+        }]
+    );
+
+    let negative = fb::WireInsets::new(-1.0, 0.0, 0.0, 0.0);
+    assert!(matches!(
+        bridge.handle(&place_request(
+            fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::ConfigureWindowFrame,
+                frame_margins: Some(&negative),
+                ..Default::default()
+            },
+            0,
+            5,
+        )),
+        Err(WireError::Geometry)
+    ));
+}
+
+#[test]
+fn dart_places_and_frames_keep_every_inline_rectangle() {
+    // The Dart encoder writes each rectangle inline in the request table;
+    // all of them must keep their 8-byte alignment beside the identities.
+    let mut bridge = bridge();
+    bridge
+        .handle(include_bytes!(
+            "../../../../../protocol/golden/dart_window_place.denw"
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![WindowCommand::Place {
+            window_id: 0x1_0000_0042,
+            request_id: 77,
+            place: WindowPlace::Area {
+                monitor_id: Some(7),
+                share: WindowGeometry {
+                    x: 0.5,
+                    y: 0.0,
+                    width: 0.5,
+                    height: 1.0,
+                },
+            },
+            apply: true,
+        }]
+    );
+
+    let mut bridge = self::bridge();
+    bridge
+        .handle(include_bytes!(
+            "../../../../../protocol/golden/dart_window_frame.denw"
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![WindowCommand::ConfigureFrame {
+            monitor_id: None,
+            margins: WindowFrameMargins {
+                left: 1,
+                top: 34,
+                right: 1,
+                bottom: 1,
+            },
+            maximized: Some(WindowFrameMargins {
+                left: 0,
+                top: 34,
+                right: 0,
+                bottom: 0,
+            }),
+        }]
+    );
+}
+
 fn pet_request(args: fb::PetRequestArgs) -> Vec<u8> {
     let mut builder = FlatBufferBuilder::new();
     let request = fb::PetRequest::create(&mut builder, &args);
@@ -921,6 +1221,36 @@ fn panel_motion_decodes_height_and_duration_within_bounds() {
         (0, MAX_KEYBOARD_PANEL_DURATION_MS + 1),
     ] {
         assert!(bridge.handle(&panel_motion(height, duration_ms)).is_err());
+    }
+    assert!(bridge.pending_keyboard_commands.is_empty());
+}
+
+#[test]
+fn next_layout_decodes_without_a_payload() {
+    let mut bridge = bridge();
+    bridge
+        .handle(&keyboard_command(
+            fb::KeyboardCommandKind::NextLayout,
+            None,
+            None,
+            0,
+        ))
+        .unwrap();
+    assert_eq!(
+        bridge.pending_keyboard_commands.pop_front().unwrap(),
+        KeyboardCommand::NextLayout
+    );
+    for (text, key, flags) in [(Some("a"), None, 0), (None, Some("a"), 0), (None, None, 1)] {
+        assert!(
+            bridge
+                .handle(&keyboard_command(
+                    fb::KeyboardCommandKind::NextLayout,
+                    text,
+                    key,
+                    flags
+                ))
+                .is_err()
+        );
     }
     assert!(bridge.pending_keyboard_commands.is_empty());
 }
@@ -1352,6 +1682,7 @@ fn scene_window(id: u64) -> WindowDescription {
         opacity_class: WindowOpacityClass::FullyOpaque,
         pet: None,
         keyboard_inset: false,
+        client_title_bar: false,
     }
 }
 

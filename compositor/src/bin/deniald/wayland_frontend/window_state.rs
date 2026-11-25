@@ -11,6 +11,7 @@ pub(super) struct ManagedWindowPresentation {
     pub(super) fullscreen: bool,
     pub(super) maximized: bool,
     pub(super) server_side_decorated: bool,
+    pub(super) client_title_bar: bool,
 }
 
 fn xdg_transient_parent_surface(window: &Window) -> Option<WlSurface> {
@@ -243,6 +244,7 @@ impl WaylandFrontend {
             fullscreen,
             maximized: !fullscreen && (client.maximized || shell_maximized || layout_maximized),
             server_side_decorated: facts.is_some_and(|facts| facts.server_side_decorated),
+            client_title_bar: facts.is_some_and(|facts| facts.client_title_bar),
         }
     }
 
@@ -618,15 +620,10 @@ impl WaylandFrontend {
             return normal_geometry;
         };
         let object_id = root.id();
-        let server_frame = shell_draws_server_frame(window);
         let mut maximized_target = normal_geometry;
         if state.maximized {
             let frame = self.maximize_work_area(Some(&output), output_geometry);
-            maximized_target = maximized_shell_content_geometry(
-                frame,
-                server_frame,
-                self.window_layout_manages_geometry(),
-            );
+            maximized_target = shell_content_geometry(frame, self.maximized_frame_for(window));
         }
         if state.fullscreen {
             self.ensure_window_record_for_surface(&object_id)
@@ -643,7 +640,7 @@ impl WaylandFrontend {
                     ShellFullscreenUnderlay::Normal
                 },
             });
-            shell_content_geometry(output_geometry, server_frame)
+            shell_content_geometry(output_geometry, self.frame_for(window))
         } else {
             self.ensure_window_record_for_surface(&object_id)
                 .expect("managed window has no stable id")
@@ -1013,11 +1010,8 @@ impl WaylandFrontend {
                 }
                 let work_area =
                     self.maximize_work_area(Some(&output.output), output.logical_geometry);
-                super::window_management::shell_content_geometry(
-                    work_area,
-                    super::window_management::shell_draws_server_frame(window),
-                )
-                .size
+                super::window_management::shell_content_geometry(work_area, self.frame_for(window))
+                    .size
             }
             #[cfg(not(feature = "flutter"))]
             {
@@ -1362,6 +1356,18 @@ impl WaylandFrontend {
         }
     }
 
+    /// The workspace a placement reports. A window placed before it is first
+    /// published (a restored location, a window placed beside its app's
+    /// other window) has none yet; it will join the visible workspace of its
+    /// output, so the placement says that, not workspace 1.
+    #[cfg(feature = "flutter")]
+    fn placement_workspace(&self, window_id: u64, output: OutputId) -> i64 {
+        i64::from(self.workspace_location(window_id).map_or_else(
+            || self.active_workspace(output),
+            |location| location.workspace,
+        ))
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn window_placement(
         &self,
@@ -1374,21 +1380,16 @@ impl WaylandFrontend {
         let root_surface = self.window_root_surface(window)?;
         let window_id = self.surface_id(&root_surface)?;
         let layout_space = self.managed_layout_space(window);
-        let monitor_id = layout_space
-            .map(|space| space.output)
-            .or_else(|| {
-                self.output_for_geometry(monitor_geometry)
-                    .map(|entry| entry.id)
-            })
-            .and_then(|output| i64::try_from(output.0).ok())?;
+        let output = layout_space.map(|space| space.output).or_else(|| {
+            self.output_for_geometry(monitor_geometry)
+                .map(|entry| entry.id)
+        })?;
+        let monitor_id = i64::try_from(output.0).ok()?;
         Some(WindowPlacement {
             window_id,
             monitor_id,
             workspace_id: layout_space.map_or_else(
-                || {
-                    self.workspace_location(window_id)
-                        .map_or(1, |location| i64::from(location.workspace))
-                },
+                || self.placement_workspace(window_id, output),
                 |space| i64::from(space.workspace),
             ),
             phase,
@@ -1557,15 +1558,12 @@ impl WaylandFrontend {
                 geometry.height.round().clamp(1.0, f64::from(i32::MAX)) as i32,
             )),
         );
-        let monitor_id = self
-            .output_for_geometry(global_geometry)
-            .and_then(|entry| i64::try_from(entry.id.0).ok())?;
+        let output = self.output_for_geometry(global_geometry)?.id;
+        let monitor_id = i64::try_from(output.0).ok()?;
         Some(WindowPlacement {
             window_id,
             monitor_id,
-            workspace_id: self
-                .workspace_location(window_id)
-                .map_or(1, |location| i64::from(location.workspace)),
+            workspace_id: self.placement_workspace(window_id, output),
             phase,
             change,
             geometry: WindowGeometry {
@@ -1726,12 +1724,17 @@ impl WaylandFrontend {
             self.remove_surface_shm_frame(&object_id);
             self.pending_surface_commits.remove(&object_id);
             self.pending_frame_callback_windows.remove(&object_id);
+            self.hidden_surface_frames.remove(&object_id);
             self.forget_minimized_window(&object_id);
             self.pending_layer_frame_callback_roots.remove(&object_id);
             self.pending_input_method_frame_callbacks.remove(&object_id);
             self.pending_cursor_frame_callback_roots.remove(&object_id);
             self.pending_shm_snapshots.remove(&object_id);
             self.surface_buffer_revisions.remove(&object_id);
+            self.surface_damage_commits
+                .get_mut()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&object_id);
             if let Some(stable_id) = stable_id {
                 self.pointer_constraint_escape.forget_window(stable_id);
                 self.pending_cursor_buffer_surface_ids.remove(&stable_id);

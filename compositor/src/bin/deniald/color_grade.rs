@@ -152,7 +152,9 @@ fn contrast_curve(v: f32, slope: f32) -> f32 {
     }
 }
 
-fn sample(lut: &Lut, color: [f32; 3]) -> [f32; 3] {
+/// `lut` at `color`, filtered as GL filters a look texture: trilinear
+/// between nodes, input clamped to the unit cube.
+pub(super) fn sample(lut: &Lut, color: [f32; 3]) -> [f32; 3] {
     let last = (lut.size - 1) as f32;
     let at = color.map(|v| v.clamp(0.0, 1.0) * last);
     let low = at.map(|v| (v.floor() as usize).min(lut.size - 2));

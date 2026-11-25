@@ -1,12 +1,14 @@
 use std::ffi::{OsStr, OsString};
 use std::os::fd::OwnedFd;
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use denial_core::topology::SCALE_BASE;
 use smithay::desktop::Window;
 use smithay::input::pointer::Focus;
 use smithay::reexports::calloop::channel::Event as ChannelEvent;
-use smithay::reexports::calloop::{EventLoop, LoopHandle};
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay::reexports::calloop::{EventLoop, LoopHandle, RegistrationToken};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
@@ -54,6 +56,12 @@ mod frame_input;
 
 const XWAYLAND_BASE_DPI: u32 = 96;
 const XWAYLAND_SCALE_MODE_ENV: &str = "DENIAL_XWAYLAND_SCALE_MODE";
+/// An Xwayland that exits sooner than this after starting is not restarted
+/// again: it would only exit again.
+const XWAYLAND_RESTART_MIN_UPTIME: Duration = Duration::from_secs(10);
+/// How long a restart waits for the old server to let go of the display.
+const XWAYLAND_RESTART_RETRY: Duration = Duration::from_millis(100);
+const XWAYLAND_RESTART_ATTEMPTS: u32 = 50;
 
 /// The complete optional Xwayland subsystem.
 ///
@@ -68,9 +76,15 @@ struct ActiveXWayland {
     _keyboard_grab_state: XWaylandKeyboardGrabState,
     xwm: Option<X11Wm>,
     frame_input: Option<frame_input::FrameInputShapes>,
+    frame_input_source: Option<RegistrationToken>,
     #[cfg(feature = "flutter")]
     xembed_tray: Option<super::super::xembed_tray::XEmbedTray>,
     client: Client,
+    /// The server's event source. It holds the display's lock and socket, so
+    /// removing it frees the display number for a restart.
+    source: Option<RegistrationToken>,
+    started: Instant,
+    loop_handle: LoopHandle<'static, RuntimeState>,
     scale_mode: XWaylandScaleMode,
     scale_120: u32,
     /// The settings' apps scale, which X11 apps get through their DPI.
@@ -107,116 +121,15 @@ impl XWaylandState {
         let scale_mode = scale_mode_from_environment();
         let scale_120 = scale_for_engine(engine_scale_120, scale_mode);
         let apps_scale = settings.apps_scale();
-        let xwayland_args = [
-            "-dpi".to_owned(),
-            dpi(app_scale_120(scale_120, apps_scale)).to_string(),
-        ];
-        let cursor_size = settings.cursor_size();
-        let mut environment = vec![(
-            OsString::from("XCURSOR_SIZE"),
-            OsString::from(cursor_size.to_string()),
-        )];
-        #[cfg(feature = "flutter")]
-        if let Some(cursor_environment) = crate::xcursor_sentinel::environment() {
-            environment.extend(
-                cursor_environment
-                    .into_iter()
-                    .map(|(name, value)| (OsString::from(name), OsString::from(value))),
-            );
-        }
-
-        // Smithay has no pre-exec hook here. Temporarily widen this spawning
-        // thread, synchronized with our guard, so Xwayland gets the app domain.
-        let (source, client) = crate::cpu_scheduling::with_application_affinity(|| {
-            XWayland::spawn(
-                display_handle,
-                None,
-                environment,
-                xwayland_args,
-                true,
-                Stdio::null(),
-                Stdio::null(),
-                |_| {},
-            )
-        })?;
-        client
-            .get_data::<XWaylandClientData>()
-            .expect("Xwayland client is missing compositor state")
-            .compositor_state
-            .set_client_scale(client_scale(scale_120));
-        let xdisplay = source.display_number();
-        let xwm_loop_handle = event_loop.handle();
-        let xwm_display_handle = display_handle.clone();
-        let xwm_client = client.clone();
-        event_loop
-            .handle()
-            .insert_source(source, move |event, _, state| match event {
-                XWaylandEvent::Ready {
-                    x11_socket,
-                    display_number,
-                } => match X11Wm::start_wm(
-                    xwm_loop_handle.clone(),
-                    &xwm_display_handle,
-                    x11_socket,
-                    xwm_client.clone(),
-                ) {
-                    Ok(mut xwm) => {
-                        let Some(frontend) = state.wayland.as_mut() else {
-                            error!(
-                                display_number,
-                                "Xwayland became ready without Wayland frontend state"
-                            );
-                            return;
-                        };
-                        let cursor_size = frontend.settings.cursor_size();
-                        let active = frontend
-                            .xwayland
-                            .active
-                            .as_mut()
-                            .expect("Xwayland became ready after being disabled");
-                        if let Err(error) =
-                            publish_settings(&mut xwm, active.app_scale_120(), cursor_size)
-                        {
-                            error!(%error, "could not publish Xwayland settings");
-                        }
-                        publish_resource_dpi(active.display, dpi(active.app_scale_120()));
-                        active.xwm = Some(xwm);
-                        active.frame_input = start_frame_input(&xwm_loop_handle, active.display);
-                        #[cfg(feature = "flutter")]
-                        match super::super::xembed_tray::XEmbedTray::start(OsString::from(format!(
-                            ":{}",
-                            active.display
-                        ))) {
-                            Ok(tray) => active.xembed_tray = Some(tray),
-                            Err(error) => {
-                                warn!(%error, "could not start the XEmbed tray host")
-                            }
-                        }
-                        info!(
-                            display = %format_args!(":{display_number}"),
-                            scale = client_scale(active.scale_120),
-                            scale_mode = ?active.scale_mode,
-                            dpi = dpi(active.app_scale_120()),
-                            cursor_size,
-                            "Xwayland is ready"
-                        );
-                        state.scene_sync.mark_dirty();
-                    }
-                    Err(error) => {
-                        error!(
-                            %error,
-                            display_number,
-                            "could not start the Xwayland window manager"
-                        );
-                    }
-                },
-                XWaylandEvent::Error => {
-                    error!(
-                        display = %format_args!(":{xdisplay}"),
-                        "Xwayland exited during startup"
-                    );
-                }
-            })?;
+        let loop_handle = event_loop.handle();
+        let (source, client, xdisplay) = spawn_server(
+            &loop_handle,
+            display_handle,
+            None,
+            scale_120,
+            apps_scale,
+            settings.cursor_size(),
+        )?;
 
         Ok(Self {
             active: Some(ActiveXWayland {
@@ -224,9 +137,13 @@ impl XWaylandState {
                 _keyboard_grab_state: keyboard_grab_state,
                 xwm: None,
                 frame_input: None,
+                frame_input_source: None,
                 #[cfg(feature = "flutter")]
                 xembed_tray: None,
                 client,
+                source: Some(source),
+                started: Instant::now(),
+                loop_handle,
                 scale_mode,
                 scale_120,
                 apps_scale,
@@ -572,6 +489,208 @@ impl super::WaylandFrontend {
     }
 }
 
+/// Starts an Xwayland server and its event source, which starts the window
+/// manager once the server is ready. `display` asks for that display number.
+fn spawn_server(
+    loop_handle: &LoopHandle<'static, RuntimeState>,
+    display_handle: &DisplayHandle,
+    display: Option<u32>,
+    scale_120: u32,
+    apps_scale: f64,
+    cursor_size: u32,
+) -> Result<(RegistrationToken, Client, u32), Box<dyn std::error::Error>> {
+    let xwayland_args = [
+        "-dpi".to_owned(),
+        dpi(app_scale_120(scale_120, apps_scale)).to_string(),
+    ];
+    let mut environment = vec![(
+        OsString::from("XCURSOR_SIZE"),
+        OsString::from(cursor_size.to_string()),
+    )];
+    // Xwayland starts through this program, which clears the signal mask
+    // calloop set in the thread Smithay forks from.
+    environment.extend(crate::xwayland_exec::environment()?);
+    #[cfg(feature = "flutter")]
+    if let Some(cursor_environment) = crate::xcursor_sentinel::environment() {
+        environment.extend(
+            cursor_environment
+                .into_iter()
+                .map(|(name, value)| (OsString::from(name), OsString::from(value))),
+        );
+    }
+
+    // Smithay has no pre-exec hook here. Temporarily widen this spawning
+    // thread, synchronized with our guard, so Xwayland gets the app domain.
+    let (source, client) = crate::cpu_scheduling::with_application_affinity(|| {
+        XWayland::spawn(
+            display_handle,
+            display,
+            environment,
+            xwayland_args,
+            true,
+            Stdio::null(),
+            Stdio::null(),
+            |_| {},
+        )
+    })?;
+    client
+        .get_data::<XWaylandClientData>()
+        .expect("Xwayland client is missing compositor state")
+        .compositor_state
+        .set_client_scale(client_scale(scale_120));
+    let xdisplay = source.display_number();
+    let xwm_loop_handle = loop_handle.clone();
+    let xwm_display_handle = display_handle.clone();
+    let xwm_client = client.clone();
+    let token = loop_handle.insert_source(source, move |event, _, state| match event {
+        XWaylandEvent::Ready {
+            x11_socket,
+            display_number,
+        } => match X11Wm::start_wm(
+            xwm_loop_handle.clone(),
+            &xwm_display_handle,
+            x11_socket,
+            xwm_client.clone(),
+        ) {
+            Ok(mut xwm) => {
+                let Some(frontend) = state.wayland.as_mut() else {
+                    error!(
+                        display_number,
+                        "Xwayland became ready without Wayland frontend state"
+                    );
+                    return;
+                };
+                let cursor_size = frontend.settings.cursor_size();
+                let active = frontend
+                    .xwayland
+                    .active
+                    .as_mut()
+                    .expect("Xwayland became ready after being disabled");
+                if let Err(error) = publish_settings(&mut xwm, active.app_scale_120(), cursor_size)
+                {
+                    error!(%error, "could not publish Xwayland settings");
+                }
+                publish_resource_dpi(active.display, dpi(active.app_scale_120()));
+                active.xwm = Some(xwm);
+                if let Some((shapes, source)) = start_frame_input(&xwm_loop_handle, active.display)
+                {
+                    active.frame_input = Some(shapes);
+                    active.frame_input_source = Some(source);
+                }
+                #[cfg(feature = "flutter")]
+                match super::super::xembed_tray::XEmbedTray::start(OsString::from(format!(
+                    ":{}",
+                    active.display
+                ))) {
+                    Ok(tray) => active.xembed_tray = Some(tray),
+                    Err(error) => {
+                        warn!(%error, "could not start the XEmbed tray host")
+                    }
+                }
+                info!(
+                    display = %format_args!(":{display_number}"),
+                    scale = client_scale(active.scale_120),
+                    scale_mode = ?active.scale_mode,
+                    dpi = dpi(active.app_scale_120()),
+                    cursor_size,
+                    "Xwayland is ready"
+                );
+                state.scene_sync.mark_dirty();
+            }
+            Err(error) => {
+                error!(
+                    %error,
+                    display_number,
+                    "could not start the Xwayland window manager"
+                );
+            }
+        },
+        XWaylandEvent::Error => {
+            error!(
+                display = %format_args!(":{xdisplay}"),
+                "Xwayland exited during startup"
+            );
+        }
+    })?;
+    Ok((token, client, xdisplay))
+}
+
+/// Starts Xwayland again after it went away, on the same display number so
+/// `DISPLAY` stays right for the session. The windows of the old server are
+/// gone with it. A server that keeps exiting soon after it starts is left
+/// stopped.
+fn restart_xwayland(state: &mut RuntimeState) {
+    restart_xwayland_attempt(state, 1);
+}
+
+fn restart_xwayland_attempt(state: &mut RuntimeState, attempt: u32) {
+    if state.lifecycle.shutdown_reason().is_some() {
+        return;
+    }
+    let Some(frontend) = state.wayland.as_mut() else {
+        return;
+    };
+    let cursor_size = frontend.settings.cursor_size();
+    let display_handle = frontend.display_handle.clone();
+    let Some(active) = frontend.xwayland.active.as_mut() else {
+        return;
+    };
+    if active.xwm.is_some() {
+        return;
+    }
+    let uptime = active.started.elapsed();
+    if uptime < XWAYLAND_RESTART_MIN_UPTIME {
+        error!(
+            uptime_ms = uptime.as_millis(),
+            "Xwayland exited soon after starting; X11 apps stay unavailable until Denial restarts"
+        );
+        return;
+    }
+    // The old source holds the display's lock and socket.
+    if let Some(source) = active.source.take() {
+        active.loop_handle.remove(source);
+    }
+    match spawn_server(
+        &active.loop_handle,
+        &display_handle,
+        Some(active.display),
+        active.scale_120,
+        active.apps_scale,
+        cursor_size,
+    ) {
+        Ok((source, client, display_number)) => {
+            active.source = Some(source);
+            active.client = client;
+            active.display = display_number;
+            active.started = Instant::now();
+            warn!(display = %format_args!(":{display_number}"), "restarted Xwayland");
+        }
+        // The old server may still hold the display's sockets while it exits,
+        // after the window manager already saw its connection close.
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::AddrInUse)
+                && attempt < XWAYLAND_RESTART_ATTEMPTS =>
+        {
+            debug!(%error, attempt, "the X11 display is still held; trying Xwayland again");
+            let retry = active.loop_handle.insert_source(
+                Timer::from_duration(XWAYLAND_RESTART_RETRY),
+                move |_, _, state| {
+                    restart_xwayland_attempt(state, attempt + 1);
+                    TimeoutAction::Drop
+                },
+            );
+            if let Err(error) = retry {
+                error!(%error, "could not restart Xwayland; X11 apps stay unavailable until Denial restarts");
+            }
+        }
+        Err(error) => {
+            error!(%error, "could not restart Xwayland; X11 apps stay unavailable until Denial restarts");
+        }
+    }
+}
+
 fn window_for_x11(state: &RuntimeState, surface: &X11Surface) -> Option<Window> {
     state
         .wayland
@@ -587,7 +706,7 @@ fn window_for_x11(state: &RuntimeState, surface: &X11Surface) -> Option<Window> 
 fn start_frame_input(
     loop_handle: &LoopHandle<'static, RuntimeState>,
     display: u32,
-) -> Option<frame_input::FrameInputShapes> {
+) -> Option<(frame_input::FrameInputShapes, RegistrationToken)> {
     let (shapes, source) = match frame_input::FrameInputShapes::connect(display) {
         Ok(started) => started,
         Err(error) => {
@@ -599,19 +718,48 @@ fn start_frame_input(
         let ChannelEvent::Msg(event) = event else {
             return;
         };
-        if let Some(shapes) = state.frontend_mut().xwayland.frame_input()
-            && let Err(error) = shapes.handle(event)
-        {
-            warn!(%error, "could not copy an X11 input region");
+        let Some(shapes) = state.frontend_mut().xwayland.frame_input() else {
+            return;
+        };
+        match shapes.handle(event) {
+            Ok(Some(change)) => apply_click_through(state, change),
+            Ok(None) => {}
+            Err(error) => warn!(%error, "could not copy an X11 input region"),
         }
     });
     match inserted {
-        Ok(_) => Some(shapes),
+        Ok(source) => Some((shapes, source)),
         Err(error) => {
             warn!(%error, "X11 windows keep no click-through regions");
             None
         }
     }
+}
+
+/// A window that lets clicks through part of its rectangle is drawn without
+/// Denial's frame; one that stops doing so gets it back.
+fn apply_click_through(state: &mut RuntimeState, change: frame_input::ClickThroughChange) {
+    let Some(frontend) = state.wayland.as_mut() else {
+        return;
+    };
+    let Some(element) = frontend
+        .space
+        .elements()
+        .find(|window| {
+            window
+                .x11_surface()
+                .is_some_and(|surface| surface.window_id() == change.window)
+        })
+        .cloned()
+    else {
+        return;
+    };
+    if let Some(surface) = element.x11_surface() {
+        super::managed_window::set_x11_click_through(surface, change.click_through);
+    }
+    // The frame decides the window's content geometry in a layout.
+    frontend.reconcile_window_layout(&element);
+    state.scene_sync.mark_dirty();
 }
 
 impl XWaylandState {
@@ -1068,6 +1216,9 @@ impl XwmHandler for RuntimeState {
         if let Some(shapes) = self.frontend_mut().xwayland.frame_input() {
             shapes.forget(window.window_id());
         }
+        // Mapped again, it is followed afresh and reported only if it lets
+        // clicks through then.
+        super::managed_window::set_x11_click_through(&window, false);
         unmap_x11_window(self, &window);
     }
 
@@ -1182,6 +1333,7 @@ impl XwmHandler for RuntimeState {
             WmWindowProperty::NormalHints
                 | WmWindowProperty::TransientFor
                 | WmWindowProperty::WindowType
+                | WmWindowProperty::MotifHints
         ) && let Some(element) = window_for_x11(self, &window)
         {
             self.frontend_mut().reconcile_window_layout(&element);
@@ -1474,14 +1626,39 @@ impl XwmHandler for RuntimeState {
     }
 
     fn disconnected(&mut self, _xwm: XwmId) {
-        if let Some(active) = self
+        warn!("lost the Xwayland window-manager connection");
+        let Some(active) = self
             .wayland
             .as_mut()
             .and_then(|frontend| frontend.xwayland.active.as_mut())
-        {
-            active.xwm = None;
+        else {
+            return;
+        };
+        active.xwm = None;
+        active.frame_input = None;
+        if let Some(source) = active.frame_input_source.take() {
+            active.loop_handle.remove(source);
         }
-        warn!("lost the Xwayland window-manager connection");
+        #[cfg(feature = "flutter")]
+        {
+            active.xembed_tray = None;
+        }
+        let loop_handle = active.loop_handle.clone();
+        // The server's windows went with it: take them off the desktop.
+        let windows = self
+            .frontend()
+            .space
+            .elements()
+            .filter_map(|window| window.x11_surface().cloned())
+            .collect::<Vec<_>>();
+        for window in windows {
+            unmap_x11_window(self, &window);
+            if let Some(root) = root_surface_for_x11(&window) {
+                self.frontend_mut().remove_surface_state(&root, false);
+            }
+        }
+        // Not from inside the window manager's own teardown.
+        loop_handle.insert_idle(restart_xwayland);
     }
 }
 

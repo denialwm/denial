@@ -865,19 +865,13 @@ fn desktop_lut_state() -> Value {
     json!({"lut": lut.map(|lut| json!({"size": lut.size, "title": lut.title}))})
 }
 
-/// Gaining or losing a look rebuilds the output pools, so every output
-/// renders off-screen exactly while one is loaded; swapping looks repaints.
+/// Repaints with the new look. Gaining or losing one also rebuilds the pools
+/// of outputs that copy their scene only for the look: the event loop
+/// compares each installed pool with the look (`synchronize_plane_color`).
 fn change_desktop_lut(lut: Option<super::output_color::Lut>, events: &SyncSender<ControlEvent>) {
-    let had_look = super::output_color::desktop_lut().is_some();
-    let has_look = lut.is_some();
     super::output_color::set_desktop_lut(lut);
-    let event = if had_look == has_look {
-        ControlEvent::RepaintOutputs
-    } else {
-        ControlEvent::RebuildOutputs
-    };
     // A full queue already holds work that draws a new frame.
-    let _ = events.try_send(event);
+    let _ = events.try_send(ControlEvent::RepaintOutputs);
 }
 
 #[derive(Debug, Deserialize)]
@@ -1475,10 +1469,16 @@ fn handle_connection(
         },
         "color.tune.prepare" => {
             super::color_grade::keep_desktop_look();
-            let ready = super::output_color::desktop_lut().is_some();
+            let mut ready = super::output_color::desktop_lut().is_some();
             if !ready {
                 change_desktop_look(|_| {}, events);
-                let _ = events.try_send(ControlEvent::ReopenColorTuning);
+                // Planes and existing copies show the new look at once;
+                // outputs that copy their scene only for a look are rebuilt
+                // first.
+                ready = super::plane_color::look_ready();
+                if !ready {
+                    let _ = events.try_send(ControlEvent::ReopenColorTuning);
+                }
             }
             success_response(request.id, json!({"ready": ready}))
         }

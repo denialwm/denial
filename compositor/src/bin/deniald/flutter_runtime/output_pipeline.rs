@@ -632,6 +632,7 @@ mod capture_tests {
             dirty_serial: 1,
             lock_frame_token: 0,
             fingerprint_epoch: 0,
+            hardware_cursor: false,
         };
         broker.begin_transaction();
         assert_eq!(broker.authorize(request, now, None), Some(view.get()));
@@ -724,6 +725,7 @@ mod capture_tests {
             dirty_serial: 1,
             lock_frame_token: 0,
             fingerprint_epoch: 0,
+            hardware_cursor: false,
         };
         assert_eq!(broker.authorize(request, now, Some(41)), Some(view.get()));
         assert_eq!(
@@ -773,6 +775,7 @@ mod capture_tests {
             dirty_serial: 1,
             lock_frame_token: 0,
             fingerprint_epoch: 0,
+            hardware_cursor: false,
         };
         assert_eq!(broker.authorize(request, now, Some(41)), Some(view.get()));
         broker.begin_authorization(41);
@@ -820,6 +823,7 @@ mod capture_tests {
                 dirty_serial: sequence,
                 lock_frame_token: 0,
                 fingerprint_epoch: 0,
+                hardware_cursor: false,
             };
             assert_eq!(broker.authorize(request, now, None), Some(view.get()));
             let framebuffer = broker.acquire(view.get(), size).unwrap();

@@ -1037,13 +1037,13 @@ fn rotation_lock_external_enable_captures_current_not_editor_orientation() {
 fn mobile_default_document_seeds_the_mobile_appearance() {
     let (desktop, _, _) = default_document(false);
     assert!(desktop["appearance"].get("glass").is_none());
-    assert!(desktop["appearance"].get("cornerRadiusScale").is_none());
 
     let (mobile, _, _) = default_document(true);
     let appearance = &mobile["appearance"];
     assert_eq!(appearance["customAccentColor"], 0xFFD0_BCFF_u32);
-    assert_eq!(appearance["cornerRadiusScale"], 1.6);
-    assert_eq!(appearance["monitorCornerRadiusScale"], 0.4);
+    // The roundness defaults stand on a phone too.
+    assert!(appearance.get("windowCornerRadiusScale").is_none());
+    assert!(appearance.get("interfaceCornerRadiusScale").is_none());
     assert_eq!(appearance["glass"]["opacity"], 0.2);
     assert_eq!(appearance["glass"]["windowOpacity"], 0.5);
     assert_eq!(appearance["glass"]["appPanelOpacity"], 0.4);

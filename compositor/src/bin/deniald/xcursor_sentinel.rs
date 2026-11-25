@@ -28,6 +28,10 @@ const XCURSOR_NOMINAL_SIZE: u32 = 32;
 // renders its own themed artwork. Any non-marker buffer remains application
 // artwork and is published unchanged (notably game cursors).
 //
+// Wayland apps that load Xcursor themes themselves, because they predate the
+// cursor-shape protocol, read the same XCURSOR_THEME and send the same
+// markers, so Denial decodes them from every client.
+//
 // Alpha may not be zero: Xwayland collapses a fully transparent X cursor to a
 // null Wayland cursor before the compositor can inspect it.
 struct CursorFamily {

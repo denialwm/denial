@@ -21,6 +21,11 @@ impl ContextBinding {
             error!("refusing to bind an EGL context still owned by another thread");
             return false;
         }
+        // The Vulkan shell never releases the raster context between
+        // frames: binding it again would be a driver call per frame.
+        if self.owner == Some(thread) && self.context.is_current() {
+            return true;
+        }
         // SAFETY: ownership above prevents the context from becoming current
         // on two threads. Flutter later releases it through clear_current().
         match unsafe { self.context.make_current() } {

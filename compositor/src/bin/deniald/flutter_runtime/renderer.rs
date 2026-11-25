@@ -28,6 +28,7 @@ pub(super) use output_projection::{
 };
 pub(super) use texture::FlutterGlHandler;
 pub use texture::SampledBufferHoldBatch;
+pub(crate) use texture::client_formats;
 pub(crate) use texture::{
-    ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame, SyncedWaylandScene,
+    BufferDamage, ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame, SyncedWaylandScene,
 };

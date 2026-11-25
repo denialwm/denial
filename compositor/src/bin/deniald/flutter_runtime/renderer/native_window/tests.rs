@@ -248,6 +248,27 @@ fn a_cover_without_a_current_buffer_shows_what_it_covers() {
 }
 
 #[test]
+fn layer_damage_shows_where_the_layer_is_drawn_in_the_window() {
+    let plan = firefox_plan();
+    let root = &plan.layers[0];
+    // Buffer pixels at scale 2, half a logical pixel wider on each side.
+    let damage = plan
+        .window_damage(root, Some([126.0, 123.0, 200.0, 100.0]))
+        .unwrap();
+    let expected = [36.5 / 1678.0, 38.0 / 1130.0, 101.0 / 1678.0, 51.0 / 1130.0];
+    for (actual, expected) in damage.into_iter().zip(expected) {
+        assert!((actual - expected).abs() < 1e-9, "{damage:?} != {expected:?}");
+    }
+    // The shadow outside the window shows nowhere.
+    assert_eq!(plan.window_damage(root, Some([0.0, 0.0, 20.0, 20.0])), None);
+    // A layer changed whole changes where it shows.
+    assert_eq!(
+        plan.window_damage(&plan.layers[1], None),
+        Some([0.0, 0.0, 1.0, 1.0])
+    );
+}
+
+#[test]
 fn allocation_and_input_limits_reject_invalid_client_geometry() {
     let plan = firefox_plan();
     let layers = [

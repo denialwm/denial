@@ -67,16 +67,46 @@ pub struct PlaneProperties {
     pub in_fence_fd: Option<property::Handle>,
 }
 
+/// One KMS cursor plane, using SRC rectangles in 16.16 and CRTC in pixels.
+#[derive(Clone, Copy, Debug)]
+pub struct CursorPlane {
+    pub object: plane::Handle,
+    /// FB_ID, CRTC_ID, SRC_X/Y/W/H, CRTC_X/Y/W/H.
+    pub properties: [property::Handle; 10],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CursorCommit {
+    pub plane: CursorPlane,
+    pub values: [u64; 10],
+}
+
+impl CursorCommit {
+    pub fn apply(&self, drm: BorrowedFd<'_>, flags: AtomicCommitFlags) -> io::Result<()> {
+        let mut objects = [self.plane.object.into()];
+        let mut properties = self.plane.properties.map(u32::from);
+        let mut values = self.values;
+        drm_mode::atomic_commit(
+            drm,
+            flags.bits(),
+            &mut objects,
+            &mut [10],
+            &mut properties,
+            &mut values,
+        )
+    }
+}
+
 /// Reusable atomic state for one output plane.
 ///
 /// DRM copies these fixed arrays during each ioctl. A request can therefore
 /// be retained by Denial and cloned into a Volition lookahead job.
 #[derive(Clone, Debug)]
 pub struct PlaneCommit {
-    objects: [u32; 1],
-    property_counts: [u32; 1],
-    properties: [u32; MAX_ATOMIC_PLANE_PROPERTIES],
-    values: [u64; MAX_ATOMIC_PLANE_PROPERTIES],
+    objects: [u32; 2],
+    property_counts: [u32; 2],
+    properties: [u32; MAX_ATOMIC_PLANE_PROPERTIES + 10],
+    values: [u64; MAX_ATOMIC_PLANE_PROPERTIES + 10],
     property_count: usize,
     fence_index: Option<usize>,
 }
@@ -85,10 +115,10 @@ impl PlaneCommit {
     pub fn new(plane: plane::Handle, properties: PlaneProperties, source: PixelRect) -> Self {
         let plane: RawResourceHandle = plane.into();
         let mut request = Self {
-            objects: [u32::from(plane)],
-            property_counts: [0],
-            properties: [0; MAX_ATOMIC_PLANE_PROPERTIES],
-            values: [0; MAX_ATOMIC_PLANE_PROPERTIES],
+            objects: [u32::from(plane), 0],
+            property_counts: [0; 2],
+            properties: [0; MAX_ATOMIC_PLANE_PROPERTIES + 10],
+            values: [0; MAX_ATOMIC_PLANE_PROPERTIES + 10],
             property_count: 0,
             fence_index: None,
         };
@@ -116,16 +146,29 @@ impl PlaneCommit {
         self.property_count += 1;
     }
 
+    pub fn with_cursor(&self, cursor: CursorCommit) -> Self {
+        let mut request = self.clone();
+        request.objects[1] = cursor.plane.object.into();
+        request.property_counts[1] = 10;
+        let end = request.property_count + 10;
+        request.properties[request.property_count..end]
+            .copy_from_slice(&cursor.plane.properties.map(u32::from));
+        request.values[request.property_count..end].copy_from_slice(&cursor.values);
+        request.property_count = end;
+        request
+    }
+
     fn submit(&mut self, drm: BorrowedFd<'_>, framebuffer: framebuffer::Handle) -> io::Result<()> {
         self.values[0] = u64::from(u32::from(framebuffer));
         if let Some(index) = self.fence_index {
             self.values[index] = u64::MAX;
         }
+        let objects = if self.property_counts[1] == 0 { 1 } else { 2 };
         drm_mode::atomic_commit(
             drm,
             commit_flags().bits(),
-            &mut self.objects,
-            &mut self.property_counts,
+            &mut self.objects[..objects],
+            &mut self.property_counts[..objects],
             &mut self.properties[..self.property_count],
             &mut self.values[..self.property_count],
         )
@@ -195,6 +238,7 @@ pub enum Event {
     /// A transient kernel refusal outlived Volition's short scheduling window.
     /// The compositor must rebuild its KMS ownership instead of treating this
     /// display backpressure as a process-fatal error.
+    CursorRejected(Failure),
     Stalled(Failure),
     Failed(Failure),
 }
@@ -203,14 +247,18 @@ impl Event {
     pub const fn commit(&self) -> CommitId {
         match self {
             Self::Submitted { commit, .. } => *commit,
-            Self::Stalled(failure) | Self::Failed(failure) => failure.commit,
+            Self::CursorRejected(failure) | Self::Stalled(failure) | Self::Failed(failure) => {
+                failure.commit
+            }
         }
     }
 
     const fn instance(&self) -> u64 {
         match self {
             Self::Submitted { instance, .. } => *instance,
-            Self::Stalled(failure) | Self::Failed(failure) => failure.instance,
+            Self::CursorRejected(failure) | Self::Stalled(failure) | Self::Failed(failure) => {
+                failure.instance
+            }
         }
     }
 }
@@ -460,6 +508,23 @@ fn run_scheduler(
                     submitted_at: Instant::now(),
                 },
             ),
+            Err(source)
+                if scheduled.job.request.property_counts[1] != 0
+                    && scheduled.job.request.values
+                        [scheduled.job.request.property_counts[0] as usize]
+                        != 0
+                    && !is_retryable_lookahead_error(&source) =>
+            {
+                finish_job(
+                    pending,
+                    report_event,
+                    Event::CursorRejected(Failure {
+                        instance: scheduled.job.instance,
+                        commit: scheduled.job.commit,
+                        source,
+                    }),
+                )
+            }
             Err(source) => match lookahead_failure_disposition(&source, attempted_at, expires_at) {
                 LookaheadFailureDisposition::Retry => {
                     // Reinsert instead of retrying in place. Another output whose
@@ -648,6 +713,48 @@ impl Drop for Volition {
 #[cfg(test)]
 mod submit_lead_tests {
     use super::*;
+
+    #[test]
+    fn cursor_handoffs_preserve_the_primary_plane_properties_and_fence() {
+        use smithay::reexports::drm::control::from_u32;
+        let property = |n| from_u32(n).unwrap();
+        let primary = PlaneCommit::new(
+            from_u32(1).unwrap(),
+            PlaneProperties {
+                framebuffer: property(2),
+                source_x: property(3),
+                source_y: property(4),
+                source_width: property(5),
+                source_height: property(6),
+                rotation: Some((property(7), 1)),
+                in_fence_fd: Some(property(8)),
+            },
+            PixelRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1200,
+            },
+        );
+        let plane = CursorPlane {
+            object: from_u32(9).unwrap(),
+            properties: std::array::from_fn(|i| property(10 + i as u32)),
+        };
+        // Enable and disable must both be part of the same primary commit.
+        for values in [
+            [88, 77, 0, 0, 64 << 16, 64 << 16, (-2i64) as u64, 34, 64, 64],
+            [0; 10],
+        ] {
+            let joined = primary.with_cursor(CursorCommit { plane, values });
+            assert_eq!(joined.objects, [1, 9]);
+            assert_eq!(joined.property_counts, [7, 10]);
+            assert_eq!(joined.property_count, 17);
+            assert_eq!(joined.fence_index, primary.fence_index);
+            assert_eq!(&joined.values[..7], &primary.values[..7]);
+            assert_eq!(&joined.values[7..], &values);
+            assert_eq!(primary.property_counts, [7, 0]);
+        }
+    }
 
     #[test]
     fn configured_lead_controls_the_ioctl_not_before_time() {

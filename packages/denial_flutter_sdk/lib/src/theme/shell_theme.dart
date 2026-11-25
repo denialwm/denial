@@ -102,6 +102,7 @@ class ShellThemeData {
     Color accent = ShellBrandColors.defaultAccent,
     this.fontFamily = '',
     this.cornerRadiusScale = ShellRoundness.normal,
+    this.windowCornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
     this.cardOpacity = ShellOpacity.card,
     this.transparencyMode = ShellTransparencyMode.blur,
@@ -122,7 +123,13 @@ class ShellThemeData {
   final ShellTextTheme? _resolvedTextTheme;
   final ShellAccentPalette? _resolvedAccentPalette;
   final ColorScheme? _resolvedGeneratedColorScheme;
+
+  /// The roundness of everything the shell rounds inside its surfaces.
   final double cornerRadiusScale;
+
+  /// The roundness of window corners and of the outermost corners of shell
+  /// surfaces ([panelRadius], [outerRadius]).
+  final double windowCornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
   final ShellTransparencyMode transparencyMode;
@@ -181,7 +188,7 @@ class ShellThemeData {
   /// The normalized primary role. [accentSeed] is the persisted source color.
   Color get accent => accentPalette.primary;
 
-  /// Scales a component's base radius by the single user-selected roundness.
+  /// Scales a component's base radius by the interface roundness.
   double scaledRadius(double radius) => radius * cornerRadiusScale;
 
   Radius radius(double baseRadius) => _resolution.radius(baseRadius);
@@ -189,7 +196,16 @@ class ShellThemeData {
   BorderRadius borderRadius(double baseRadius) =>
       _resolution.borderRadius(baseRadius);
 
-  double get windowRadius => scaledRadius(ShellRadii.window);
+  /// Scales a base radius by the window roundness, for the outermost corners
+  /// of a shell surface: a panel's own edge, a menu's, a bar card's. What
+  /// sits inside it takes [scaledRadius] and [borderRadius].
+  double outerRadius(double radius) => radius * windowCornerRadiusScale;
+
+  /// [outerRadius] as a [BorderRadius].
+  BorderRadius outerBorderRadius(double baseRadius) =>
+      _resolution.outerBorderRadius(baseRadius);
+
+  double get windowRadius => outerRadius(ShellRadii.window);
 
   double get notificationRadius => scaledRadius(ShellRadii.notification);
 
@@ -197,7 +213,16 @@ class ShellThemeData {
 
   double get tileWideRadius => scaledRadius(ShellRadii.tileWide);
 
-  double get panelRadius => scaledRadius(ShellRadii.panel);
+  /// The outermost corners of a shell panel (dashboard, launcher, flyout,
+  /// HUD, dialog): the window roundness, so panels and windows share one
+  /// shape. Cards, buttons and fields inside the panel keep the interface
+  /// roundness.
+  double get panelRadius => outerRadius(ShellRadii.panel);
+
+  /// A panel-sized surface inside a panel, such as a detail sheet that opens
+  /// in the Dashboard: the interface roundness, like the rest of a panel's
+  /// insides.
+  double get nestedPanelRadius => scaledRadius(ShellRadii.panel);
 
   double get chipRadius => scaledRadius(ShellRadii.chip);
 
@@ -239,6 +264,7 @@ class ShellThemeData {
     Color? accent,
     String? fontFamily,
     double? cornerRadiusScale,
+    double? windowCornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
     ShellTransparencyMode? transparencyMode,
@@ -254,6 +280,8 @@ class ShellThemeData {
       accent: accent ?? accentSeed,
       fontFamily: fontFamily ?? this.fontFamily,
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
+      windowCornerRadiusScale:
+          windowCornerRadiusScale ?? this.windowCornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
       transparencyMode: transparencyMode ?? this.transparencyMode,
@@ -314,6 +342,10 @@ class ShellThemeData {
         first.cornerRadiusScale,
         second.cornerRadiusScale,
       ),
+      windowCornerRadiusScale: blend(
+        first.windowCornerRadiusScale,
+        second.windowCornerRadiusScale,
+      ),
       panelOpacity: blend(first.panelOpacity, second.panelOpacity),
       cardOpacity: blend(first.cardOpacity, second.cardOpacity),
       transparencyMode: t < 0.5
@@ -348,6 +380,7 @@ class ShellThemeData {
         other.accentSeed == accentSeed &&
         other.fontFamily == fontFamily &&
         other.cornerRadiusScale == cornerRadiusScale &&
+        other.windowCornerRadiusScale == windowCornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
         other.transparencyMode == transparencyMode &&
@@ -365,6 +398,7 @@ class ShellThemeData {
     accentSeed,
     fontFamily,
     cornerRadiusScale,
+    windowCornerRadiusScale,
     panelOpacity,
     cardOpacity,
     transparencyMode,
@@ -389,6 +423,7 @@ class _ShellThemeResolution {
   final ShellThemeData theme;
   final Map<double, Radius> _radii = <double, Radius>{};
   final Map<double, BorderRadius> _borderRadii = <double, BorderRadius>{};
+  final Map<double, BorderRadius> _outerBorderRadii = <double, BorderRadius>{};
   final Map<Color, Color> _panelColors = <Color, Color>{};
   final Map<Color, Color> _cardColors = <Color, Color>{};
   final Map<({Color top, Color bottom}), LinearGradient> _panelGradients =
@@ -405,6 +440,12 @@ class _ShellThemeResolution {
     baseRadius,
     () => BorderRadius.circular(theme.scaledRadius(baseRadius)),
   );
+
+  BorderRadius outerBorderRadius(double baseRadius) =>
+      _outerBorderRadii.putIfAbsent(
+        baseRadius,
+        () => BorderRadius.circular(theme.outerRadius(baseRadius)),
+      );
 
   Color get _glassBacking => theme.glass.appearance == ShellGlassAppearance.dark
       ? ShellMediaColors.darkness
@@ -610,7 +651,7 @@ class _ShellThemeResolution {
     ),
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(
-        borderRadius: theme.borderRadius(ShellRadii.panel),
+        borderRadius: theme.outerBorderRadius(ShellRadii.panel),
       ),
     ),
     popupMenuTheme: PopupMenuThemeData(

@@ -11,9 +11,11 @@ import 'package:denial_flutter_sdk/motion.dart';
 import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/settings.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
+import 'package:denial_flutter_sdk/window_frames.dart' show ShellWindowFrame;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/default_shell/panel_composition.dart';
 import '../state/clipboard_tray.dart';
 import '../widgets/desktop_visibility_transition.dart';
 import '../widgets/desktop_window_close_animation.dart';
@@ -25,9 +27,11 @@ import 'desktop_pixel_alignment.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_widget_transition.dart';
 import 'desktop_window_coordinator.dart';
+import 'desktop_plugin_window_frame.dart';
 import 'desktop_window_frame_painter.dart';
 import 'desktop_workspace.dart';
 import 'retained_animated_positioned.dart';
+import 'window_frames/built_in_window_frame.dart';
 import 'window_backdrop_blur_policy.dart';
 import '../state/phone_desk.dart';
 
@@ -67,7 +71,8 @@ class ClosingDesktopWindow {
     required this.id,
     required this.window,
     required this.frame,
-    required this.fullscreen,
+    required this.frameMargins,
+    required this.maximized,
     required this.effect,
     required this.outputClip,
   });
@@ -75,12 +80,50 @@ class ClosingDesktopWindow {
   final int id;
   final DenialWindow window;
   final Rect frame;
-  final bool fullscreen;
+
+  /// What the frame the window closes in takes around its content; zero
+  /// closes it without one.
+  final EdgeInsets frameMargins;
+  final bool maximized;
   final DesktopWindowCloseEffect effect;
   final Rect? outputClip;
 }
 
-class DesktopClosingWindowFrame extends StatelessWidget {
+/// The corners of a window on the screen: its outline, which its shadow and
+/// frame follow, and its content's.
+///
+/// The desktop's plain border and Denial's built-in frame take the window
+/// rounding setting, the same radius on the screen whatever the shell's
+/// scale. With the built-in frame the content's corners are rounded inside
+/// its border, and the frame fills behind the upper ones with its title
+/// bar's colour. A maximized window with the built-in frame, and another
+/// plugin's frame, are square.
+({double outline, BorderRadius content}) desktopWindowCorners({
+  required bool drawsServerFrame,
+  required ShellWindowFrame? frame,
+  required bool maximized,
+  required double windowRadius,
+  required EdgeInsets margins,
+}) {
+  if (!drawsServerFrame) {
+    return (outline: 0.0, content: BorderRadius.zero);
+  }
+  if (frame == null) {
+    return (
+      outline: windowRadius,
+      content: BorderRadius.circular(windowRadius),
+    );
+  }
+  if (frame is! BuiltInWindowFrame || maximized) {
+    return (outline: 0.0, content: BorderRadius.zero);
+  }
+  final outline = windowRadius;
+  // The window surface takes one radius for all four corners.
+  final inner = math.max(0.0, outline - math.max(margins.left, margins.bottom));
+  return (outline: outline, content: BorderRadius.circular(inner));
+}
+
+class DesktopClosingWindowFrame extends ConsumerWidget {
   const DesktopClosingWindowFrame({
     super.key,
     required this.closing,
@@ -91,11 +134,30 @@ class DesktopClosingWindowFrame extends StatelessWidget {
   final VoidCallback onCompleted;
 
   @override
-  Widget build(BuildContext context) {
-    final drawsServerFrame =
-        !closing.fullscreen && closing.window.serverSideDecorated;
-    final radius = drawsServerFrame ? ShellTheme.of(context).windowRadius : 0.0;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final drawsServerFrame = closing.frameMargins != EdgeInsets.zero;
+    final pluginFrame = drawsServerFrame
+        ? ref.watch(desktopWindowFrameProvider)
+        : null;
+    final corners = desktopWindowCorners(
+      drawsServerFrame: drawsServerFrame,
+      frame: pluginFrame,
+      maximized: closing.maximized,
+      windowRadius: ShellTheme.of(context).windowRadius,
+      margins: closing.frameMargins,
+    );
+    final radius = corners.outline;
     final frameColor = context.shellColors.windowFrameSurface;
+    final Widget content = _DesktopWindowContent(
+      window: closing.window,
+      smooth: false,
+      active: false,
+      borderRadius: corners.content,
+      frameWidth: drawsServerFrame && pluginFrame == null
+          ? DesktopMetrics.frameBorderOn(closing.window.monitorId)
+          : 0,
+      frameColor: frameColor,
+    );
     Widget result = DesktopWindowCloseAnimation(
       effect: closing.effect,
       seed: Object.hash(closing.window.objectId, closing.id),
@@ -116,14 +178,19 @@ class DesktopClosingWindowFrame extends StatelessWidget {
                 ),
               ),
             ),
-          _DesktopWindowContent(
-            window: closing.window,
-            smooth: false,
-            active: false,
-            borderRadius: BorderRadius.circular(radius),
-            frameWidth: drawsServerFrame ? DesktopMetrics.frameBorder : 0,
-            frameColor: frameColor,
-          ),
+          if (pluginFrame == null)
+            content
+          else
+            DesktopPluginWindowFrame(
+              frame: pluginFrame,
+              window: closing.window,
+              active: false,
+              maximized: closing.maximized,
+              interactive: false,
+              margins: closing.frameMargins,
+              scale: DesktopMetrics.shellScaleOf(closing.window.monitorId),
+              child: content,
+            ),
         ],
       ),
     );
@@ -146,6 +213,7 @@ class DesktopWindowFrame extends ConsumerWidget {
     required this.window,
     required this.placement,
     required this.frame,
+    this.unalignedFrameOrigin,
     required this.minimized,
     required this.desktopWidget,
     required this.offscreenMinimized,
@@ -173,6 +241,10 @@ class DesktopWindowFrame extends ConsumerWidget {
   final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
+
+  /// Where [frame] began before it was aligned to the pixel grid. A native
+  /// move rounds from there, as the frame it ends on will be.
+  final Offset? unalignedFrameOrigin;
   final bool minimized;
   final bool desktopWidget;
   final bool offscreenMinimized;
@@ -262,13 +334,22 @@ class DesktopWindowFrame extends ConsumerWidget {
         switching ||
         desktopWidget ||
         offscreenMinimized;
+    final windowLayout = ref.watch(
+      shellSettingsProvider.select((settings) => settings.layout.windowLayout),
+    );
     final outputClip = desktopOutputClip(
       activelyDragging: placement.dragging,
       outputRect: outputRect,
+      restsFree: desktopWindowRestsFree(
+        windowLayout: windowLayout,
+        placement: placement,
+        transformed: transformed || minimized,
+        workspaceChanging: workspaceTransition != null,
+      ),
     );
     final frame = desktopPixelAlignedWindowFrame(
       frame: liveFrame,
-      contentInset: placement.frameBorder,
+      contentInsets: placement.frameMargins,
       devicePixelRatio: devicePixelRatio,
       pixelGridOrigin: pixelGridOrigin,
       enabled: !transformed,
@@ -285,17 +366,26 @@ class DesktopWindowFrame extends ConsumerWidget {
     final minimizeEffectDuration = desktopWidgetEntering
         ? Duration.zero
         : duration;
-    final drawsServerFrame = transformed
-        ? placement.serverSideDecorated
-        : placement.drawsLiveServerFrame;
+    final drawnMargins = placement.drawnFrameMargins(transformed: transformed);
+    final drawsServerFrame = drawnMargins != EdgeInsets.zero;
+    // A plugin's frame replaces the desktop's border and rounded corners; the
+    // shadow stays the desktop's.
+    final pluginFrame = drawsServerFrame
+        ? ref.watch(desktopWindowFrameProvider)
+        : null;
     final theme = ShellTheme.of(context);
-    final windowRadius = drawsServerFrame ? theme.windowRadius : 0.0;
+    final corners = desktopWindowCorners(
+      drawsServerFrame: drawsServerFrame,
+      frame: pluginFrame,
+      maximized: placement.maximized,
+      windowRadius: theme.windowRadius,
+      margins: drawnMargins,
+    );
+    final windowRadius = corners.outline;
     final windowOpacity = active
         ? theme.focusedWindowOpacity
         : theme.unfocusedWindowOpacity;
-    final targetContentSize = drawsServerFrame
-        ? frame.deflate(DesktopMetrics.frameBorder).size
-        : frame.size;
+    final targetContentSize = drawnMargins.deflateRect(frame).size;
     final resizing = desktopTextureNeedsResizeSmoothing(
       targetSize: targetContentSize,
       sourceSize: window.contentCoordinateRect.size,
@@ -325,9 +415,14 @@ class DesktopWindowFrame extends ConsumerWidget {
       dragging: placement.dragging,
       resizing: placement.resizing,
       layoutPreviewing: placement.layoutPreviewing,
-      pixelAlignmentInset: placement.frameBorder,
+      pixelAlignmentInsets: placement.frameMargins,
       pixelGridScale: devicePixelRatio,
       pixelGridOrigin: pixelGridOrigin,
+      liveTranslationAnchor: desktopLiveTranslationAnchor(
+        unalignedFrameOrigin: unalignedFrameOrigin,
+        frameMargins: placement.frameMargins,
+        pixelGridOrigin: pixelGridOrigin,
+      ),
       alignSizeToDevicePixels: true,
       globalClipRect: outputClip,
       child: DesktopWorkspaceWindowTransition(
@@ -372,9 +467,9 @@ class DesktopWindowFrame extends ConsumerWidget {
                   child: DesktopHeldPets(
                     window: window,
                     pets: heldPets,
-                    frameBorder: placement.frameBorder,
+                    frameMargins: placement.frameMargins,
                     frameRadius: windowRadius,
-                    drawsServerFrame: drawsServerFrame,
+                    contentMargins: drawnMargins,
                     opacity: desktopWindowPresentationOpacity(
                       transparencyMode: theme.transparencyMode,
                       minimized: minimized,
@@ -402,11 +497,18 @@ class DesktopWindowFrame extends ConsumerWidget {
                             ? DesktopWindowShadowPainter.shadowOutset
                             : 0,
                         child: DesktopOverviewPreviewInteraction(
+                          compositorRoutesInput: !window.isLocalFlutter,
+                          shellFrameMargins: pluginFrame == null || transformed
+                              ? null
+                              : drawnMargins,
                           overviewActive: overviewActive,
                           overview: overview,
                           desktopWidget: desktopWidget,
                           dragging: placement.dragging,
                           selected: selected,
+                          previewScale: transformed
+                              ? desktopPreviewScale(frame, placement.frame)
+                              : 1.0,
                           label: desktopWidget
                               ? context.l10n.desktopRestoreWindow(
                                   localizedWindowTitle(context, window),
@@ -428,11 +530,12 @@ class DesktopWindowFrame extends ConsumerWidget {
                                     !transformed && !resizing && !minimized,
                                 smooth: transformed || resizing,
                                 active: active && !minimized,
-                                borderRadius: BorderRadius.circular(
-                                  windowRadius,
-                                ),
-                                frameWidth: drawsServerFrame
-                                    ? DesktopMetrics.frameBorder
+                                borderRadius: corners.content,
+                                frameWidth:
+                                    drawsServerFrame && pluginFrame == null
+                                    ? DesktopMetrics.frameBorderOn(
+                                        placement.monitorId,
+                                      )
                                     : 0,
                                 frameColor: Color.alphaBlend(
                                   desktopWindowBorderColor(
@@ -457,6 +560,7 @@ class DesktopWindowFrame extends ConsumerWidget {
                                 drawFrame: false,
                                 windowId: window.objectId,
                                 devicePixelRatio: devicePixelRatio,
+                                frameMargins: placement.frameMargins,
                                 radius: windowRadius,
                                 frameColor:
                                     context.shellColors.windowFrameSurface,
@@ -467,7 +571,21 @@ class DesktopWindowFrame extends ConsumerWidget {
                                   inactiveColor:
                                       context.shellColors.hairlineWindow,
                                 ),
-                                child: client,
+                                child: pluginFrame == null
+                                    ? client
+                                    : DesktopPluginWindowFrame(
+                                        frame: pluginFrame,
+                                        window: window,
+                                        active: active && !minimized,
+                                        maximized: placement.maximized,
+                                        interactive: !transformed && !minimized,
+                                        margins: drawnMargins,
+                                        reach: transformed || minimized
+                                            ? EdgeInsets.zero
+                                            : placement.frameReach,
+                                        scale: placement.frameScale,
+                                        child: client,
+                                      ),
                               );
                             },
                           ),
@@ -644,6 +762,34 @@ class _WorkspaceOutputClipper extends CustomClipper<Path> {
       oldClipper.outputRect != outputRect;
 }
 
+/// What a native move of a pixel-aligned frame rounds its translation from:
+/// the content's origin before alignment, measured from the pixel grid's
+/// origin. Null without [unalignedFrameOrigin] rounds the translation itself.
+Offset? desktopLiveTranslationAnchor({
+  required Offset? unalignedFrameOrigin,
+  required EdgeInsets frameMargins,
+  required Offset pixelGridOrigin,
+}) {
+  if (unalignedFrameOrigin == null) {
+    return null;
+  }
+  return unalignedFrameOrigin + frameMargins.topLeft - pixelGridOrigin;
+}
+
+/// Whether [origin] is [rect] up to one physical pixel on every edge. A
+/// pixel-aligned frame can differ by one from where its move showed it: its
+/// far edges are aligned again where it comes to rest.
+bool _restsAt(Rect origin, Rect rect, {required double? devicePixelRatio}) {
+  final scale = devicePixelRatio;
+  final tolerance =
+      (scale == null || !scale.isFinite || scale <= 0.0 ? 0.0 : 1.0 / scale) +
+      1e-3;
+  return (origin.left - rect.left).abs() < tolerance &&
+      (origin.top - rect.top).abs() < tolerance &&
+      (origin.right - rect.right).abs() < tolerance &&
+      (origin.bottom - rect.bottom).abs() < tolerance;
+}
+
 class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   const DesktopAnimatedWindowPosition({
     super.key,
@@ -659,9 +805,10 @@ class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     required this.dragging,
     required this.resizing,
     required this.layoutPreviewing,
-    this.pixelAlignmentInset,
+    this.pixelAlignmentInsets,
     this.pixelGridScale,
     this.pixelGridOrigin = Offset.zero,
+    this.liveTranslationAnchor,
     this.alignSizeToDevicePixels = false,
     this.globalClipRect,
     this.separateSurfaceOpacity = false,
@@ -680,9 +827,14 @@ class DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   final bool dragging;
   final bool resizing;
   final bool layoutPreviewing;
-  final double? pixelAlignmentInset;
+  final EdgeInsets? pixelAlignmentInsets;
   final double? pixelGridScale;
   final Offset pixelGridOrigin;
+
+  /// What a native move rounds its translation from: see
+  /// [desktopLiveTranslationAnchor]. Everything that follows one window
+  /// passes the same value, so all of it lands on the same pixels.
+  final Offset? liveTranslationAnchor;
   final bool alignSizeToDevicePixels;
   final Rect? globalClipRect;
   final bool separateSurfaceOpacity;
@@ -700,6 +852,7 @@ class _DesktopAnimatedWindowPositionState
   bool _overviewTransitionActive = false;
   bool _layoutPreviewExitActive = false;
   bool _resizeJustEnded = false;
+  bool _moveJustEndedAtRest = false;
   Rect? _dragReleaseAnimationOrigin;
 
   @override
@@ -722,13 +875,31 @@ class _DesktopAnimatedWindowPositionState
     final layoutPreviewGeometryChanged =
         widget.rect != oldWidget.rect &&
         (widget.layoutPreviewing || oldWidget.layoutPreviewing);
+    _moveJustEndedAtRest = false;
     if (oldWidget.dragging && !widget.dragging) {
       final translation = ref
           .read(desktopLiveWindowPlacementsProvider)
           .settleTranslation(widget.placementObjectId);
-      _dragReleaseAnimationOrigin = translation == null
+      final scale = oldWidget.pixelAlignmentInsets == null
           ? null
-          : oldWidget.rect.shift(translation);
+          : oldWidget.pixelGridScale ?? MediaQuery.devicePixelRatioOf(context);
+      // The window was shown at whole pixels, not at the translation itself.
+      final origin = translation == null
+          ? null
+          : oldWidget.rect.shift(
+              translationOnPixelGrid(
+                translation,
+                devicePixelRatio: scale,
+                anchor: oldWidget.liveTranslationAnchor,
+              ),
+            );
+      // Released where it rests, it has nothing left to settle: a tween over
+      // a pixel would scale the window and take it off the grid on the way.
+      // It takes its frame at once instead, as a resize does when it ends.
+      _moveJustEndedAtRest =
+          origin != null &&
+          _restsAt(origin, widget.rect, devicePixelRatio: scale);
+      _dragReleaseAnimationOrigin = _moveJustEndedAtRest ? null : origin;
     }
     if (oldWidget.layoutPreviewing && !widget.layoutPreviewing) {
       _layoutPreviewExitActive = true;
@@ -774,13 +945,13 @@ class _DesktopAnimatedWindowPositionState
   Widget build(BuildContext context) {
     var rect = widget.rect;
     var layoutRect = widget.layoutRect;
-    final pixelAlignmentInset = widget.pixelAlignmentInset;
+    final pixelAlignmentInsets = widget.pixelAlignmentInsets;
     final devicePixelRatio =
         widget.pixelGridScale ?? MediaQuery.devicePixelRatioOf(context);
-    if (pixelAlignmentInset != null) {
+    if (pixelAlignmentInsets != null) {
       rect = desktopPixelAlignedWindowFrame(
         frame: rect,
-        contentInset: pixelAlignmentInset,
+        contentInsets: pixelAlignmentInsets,
         devicePixelRatio: devicePixelRatio,
         pixelGridOrigin: widget.pixelGridOrigin,
         enabled:
@@ -794,7 +965,7 @@ class _DesktopAnimatedWindowPositionState
       if (layoutRect != null) {
         layoutRect = desktopPixelAlignedWindowFrame(
           frame: layoutRect,
-          contentInset: pixelAlignmentInset,
+          contentInsets: pixelAlignmentInsets,
           devicePixelRatio: devicePixelRatio,
           pixelGridOrigin: widget.pixelGridOrigin,
           enabled: true,
@@ -809,7 +980,10 @@ class _DesktopAnimatedWindowPositionState
     // Also commit the release rectangle immediately if the final pointer
     // sample and transaction end arrive in the same Flutter frame.
     final positionDuration =
-        widget.dragging || widget.resizing || _resizeJustEnded
+        widget.dragging ||
+            widget.resizing ||
+            _resizeJustEnded ||
+            _moveJustEndedAtRest
         ? Duration.zero
         : previewMotionActive && widget.duration != Duration.zero
         ? Motion.layoutTileReflow
@@ -844,9 +1018,10 @@ class _DesktopAnimatedWindowPositionState
             child: RetainedTranslation(
               translation: liveTranslation,
               enabled: widget.dragging,
-              devicePixelRatio: pixelAlignmentInset == null
+              devicePixelRatio: pixelAlignmentInsets == null
                   ? null
                   : devicePixelRatio,
+              pixelGridAnchor: widget.liveTranslationAnchor,
               child: widget.child,
             ),
           ),

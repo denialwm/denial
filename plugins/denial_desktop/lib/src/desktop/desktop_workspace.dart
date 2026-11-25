@@ -15,11 +15,196 @@ import 'transient_family_order.dart';
 
 part 'desktop_workspace_controller.dart';
 
+/// A frame's margins, maximized margins, reach and border on one output.
+@immutable
+final class _OutputFrames {
+  const _OutputFrames({
+    required this.margins,
+    required this.maximized,
+    required this.reach,
+    required this.border,
+  });
+
+  final EdgeInsets margins;
+  final EdgeInsets? maximized;
+  final EdgeInsets reach;
+  final double border;
+}
+
 /// A screen-edge strip a finger swipes in from, and the edge it starts at.
 typedef DesktopPanelSwipe = ({Rect rect, InputEdge edge});
 
 abstract final class DesktopMetrics {
+  /// The width of the frame the desktop draws itself.
   static const double frameBorder = 1.0;
+
+  /// What the selected window frame takes around a decorated window's
+  /// content. The compiled application sets it once, before the shell starts,
+  /// through [useWindowFrameMargins].
+  static EdgeInsets get frameMargins => _frameMargins;
+  static EdgeInsets _frameMargins = const EdgeInsets.all(frameBorder);
+
+  /// What the selected window frame takes around a maximized window. Null
+  /// when it has no frame of its own for one: stacking then draws none and a
+  /// tiling layout keeps [frameMargins].
+  static EdgeInsets? get maximizedFrameMargins => _maximizedFrameMargins;
+  static EdgeInsets? _maximizedFrameMargins;
+
+  /// Whether a plugin draws the frames, not the desktop.
+  static bool get customWindowFrame => _customWindowFrame;
+  static bool _customWindowFrame = false;
+
+  /// The widest band outside a frame that a plugin's frame may take presses
+  /// on, per side.
+  static const double maxFrameReach = 48.0;
+
+  /// How far outside its frame the selected window frame takes presses. Zero
+  /// without a plugin's frame.
+  static EdgeInsets get frameReach => _frameReach;
+  static EdgeInsets _frameReach = EdgeInsets.zero;
+
+  /// Selects a plugin's frame margins, or the desktop's own with null. A side
+  /// outside what the compositor accepts is brought into it.
+  static void useWindowFrameMargins(
+    DenialWindowFrameMargins? margins, {
+    DenialWindowFrameMargins? maximized,
+    DenialWindowFrameMargins? reach,
+  }) {
+    EdgeInsets insets(
+      DenialWindowFrameMargins margins, {
+      double max = DenialWindowFrameMargins.max,
+    }) {
+      double side(double value) =>
+          value.isFinite ? value.clamp(0.0, max).toDouble() : 0.0;
+      return EdgeInsets.fromLTRB(
+        side(margins.left),
+        side(margins.top),
+        side(margins.right),
+        side(margins.bottom),
+      );
+    }
+
+    _customWindowFrame = margins != null;
+    _frameMargins = margins == null
+        ? const EdgeInsets.all(frameBorder)
+        : insets(margins);
+    _maximizedFrameMargins = margins == null || maximized == null
+        ? null
+        : insets(maximized);
+    _frameReach = margins == null || reach == null
+        ? EdgeInsets.zero
+        : insets(reach, max: maxFrameReach);
+    _baseFrames = _OutputFrames(
+      margins: _frameMargins,
+      maximized: _maximizedFrameMargins,
+      reach: _frameReach,
+      border: frameBorder,
+    );
+    _outputFrames.clear();
+  }
+
+  /// The frames where the shell's scale is 1.
+  static _OutputFrames _baseFrames = const _OutputFrames(
+    margins: EdgeInsets.all(frameBorder),
+    maximized: null,
+    reach: EdgeInsets.zero,
+    border: frameBorder,
+  );
+
+  /// The shell's own scale and the screen's scale on every output where the
+  /// shell's is not 1, by monitor id.
+  static Map<int, ({double shell, double screen})> _outputScales =
+      const <int, ({double shell, double screen})>{};
+  static final Map<int, _OutputFrames> _outputFrames = <int, _OutputFrames>{};
+
+  /// Every output's shell scale and screen scale where the shell's is not 1.
+  /// Returns whether they changed, and with them the frames.
+  static bool useOutputScales(
+    Map<int, ({double shell, double screen})> scales,
+  ) {
+    if (mapEquals(_outputScales, scales)) {
+      return false;
+    }
+    _outputScales = Map<int, ({double shell, double screen})>.unmodifiable(
+      scales,
+    );
+    _outputFrames.clear();
+    return true;
+  }
+
+  /// The outputs where the shell has a scale of its own, by monitor id.
+  static Iterable<int> get scaledOutputs => _outputScales.keys;
+
+  /// The shell's own scale on the output [monitorId].
+  static double shellScaleOf(int monitorId) =>
+      _outputScales[monitorId]?.shell ?? 1.0;
+
+  /// The frame margins, maximized margins, reach and border on the output
+  /// [monitorId]: the frame's own, times the shell's scale there, each a
+  /// whole number of screen units and of pixels.
+  static _OutputFrames _framesOn(int monitorId) {
+    final scales = _outputScales[monitorId];
+    if (scales == null) {
+      return _baseFrames;
+    }
+    return _outputFrames.putIfAbsent(monitorId, () {
+      EdgeInsets scaled(EdgeInsets insets) =>
+          ShellScale.insets(insets, scales.shell, scales.screen);
+      final maximized = _maximizedFrameMargins;
+      return _OutputFrames(
+        margins: scaled(_frameMargins),
+        maximized: maximized == null ? null : scaled(maximized),
+        reach: scaled(_frameReach),
+        border: ShellScale.length(frameBorder, scales.shell, scales.screen),
+      );
+    });
+  }
+
+  /// What the selected window frame takes around a decorated window's
+  /// content on the output [monitorId].
+  static EdgeInsets frameMarginsOn(int monitorId) =>
+      _framesOn(monitorId).margins;
+
+  /// [maximizedFrameMargins] on the output [monitorId].
+  static EdgeInsets? maximizedFrameMarginsOn(int monitorId) =>
+      _framesOn(monitorId).maximized;
+
+  /// [frameReach] on the output [monitorId].
+  static EdgeInsets frameReachOn(int monitorId) => _framesOn(monitorId).reach;
+
+  /// [frameBorder] on the output [monitorId].
+  static double frameBorderOn(int monitorId) => _framesOn(monitorId).border;
+
+  /// The frame around a window's content while it is live on the desktop, by
+  /// the compositor's own rule, on the output [monitorId].
+  ///
+  /// A window whose client draws its own title bar ([clientTitleBar]) keeps
+  /// the frame without its title bar.
+  static EdgeInsets windowFrameMargins({
+    required bool serverSideDecorated,
+    required bool maximized,
+    required bool serverFrameWhileMaximized,
+    bool clientTitleBar = false,
+    bool fullscreen = false,
+    int monitorId = -1,
+  }) {
+    if (!serverSideDecorated || fullscreen) {
+      return EdgeInsets.zero;
+    }
+    final frames = _framesOn(monitorId);
+    final margins = !maximized
+        ? frames.margins
+        : frames.maximized ??
+              (serverFrameWhileMaximized ? frames.margins : EdgeInsets.zero);
+    return clientTitleBar ? withoutTitleBar(margins) : margins;
+  }
+
+  /// [margins] without their title bar, by the compositor's rule: the top
+  /// edge as wide as the side ones. What a frame's top edge has beyond its
+  /// side is its title bar.
+  static EdgeInsets withoutTitleBar(EdgeInsets margins) =>
+      margins.copyWith(top: margins.left);
+
   static const double panelGap = 12.0;
   static const double panelMargin = 14.0;
   // Meet the panel at its resting edge so crossing from trigger to surface
@@ -219,13 +404,36 @@ abstract final class DesktopMetrics {
 
 /// Clips a window to its owning output viewport.
 ///
-/// This clip is invariant across overview, switcher, workspace, minimize, and
-/// pinned-window presentation. Only an actively dragged window may cross its
-/// owning output while the drag is in progress.
+/// A window belongs to one output and its workspace. Whatever presents it as
+/// part of that output stays inside it: overview, switcher, a workspace
+/// change, minimize, pinned windows and a managed layout's tiles. Two windows
+/// cross their output: one being dragged, and one that rests where the user
+/// left it ([restsFree], see [desktopWindowRestsFree]).
 Rect? desktopOutputClip({
   required bool activelyDragging,
   required Rect? outputRect,
-}) => activelyDragging ? null : outputRect;
+  bool restsFree = false,
+}) => activelyDragging || restsFree ? null : outputRect;
+
+/// Whether [placement] rests where the user left it and shows on every output
+/// it lies over: a window of the stacking layout that nothing presents
+/// elsewhere ([transformed]) and whose output is not changing workspace
+/// ([workspaceChanging]). A maximized or fullscreen window fills its own
+/// output and keeps to it, and so does a tile: a managed layout places it
+/// inside one output, or scrolls it off that output's edge.
+bool desktopWindowRestsFree({
+  required DesktopWindowLayout windowLayout,
+  required DesktopWindowPlacement placement,
+  required bool transformed,
+  required bool workspaceChanging,
+}) =>
+    windowLayout == DesktopWindowLayout.stacking &&
+    !transformed &&
+    !workspaceChanging &&
+    !placement.minimized &&
+    !placement.maximized &&
+    !placement.fullscreen &&
+    !placement.layoutPreviewing;
 
 enum DesktopPanel { none, launcher, dashboard }
 
@@ -339,9 +547,10 @@ enum DesktopOverviewDirection { left, right, up, down }
 
 /// Finds the next overview preview in [direction] using the arranged geometry.
 ///
-/// Candidates which overlap the current preview on the perpendicular axis are
-/// preferred. This keeps left/right movement within a justified row and
-/// up/down movement within a visual column before considering diagonal cards.
+/// Left and right step through the previews in reading order: along a row,
+/// from the end of one row to the start of the next, and around from the last
+/// preview to the first. Up and down move to the nearest preview in that
+/// direction, preferring one in the same visual column, and stop at the edge.
 int? desktopOverviewNeighbor({
   required Map<int, Rect> frames,
   required int fromObjectId,
@@ -350,6 +559,16 @@ int? desktopOverviewNeighbor({
   final source = frames[fromObjectId];
   if (source == null) {
     return null;
+  }
+  if (direction == DesktopOverviewDirection.left ||
+      direction == DesktopOverviewDirection.right) {
+    final order = desktopOverviewReadingOrder(frames);
+    if (order.length < 2) {
+      return null;
+    }
+    final index = order.indexOf(fromObjectId);
+    final step = direction == DesktopOverviewDirection.right ? 1 : -1;
+    return order[(index + step) % order.length];
   }
 
   int? bestObjectId;
@@ -409,6 +628,35 @@ int? desktopOverviewNeighbor({
   return bestObjectId;
 }
 
+/// The previews in reading order: rows from top to bottom, each from left to
+/// right. A preview joins the row above when it overlaps that row vertically.
+List<int> desktopOverviewReadingOrder(Map<int, Rect> frames) {
+  final byTop = frames.entries.toList()
+    ..sort((a, b) {
+      final order = a.value.top.compareTo(b.value.top);
+      return order != 0 ? order : a.value.left.compareTo(b.value.left);
+    });
+  final rows = <List<MapEntry<int, Rect>>>[];
+  var rowBottom = double.negativeInfinity;
+  for (final entry in byTop) {
+    if (rows.isEmpty || entry.value.top >= rowBottom) {
+      rows.add([entry]);
+      rowBottom = entry.value.bottom;
+    } else {
+      rows.last.add(entry);
+      if (entry.value.bottom > rowBottom) rowBottom = entry.value.bottom;
+    }
+  }
+  return [
+    for (final row in rows)
+      ...(row..sort((a, b) {
+            final order = a.value.left.compareTo(b.value.left);
+            return order != 0 ? order : a.key.compareTo(b.key);
+          }))
+          .map((entry) => entry.key),
+  ];
+}
+
 double _separation(double aStart, double aEnd, double bStart, double bEnd) {
   if (aEnd < bStart) {
     return bStart - aEnd;
@@ -463,6 +711,7 @@ class DesktopWindowPlacement {
     this.maximized = false,
     this.fullscreen = false,
     this.serverSideDecorated = true,
+    this.clientTitleBar = false,
     this.serverFrameWhileMaximized = false,
     this.dragging = false,
     this.resizing = false,
@@ -481,6 +730,9 @@ class DesktopWindowPlacement {
   final bool fullscreen;
   final bool serverSideDecorated;
 
+  /// The client draws its own title bar: the frame leaves its own out.
+  final bool clientTitleBar;
+
   /// Whether the active layout keeps the shell frame around a maximized
   /// window. Managed layouts leave breathing room around their tiles, unlike
   /// stacking-mode maximize and true fullscreen.
@@ -496,15 +748,43 @@ class DesktopWindowPlacement {
   final Rect? restoreFrame;
   final Rect? fullscreenRestoreFrame;
 
-  bool get drawsLiveServerFrame =>
-      serverSideDecorated &&
-      !fullscreen &&
-      (!maximized || serverFrameWhileMaximized);
+  bool get drawsLiveServerFrame => frameMargins != EdgeInsets.zero;
 
-  double get frameBorder =>
-      drawsLiveServerFrame ? DesktopMetrics.frameBorder : 0.0;
+  /// What the frame takes around the content while the window is live.
+  EdgeInsets get frameMargins => DesktopMetrics.windowFrameMargins(
+    serverSideDecorated: serverSideDecorated,
+    maximized: maximized,
+    serverFrameWhileMaximized: serverFrameWhileMaximized,
+    clientTitleBar: clientTitleBar,
+    fullscreen: fullscreen,
+    monitorId: monitorId,
+  );
 
-  Rect get contentRect => frame.deflate(frameBorder);
+  /// What the frame takes around the content as the window is drawn. The
+  /// overview and the switcher show the desktop's own frame around every
+  /// decorated window, also one that has none while live.
+  EdgeInsets drawnFrameMargins({required bool transformed}) {
+    final live = frameMargins;
+    if (!transformed ||
+        live != EdgeInsets.zero ||
+        !serverSideDecorated ||
+        DesktopMetrics.customWindowFrame) {
+      return live;
+    }
+    final margins = DesktopMetrics.frameMarginsOn(monitorId);
+    return clientTitleBar ? DesktopMetrics.withoutTitleBar(margins) : margins;
+  }
+
+  Rect get contentRect => frameMargins.deflateRect(frame);
+
+  /// How far outside the frame presses reach a plugin's frame while the
+  /// window is live. A window without a frame and a maximized one have none.
+  EdgeInsets get frameReach => maximized || !drawsLiveServerFrame
+      ? EdgeInsets.zero
+      : DesktopMetrics.frameReachOn(monitorId);
+
+  /// The shell's own scale where the window is, which its frame is drawn at.
+  double get frameScale => DesktopMetrics.shellScaleOf(monitorId);
 
   DesktopWindowPlacement copyWith({
     Rect? frame,
@@ -515,6 +795,7 @@ class DesktopWindowPlacement {
     bool? maximized,
     bool? fullscreen,
     bool? serverSideDecorated,
+    bool? clientTitleBar,
     bool? serverFrameWhileMaximized,
     bool? dragging,
     bool? resizing,
@@ -534,6 +815,7 @@ class DesktopWindowPlacement {
       maximized: maximized ?? this.maximized,
       fullscreen: fullscreen ?? this.fullscreen,
       serverSideDecorated: serverSideDecorated ?? this.serverSideDecorated,
+      clientTitleBar: clientTitleBar ?? this.clientTitleBar,
       serverFrameWhileMaximized:
           serverFrameWhileMaximized ?? this.serverFrameWhileMaximized,
       dragging: dragging ?? this.dragging,
@@ -798,6 +1080,7 @@ bool _desktopPlacementHasSameSceneStructure(
       left.maximized == right.maximized &&
       left.fullscreen == right.fullscreen &&
       left.serverSideDecorated == right.serverSideDecorated &&
+      left.clientTitleBar == right.clientTitleBar &&
       left.serverFrameWhileMaximized == right.serverFrameWhileMaximized &&
       left.dragging == right.dragging &&
       left.resizing == right.resizing &&

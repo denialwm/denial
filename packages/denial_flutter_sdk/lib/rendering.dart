@@ -12,16 +12,9 @@ export 'src/widgets/posed_window.dart' show PosedWindow, WindowPose;
 export 'src/widgets/retained_scale.dart' show RetainedScale;
 export 'src/widgets/fade_snapshot.dart' show FadeSnapshot;
 export 'src/widgets/retained_translation.dart'
-    show CompositedTranslation, RetainedTranslation;
+    show CompositedTranslation, RetainedTranslation, translationOnPixelGrid;
 export 'src/widgets/retained_window_motion.dart' show RetainedWindowMotion;
-export 'src/widgets/shell_cursor.dart'
-    show
-        ShellCursorArtwork,
-        ShellCursorArtworkSource,
-        ShellCursorHost,
-        ShellMouseCursors,
-        shellCursorArtworkSource,
-        shellCursorKindForPlatformShape;
+export 'src/widgets/shell_cursor.dart' show StagecraftCursor, ShellMouseCursors;
 export 'src/widgets/shell_fade_scale.dart' show ShellFadeScale;
 export 'src/widgets/shell_wallpaper.dart'
     show

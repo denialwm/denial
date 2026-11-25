@@ -32,6 +32,32 @@ class DisplayOutput {
   final bool inputOnly;
 }
 
+/// The desktop shell's own scale on one output, and the system bar thickness
+/// and maximize padding it makes there, in the output's logical pixels.
+@immutable
+class OutputShellMetrics {
+  const OutputShellMetrics({
+    required this.scale,
+    required this.systemBarThickness,
+    required this.maximizePadding,
+  });
+
+  /// How many of the output's logical pixels one shell unit takes.
+  final double scale;
+  final double systemBarThickness;
+  final double maximizePadding;
+
+  @override
+  bool operator ==(Object other) =>
+      other is OutputShellMetrics &&
+      other.scale == scale &&
+      other.systemBarThickness == systemBarThickness &&
+      other.maximizePadding == maximizePadding;
+
+  @override
+  int get hashCode => Object.hash(scale, systemBarThickness, maximizePadding);
+}
+
 @immutable
 class DisplayLayout {
   const DisplayLayout({
@@ -47,6 +73,7 @@ class DisplayLayout {
     required this.outputs,
     this.systemBarThickness = 0.0,
     this.maximizePadding = 0.0,
+    this.shellMetrics = const <int, OutputShellMetrics>{},
   });
 
   factory DisplayLayout.fallback(Size logicalSize, double scale) {
@@ -95,6 +122,42 @@ class DisplayLayout {
   /// windows flush with the output edges.
   final double maximizePadding;
   final List<DisplayOutput> outputs;
+
+  /// The outputs where the desktop shell is drawn at a scale of its own, by
+  /// monitor id. Elsewhere its scale is 1 and the bar thickness and padding
+  /// are [systemBarThickness] and [maximizePadding].
+  final Map<int, OutputShellMetrics> shellMetrics;
+
+  /// The desktop shell's own scale on the output [monitorId].
+  double shellScaleOf(int monitorId) => shellMetrics[monitorId]?.scale ?? 1.0;
+
+  /// This layout with the shell's own scale on each output [metrics] lists.
+  DisplayLayout withShellMetrics(Map<int, OutputShellMetrics> metrics) =>
+      DisplayLayout(
+        epoch: epoch,
+        globalOrigin: globalOrigin,
+        logicalSize: logicalSize,
+        pixelSize: pixelSize,
+        engineScale: engineScale,
+        tickerMonitorId: tickerMonitorId,
+        systemBarMonitorId: systemBarMonitorId,
+        systemBarMonitorIds: systemBarMonitorIds,
+        systemBarSide: systemBarSide,
+        systemBarThickness: systemBarThickness,
+        maximizePadding: maximizePadding,
+        outputs: outputs,
+        shellMetrics: Map<int, OutputShellMetrics>.unmodifiable(metrics),
+      );
+
+  OutputShellMetrics? _metricsAt(Rect outputRect) {
+    if (shellMetrics.isEmpty) return null;
+    for (final output in outputs) {
+      if (output.logicalRect == outputRect) {
+        return shellMetrics[output.monitorId];
+      }
+    }
+    return null;
+  }
 
   /// Whether the rectangular Flutter atlas contains space that belongs to no
   /// physical output. This occurs in mixed-orientation and offset layouts.
@@ -159,7 +222,10 @@ class DisplayLayout {
   /// [Rect.zero] when the bar is hidden. The strip is clamped so a
   /// misconfigured thickness can never swallow the whole output.
   Rect systemBarRectWithin(Rect outputRect) {
+    final systemBarThickness =
+        _metricsAt(outputRect)?.systemBarThickness ?? this.systemBarThickness;
     if (systemBarSide == SystemBarSide.hidden ||
+        this.systemBarThickness <= 0.0 ||
         systemBarThickness <= 0.0 ||
         outputRect.isEmpty) {
       return Rect.zero;
@@ -219,6 +285,8 @@ class DisplayLayout {
   /// [maximizePadding] on every bar-free edge. The padding is clamped so a
   /// misconfigured value can never swallow the output.
   Rect _workAreaInset(Rect outputRect, Rect bar, SystemBarSide barSide) {
+    final maximizePadding =
+        _metricsAt(outputRect)?.maximizePadding ?? this.maximizePadding;
     final padding = maximizePadding.isFinite && maximizePadding > 0.0
         ? math.min(
             maximizePadding,
@@ -279,6 +347,7 @@ class DisplayLayout {
           inputOnly: output.name == name,
         ),
     ],
+    shellMetrics: shellMetrics,
   );
 
   DisplayLayout copyWithSystemBar({
@@ -306,6 +375,7 @@ class DisplayLayout {
       systemBarThickness: thickness ?? systemBarThickness,
       maximizePadding: windowPadding ?? maximizePadding,
       outputs: outputs,
+      shellMetrics: shellMetrics,
     );
   }
 

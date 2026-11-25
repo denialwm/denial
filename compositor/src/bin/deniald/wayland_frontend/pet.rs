@@ -273,20 +273,8 @@ impl WaylandFrontend {
         if geometry.size.w <= 0 || geometry.size.h <= 0 {
             return None;
         }
-        // As the shell's DesktopWindowPlacement.frame.
-        let border = if presentation.server_side_decorated {
-            f64::from(SHELL_FRAME_BORDER)
-        } else {
-            0.0
-        };
-        let geometry = geometry.to_f64();
-        Some(Rectangle::new(
-            Point::from((geometry.loc.x - border, geometry.loc.y - border)),
-            Size::from((
-                geometry.size.w + border * 2.0,
-                geometry.size.h + border * 2.0,
-            )),
-        ))
+        let frame = self.shell_frames.window(presentation.server_side_decorated);
+        Some(shell_frame_geometry(geometry, frame).to_f64())
     }
 
     /// Where a window holds a pet: the global point its anchor is at.

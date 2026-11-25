@@ -91,6 +91,9 @@ enum Command {
         _alive: Arc<()>,
         source_fence: OwnedFd,
         queued_at: Option<Instant>,
+        /// What changed in the source since this target was last
+        /// transferred; None: all of it.
+        area: Option<Vec<[i32; 4]>>,
         callback: Completion,
     },
 }
@@ -255,9 +258,18 @@ impl TransferDevice {
 }
 
 impl TransferTarget {
-    /// Queue one full-frame transfer. Caller keeps the scanout unavailable until
-    /// KMS retirement, and keeps the entire slot quarantined on any error.
-    pub fn submit(&self, source_fence: OwnedFd, callback: Completion) -> Result<()> {
+    /// Queue one transfer of `area`: pixel rectangles `[x, y, width, height]`
+    /// in memory rows from the buffer's start, which must hold everything that
+    /// changed in the source since this target's previous transfer (None: the
+    /// whole frame). The rest of the scanout still holds what that transfer
+    /// left. Caller keeps the scanout unavailable until KMS retirement, and
+    /// keeps the entire slot quarantined on any error.
+    pub fn submit(
+        &self,
+        source_fence: OwnedFd,
+        area: Option<Vec<[i32; 4]>>,
+        callback: Completion,
+    ) -> Result<()> {
         if !self.device.healthy.load(Ordering::Acquire) {
             self.retain_rejected_producer();
             return Err("GPU transfer route is poisoned".into());
@@ -277,6 +289,7 @@ impl TransferTarget {
             _alive: self.alive.clone(),
             source_fence,
             queued_at: crate::render_audit_enabled().then(Instant::now),
+            area,
             callback,
         };
         if let Err(error) = self.device.jobs.try_send(job) {
@@ -386,6 +399,7 @@ impl Worker {
                     lease,
                     source_fence,
                     queued_at,
+                    area,
                     callback,
                     _alive,
                 } => {
@@ -393,7 +407,7 @@ impl Worker {
                     // failing APIs. A panic must not drop its allocation lease.
                     self.retained.push(lease.clone());
                     let result = catch_unwind(AssertUnwindSafe(|| {
-                        self.submit(id, &source_fence, queued_at)
+                        self.submit(id, &source_fence, queued_at, area.as_deref())
                     }))
                     .unwrap_or_else(|_| Err("GPU transfer submission panicked".into()));
                     if result.is_err() {
@@ -474,6 +488,7 @@ impl Worker {
         id: u64,
         source_fence: &OwnedFd,
         queued_at: Option<Instant>,
+        area: Option<&[[i32; 4]]>,
     ) -> Result<OwnedFd> {
         if self.uncertain {
             return Err("GPU transfer route is poisoned".into());
@@ -487,10 +502,28 @@ impl Worker {
         if let (Some(timing), Some(start)) = (&mut timing, start) {
             timing.source_wait_us = micros(start);
         }
-        let native = self.copy_and_draw_timed(id, timing.as_mut())?;
+        let size = self
+            .targets
+            .get(&id)
+            .ok_or("GPU transfer target was retired")?
+            .lease
+            .scanout
+            .size();
+        let area = area.map(|rects| clamped(rects, (size.w, size.h)));
+        let native = self.copy_and_draw_timed(id, timing.as_mut(), area.as_deref())?;
         if let Some(t) = timing {
+            let pixels = |rects: &[[i32; 4]]| -> i64 {
+                rects
+                    .iter()
+                    .map(|r| i64::from(r[2]) * i64::from(r[3]))
+                    .sum()
+            };
+            let whole = i64::from(size.w) * i64::from(size.h);
             tracing::info!(
                 target_id = id,
+                area_percent = area.as_deref().map_or(100.0, |rects| {
+                    pixels(rects) as f64 * 100.0 / whole.max(1) as f64
+                }),
                 queue_us = t.queue_us,
                 source_wait_us = t.source_wait_us,
                 vk_record_us = t.vk_record_us,
@@ -520,13 +553,16 @@ impl Worker {
     }
 
     fn copy_and_draw(&mut self, id: u64) -> Result<OwnedFd> {
-        self.copy_and_draw_timed(id, None)
+        self.copy_and_draw_timed(id, None, None)
     }
 
+    /// Copies and draws `area` (None: the whole frame); an empty area only
+    /// gives the fence.
     fn copy_and_draw_timed(
         &mut self,
         id: u64,
         mut timing: Option<&mut Timings>,
+        area: Option<&[[i32; 4]]>,
     ) -> Result<OwnedFd> {
         let target = self
             .targets
@@ -536,11 +572,25 @@ impl Worker {
             self.vulkan
                 .as_mut()
                 .ok_or("Vulkan bridge device missing")?
-                .copy_timed(pair, timing.as_deref_mut())
+                .copy_timed(pair, timing.as_deref_mut(), area)
                 .map_err(|error| format!("Vulkan bridge copy: {error}"))?;
         }
-        target.draw_timed(timing)
+        target.draw_timed(timing, area)
     }
+}
+
+/// `rects` inside a `size` buffer, empty ones left out.
+fn clamped(rects: &[[i32; 4]], size: (i32, i32)) -> Vec<[i32; 4]> {
+    rects
+        .iter()
+        .filter_map(|&[x, y, width, height]| {
+            let left = x.clamp(0, size.0);
+            let top = y.clamp(0, size.1);
+            let right = x.saturating_add(width).clamp(0, size.0);
+            let bottom = y.saturating_add(height).clamp(0, size.1);
+            (right > left && bottom > top).then_some([left, top, right - left, bottom - top])
+        })
+        .collect()
 }
 
 // EGL's import advertisement is not GBM's allocation advertisement. Start
@@ -870,7 +920,11 @@ impl GpuTarget {
         Ok(target)
     }
 
-    fn draw_timed(&self, mut timing: Option<&mut Timings>) -> Result<OwnedFd> {
+    fn draw_timed(
+        &self,
+        mut timing: Option<&mut Timings>,
+        area: Option<&[[i32; 4]]>,
+    ) -> Result<OwnedFd> {
         let start = timing.as_ref().map(|_| Instant::now());
         let destination = &self.bridge.destination;
         let gl = &destination.gl;
@@ -893,7 +947,19 @@ impl GpuTarget {
             gl.BindVertexArray(destination.vao);
             gl.ActiveTexture(gl::TEXTURE0);
             gl.BindTexture(self.bridge.texture_target, self.bridge.texture);
-            gl.DrawArrays(gl::TRIANGLES, 0, 3);
+            match area {
+                None => gl.DrawArrays(gl::TRIANGLES, 0, 3),
+                // The shader maps memory rows to memory rows: rectangles
+                // scissor as they are.
+                Some(rects) => {
+                    gl.Enable(gl::SCISSOR_TEST);
+                    for &[x, y, width, height] in rects {
+                        gl.Scissor(x, y, width, height);
+                        gl.DrawArrays(gl::TRIANGLES, 0, 3);
+                    }
+                    gl.Disable(gl::SCISSOR_TEST);
+                }
+            }
             gl.BindTexture(self.bridge.texture_target, 0);
             gl.BindVertexArray(0);
             gl.BindFramebuffer(gl::FRAMEBUFFER, 0);
@@ -1055,6 +1121,21 @@ mod tests {
     use smithay::backend::allocator::dmabuf::DmabufFlags;
     use std::os::fd::FromRawFd;
 
+    #[test]
+    fn transfer_areas_stay_inside_the_buffer() {
+        let rects = [
+            [-5, 10, 20, 20],
+            [90, 90, 20, 20],
+            [0, 0, 0, 5],
+            [200, 0, 5, 5],
+            [10, 20, 30, 40],
+        ];
+        assert_eq!(
+            clamped(&rects, (100, 100)),
+            vec![[0, 10, 15, 20], [90, 90, 10, 10], [10, 20, 30, 40]]
+        );
+    }
+
     fn pipe() -> (OwnedFd, OwnedFd) {
         let mut fds = [-1; 2];
         // SAFETY: pipe2 initializes the two-element writable descriptor array.
@@ -1176,7 +1257,7 @@ mod tests {
         let weak_plan = Arc::downgrade(&target.lease);
         let weak_alive = Arc::downgrade(&target.alive);
         let (fence, _write) = pipe();
-        assert!(target.submit(fence, Box::new(|_| {})).is_ok());
+        assert!(target.submit(fence, None, Box::new(|_| {})).is_ok());
         drop(target);
         assert!(weak_plan.upgrade().is_some());
         assert!(weak_alive.upgrade().is_some());
@@ -1207,7 +1288,7 @@ mod tests {
             alive: Arc::new(()),
         };
         let (fence, _write) = pipe();
-        assert!(target.submit(fence, Box::new(|_| {})).is_err());
+        assert!(target.submit(fence, None, Box::new(|_| {})).is_err());
         assert!(!target.lease.pending.load(Ordering::Acquire));
     }
 

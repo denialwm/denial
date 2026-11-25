@@ -116,6 +116,7 @@ pub(super) fn render_blank_output_buffer(
         let (send, receive) = std::sync::mpsc::sync_channel(1);
         target.submit(
             fence.export()?,
+            None,
             Box::new(move |result| {
                 let _ = send.send(result);
             }),

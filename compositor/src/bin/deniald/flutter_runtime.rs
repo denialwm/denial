@@ -72,11 +72,14 @@ pub(super) use text_input::TextInputSnapshot;
 
 #[path = "flutter_runtime/cursor_bridge.rs"]
 mod cursor_bridge;
+#[path = "flutter_runtime/cursor_scene.rs"]
+mod cursor_scene;
 #[path = "flutter_runtime/damage.rs"]
 mod damage;
 #[path = "flutter_runtime/engine_session.rs"]
 mod engine_session;
 pub(crate) use engine_session::{FlutterLaunch, PreparedFlutterRenderer};
+pub(crate) use renderer::client_formats;
 #[path = "flutter_runtime/event_pipeline.rs"]
 mod event_pipeline;
 #[path = "flutter_runtime/input.rs"]
@@ -111,8 +114,8 @@ use output_pipeline::{
 use render_audit::{RenderAuditStage, RenderDamageAudit};
 pub use renderer::SampledBufferHoldBatch;
 pub(super) use renderer::{
-    ExternalTextureFrame, OutputGeometryTransition, OutputRotationAdvance, ShmSnapshotPool,
-    ShmTextureFrame, SyncedWaylandScene,
+    BufferDamage, ExternalTextureFrame, OutputGeometryTransition, OutputRotationAdvance,
+    ShmSnapshotPool, ShmTextureFrame, SyncedWaylandScene,
 };
 use renderer::{
     FlutterGlHandler, OutputRotationAnimation, PendingOutputGeometry, RuntimeRenderOutput,
@@ -575,6 +578,7 @@ pub struct FlutterRuntime {
     cursor_texture_ids: HashSet<i64>,
     retired_cursor_texture_ids: BTreeMap<u64, HashSet<i64>>,
     cursor_epoch: u64,
+    cursor_scene: cursor_scene::CursorScene,
     cursor_output: Option<OutputId>,
     render_outputs: Vec<RuntimeRenderOutput>,
     render_output_configuration: Vec<RenderOutput>,

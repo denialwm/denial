@@ -5,6 +5,7 @@
 //! uses a bounded host fence wait rather than sync-file semaphore interop.
 //! Imports are pooled in `TransferPair`, including strong DMA-BUF leases.
 
+use crate::drm_vulkan::DrmInstance;
 use ash::{Entry, vk};
 use smithay::backend::allocator::{
     Buffer, Fourcc, Modifier,
@@ -27,22 +28,9 @@ fn vk_error(stage: &str, error: vk::Result) -> String {
     format!("Vulkan transfer {stage}: {error:?}")
 }
 
-struct InstanceOwner {
-    instance: ash::Instance,
-    // The dynamic library must outlive every dispatch table.
-    _entry: Entry,
-}
-
-impl Drop for InstanceOwner {
-    fn drop(&mut self) {
-        // SAFETY: All devices retain this owner and have already been destroyed.
-        unsafe { self.instance.destroy_instance(None) };
-    }
-}
-
 struct DeviceOwner {
     device: ash::Device,
-    instance: Arc<InstanceOwner>,
+    instance: Arc<DrmInstance>,
     physical: vk::PhysicalDevice,
     fd_api: ash::khr::external_memory_fd::Device,
     memory: vk::PhysicalDeviceMemoryProperties,
@@ -122,14 +110,10 @@ impl VulkanTransfer {
         }
         let instance_version = version.min(vk::API_VERSION_1_2);
         let app = vk::ApplicationInfo::default().api_version(instance_version);
-        let create = vk::InstanceCreateInfo::default().application_info(&app);
-        // SAFETY: Valid create-info and no borrowed pointers retained by Vulkan.
-        let instance = unsafe { entry.create_instance(&create, None) }
-            .map_err(|e| vk_error("create instance", e))?;
-        let root = Arc::new(InstanceOwner {
-            instance,
-            _entry: entry,
-        });
+        let root = Arc::new(
+            DrmInstance::new(entry, device_number, &app, &[], &[])
+                .map_err(|e| vk_error("create instance", e))?,
+        );
         let required = [
             ash::ext::physical_device_drm::NAME,
             ash::khr::external_memory_fd::NAME,
@@ -704,14 +688,45 @@ impl VulkanTransfer {
     /// released before fence completion. The worker then samples on destination
     /// GLES and exports that final writer's fence for KMS.
     pub fn copy(&mut self, pair: &TransferPair) -> Result<()> {
-        self.copy_timed(pair, None)
+        self.copy_timed(pair, None, None)
     }
 
+    /// Copies `area` (pixel rectangles inside the image, see
+    /// `TransferTarget::submit`; None: all of it). An empty area copies
+    /// nothing and submits nothing.
     pub(super) fn copy_timed(
         &mut self,
         pair: &TransferPair,
         mut timing: Option<&mut super::Timings>,
+        area: Option<&[[i32; 4]]>,
     ) -> Result<()> {
+        let regions: Vec<vk::BufferImageCopy> = match area {
+            None => vec![pair.0.region],
+            Some(rects) => rects
+                .iter()
+                .map(|&[x, y, width, height]| {
+                    let whole = pair.0.region;
+                    // Buffer texels are addressed from bufferOffset, not from
+                    // imageOffset: start at the rectangle's first texel.
+                    let texel = u64::from(y as u32) * u64::from(whole.buffer_row_length)
+                        + u64::from(x as u32);
+                    whole
+                        .buffer_offset(whole.buffer_offset + texel * 4)
+                        .image_offset(vk::Offset3D { x, y, z: 0 })
+                        .image_extent(vk::Extent3D {
+                            width: width as u32,
+                            height: height as u32,
+                            depth: 1,
+                        })
+                })
+                .collect(),
+        };
+        if regions.is_empty() {
+            if let Some(timing) = timing.as_deref_mut() {
+                timing.vk_gpu_us = None;
+            }
+            return Ok(());
+        }
         let start = timing.as_ref().map(|_| std::time::Instant::now());
         if self.poisoned {
             return Err("Vulkan transfer helper is poisoned after a failed submission".into());
@@ -786,7 +801,7 @@ impl VulkanTransfer {
                 pair.0.image,
                 vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                 pair.0.buffer,
-                &[pair.0.region],
+                &regions,
             );
             let release_image = vk::ImageMemoryBarrier::default()
                 .src_access_mask(vk::AccessFlags::TRANSFER_READ)

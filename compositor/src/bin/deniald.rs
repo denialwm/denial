@@ -13,6 +13,9 @@ mod authentication;
 mod bus;
 #[path = "deniald/client_release.rs"]
 mod client_release;
+#[cfg(feature = "flutter")]
+#[path = "deniald/client_visibility.rs"]
+mod client_visibility;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
 #[path = "deniald/color_grade.rs"]
@@ -21,9 +24,14 @@ mod color_grade;
 mod color_space;
 #[path = "deniald/cpu_scheduling.rs"]
 mod cpu_scheduling;
+#[path = "deniald/open_file_limit.rs"]
+mod open_file_limit;
 #[cfg(feature = "flutter")]
 #[path = "deniald/dpms.rs"]
 mod dpms;
+#[cfg(feature = "flutter")]
+#[path = "deniald/drm_vulkan.rs"]
+mod drm_vulkan;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[cfg(feature = "flutter")]
@@ -106,6 +114,9 @@ mod orientation_sensor;
 #[path = "deniald/output_color.rs"]
 mod output_color;
 #[cfg(feature = "flutter")]
+#[path = "deniald/plane_color.rs"]
+mod plane_color;
+#[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
 #[path = "deniald/output_policy.rs"]
@@ -171,6 +182,9 @@ mod welcome;
 #[path = "deniald/wifi_power_save.rs"]
 mod wifi_power_save;
 #[cfg(feature = "flutter")]
+#[path = "deniald/lights.rs"]
+mod lights;
+#[cfg(feature = "flutter")]
 #[path = "deniald/window_events.rs"]
 mod window_events;
 #[path = "deniald/window_grab.rs"]
@@ -194,6 +208,9 @@ mod xembed_tray;
 #[cfg(feature = "flutter")]
 #[path = "deniald/xembed_tray_protocol.rs"]
 mod xembed_tray_protocol;
+#[cfg(feature = "xwayland")]
+#[path = "deniald/xwayland_exec.rs"]
+mod xwayland_exec;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
@@ -394,6 +411,8 @@ fn render_audit_enabled() -> bool {
 }
 
 fn main() {
+    #[cfg(feature = "xwayland")]
+    xwayland_exec::run_if_requested();
     #[cfg(feature = "flutter")]
     if std::env::args_os()
         .skip(1)
@@ -479,6 +498,8 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
     if options.max_outputs == 0 {
         return Ok(());
     }
+    // Before any thread or spawn: Xwayland and every worker inherit it.
+    open_file_limit::raise();
     let application_cpus = cpu_scheduling::initialize_placement();
     // SAFETY: still the sole startup thread, before run() creates any native,
     // driver or engine workers. Dart's direct tool-spawn path inherits this

@@ -7,7 +7,13 @@ import 'denial_bridge_models.dart';
 /// Decodes native system-control messages independently of transport and state.
 /// Records contain only wire data; the bridge determines which reads complete.
 abstract final class SystemControlProtocol {
-  static ({double level, int requestSerial, bool muted, bool limitReached})?
+  static ({
+    double level,
+    int requestSerial,
+    bool muted,
+    bool limitReached,
+    bool fromKey,
+  })?
   decodeAudioState(ByteData? data) {
     if (data == null || data.lengthInBytes < 1) return null;
     return (
@@ -17,8 +23,22 @@ abstract final class SystemControlProtocol {
           : 0,
       muted: data.lengthInBytes >= 6 && data.getUint8(5) != 0,
       limitReached: data.lengthInBytes >= 7 && data.getUint8(6) != 0,
+      fromKey: data.lengthInBytes >= 8 && data.getUint8(7) != 0,
     );
   }
+
+  static DenialCallVolume? decodeCallVolume(ByteData? data) {
+    if (data == null || data.lengthInBytes != 12) return null;
+    final previous = data.getUint32(0, Endian.little);
+    final step = data.getUint32(4, Endian.little);
+    final maximum = data.getUint32(8, Endian.little);
+    if (maximum == 0 || previous > maximum || step > maximum) return null;
+    return (previous: previous, step: step, maximum: maximum);
+  }
+
+  static ByteData setCallVolume(int step) => ByteData(5)
+    ..setUint8(0, 6)
+    ..setUint32(1, step.clamp(0, 0xffffffff), Endian.little);
 
   static List<DenialAudioStream>? decodeAudioStreams(ByteData? data) {
     if (data == null || data.lengthInBytes < 4) return null;

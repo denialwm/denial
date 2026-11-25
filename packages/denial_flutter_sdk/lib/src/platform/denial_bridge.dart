@@ -8,6 +8,7 @@ import '../models/denial_drag_icon.dart';
 import '../models/denial_pet.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
+import '../models/denial_window_place.dart';
 import '../models/denial_window_snapshot.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
@@ -81,6 +82,7 @@ class DenialBridge {
     platform.bind({
       'denial/input_deck_state': _inputDeck.handleState,
       wire.denialWireToFlutterChannel: _events.handleMessage,
+      'denial/call_volume_state': _audio.handleCallVolume,
       'denial/audio_state': _audio.handleState,
       'denial/audio_streams_state': _audio.handleStreams,
       'denial/audio_devices_state': _audio.handleDevices,
@@ -134,6 +136,7 @@ class DenialBridge {
 
   Stream<DenialDragIcon?> get dragIcons => _events.dragIcons;
 
+  Stream<DenialCallVolume> get callVolumes => _audio.callVolumes;
   Stream<DenialAudioState> get audioStates => _audio.audioStates;
 
   Stream<List<DenialAudioStream>> get audioStreamStates =>
@@ -219,6 +222,19 @@ class DenialBridge {
   }) => _displays.configureSystemBar(
     side: side,
     monitorIds: monitorIds,
+    systemBarThickness: systemBarThickness,
+    maximizePadding: maximizePadding,
+  );
+
+  /// The system bar's thickness and the maximize padding on the output
+  /// [monitorId] alone, where the shell's scale makes them differ; both null
+  /// forgets them.
+  Future<DisplayLayout?> configureOutputWorkArea({
+    required int monitorId,
+    double? systemBarThickness,
+    double? maximizePadding,
+  }) => _displays.configureOutputWorkArea(
+    monitorId: monitorId,
     systemBarThickness: systemBarThickness,
     maximizePadding: maximizePadding,
   );
@@ -401,6 +417,44 @@ class DenialBridge {
     layoutDrop: layoutDrop,
   );
 
+  /// Puts [window] at [place]: free at a rectangle, a share of a work area,
+  /// fullscreen, or back to its last free place. The compositor turns the
+  /// place into pixels and answers with the rectangle the window got.
+  Future<DenialWindowPlaceResult> placeWindow(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _windows.placeWindow(window, place);
+
+  /// Answers where [place] would put [window] and changes nothing.
+  Future<DenialWindowPlaceResult> resolveWindowPlace(
+    DenialWindow window,
+    DenialWindowPlace place,
+  ) => _windows.resolveWindowPlace(window, place);
+
+  /// Hands the press the shell is holding, the primary mouse button or a
+  /// touch, to a compositor move of [window]. The compositor moves the window
+  /// with the pointer or the finger and reports it through [windowEvents]
+  /// until the button is released or the finger lifts.
+  void beginWindowMove(DenialWindow window) => _windows.beginWindowMove(window);
+
+  /// As [beginWindowMove], for a resize of [edge].
+  void beginWindowResize(DenialWindow window, DenialWindowResizeEdge edge) =>
+      _windows.beginWindowResize(window, edge);
+
+  /// Declares the frame the shell draws around decorated windows, and around
+  /// maximized ones when [maximized] is given.
+  /// With [monitorId], the frame on that output only, over the one for
+  /// every output; declaring the one for every output forgets them.
+  bool configureWindowFrame(
+    DenialWindowFrameMargins margins, {
+    DenialWindowFrameMargins? maximized,
+    int? monitorId,
+  }) => _windows.configureWindowFrame(
+    margins,
+    maximized: maximized,
+    monitorId: monitorId,
+  );
+
   Stream<InputDeckSnapshot> get inputDeckStates => _inputDeck.states;
   void readInputDeck() => unawaited(_inputDeck.read());
   void configureInputDeck(String? output) =>
@@ -454,6 +508,9 @@ class DenialBridge {
 
   void dismissKeyboardPanel(int activationSerial) =>
       _input.dismissKeyboardPanel(activationSerial);
+
+  /// Switches every keyboard to the next configured layout, as Super+Space.
+  void nextKeyboardLayout() => _input.nextKeyboardLayout();
 
   /// Tells applications laid out around the keyboard (denial-insets-v1) that
   /// the keyboard panel starts moving to [height] logical pixels, zero when
@@ -655,6 +712,8 @@ class DenialBridge {
   void sendHapticTap() => _session.sendHapticTap();
 
   Future<double?> readAudioLevel() => _audio.readAudioLevel();
+
+  void setCallVolume(int step) => _audio.setCallVolume(step);
 
   void setAudioLevel(int percent, {required int requestSerial}) =>
       _audio.setAudioLevel(percent, requestSerial: requestSerial);

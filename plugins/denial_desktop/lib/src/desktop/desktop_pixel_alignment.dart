@@ -32,13 +32,16 @@ DesktopOutputPixelGrid? desktopOutputPixelGridForMonitor(
 /// device-pixel ratio those positions can land between atlas pixels even when
 /// the client buffer itself is already rendered at the correct scale. Shift
 /// the complete frame so its client content, clip, and surface tree move
-/// together. Stable desktop windows align the opposite content edges as well
-/// so the laid-out texture always covers a whole number of physical pixels.
+/// together. Stable desktop windows also give the content a whole number of
+/// physical pixels: the size rounded as a client rounds its buffer for a
+/// fractional scale, half away from zero, wherever the window sits. Aligning
+/// the opposite edges instead would take a pixel off an odd-sized window at
+/// every other position, and its unscaled buffer would hang over the frame.
 /// Deliberately transformed overview and switcher geometry bypasses this
 /// helper at the call site and keeps filtered animation sampling.
 Rect desktopPixelAlignedWindowFrame({
   required Rect frame,
-  required double contentInset,
+  required EdgeInsets contentInsets,
   required double devicePixelRatio,
   required bool enabled,
   Offset pixelGridOrigin = Offset.zero,
@@ -46,8 +49,9 @@ Rect desktopPixelAlignedWindowFrame({
 }) {
   if (!enabled ||
       frame.isEmpty ||
-      !contentInset.isFinite ||
-      contentInset < 0.0 ||
+      !contentInsets.isNonNegative ||
+      !contentInsets.horizontal.isFinite ||
+      !contentInsets.vertical.isFinite ||
       !devicePixelRatio.isFinite ||
       devicePixelRatio <= 0.0 ||
       !pixelGridOrigin.dx.isFinite ||
@@ -55,7 +59,7 @@ Rect desktopPixelAlignedWindowFrame({
     return frame;
   }
 
-  final contentRect = frame.deflate(contentInset);
+  final contentRect = contentInsets.deflateRect(frame);
   if (contentRect.isEmpty) {
     return frame;
   }
@@ -71,19 +75,17 @@ Rect desktopPixelAlignedWindowFrame({
     );
   }
 
-  final alignedContentRect = Rect.fromLTRB(
+  double alignExtent(double value) =>
+      (value * devicePixelRatio).roundToDouble() / devicePixelRatio;
+
+  final alignedContentRect = Rect.fromLTWH(
     alignedLeft,
     alignedTop,
-    align(contentRect.right, pixelGridOrigin.dx),
-    align(contentRect.bottom, pixelGridOrigin.dy),
+    alignExtent(contentRect.width),
+    alignExtent(contentRect.height),
   );
   if (alignedContentRect.isEmpty) {
     return frame;
   }
-  return Rect.fromLTRB(
-    alignedContentRect.left - contentInset,
-    alignedContentRect.top - contentInset,
-    alignedContentRect.right + contentInset,
-    alignedContentRect.bottom + contentInset,
-  );
+  return contentInsets.inflateRect(alignedContentRect);
 }

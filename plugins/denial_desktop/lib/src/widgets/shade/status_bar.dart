@@ -6,9 +6,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:motor/motor.dart' as motor;
 
 import 'package:denial_flutter_sdk/localization.dart';
 import 'package:denial_flutter_sdk/motion.dart';
+import 'package:denial_flutter_sdk/rendering.dart';
 import 'package:denial_flutter_sdk/state.dart';
 import 'package:denial_flutter_sdk/shell_color_scheme.dart';
 import 'package:denial_flutter_sdk/shell_theme.dart';
@@ -141,7 +143,8 @@ Color _statusColorAt(BuildContext context, Color foreground, double progress) {
 ///
 /// While the shade is open, the shade draws the whole row beneath its
 /// notifications through [ShadeHeaderStatusLayer]; the bar keeps only its
-/// drag surface. Over a full-screen app the bar shows nothing either.
+/// drag surface. Over a full-screen app the row slides up out of sight and
+/// comes back down when the app leaves full screen.
 class ShadeStatusBar extends ConsumerWidget {
   const ShadeStatusBar({super.key, this.shadeProgress, this.onDragStart});
 
@@ -191,20 +194,94 @@ class ShadeStatusBar extends ConsumerWidget {
         // A clock or battery change repaints only the status bar; sharing a
         // picture with the rest of the chrome would damage everything down
         // to the home pill.
-        child: RepaintBoundary(
-          child: AnimatedBuilder(
-            animation: progress,
-            // Only the change to and from closed rebuilds the row.
-            builder: (context, _) => progress.value > 0 || hidden
-                ? const SizedBox.expand()
-                : Stack(
-                    fit: StackFit.expand,
-                    clipBehavior: Clip.none,
-                    children: geometry.foreground(context, 0, foreground),
-                  ),
+        child: _StatusBarSlide(
+          hidden: hidden,
+          distance: geometry.closedHitHeight,
+          builder: (context, gone) => RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: progress,
+              // Only the change to and from closed rebuilds the row.
+              builder: (context, _) => progress.value > 0 || gone
+                  ? const SizedBox.expand()
+                  : Stack(
+                      fit: StackFit.expand,
+                      clipBehavior: Clip.none,
+                      children: geometry.foreground(context, 0, foreground),
+                    ),
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Slides the status row up by [distance] while [hidden], and back down when
+/// it shows again, on a spring that keeps its speed when the request turns
+/// around midway. Only the row's layer moves; [builder] learns when the row
+/// is wholly out of sight, so it stops drawing the clock there.
+class _StatusBarSlide extends StatefulWidget {
+  const _StatusBarSlide({
+    required this.hidden,
+    required this.distance,
+    required this.builder,
+  });
+
+  final bool hidden;
+  final double distance;
+  final Widget Function(BuildContext context, bool gone) builder;
+
+  @override
+  State<_StatusBarSlide> createState() => _StatusBarSlideState();
+}
+
+class _StatusBarSlideState extends State<_StatusBarSlide>
+    with SingleTickerProviderStateMixin {
+  /// 0 shown, 1 out of sight above the screen.
+  late final motor.SingleMotionController _slide;
+  final _translation = ValueNotifier(Offset.zero);
+  late bool _gone = widget.hidden;
+
+  @override
+  void initState() {
+    super.initState();
+    _slide = motor.SingleMotionController(
+      motion: ShellSprings.statusBar,
+      vsync: this,
+      initialValue: widget.hidden ? 1 : 0,
+    )..addListener(_moved);
+    _moved();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StatusBarSlide oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.hidden != oldWidget.hidden) {
+      _slide.animateTo(widget.hidden ? 1 : 0);
+    }
+    if (widget.distance != oldWidget.distance) _moved();
+  }
+
+  void _moved() {
+    final value = unit(_slide.value);
+    _translation.value = Offset(0, -widget.distance * value);
+    final gone = value >= 1;
+    if (gone != _gone && mounted) setState(() => _gone = gone);
+  }
+
+  @override
+  void dispose() {
+    _slide.dispose();
+    _translation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTranslation(
+      translation: _translation,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      child: widget.builder(context, _gone),
     );
   }
 }

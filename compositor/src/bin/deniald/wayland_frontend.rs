@@ -22,7 +22,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 #[cfg(feature = "flutter")]
 use smithay::backend::renderer::utils::{
-    RendererSurfaceStateUserData, with_renderer_surface_state,
+    CommitCounter, RendererSurfaceStateUserData, with_renderer_surface_state,
 };
 use smithay::backend::renderer::{Color32F, Frame, ImportDma, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
@@ -118,7 +118,9 @@ use tracing::{error, info, warn};
 use super::PendingWindowEvent;
 use super::RuntimeState;
 #[cfg(feature = "flutter")]
-use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame};
+use super::flutter_runtime::{
+    BufferDamage, ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame,
+};
 #[cfg(feature = "flutter")]
 use super::frame_scheduler::FrameTick;
 #[cfg(feature = "flutter")]
@@ -144,6 +146,8 @@ use super::wire::{
 
 #[path = "wayland_frontend/app_scale.rs"]
 mod app_scale;
+#[path = "wayland_frontend/app_specific.rs"]
+mod app_specific;
 #[path = "wayland_frontend/clipboard.rs"]
 mod clipboard_io;
 #[path = "wayland_frontend/color_management.rs"]
@@ -244,6 +248,9 @@ mod window_management;
 #[path = "wayland_frontend/window_outputs.rs"]
 mod window_outputs;
 #[cfg(feature = "flutter")]
+#[path = "wayland_frontend/window_place.rs"]
+mod window_place;
+#[cfg(feature = "flutter")]
 #[path = "wayland_frontend/window_presentation.rs"]
 mod window_presentation;
 #[path = "wayland_frontend/window_registry.rs"]
@@ -288,21 +295,24 @@ use topology::{
     centered_transient_geometry, choose_popup_output, clamp_window_geometry, configure_output,
     output_logical_bounds, saturating_point_sub,
 };
-use window_management::SHELL_FRAME_BORDER;
+use window_management::{ShellFrame, ShellFrames};
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
     apply_window_commands, finalize_topology_window_reconciliation, finish_desk_window_drag,
     queue_local_flutter_window_placement, queue_transient_window_placement, queue_window_placement,
-    synchronize_over_lock_window,
+    refuse_window_commands, synchronize_over_lock_window,
 };
 #[cfg(feature = "flutter")]
-use window_management::{
-    maximized_shell_content_geometry, shell_content_geometry, shell_draws_server_frame,
-};
+use window_management::{shell_content_geometry, shell_frame_geometry};
 use window_registry::{WindowId, WindowRegistry};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 const XDG_ACTIVATION_TOKEN_LIFETIME: Duration = Duration::from_secs(10);
+/// How often a window or layer surface the composer hides gets its frame
+/// callbacks: once a second, a little early so a client timing them lands
+/// within it.
+#[cfg(feature = "flutter")]
+const HIDDEN_FRAME_INTERVAL: Duration = Duration::from_millis(995);
 
 fn dmabuf_import_queue_has_capacity(pending: usize) -> bool {
     pending < MAX_PENDING_DMABUF_IMPORTS
@@ -501,6 +511,11 @@ pub(super) struct WaylandFrontend {
     output_window_membership: OutputWindowMembership<ObjectId, Window>,
     #[cfg(feature = "flutter")]
     pending_frame_callback_windows: HashSet<ObjectId>,
+    /// When each window or layer surface the composer hides was last given
+    /// its frame callbacks, by root surface: it gets them once per
+    /// `HIDDEN_FRAME_INTERVAL`.
+    #[cfg(feature = "flutter")]
+    hidden_surface_frames: HashMap<ObjectId, Instant>,
     #[cfg(feature = "flutter")]
     minimized_windows: minimized::MinimizedWindows,
     #[cfg(feature = "flutter")]
@@ -513,6 +528,10 @@ pub(super) struct WaylandFrontend {
     pending_shm_snapshots: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
     surface_buffer_revisions: HashMap<ObjectId, u64>,
+    /// The commit of each surface's last built texture frame: the next
+    /// frame's buffer damage is counted from it.
+    #[cfg(feature = "flutter")]
+    surface_damage_commits: std::sync::Mutex<HashMap<ObjectId, CommitCounter>>,
     #[cfg(feature = "flutter")]
     next_buffer_revision: u64,
     surface_ids: HashMap<ObjectId, u64>,
@@ -549,6 +568,29 @@ pub(super) struct WaylandFrontend {
     client_popup_grab: Option<smithay::desktop::PopupGrab<RuntimeState>>,
     #[cfg(feature = "flutter")]
     flutter_pointer_press: Option<FlutterPointerPress>,
+    /// A move or resize the shell started from its own chrome holds the
+    /// pointer. Flutter still owns the press it began with, and is told when
+    /// it ends.
+    #[cfg(feature = "flutter")]
+    shell_window_grab_active: bool,
+    /// The latest contact the shell holds: what a move or resize started from
+    /// the shell's chrome by touch takes over.
+    #[cfg(feature = "flutter")]
+    flutter_touch_press: Option<FlutterTouchPress>,
+    /// The contact that drives a shell-started move or resize. Its motion
+    /// moves the pointer grab and its lift releases it; the shell's own view
+    /// of the contact was cancelled when the grab began.
+    #[cfg(feature = "flutter")]
+    shell_touch_grab_slot: Option<i32>,
+    /// The frames the shell draws around decorated windows.
+    shell_frames: ShellFrames,
+    /// The frames the shell draws on single outputs, by monitor id, where
+    /// they differ from `shell_frames`: its own scale differs by screen.
+    output_shell_frames: std::collections::HashMap<i64, ShellFrames>,
+    /// Whether the running shell declared `shell_frames` itself. A frame
+    /// belongs to the shell that draws it and does not outlive it.
+    #[cfg(feature = "flutter")]
+    shell_frames_declared: bool,
     #[cfg(feature = "flutter")]
     clipboard_drag_active: bool,
     #[cfg(feature = "flutter")]
@@ -693,6 +735,8 @@ pub(super) struct WaylandFrontend {
     touch_transform: OutputTransform,
     tablet_output_mappings: HashMap<String, String>,
     pointer_location: Point<f64, Logical>,
+    /// The pointer's focus got relative motion in the frame being sent.
+    pointer_frame_has_relative: bool,
     cursor_status: CursorImageStatus,
     atlas_origin: Point<f64, Logical>,
     atlas_scale: f64,
@@ -704,6 +748,15 @@ pub(super) struct WaylandFrontend {
 struct FlutterPointerPress {
     button: u32,
     serial: Serial,
+    time: InputTime,
+    location: Point<f64, Logical>,
+}
+
+/// The latest contact the shell took, where it went down.
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug)]
+struct FlutterTouchPress {
+    slot: i32,
     time: InputTime,
     location: Point<f64, Logical>,
 }
@@ -1194,6 +1247,8 @@ fn init_listener(
                 client_state.peer_pid = Some(credentials.pid);
                 client_state.peer_uid = Some(credentials.uid);
             }
+            client_state.chromium_browser =
+                app_specific::is_chromium_browser(client_state.peer_pid);
             client_state.set_apps_scale(app_scale::connection_scale(
                 client_state.peer_pid,
                 frontend.settings.apps_scale(),

@@ -69,9 +69,9 @@ fi
 GN_ENGINE_ARGS=(
   --slimpeller
   --enable-fontconfig
-  --gn-args=shell_enable_vulkan=false
+  --gn-args=shell_enable_vulkan=true
   --gn-args=test_enable_vulkan=false
-  --gn-args=skia_use_vulkan=false
+  --gn-args=skia_use_vulkan=true
 )
 NATIVE_RELEASE_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release"
 HOST_RELEASE_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/$DENIAL_HOST_FLUTTER_PLATFORM-release"
@@ -293,9 +293,9 @@ verify_slimpeller_args() {
     "slimpeller = true"
     "skia_enable_ganesh = false"
     "skia_enable_graphite = false"
-    "shell_enable_vulkan = false"
+    "shell_enable_vulkan = true"
     "test_enable_vulkan = false"
-    "skia_use_vulkan = false"
+    "skia_use_vulkan = true"
   )
 
   for argument in "${arguments[@]}"; do

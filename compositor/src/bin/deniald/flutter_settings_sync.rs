@@ -7,11 +7,14 @@ pub(super) fn synchronize_flutter_window_commands(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    let commands = runtime.drain_window_commands().collect::<Vec<_>>();
     if events.secure_session_locked() {
-        runtime.drain_window_commands().for_each(drop);
+        wayland_frontend::refuse_window_commands(events, commands);
     } else {
-        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
         wayland_frontend::apply_window_commands(events, commands)?;
+    }
+    while let Some(result) = events.window_events.place_results.pop_front() {
+        runtime.send_window_place_result(result)?;
     }
     Ok(())
 }

@@ -20,6 +20,66 @@ void main() {
       .writeAsBytesSync(_inputLayout(3, edgeSwipe: true));
   File('${output.path}/dart_system_bar.denw')
       .writeAsBytesSync(_systemBarConfiguration());
+  File('${output.path}/dart_window_place.denw')
+      .writeAsBytesSync(_windowPlace());
+  File('${output.path}/dart_window_frame.denw')
+      .writeAsBytesSync(_windowFrame());
+}
+
+// The right half of output 7's work area: a rule with two rectangles' worth
+// of doubles beside the 64-bit identities.
+List<int> _windowPlace() {
+  return wire.EnvelopeObjectBuilder(
+    protocolVersion: 1,
+    sequence: 1,
+    requestId: 77,
+    payloadType: wire.PayloadTypeId.WindowRequest,
+    payload: wire.WindowRequestObjectBuilder(
+      kind: wire.WindowRequestKind.PlaceWindow,
+      windowId: 0x100000042,
+      flags: 0,
+      monitorId: 7,
+      workspaceId: 1,
+      windowDeltas: false,
+      placeKind: wire.WindowPlaceKind.Area,
+      placeShare: wire.WireRectObjectBuilder(
+        x: 0.5,
+        y: 0,
+        width: 0.5,
+        height: 1,
+      ),
+    ),
+  ).toBytes('DENW');
+}
+
+// A title bar over a hairline border, and the title bar alone when maximized.
+List<int> _windowFrame() {
+  return wire.EnvelopeObjectBuilder(
+    protocolVersion: 1,
+    sequence: 1,
+    requestId: 0,
+    payloadType: wire.PayloadTypeId.WindowRequest,
+    payload: wire.WindowRequestObjectBuilder(
+      kind: wire.WindowRequestKind.ConfigureWindowFrame,
+      windowId: 0,
+      flags: 0,
+      monitorId: -1,
+      workspaceId: 1,
+      windowDeltas: false,
+      frameMargins: wire.WireInsetsObjectBuilder(
+        left: 1,
+        top: 34,
+        right: 1,
+        bottom: 1,
+      ),
+      maximizedFrameMargins: wire.WireInsetsObjectBuilder(
+        left: 0,
+        top: 34,
+        right: 0,
+        bottom: 0,
+      ),
+    ),
+  ).toBytes('DENW');
 }
 
 List<int> _systemBarConfiguration() {

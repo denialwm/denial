@@ -4,6 +4,7 @@ class AudioLevelState {
     required this.requestSerial,
     this.muted = false,
     this.limitReached = false,
+    this.fromKey = false,
     this.completesRead = false,
   });
 
@@ -11,6 +12,7 @@ class AudioLevelState {
   final int requestSerial;
   final bool muted;
   final bool limitReached;
+  final bool fromKey;
 
   /// Whether this update satisfied an explicit state read from Dart.
   ///

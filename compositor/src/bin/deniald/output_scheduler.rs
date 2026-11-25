@@ -21,7 +21,11 @@ use super::{
 
 #[path = "output_scheduler/delivery_trace.rs"]
 mod delivery_trace;
+#[path = "output_scheduler/hardware_cursor.rs"]
+mod hardware_cursor;
 use delivery_trace::{DeliveryFrame, DeliveryTrace, Outcome as DeliveryOutcome};
+pub(crate) use hardware_cursor::CursorSprite;
+use hardware_cursor::HardwareCursor;
 
 const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 /// A nonblocking atomic commit should retire on the next display edge.  Give
@@ -412,8 +416,8 @@ fn plane_commit(scanout: &Scanout, size: PixelSize) -> Result<PlaneCommit, Box<d
     ))
 }
 
-#[derive(Debug)]
 struct OutputPipeline {
+    cursor: Option<HardwareCursor>,
     output_id: OutputId,
     scanout_index: usize,
     scanning: usize,
@@ -426,6 +430,9 @@ struct OutputPipeline {
     production: ProductionEstimate,
     /// The blanking limit KMS last reported for this output's CRTC.
     blanking: Duration,
+    /// Variable refresh: the panel waits for each frame, so there is no
+    /// fixed edge for a late frame to miss.
+    vrr: bool,
 }
 
 impl OutputPipeline {
@@ -434,35 +441,33 @@ impl OutputPipeline {
     /// longer than one edge allows: the ready frame then presents an edge
     /// after its target either way, and a successor that waited for it would
     /// skip an edge too. The pool's buffers bound how far ahead it can run.
+    /// A VRR output never renders ahead: its panel shows a late frame as soon
+    /// as it arrives, so a frame started early would only add latency.
     fn renders_ahead(&self) -> bool {
-        self.frames.ready.as_ref().is_some_and(|ready| {
-            ready.screenshot_request_id.is_none()
-                && !self.production.reaches_next_edge(
-                    ready.request.tick.interval,
-                    kms_submit_lead(self.blanking, ready.request.tick.nominal_interval),
-                )
-        })
+        !self.vrr
+            && self.frames.ready.as_ref().is_some_and(|ready| {
+                ready.screenshot_request_id.is_none()
+                    && !self.production.reaches_next_edge(
+                        ready.request.tick.interval,
+                        kms_submit_lead(self.blanking, ready.request.tick.nominal_interval),
+                    )
+            })
     }
 }
 
-/// DENIAL_RENDER_AHEAD=1 lets an output render its next frame while the
-/// previous one is still on the GPU, once frames take longer than a refresh
-/// allows. The mobile shell, whose phone GPUs often take longer, renders ahead
-/// unless it is 0; elsewhere a frame starts only after the previous one has
-/// left for KMS.
+/// An output renders its next frame while the previous one is still on the
+/// GPU, once frames take longer than a refresh allows. Frames that fit a
+/// refresh and VRR outputs are unaffected. DENIAL_RENDER_AHEAD=0 turns it
+/// off: a frame then starts only after the previous one has left for KMS.
 pub(super) fn render_ahead() -> bool {
     static RENDER_AHEAD: OnceLock<bool> = OnceLock::new();
-    *RENDER_AHEAD.get_or_init(|| {
-        render_ahead_enabled(
-            std::env::var("DENIAL_RENDER_AHEAD").as_deref(),
-            denial_core::environment::mobile_shell_profile(),
-        )
-    })
+    *RENDER_AHEAD
+        .get_or_init(|| render_ahead_enabled(std::env::var("DENIAL_RENDER_AHEAD").as_deref()))
 }
 
-fn render_ahead_enabled(value: Result<&str, &std::env::VarError>, mobile: bool) -> bool {
+fn render_ahead_enabled(value: Result<&str, &std::env::VarError>) -> bool {
     match value {
-        Err(std::env::VarError::NotPresent) => mobile,
+        Err(std::env::VarError::NotPresent) => true,
         Ok("0") => false,
         Ok("1") => true,
         _ => {
@@ -1077,6 +1082,62 @@ pub(super) struct OutputScheduler {
 }
 
 impl OutputScheduler {
+    pub(super) fn sync_cursor(
+        &mut self,
+        runtime: &mut FlutterRuntime,
+        pools: &OutputSwapchains,
+        events: &RuntimeState,
+        capture: bool,
+    ) {
+        let sprite = runtime.plane_cursor();
+        let mut selected = None;
+        for pipe in &mut self.pipelines {
+            let Some(plane) = pipe.cursor.as_mut() else {
+                continue;
+            };
+            let id = pipe.output_id;
+            let pool = pools.for_output(id);
+            let wanted = sprite.as_ref().filter(|s| {
+                s.output == id
+                    && !pipe.powering_off
+                    && pipe.wake_modeset.is_none()
+                    && !capture
+                    && !events.fingerprint.exclusive_for(id)
+                    && !events.frontend().needs_composited_cursor(id)
+                    && crate::output_color::hdr_output(id).is_none()
+                    && !crate::output_color::desktop_look_present()
+            });
+            let gamut = pool
+                .and_then(|pool| {
+                    pool.plane_color
+                        .as_ref()
+                        .and_then(|p| p.cursor_gamut())
+                        .or_else(|| pool.color.map(|c| c.matrix))
+                })
+                .filter(|_| crate::output_color::correction_enabled());
+            if plane.select(wanted, gamut) {
+                selected = Some(id)
+            }
+        }
+        runtime.select_cursor_plane(selected);
+    }
+
+    pub(super) fn cursor_tick(&mut self, id: OutputId) {
+        if let Some(p) = self.pipelines.iter_mut().find(|p| {
+            p.output_id == id
+                && !p.powering_off
+                && p.frames.in_flight.is_none()
+                && p.frames.ready.is_none()
+        }) && let Some(c) = p.cursor.as_mut()
+        {
+            c.move_only();
+        }
+    }
+    pub(super) fn cursor_pending(&self) -> bool {
+        self.pipelines
+            .iter()
+            .any(|p| p.cursor.as_ref().is_some_and(HardwareCursor::pending))
+    }
     pub(super) fn new(
         drm: &DrmDevice,
         volition_events: VolitionEvents,
@@ -1086,6 +1147,7 @@ impl OutputScheduler {
         events: &mut RuntimeState,
     ) -> Result<Self, Box<dyn Error>> {
         let powered_outputs = scanouts.iter().filter(|scanout| scanout.powered).count();
+        runtime.select_cursor_plane(None);
         runtime.enable_kms_frame_clock();
         runtime.set_outputs_visible(powered_outputs > 0)?;
         let presentation = Volition::new(
@@ -1103,6 +1165,7 @@ impl OutputScheduler {
                     .for_output(scanout.output.id)
                     .ok_or("output scheduler has no native framebuffer pool")?;
                 Ok(OutputPipeline {
+                    cursor: HardwareCursor::discover(scanout),
                     output_id: scanout.output.id,
                     scanout_index,
                     scanning: pool.current,
@@ -1114,6 +1177,7 @@ impl OutputScheduler {
                     request: plane_commit(scanout, pool.size)?,
                     production: ProductionEstimate::default(),
                     blanking: Duration::ZERO,
+                    vrr: scanout.output.vrr_enabled,
                 })
             })
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
@@ -1358,6 +1422,7 @@ impl OutputScheduler {
 
     pub(super) fn acknowledge_volition_events(
         &mut self,
+        runtime: &mut FlutterRuntime,
         volition_events: impl IntoIterator<Item = volition::Event>,
         scanouts: &[Scanout],
         events: &mut RuntimeState,
@@ -1398,6 +1463,20 @@ impl OutputScheduler {
                             submitted_at,
                         );
                     }
+                }
+                volition::Event::CursorRejected(failure) => {
+                    let id = failure.commit();
+                    let p = self
+                        .pipelines
+                        .iter_mut()
+                        .find(|p| p.frames.scheduled_commit() == Some(id))
+                        .ok_or("rejected cursor commit has no scheduled frame")?;
+                    if let Some(c) = p.cursor.as_mut() {
+                        c.submission_rejected(&failure);
+                    }
+                    p.frames.in_flight.take();
+                    runtime.release_output(p.output_id, id.frame)?;
+                    runtime.select_cursor_plane(None);
                 }
                 volition::Event::Stalled(failure) => {
                     // Keep the pending frame and its Flutter ownership intact.
@@ -1447,7 +1526,10 @@ impl OutputScheduler {
                 .iter()
                 .position(|pool| pool.output_id == pipeline.output_id)
                 .ok_or("output pipeline lost its render-fence pool")?;
-            if frame.request.fingerprint_epoch != events.fingerprint.epoch_for(pipeline.output_id)
+            if frame.request.hardware_cursor
+                != pipeline.cursor.as_ref().is_some_and(HardwareCursor::wanted)
+                || frame.request.fingerprint_epoch
+                    != events.fingerprint.epoch_for(pipeline.output_id)
                 || (pipeline.wake_frame_pending
                     && !events.fingerprint.exclusive_for(pipeline.output_id)
                     && !runtime.permits_wake_frame(frame.request.lock_frame_token))
@@ -1572,14 +1654,23 @@ impl OutputScheduler {
                 .unwrap_or_default();
             let submit_lead = kms_submit_lead(blanking, frame.request.tick.nominal_interval);
             let queued_at = frame.delivery.is_some().then(Instant::now);
+            let hardware = frame.request.hardware_cursor;
+            let request = pipeline
+                .cursor
+                .as_ref()
+                .and_then(|cursor| cursor.update(hardware))
+                .map(|cursor| pipeline.request.with_cursor(cursor));
             let submission = presentation.submit_for_target_with_lead(
                 commit,
-                &pipeline.request,
+                request.as_ref().unwrap_or(&pipeline.request),
                 framebuffer,
                 presentation_target,
                 submit_lead,
             )?;
             if submission == Submission::Queued {
+                if let Some(c) = pipeline.cursor.as_mut() {
+                    c.scheduled(hardware);
+                }
                 pipeline.frames.schedule_ready(commit, queued_at)?;
                 ready_fence.release_user()?;
                 if ready_fence.users == 0 {
@@ -1680,6 +1771,9 @@ impl OutputScheduler {
             };
             events.pending.remove(&completion.crtc);
             let previous = pipeline.scanning;
+            if let Some(c) = pipeline.cursor.as_mut() {
+                c.presented(presented.request.hardware_cursor);
+            }
             pipeline.scanning = presented.index;
             pipeline.scanning_screenshot_request_id = presented.screenshot_request_id;
             if let Err(error) = runtime.release_output(pipeline.output_id, previous) {
@@ -1820,6 +1914,13 @@ impl OutputScheduler {
             return Ok(());
         };
         if !frontend.has_pending_screencopy_for_output(tick.output) {
+            return Ok(());
+        }
+        if frontend.needs_composited_cursor(tick.output)
+            && self.pipelines.iter().any(|p| {
+                p.output_id == tick.output && p.cursor.as_ref().is_some_and(|c| c.scanning)
+            })
+        {
             return Ok(());
         }
         let timestamp = frontend.screencopy_clock_now();
@@ -2053,6 +2154,7 @@ impl OutputScheduler {
             return Err("DPMS wake pool disagrees with scheduler scanout".into());
         }
         self.pipelines.push(OutputPipeline {
+            cursor: HardwareCursor::discover(output),
             output_id: output.output.id,
             scanout_index,
             scanning: framebuffer_index,
@@ -2064,6 +2166,7 @@ impl OutputScheduler {
             request: plane_commit(output, pool.size)?,
             production: ProductionEstimate::default(),
             blanking: Duration::ZERO,
+            vrr: output.output.vrr_enabled,
         });
         let _ = runtime;
         Ok(())
@@ -2165,13 +2268,12 @@ mod submit_lead_tests {
     use super::*;
 
     #[test]
-    fn render_ahead_is_an_explicit_opt_in() {
+    fn render_ahead_is_on_unless_turned_off() {
         use std::env::VarError;
-        assert!(!render_ahead_enabled(Err(&VarError::NotPresent), false));
-        assert!(render_ahead_enabled(Err(&VarError::NotPresent), true));
-        assert!(!render_ahead_enabled(Ok("0"), true));
-        assert!(render_ahead_enabled(Ok("1"), false));
-        assert!(!render_ahead_enabled(Ok("yes"), true));
+        assert!(render_ahead_enabled(Err(&VarError::NotPresent)));
+        assert!(!render_ahead_enabled(Ok("0")));
+        assert!(render_ahead_enabled(Ok("1")));
+        assert!(!render_ahead_enabled(Ok("yes")));
     }
 
     #[test]

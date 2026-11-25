@@ -6,6 +6,10 @@
 //! backend-specific state. Everything above it consumes [`ManagedWindowFacts`]
 //! and invokes backend-neutral operations.
 
+#[cfg(feature = "xwayland")]
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::Resource;
@@ -16,7 +20,7 @@ use smithay::wayland::shell::xdg::{
     SurfaceCachedState, ToplevelCachedState, ToplevelState, ToplevelSurface, XdgToplevelSurfaceData,
 };
 #[cfg(feature = "xwayland")]
-use smithay::xwayland::xwm::{WmWindowType, X11Surface};
+use smithay::xwayland::xwm::{MwmDecorationsHint, WmWindowType, X11Surface};
 #[cfg(feature = "xwayland")]
 use tracing::warn;
 
@@ -132,6 +136,9 @@ pub(super) struct ClientWindowState {
 pub(super) struct ManagedWindowFacts {
     pub(super) client_state: ClientWindowState,
     pub(super) server_side_decorated: bool,
+    /// The client draws its own title bar; the shell's frame leaves its
+    /// title bar out.
+    pub(super) client_title_bar: bool,
     pub(super) auxiliary: bool,
     pub(super) override_redirect: bool,
     pub(super) minimum_size: Size<i32, Logical>,
@@ -154,6 +161,41 @@ enum ManagedWindowProtocol<'a> {
     Xdg(&'a ToplevelSurface),
     #[cfg(feature = "xwayland")]
     X11(&'a X11Surface),
+}
+
+/// The X11 window's input region leaves part of its rectangle to what is
+/// below, as a desktop pet's does around its body.
+#[cfg(feature = "xwayland")]
+struct X11ClickThrough(Cell<bool>);
+
+/// Records whether the X11 window lets clicks through part of its rectangle.
+#[cfg(feature = "xwayland")]
+pub(super) fn set_x11_click_through(surface: &X11Surface, click_through: bool) {
+    let data = surface.user_data();
+    data.insert_if_missing(|| X11ClickThrough(Cell::new(false)));
+    if let Some(state) = data.get::<X11ClickThrough>() {
+        state.0.set(click_through);
+    }
+}
+
+/// Whether an X11 client's Motif decoration hint leaves the title bar out,
+/// as Steam's does: it draws its own. Without the hint every decoration is
+/// wanted; with `ALL` the listed parts are the ones left out, without it the
+/// listed parts are the only ones wanted.
+#[cfg(feature = "xwayland")]
+fn motif_hides_title_bar(decorations: Option<MwmDecorationsHint>) -> bool {
+    decorations.is_some_and(|decorations| {
+        decorations.contains(MwmDecorationsHint::ALL)
+            == decorations.contains(MwmDecorationsHint::TITLE)
+    })
+}
+
+#[cfg(feature = "xwayland")]
+fn x11_click_through(surface: &X11Surface) -> bool {
+    surface
+        .user_data()
+        .get::<X11ClickThrough>()
+        .is_some_and(|state| state.0.get())
 }
 
 fn prepare_geometry_reassertion(
@@ -208,6 +250,7 @@ impl<'a> ManagedWindow<'a> {
                         resizing: toplevel_has_state(toplevel, xdg_toplevel::State::Resizing),
                     },
                     server_side_decorated: true,
+                    client_title_bar: toplevel_draws_title_bar(toplevel),
                     auxiliary: false,
                     override_redirect: false,
                     minimum_size,
@@ -239,10 +282,16 @@ impl<'a> ManagedWindow<'a> {
                         maximized: surface.is_maximized(),
                         resizing: false,
                     },
-                    // Client motif hints do not choose Denial's frame policy.
-                    // Only protocol-level popups and override-redirect surfaces
-                    // are excluded from the managed toplevel frame.
-                    server_side_decorated: !surface.is_override_redirect() && !protocol_popup,
+                    // Motif hints do not take Denial's frame away, only its
+                    // title bar (`client_title_bar`). Protocol-level popups and override-redirect surfaces are
+                    // excluded from the managed toplevel frame, and so is a
+                    // window that lets clicks through part of its rectangle:
+                    // a frame around a desktop pet's transparent area would
+                    // float on the screen.
+                    server_side_decorated: !surface.is_override_redirect()
+                        && !protocol_popup
+                        && !x11_click_through(surface),
+                    client_title_bar: motif_hides_title_bar(surface.motif_hints().decorations),
                     auxiliary,
                     override_redirect: surface.is_override_redirect(),
                     minimum_size: surface.min_size().unwrap_or_else(|| Size::from((0, 0))),
@@ -767,9 +816,50 @@ pub(super) fn toplevel_has_state(
     })
 }
 
+/// Whether the client draws its own title bar, as it asked with
+/// xdg-decoration (`set_client_title_bar`).
+#[derive(Default)]
+struct ClientTitleBar(AtomicBool);
+
+pub(super) fn set_client_title_bar(surface: &ToplevelSurface, draws: bool) {
+    with_states(surface.wl_surface(), |states| {
+        states
+            .data_map
+            .get_or_insert_threadsafe(ClientTitleBar::default)
+            .0
+            .store(draws, Ordering::Relaxed);
+    });
+}
+
+fn toplevel_draws_title_bar(surface: &ToplevelSurface) -> bool {
+    if !surface.wl_surface().is_alive() {
+        return false;
+    }
+    with_states(surface.wl_surface(), |states| {
+        states
+            .data_map
+            .get::<ClientTitleBar>()
+            .is_some_and(|draws| draws.0.load(Ordering::Relaxed))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "xwayland")]
+    #[test]
+    fn a_motif_hint_without_the_title_bar_hides_only_the_title_bar() {
+        use MwmDecorationsHint as Hint;
+        // No hint, or every decoration: Denial's title bar stays.
+        assert!(!motif_hides_title_bar(None));
+        assert!(!motif_hides_title_bar(Some(Hint::ALL)));
+        assert!(!motif_hides_title_bar(Some(Hint::TITLE | Hint::BORDER)));
+        // No decorations at all (Steam), or all but the title bar.
+        assert!(motif_hides_title_bar(Some(Hint::empty())));
+        assert!(motif_hides_title_bar(Some(Hint::BORDER | Hint::RESIZEH)));
+        assert!(motif_hides_title_bar(Some(Hint::ALL | Hint::TITLE)));
+    }
 
     fn sized(width: i32) -> ToplevelState {
         ToplevelState {

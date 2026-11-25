@@ -230,6 +230,8 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
     if !drm.is_atomic() {
         return Err("the selected DRM device does not expose atomic modesetting".into());
     }
+    #[cfg(feature = "flutter")]
+    plane_color::enable(&drm, preserve_predecessor);
     if !preserve_predecessor {
         // A display manager can leave cursor or overlay planes latched when it
         // releases DRM master. Denial composites its cursor into the Flutter
@@ -414,6 +416,9 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             // away from its VT.
             kms_state::release_inherited_planes(&kms.drm);
         }
+    }
+    if !preserve_predecessor {
+        kms_state::release_unlit_outputs(&kms.drm, &configured.unlit, &configured.outputs);
     }
     let outputs = configured.outputs;
 

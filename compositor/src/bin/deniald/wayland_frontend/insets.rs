@@ -362,7 +362,7 @@ impl WaylandFrontend {
                     };
                     let bounds =
                         self.maximize_work_area(Some(&output.output), output.logical_geometry);
-                    let bounds = shell_content_geometry(bounds, shell_draws_server_frame(window));
+                    let bounds = shell_content_geometry(bounds, self.frame_for(window));
                     (
                         initial_desktop_geometry(current.size, bounds),
                         WindowGeometryAuthority::Pending,

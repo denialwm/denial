@@ -431,7 +431,7 @@ class _MediaPlaybackPopup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
-    final radius = theme.borderRadius(24);
+    final radius = BorderRadius.circular(theme.panelRadius);
     final position = playback.positionAt(now);
     final length = playback.length;
     final progress = length > Duration.zero

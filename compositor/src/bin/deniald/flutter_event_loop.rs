@@ -221,17 +221,14 @@ fn synchronize_flutter_scene_and_input(
     output_control: &output_control::OutputControlPublisher,
     runtime: &mut flutter_runtime::FlutterRuntime,
     background_services_due: bool,
-    frame_scheduler: &mut frame_scheduler::FrameScheduler,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
     if background_services_due {
         synchronize_flutter_window_management(runtime, events)?;
     }
     synchronize_flutter_scene(output_control, runtime, events)?;
-    collect_flutter_output_damage(runtime, frame_scheduler);
     synchronize_flutter_input_layout(runtime, events)?;
-    synchronize_wayland_cursor(runtime, events)?;
-    Ok(())
+    synchronize_wayland_cursor(runtime, events)
 }
 
 fn output_control_publication_deferred(events: &RuntimeState) -> bool {
@@ -325,6 +322,8 @@ impl Session<'_, '_> {
         let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
             Duration::from_millis(50).min(deadline.saturating_duration_since(now))
         });
+        // As in `run`: send events queued outside a client dispatch first.
+        events.frontend_mut().display_handle.flush_clients()?;
         event_loop.dispatch(timeout, events)?;
         Ok(())
     }
@@ -384,7 +383,8 @@ impl Session<'_, '_> {
             events,
             ..
         } = self;
-        frame_scheduler.wants_ticks()
+        self.scheduler.cursor_pending()
+            || frame_scheduler.wants_ticks()
             || runtime.wants_output_ticks()
             || events.scene_sync.pending_metadata_revision().is_some()
             || events.scene_sync.pending_buffer_revision().is_some()
@@ -639,9 +639,17 @@ impl Session<'_, '_> {
                 &self.output_control,
                 self.flutter,
                 background_services_due,
-                &mut self.frame_scheduler,
                 &mut self.events,
             )?;
+            self.scheduler.sync_cursor(
+                self.flutter,
+                self.swapchain.outputs().ok_or("missing output pools")?,
+                &self.events,
+                self.screenshot_manager
+                    .as_ref()
+                    .is_some_and(|m| m.request_id().is_some()),
+            );
+            collect_flutter_output_damage(self.flutter, &mut self.frame_scheduler);
             if dispatch_when_background_slice_expires(
                 background_started,
                 self.event_loop,
@@ -712,6 +720,11 @@ impl Session<'_, '_> {
             {
                 dispatch_timeout = dispatch_timeout.min(deadline.saturating_duration_since(now));
             }
+            // Events queued outside a client dispatch, such as a buffer
+            // release on its GPU fence, wait in each client's buffer until a
+            // flush. Send them before sleeping, as libwayland's loop does; an
+            // empty flush makes no syscall.
+            self.events.frontend_mut().display_handle.flush_clients()?;
             self.event_loop
                 .dispatch(dispatch_timeout, &mut self.events)?;
             self.frame_scheduler.resume_ticks(Instant::now());
@@ -843,6 +856,10 @@ impl Session<'_, '_> {
             }
         }
 
+        if drm.is_active() {
+            // The next DRM master may not know plane color pipelines.
+            plane_color::reset_planes(&**drm);
+        }
         if release_drm_master && drm.is_active() {
             // Closing a full display-manager session is an ownership handoff,
             // not a temporary KMS experiment. Release the device before Flutter

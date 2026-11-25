@@ -329,6 +329,7 @@ fn transfer(plan: &Plan, frame: u32) -> Result<(Duration, Duration)> {
     let (send, receive) = mpsc::sync_channel(1);
     plan.target.submit(
         fence,
+        None,
         Box::new(move |result| {
             let _ = send.send((Instant::now(), result));
         }),

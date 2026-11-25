@@ -897,6 +897,56 @@ impl SettingsManager {
             .unwrap_or(DEFAULT_CALLS_APP)
     }
 
+    /// Where a shoulder trigger touches for an app: a fraction of the phone's
+    /// screen, `trigger` 0 left and 1 right.
+    pub(super) fn trigger_point(&self, app_id: &str, trigger: usize) -> Option<(f64, f64)> {
+        let side = ["left", "right"].get(trigger)?;
+        let point = self
+            .document
+            .get("phoneTriggers")?
+            .get(app_id)?
+            .get(side)?
+            .as_array()?;
+        let [x, y] = point.as_slice() else {
+            return None;
+        };
+        let (x, y) = (x.as_f64()?, y.as_f64()?);
+        ((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)).then_some((x, y))
+    }
+
+    /// The user's lights: which are on, in which colour, and whether they go
+    /// dark with the screen (by default they do).
+    #[cfg(feature = "flutter")]
+    pub(super) fn lights(&self) -> super::lights::LightSettings {
+        let Some(section) = self.document.get("lights").and_then(Value::as_object) else {
+            return super::lights::LightSettings::default();
+        };
+        let lights = section
+            .get("leds")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(name, light)| {
+                let color = light
+                    .get("color")
+                    .and_then(Value::as_str)
+                    .and_then(super::lights::parse_color)?;
+                Some(super::lights::LightSetting {
+                    name: name.clone(),
+                    on: light.get("on").and_then(Value::as_bool).unwrap_or(false),
+                    color,
+                })
+            })
+            .collect();
+        super::lights::LightSettings {
+            off_with_screen: section
+                .get("offWithScreen")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            lights,
+        }
+    }
+
     pub(super) fn workspace_settings(&self) -> WorkspaceSettings {
         parse_workspace_settings(&self.document).unwrap_or_default()
     }
@@ -1671,8 +1721,6 @@ fn seed_mobile_appearance(document: &mut Map<String, Value>) {
         .and_then(Value::as_object_mut)
         .expect("default appearance is an object");
     appearance.insert("customAccentColor".to_owned(), Value::from(0xFFD0_BCFF_u32));
-    appearance.insert("cornerRadiusScale".to_owned(), Value::from(1.6));
-    appearance.insert("monitorCornerRadiusScale".to_owned(), Value::from(0.4));
     // All three opacities: the shell seeds missing ones from `opacity`.
     appearance.insert(
         "glass".to_owned(),
