@@ -1,3 +1,0 @@
-# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command 
-# Idx           #    C/G      %      %      %      %      %      %     MB     MB    name 
-    0     146400     G      -      -      -      -      -      -      2      0    deniald        

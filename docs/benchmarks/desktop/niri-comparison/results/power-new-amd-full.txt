@@ -1,1 +1,0 @@
-package power 11.80 W
