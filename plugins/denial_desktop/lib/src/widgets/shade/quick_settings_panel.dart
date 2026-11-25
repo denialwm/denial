@@ -809,19 +809,6 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           busy: recording.busy,
           onTap: () => ref.read(screenRecordingProvider.notifier).toggle(),
         ),
-      if (triggerApp != null)
-        QuickTile(
-          icon: Icons.gamepad_rounded,
-          title: l10n.triggerPointsTile,
-          subtitle: triggerApp.title,
-          active: false,
-          onTap: () {
-            ref.read(referenceShellProvider.notifier).closeQuickSettings();
-            ref
-                .read(triggerPointsEditorProvider.notifier)
-                .open(triggerApp.appId);
-          },
-        ),
       if (singleOutput)
         QuickTile(
           icon: Icons.desktop_windows_rounded,
@@ -837,12 +824,27 @@ class _QuickSettingsTilesSection extends ConsumerWidget {
           },
         ),
     ];
+    final triggerTile = triggerApp == null
+        ? null
+        : QuickTile(
+            icon: Icons.gamepad_rounded,
+            title: l10n.triggerPointsTile,
+            subtitle: triggerApp.title,
+            active: false,
+            onTap: () {
+              ref.read(referenceShellProvider.notifier).closeQuickSettings();
+              ref
+                  .read(triggerPointsEditorProvider.notifier)
+                  .open(triggerApp.appId);
+            },
+          );
     final view = MediaQuery.sizeOf(context);
     return QuickSettingsTiles(
       expansionProgress: progress,
       // The wider landscape columns get tiles taller in proportion.
       heightFactor: view.width > view.height ? _landscapeShadeGrowth : 1,
       footerTiles: footerTiles,
+      spareTile: triggerTile,
       mobileDataTile: const MobileDataTile(),
       brightnessControl: const _BrightnessRangeBar(),
       volumeControl: const _VolumeRangeBar(),

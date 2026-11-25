@@ -34,6 +34,7 @@ class QuickSettingsTiles extends StatelessWidget {
     this.volumeControl,
     this.expansionProgress,
     this.footerTiles = const [],
+    this.spareTile,
     this.heightFactor = 1,
     required this.wifi,
     required this.wifiSubtitle,
@@ -59,9 +60,14 @@ class QuickSettingsTiles extends StatelessWidget {
   final Widget? volumeControl;
   final Animation<double>? expansionProgress;
 
-  /// A row below the grid, aligned with its columns: a square tile takes
-  /// one column and a wide one two, four columns at most.
+  /// Rows below the grid, aligned with its columns: a square tile takes
+  /// one column and a wide one two. A tile that does not fit beside the
+  /// ones before it starts the next row.
   final List<QuickTile> footerTiles;
+
+  /// A square tile for the cell the power tile leaves free beside Silent.
+  /// With a power tile there is no free cell, and it ends the footer.
+  final QuickTile? spareTile;
 
   /// How much taller than the reference the tiles are; their labels and the
   /// gaps between rows keep their size.
@@ -78,7 +84,7 @@ class QuickSettingsTiles extends StatelessWidget {
   final bool dndReady;
 
   /// The power profile, or null when no power-profile service answers: no
-  /// power tile, and Silent takes its cell.
+  /// power tile, Silent takes its cell, and the spare tile Silent's.
   final String? profile;
   final VoidCallback onToggleWifi;
   final VoidCallback onOpenWifi;
@@ -89,11 +95,6 @@ class QuickSettingsTiles extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    assert(
-      footerTiles.fold(0, (columns, tile) => columns + (tile.wide ? 2 : 1)) <=
-          4,
-      'the footer row has four columns',
-    );
     final l10n = context.l10n;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -128,17 +129,30 @@ class QuickSettingsTiles extends StatelessWidget {
         final tall = capsule * 2 + gutter;
         final footerTop = row * 3 + gutter;
         final silentColumn = profile == null ? 2 : 3;
-        final footerHeight = footerTiles.any((tile) => !tile.wide)
-            ? row
-            : capsule;
-        final footerColumns = <int>[];
+        final spare = profile == null ? spareTile : null;
+        final footer = [
+          ...footerTiles,
+          if (profile != null && spareTile != null) spareTile!,
+        ];
+        // Each footer tile's (row, column), filled left to right.
+        final footerCells = <(int, int)>[];
+        var footerRow = 0;
         var footerColumn = 0;
-        for (final tile in footerTiles) {
-          footerColumns.add(footerColumn);
-          footerColumn += tile.wide ? 2 : 1;
+        for (final tile in footer) {
+          final span = tile.wide ? 2 : 1;
+          if (footerColumn + span > 4) {
+            footerRow += 1;
+            footerColumn = 0;
+          }
+          footerCells.add((footerRow, footerColumn));
+          footerColumn += span;
         }
+        final lastRowSquare = footer.indexed.any(
+          (entry) => footerCells[entry.$1].$1 == footerRow && !entry.$2.wide,
+        );
+        final footerHeight = row * footerRow + (lastRowSquare ? row : capsule);
         return SizedBox(
-          height: footerTiles.isEmpty ? row * 3 : footerTop + footerHeight,
+          height: footer.isEmpty ? row * 3 : footerTop + footerHeight,
           child: Stack(
             children: [
               Positioned(
@@ -250,16 +264,24 @@ class QuickSettingsTiles extends StatelessWidget {
                   cell: (2, silentColumn),
                 ),
               ),
-              for (final (index, tile) in footerTiles.indexed)
+              if (spare != null)
                 Positioned(
-                  left: pitch * footerColumns[index],
-                  top: footerTop,
+                  left: pitch * 3,
+                  top: row * 2,
+                  width: column,
+                  height: row,
+                  child: reveal(5, spare, cell: (2, 3)),
+                ),
+              for (final (index, tile) in footer.indexed)
+                Positioned(
+                  left: pitch * footerCells[index].$2,
+                  top: footerTop + row * footerCells[index].$1,
                   width: tile.wide ? wide : column,
                   height: tile.wide ? capsule : row,
                   child: reveal(
                     7 + index,
                     tile,
-                    cell: (3, footerColumns[index]),
+                    cell: (3 + footerCells[index].$1, footerCells[index].$2),
                   ),
                 ),
             ],
