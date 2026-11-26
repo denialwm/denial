@@ -144,14 +144,15 @@ while compatible build outputs and locked projections may still be reused.
 Main's Nix packages and checks (`.#denial`, `.#denial-unstable`, the engine,
 and the lock, module, engine-cache and path contracts) build in their own
 workflow, `.github/workflows/nix-cache.yml`, on the same builder, which
-pushes the exact output paths to the public Denial Cachix cache. They do not
-gate the release: `tools/denial-builder validate` arms a second runner for
-them once the main candidate is green and leaves it running, so a release
-can start beside it. Every push still evaluates the flake and builds the
-lock and module checks on a hosted runner. A failed Nix run does not stop a
-release already under way; fix it on `dev` like any other failure. Run it
-alone, and watch it, with `tools/denial-builder nix-cache`. While it runs,
-its runner keeps `arm` from registering another.
+pushes the exact output paths to the public Denial Cachix cache. Nothing
+starts that workflow by itself, because it costs 15 to 24 minutes of the
+builder's CPU: run it by hand, on main, with `tools/denial-builder
+nix-cache`, which arms a runner and watches it. It does not gate a release;
+`tools/denial-builder release` only notes when the tagged commit has no
+green Nix run. Until one runs, Nix users build Denial themselves. Every push
+still evaluates the flake and builds the lock and module checks on a hosted
+runner. Fix a failed Nix run on `dev` like any other failure. While it
+runs, its runner keeps `arm` from registering another.
 
 The Cachix write token is a repository Actions secret available only inside
 the disposable Nix job. The workflow realizes its Cachix CLI from the flake's

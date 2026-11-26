@@ -2,9 +2,8 @@ name: Build and cache Denial's Nix packages
 run-name: Build Nix packages of ${{ github.ref_name }} at ${{ github.sha }}
 
 # Main's Nix packages and checks build here, apart from the package
-# candidate, so a release does not wait for them. `tools/denial-builder
-# validate` starts this run once the main candidate is green;
-# `tools/denial-builder nix-cache` runs it alone.
+# candidate, so a release does not wait for them. Only a person starts this
+# run, with `tools/denial-builder nix-cache`: it costs the builder's CPU time.
 on:
   workflow_dispatch:
 
