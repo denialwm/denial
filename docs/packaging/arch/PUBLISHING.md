@@ -1149,6 +1149,12 @@ Pages deployment archives cannot contain symbolic or hard links, while
 symlinks. The signed tree materializes these aliases and their signatures as
 ordinary files.
 
+Between release jobs the signed tree travels as one archive made by
+`tools/denial-signed-tree-transfer pack`: a direct download and its APT or
+DNF repository copy are the same bytes, so the archive stores them once, as a
+hard link. `unpack` makes every file an ordinary file again and checks the
+tree against `SHA256SUMS` before a verifier or publisher reads it.
+
 ## Client configuration
 
 Users first obtain the public key and verify its complete fingerprint through
