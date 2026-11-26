@@ -1138,8 +1138,8 @@ Publication order is:
 4. verify that every metadata entry resolves to an existing signed package;
 5. upload the tree to `packages.denialwm.org` with
    `tools/publish-denial-packages`;
-6. upload the release assets to a draft GitHub Release;
-7. deploy the complete tree as one Pages artifact;
+6. beside step 5, upload the release assets to a draft GitHub Release;
+7. then deploy the complete tree as one Pages artifact;
 8. publish the draft release only after both hosts succeed.
 
 `tools/publish-denial-packages` uploads files with new names first and swaps
@@ -1156,6 +1156,12 @@ Pages deployment archives cannot contain symbolic or hard links, while
 `repo-add` commonly creates aliases such as `denial.db` and `denial.files` as
 symlinks. The signed tree materializes these aliases and their signatures as
 ordinary files.
+
+Between release jobs the signed tree travels as one archive made by
+`tools/denial-signed-tree-transfer pack`: a direct download and its APT or
+DNF repository copy are the same bytes, so the archive stores them once, as a
+hard link. `unpack` makes every file an ordinary file again and checks the
+tree against `SHA256SUMS` before a verifier or publisher reads it.
 
 ## Client configuration
 

@@ -28,6 +28,7 @@ Usage:
   tools/denial-builder qualify
   tools/denial-builder validate-dev
   tools/denial-builder validate
+  tools/denial-builder nix-cache
   tools/denial-builder release TAG
   tools/denial-builder phone-packages
   tools/denial-builder status
@@ -44,6 +45,9 @@ Commands:
   validate-dev
            Arm a runner, build and independently verify a dev candidate.
   validate Arm a runner, build and independently verify a main production candidate.
+  nix-cache
+           Arm a runner, build main's Nix packages and checks, push them
+           to Cachix, and watch it. Nothing else starts it.
   release TAG
            Promote, sign, verify, and publish an existing main candidate.
   phone-packages
@@ -390,6 +394,13 @@ validate_builder() {
     main
 }
 
+nix_cache_builder() {
+  run_manual_workflow \
+    nix-cache.yml \
+    'Main Nix cache build' \
+    main
+}
+
 validate_dev_builder() {
   run_manual_workflow \
     branch-validation.yml \
@@ -402,6 +413,37 @@ phone_packages_builder() {
     phone-packages.yml \
     'Phone packages' \
     main
+}
+
+# Nix runs only by hand and never gates a release; say where its run of the
+# tagged commit stands.
+note_nix_cache() {
+  local release_tag="$1"
+  local source_sha
+  local nix_run
+
+  source_sha="$(
+    gh api "repos/${REPOSITORY}/commits/${release_tag}" --jq '.sha' 2>/dev/null
+  )" || source_sha=''
+  [[ -n "$source_sha" ]] || return 0
+  nix_run="$(
+    gh api \
+      "repos/${REPOSITORY}/actions/workflows/nix-cache.yml/runs?branch=main&per_page=20" \
+      --jq "[.workflow_runs[] | select(.head_sha == \"${source_sha}\")] | first
+        | if . == null then \"\" else \"\\(.status) \\(.conclusion // \"\") \\(.html_url)\" end" \
+      2>/dev/null
+  )" || nix_run=''
+  case "$nix_run" in
+    'completed success '*) ;;
+    '')
+      printf 'Note: no Nix cache run for %s; Nix users build it themselves until %s runs.\n' \
+        "$release_tag" 'tools/denial-builder nix-cache' >&2
+      ;;
+    *)
+      printf 'Note: the Nix cache run for %s is not green: %s\n' \
+        "$release_tag" "$nix_run" >&2
+      ;;
+  esac
 }
 
 release_builder() {
@@ -456,6 +498,8 @@ release_builder() {
   )"
   [[ "$public_fingerprint" == "$fingerprint" ]] \
     || fail 'tracked public key does not match the release fingerprint variable'
+
+  note_nix_cache "$release_tag"
 
   run_manual_workflow \
     release.yml \
@@ -540,6 +584,10 @@ case "$command_name" in
   validate-dev)
     (($# == 1)) || fail 'validate-dev takes no arguments'
     validate_dev_builder
+    ;;
+  nix-cache)
+    (($# == 1)) || fail 'nix-cache takes no arguments'
+    nix_cache_builder
     ;;
   release)
     (($# == 2)) || fail 'release requires exactly one TAG'

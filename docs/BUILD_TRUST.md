@@ -171,9 +171,10 @@ The public GitHub workflows are part of the reviewable build instructions:
 - build jobs have no package-signing or release-publication secret; the only
   publication credential is a per-cache Cachix token scoped to Nix outputs;
 - a separate `release-signing` environment receives only the secret subkey;
-- publication re-verifies the signed tree without any secret key, exercises
-  isolated APT and DNF clients, and publishes the draft GitHub Release only
-  after Pages deployment succeeds;
+- before anything is published, jobs without any secret key re-verify the
+  signed tree and exercise isolated APT, DNF and APK clients; the draft
+  GitHub Release is published only after the Pages deployment and the
+  upload to `packages.denialwm.org` succeed;
 - the release page exposes every signed Arch, Debian-family, and Fedora
   package together with its detached signature and the signed complete
   checksum manifest.

@@ -1,0 +1,180 @@
+name: Build and cache Denial's Nix packages
+run-name: Build Nix packages of ${{ github.ref_name }} at ${{ github.sha }}
+
+# Main's Nix packages and checks build here, apart from the package
+# candidate, so a release does not wait for them. Only a person starts this
+# run, with `tools/denial-builder nix-cache`: it costs the builder's CPU time.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denial-nix-cache-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and cache main's Nix packages and checks
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - denial-builder
+    timeout-minutes: 180
+
+    steps:
+      - name: Require a fresh runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          entries=(*)
+          if ((${#entries[@]} != 0)); then
+            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+      - name: Define isolated paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'EVIDENCE_ROOT=%s\n' \
+            "$RUNNER_TEMP/denial-nix-evidence" >>"$GITHUB_ENV"
+
+      - name: Check out the exact dispatched commit
+        shell: bash
+        env:
+          DENIAL_CHECKOUT_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          askpass="$RUNNER_TEMP/denial-git-askpass"
+          trap 'rm -f -- "$askpass"' EXIT
+          umask 077
+          # The parameter expansions below are literal askpass-script source.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'case "${1:-}" in' \
+            '  *Username*) printf "%s\n" x-access-token ;;' \
+            '  *Password*) printf "%s\n" "${DENIAL_CHECKOUT_TOKEN:?}" ;;' \
+            '  *) exit 1 ;;' \
+            'esac' \
+            >"$askpass"
+          chmod 0700 "$askpass"
+
+          git init --initial-branch=main .
+          git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
+          GIT_ASKPASS="$askpass" \
+          GIT_ASKPASS_REQUIRE=force \
+          GIT_TERMINAL_PROMPT=0 \
+          git -c protocol.version=2 fetch \
+            --no-tags \
+            origin \
+            "$EXPECTED_SHA"
+          git checkout -B main FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Audit builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$EVIDENCE_ROOT"
+          tools/denial-release doctor --ci --branch main \
+            2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
+
+      - name: Require Cachix write credential
+        shell: bash
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CACHIX_AUTH_TOKEN" ]]; then
+            printf '%s\n' \
+              'CACHIX_AUTH_TOKEN must be a repository Actions secret.' >&2
+            exit 1
+          fi
+
+      - name: Build cacheable Nix package and checks
+        id: nix_cache_build
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/build-denial-nix-cache \
+            "$GITHUB_WORKSPACE" \
+            /srv/denial-builder/cache/nix-roots/main \
+            "$EVIDENCE_ROOT/nix-cache-paths.txt" \
+            2> >(tee "$EVIDENCE_ROOT/nix-build.txt" >&2)
+          cache_name="$(jq -er '.name' nix/cachix-cache.json)"
+          cache_paths="$(paste -sd ' ' "$EVIDENCE_ROOT/nix-cache-paths.txt")"
+          [[ -n "$cache_paths" && "$cache_paths" != *$'\n'* ]]
+          {
+            printf 'cache_name=%s\n' "$cache_name"
+            printf 'paths=%s\n' "$cache_paths"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Resolve pinned Cachix CLI
+        id: cachix_cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t cachix_paths < <(
+            nix build \
+              .#denial-cachix-cli \
+              --accept-flake-config \
+              --no-link \
+              --print-out-paths
+          )
+          ((${#cachix_paths[@]} == 1))
+          cachix_bin="${cachix_paths[0]}/bin/cachix"
+          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
+          test -x "$cachix_bin"
+          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
+
+      # The action pushes in its post step, at the end of the job.
+      - name: Publish Nix closures to Cachix
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ steps.nix_cache_build.outputs.cache_name }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
+          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
+          skipAddingSubstituter: true
+
+      - name: Collect failed build diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failure_root="$RUNNER_TEMP/denial-nix-failure"
+          install -d -m 0755 "$failure_root"
+          if [[ -d "${EVIDENCE_ROOT:-}" ]]; then
+            cp -a -- "$EVIDENCE_ROOT" "$failure_root/evidence"
+          fi
+          # The job log keeps only the tail of a failed Nix build; keep the
+          # full builder logs here.
+          if [[ -f "${EVIDENCE_ROOT:-}/nix-build.txt" ]]; then
+            install -d -m 0755 "$failure_root/nix-logs"
+            { grep -E "builder for|Cannot build" "$EVIDENCE_ROOT/nix-build.txt" || true; } \
+              | grep -oE "/nix/store/[a-z0-9]{32}-[^' ]+\.drv" \
+              | sort --unique \
+              | while read -r drv; do
+                  nix log "$drv" >"$failure_root/nix-logs/${drv##*/}.log" 2>&1 || true
+                done
+          fi
+
+      - name: Upload failed build diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-nix-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/denial-nix-failure
+          if-no-files-found: ignore
+          retention-days: 1
+          compression-level: 0
