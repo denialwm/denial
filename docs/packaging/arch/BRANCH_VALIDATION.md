@@ -9,10 +9,10 @@ independently verifies an installable development candidate, the Arch
 packages for x86-64 and aarch64, within about ten minutes. That candidate
 uses package release `0` and is explicitly ineligible for signing or
 publication. Its Rust is built for speed (`compile_mode=fast-release`: no LTO,
-sixteen codegen units), it skips the Nix build and the Debian, RPM and Alpine
-archives, and a push whose changes since the last built, green `dev` commit
-touch only files no build, test or audit step reads (most of `docs/`, the
-phone package workflow and tools) reuses that validation without building.
+sixteen codegen units), it skips the Debian, RPM and Alpine archives, and
+a push whose changes since the last built, green `dev` commit touch only
+files no build, test or audit step reads (most of `docs/`, the phone package
+workflow and tools) reuses that validation without building.
 
 A push to `main` builds nothing. A GitHub-hosted authorization job accepts
 only a two-parent merge whose tree is exactly its validated `dev` parent,
@@ -41,33 +41,26 @@ For either trusted branch, the owner-operated x86-64 runner:
 
 1. checks out the exact pushed commit in a fresh ephemeral workspace;
 2. audits committed inputs and qualifies the builder;
-3. on `main`, starts building the Nix package and checks from its own
-   worktree of the same commit (`tools/build-denial-nix-cache`), in the
-   background beside steps 4 to 8, using the public Denial Cachix cache for
-   substitution; the job waits for it before assembling the candidate and
-   uploads those exact output paths to the cache, also when a package step
-   failed. The Nix daemon builds at idle CPU priority, so the package builds
-   keep the processor first;
-4. bootstraps the pinned Flutter and Rust toolchains;
-5. builds or reuses the native release Flutter Engine from the exact locked
+3. bootstraps the pinned Flutter and Rust toolchains;
+4. builds or reuses the native release Flutter Engine from the exact locked
    Denial Flutter and Skia fork commits;
-6. builds the release Flutter integration bundle;
-7. runs the Dart-only SDK tests, first-party plugin and Plugin Manager checks,
+5. builds the release Flutter integration bundle;
+6. runs the Dart-only SDK tests, first-party plugin and Plugin Manager checks,
    release-path Rust compositor tests, and the Flutter tool's non-pausing
    adapter tests, from a worktree in the background beside the package
    builds (`tools/test-denial-candidate-source`);
-8. builds and internally validates the two required runtime packages and the
+7. builds and internally validates the two required runtime packages and the
    optional Plugin Manager package as Arch archives, and on `main` also as
    Debian, RPM, and Alpine archives, without the paused legacy
    UI-development package;
-9. records package metadata, host inputs, checksums, toolchain versions, and
+8. records package metadata, host inputs, checksums, toolchain versions, and
    build logs;
-10. uploads the unsigned candidate artifact; and
-11. cross-builds the same three packages for aarch64 (Arch, and on `main`
+9. uploads the unsigned candidate artifact; and
+10. cross-builds the same three packages for aarch64 (Arch, and on `main`
     also Debian and RPM archives), then records and uploads them as a second
     unsigned candidate.
 
-The aarch64 build reruns steps 4, 5, 6 and 8 with `DENIAL_TARGET_ARCH=aarch64`
+The aarch64 build reruns steps 3, 4, 5 and 7 with `DENIAL_TARGET_ARCH=aarch64`
 from a worktree of the same commit, in the background while the x86-64 steps
 run (`tools/build-denial-aarch64-candidate`), with its own build and Rust
 target folders, using the same tools against the Arch Linux ARM root in
@@ -146,8 +139,22 @@ the engine cache from the committed fork source lock. The runner validates or
 provisions an exact, detached Flutter/Skia projection; it never inherits an
 editable source checkout. Exact artifact hits are checksum-verified no-ops,
 while compatible build outputs and locked projections may still be reused.
+## Nix packages
+
+Main's Nix packages and checks (`.#denial`, `.#denial-unstable`, the engine,
+and the lock, module, engine-cache and path contracts) build in their own
+workflow, `.github/workflows/nix-cache.yml`, on the same builder, which
+pushes the exact output paths to the public Denial Cachix cache. They do not
+gate the release: `tools/denial-builder validate` arms a second runner for
+them once the main candidate is green and leaves it running, so a release
+can start beside it. Every push still evaluates the flake and builds the
+lock and module checks on a hosted runner. A failed Nix run does not stop a
+release already under way; fix it on `dev` like any other failure. Run it
+alone, and watch it, with `tools/denial-builder nix-cache`. While it runs,
+its runner keeps `arm` from registering another.
+
 The Cachix write token is a repository Actions secret available only inside
-the disposable job. The workflow realizes its Cachix CLI from the flake's
+the disposable Nix job. The workflow realizes its Cachix CLI from the flake's
 locked Nixpkgs input and passes that exact executable to the pinned action; it
 does not depend on the action's mutable remote installer expression.
 

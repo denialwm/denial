@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Builds main's cacheable Nix packages and checks from one source tree and
-# writes their output paths, one per line. Main validation runs it in the
-# background beside the package builds, from its own worktree of the same
-# commit, and pushes the paths to Cachix once it ends. The Nix daemon builds
-# at idle CPU priority, so the package builds keep the processor first.
+# writes their output paths, one per line, for
+# .github/workflows/nix-cache.yml to push to Cachix.
 set -euo pipefail
 
 (($# == 3)) || {

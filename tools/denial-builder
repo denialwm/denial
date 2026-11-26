@@ -28,6 +28,7 @@ Usage:
   tools/denial-builder qualify
   tools/denial-builder validate-dev
   tools/denial-builder validate
+  tools/denial-builder nix-cache
   tools/denial-builder release TAG
   tools/denial-builder phone-packages
   tools/denial-builder status
@@ -44,6 +45,11 @@ Commands:
   validate-dev
            Arm a runner, build and independently verify a dev candidate.
   validate Arm a runner, build and independently verify a main production candidate.
+           Once it is green, arm another runner for main's Nix build and
+           leave it running: the release does not wait for it.
+  nix-cache
+           Arm a runner, build main's Nix packages and checks, push them
+           to Cachix, and watch it.
   release TAG
            Promote, sign, verify, and publish an existing main candidate.
   phone-packages
@@ -310,6 +316,7 @@ run_manual_workflow() (
   local run_label="$2"
   local workflow_ref="$3"
   local requires_runner="${4:-1}"
+  local watch="${5:-1}"
   local armed=0
   local dispatched_at
   local run_id=''
@@ -355,6 +362,13 @@ run_manual_workflow() (
   [[ -n "$run_id" ]] || fail 'could not locate the dispatched workflow run'
 
   printf '%s run: %s\n' "$run_label" "$run_id"
+  if [[ "$watch" == 0 ]]; then
+    # The ephemeral runner leaves after its one job.
+    printf 'Not waiting for it: https://github.com/%s/actions/runs/%s\n' \
+      "$REPOSITORY" "$run_id"
+    trap - EXIT
+    return 0
+  fi
   set +e
   timeout \
     --foreground \
@@ -388,6 +402,19 @@ validate_builder() {
     branch-validation.yml \
     'Main production validation' \
     main
+  run_manual_workflow \
+    nix-cache.yml \
+    'Main Nix cache build' \
+    main \
+    1 \
+    0
+}
+
+nix_cache_builder() {
+  run_manual_workflow \
+    nix-cache.yml \
+    'Main Nix cache build' \
+    main
 }
 
 validate_dev_builder() {
@@ -402,6 +429,36 @@ phone_packages_builder() {
     phone-packages.yml \
     'Phone packages' \
     main
+}
+
+# Nix does not gate a release; say where its run of the tagged commit stands.
+warn_nix_cache() {
+  local release_tag="$1"
+  local source_sha
+  local nix_run
+
+  source_sha="$(
+    gh api "repos/${REPOSITORY}/commits/${release_tag}" --jq '.sha' 2>/dev/null
+  )" || source_sha=''
+  [[ -n "$source_sha" ]] || return 0
+  nix_run="$(
+    gh api \
+      "repos/${REPOSITORY}/actions/workflows/nix-cache.yml/runs?branch=main&per_page=20" \
+      --jq "[.workflow_runs[] | select(.head_sha == \"${source_sha}\")] | first
+        | if . == null then \"\" else \"\\(.status) \\(.conclusion // \"\") \\(.html_url)\" end" \
+      2>/dev/null
+  )" || nix_run=''
+  case "$nix_run" in
+    'completed success '*) ;;
+    '')
+      printf 'WARNING: no Nix cache run for %s; Nix users build it themselves.\n' \
+        "$release_tag" >&2
+      ;;
+    *)
+      printf 'WARNING: the Nix cache run for %s is not green: %s\n' \
+        "$release_tag" "$nix_run" >&2
+      ;;
+  esac
 }
 
 release_builder() {
@@ -456,6 +513,8 @@ release_builder() {
   )"
   [[ "$public_fingerprint" == "$fingerprint" ]] \
     || fail 'tracked public key does not match the release fingerprint variable'
+
+  warn_nix_cache "$release_tag"
 
   run_manual_workflow \
     release.yml \
@@ -540,6 +599,10 @@ case "$command_name" in
   validate-dev)
     (($# == 1)) || fail 'validate-dev takes no arguments'
     validate_dev_builder
+    ;;
+  nix-cache)
+    (($# == 1)) || fail 'nix-cache takes no arguments'
+    nix_cache_builder
     ;;
   release)
     (($# == 2)) || fail 'release requires exactly one TAG'
