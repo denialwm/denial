@@ -288,6 +288,14 @@ package version automatically. Increment the virtual ABI only when Denial and
 the engine are no longer runtime-compatible; reserve `pkgrel` for a
 packaging-only correction to one tagged release.
 
+`packaging/flutter-engine-abi.json` records the current capability with the
+embedder header and generated bindings checksums it was issued for.
+`tools/denial-release source-audit`, which every validation runs, fails when
+the engine manifests carry other checksums, or when any pin names another
+capability. A changed interface therefore raises the capability, in every
+pin and in the record; when the previous engine demonstrably still runs the
+new Denial, only the checksums are recorded again.
+
 The runtime package takes its release identity from the tag while advertising
 the versioned virtual capability separately:
 

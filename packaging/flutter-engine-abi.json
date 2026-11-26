@@ -1,0 +1,5 @@
+{
+  "capability": "3.47.5.denial2",
+  "denial_embedder_header_sha256": "e792c1537e5c494fb87f88f4b7cb1f7b47bf4e4aaa493ef4410309185095b213",
+  "generated_rust_bindings_sha256": "526a05b0ad7eba363b00fbaea36d9aa0aa9c4a1d05f9435f75652b89f5907ac1"
+}

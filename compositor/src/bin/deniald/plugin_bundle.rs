@@ -611,7 +611,7 @@ mod tests {
         set_manifest_field(
             &bundle,
             "flutter_generation",
-            serde_json::json!("3.44.7.denial1"),
+            serde_json::json!("an-older-generation"),
         );
         assert_eq!(
             validate_bundle(&bundle, &official).unwrap_err().update,
