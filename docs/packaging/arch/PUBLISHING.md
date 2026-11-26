@@ -1130,8 +1130,8 @@ Publication order is:
 4. verify that every metadata entry resolves to an existing signed package;
 5. upload the tree to `packages.denialwm.org` with
    `tools/publish-denial-packages`;
-6. upload the release assets to a draft GitHub Release;
-7. deploy the complete tree as one Pages artifact;
+6. beside step 5, upload the release assets to a draft GitHub Release;
+7. then deploy the complete tree as one Pages artifact;
 8. publish the draft release only after both hosts succeed.
 
 `tools/publish-denial-packages` uploads files with new names first and swaps
