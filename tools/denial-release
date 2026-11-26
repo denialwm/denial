@@ -589,7 +589,7 @@ source_audit() {
       and .package.version_source == "denial-release-tag"
       and .package.epoch == 1
       and .package.architecture == "x86_64"
-      and .compatibility.flutter_engine_abi == "3.47.5.denial1"
+      and .compatibility.flutter_engine_abi == "3.47.5.denial2"
       and .assurances.offline_source_closure == false
       and .assurances.reproducible_package == false
       and .assurances.signed_generation_tags == false
@@ -617,7 +617,7 @@ source_audit() {
       and .package.name == "denial-ui-development"
       and .package.architecture == "x86_64"
       and .compatibility.denial_ui_development_api == 1
-      and .compatibility.flutter_engine_abi == "3.47.5.denial1"
+      and .compatibility.flutter_engine_abi == "3.47.5.denial2"
       and .runtime.engine_mode == "debug-jit"
       and .runtime.flutter_tool_snapshot_kind == "app-aot-elf"
       and .runtime.flutter_tool_runtime == "dartaotruntime"
@@ -868,6 +868,34 @@ source_audit() {
     'generated Rust ABI hash matches generation manifest' \
     "$(jq -r '.abi.generated_rust_bindings_sha256' "$manifest")" \
     "$(file_sha256 "$ROOT/compositor/flutter-engine/src/sys.rs")"
+  # The engine ABI capability names one engine interface: the fork's
+  # embedder header and the bindings generated from it. When they change,
+  # the capability moves with them, or pacman pairs a Denial with an engine
+  # it cannot drive (0.6.9 kept 0.6.8's).
+  local abi_record="$ROOT/packaging/flutter-engine-abi.json"
+  local abi_capability abi_manifest abi_field abi_pins
+  abi_capability="$(jq -r '.capability' "$abi_record")"
+  for abi_manifest in "$manifest" "$arm64_manifest"; do
+    for abi_field in denial_embedder_header_sha256 generated_rust_bindings_sha256; do
+      if [[ "$(jq -r ".abi.$abi_field" "$abi_manifest")" \
+        == "$(jq -r ".$abi_field" "$abi_record")" ]]; then
+        pass "$(basename -- "$abi_manifest") $abi_field is engine ABI $abi_capability's"
+      else
+        fail "$(basename -- "$abi_manifest") $abi_field changed since engine ABI $abi_capability: raise the capability everywhere it is pinned and record it with the new checksums in packaging/flutter-engine-abi.json; record the checksums alone only when the previous engine still runs this Denial"
+      fi
+    done
+  done
+  # Every place that pins the capability names the recorded one.
+  abi_pins="$(
+    git -C "$ROOT" grep -n -o -E '[0-9]+\.[0-9]+\.[0-9]+\.denial[0-9]+' -- \
+      compositor tools packaging docs/packaging/arch/README.md \
+      | awk -F: -v capability="$abi_capability" '$NF != capability' || true
+  )"
+  if [[ -z "$abi_pins" ]]; then
+    pass "every engine ABI pin names $abi_capability"
+  else
+    fail "engine ABI pins other than $abi_capability: $(tr '\n' ' ' <<<"$abi_pins")"
+  fi
   check_equal \
     'GN arguments hash matches generation manifest' \
     "$(jq -r '.artifacts.gn_args_sha256' "$manifest")" \

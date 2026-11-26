@@ -185,8 +185,12 @@ if [[ -z "$XDG_DESKTOP_PORTAL_FRONTEND" ]]; then
 fi
 LEGACY_SESSION_FILE="${DENIAL_LEGACY_SESSION_FILE:-/usr/share/wayland-sessions/denial-rs.desktop}"
 AVAILABLE_CPUS="$(nproc)"
+DEDICATED_BUILDER=0
 if [[ "${GITHUB_ACTIONS:-}" == true \
     || "${DENIAL_PC_DEDICATED_BUILDER:-0}" == 1 ]]; then
+    DEDICATED_BUILDER=1
+fi
+if ((DEDICATED_BUILDER)); then
     DEFAULT_BUILD_JOBS="$AVAILABLE_CPUS"
 elif ((AVAILABLE_CPUS > 4)); then
     DEFAULT_BUILD_JOBS=$((AVAILABLE_CPUS - 4))
@@ -971,13 +975,21 @@ build_native_application() (
     fi
 )
 
-build_polkit_agent() (
+build_polkit_backend() {
+    run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" "${CARGO_TARGET_ARGS[@]}" -p denial-polkit-agent
+}
+
+build_polkit_dialog() (
     prepare_flutter_toolchain
     prepare_sdk_package
     "$ROOT/tools/denial-flutter-engine" prepare-app-build
-    run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" "${CARGO_TARGET_ARGS[@]}" -p denial-polkit-agent
     build_native_application polkit_app denial-app "$DIALOG_BUNDLE"
 )
+
+build_polkit_agent() {
+    build_polkit_backend
+    build_polkit_dialog
+}
 
 run_polkit_agent() {
     local bundle="$DIALOG_BUNDLE"
@@ -1208,13 +1220,64 @@ build_compositor() {
         "$BINARY" "$CONTROL_BINARY" "$PORTAL_BINARY"
 }
 
-build_all() {
+# Settings and the compositor's Rust programs read nothing the Flutter and
+# Dart steps write, so on a dedicated builder they build in the background
+# beside them. Each Rust group has its own Cargo target; Flutter commands stay
+# one after another. Elsewhere each step takes the CPUs left to builds in turn.
+build_all() (
+    local logs settings_pid rust_pid status=0
+    if ((!DEDICATED_BUILDER)); then
+        build_bundle
+        build_settings
+        build_plugin_manager
+        build_polkit_agent
+        build_compositor
+        return
+    fi
+    mkdir -p -- "$BUILD_ROOT"
+    logs="$(mktemp -d "$BUILD_ROOT/build-logs.XXXXXX")"
+    # A failed foreground step stops what still builds in the background,
+    # Cargo and its compilers included.
+    # shellcheck disable=SC2329
+    stop_tree() {
+        local child
+        for child in $(pgrep -P "$1" 2>/dev/null); do stop_tree "$child"; done
+        kill -- "$1" 2>/dev/null || true
+    }
+    # shellcheck disable=SC2329
+    stop_background() {
+        [[ -z "${settings_pid:-}" ]] || stop_tree "$settings_pid"
+        [[ -z "${rust_pid:-}" ]] || stop_tree "$rust_pid"
+        rm -rf -- "$logs"
+    }
+    trap stop_background EXIT
+    build_settings >"$logs/settings.log" 2>&1 &
+    settings_pid=$!
+    {
+        build_compositor
+        build_polkit_backend
+    } >"$logs/rust.log" 2>&1 &
+    rust_pid=$!
+    printf 'Building Settings and the compositor in the background\n'
+
     build_bundle
-    build_settings
     build_plugin_manager
-    build_polkit_agent
-    build_compositor
-}
+    build_polkit_dialog
+
+    # finish NAME PID LOG
+    finish() {
+        local result=0
+        wait "$2" || result=$?
+        printf '\n--- %s (exit %s) ---\n' "$1" "$result"
+        cat -- "$3"
+        ((result == 0)) || status=$result
+    }
+    finish Settings "$settings_pid" "$logs/settings.log"
+    finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
+    settings_pid=''
+    rust_pid=''
+    exit "$status"
+)
 
 test_compositor() {
     local -a kernel_test_filters=()

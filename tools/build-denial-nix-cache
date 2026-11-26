@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Builds main's cacheable Nix packages and checks from one source tree and
+# writes their output paths, one per line, for
+# .github/workflows/nix-cache.yml to push to Cachix.
+set -euo pipefail
+
+(($# == 3)) || {
+  printf 'Usage: build-denial-nix-cache SOURCE_ROOT GC_ROOT_DIR PATHS_FILE\n' >&2
+  exit 2
+}
+source_root="$(realpath -e -- "$1")"
+gc_roots="$2"
+paths_file="$3"
+
+# The newest build of each branch stays a GC root, so cleaning the store
+# keeps what the next run would otherwise rebuild.
+mkdir -p -- "$gc_roots"
+mapfile -t nix_paths < <(
+  nix build \
+    "$source_root#denial" \
+    "$source_root#denial-flutter" \
+    "$source_root#denial-flutter-engine-raw" \
+    "$source_root#denial-unstable" \
+    "$source_root#checks.x86_64-linux.locks" \
+    "$source_root#checks.x86_64-linux.module" \
+    "$source_root#checks.x86_64-linux.module-unstable" \
+    "$source_root#checks.x86_64-linux.engine-manifest" \
+    "$source_root#checks.x86_64-linux.engine-cache" \
+    "$source_root#checks.x86_64-linux.engine-cache-unstable" \
+    "$source_root#checks.x86_64-linux.path-contract" \
+    --accept-flake-config \
+    --max-jobs 3 \
+    --cores 16 \
+    --out-link "$gc_roots/result" \
+    --print-out-paths
+)
+((${#nix_paths[@]} == 11)) || {
+  printf 'build-denial-nix-cache: expected 11 output paths, got %d\n' \
+    "${#nix_paths[@]}" >&2
+  exit 1
+}
+for path in "${nix_paths[@]}"; do
+  [[ "$path" == /nix/store/* ]] || {
+    printf 'build-denial-nix-cache: not a store path: %s\n' "$path" >&2
+    exit 1
+  }
+done
+printf '%s\n' "${nix_paths[@]}" | sort --unique >"$paths_file"
+cat -- "$paths_file"

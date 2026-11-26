@@ -224,9 +224,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     install -Dm644 \
       ${settingsApp}/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png \
       $out/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
-    install -Dm644 \
-      ${settingsApp}/share/polkit-1/actions/org.denialwm.settings.policy \
-      $out/share/polkit-1/actions/org.denialwm.settings.policy
     install -d $out/share/licenses/denial
     cp --recursive ${settingsApp}/share/licenses/denial/settings \
       $out/share/licenses/denial/settings
@@ -349,7 +346,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     test -x $out/bin/denial-polkit-agent
     test -x $out/lib/denial/polkit/denial-app
     test "$(readlink $out/bin/denial-settings)" = ../lib/denial-apps/settings
-    test -x $out/lib/denial-apps/wifi-country
     test -x $out/bin/denial-session
     test -f $out/lib/denial/flutter/data/icudtl.dat
     test -f $out/lib/denial/flutter/lib/libapp.so

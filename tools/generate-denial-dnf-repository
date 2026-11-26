@@ -110,7 +110,7 @@ for package_root in "${package_roots[@]}"; do
     "$ROOT/tools/verify-denial-package-payload" \
       rpm "$destination" "$expected_payload"
     "$ROOT/tools/verify-denial-native-package-metadata" \
-      rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial1' 2.39 \
+      rpm "$destination" "$VERSION" "$RELEASE" '3.47.5.denial2' 2.39 \
       "$architecture"
     package_names+=("$package_name")
   done

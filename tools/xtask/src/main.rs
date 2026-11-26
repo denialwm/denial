@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 
-const FLUTTER_ENGINE_ABI: &str = "3.47.5.denial1";
+const FLUTTER_ENGINE_ABI: &str = "3.47.5.denial2";
 const FLUTTER_SDK_VERSION: &str = "3.47.5";
 const CANONICAL_FLUTTER_SOURCE: &str = "/mnt/exty/denial-flutter-fork-3.44.7";
 const UI_PACKAGE_NAME: &str = "denial-ui-development";

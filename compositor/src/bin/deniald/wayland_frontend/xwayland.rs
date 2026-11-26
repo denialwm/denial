@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::os::fd::OwnedFd;
 use std::process::Stdio;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use denial_core::topology::SCALE_BASE;
@@ -13,7 +14,7 @@ use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
 use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size};
-use smithay::wayland::compositor::CompositorClientState;
+use smithay::wayland::compositor::{CompositorClientState, add_pre_commit_hook, with_states};
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::SelectionTarget;
 use smithay::wayland::selection::data_device::{
@@ -23,7 +24,9 @@ use smithay::wayland::selection::data_device::{
 use smithay::wayland::xwayland_keyboard_grab::{
     XWaylandKeyboardGrabHandler, XWaylandKeyboardGrabState,
 };
-use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
+use smithay::wayland::xwayland_shell::{
+    XWaylandShellCachedState, XWaylandShellHandler, XWaylandShellState,
+};
 use smithay::xwayland::xwm::settings::Value as XSettingValue;
 use smithay::xwayland::xwm::{Reorder, ResizeEdge, WmWindowProperty, XwmId};
 use smithay::xwayland::{
@@ -254,6 +257,42 @@ pub(super) fn client_compositor_state(client: &Client) -> Option<&CompositorClie
 
 pub(super) fn is_client(client: &Client) -> bool {
     client.get_data::<XWaylandClientData>().is_some()
+}
+
+/// The Xwayland serial this surface last handed to Smithay.
+struct PassedXwaylandSerial(Mutex<Option<u64>>);
+
+/// Lets each Xwayland serial reach Smithay's xwayland_shell commit hook once.
+///
+/// Smithay keeps a surface's serial pending after every commit, and its hook
+/// adds a destruction hook on each commit that does not pair the serial, so a
+/// window drawing at 240 fps gained 240 hooks a second until it closed. The
+/// first commit with a serial is enough: it pairs the surface with a waiting
+/// X11 window, or records the serial so the X11 side pairs through it later.
+/// Denial installs this hook when the surface is created, before Xwayland
+/// asks for its xwayland_shell role, so it runs before Smithay's.
+pub(super) fn pass_each_serial_once(surface: &WlSurface) {
+    add_pre_commit_hook::<RuntimeState, _>(surface, |_state, _display, surface| {
+        with_states(surface, |states| {
+            let mut cached = states.cached_state.get::<XWaylandShellCachedState>();
+            let pending = cached.pending();
+            let Some(serial) = pending.serial else {
+                return;
+            };
+            let passed = states
+                .data_map
+                .get_or_insert_threadsafe(|| PassedXwaylandSerial(Mutex::new(None)));
+            let mut passed = passed
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *passed == Some(serial) {
+                pending.serial = None;
+            } else {
+                *passed = Some(serial);
+            }
+        });
+    });
 }
 
 pub(super) fn surface_client_scale(surface: &WlSurface) -> Option<f64> {

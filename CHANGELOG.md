@@ -154,8 +154,10 @@ boundaries may change before 1.0.
   light is on or off in a colour, purple until another is chosen, and the
   lights can go dark with the screen. Denial sets them at startup and
   keeps them as chosen (`lights`).
-- Settings switches bypass charging on batteries whose driver offers it: the
-  device runs from the charger and the battery neither charges nor drains.
+- Settings switches bypass charging on batteries whose driver offers it and
+  whose `charge_behaviour` the session may write, as Phonewave's udev rule
+  allows on a phone: the device runs from the charger and the battery
+  neither charges nor drains.
 
 ### Changed
 
@@ -197,12 +199,20 @@ boundaries may change before 1.0.
 
 ### Removed
 
+- Denial no longer installs a Wi-Fi country helper or a polkit action for
+  Settings. The Wi-Fi country row shows only where the system provides the
+  helper, as Phonewave does on a phone; elsewhere the country is the
+  system's to set.
 - The Skia renderer. Denial engines are Impeller-only Slimpeller builds, and
   deniald no longer accepts `--flutter-renderer`; `denial-app` no longer
   accepts `--renderer`.
 
 ### Fixed
 
+- The `denial` package requires the engine it was built for. 0.6.9 talks to
+  the engine through the scene composer, but still accepted the 0.6.8
+  engine, which leaves the shell blank; the engine compatibility capability
+  is now `denial-flutter-engine-abi=3.47.5.denial2`.
 - The on-screen keyboard types the character on its key whatever the
   keyboard layout. It used to type through US key positions, so with French
   set `a` typed `q`. A character the layout reaches only with AltGr, such as

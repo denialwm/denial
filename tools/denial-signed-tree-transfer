@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Moves the signed release tree between release jobs in a smaller archive.
+# The tree holds the same package twice: a direct download beside its APT or
+# DNF repository copy. `pack` stores each set of identical files once, as hard
+# links inside the archive; `unpack` extracts it, turns every link back into
+# an ordinary file, as tools/denial-repository requires of the tree, and
+# checks the tree against its SHA256SUMS.
+set -euo pipefail
+
+fail() {
+  printf 'denial-signed-tree-transfer: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  printf '%s\n' \
+    'Usage: denial-signed-tree-transfer pack SIGNED_ROOT ARCHIVE' \
+    '       denial-signed-tree-transfer unpack ARCHIVE SIGNED_ROOT' >&2
+  exit 2
+}
+
+pack() {
+  local signed_root archive
+  signed_root="$(realpath -e -- "$1")"
+  archive="$(realpath -m -- "$2")"
+  [[ -f "$signed_root/SHA256SUMS" ]] \
+    || fail "not a signed release tree: $signed_root"
+  [[ -z "$(find "$signed_root" -type f -links +1 -print -quit)" ]] \
+    || fail "the signed tree already holds hard links: $signed_root"
+  # Links made in a copy of links leave the signed tree as it is.
+  stage="$(mktemp -d "$(dirname -- "$signed_root")/denial-signed-transfer.XXXXXX")"
+  trap 'rm -rf --one-file-system -- "${stage:?}"' EXIT
+  cp -al -- "$signed_root/." "$stage/"
+  local hash path previous_hash='' first='' linked=0
+  while read -r hash path; do
+    if [[ "$hash" == "$previous_hash" ]]; then
+      ln -f -- "$stage/$first" "$stage/$path"
+      linked=$((linked + 1))
+    else
+      previous_hash="$hash"
+      first="$path"
+    fi
+  done < <(
+    cd -- "$stage"
+    find . -type f -size +0 -print0 \
+      | xargs -0 sha256sum -- \
+      | sort
+  )
+  tar --create --file="$archive" --directory="$stage" .
+  printf 'Packed %s with %d duplicate files stored once: %s\n' \
+    "$signed_root" "$linked" "$(du -h -- "$archive" | cut -f1)"
+}
+
+unpack() {
+  local archive signed_root path copy
+  archive="$(realpath -e -- "$1")"
+  signed_root="$(realpath -m -- "$2")"
+  install -d -m 0755 "$signed_root"
+  [[ -z "$(find "$signed_root" -mindepth 1 -print -quit)" ]] \
+    || fail "output directory is not empty: $signed_root"
+  tar \
+    --extract \
+    --file="$archive" \
+    --directory="$signed_root" \
+    --no-same-owner
+  while IFS= read -r -d '' path; do
+    copy="$(mktemp "${path}.XXXXXX")"
+    cp --preserve=mode,timestamps -- "$path" "$copy"
+    mv -f -- "$copy" "$path"
+  done < <(find "$signed_root" -type f -links +1 -print0)
+  [[ -z "$(find "$signed_root" -type f -links +1 -print -quit)" ]] \
+    || fail "hard links remain in $signed_root"
+  (
+    cd -- "$signed_root"
+    sha256sum --check --strict --quiet SHA256SUMS
+  ) || fail "the unpacked tree does not match its SHA256SUMS"
+  printf 'Unpacked %s\n' "$signed_root"
+}
+
+(($# == 3)) || usage
+case "$1" in
+  pack) pack "$2" "$3" ;;
+  unpack) unpack "$2" "$3" ;;
+  *) usage ;;
+esac

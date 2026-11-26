@@ -19,8 +19,6 @@ holds what Denial adds.
 |---|---|
 | `/usr/lib/denial-apps/settings` | The program |
 | `/usr/bin/denial-settings` | A link to it; the shell and the compositor start this name. The entries name the program itself: a phone image that predates this keeps pacman from unpacking the link |
-| `/usr/lib/denial-apps/wifi-country` | Its helper that sets the Wi-Fi country, run through pkexec |
-| `/usr/share/polkit-1/actions/org.denialwm.settings.policy` | The polkit action that names the helper |
 | `/usr/share/applications/org.denialwm.{Settings,Welcome}.desktop` | The two entries |
 | `/usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png` | The icon |
 | `/usr/share/licenses/denial/settings/` | denial-apps' license notice and texts |

@@ -35,7 +35,7 @@ sudo pacman -U /path/to/denial-plugin-manager-*.pkg.tar.zst
 All public archives take their version directly from the verified signed
 Denial tag. The engine uses a one-time epoch so tag-derived versions upgrade
 from the former Flutter-numbered package. Its independent virtual capability,
-`denial-flutter-engine-abi=3.47.5.denial1`, still enforces runtime
+`denial-flutter-engine-abi=3.47.5.denial2`, still enforces runtime
 compatibility.
 
 Live Flutter UI editing tooling remains separate so normal installations do

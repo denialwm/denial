@@ -257,7 +257,7 @@ Denial uses a named Flutter generation rather than treating
 compatibility capability is:
 
 ```text
-3.47.5.denial1
+3.47.5.denial2
 ```
 
 Its human-readable generation identifier is:
@@ -288,13 +288,21 @@ package version automatically. Increment the virtual ABI only when Denial and
 the engine are no longer runtime-compatible; reserve `pkgrel` for a
 packaging-only correction to one tagged release.
 
+`packaging/flutter-engine-abi.json` records the current capability with the
+embedder header and generated bindings checksums it was issued for.
+`tools/denial-release source-audit`, which every validation runs, fails when
+the engine manifests carry other checksums, or when any pin names another
+capability. A changed interface therefore raises the capability, in every
+pin and in the record; when the previous engine demonstrably still runs the
+new Denial, only the checksums are recorded again.
+
 The runtime package takes its release identity from the tag while advertising
 the versioned virtual capability separately:
 
 ```bash
 pkgver="${DENIAL_PACKAGE_VERSION}"
 epoch=1
-_flutter_generation=3.47.5.denial1
+_flutter_generation=3.47.5.denial2
 
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
 ```
@@ -308,7 +316,7 @@ provides=("denial-flutter-aot-generation=${_flutter_generation}")
 The Denial package declares:
 
 ```bash
-_flutter_generation=3.47.5.denial1
+_flutter_generation=3.47.5.denial2
 
 depends+=(
   denial-flutter-engine
@@ -1130,8 +1138,8 @@ Publication order is:
 4. verify that every metadata entry resolves to an existing signed package;
 5. upload the tree to `packages.denialwm.org` with
    `tools/publish-denial-packages`;
-6. upload the release assets to a draft GitHub Release;
-7. deploy the complete tree as one Pages artifact;
+6. beside step 5, upload the release assets to a draft GitHub Release;
+7. then deploy the complete tree as one Pages artifact;
 8. publish the draft release only after both hosts succeed.
 
 `tools/publish-denial-packages` uploads files with new names first and swaps
@@ -1148,6 +1156,12 @@ Pages deployment archives cannot contain symbolic or hard links, while
 `repo-add` commonly creates aliases such as `denial.db` and `denial.files` as
 symlinks. The signed tree materializes these aliases and their signatures as
 ordinary files.
+
+Between release jobs the signed tree travels as one archive made by
+`tools/denial-signed-tree-transfer pack`: a direct download and its APT or
+DNF repository copy are the same bytes, so the archive stores them once, as a
+hard link. `unpack` makes every file an ordinary file again and checks the
+tree against `SHA256SUMS` before a verifier or publisher reads it.
 
 ## Client configuration
 
