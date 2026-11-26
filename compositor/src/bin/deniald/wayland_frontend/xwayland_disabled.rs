@@ -82,6 +82,8 @@ pub(super) fn is_client(_client: &Client) -> bool {
     false
 }
 
+pub(super) fn pass_each_serial_once(_surface: &WlSurface) {}
+
 pub(super) fn surface_client_scale(_surface: &WlSurface) -> Option<f64> {
     None
 }

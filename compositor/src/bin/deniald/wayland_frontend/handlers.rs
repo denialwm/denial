@@ -1213,6 +1213,9 @@ impl CompositorHandler for RuntimeState {
         }
         install_surface_readiness_hook(surface);
         install_layer_surface_unmap_compatibility_hooks(surface);
+        if xwayland::is_client(&client) {
+            xwayland::pass_each_serial_once(surface);
+        }
         with_states(surface, |states| {
             states
                 .data_map
