@@ -140,6 +140,8 @@ jobs:
             printf 'DENIAL_FLUTTER_ENGINE_JOBS=%s\n' '16'
             printf 'EVIDENCE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence"
+            printf 'BACKGROUND_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-background"
             printf 'CANDIDATE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-candidate"
             printf 'CANDIDATE_ARCHIVE=%s\n' \
@@ -219,82 +221,30 @@ jobs:
             exit 1
           fi
 
-      - name: Build cacheable Nix package and checks
+      # Main's Nix packages and checks build from their own worktree of the
+      # same commit, in the background beside the package builds, and are
+      # waited for and pushed to Cachix before the candidate is assembled.
+      - name: Start the cacheable Nix build
         if: github.ref == 'refs/heads/main'
-        id: nix_cache_build
+        id: nix_start
         shell: bash
         run: |
           set -euo pipefail
-          cache_name="$(jq -er '.name' nix/cachix-cache.json)"
-          # The newest build of each branch stays a GC root, so cleaning
-          # the store keeps what the next run would otherwise rebuild.
-          nix_roots="/srv/denial-builder/cache/nix-roots/$VALIDATION_BRANCH"
-          mkdir -p "$nix_roots"
-          mapfile -t nix_paths < <(
-            nix build \
-              .#denial \
-              .#denial-flutter \
-              .#denial-flutter-engine-raw \
-              .#denial-unstable \
-              .#checks.x86_64-linux.locks \
-              .#checks.x86_64-linux.module \
-              .#checks.x86_64-linux.module-unstable \
-              .#checks.x86_64-linux.engine-manifest \
-              .#checks.x86_64-linux.engine-cache \
-              .#checks.x86_64-linux.engine-cache-unstable \
-              .#checks.x86_64-linux.path-contract \
-              --accept-flake-config \
-              --max-jobs 3 \
-              --cores 16 \
-              --out-link "$nix_roots/result" \
-              --print-out-paths \
-              2> >(tee "$EVIDENCE_ROOT/nix-build.txt" >&2)
-          )
-          ((${#nix_paths[@]} == 11))
-          for path in "${nix_paths[@]}"; do
-            [[ "$path" == /nix/store/* ]]
-          done
-          printf '%s\n' "${nix_paths[@]}" \
-            | sort --unique \
-            | tee "$EVIDENCE_ROOT/nix-cache-paths.txt"
-          cache_paths="$(paste -sd ' ' "$EVIDENCE_ROOT/nix-cache-paths.txt")"
-          [[ "$cache_paths" != *$'\n'* ]]
-          {
-            printf 'cache_name=%s\n' "$cache_name"
-            printf 'paths=%s\n' "$cache_paths"
-          } >>"$GITHUB_OUTPUT"
-
-      - name: Resolve pinned Cachix CLI
-        if: github.ref == 'refs/heads/main'
-        id: cachix_cli
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t cachix_paths < <(
-            nix build \
-              .#denial-cachix-cli \
-              --accept-flake-config \
-              --no-link \
-              --print-out-paths
-          )
-          ((${#cachix_paths[@]} == 1))
-          cachix_bin="${cachix_paths[0]}/bin/cachix"
-          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
-          test -x "$cachix_bin"
-          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
-
-      # The action pushes in its post step, at the end of the job, also when
-      # a later step fails. Set up here, it keeps what the Nix build made,
-      # the engine above all, out of the next run's work.
-      - name: Publish Nix closures to Cachix
-        if: github.ref == 'refs/heads/main'
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        with:
-          name: ${{ steps.nix_cache_build.outputs.cache_name }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
-          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
-          skipAddingSubstituter: true
+          install -d -m 0755 "$BACKGROUND_ROOT"
+          source_root="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-nix-source"
+          git worktree add --detach "$source_root" HEAD
+          # The script's expansions are its own arguments.
+          # shellcheck disable=SC2016
+          setsid nohup bash -c '
+            "$1/tools/build-denial-nix-cache" "$1" "$2" "$3" 2>"$4"
+            printf "%s\n" "$?" >"$5/nix.status"
+          ' bash \
+            "$source_root" \
+            "/srv/denial-builder/cache/nix-roots/$VALIDATION_BRANCH" \
+            "$EVIDENCE_ROOT/nix-cache-paths.txt" \
+            "$EVIDENCE_ROOT/nix-build.txt" \
+            "$BACKGROUND_ROOT" \
+            >"$BACKGROUND_ROOT/nix.log" </dev/null &
 
       - name: Bootstrap pinned development toolchains
         shell: bash
@@ -321,9 +271,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          background="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-background"
-          install -d -m 0755 "$background"
-          printf 'BACKGROUND_ROOT=%s\n' "$background" >>"$GITHUB_ENV"
+          install -d -m 0755 "$BACKGROUND_ROOT"
           # start NAME TOOL [VARIABLE=VALUE...]
           start() {
             local name="$1"
@@ -336,7 +284,7 @@ jobs:
             env "$@" setsid nohup bash -c '
               "$1/tools/$2" >"$3/$4.log" 2>&1
               printf "%s\n" "$?" >"$3/$4.status"
-            ' bash "$source_root" "$tool" "$background" "$name" </dev/null &
+            ' bash "$source_root" "$tool" "$BACKGROUND_ROOT" "$name" </dev/null &
           }
           aarch64_evidence="$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-aarch64-evidence"
           install -d -m 0755 "$aarch64_evidence"
@@ -393,6 +341,57 @@ jobs:
         shell: bash
         run: tools/wait-denial-background checks
 
+      # Before the evidence is assembled, which keeps the Nix log. Also
+      # after a failed step: the next run then substitutes what this one
+      # built, the engine above all, instead of building it again.
+      - name: Wait for the cacheable Nix build
+        if: ${{ !cancelled() && steps.nix_start.outcome == 'success' }}
+        id: nix_cache_build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! tools/wait-denial-background nix; then
+            tail -n 200 -- "$EVIDENCE_ROOT/nix-build.txt" >&2 || true
+            exit 1
+          fi
+          cache_name="$(jq -er '.name' nix/cachix-cache.json)"
+          cache_paths="$(paste -sd ' ' "$EVIDENCE_ROOT/nix-cache-paths.txt")"
+          [[ -n "$cache_paths" && "$cache_paths" != *$'\n'* ]]
+          {
+            printf 'cache_name=%s\n' "$cache_name"
+            printf 'paths=%s\n' "$cache_paths"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Resolve pinned Cachix CLI
+        if: ${{ !cancelled() && steps.nix_cache_build.outcome == 'success' }}
+        id: cachix_cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t cachix_paths < <(
+            nix build \
+              .#denial-cachix-cli \
+              --accept-flake-config \
+              --no-link \
+              --print-out-paths
+          )
+          ((${#cachix_paths[@]} == 1))
+          cachix_bin="${cachix_paths[0]}/bin/cachix"
+          [[ "$cachix_bin" == /nix/store/*/bin/cachix ]]
+          test -x "$cachix_bin"
+          printf 'bin=%s\n' "$cachix_bin" >>"$GITHUB_OUTPUT"
+
+      # The action pushes in its post step, at the end of the job.
+      - name: Publish Nix closures to Cachix
+        if: ${{ !cancelled() && steps.cachix_cli.outcome == 'success' }}
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: ${{ steps.nix_cache_build.outputs.cache_name }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix_cli.outputs.bin }}
+          pathsToPush: ${{ steps.nix_cache_build.outputs.paths }}
+          skipAddingSubstituter: true
+
       - name: Assemble candidate and build evidence
         shell: bash
         run: tools/assemble-denial-candidate x86_64
@@ -418,7 +417,6 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
           compression-level: 0
-
 
       - name: Collect failed build diagnostics
         if: ${{ failure() }}
@@ -576,9 +574,10 @@ jobs:
               'Package release 0 is ineligible for release signing or publication.'
           fi
 
+  # Beside the verification job: both gate the run, neither needs the other.
   rehearse-apk-promotion:
     name: Rehearse Alpine release promotion on hosted Ubuntu
-    needs: verify
+    needs: build
     if: >-
       github.ref == 'refs/heads/main'
       && github.event_name == 'workflow_dispatch'

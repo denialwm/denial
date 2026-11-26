@@ -41,9 +41,13 @@ For either trusted branch, the owner-operated x86-64 runner:
 
 1. checks out the exact pushed commit in a fresh ephemeral workspace;
 2. audits committed inputs and qualifies the builder;
-3. on `main`, builds the Nix package and checks, using the public Denial
-   Cachix cache for substitution, and uploads those exact output paths to it
-   at the end of the job, also when a later step fails;
+3. on `main`, starts building the Nix package and checks from its own
+   worktree of the same commit (`tools/build-denial-nix-cache`), in the
+   background beside steps 4 to 8, using the public Denial Cachix cache for
+   substitution; the job waits for it before assembling the candidate and
+   uploads those exact output paths to the cache, also when a package step
+   failed. The Nix daemon builds at idle CPU priority, so the package builds
+   keep the processor first;
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds or reuses the native release Flutter Engine from the exact locked
    Denial Flutter and Skia fork commits;
@@ -87,8 +91,8 @@ development payloads. The candidate also contains separately hashed neutral
 and Alpine-adapted staging trees, so the verifier compares every APK file and
 mode with the exact post-`gcompat`/`patchelf` payload.
 
-For `main`, two additional hosted jobs then execute the actual APK promotion
-script on Ubuntu 24.04, including its Bubblewrap/AppArmor setup, and execute
+For `main`, two additional hosted jobs, beside that verification job, execute
+the actual APK promotion script on Ubuntu 24.04, including its Bubblewrap/AppArmor setup, and execute
 the actual final APK publication verifier as root. They use the synthetic
 local tag `v0.0.0` and a one-day disposable signing key, so the release-only
 mechanics are proven before a public version tag exists.
