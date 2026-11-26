@@ -98,7 +98,6 @@ test -f %{buildroot}/usr/lib/denial/plugin-build-kit/kit.json
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
 test -x %{buildroot}/usr/lib/denial-apps/settings
-test -x %{buildroot}/usr/lib/denial-apps/wifi-country
 
 %post
 if [ $1 -eq 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
@@ -151,7 +150,6 @@ fi
 /usr/share/applications/org.denialwm.Settings.desktop
 /usr/share/applications/org.denialwm.Welcome.desktop
 /usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
-/usr/share/polkit-1/actions/org.denialwm.settings.policy
 /usr/share/xdg-desktop-portal/denial-portals.conf
 /usr/share/xdg-desktop-portal/portals/denial.portal
 /usr/share/polkit-1/rules.d/50-denial-fingerprint.rules

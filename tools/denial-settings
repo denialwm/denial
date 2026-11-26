@@ -27,7 +27,6 @@ LOCAL_SOURCE_ROOT="${DENIAL_SETTINGS_SOURCE_ROOT:-}"
 TARGET_DIR="${DENIAL_SETTINGS_TARGET:-$RUST_TARGET-settings}"
 RELEASE_DIR="$TARGET_DIR${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
 BINARY="$RELEASE_DIR/settings"
-HELPER="$RELEASE_DIR/wifi-country"
 
 usage() {
   cat <<'EOF'
@@ -140,8 +139,7 @@ build() (
   cd -- "$sources/denial-apps/apps/settings"
   RUSTUP_TOOLCHAIN="$toolchain" CARGO_TARGET_DIR="$TARGET_DIR" cargo build \
     --release --locked --jobs "$(build_jobs)" "${target_args[@]}"
-  [[ -x "$BINARY" && -x "$HELPER" ]] \
-    || die "the build left no $BINARY or $HELPER"
+  [[ -x "$BINARY" ]] || die "the build left no $BINARY"
   # Staging reads the icon, the polkit action and the license texts from the
   # sources this build used.
   printf '%s\n' "$sources" >"$RELEASE_DIR/settings.source-root"
@@ -152,14 +150,11 @@ stage() {
   local root="$1"
   local sources apps
   [[ -d "$root" ]] || die "package root does not exist: $root"
-  [[ -x "$BINARY" && -x "$HELPER" && -f "$RELEASE_DIR/settings.source-root" ]] \
+  [[ -x "$BINARY" && -f "$RELEASE_DIR/settings.source-root" ]] \
     || die "missing $BINARY; run '$0 build' first"
   sources="$(< "$RELEASE_DIR/settings.source-root")"
   apps="$sources/denial-apps"
-  # The polkit action names the helper by this path, and Settings runs it
-  # from there.
   install -Dm755 "$BINARY" "$root/usr/lib/denial-apps/settings"
-  install -Dm755 "$HELPER" "$root/usr/lib/denial-apps/wifi-country"
   install -d -m 0755 "$root/usr/bin"
   ln -s ../lib/denial-apps/settings "$root/usr/bin/denial-settings"
   install -Dm644 "$ROOT/settings/org.denialwm.Settings.desktop" \
@@ -168,8 +163,6 @@ stage() {
     "$root/usr/share/applications/org.denialwm.Welcome.desktop"
   install -Dm644 "$apps/apps/settings/org.denialwm.Settings.png" \
     "$root/usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png"
-  install -Dm644 "$apps/apps/settings/packaging/org.denialwm.settings.policy" \
-    "$root/usr/share/polkit-1/actions/org.denialwm.settings.policy"
   install -Dm644 "$apps/LICENSE.md" \
     "$root/usr/share/licenses/denial/settings/LICENSE.md"
   install -Dm644 "$apps/README.md" \

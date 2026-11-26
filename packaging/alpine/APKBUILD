@@ -143,9 +143,6 @@ package() {
 		--add-needed libdenial-resolver-bridge.so.0 \
 		--add-needed libdenial-pthread-stack.so.0 \
 		"$pkgdir/usr/lib/denial-apps/settings"
-	patchelf --set-rpath /usr/lib/denial/alpine \
-		--add-needed libgcompat.so.0 \
-		"$pkgdir/usr/lib/denial-apps/wifi-country"
 	patchelf --set-rpath '$ORIGIN/lib:/usr/lib/denial/alpine' \
 		--add-needed libgcompat.so.0 \
 		--add-needed libdenial-resolver-bridge.so.0 \

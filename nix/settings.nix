@@ -55,29 +55,18 @@ rustPlatform.buildRustPackage {
     wayland
   ];
 
-  # Settings runs its Wi-Fi country helper through pkexec, by the path the
-  # polkit action names.
-  postPatch = ''
-    substituteInPlace src/country.rs packaging/org.denialwm.settings.policy \
-      --replace-fail /usr/lib/denial-apps/wifi-country \
-        "$out/lib/denial-apps/wifi-country"
-  '';
-
   postInstall = ''
     install -d $out/lib/denial-apps
-    mv $out/bin/settings $out/bin/wifi-country $out/lib/denial-apps/
+    mv $out/bin/settings $out/lib/denial-apps/
     ln --symbolic ../lib/denial-apps/settings $out/bin/denial-settings
     install -Dm644 org.denialwm.Settings.png \
       $out/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
-    install -Dm644 packaging/org.denialwm.settings.policy \
-      $out/share/polkit-1/actions/org.denialwm.settings.policy
     install -Dm644 ../../LICENSE.md ../../README.md \
       --target-directory=$out/share/licenses/denial/settings
     install -Dm644 ../../LICENSES/Apache-2.0.txt ../../LICENSES/CC-BY-SA-4.0.txt \
       ../../LICENSES/GPL-3.0-only.txt \
       --target-directory=$out/share/licenses/denial/settings/LICENSES
     test -x $out/lib/denial-apps/settings
-    test -x $out/lib/denial-apps/wifi-country
   '';
 
   postFixup = ''

@@ -19,9 +19,8 @@ CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
 PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
 BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
-# Settings, with its Wi-Fi country helper beside it.
+# Settings.
 SETTINGS_BINARY="$("$ROOT/tools/denial-settings" path)"
-SETTINGS_HELPER="${SETTINGS_BINARY%/*}/wifi-country"
 PLUGIN_MANAGER_BUNDLE="${DENIAL_PC_PLUGIN_MANAGER_BUNDLE:-$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 PLUGIN_MANAGER_BACKEND="${DENIAL_PC_PLUGIN_MANAGER_BACKEND:-$BUILD_ROOT/plugin-manager/denial-plugins}"
 PLUGIN_BUILD_KIT="${DENIAL_PC_PLUGIN_BUILD_KIT:-$BUILD_ROOT/plugin-manager/build-kit}"
@@ -133,8 +132,6 @@ for required in \
   [[ -f "$required" ]] || die "incomplete Flutter bundle: $required"
 done
 [[ -x "$SETTINGS_BINARY" ]] || die "missing Settings: $SETTINGS_BINARY"
-[[ -x "$SETTINGS_HELPER" ]] \
-  || die "missing Settings' Wi-Fi country helper: $SETTINGS_HELPER"
 
 glibc_requirement() {
   local file="$1"
@@ -166,7 +163,6 @@ for elf in \
   "$BUNDLE/lib/libapp.so" \
   "$BUNDLE/lib/libflutter_engine.so" \
   "$SETTINGS_BINARY" \
-  "$SETTINGS_HELPER" \
   "$PLUGIN_MANAGER_BACKEND" \
   "$PLUGIN_MANAGER_BUNDLE/denial-plugin-manager" \
   "$PLUGIN_MANAGER_BUNDLE/lib/libapp.so" \
