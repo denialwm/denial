@@ -3,17 +3,17 @@
     "denialApps": {
       "flake": false,
       "locked": {
-        "lastModified": 1795655644,
-        "narHash": "sha256-MhArUAUi5NH91f5xebVaci0V5KQJGBZpMVrhh93lxzM=",
+        "lastModified": 1795731788,
+        "narHash": "sha256-Lr3KCIT2gLNG661WJgnNNyx18+gC32wHSc4eRo0SrB8=",
         "owner": "denialwm",
         "repo": "denial-apps",
-        "rev": "62c19f81f216a84a3ff659b71b235e40c795efc3",
+        "rev": "d25c5e9e433498c9c49374471f5def46e40d04e7",
         "type": "github"
       },
       "original": {
         "owner": "denialwm",
         "repo": "denial-apps",
-        "rev": "62c19f81f216a84a3ff659b71b235e40c795efc3",
+        "rev": "d25c5e9e433498c9c49374471f5def46e40d04e7",
         "type": "github"
       }
     },
@@ -37,17 +37,17 @@
     "gpuiTouch": {
       "flake": false,
       "locked": {
-        "lastModified": 1795224368,
-        "narHash": "sha256-ZTUDnzdfJvi8YL2zwiv7CzI/vXZOlw7KptM7bh3vT3A=",
+        "lastModified": 1795731295,
+        "narHash": "sha256-gcaSK4DnKzroYV/VoTtSGTfLZFtFP1zuMqbfnXpsmdA=",
         "owner": "denialwm",
         "repo": "gpui-touch",
-        "rev": "442f7f6ef8e3813aac8e5f66afedb330600df063",
+        "rev": "859cd0cf989a5fe4d2f2bb0cf5442940fc4aba62",
         "type": "github"
       },
       "original": {
         "owner": "denialwm",
         "repo": "gpui-touch",
-        "rev": "442f7f6ef8e3813aac8e5f66afedb330600df063",
+        "rev": "859cd0cf989a5fe4d2f2bb0cf5442940fc4aba62",
         "type": "github"
       }
     },
