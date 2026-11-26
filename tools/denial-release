@@ -589,7 +589,7 @@ source_audit() {
       and .package.version_source == "denial-release-tag"
       and .package.epoch == 1
       and .package.architecture == "x86_64"
-      and .compatibility.flutter_engine_abi == "3.47.5.denial1"
+      and .compatibility.flutter_engine_abi == "3.47.5.denial2"
       and .assurances.offline_source_closure == false
       and .assurances.reproducible_package == false
       and .assurances.signed_generation_tags == false
@@ -617,7 +617,7 @@ source_audit() {
       and .package.name == "denial-ui-development"
       and .package.architecture == "x86_64"
       and .compatibility.denial_ui_development_api == 1
-      and .compatibility.flutter_engine_abi == "3.47.5.denial1"
+      and .compatibility.flutter_engine_abi == "3.47.5.denial2"
       and .runtime.engine_mode == "debug-jit"
       and .runtime.flutter_tool_snapshot_kind == "app-aot-elf"
       and .runtime.flutter_tool_runtime == "dartaotruntime"

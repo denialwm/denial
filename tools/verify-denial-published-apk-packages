@@ -107,7 +107,7 @@ for package in "${packages[@]}"; do
     denial-flutter-engine)
       engine_package="$package"
       grep -Fqx \
-        'provides = denial-flutter-engine-abi-3.47.5.denial1' \
+        'provides = denial-flutter-engine-abi-3.47.5.denial2' \
         <<<"$package_info" \
         || fail 'engine APK does not provide the expected ABI'
       ;;

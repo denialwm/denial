@@ -11,17 +11,17 @@ _denial_version_before="${DENIAL_PACKAGE_DENIAL_VERSION_BEFORE:-0.3.0}"
 depends=(
   "denial>=$pkgver"
   "denial<$_denial_version_before"
-  'denial-flutter-engine-abi=3.47.5.denial1'
+  'denial-flutter-engine-abi=3.47.5.denial2'
   'fontconfig'
   'git'
   'glibc'
   'libgcc'
 )
-provides=('denial-ui-development-engine=3.47.5.denial1')
+provides=('denial-ui-development-engine=3.47.5.denial2')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('7e6464f0210fb1cbcf0123828c591276dd6dbb2ff386c48775d610e0f628d91f')
+sha256sums=('216e7e8dcaeae0ace8372d5869b1e13bd4e83cce5b1dfa531341f1a83df01ae1')
 
 _flutter_revision='1d76c81bb8795a6ae93ab0de20f6beae4e05c724'
 _dart_revision='b530c21f7de367b94fb04787bfed9d8e989d75e8'

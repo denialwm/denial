@@ -9,7 +9,7 @@
     "architecture": "x86_64"
   },
   "compatibility": {
-    "flutter_engine_abi": "3.47.5.denial1"
+    "flutter_engine_abi": "3.47.5.denial2"
   },
   "sources": {
     "flutter_version": "3.47.5",

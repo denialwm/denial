@@ -203,6 +203,10 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- The `denial` package requires the engine it was built for. 0.6.9 talks to
+  the engine through the scene composer, but still accepted the 0.6.8
+  engine, which leaves the shell blank; the engine compatibility capability
+  is now `denial-flutter-engine-abi=3.47.5.denial2`.
 - The on-screen keyboard types the character on its key whatever the
   keyboard layout. It used to type through US key positions, so with French
   set `a` typed `q`. A character the layout reaches only with AltGr, such as
