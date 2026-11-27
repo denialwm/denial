@@ -885,10 +885,20 @@ print(json.dumps({"schema": 1, "development": os.path.realpath(sys.argv[1])}))' 
     ((!sealed)) || chmod a-w -- "$bundle" "$bundle/.denial-ui-source.json"
 }
 
+# build_all prepares the application compilers once and links the engine
+# beside the builds (APP_ENGINE_LINKING=1). The application steps then leave
+# what needs the engine to it: installing the engine into the bundle,
+# publishing the native applications, finishing the Plugin Manager.
+APP_ENGINE_LINKING=0
+DEFERRED_APPLICATIONS=''
+prepare_app_compilers() {
+    ((APP_ENGINE_LINKING)) || "$ROOT/tools/denial-flutter-engine" prepare-app-build
+}
+
 build_bundle() (
     prepare_flutter_toolchain
     prepare_sdk_package
-    "$ROOT/tools/denial-flutter-engine" prepare-app-build
+    prepare_app_compilers
     mkdir -p -- "$(dirname -- "$BUNDLE_ASSEMBLY")" "$BUNDLE/data" "$BUNDLE/lib"
     local assembly
     assembly="$(mktemp -d -- "${BUNDLE_ASSEMBLY}.XXXXXX")"
@@ -919,6 +929,7 @@ build_bundle() (
         "$BUNDLE/data/flutter_assets/"
     install -m644 -- "$ICU_DATA" "$BUNDLE/data/icudtl.dat"
     install -m755 -- "$assembly/lib/libapp.so" "$BUNDLE/lib/libapp.so"
+    if ((APP_ENGINE_LINKING)); then return; fi
     install_pinned_engine
     write_development_source_marker "$BUNDLE"
 )
@@ -953,14 +964,24 @@ build_native_application() (
             "release_bundle_${DENIAL_FLUTTER_PLATFORM}_assets"
     )
     require_file "$assembly/assets/lib/libapp.so"
-    local candidate retained
+    local candidate
     candidate="$(mktemp -d "${bundle}.new.XXXXXX")"
     mkdir -p -- "$candidate/data/flutter_assets" "$candidate/lib"
     cp -a -- "$assembly/assets/flutter_assets/." "$candidate/data/flutter_assets/"
     install -m644 -- "$ICU_DATA" "$candidate/data/icudtl.dat"
     install -m755 -- "$assembly/assets/lib/libapp.so" "$candidate/lib/libapp.so"
-    install -m755 -- "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release/libflutter_engine.so" "$candidate/lib/libflutter_engine.so"
     install -m755 -- "$NATIVE_APP_RELEASE/denial-app" "$candidate/$binary"
+    if ((APP_ENGINE_LINKING)); then
+        printf '%s\t%s\t%s\n' "$candidate" "$bundle" "$binary" >>"$DEFERRED_APPLICATIONS"
+        return
+    fi
+    publish_native_application "$candidate" "$bundle" "$binary"
+)
+
+# Gives CANDIDATE the engine and puts it in place of BUNDLE.
+publish_native_application() (
+    local candidate="$1" bundle="$2" binary="$3" retained
+    install -m755 -- "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release/libflutter_engine.so" "$candidate/lib/libflutter_engine.so"
     if ((DENIAL_CROSS)); then
         printf 'Not running the %s %s on this machine\n' "$DENIAL_ARCH" "$binary"
     else
@@ -982,7 +1003,7 @@ build_polkit_backend() {
 build_polkit_dialog() (
     prepare_flutter_toolchain
     prepare_sdk_package
-    "$ROOT/tools/denial-flutter-engine" prepare-app-build
+    prepare_app_compilers
     build_native_application polkit_app denial-app "$DIALOG_BUNDLE"
 )
 
@@ -1034,7 +1055,7 @@ verify_dart_cross_artifacts() {
 build_plugin_manager() (
     prepare_flutter_toolchain
     prepare_sdk_package
-    "$ROOT/tools/denial-flutter-engine" prepare-app-build
+    prepare_app_compilers
     local dart="$FLUTTER_SDK_ROOT/bin/cache/dart-sdk/bin/dart"
     mkdir -p -- "$BUILD_ROOT/plugin-manager"
     (
@@ -1083,8 +1104,15 @@ publish(app.parent / 'denial-plugin-manager.installation.json', {
 })
 PYMETA
     build_native_application plugin_manager_app denial-plugin-manager "$app_bundle"
+    if ((APP_ENGINE_LINKING)); then return; fi
+    finish_plugin_manager
+)
+
+# What follows the Plugin Manager's application once it is published.
+finish_plugin_manager() (
+    local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
     install -m644 -- "$app_bundle/../denial-plugin-manager.installation.json" "$app_bundle/denial-plugin-manager.installation.json"
-    require_file "$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle/denial-plugin-manager"
+    require_file "$app_bundle/denial-plugin-manager"
     require_file "$app_bundle/denial-plugin-manager.installation.json"
     if ((PLUGIN_BUILD_KIT)); then build_plugin_kit; fi
     write_development_source_marker "$BUNDLE"
@@ -1220,24 +1248,20 @@ build_compositor() {
         "$BINARY" "$CONTROL_BINARY" "$PORTAL_BINARY"
 }
 
-# Settings and the compositor's Rust programs read nothing the Flutter and
-# Dart steps write, so on a dedicated builder they build in the background
-# beside them. Each Rust group has its own Cargo target; Flutter commands stay
-# one after another. Elsewhere each step takes the CPUs left to builds in turn.
+# The engine libraries link in the background, two whole-program links of
+# about two minutes; only installing the engine and what reads it wait for
+# them. Settings and the compositor's Rust programs read nothing the Flutter
+# and Dart steps write, so on a dedicated builder they build in the
+# background too, each Rust group in its own Cargo target. Flutter commands
+# stay one after another. Elsewhere the foreground steps take the CPUs left
+# to builds in turn.
 build_all() (
-    local logs settings_pid rust_pid status=0
-    if ((!DEDICATED_BUILDER)); then
-        build_bundle
-        build_settings
-        build_plugin_manager
-        build_polkit_agent
-        build_compositor
-        return
-    fi
+    local logs engine_pid='' settings_pid='' rust_pid='' status=0
+    local candidate bundle binary
     mkdir -p -- "$BUILD_ROOT"
     logs="$(mktemp -d "$BUILD_ROOT/build-logs.XXXXXX")"
     # A failed foreground step stops what still builds in the background,
-    # Cargo and its compilers included.
+    # the engine link, Cargo and its compilers included.
     # shellcheck disable=SC2329
     stop_tree() {
         local child
@@ -1246,24 +1270,19 @@ build_all() (
     }
     # shellcheck disable=SC2329
     stop_background() {
-        [[ -z "${settings_pid:-}" ]] || stop_tree "$settings_pid"
-        [[ -z "${rust_pid:-}" ]] || stop_tree "$rust_pid"
+        local pid
+        for pid in "$engine_pid" "$settings_pid" "$rust_pid"; do
+            [[ -z "$pid" ]] || stop_tree "$pid"
+        done
+        # Applications still waiting for their engine.
+        if [[ -f "$logs/applications" ]]; then
+            while IFS=$'\t' read -r candidate bundle binary; do
+                [[ "$candidate" != "$bundle".new.* ]] || rm -rf -- "$candidate"
+            done <"$logs/applications"
+        fi
         rm -rf -- "$logs"
     }
     trap stop_background EXIT
-    build_settings >"$logs/settings.log" 2>&1 &
-    settings_pid=$!
-    {
-        build_compositor
-        build_polkit_backend
-    } >"$logs/rust.log" 2>&1 &
-    rust_pid=$!
-    printf 'Building Settings and the compositor in the background\n'
-
-    build_bundle
-    build_plugin_manager
-    build_polkit_dialog
-
     # finish NAME PID LOG
     finish() {
         local result=0
@@ -1272,10 +1291,54 @@ build_all() (
         cat -- "$3"
         ((result == 0)) || status=$result
     }
-    finish Settings "$settings_pid" "$logs/settings.log"
-    finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
-    settings_pid=''
-    rust_pid=''
+
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build --compilers
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build --engine \
+        >"$logs/engine.log" 2>&1 &
+    engine_pid=$!
+    APP_ENGINE_LINKING=1
+    DEFERRED_APPLICATIONS="$logs/applications"
+    printf 'Linking the Flutter engine in the background\n'
+    if ((DEDICATED_BUILDER)); then
+        build_settings >"$logs/settings.log" 2>&1 &
+        settings_pid=$!
+        {
+            build_compositor
+            build_polkit_backend
+        } >"$logs/rust.log" 2>&1 &
+        rust_pid=$!
+        printf 'Building Settings and the compositor in the background\n'
+    fi
+
+    build_bundle
+    build_plugin_manager
+    build_polkit_dialog
+    if ((!DEDICATED_BUILDER)); then
+        build_settings
+        build_polkit_backend
+        build_compositor
+    fi
+
+    finish 'Flutter engine' "$engine_pid" "$logs/engine.log"
+    engine_pid=''
+    ((status == 0)) || exit "$status"
+    APP_ENGINE_LINKING=0
+    install_pinned_engine
+    write_development_source_marker "$BUNDLE"
+    if [[ -f "$DEFERRED_APPLICATIONS" ]]; then
+        while IFS=$'\t' read -r candidate bundle binary; do
+            publish_native_application "$candidate" "$bundle" "$binary"
+        done <"$DEFERRED_APPLICATIONS"
+        rm -f -- "$DEFERRED_APPLICATIONS"
+    fi
+    finish_plugin_manager
+
+    if ((DEDICATED_BUILDER)); then
+        finish Settings "$settings_pid" "$logs/settings.log"
+        finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
+        settings_pid=''
+        rust_pid=''
+    fi
     exit "$status"
 )
 

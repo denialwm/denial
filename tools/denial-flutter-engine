@@ -112,7 +112,7 @@ Usage:
   tools/denial-flutter-engine cache-key
   tools/denial-flutter-engine build [--github-env FILE]
   tools/denial-flutter-engine flutter-test [-- FLUTTER_TEST_ARGS...]
-  tools/denial-flutter-engine prepare-app-build
+  tools/denial-flutter-engine prepare-app-build [--compilers | --engine]
   tools/denial-flutter-engine prepare-graph
   tools/denial-flutter-engine prepare-development-sdk
   tools/denial-flutter-engine refresh-metadata
@@ -127,6 +127,9 @@ Commands:
   prepare-app-build
              Build release platform, AOT, and Linux GTK artifacts. With local
              source trees, from those trees as they are on disk.
+             --compilers builds what the application build runs and
+             --engine then links and stages the engine libraries, so the
+             application build can compile while they link.
   prepare-graph
              Generate the release Ninja graph from the source trees in use,
              as prepare-app-build does, without building.
@@ -1261,11 +1264,32 @@ prepare_cross_view() {
     "$DENIAL_FLUTTER_PLATFORM" "$CROSS_VIEW_ROOT"
 }
 
+# Runs Ninja in OUTPUT for TARGETS; nothing when there are none.
+app_ninja() {
+  local output="$1"
+  shift
+  (($#)) || return 0
+  PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+    DEPOT_TOOLS_UPDATE=0 \
+    VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+    /usr/bin/ninja -C "$output" -j "$BUILD_JOBS" "$@"
+}
+
+# PART is all, compilers or engine. The engine libraries are whole-program
+# links of about two minutes each; the application build only copies the
+# GTK one, so it can compile its Dart while they link. compilers builds
+# everything the application build runs and the view it reads; engine then
+# links the libraries and stages the engine. While they link, the previous
+# libraries stay whole at their paths: the linker and llvm-objcopy write a
+# new file and rename it. A first build has no previous libraries, so
+# compilers links them itself.
 prepare_app_build() {
+  local part="${1:-all}"
   local build_root
   local checkout_depot
   local host_output
-  local -a host_targets target_targets
+  local -a host_targets target_targets host_libraries target_libraries
+  local library
   local tool
   local llvm_objcopy
   local local_sha256="$NATIVE_RELEASE_ENGINE_DIR/libflutter_engine.so.local.sha256"
@@ -1283,9 +1307,21 @@ prepare_app_build() {
   [[ -x "$llvm_objcopy" ]] \
     || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
 
-  generate_release_graph
+  # The engine part runs right after compilers, from the same graph.
+  [[ "$part" == engine ]] || generate_release_graph
+  host_targets=(
+    dart_sdk
+    flutter/sky/packages/sky_engine:sky_engine
+    flutter_patched_sdk/platform_strong.dill
+    gen_snapshot
+    flutter/shell/platform/linux:publish_headers_linux
+    flutter/tools/const_finder:const_finder
+    flutter/tools/font_subset:font_subset
+  )
+  host_libraries=(libflutter_linux_gtk.so)
+  target_targets=()
+  target_libraries=()
   if ((DENIAL_CROSS)); then
-    host_targets=()
     # The application build compiles AOT code with the build machine's
     # gen_snapshot; the plugin build kit runs the target's compilers.
     target_targets=(
@@ -1294,31 +1330,35 @@ prepare_app_build() {
       gen_snapshot
       "clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot"
       impellerc
-      libflutter_linux_gtk.so
       flutter/shell/platform/linux:publish_headers_linux
       flutter/tools/const_finder:const_finder
       flutter/tools/font_subset:font_subset
-      libflutter_engine.so
     )
+    target_libraries=(libflutter_linux_gtk.so libflutter_engine.so)
   else
-    host_targets=(libflutter_engine.so)
-    target_targets=()
+    host_libraries+=(libflutter_engine.so)
   fi
-  PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
-    DEPOT_TOOLS_UPDATE=0 \
-    VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
-    /usr/bin/ninja \
-      -C "$host_output" \
-      -j "$BUILD_JOBS" \
-      dart_sdk \
-      flutter/sky/packages/sky_engine:sky_engine \
-      flutter_patched_sdk/platform_strong.dill \
-      gen_snapshot \
-      libflutter_linux_gtk.so \
-      flutter/shell/platform/linux:publish_headers_linux \
-      flutter/tools/const_finder:const_finder \
-      flutter/tools/font_subset:font_subset \
-      "${host_targets[@]}"
+  if [[ "$part" == compilers ]]; then
+    for library in "${host_libraries[@]}"; do
+      [[ -f "$host_output/$library" ]] || part=all
+    done
+    for library in "${target_libraries[@]}"; do
+      [[ -f "$output/$library" ]] || part=all
+    done
+    [[ "$part" == compilers ]] \
+      || printf 'No engine libraries yet to read while they link: linking them first\n'
+  fi
+  case "$part" in
+    compilers)
+      host_libraries=()
+      target_libraries=()
+      ;;
+    engine)
+      host_targets=()
+      target_targets=()
+      ;;
+  esac
+  app_ninja "$host_output" "${host_targets[@]}" "${host_libraries[@]}"
   [[ -f "$host_output/flutter_patched_sdk/platform_strong.dill" ]] \
     || fail "lock-matched platform dill is missing: $host_output"
   [[ -x "$host_output/dart-sdk/bin/dart" ]] \
@@ -1334,10 +1374,7 @@ prepare_app_build() {
   [[ -x "$host_output/font-subset" ]] \
     || fail "lock-matched font-subset is missing: $host_output"
   if ((DENIAL_CROSS)); then
-    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
-      DEPOT_TOOLS_UPDATE=0 \
-      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
-      /usr/bin/ninja -C "$output" -j "$BUILD_JOBS" "${target_targets[@]}"
+    app_ninja "$output" "${target_targets[@]}" "${target_libraries[@]}"
     [[ -f "$output/flutter_patched_sdk/platform_strong.dill" ]] \
       || fail "lock-matched target platform dill is missing: $output"
     [[ -x "$output/clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot" ]] \
@@ -1348,6 +1385,14 @@ prepare_app_build() {
     done
     [[ -f "$output/icudtl.dat" ]] \
       || fail "lock-matched target ICU data is missing: $output"
+  fi
+  if [[ "$part" == compilers ]]; then
+    if ((DENIAL_CROSS)); then
+      prepare_cross_view "$host_output" "$output"
+    fi
+    printf 'Prepared the %s application compilers; the engine libraries link next.\n' \
+      "$DENIAL_FLUTTER_PLATFORM"
+    return
   fi
   canonicalize_engine_build_id \
     release \
@@ -1376,7 +1421,9 @@ prepare_app_build() {
   else
     rm -f -- "$local_sha256"
   fi
-  if ((DENIAL_CROSS)); then
+  # The compilers part made the view, which the application build may be
+  # reading now.
+  if ((DENIAL_CROSS)) && [[ "$part" == all ]]; then
     prepare_cross_view "$host_output" "$output"
   fi
   if ((LOCAL_ENGINE)); then
@@ -1476,6 +1523,7 @@ prepare_development_sdk() {
 main() {
   local command_name="${1:-}"
   local github_env=''
+  local app_build_part=all
   local -a command_args=()
 
   install_legacy_denial_environment_aliases
@@ -1495,6 +1543,11 @@ main() {
         (($# >= 2)) || fail '--github-env requires a path'
         github_env="$2"
         shift
+        ;;
+      --compilers | --engine)
+        [[ "$command_name" == prepare-app-build ]] \
+          || fail "$1 is an option of prepare-app-build"
+        app_build_part="${1#--}"
         ;;
       -h | --help)
         usage
@@ -1529,7 +1582,7 @@ main() {
     prepare-app-build)
       [[ -z "$github_env" ]] \
         || fail 'prepare-app-build does not accept --github-env'
-      prepare_app_build
+      prepare_app_build "$app_build_part"
       ;;
     prepare-graph)
       [[ -z "$github_env" ]] \
