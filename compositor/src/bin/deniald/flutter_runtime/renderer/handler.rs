@@ -1465,6 +1465,11 @@ impl FlutterGlHandler {
         *lock(&self.texture_apps) = apps;
     }
 
+    /// The app whose window `texture_id` shows.
+    fn texture_app(&self, texture_id: i64) -> Option<Arc<str>> {
+        lock(&self.texture_apps).get(&texture_id).cloned()
+    }
+
     pub(in crate::flutter_runtime) fn app_texture_ids(&self, app_id: &str) -> Vec<i64> {
         lock(&self.texture_apps)
             .iter()

@@ -199,26 +199,46 @@ impl FlutterGlHandler {
                     (slot.presentation.width > 0.0).then_some(slot.presentation),
                 )
             };
-            // What grade_external_texture grades for the GLES pass.
-            let look = self.app_look(texture_id);
-            let color = source.color();
-            let transform = color
-                .as_deref()
-                .and_then(|color| color.transform(crate::output_color::scene_encoding()));
-            let alpha = color
-                .as_deref()
-                .map_or_else(Default::default, |color| color.alpha);
-            let grade = (look.is_some() || transform.is_some() || alpha != Default::default())
-                .then_some(Grade {
-                    transform,
-                    alpha,
-                    look,
-                });
+            let grade = self.composer_grade(texture_id, &source);
             Some((source, presentation, grade))
         });
         let Some((source, presentation, grade)) = slot.clone() else {
             return Ok(Client::Missing);
         };
+        self.composer_sampled(texture_id, source, presentation.as_ref(), grade, bounds)
+    }
+
+    /// What grade_external_texture grades for the GLES pass: the look of
+    /// the app that shows `texture_id` and the conversion of `source`.
+    pub(super) fn composer_grade(
+        &self,
+        texture_id: i64,
+        source: &ExternalTextureSource,
+    ) -> Option<Grade> {
+        let look = self.app_look(texture_id);
+        let color = source.color();
+        let transform = color
+            .as_deref()
+            .and_then(|color| color.transform(crate::output_color::scene_encoding()));
+        let alpha = color
+            .as_deref()
+            .map_or_else(Default::default, |color| color.alpha);
+        (look.is_some() || transform.is_some() || alpha != Default::default()).then_some(Grade {
+            transform,
+            alpha,
+            look,
+        })
+    }
+
+    /// `source`, the current buffer of `texture_id`, within `bounds`.
+    pub(super) fn composer_sampled(
+        &self,
+        texture_id: i64,
+        source: ExternalTextureSource,
+        presentation: Option<&denial_flutter_engine::ExternalTexturePresentation>,
+        grade: Option<Grade>,
+        bounds: Rect,
+    ) -> Result<Client, Decline> {
         let (size, owned_native) = match &source {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
@@ -233,7 +253,7 @@ impl FlutterGlHandler {
             // Copied into an image of the texture's own as it is drawn.
             ExternalTextureSource::Shm(frame) => ((frame.width(), frame.height()), false),
         };
-        let placement = Placement::new(bounds, size, presentation.as_ref())
+        let placement = Placement::new(bounds, size, presentation)
             .ok_or("presentation with a background strip")?;
         let sampled = SampledClient {
             texture_id,

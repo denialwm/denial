@@ -73,6 +73,21 @@ impl NativeSnapshot {
     fn shown(&self) -> &NativeWindowPlan {
         self.placed.as_ref().unwrap_or(&self.plan.plan)
     }
+
+    /// The one buffer that is the window's whole picture: a single layer is
+    /// drawn, upright and solid, and all of its buffer fills the window. It
+    /// is sampled as it is, without a merged copy.
+    fn direct(&self) -> Option<(i64, &ExternalTextureSource)> {
+        let [(texture_id, source)] = self.inputs.as_slice() else {
+            return None;
+        };
+        let index = self.presentations.iter().position(Option::is_some)?;
+        let presentation = self.presentations[index].as_ref()?;
+        let (width, height) = source.pixel_size();
+        self.shown()
+            .fills_window(index, presentation, [width, height])
+            .then_some((*texture_id, source))
+    }
 }
 #[derive(Default)]
 pub(super) struct NativeClientState {
@@ -535,6 +550,15 @@ impl FlutterGlHandler {
         for (index, (layer, slot)) in plan.plan.layers.iter().zip(&slots).enumerate() {
             current.push(match slot {
                 None => false,
+                // A hidden surface's transparent pixel: nothing to draw.
+                Some(slot)
+                    if slot
+                        .current
+                        .as_ref()
+                        .is_some_and(ExternalTextureSource::shows_nothing) =>
+                {
+                    false
+                }
                 Some(slot) => match slot
                     .layer
                     .filter(|placement| *placement != layer.placement())
@@ -641,6 +665,14 @@ impl FlutterGlHandler {
         let snapshot = self
             .native_snapshot(texture_id)
             .ok_or("native window plan")?;
+        if !cursor && let Some((input, source)) = snapshot.direct() {
+            let source = source.clone();
+            // Nothing reads the buffers it covers: they are shown as far as
+            // they can be.
+            self.finish_native_samples(Self::native_samples(&snapshot.covered));
+            let grade = self.composer_grade(texture_id, &source);
+            return self.composer_sampled(input, source, None, grade, bounds);
+        }
         // Layers that are not drawn are left out of both.
         let presented = snapshot
             .shown()
@@ -715,6 +747,7 @@ impl FlutterGlHandler {
                 .ok_or("native window placement")?,
             merged: MergedClient {
                 texture_id,
+                app: self.texture_app(texture_id),
                 size,
                 layers,
                 unseen,
@@ -744,7 +777,12 @@ impl FlutterGlHandler {
         {
             return None;
         }
-        self.cached_native(texture_id, &self.native_snapshot(texture_id)?)
+        let snapshot = self.native_snapshot(texture_id)?;
+        // A buffer sampled as it is takes the GL path, as the cursor's.
+        if snapshot.direct().is_some() {
+            return None;
+        }
+        self.cached_native(texture_id, &snapshot)
     }
     /// The merged image of `snapshot`, when the last merge drew exactly it.
     fn cached_native(
@@ -813,6 +851,22 @@ impl FlutterGlHandler {
         // None: the window left native composition after this frame was
         // scheduled.
         let snapshot = self.native_snapshot(texture_id)?;
+        if let Some((input, source)) = snapshot.direct()
+            && let Some(mut prepared) = self.prepare_source_with_gl(input, source.clone())
+        {
+            prepared.native_samples.push(NativeInputSample {
+                texture_id: input,
+                generation: prepared.source_generation,
+                feedback: prepared.feedback.take(),
+            });
+            prepared
+                .native_samples
+                .extend(Self::native_samples(&snapshot.covered));
+            prepared.texture_id = texture_id;
+            // The merged image this replaces goes back to the pool.
+            lock(&self.native_clients).images.remove(&texture_id);
+            return Some(prepared);
+        }
         if let Some(prepared) = self.cached_native(texture_id, &snapshot) {
             return Some(prepared);
         }
@@ -938,6 +992,13 @@ impl FlutterGlHandler {
                     "native client surface tree merged on raster context"
                 );
             }
+            super::super::super::native_window::warn_window_copied(
+                texture_id,
+                self.texture_app(texture_id).as_deref(),
+                output.native_samples.len(),
+                (plan.plan.width, plan.plan.height),
+                "GLES",
+            );
             Ok(output)
         })();
         match result {

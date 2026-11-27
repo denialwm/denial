@@ -710,6 +710,20 @@ pub(in crate::flutter_runtime) enum ExternalTextureSource {
 }
 
 impl ExternalTextureSource {
+    /// A single fully transparent pixel, as a client shows on a surface it
+    /// keeps mapped but hidden: drawing it changes nothing.
+    fn shows_nothing(&self) -> bool {
+        let frame = match self {
+            Self::Shm(frame) => frame,
+            Self::Dmabuf {
+                buffer_guard: Some(ExternalBufferGuard::OwnedShm { frame }),
+                ..
+            } => frame,
+            Self::Dmabuf { .. } => return false,
+        };
+        frame.pixels_if_single() == Some([0; 4])
+    }
+
     /// The buffer's size in pixels.
     fn pixel_size(&self) -> (u32, u32) {
         match self {

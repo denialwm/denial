@@ -301,6 +301,31 @@ fn a_buffer_older_than_the_plan_keeps_the_placement_of_its_own_commit() {
 }
 
 #[test]
+fn a_layer_that_is_the_whole_window_is_sampled_without_a_merge() {
+    let canvas = firefox_plan().canvas;
+    let direct = NativeWindowPlan::new(1, canvas, 2.0, &droidloom_surfaces(canvas, true)).unwrap();
+    let none = ExternalTexturePresentation::default();
+    // The opaque child: all of its buffer over all of the window, at any
+    // buffer resolution the description names.
+    assert!(direct.fills_window(1, &none, [3356, 2260]));
+    assert!(direct.fills_window(0, &none, [3356, 2260]));
+    // Not the pixel in the corner, a part of a buffer, a crop of it, or a
+    // rotated or translucent layer.
+    assert!(!direct.fills_window(2, &none, [1, 1]));
+    assert!(!direct.fills_window(1, &none, [4000, 2260]));
+    assert!(!direct.fills_window(1, &crop([8.0, 8.0, 3356.0, 2260.0]), [3364, 2268]));
+    assert!(direct.fills_window(1, &crop([0.0, 0.0, 3356.0, 2260.0]), [3356, 2260]));
+    for change in [
+        (|layer: &mut NativeWindowLayer| layer.transform = 1) as fn(&mut NativeWindowLayer),
+        |layer| layer.opacity = 0.5,
+    ] {
+        let mut plan = direct.clone();
+        change(&mut plan.layers[1]);
+        assert!(!plan.fills_window(1, &none, [3356, 2260]));
+    }
+}
+
+#[test]
 fn a_placement_reaches_the_screen_with_its_buffer() {
     use super::super::texture::{ExternalTextureSlot, ExternalTextureSource, ShmTextureFrame};
     use std::time::{Duration, Instant};

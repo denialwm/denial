@@ -330,6 +330,27 @@ impl NativeWindowPlan {
         true
     }
 
+    /// Whether layer `index` alone is the window's picture when no other
+    /// layer is drawn: upright and solid, all of its `buffer` over all of
+    /// the window. Sampling that buffer then shows what a merge would.
+    pub(super) fn fills_window(
+        &self,
+        index: usize,
+        presentation: &ExternalTexturePresentation,
+        buffer: [u32; 2],
+    ) -> bool {
+        let layer = &self.layers[index];
+        let source = layer.source;
+        layer.transform == 0
+            && layer.opacity == 1.0
+            && layer.destination == self.canvas
+            && reproduces_presentation(presentation)
+            && canvas_rect_to_buffer(
+                Some(presentation),
+                [source.x, source.y, source.width, source.height],
+            ) == [0.0, 0.0, f64::from(buffer[0]), f64::from(buffer[1])]
+    }
+
     /// Per layer, whether this frame draws it: it has a current buffer and
     /// no drawn opaque layer above covers it.
     pub(super) fn drawn(&self, current: &[bool]) -> Vec<bool> {
@@ -456,6 +477,53 @@ impl NativeWindowPlan {
         }
         Some(vertices)
     }
+}
+
+/// Zero copy is the rule: a window whose layers are copied into one image
+/// says so, at most once in this long, with how often since.
+const COPY_WARNING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Call for each merge of `texture_id`'s layers that draws pixels.
+pub(in crate::flutter_runtime) fn warn_window_copied(
+    texture_id: i64,
+    app: Option<&str>,
+    layers: usize,
+    size: (u32, u32),
+    renderer: &'static str,
+) {
+    // Per window: when it last warned and its copies since.
+    static COPIED: std::sync::Mutex<Vec<(i64, std::time::Instant, u64)>> =
+        std::sync::Mutex::new(Vec::new());
+    let now = std::time::Instant::now();
+    let mut copied = COPIED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let copies = match copied.iter_mut().find(|entry| entry.0 == texture_id) {
+        Some(entry) => {
+            entry.2 += 1;
+            if now.duration_since(entry.1) < COPY_WARNING_INTERVAL {
+                return;
+            }
+            entry.1 = now;
+            std::mem::take(&mut entry.2)
+        }
+        None => {
+            copied.retain(|entry| now.duration_since(entry.1) < 6 * COPY_WARNING_INTERVAL);
+            copied.push((texture_id, now, 0));
+            1
+        }
+    };
+    drop(copied);
+    tracing::warn!(
+        window = surface_texture(texture_id),
+        app = app.unwrap_or("?"),
+        layers,
+        width = size.0,
+        height = size.1,
+        copies,
+        renderer,
+        "window copied: its layers are merged into one image instead of sampled as they are"
+    );
 }
 
 #[derive(Debug)]

@@ -1694,6 +1694,8 @@ pub(super) trait Resolve {
 /// does: each layer's client drawn into the window's `size` image.
 pub(super) struct MergedClient {
     pub(super) texture_id: i64,
+    /// The window's app, for the copy warning.
+    pub(super) app: Option<Arc<str>>,
     pub(super) size: (u32, u32),
     pub(super) layers: Vec<MergedLayer>,
     /// Current buffers of layers outside the image: not drawn, still shown.
@@ -2161,6 +2163,13 @@ impl SceneComposer {
                 })?
             }
         };
+        crate::flutter_runtime::renderer::native_window::warn_window_copied(
+            merged.texture_id,
+            merged.app.as_deref(),
+            merged.layers.len(),
+            merged.size,
+            "Stagecraft",
+        );
         let mut batches: Vec<Batch> = Vec::with_capacity(merged.layers.len());
         for layer in merged.layers {
             resolved_once(staged, &layer.sampled)?;
