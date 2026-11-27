@@ -197,7 +197,6 @@ for package in "${packages[@]}"; do
       grep -Fxq 'depend = dart' <<<"$package_info"
       grep -Fxq "depend = denial=${denial_version}" \
         <<<"$package_info"
-      bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugin-manager
       bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugins
       bsdtar -tf "$package" \
         | grep -Fxq usr/lib/denial/plugin-build-kit/kit.json
@@ -396,7 +395,7 @@ for package in "${apk_packages[@]}"; do
       grep -Fxq \
         "depend = denial=${apk_version}-r${PACKAGE_RELEASE}" \
         <<<"$package_info"
-      bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugin-manager
+      bsdtar -tf "$package" | grep -Fxq usr/bin/denial-plugins
       ;;
     *)
       fail "unexpected Alpine package: $package_name"

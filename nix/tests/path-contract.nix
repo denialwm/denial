@@ -10,7 +10,6 @@ runCommand "denial-path-contract" { } ''
   test -x ${package}/bin/denial-settings
   test ! -e ${package}/bin/denial-plugin-manager
   test -x ${pluginManager}/bin/denial-plugins
-  test -x ${pluginManager}/bin/denial-plugin-manager
   test -f ${pluginManager}/lib/denial/plugin-build-kit/kit.json
   test ! -e ${pluginManager}/lib/denial/plugin-build-kit/flutter/bin/cache/dart-sdk
   cmp ${pluginManager}/lib/denial/plugin-build-kit/runtime/.denial-ui-source.json \

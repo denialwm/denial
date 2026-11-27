@@ -28,8 +28,6 @@ Implementation references, relative to the repository root:
   materials, frame, scrolling sheet and footer.
 - `packages/denial_flutter_sdk/lib/src/widgets/surface_geometry.dart`: radii.
 - `packages/denial_flutter_sdk/lib/src/widgets/content_switcher.dart`: transitions.
-- `plugin_manager_app/lib/{main,manager,navigation,presentation,panels}.dart`:
-  the reference consumer, including live appearance updates.
 
 A new user instruction may revise the design. Keep this guide and the SDK
 contract aligned when that happens. This file does not authorize deployment,

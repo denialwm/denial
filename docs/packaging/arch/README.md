@@ -15,8 +15,8 @@ The packages are written below
   manifest, build metadata, and Flutter licenses;
 - `denial` owns the compositor, AOT application, Flutter assets, session
   launcher, portals, and machine configuration;
-- `denial-plugin-manager` owns the plugin app, backend, and release compiler
-  kit. It depends on the matching `denial` package and the system `dart` package.
+- `denial-plugin-manager` owns the plugin backend (`denial-plugins`) and the
+  release compiler kit, which Settings' Plugins page uses. It depends on the matching `denial` package and the system `dart` package.
 
 Install both in one transaction, with the engine package first:
 

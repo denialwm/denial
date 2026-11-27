@@ -168,9 +168,6 @@ refresh_pub_locks() {
     "$ROOT/dart_shell/pubspec.lock" \
     "$ROOT/nix/dart_shell-pubspec-lock.json"
   write_pub_lock \
-    "$ROOT/plugin_manager_app/pubspec.lock" \
-    "$ROOT/nix/plugin_manager_app-pubspec-lock.json"
-  write_pub_lock \
     "$ROOT/packages/denial_plugin_manager/pubspec.lock" \
     "$ROOT/nix/plugin_manager_backend-pubspec-lock.json"
   write_flutter_pub_lock "$flutter_source"
@@ -215,9 +212,6 @@ verify_locks() {
   verify_pub_lock \
     "$ROOT/dart_shell/pubspec.lock" \
     "$ROOT/nix/dart_shell-pubspec-lock.json"
-  verify_pub_lock \
-    "$ROOT/plugin_manager_app/pubspec.lock" \
-    "$ROOT/nix/plugin_manager_app-pubspec-lock.json"
   verify_pub_lock \
     "$ROOT/packages/denial_plugin_manager/pubspec.lock" \
     "$ROOT/nix/plugin_manager_backend-pubspec-lock.json"

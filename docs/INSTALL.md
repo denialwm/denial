@@ -65,8 +65,8 @@ requirements, output path, and command.
 
 ## Optional Plugin Manager
 
-The Plugin Manager, its backend, and the release compiler kit are distributed as
-the separate `denial-plugin-manager` package. It is not part of the Denial desktop
+The plugin backend and the release compiler kit, which Settings' Plugins page
+uses, are distributed as the separate `denial-plugin-manager` package. It is not part of the Denial desktop
 package. Install the matching package when you want to discover, install, or
 develop plugins. On Arch Linux, CachyOS, and Omarchy the package also installs its
 `dart` dependency:

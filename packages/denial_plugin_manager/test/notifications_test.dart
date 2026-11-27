@@ -92,7 +92,7 @@ void main() {
           'Open Plugins',
         ]);
         final hints = call[6].asStringVariantDict();
-        expect(hints['desktop-entry']!.asString(), 'dev.denial.PluginManager');
+        expect(hints['desktop-entry']!.asString(), 'org.denialwm.Settings');
         expect(hints['resident']!.asBoolean(), isTrue);
         expect(call[7].asInt32(), 0);
 

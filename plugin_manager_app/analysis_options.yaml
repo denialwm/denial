@@ -1,8 +1,0 @@
-include: package:flutter_lints/flutter.yaml
-analyzer:
-  exclude:
-    - build/**
-    - linux/**
-  language:
-    strict-casts: true
-    strict-inference: true

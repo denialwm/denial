@@ -148,7 +148,6 @@ if ((DENIAL_CROSS)); then
     CARGO_TARGET_ARGS=(--target "$DENIAL_RUST_TARGET")
 fi
 RUST_RELEASE="$RUST_TARGET${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
-NATIVE_APP_RELEASE="$BUILD_ROOT/native-app${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
 BINARY="${DENIAL_PC_BINARY:-$RUST_RELEASE/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
 PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
@@ -231,7 +230,7 @@ Commands:
   alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
   flutter-test      Run lock-matched Flutter shell tests; forwards remaining arguments
-  plugin-manager    Build the separate Plugin Manager app and backend
+  plugin-manager    Build the Plugin Manager backend and plugin build kit
   compositor-test   Run compositor and Rust embedder tests without a debug engine
   sdk-test          Analyze and test the Dart-only plugin SDK; forwards test arguments
   plugin-check      Analyze the Flutter SDK and first-party plugins without a development engine
@@ -459,27 +458,6 @@ remove_welcome_desktop_entries() {
             rm -f -- "$destination"
         fi
     done
-}
-
-install_plugin_manager_desktop_entry() {
-    local binary="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle/denial-plugin-manager"
-    local destination="$USER_DATA_HOME/applications/dev.denial.PluginManager.desktop"
-    [[ -x "$binary" ]] || return 0
-    if [[ -e "$destination" || -L "$destination" ]]; then
-        grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$destination" \
-            || die "refusing to replace unrecognized Plugins desktop entry: $destination"
-    fi
-    local rendered
-    rendered="$(mktemp)"
-    {
-        printf '# Installed by %s/denial-pc\n' "$SCRIPT_DIR"
-        sed -e "s|^Exec=.*|Exec=$binary|" -e "s|^TryExec=.*|TryExec=$binary|" \
-            "$ROOT/packaging/dev.denial.PluginManager.desktop"
-    } > "$rendered"
-    if ! cmp -s -- "$rendered" "$destination"; then
-        install -Dm644 -- "$rendered" "$destination"
-    fi
-    rm -f -- "$rendered"
 }
 
 tracked_changes_match_revision() {
@@ -885,11 +863,10 @@ print(json.dumps({"schema": 1, "development": os.path.realpath(sys.argv[1])}))' 
 }
 
 # build_all prepares the application compilers once and links the engine
-# beside the builds (APP_ENGINE_LINKING=1). The application steps then leave
-# what needs the engine to it: installing the engine into the bundle,
-# publishing the native applications, finishing the Plugin Manager.
+# beside the builds (APP_ENGINE_LINKING=1). The shell and the Plugin Manager
+# then leave what needs the engine to it: installing the engine into the
+# bundle and the plugin build kit.
 APP_ENGINE_LINKING=0
-DEFERRED_APPLICATIONS=''
 prepare_app_compilers() {
     ((APP_ENGINE_LINKING)) || "$ROOT/tools/denial-flutter-engine" prepare-app-build
 }
@@ -940,67 +917,6 @@ build_bundle() (
     if ((APP_ENGINE_LINKING)); then return; fi
     install_pinned_engine
     write_development_source_marker "$BUNDLE"
-)
-
-build_native_runner() (
-    denial_cross_configure_rust || exit
-    CARGO_TARGET_DIR="$BUILD_ROOT/native-app" cargo build \
-        --manifest-path "$ROOT/native_app/Cargo.toml" --locked --release --jobs "$BUILD_JOBS" \
-        "${CARGO_TARGET_ARGS[@]}"
-)
-
-# Assemble AOT assets directly. No Linux platform runner or toolkit is generated.
-build_native_application() (
-    local app="$1" binary="$2" bundle="$3"
-    build_native_runner
-    local assembly="$BUILD_ROOT/app-assembly/$app"
-    mkdir -p -- "$assembly" "$(dirname -- "$bundle")"
-    lock_assembly "$assembly"
-    (
-        cd -- "$ROOT/$app"
-        "$FLUTTER" pub get --enforce-lockfile
-        "$FLUTTER" assemble \
-            --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
-            --local-engine="$LOCAL_ENGINE_TARGET" \
-            --local-engine-host="$LOCAL_ENGINE_HOST" \
-            --suppress-analytics --resource-pool-size="$BUILD_JOBS" \
-            --output="$assembly/assets" \
-            -dTargetFile=lib/main.dart -dBuildMode=release \
-            -dTargetPlatform="$DENIAL_FLUTTER_PLATFORM" -dDartObfuscation=false \
-            -dTrackWidgetCreation=true -dTreeShakeIcons=true \
-            "release_bundle_${DENIAL_FLUTTER_PLATFORM}_assets"
-    )
-    require_file "$assembly/assets/lib/libapp.so"
-    local candidate
-    candidate="$(mktemp -d "${bundle}.new.XXXXXX")"
-    mkdir -p -- "$candidate/data/flutter_assets" "$candidate/lib"
-    cp -a -- "$assembly/assets/flutter_assets/." "$candidate/data/flutter_assets/"
-    install -m644 -- "$ICU_DATA" "$candidate/data/icudtl.dat"
-    install -m755 -- "$assembly/assets/lib/libapp.so" "$candidate/lib/libapp.so"
-    install -m755 -- "$NATIVE_APP_RELEASE/denial-app" "$candidate/$binary"
-    if ((APP_ENGINE_LINKING)); then
-        printf '%s\t%s\t%s\n' "$candidate" "$bundle" "$binary" >>"$DEFERRED_APPLICATIONS"
-        return
-    fi
-    publish_native_application "$candidate" "$bundle" "$binary"
-)
-
-# Gives CANDIDATE the engine and puts it in place of BUNDLE.
-publish_native_application() (
-    local candidate="$1" bundle="$2" binary="$3" retained
-    install -m755 -- "$ROOT/prebuilt/flutter-engine/$DENIAL_FLUTTER_PLATFORM-release/libflutter_engine.so" "$candidate/lib/libflutter_engine.so"
-    if ((DENIAL_CROSS)); then
-        printf 'Not running the %s %s on this machine\n' "$DENIAL_ARCH" "$binary"
-    else
-        "$candidate/$binary" --bundle "$candidate" --engine "$candidate/lib/libflutter_engine.so" --check
-    fi
-    # Never truncate a library mapped by an existing app process.
-    retained="${bundle}.retained.$(date +%s%N)"
-    if [[ -d "$bundle" ]]; then mv -- "$bundle" "$retained"; fi
-    if ! mv -- "$candidate" "$bundle"; then
-        [[ ! -d "$retained" ]] || mv -- "$retained" "$bundle"
-        return 1
-    fi
 )
 
 build_settings() {
@@ -1090,8 +1006,6 @@ build_plugin_manager() (
     # A build kit runs the Dart it finds first on PATH: tools/denial-plugins
     # puts the SDK the manager was built with first.
     ln -sfn -- "$(dirname -- "$dart")" "$BUILD_ROOT/plugin-manager/dart-bin"
-    local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
-    # Keep metadata beside the native application after publishing its bundle.
     local development='null'
     if ((!FLUTTER_SDK_MANAGED && !DENIAL_CROSS)); then
         development="$(python3 -c 'import json, sys
@@ -1101,10 +1015,10 @@ print(json.dumps(dict(zip(
             "$LOCAL_ENGINE_TARGET" "$DENIAL_FLUTTER_PLATFORM")"
     fi
     python3 - "$BUILD_ROOT/plugin-manager" "$RUST_RELEASE/denialctl" \
-        "$app_bundle" "$development" <<'PYMETA'
+        "$development" <<'PYMETA'
 import json, os, pathlib, sys
-backend, control, app = map(pathlib.Path, sys.argv[1:4])
-development = json.loads(sys.argv[4])
+backend, control = map(pathlib.Path, sys.argv[1:3])
+development = json.loads(sys.argv[3])
 def publish(target, value):
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + '.new')
@@ -1117,25 +1031,16 @@ publish(backend / 'denial-plugins.installation.json', {
     # built with. A release build uses the kit its packages install.
     **({'development': development} if development else {'buildKit': 'build-kit'}),
 })
-publish(app.parent / 'denial-plugin-manager.installation.json', {
-    'schema': 1, 'application': 'denial-plugin-manager',
-    'backend': str((backend / 'denial-plugins').resolve()),
-})
 PYMETA
-    build_native_application plugin_manager_app denial-plugin-manager "$app_bundle"
     if ((APP_ENGINE_LINKING)); then return; fi
     finish_plugin_manager
 )
 
-# What follows the Plugin Manager's application once it is published.
+# The plugin build kit carries the engine, so it follows it.
 finish_plugin_manager() (
-    local app_bundle="$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
-    install -m644 -- "$app_bundle/../denial-plugin-manager.installation.json" "$app_bundle/denial-plugin-manager.installation.json"
-    require_file "$app_bundle/denial-plugin-manager"
-    require_file "$app_bundle/denial-plugin-manager.installation.json"
     if ((PLUGIN_BUILD_KIT)); then build_plugin_kit; fi
     write_development_source_marker "$BUNDLE"
-    printf '\nBuilt Plugin Manager and backend at %s\n' "$BUILD_ROOT/plugin-manager/denial-plugins"
+    printf '\nBuilt the Plugin Manager backend at %s\n' "$BUILD_ROOT/plugin-manager/denial-plugins"
 )
 
 # The plugin build tools a package installs: this Denial's sources, a Flutter
@@ -1276,7 +1181,6 @@ build_compositor() {
 # another. Flutter commands stay one after another.
 build_all() (
     local logs engine_pid='' settings_pid='' rust_pid='' status=0
-    local candidate bundle binary
     mkdir -p -- "$BUILD_ROOT"
     logs="$(mktemp -d "$BUILD_ROOT/build-logs.XXXXXX")"
     # A failed foreground step stops what still builds in the background,
@@ -1293,12 +1197,6 @@ build_all() (
         for pid in "$engine_pid" "$settings_pid" "$rust_pid"; do
             [[ -z "$pid" ]] || stop_tree "$pid"
         done
-        # Applications still waiting for their engine.
-        if [[ -f "$logs/applications" ]]; then
-            while IFS=$'\t' read -r candidate bundle binary; do
-                [[ "$candidate" != "$bundle".new.* ]] || rm -rf -- "$candidate"
-            done <"$logs/applications"
-        fi
         rm -rf -- "$logs"
     }
     trap stop_background EXIT
@@ -1316,7 +1214,6 @@ build_all() (
         >"$logs/engine.log" 2>&1 &
     engine_pid=$!
     APP_ENGINE_LINKING=1
-    DEFERRED_APPLICATIONS="$logs/applications"
     printf 'Linking the Flutter engine in the background\n'
     if ((DEDICATED_BUILDER)); then
         build_settings >"$logs/settings.log" 2>&1 &
@@ -1344,12 +1241,6 @@ build_all() (
     APP_ENGINE_LINKING=0
     install_pinned_engine
     write_development_source_marker "$BUNDLE"
-    if [[ -f "$DEFERRED_APPLICATIONS" ]]; then
-        while IFS=$'\t' read -r candidate bundle binary; do
-            publish_native_application "$candidate" "$bundle" "$binary"
-        done <"$DEFERRED_APPLICATIONS"
-        rm -f -- "$DEFERRED_APPLICATIONS"
-    fi
     finish_plugin_manager
 
     if [[ -n "$settings_pid" ]]; then
@@ -1485,16 +1376,6 @@ PYSDK
         # These files compile and launch detached worker fixtures. Serial files
         # avoid competing compiler startups exhausting bounded readiness waits.
         "$dart" test --concurrency=1
-    )
-    (
-        cd -- "$ROOT/plugin_manager_app"
-        "$FLUTTER" pub get --enforce-lockfile
-        "$dart" format --output=none --set-exit-if-changed lib tool
-        "$dart" analyze --fatal-infos
-        local check
-        for check in tool/check_*.dart; do
-            "$dart" run "$check"
-        done
     )
 )
 
@@ -1666,7 +1547,6 @@ cancel_render_ahead_off() {
 run_display_manager_session() {
     install_settings_desktop_entry
     install_welcome_desktop_entries
-    install_plugin_manager_desktop_entry
     # The flag is consumed before deniald starts, so later logins run
     # without the audit's overhead.
     if [[ -e "$RENDER_AUDIT_NEXT" ]]; then
@@ -1920,7 +1800,6 @@ install_session() {
     require_managed_config_or_absent "wlr portal config" "$WLR_PORTAL_CONFIG"
     install_settings_desktop_entry
     install_welcome_desktop_entries
-    install_plugin_manager_desktop_entry
     if [[ -e "$SESSION_TARGET_FILE" ]] \
         && ! grep -Fqx 'BindsTo=graphical-session.target' "$SESSION_TARGET_FILE"; then
         die "refusing to replace unrecognized session target: $SESSION_TARGET_FILE"
@@ -2166,7 +2045,6 @@ case "${1:-}" in
     install-session) install_session ;;
     install-settings-entry) install_settings_desktop_entry ;;
     install-welcome-entry) install_welcome_desktop_entries ;;
-    install-plugin-manager-entry) install_plugin_manager_desktop_entry ;;
     install-engine-test-session) install_engine_test_session ;;
     remove-session) remove_session ;;
     remove-engine-test-session) remove_engine_test_session ;;

@@ -81,9 +81,6 @@ runCommand "denial-nix-lock-consistency"
       ${source}/dart_shell/pubspec.lock \
       ${source}/nix/dart_shell-pubspec-lock.json
     check_pub_lock \
-      ${source}/plugin_manager_app/pubspec.lock \
-      ${source}/nix/plugin_manager_app-pubspec-lock.json
-    check_pub_lock \
       ${source}/packages/denial_plugin_manager/pubspec.lock \
       ${source}/nix/plugin_manager_backend-pubspec-lock.json
     flutter_pubspec_hash="$(sha256sum \

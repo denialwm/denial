@@ -108,7 +108,7 @@ verify_deb() {
       grep -Fxq './usr/lib/denial/flutter/.denial-ui-source.json' \
         <<<"$payload_listing" \
         || fail 'Debian package lacks its source identity'
-      if grep -Fq './usr/bin/denial-plugin-manager' <<<"$payload_listing"; then
+      if grep -Fq './usr/bin/denial-plugins' <<<"$payload_listing"; then
         fail 'Debian package embeds the Plugin Manager'
       fi
       for portal_artifact in \
@@ -139,11 +139,7 @@ verify_deb() {
       for plugin_artifact in \
         ./usr/bin/denial-plugins \
         ./usr/bin/denial-plugins.installation.json \
-        ./usr/lib/denial/plugin-manager/denial-plugin-manager.installation.json \
-        ./usr/bin/denial-plugin-manager \
-        ./usr/lib/denial/plugin-manager/lib/libapp.so \
-        ./usr/lib/denial/plugin-build-kit/kit.json \
-        ./usr/share/applications/dev.denial.PluginManager.desktop; do
+        ./usr/lib/denial/plugin-build-kit/kit.json; do
         grep -Fxq "$plugin_artifact" <<<"$payload_listing" \
           || fail "Debian Plugin Manager lacks $plugin_artifact"
       done
@@ -237,7 +233,7 @@ verify_rpm() {
         || fail 'Denial RPM has no package copyright file'
       grep -Fxq /usr/lib/denial/flutter/.denial-ui-source.json \
         <<<"$package_files" || fail 'Denial RPM lacks its source identity'
-      if grep -Fxq /usr/bin/denial-plugin-manager <<<"$package_files"; then
+      if grep -Fxq /usr/bin/denial-plugins <<<"$package_files"; then
         fail 'Denial RPM embeds the Plugin Manager'
       fi
       grep -Fxq /usr/lib/denial-apps/settings <<<"$package_files" \
@@ -277,11 +273,7 @@ verify_rpm() {
       for plugin_artifact in \
         /usr/bin/denial-plugins \
         /usr/bin/denial-plugins.installation.json \
-        /usr/lib/denial/plugin-manager/denial-plugin-manager.installation.json \
-        /usr/bin/denial-plugin-manager \
-        /usr/lib/denial/plugin-manager/lib/libapp.so \
-        /usr/lib/denial/plugin-build-kit/kit.json \
-        /usr/share/applications/dev.denial.PluginManager.desktop; do
+        /usr/lib/denial/plugin-build-kit/kit.json; do
         grep -Fxq "$plugin_artifact" <<<"$package_files" \
           || fail "Plugin Manager RPM lacks $plugin_artifact"
       done

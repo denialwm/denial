@@ -613,15 +613,13 @@ void main() {
   test('desktop entries launch without field codes', () {
     final data = Directory(p.join(directory.path, 'data/applications'))
       ..createSync(recursive: true);
-    File(
-      p.join(data.path, 'dev.denial.PluginManager.desktop'),
-    ).writeAsStringSync(
+    File(p.join(data.path, 'org.denialwm.Settings.desktop')).writeAsStringSync(
       '[Desktop Entry]\nName=Plugins\nExec="/opt/my apps/plugins" --flag %U\n'
       '[Desktop Action other]\nExec=/wrong\n',
     );
     expect(
       desktopEntryCommand(
-        'dev.denial.PluginManager.desktop',
+        'org.denialwm.Settings.desktop',
         environment: {
           'XDG_DATA_HOME': p.dirname(data.path),
           'XDG_DATA_DIRS': '/nonexistent',

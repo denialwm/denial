@@ -68,16 +68,17 @@ their checksums; a bundle carries no engine. Builds and repository operations
 can run in detached workers that survive the submitting process; status and
 progress are durable JSON/log files.
 
-`plugin_manager_app` is the separate GUI. Build it and the compiled CLI with
-`tools/denial-pc plugin-manager`. A release build also prepares the compiler
-kit packages install; a development checkout prepares one only while staging a
-package. Native package staging installs `denial-plugin-manager`,
-`denial-plugins`, the desktop entry, and `/usr/lib/denial/plugin-build-kit`.
+Settings' Plugins page (denial-apps, `apps/settings`) is the window; it runs
+this CLI. Build the compiled CLI with `tools/denial-pc plugin-manager`. A
+release build also prepares the compiler kit packages install; a development
+checkout prepares one only while staging a package. Native package staging
+installs `denial-plugins` and `/usr/lib/denial/plugin-build-kit` in the
+`denial-plugin-manager` package.
 
-The app works through background jobs, so its window can close meanwhile:
+Work runs as background jobs, so the window can close meanwhile:
 
 ```sh
-denial-plugins bootstrap            # automatic; the app calls this itself
+denial-plugins bootstrap            # automatic; Settings calls this itself
 denial-plugins submit plan          # preview/validate only
 denial-plugins submit apply         # retain pins, build and request activation
 denial-plugins submit update        # deliberately advance Git/Pub, build and activate
@@ -86,7 +87,7 @@ denial-plugins submit restore       # same as off
 ```
 
 Wait for each background job to complete before submitting a dependent operation.
-The GUI disables mutations while a job is active. A package's initial
+Settings disables changes while a job is active. A package's initial
 preparation verifies the entire kit manifest before copying and publishing
 configuration; it does not write into the installed kit. After an upgrade,
 Denial prepares the matching kit automatically and custom bundles are rebuilt.

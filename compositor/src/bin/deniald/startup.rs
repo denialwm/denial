@@ -908,7 +908,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         {
             if let Some(arguments) = plugin_bundle::resume_arguments() {
                 if let Err(error) =
-                    runtime.start_startup_application(arguments, "dev.denial.PluginManager.desktop")
+                    runtime.start_startup_application(arguments, "org.denialwm.Settings.desktop")
                 {
                     warn!(%error, "could not start the plugin rebuild after a Denial update");
                 }

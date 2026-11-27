@@ -72,7 +72,7 @@ Requires:       denial = %{version}-%{release}
 Requires:       git
 
 %description -n denial-plugin-manager
-Installs the Plugin Manager app, its backend, and Denial's compiler kit.
+Installs the plugin backend and Denial's compiler kit for Settings' Plugins page.
 A compatible Dart SDK must be available in PATH before compiling plugins.
 
 %prep
@@ -91,7 +91,6 @@ test -x %{buildroot}/usr/bin/denialctl
 test -x %{buildroot}/usr/bin/denial-portal
 test -x %{buildroot}/usr/bin/denial-session
 test -x %{buildroot}/usr/bin/denial-settings
-test -x %{buildroot}/usr/bin/denial-plugin-manager
 test -x %{buildroot}/usr/bin/denial-plugins
 test -f %{buildroot}/usr/bin/denial-plugins.installation.json
 test -f %{buildroot}/usr/lib/denial/plugin-build-kit/kit.json
@@ -163,12 +162,9 @@ fi
 %license /usr/share/licenses/denial-flutter-engine/*
 
 %files -n denial-plugin-manager
-/usr/bin/denial-plugin-manager
 /usr/bin/denial-plugins
 /usr/bin/denial-plugins.installation.json
-/usr/lib/denial/plugin-manager
 /usr/lib/denial/plugin-build-kit
-/usr/share/applications/dev.denial.PluginManager.desktop
 /usr/share/doc/denial-plugin-manager
 %license /usr/share/licenses/denial-plugin-manager/*
 

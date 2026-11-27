@@ -11,8 +11,8 @@ dependencies can still come from pub.dev.
 ## 1. Find Denial's development tools
 
 Install the optional `denial-plugin-manager` package that exactly matches the
-installed `denial` version. The normal `denial` package does not contain the app,
-backend, or compiler kit. On Arch Linux, CachyOS, and Omarchy:
+installed `denial` version. The normal `denial` package does not contain the
+backend or compiler kit; Settings' Plugins page uses them once they are installed. On Arch Linux, CachyOS, and Omarchy:
 
 ```sh
 sudo pacman -S denial-plugin-manager
@@ -904,7 +904,7 @@ tools/denial-plugins apply
 
 The checkout is read as it is on disk, so there is nothing to prepare between
 edits. `tools/denial-pc plugin-manager` is needed again only after changing the
-plugin manager itself (`packages/denial_plugin_manager`, `plugin_manager_app`).
+plugin manager itself (`packages/denial_plugin_manager`).
 
 Plugins built from a checkout load in that checkout's development session
 across commits, edits and engine rebuilds, engine tests included. When an

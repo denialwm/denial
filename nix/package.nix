@@ -96,24 +96,10 @@ let
     # the final package identity so packaging-only changes do not rebuild AOT.
     version = "0.0.0";
   };
-  nativeApp = callPackage ./native-app.nix {
-    src = sourceFor [ "native_app" "compositor" ];
-  };
   # Settings, Welcome and the Polkit agent: GPUI programs from denial-apps, at the commits
   # settings/SOURCE_LOCK.json names.
   settingsApp = callPackage ./settings.nix {
     inherit denialAppsSrc gpuiTouchSrc;
-    version = "0.0.0";
-  };
-  pluginManagerApp = callPackage ./plugin-manager-app.nix {
-    inherit pluginManagerBackend nativeApp;
-    src = sourceFor [
-      "plugin_manager_app"
-      "packages/denial_sdk"
-      "packages/denial_flutter_sdk"
-      "protocol/generated/dart"
-    ];
-    sourceLockHash = builtins.hashFile "sha256" (src.origSrc + "/plugin_manager_app/pubspec.lock");
     version = "0.0.0";
   };
   pluginManagerBackend = callPackage ./plugin-manager-backend.nix {
@@ -163,7 +149,6 @@ let
     "packaging/arch/denial-session"
     "packaging/arch/denial.desktop"
     "packaging/arch/denial.portal"
-    "packaging/dev.denial.PluginManager.desktop"
     "packaging/arch/org.freedesktop.impl.portal.desktop.denial.service"
     "packaging/arch/outputs.conf"
     "packaging/arch/session.conf"
@@ -363,17 +348,12 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       compositor
       dartShell
       settingsApp
-      nativeApp
-      pluginManagerApp
       pluginManagerBackend
       pluginBuildKit
       ;
     inherit buildIdentity sourceRevision;
     pluginManager = callPackage ./plugin-manager-package.nix {
-      denial = finalAttrs.finalPackage;
       inherit
-        denialFlutter
-        pluginManagerApp
         pluginManagerBackend
         pluginBuildKit
         packageSrc

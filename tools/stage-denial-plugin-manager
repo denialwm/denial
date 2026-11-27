@@ -2,35 +2,23 @@
 # Stage existing artifacts only; safe for a package root, never a live install.
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-[[ $# == 4 && "$1" == /* && "$1" != / ]] || {
-    printf 'Usage: stage-denial-plugin-manager ABSOLUTE_PACKAGE_ROOT APP_BUNDLE BACKEND BUILD_KIT\n' >&2
+[[ $# == 3 && "$1" == /* && "$1" != / ]] || {
+    printf 'Usage: stage-denial-plugin-manager ABSOLUTE_PACKAGE_ROOT BACKEND BUILD_KIT\n' >&2
     exit 2
 }
 destination="$1"
-bundle="$2"
-backend="$3"
-kit="$4"
+backend="$2"
+kit="$3"
 [[ -f "$kit/kit.json" && -f "$kit/runtime/.denial-ui-source.json" ]] || {
     printf 'Missing Plugin Manager build kit: %s\n' "$kit" >&2
     exit 1
 }
-for artifact in denial-plugin-manager data/flutter_assets/AssetManifest.bin lib/libapp.so lib/libflutter_engine.so; do
-    [[ -f "$bundle/$artifact" ]] || {
-        printf 'Missing Plugin Manager artifact: %s\n' "$bundle/$artifact" >&2
-        exit 1
-    }
-done
 [[ -x "$backend" ]] || {
     printf 'Missing Plugin Manager backend: %s\n' "$backend" >&2
     exit 1
 }
-install -d -m755 "$destination/usr/lib/denial/plugin-manager"
-cp -a -- "$bundle/." "$destination/usr/lib/denial/plugin-manager/"
-chmod -R u=rwX,go=rX "$destination/usr/lib/denial/plugin-manager"
+# Settings' Plugins page is the window; it runs denial-plugins.
 install -Dm755 "$backend" "$destination/usr/bin/denial-plugins"
-ln -s ../lib/denial/plugin-manager/denial-plugin-manager "$destination/usr/bin/denial-plugin-manager"
-install -Dm644 "$ROOT/packaging/dev.denial.PluginManager.desktop" \
-    "$destination/usr/share/applications/dev.denial.PluginManager.desktop"
 install -d -m755 "$destination/usr/lib/denial/plugin-build-kit"
 cp -a -- "$kit/." "$destination/usr/lib/denial/plugin-build-kit/"
 chmod -R u=rwX,go=rX "$destination/usr/lib/denial/plugin-build-kit"
@@ -43,8 +31,4 @@ install -Dm644 "$ROOT/docs/PLUGIN_DEVELOPMENT.md" \
 cat > "$destination/usr/bin/denial-plugins.installation.json" <<'JSON'
 {"schema":1,"buildKit":"../lib/denial/plugin-build-kit","denialctl":"denialctl"}
 JSON
-cat > "$destination/usr/lib/denial/plugin-manager/denial-plugin-manager.installation.json" <<'JSON'
-{"schema":1,"backend":"../../../bin/denial-plugins"}
-JSON
-chmod 644 "$destination/usr/bin/denial-plugins.installation.json" \
-    "$destination/usr/lib/denial/plugin-manager/denial-plugin-manager.installation.json"
+chmod 644 "$destination/usr/bin/denial-plugins.installation.json"

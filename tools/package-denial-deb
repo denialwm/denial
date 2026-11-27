@@ -120,7 +120,7 @@ Priority: optional
 Depends: denial (= $PACKAGE_VERSION-$PACKAGE_RELEASE), git, libc6 (>= $GLIBC_BASELINE)
 Homepage: https://github.com/denialwm/denial
 Description: plugin development and composition tools for Denial
- Installs the Plugin Manager app, its backend, and Denial's compiler kit.
+ Installs the plugin backend and Denial's compiler kit for Settings' Plugins page.
  A compatible Dart SDK must be available in PATH before compiling plugins.
 EOF
 )"

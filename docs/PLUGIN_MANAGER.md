@@ -10,6 +10,11 @@ earlier proposal that plugin authors must publish their plugins to pub.dev.
 It does not authorize implementation, publication, or deployment. Follow
 `AGENTS.md` for all execution and validation constraints.
 
+Since 2026-11-27 the window is Settings' Plugins page (denial-apps,
+`apps/settings`). The separate Flutter application and its native runner are
+gone; sections below that describe them are history. The backend, the build
+kit and the `denial-plugin-manager` package remain: see section 24.
+
 MUST/MUST NOT denote requirements. Examples use illustrative package names,
 versions, URLs, and field names; they are not published packages, assigned
 repository locations, or a finalized storage/IPC schema.
@@ -1233,9 +1238,10 @@ and closes a failure notification itself once deniald no longer reports
 `plugin_rebuild`, because the user fixed it in Plugins or chose the packaged
 shell. A session that stays unavailable for a minute ends it. When the user
 restores the packaged shell during a rebuild, the notification closes quietly.
-Plugins is opened through its desktop entry, with the activation token that
-came with the action; the action is offered only when that entry is
-installed. deniald launches `resume` before its event loop serves
+Plugins is opened through Settings' desktop entry,
+`org.denialwm.Settings.desktop`, with `plugins` appended so Settings opens on
+that page, and with the activation token that came with the action; the action
+is offered only when that entry is installed. deniald launches `resume` before its event loop serves
 notifications and control requests, so `resume` waits for both. It never
 D-Bus-activates the notification service: that could start another daemon in
 place of Denial's. Without a notification server the rebuild still runs.
@@ -1453,3 +1459,17 @@ are left out.
 request goes on when the program closes, and `status` reports it as `work`. An
 apply typed into a terminal shows up the same way. A request made while
 another runs fails at once: offer one only while `can` allows it.
+
+## 24. The Flutter application is gone (2026-11-27)
+
+Settings' Plugins page replaced the Flutter Plugin Manager window, so the
+window, its native runner (`native_app`) and its desktop entry
+`dev.denial.PluginManager.desktop` are removed from the repository, the build
+and every package format.
+
+- The `denial-plugin-manager` package keeps its name. It carries
+  `/usr/bin/denial-plugins`, `denial-plugins.installation.json` beside it, and
+  the release compiler kit in `/usr/lib/denial/plugin-build-kit`.
+- `tools/denial-pc plugin-manager` builds the backend and, for packages, the
+  kit.
+- Notifications about a plugin rebuild open Settings on its Plugins page.

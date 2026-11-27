@@ -301,13 +301,10 @@ validate_plugin_manager_package() (
   validation_root="$(mktemp -d "$MAKEPKG_ROOT/validate-plugin-manager.XXXXXX")"
   trap 'rm -rf --one-file-system -- "$validation_root"' EXIT
   bsdtar -xpf "$package" -C "$validation_root"
-  for executable in denial-plugin-manager denial-plugins; do
-    [[ -x "$validation_root/usr/bin/$executable" ]] || {
-      printf 'package-denial-arch: Plugin Manager executable is missing: %s\n' \
-        "$executable" >&2
-      return 1
-    }
-  done
+  [[ -x "$validation_root/usr/bin/denial-plugins" ]] || {
+    printf 'package-denial-arch: Plugin Manager backend is missing\n' >&2
+    return 1
+  }
   [[ -f "$validation_root/usr/lib/denial/plugin-build-kit/kit.json" ]] || {
     printf 'package-denial-arch: Plugin Manager build kit is missing\n' >&2
     return 1

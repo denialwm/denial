@@ -31,7 +31,6 @@ package() {
   fi
 
   "$repository_root/tools/stage-denial-plugin-manager" "$pkgdir" \
-    "${DENIAL_PACKAGE_PLUGIN_MANAGER_BUNDLE:-$repository_root/plugin_manager_app/build/linux/x64/release/bundle}" \
     "${DENIAL_PACKAGE_PLUGIN_MANAGER_BACKEND:-$cache_root/denial/pc-build/plugin-manager/denial-plugins}" \
     "${DENIAL_PACKAGE_PLUGIN_BUILD_KIT:-$cache_root/denial/pc-build/plugin-manager/build-kit}"
 }

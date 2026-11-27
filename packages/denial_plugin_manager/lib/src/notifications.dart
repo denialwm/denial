@@ -160,7 +160,7 @@ final class DesktopNotifications implements Notifier {
           for (final (key, label) in content.actions) ...[key, label],
         ]),
         DBusDict.stringVariant({
-          'desktop-entry': const DBusString('dev.denial.PluginManager'),
+          'desktop-entry': const DBusString('org.denialwm.Settings'),
           'urgency': const DBusByte(1),
           if (content.resident) 'resident': const DBusBoolean(true),
         }),

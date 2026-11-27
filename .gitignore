@@ -50,9 +50,5 @@
 /prebuilt/flutter-engine/*/libflutter_engine.so.before-*
 MOTO_WIFI_DEPLOY.md
 
-/plugin_manager_app/.dart_tool/
-/plugin_manager_app/build/
-/plugin_manager_app/linux/flutter/ephemeral/
-/plugin_manager_app/.flutter-plugins*
 
 __pycache__/

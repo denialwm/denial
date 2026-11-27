@@ -616,7 +616,9 @@ Future<void> resume(
       }
       return;
     }
-    final plugins = desktopEntryCommand('dev.denial.PluginManager.desktop');
+    // Settings opens on its Plugins page.
+    final settings = desktopEntryCommand('org.denialwm.Settings.desktop');
+    final plugins = settings == null ? null : [...settings, 'plugins'];
     try {
       await PluginResume(
         store: store,

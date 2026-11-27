@@ -143,11 +143,6 @@ package() {
 		--add-needed libdenial-resolver-bridge.so.0 \
 		--add-needed libdenial-pthread-stack.so.0 \
 		"$pkgdir/usr/lib/denial-apps/settings"
-	patchelf --set-rpath '$ORIGIN/lib:/usr/lib/denial/alpine' \
-		--add-needed libgcompat.so.0 \
-		--add-needed libdenial-resolver-bridge.so.0 \
-		--add-needed libdenial-pthread-stack.so.0 \
-		"$pkgdir/usr/lib/denial/plugin-manager/denial-plugin-manager"
 	python3 "$srcdir/denial-plugin-kit-adapt.py" \
 		"$pkgdir/usr/lib/denial/plugin-build-kit" \
 		"$pkgdir/usr/bin/denial-plugins"
@@ -179,12 +174,9 @@ _plugin_manager() {
 	pkgdesc="Plugin development and composition tools for Denial"
 	license="GPL-3.0-or-later"
 	depends="denial=$pkgver-r$pkgrel git"
-	amove usr/bin/denial-plugin-manager
 	amove usr/bin/denial-plugins
 	amove usr/bin/denial-plugins.installation.json
-	amove usr/lib/denial/plugin-manager
 	amove usr/lib/denial/plugin-build-kit
-	amove usr/share/applications/dev.denial.PluginManager.desktop
 	amove usr/share/doc/denial-plugin-manager
 	amove usr/share/licenses/denial-plugin-manager
 }
