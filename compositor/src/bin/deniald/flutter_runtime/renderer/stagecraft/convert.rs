@@ -116,6 +116,44 @@ struct Lending {
     lent: bool,
 }
 
+/// Zero copy is the rule: a client whose buffer GLES copies for the
+/// composer, such as a YUV video frame, says so at most once in this long,
+/// with how often since.
+const COPY_WARNING_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Call for each plain copy (no grade) of `texture_id`'s buffer.
+fn warn_client_copied(texture_id: i64, size: (u32, u32)) {
+    // Per texture: when it last warned and its copies since.
+    static COPIED: Mutex<Vec<(i64, Instant, u64)>> = Mutex::new(Vec::new());
+    let now = Instant::now();
+    let mut copied = COPIED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let copies = match copied.iter_mut().find(|entry| entry.0 == texture_id) {
+        Some(entry) => {
+            entry.2 += 1;
+            if now.duration_since(entry.1) < COPY_WARNING_INTERVAL {
+                return;
+            }
+            entry.1 = now;
+            std::mem::take(&mut entry.2)
+        }
+        None => {
+            copied.retain(|entry| now.duration_since(entry.1) < 6 * COPY_WARNING_INTERVAL);
+            copied.push((texture_id, now, 0));
+            1
+        }
+    };
+    drop(copied);
+    tracing::warn!(
+        texture_id,
+        width = size.0,
+        height = size.1,
+        copies,
+        "client copied: Stagecraft cannot sample its buffer, so GLES copies it into one it can"
+    );
+}
+
 impl SceneComposer {
     /// The image showing `key` for `texture_id`: the one drawn before when
     /// it shows it already, else `draw` writes the GL texture it is given
@@ -168,6 +206,9 @@ impl SceneComposer {
             // Not reused: its storage may be what failed.
             pool.retired.push(target);
             return Err("client conversion");
+        }
+        if key.grade.is_none() {
+            warn_client_copied(sampled.texture_id, key.size);
         }
         let entry = pool
             .entries
