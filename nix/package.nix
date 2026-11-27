@@ -102,21 +102,12 @@ let
     inherit denialAppsSrc gpuiTouchSrc;
     version = "0.0.0";
   };
-  pluginManagerBackend = callPackage ./plugin-manager-backend.nix {
-    inherit pluginBuildKit compositor;
-    src = sourceFor [
-      "packages/denial_plugin_manager"
-      "packages/denial_sdk"
-    ];
-    sourceLockHash = builtins.hashFile "sha256" (
-      src.origSrc + "/packages/denial_plugin_manager/pubspec.lock"
-    );
-  };
   pluginBuildKit = callPackage ./plugin-build-kit.nix {
     src = sourceFor [
       "dart_shell"
       "packages/denial_sdk"
       "packages/denial_flutter_sdk"
+      "packages/denial_plugin_discovery"
       "plugins/denial_top_bar"
       "plugins/denial_desktop"
       "plugins/denial_launcher"
@@ -348,13 +339,14 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       compositor
       dartShell
       settingsApp
-      pluginManagerBackend
       pluginBuildKit
       ;
     inherit buildIdentity sourceRevision;
     pluginManager = callPackage ./plugin-manager-package.nix {
       inherit
-        pluginManagerBackend
+        settingsApp
+        compositor
+        denialFlutter
         pluginBuildKit
         packageSrc
         version

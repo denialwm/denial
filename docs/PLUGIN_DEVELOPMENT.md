@@ -904,7 +904,8 @@ tools/denial-plugins apply
 
 The checkout is read as it is on disk, so there is nothing to prepare between
 edits. `tools/denial-pc plugin-manager` is needed again only after changing the
-plugin manager itself (`packages/denial_plugin_manager`).
+plugin manager itself (denial-apps' `libraries/denial-plugins`, built with
+Settings).
 
 Plugins built from a checkout load in that checkout's development session
 across commits, edits and engine rebuilds, engine tests included. When an

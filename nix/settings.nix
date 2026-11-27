@@ -39,19 +39,24 @@ rustPlatform.buildRustPackage {
   inherit version;
   src = source;
   # Settings is a Cargo workspace of its own in denial-apps, with its own lock;
-  # the Polkit agent is its second member.
+  # the Polkit agent and the plugin manager, which Settings links, are its
+  # other members.
   sourceRoot = "source/denial-apps/apps/settings";
   cargoBuildFlags = [
     "-p"
     "settings"
     "-p"
     "polkit"
+    "-p"
+    "denial-plugins"
   ];
   cargoTestFlags = [
     "-p"
     "settings"
     "-p"
     "polkit"
+    "-p"
+    "denial-plugins"
   ];
   # The workspace's own Cargo configuration builds into the denial-apps
   # checkout's shared target, outside the part of the source made writable.
@@ -76,6 +81,9 @@ rustPlatform.buildRustPackage {
     install -d $out/lib/denial-apps
     mv $out/bin/settings $out/lib/denial-apps/
     mv $out/bin/polkit $out/lib/denial-apps/
+    # The plugin manager command goes into its own package.
+    install -d $out/lib/denial-plugins
+    mv $out/bin/denial-plugins $out/lib/denial-plugins/
     ln --symbolic ../lib/denial-apps/settings $out/bin/denial-settings
     ln --symbolic ../lib/denial-apps/polkit $out/bin/denial-polkit-agent
     install -Dm644 org.denialwm.Settings.png \
@@ -87,6 +95,7 @@ rustPlatform.buildRustPackage {
       --target-directory=$out/share/licenses/denial/settings/LICENSES
     test -x $out/lib/denial-apps/settings
     test -x $out/lib/denial-apps/polkit
+    test -x $out/lib/denial-plugins/denial-plugins
   '';
 
   postFixup = ''
@@ -95,7 +104,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "Settings, Welcome and the Polkit agent for Denial";
+    description = "Settings, Welcome, the Polkit agent and the plugin manager for Denial";
     homepage = "https://github.com/denialwm/denial-apps";
     license = with lib.licenses; [
       gpl3Plus

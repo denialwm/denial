@@ -204,6 +204,26 @@ def prune_compiled_tool_dependency(package):
     (package / 'lib').mkdir(exist_ok=True)
 
 
+def dependency_closure(names, packages):
+    """The packages `names` need, from their pubspecs' `dependencies`."""
+    needed = set()
+    waiting = list(names)
+    while waiting:
+        name = waiting.pop()
+        if name in needed or not (packages / name / 'pubspec.yaml').is_file():
+            continue
+        needed.add(name)
+        inside = False
+        for line in (packages / name / 'pubspec.yaml').read_text().splitlines():
+            if not line.strip() or line.lstrip().startswith('#'):
+                continue
+            if not line.startswith(' '):
+                inside = line.rstrip() == 'dependencies:'
+            elif inside and line.startswith('  ') and not line.startswith('   '):
+                waiting.append(line.strip().split(':', 1)[0])
+    return needed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--flutter-root', type=Path, required=True)
@@ -264,7 +284,7 @@ def main():
         parser.error('local engine differs from the pinned release engine')
     output.mkdir(parents=True)
     runtime = output / 'runtime'
-    for path in ['packages/denial_sdk', 'packages/denial_flutter_sdk',
+    for path in ['packages/denial_sdk', 'packages/denial_flutter_sdk', 'packages/denial_plugin_discovery',
                  'plugins/denial_top_bar', 'plugins/denial_desktop', 'plugins/denial_launcher', 'plugins/denial_clock', 'plugins/denial_pets',
                  'plugins/builtins.yaml', 'protocol/generated/dart', 'LICENSE',
                  'prebuilt/flutter-engine/SOURCE_LOCK.json']:
@@ -386,8 +406,14 @@ def main():
             staged.replace(cached)
     # The snapshot now contains dependency code. Flutter only needs each root's
     # pubspec for its cache self-check; retaining sources would add tens of MiB.
+    # Plugin discovery runs as a script on the tool's analyzer: its packages
+    # keep their sources.
+    discovery = dependency_closure(['analyzer'], output / 'tool-packages')
+    if 'analyzer' not in discovery:
+        parser.error("the Flutter tool's packages hold no analyzer for plugin discovery")
     for package in (output / 'tool-packages').iterdir():
-        prune_compiled_tool_dependency(package)
+        if package.name not in discovery:
+            prune_compiled_tool_dependency(package)
     wrapper = sdk / 'bin/flutter'
     wrapper.write_text(f'''#!/bin/sh
 set -eu

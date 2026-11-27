@@ -17,7 +17,8 @@ kit="$3"
     printf 'Missing Plugin Manager backend: %s\n' "$backend" >&2
     exit 1
 }
-# Settings' Plugins page is the window; it runs denial-plugins.
+# Settings' Plugins page links the manager; deniald runs denial-plugins
+# resume after an update, and a terminal the rest.
 install -Dm755 "$backend" "$destination/usr/bin/denial-plugins"
 install -d -m755 "$destination/usr/lib/denial/plugin-build-kit"
 cp -a -- "$kit/." "$destination/usr/lib/denial/plugin-build-kit/"

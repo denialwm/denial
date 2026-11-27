@@ -22,7 +22,8 @@ BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-releas
 # Settings, and the Polkit agent built with it.
 SETTINGS_BINARY="$("$ROOT/tools/denial-settings" path)"
 POLKIT_BINARY="$("$ROOT/tools/denial-settings" polkit-path)"
-PLUGIN_MANAGER_BACKEND="${DENIAL_PC_PLUGIN_MANAGER_BACKEND:-$BUILD_ROOT/plugin-manager/denial-plugins}"
+# The plugin manager command, which the Settings build leaves.
+PLUGIN_MANAGER_BACKEND="${DENIAL_PC_PLUGIN_MANAGER_BACKEND:-$("$ROOT/tools/denial-settings" plugins-path)}"
 PLUGIN_BUILD_KIT="${DENIAL_PC_PLUGIN_BUILD_KIT:-$BUILD_ROOT/plugin-manager/build-kit}"
 PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"

@@ -22,7 +22,6 @@ in a `@Plugin()` library. The reference desktop accepts zero or one launcher;
 conflicting providers fail composition. Do not depend on this package merely to
 implement an alternative—depend on the SDK contract instead.
 
-Validation uses Dart analysis, the manager's
-`integration_test/launcher_composition_test.dart` (after resolving the shell's
-Pub dependencies), and a release bundle build. Visual validation belongs to the
-user; the integration check does not launch any UI or use a debug engine.
+Validation uses Dart analysis, `denial-plugins plan` with the launcher selected
+and without it, and a release bundle build. Visual validation belongs to the
+user; planning does not launch any UI or use a debug engine.

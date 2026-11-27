@@ -30,6 +30,8 @@ TARGET_DIR="${DENIAL_SETTINGS_TARGET:-$RUST_TARGET-settings}"
 RELEASE_DIR="$TARGET_DIR${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
 BINARY="$RELEASE_DIR/settings"
 POLKIT_BINARY="$RELEASE_DIR/polkit"
+# The plugin manager command; Settings links its library.
+PLUGINS_BINARY="$RELEASE_DIR/denial-plugins"
 
 usage() {
   cat <<'EOF'
@@ -38,9 +40,11 @@ Usage: tools/denial-settings COMMAND
 Commands:
   source      Fetch the locked denial-apps and gpui-touch commits; print the
               folder that holds both
-  build       Build Settings and the Polkit agent
+  build       Build Settings, the Polkit agent and the plugin manager
   path        Print where build leaves the Settings executable
   polkit-path Print where build leaves the Polkit agent
+  plugins-path
+              Print where build leaves the denial-plugins command
   stage ROOT  Install what build left into the package root ROOT
   lock        Print the locked commits
 
@@ -139,18 +143,20 @@ build() (
   toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$ROOT/rust-toolchain.toml")"
   [[ -n "$toolchain" ]] || die 'rust-toolchain.toml names no channel'
   # Settings is a workspace of its own there, with its own lock, and the
-  # Polkit agent its second member: the other apps' workspace also needs
-  # Phonewave beside it. One run compiles GPUI once for both.
+  # Polkit agent and the plugin manager its other members: the other apps'
+  # workspace also needs Phonewave beside it. One run compiles GPUI once for
+  # both apps.
   cd -- "$sources/denial-apps/apps/settings"
   RUSTUP_TOOLCHAIN="$toolchain" CARGO_TARGET_DIR="$TARGET_DIR" cargo build \
     --release --locked --jobs "$(build_jobs)" "${target_args[@]}" \
-    -p settings -p polkit
+    -p settings -p polkit -p denial-plugins
   [[ -x "$BINARY" ]] || die "the build left no $BINARY"
   [[ -x "$POLKIT_BINARY" ]] || die "the build left no $POLKIT_BINARY"
+  [[ -x "$PLUGINS_BINARY" ]] || die "the build left no $PLUGINS_BINARY"
   # Staging reads the icon, the polkit action and the license texts from the
   # sources this build used.
   printf '%s\n' "$sources" >"$RELEASE_DIR/settings.source-root"
-  printf '\nBuilt %s\nBuilt %s\n' "$BINARY" "$POLKIT_BINARY"
+  printf '\nBuilt %s\nBuilt %s\nBuilt %s\n' "$BINARY" "$POLKIT_BINARY" "$PLUGINS_BINARY"
 )
 
 stage() {
@@ -195,6 +201,7 @@ case "${1:-}" in
   build) build ;;
   path) printf '%s\n' "$BINARY" ;;
   polkit-path) printf '%s\n' "$POLKIT_BINARY" ;;
+  plugins-path) printf '%s\n' "$PLUGINS_BINARY" ;;
   stage)
     (($# == 2)) || die 'usage: denial-settings stage ROOT'
     stage "$2"

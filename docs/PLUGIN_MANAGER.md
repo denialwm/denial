@@ -13,7 +13,10 @@ It does not authorize implementation, publication, or deployment. Follow
 Since 2026-11-27 the window is Settings' Plugins page (denial-apps,
 `apps/settings`). The separate Flutter application and its native runner are
 gone; sections below that describe them are history. The backend, the build
-kit and the `denial-plugin-manager` package remain: see section 24.
+kit and the `denial-plugin-manager` package remain: see section 24. Since the
+same day the backend is Rust, which Settings links, and only plugin discovery
+is Dart: see section 25. Where earlier sections name Dart files of
+`packages/denial_plugin_manager`, they are history too.
 
 MUST/MUST NOT denote requirements. Examples use illustrative package names,
 versions, URLs, and field names; they are not published packages, assigned
@@ -1385,12 +1388,14 @@ app's compatibility check), `update`, `revert` (`undo`), `restore` (`off`),
 
 ## 23. What another program displays (2026-11-18)
 
-A program that shows plugins, such as a Settings page, runs `denial-plugins`
-and displays what it answers. It works nothing out itself: what runs, whether
-Apply is needed, what failed and which buttons to offer are decided here, in
-`lib/src/report.dart`. The command is `$DENIAL_PLUGINS_BINARY` in a Denial
-session, else `denial-plugins` in `PATH`; without it there is no plugin
-support to show.
+A program that shows plugins runs `denial-plugins` and displays what it
+answers; Settings links the manager's library and asks it the same things
+without running the command (section 25). It works nothing out itself: what
+runs, whether Apply is needed, what failed and which buttons to offer are
+decided by the manager, in `src/report.rs` of denial-apps'
+`libraries/denial-plugins`. The command is `$DENIAL_PLUGINS_BINARY` in a
+Denial session, else `denial-plugins` in `PATH`; without it there is no
+plugin support to show.
 
 Every sentence comes with a `code`. A program that knows the code uses its own
 wording, in the user's language; for a code it does not know it shows `text`,
@@ -1410,7 +1415,7 @@ takes about 40 ms; poll it every 5 s, and every 0.6 s while `work` is set.
 | `issues` | What stops the saved selection from being built: `code` `too_many_providers`, `missing_provider` or `invalid_declaration`, `text`, `plugins`, `feature` |
 | `included` | What the last build took in besides the selected plugins, while that build is of the saved selection: `name`, `title`, and `through`, the names from a selected plugin down to the one that needs it |
 | `setup` | Whether plugins can be built here: `ready`, `needed`, `preparing`, `missing_dart` (with `expected`), `incompatible_dart` (with `installed`, `required`) or `tools`. For the last three `text` says what to install |
-| `work` | The request that runs now, or null: `job`, `operation`, `label`, `step` and `steps` (null while unknown), `started` (when this step began, for a clock). `label` is one of the labels of `lib/src/progress.dart` |
+| `work` | The request that runs now, or null: `job`, `operation`, `label`, `step` and `steps` (null while unknown), `started` (when this step began, for a clock). `label` is one of the labels of `src/progress.rs` |
 | `failure` | The last request, when it failed and nothing succeeded since, or null: `job`, `operation`, `code`, `text`, `detail` (the message it ended with). Codes: `did_not_start`, `conflict`, `two_panels`, `missing`, `declaration`, `download`, `log_in_again`, `other_denial`, `stopped`, `failed` |
 | `next` | The one thing to do, or null: `apply`, `fix_selection`, `log_in_again`, `wait` or `open_in_session`. `text` is worded for the command line |
 | `can` | What to offer now: `change` (switches), `apply`, `undo`, `off`, `switch_now` |
@@ -1473,3 +1478,48 @@ and every package format.
 - `tools/denial-pc plugin-manager` builds the backend and, for packages, the
   kit.
 - Notifications about a plugin rebuild open Settings on its Plugins page.
+
+## 25. The manager is Rust (2026-11-27)
+
+The Dart program `denial-plugins` (`packages/denial_plugin_manager`) is
+replaced by a Rust crate in denial-apps, `libraries/denial-plugins`, a member
+of Settings' Cargo workspace. Settings links it; the crate's
+`denial-plugins` command adds the command line, background requests for
+other programs, and `resume`. Every command, answer and code of sections 21
+to 23 is unchanged, and so are the state folder and its records.
+
+- **Settings runs no program for it.** Its requests run on threads of
+  Settings and are recorded as jobs with Settings' process, so `status`
+  reports them as before and one whose process ended shows as stopped. When
+  its window closes while one runs, Settings stays, without a window, until
+  it ends. The command's `submit` still starts a request in a process of its
+  own.
+- **Discovery stays Dart.** `packages/denial_plugin_discovery/discover.dart`
+  finds the plugin contributions with Dart's analyzer. The manager runs it
+  uncompiled, with the Dart of the installation's Flutter tool and that tool's
+  package configuration, which resolves the analyzer; no Pub resolution of its
+  own. It reads one JSON request on stdin and prints one answer. The first
+  run makes a kernel snapshot of it in the state folder
+  (`cache/discovery-script/`), kept per script, Dart and analyzer. Discovery
+  results are cached as before; their key now names the script, so the first
+  Apply after this change builds once more.
+- **What else is Rust.** The selection and history store, requests, Git
+  sources, the package graph, planning and code generation, the SDK boundary
+  check (read from the syntax of imports and exports), the build, activation,
+  undo, off, the rebuild after an update, `resume` with its notification, and
+  the report codes and wording. Flutter's build tool and Pub stay programs of
+  their own.
+- **Building.** `tools/denial-settings build` builds the command with
+  Settings; `tools/denial-settings plugins-path` names it.
+  `tools/denial-pc build` and `tools/denial-pc plugin-manager` copy it to
+  `$BUILD_ROOT/plugin-manager/denial-plugins`, beside its installation
+  metadata, which a development session names in `DENIAL_PLUGINS_BINARY`.
+  Packages stage it from the Settings build.
+- **Installation metadata** may name `dart`, the Dart a build kit runs (else
+  `dart` in `PATH`), and `path`, folders searched before `PATH` for git and
+  the other programs the manager runs. Nix names both.
+- **The build kit** carries the discovery script in `runtime/` and keeps the
+  analyzer and the packages it needs as source in `tool-packages/`; the other
+  tool packages are pruned as before.
+- **Tests** are `cargo test -p denial-plugins` in denial-apps' Settings
+  workspace: applying, undo and off, a failed start, and resume.

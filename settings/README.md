@@ -12,6 +12,11 @@ Settings' Cargo workspace: it comes from the same locked commits, in the same
 Cargo run, into the same package. It also draws denial-portal's Access
 requests.
 
+The plugin manager (`libraries/denial-plugins` in denial-apps) is the third:
+Settings links it, and the same Cargo run builds its `denial-plugins`
+command, which the `denial-plugin-manager` package carries
+(docs/PLUGIN_MANAGER.md, section 25).
+
 | File | What it is |
 |---|---|
 | `SOURCE_LOCK.json` | The denial-apps and gpui-touch commits every format builds |
@@ -45,6 +50,7 @@ country cannot be set.
 tools/denial-settings build     # fetch the locked commits and build
 tools/denial-settings path      # where the program is
 tools/denial-settings polkit-path  # where the Polkit agent is
+tools/denial-settings plugins-path # where the denial-plugins command is
 tools/denial-settings lock      # the locked commits
 ```
 
