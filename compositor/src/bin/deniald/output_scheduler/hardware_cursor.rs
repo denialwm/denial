@@ -19,6 +19,14 @@ pub(crate) struct CursorSprite {
     pub(crate) height: u32,
 }
 
+/// The desktop look, which the display applies to the primary plane (or the
+/// scanout copy applies to the scene) but not to the cursor plane. The cursor
+/// image carries it instead, as it carries the gamut correction.
+pub(super) struct CursorLook {
+    pub(super) generation: u64,
+    pub(super) lut: Arc<crate::output_color::Lut>,
+}
+
 struct CursorBuffer {
     fd: DrmDeviceFd,
     fb: framebuffer::Handle,
@@ -27,13 +35,20 @@ struct CursorBuffer {
     transform: OutputTransform,
     size: (u32, u32),
     gamut: Option<[f32; 9]>,
+    look: Option<u64>,
 }
 
 impl CursorBuffer {
-    fn matches(&self, sprite: &CursorSprite, gamut: Option<[f32; 9]>) -> bool {
+    fn matches(
+        &self,
+        sprite: &CursorSprite,
+        gamut: Option<[f32; 9]>,
+        look: Option<&CursorLook>,
+    ) -> bool {
         self.size == (sprite.width, sprite.height)
             && self.transform == sprite.transform
             && self.gamut == gamut
+            && self.look == look.map(|look| look.generation)
             && self.source.same_cursor_pixels(&sprite.image)
     }
 }
@@ -157,12 +172,13 @@ impl HardwareCursor {
         &mut self,
         s: &CursorSprite,
         gamut: Option<[f32; 9]>,
+        look: Option<&CursorLook>,
     ) -> std::io::Result<Arc<CursorBuffer>> {
         let size = (s.width, s.height);
         if let Some(i) = self
             .cache
             .iter()
-            .position(|buffer| buffer.matches(s, gamut))
+            .position(|buffer| buffer.matches(s, gamut, look))
         {
             let b = self.cache.remove(i).unwrap();
             self.cache.push_front(b.clone());
@@ -175,7 +191,13 @@ impl HardwareCursor {
         let upload = (|| {
             let mut pixels = self.fd.map_dumb_buffer(&mut bo)?;
             pixels.fill(0);
-            paint(&mut pixels, pitch, s, gamut);
+            paint(
+                &mut pixels,
+                pitch,
+                s,
+                gamut,
+                look.map(|look| look.lut.as_ref()),
+            );
             drop(pixels);
             crate::kms_state::cursor_framebuffer(&self.fd, bo.size(), bo.pitch(), bo.handle())
         })();
@@ -194,6 +216,7 @@ impl HardwareCursor {
             transform: s.transform,
             size,
             gamut,
+            look: look.map(|look| look.generation),
         });
         self.cache.push_front(b.clone());
         // Bound both the animation working set and memory on large-plane GPUs.
@@ -207,6 +230,7 @@ impl HardwareCursor {
         &mut self,
         sprite: Option<&CursorSprite>,
         gamut: Option<[f32; 9]>,
+        look: Option<&CursorLook>,
     ) -> bool {
         let Some(s) = sprite else {
             self.desired = None;
@@ -220,13 +244,13 @@ impl HardwareCursor {
         }
         self.rejected_size = None;
         if let Some(current) = self.desired.as_mut()
-            && current.buffer.matches(s, gamut)
+            && current.buffer.matches(s, gamut, look)
         {
             current.x = s.x;
             current.y = s.y;
             return true;
         }
-        let next = self.buffer(s, gamut).and_then(|buffer| {
+        let next = self.buffer(s, gamut, look).and_then(|buffer| {
             let p = Position {
                 buffer,
                 x: s.x,
@@ -298,6 +322,14 @@ impl HardwareCursor {
         self.scanning = hw;
     }
     pub(super) fn move_only(&mut self) {
+        let fd = self.fd.clone();
+        self.move_with(|command| command.apply(fd.as_fd(), AtomicCommitFlags::NONBLOCK));
+    }
+    /// Moves the cursor with `commit`, which may carry the primary plane too.
+    pub(super) fn move_with(
+        &mut self,
+        commit: impl FnOnce(volition::CursorCommit) -> std::io::Result<()>,
+    ) {
         if !self.pending() {
             return;
         }
@@ -308,10 +340,7 @@ impl HardwareCursor {
         {
             return;
         }
-        match self
-            .command(self.desired.as_ref())
-            .apply(self.fd.as_fd(), AtomicCommitFlags::NONBLOCK)
-        {
+        match commit(self.command(self.desired.as_ref())) {
             Ok(()) => {
                 self.applied = self.desired.clone();
                 self.moves += 1;
@@ -344,7 +373,14 @@ impl Drop for HardwareCursor {
 
 // Match Stagecraft's bilinear sampling of premultiplied RGBA, then write
 // little-endian KMS ARGB8888. Transparent padding belongs to the fixed plane.
-fn paint(dst: &mut [u8], stride: usize, s: &CursorSprite, gamut: Option<[f32; 9]>) {
+// The look and correction follow the primary plane's order: look, then gamut.
+fn paint(
+    dst: &mut [u8],
+    stride: usize,
+    s: &CursorSprite,
+    gamut: Option<[f32; 9]>,
+    look: Option<&crate::output_color::Lut>,
+) {
     let src = s.image.pixels();
     let sw = s.image.width() as usize;
     let axis = |coordinate: f64, extent: u32| {
@@ -373,10 +409,16 @@ fn paint(dst: &mut [u8], stride: usize, s: &CursorSprite, gamut: Option<[f32; 9]
             };
             let a = sample(3);
             let mut rgb = [sample(0), sample(1), sample(2)];
-            if let Some(matrix) = gamut
-                && a > 0.
-            {
-                rgb = crate::plane_color::correct(&matrix, rgb.map(|v| v / a)).map(|v| v * a);
+            if a > 0. && (look.is_some() || gamut.is_some()) {
+                let mut color = rgb.map(|v| v / a);
+                if let Some(look) = look {
+                    color =
+                        crate::color_grade::sample(look, color.map(|v| v as f32)).map(f64::from);
+                }
+                if let Some(matrix) = gamut {
+                    color = crate::plane_color::correct(&matrix, color);
+                }
+                rgb = color.map(|v| v * a);
             }
             let i = y as usize * stride + x as usize * 4;
             dst[i..i + 4].copy_from_slice(&[
@@ -433,7 +475,7 @@ mod tests {
                 image: image.clone(),
             };
             let mut plane = [0; 64];
-            paint(&mut plane, 16, &sprite, None);
+            paint(&mut plane, 16, &sprite, None, None);
             for y in 0..4 {
                 for x in 0..4 {
                     let pixel = &plane[(y * 4 + x) * 4..(y * 4 + x + 1) * 4];
@@ -460,11 +502,44 @@ mod tests {
             image: ShmTextureFrame::new_owned(2, 1, 1, vec![128, 0, 0, 128, 0, 0, 64, 64]).unwrap(),
         };
         let mut buffer = [0; 32];
-        paint(&mut buffer, 16, &sprite, None);
+        paint(&mut buffer, 16, &sprite, None, None);
         assert_eq!(
             &buffer[..12],
             &[0, 0, 128, 128, 32, 0, 64, 96, 64, 0, 0, 64]
         );
         assert_eq!(&buffer[12..], &[0; 20]);
+    }
+
+    #[test]
+    fn the_desktop_look_grades_the_cursor_before_premultiplying() {
+        // A look that inverts every channel.
+        let mut texels = Vec::new();
+        for b in [0., 1.] {
+            for g in [0., 1.] {
+                for r in [0., 1.] {
+                    texels.extend([1. - r, 1. - g, 1. - b, 1.]);
+                }
+            }
+        }
+        let look = crate::output_color::Lut {
+            size: 2,
+            title: None,
+            texels,
+        };
+        let sprite = CursorSprite {
+            output: OutputId(1),
+            transform: OutputTransform::Normal,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+            // Opaque red, and half-transparent half-red (premultiplied).
+            image: ShmTextureFrame::new_owned(2, 1, 1, vec![255, 0, 0, 255, 64, 0, 0, 128])
+                .unwrap(),
+        };
+        let mut buffer = [0; 8];
+        paint(&mut buffer, 8, &sprite, None, Some(&look));
+        // BGRA: cyan, and (0.5, 1, 1) at alpha 128.
+        assert_eq!(buffer, [255, 255, 0, 255, 128, 128, 64, 128]);
     }
 }

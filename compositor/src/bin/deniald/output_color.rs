@@ -364,25 +364,50 @@ pub(super) fn parse_cube(text: &str) -> Result<Lut, String> {
     })
 }
 
+/// The connector's EDID blob.
+fn connector_edid(drm: &DrmDeviceFd, id: OutputId) -> Option<Vec<u8>> {
+    let handle = u32::try_from(id.0)
+        .ok()
+        .and_then(std::num::NonZeroU32::new)
+        .map(connector::Handle::from)?;
+    for (property, value) in drm.get_properties(handle).ok()? {
+        let property = drm.get_property(property).ok()?;
+        if property.name().to_str() == Ok("EDID") {
+            let blob = property.value_type().convert_value(value).as_blob()?;
+            return (blob != 0)
+                .then(|| drm.get_property_blob(blob).ok())
+                .flatten();
+        }
+    }
+    None
+}
+
 /// Read the output's EDID: its correction, if it needs one, and its HDR.
 pub(super) fn read(drm: &DrmDeviceFd, id: OutputId) -> DisplayColor {
-    let edid = || -> Option<Vec<u8>> {
-        let handle = u32::try_from(id.0)
-            .ok()
-            .and_then(std::num::NonZeroU32::new)
-            .map(connector::Handle::from)?;
-        for (property, value) in drm.get_properties(handle).ok()? {
-            let property = drm.get_property(property).ok()?;
-            if property.name().to_str() == Ok("EDID") {
-                let blob = property.value_type().convert_value(value).as_blob()?;
-                return (blob != 0)
-                    .then(|| drm.get_property_blob(blob).ok())
-                    .flatten();
-            }
-        }
-        None
-    };
-    edid().map_or_else(DisplayColor::default, |edid| from_edid(&edid))
+    connector_edid(drm, id).map_or_else(DisplayColor::default, |edid| from_edid(&edid))
+}
+
+/// The lowest refresh rate the panel's EDID range limits allow, in Hz: the
+/// longest a variable refresh panel waits for a frame.
+pub(super) fn minimum_refresh(drm: &DrmDeviceFd, id: OutputId) -> Option<u32> {
+    edid_minimum_refresh(&connector_edid(drm, id)?)
+}
+
+fn edid_minimum_refresh(edid: &[u8]) -> Option<u32> {
+    if edid.len() < 128 || edid[..8] != [0, 255, 255, 255, 255, 255, 255, 0] {
+        return None;
+    }
+    // A display range limits descriptor among the four 18-byte descriptors.
+    edid[54..126]
+        .chunks_exact(18)
+        .find_map(|descriptor| {
+            (descriptor[..3] == [0, 0, 0] && descriptor[3] == 0xfd).then(|| {
+                // Byte 4 bit 0: the minimum vertical rate is offset by 255.
+                let offset = if descriptor[4] & 1 != 0 { 255 } else { 0 };
+                u32::from(descriptor[5]) + offset
+            })
+        })
+        .filter(|&hz| hz > 0)
 }
 
 fn from_edid(edid: &[u8]) -> DisplayColor {
@@ -573,6 +598,19 @@ mod tests {
         assert!(parse_cube("LUT_3D_SIZE 99\n").is_err());
         assert!(parse_cube("0 0 0\n").is_err());
         assert!(parse_cube(&identity_cube(2).replace("1 1 1", "1 nan 1")).is_err());
+    }
+
+    #[test]
+    fn minimum_refresh_comes_from_the_range_limits_descriptor() {
+        let mut edid = vec![0u8; 128];
+        edid[..8].copy_from_slice(&[0, 255, 255, 255, 255, 255, 255, 0]);
+        assert_eq!(edid_minimum_refresh(&edid), None);
+        // Second descriptor: range limits 48-180 Hz.
+        edid[72..80].copy_from_slice(&[0, 0, 0, 0xfd, 0, 48, 180, 30]);
+        assert_eq!(edid_minimum_refresh(&edid), Some(48));
+        edid[76] = 1;
+        assert_eq!(edid_minimum_refresh(&edid), Some(303));
+        assert_eq!(edid_minimum_refresh(&edid[..100]), None);
     }
 
     #[test]

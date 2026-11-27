@@ -151,7 +151,8 @@ fn create_frame_schedulers(
             )
         })
         .collect();
-    let frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+    let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+    frame_scheduler.set_clock_by_motion(flutter.reports_scene_changes());
     Ok((scheduler, frame_scheduler))
 }
 
@@ -433,6 +434,7 @@ impl Session<'_, '_> {
         }
         if drm.is_active() {
             timeout = scheduler.limit_presentation_watchdog_timeout(now, timeout);
+            timeout = scheduler.limit_vrr_refresh_timeout(now, timeout);
         }
         if events.flutter_input.has_pending() || !events.flutter_events.is_empty() {
             timeout = Duration::ZERO;

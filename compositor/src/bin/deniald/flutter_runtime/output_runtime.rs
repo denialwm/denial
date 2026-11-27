@@ -234,6 +234,28 @@ impl FlutterRuntime {
         })
     }
 
+    /// Whether the engine reports where the shell scene changed.
+    pub fn reports_scene_changes(&self) -> bool {
+        self.host
+            .as_ref()
+            .is_some_and(|host| host.engine().reports_scene_changes())
+    }
+
+    /// Hands over each output whose draw changed the shell scene, with when.
+    pub fn take_scene_changes(&mut self, mut changed: impl FnMut(OutputId, Instant)) {
+        self.handler
+            .take_scene_changes(&mut self.scene_change_scratch);
+        for (view_id, at) in self.scene_change_scratch.drain(..) {
+            if let Some(output) = self
+                .render_outputs
+                .iter()
+                .find(|output| output.render_view_id.get() == view_id)
+            {
+                changed(output.output_id, at);
+            }
+        }
+    }
+
     pub fn has_output_updates(&self) -> bool {
         !self.pending_output_updates.is_empty()
     }
@@ -401,7 +423,10 @@ impl FlutterRuntime {
 
         let mut tagged_requests = requests.to_vec();
         for request in &mut tagged_requests {
-            request.hardware_cursor = self.cursor_scene.plane_output == Some(request.tick.output);
+            request.hardware_cursor = self
+                .cursor_scene
+                .plane_outputs
+                .contains(&request.tick.output);
             request.fingerprint_epoch = self.fingerprint_scene.render_epoch(request.tick.output);
         }
         let completion_id = self
@@ -534,7 +559,7 @@ impl FlutterRuntime {
         let cursor_placement = self
             .cursor_scene
             .placement
-            .filter(|_| self.cursor_scene.plane_output.is_none());
+            .filter(|_| self.cursor_scene.plane_outputs.is_empty());
         let cursor_snapshot = cursor_placement.and_then(|_| {
             let refresh = self
                 .render_texture_scratch

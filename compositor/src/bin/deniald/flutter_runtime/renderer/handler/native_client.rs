@@ -538,8 +538,19 @@ impl FlutterGlHandler {
                 }
                 ExternalTextureSource::Shm(frame) => (frame.width(), frame.height()),
             };
-            let placement =
-                Placement::new(bounds, size, Some(&presentation)).ok_or("cursor placement")?;
+            let Some(placement) = Placement::new(bounds, size, Some(&presentation)) else {
+                // The first few say which numbers the check refused.
+                static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 8 {
+                    warn!(
+                        ?bounds,
+                        image = ?size,
+                        ?presentation,
+                        "cursor placement refused"
+                    );
+                }
+                return Err("cursor placement");
+            };
             let sampled = SampledClient {
                 texture_id: id,
                 generation: source.generation(),

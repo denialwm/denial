@@ -433,6 +433,39 @@ struct OutputPipeline {
     /// Variable refresh: the panel waits for each frame, so there is no
     /// fixed edge for a late frame to miss.
     vrr: bool,
+    /// On a variable refresh output, how long the panel may go without a new
+    /// frame before Denial shows the current one again (`refresh_idle_vrr`).
+    vrr_hold: Option<Duration>,
+    /// When KMS last showed a frame here: a presented frame or an idle refresh.
+    last_scanout_at: Instant,
+}
+
+/// Room before the panel's longest wait, for the refresh to reach KMS.
+const VRR_HOLD_MARGIN: Duration = Duration::from_millis(2);
+/// The minimum assumed for a panel whose EDID states none.
+const VRR_FALLBACK_MINIMUM_HZ: u32 = 60;
+
+/// A variable refresh panel that waits past its minimum rate falls into the
+/// driver's low frame rate compensation, which repeats frames on its own
+/// schedule; the first frames after the wait then miss a refresh. Showing
+/// the current frame again just inside the minimum keeps the panel in range.
+fn vrr_hold(scanout: &Scanout) -> Option<Duration> {
+    if !scanout.output.vrr_enabled {
+        return None;
+    }
+    let edid = crate::output_color::minimum_refresh(scanout.surface.device_fd(), scanout.output.id);
+    let minimum = edid.unwrap_or(VRR_FALLBACK_MINIMUM_HZ).max(1);
+    let hold = Duration::from_secs(1)
+        .div_f64(f64::from(minimum))
+        .saturating_sub(VRR_HOLD_MARGIN);
+    info!(
+        output = scanout.output.name,
+        minimum_hz = minimum,
+        from_edid = edid.is_some(),
+        hold_ms = hold.as_secs_f64() * 1000.,
+        "variable refresh output repeats its frame while idle"
+    );
+    Some(hold)
 }
 
 impl OutputPipeline {
@@ -1082,6 +1115,9 @@ pub(super) struct OutputScheduler {
 }
 
 impl OutputScheduler {
+    /// Shows the cursor on the cursor plane of every output it touches, or on
+    /// none: the scene draws it everywhere or nowhere. Across a seam each
+    /// output places the same image partly beyond its edge.
     pub(super) fn sync_cursor(
         &mut self,
         runtime: &mut FlutterRuntime,
@@ -1089,24 +1125,40 @@ impl OutputScheduler {
         events: &RuntimeState,
         capture: bool,
     ) {
-        let sprite = runtime.plane_cursor();
-        let mut selected = None;
+        let sprites = runtime.plane_cursors();
+        let eligible = |pipe: &OutputPipeline| {
+            let id = pipe.output_id;
+            pipe.cursor.is_some()
+                && !pipe.powering_off
+                && pipe.wake_modeset.is_none()
+                && !capture
+                && !events.fingerprint.exclusive_for(id)
+                && !events.frontend().needs_composited_cursor(id)
+                && crate::output_color::hdr_output(id).is_none()
+        };
+        let all_eligible = !sprites.is_empty()
+            && sprites.iter().all(|sprite| {
+                self.pipelines
+                    .iter()
+                    .find(|pipe| pipe.output_id == sprite.output)
+                    .is_some_and(eligible)
+            });
+        let look = crate::output_color::desktop_lut().map(|lut| hardware_cursor::CursorLook {
+            generation: crate::output_color::desktop_lut_generation(),
+            lut,
+        });
+        let mut selected = Vec::new();
+        let mut complete = all_eligible;
         for pipe in &mut self.pipelines {
+            let id = pipe.output_id;
             let Some(plane) = pipe.cursor.as_mut() else {
                 continue;
             };
-            let id = pipe.output_id;
+            let wanted = sprites
+                .iter()
+                .find(|sprite| sprite.output == id)
+                .filter(|_| all_eligible);
             let pool = pools.for_output(id);
-            let wanted = sprite.as_ref().filter(|s| {
-                s.output == id
-                    && !pipe.powering_off
-                    && pipe.wake_modeset.is_none()
-                    && !capture
-                    && !events.fingerprint.exclusive_for(id)
-                    && !events.frontend().needs_composited_cursor(id)
-                    && crate::output_color::hdr_output(id).is_none()
-                    && !crate::output_color::desktop_look_present()
-            });
             let gamut = pool
                 .and_then(|pool| {
                     pool.plane_color
@@ -1115,22 +1167,136 @@ impl OutputScheduler {
                         .or_else(|| pool.color.map(|c| c.matrix))
                 })
                 .filter(|_| crate::output_color::correction_enabled());
-            if plane.select(wanted, gamut) {
-                selected = Some(id)
+            if plane.select(wanted, gamut, look.as_ref()) {
+                selected.push(id);
+            } else if wanted.is_some() {
+                complete = false;
             }
         }
-        runtime.select_cursor_plane(selected);
+        if !complete {
+            // One output cannot show its part: the scene draws the cursor.
+            for pipe in &mut self.pipelines {
+                if selected.contains(&pipe.output_id)
+                    && let Some(plane) = pipe.cursor.as_mut()
+                {
+                    plane.select(None, None, None);
+                }
+            }
+            selected.clear();
+        }
+        runtime.select_cursor_planes(selected);
     }
 
-    pub(super) fn cursor_tick(&mut self, id: OutputId) {
-        if let Some(p) = self.pipelines.iter_mut().find(|p| {
+    /// An idle variable refresh output shows its current frame again before
+    /// the panel waits past its minimum rate. Only while nothing of its own is
+    /// on the way to KMS: no ready frame, none in Volition.
+    pub(super) fn refresh_idle_vrr(
+        &mut self,
+        swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
+        now: Instant,
+    ) {
+        for pipeline in &mut self.pipelines {
+            let Some(hold) = pipeline.vrr_hold else {
+                continue;
+            };
+            if pipeline.powering_off
+                || pipeline.wake_modeset.is_some()
+                || pipeline.frames.in_flight.is_some()
+                || pipeline.frames.ready.is_some()
+                || now.saturating_duration_since(pipeline.last_scanout_at) < hold
+            {
+                continue;
+            }
+            let (Some(scanout), Some(framebuffer)) = (
+                scanouts.get(pipeline.scanout_index),
+                swapchains.framebuffer(pipeline.output_id, pipeline.scanning),
+            ) else {
+                continue;
+            };
+            match pipeline
+                .request
+                .refresh(scanout.surface.device_fd().as_fd(), framebuffer, None)
+            {
+                Ok(()) => pipeline.last_scanout_at = now,
+                // The previous refresh or a cursor update is still latching.
+                Err(error)
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(libc::EBUSY | libc::EAGAIN | libc::EINTR)
+                    ) => {}
+                Err(error) => {
+                    warn!(
+                        output = scanout.output.name,
+                        %error,
+                        "idle variable refresh repeat refused; the panel may fall below its range"
+                    );
+                    pipeline.vrr_hold = None;
+                }
+            }
+        }
+    }
+
+    /// Wakes the loop for the next idle variable refresh repeat.
+    pub(super) fn limit_vrr_refresh_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        self.pipelines
+            .iter()
+            .filter(|pipeline| !pipeline.powering_off && pipeline.wake_modeset.is_none())
+            .filter_map(|pipeline| {
+                let due = pipeline.last_scanout_at + pipeline.vrr_hold?;
+                Some(due.saturating_duration_since(now))
+            })
+            .fold(timeout, Duration::min)
+    }
+
+    /// Moves an idle output's hardware cursor. On a variable refresh output
+    /// the move goes out with the current frame as one flip: the panel holds
+    /// its refresh until a flip, so a cursor-only commit would wait for it
+    /// and the cursor would move at the panel's idle rate.
+    pub(super) fn cursor_tick(
+        &mut self,
+        id: OutputId,
+        swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
+        now: Instant,
+    ) {
+        let Some(p) = self.pipelines.iter_mut().find(|p| {
             p.output_id == id
                 && !p.powering_off
                 && p.frames.in_flight.is_none()
                 && p.frames.ready.is_none()
-        }) && let Some(c) = p.cursor.as_mut()
-        {
+        }) else {
+            return;
+        };
+        let Some(c) = p.cursor.as_mut() else {
+            return;
+        };
+        let flip = p
+            .vrr_hold
+            .and(p.wake_modeset.is_none().then_some(()))
+            .and_then(|()| {
+                Some((
+                    scanouts.get(p.scanout_index)?,
+                    swapchains.framebuffer(p.output_id, p.scanning)?,
+                ))
+            });
+        let Some((scanout, framebuffer)) = flip else {
             c.move_only();
+            return;
+        };
+        let request = &p.request;
+        let mut flipped = false;
+        c.move_with(|cursor| {
+            request
+                .refresh(
+                    scanout.surface.device_fd().as_fd(),
+                    framebuffer,
+                    Some(cursor),
+                )
+                .inspect(|()| flipped = true)
+        });
+        if flipped {
+            p.last_scanout_at = now;
         }
     }
     pub(super) fn cursor_pending(&self) -> bool {
@@ -1147,7 +1313,7 @@ impl OutputScheduler {
         events: &mut RuntimeState,
     ) -> Result<Self, Box<dyn Error>> {
         let powered_outputs = scanouts.iter().filter(|scanout| scanout.powered).count();
-        runtime.select_cursor_plane(None);
+        runtime.select_cursor_planes(Vec::new());
         runtime.enable_kms_frame_clock();
         runtime.set_outputs_visible(powered_outputs > 0)?;
         let presentation = Volition::new(
@@ -1178,6 +1344,8 @@ impl OutputScheduler {
                     production: ProductionEstimate::default(),
                     blanking: Duration::ZERO,
                     vrr: scanout.output.vrr_enabled,
+                    vrr_hold: vrr_hold(scanout),
+                    last_scanout_at: Instant::now(),
                 })
             })
             .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
@@ -1476,7 +1644,7 @@ impl OutputScheduler {
                     }
                     p.frames.in_flight.take();
                     runtime.release_output(p.output_id, id.frame)?;
-                    runtime.select_cursor_plane(None);
+                    runtime.select_cursor_planes(Vec::new());
                 }
                 volition::Event::Stalled(failure) => {
                     // Keep the pending frame and its Flutter ownership intact.
@@ -1776,6 +1944,7 @@ impl OutputScheduler {
             }
             pipeline.scanning = presented.index;
             pipeline.scanning_screenshot_request_id = presented.screenshot_request_id;
+            pipeline.last_scanout_at = Instant::now();
             if let Err(error) = runtime.release_output(pipeline.output_id, previous) {
                 processing_error = Some(error);
                 break;
@@ -2167,6 +2336,8 @@ impl OutputScheduler {
             production: ProductionEstimate::default(),
             blanking: Duration::ZERO,
             vrr: output.output.vrr_enabled,
+            vrr_hold: vrr_hold(output),
+            last_scanout_at: Instant::now(),
         });
         let _ = runtime;
         Ok(())

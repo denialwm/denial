@@ -42,11 +42,11 @@ impl FlutterRuntime {
         self.handler.stage_texture_sources(
             frames.drain(..),
             &mut self.changed_texture_scratch,
-            self.cursor_scene.plane_output.is_some(),
+            !self.cursor_scene.plane_outputs.is_empty(),
         );
         // Keep the current source available for a fallback transaction. A
         // compatible cursor on its own plane needs no primary frame.
-        if self.cursor_scene.plane_output.is_none() {
+        if self.cursor_scene.plane_outputs.is_empty() {
             self.stage_changed_textures();
         }
         for texture_id in &desired {
@@ -109,11 +109,11 @@ impl FlutterRuntime {
         self.handler.stage_texture_sources(
             frames.drain(..),
             &mut self.changed_texture_scratch,
-            self.cursor_scene.plane_output.is_some(),
+            !self.cursor_scene.plane_outputs.is_empty(),
         );
         // Keep the current source available for a fallback transaction. A
         // compatible cursor on its own plane needs no primary frame.
-        if self.cursor_scene.plane_output.is_none() {
+        if self.cursor_scene.plane_outputs.is_empty() {
             self.stage_changed_textures();
         }
         Ok(frames)

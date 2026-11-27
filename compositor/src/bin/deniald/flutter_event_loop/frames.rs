@@ -185,6 +185,7 @@ impl Session<'_, '_> {
         if !drm.is_active() {
             return Ok(false);
         }
+        scheduler.refresh_idle_vrr(pools, scanouts, iteration_now);
         let Some(stall) = scheduler.presentation_stall(iteration_now) else {
             return Ok(false);
         };
@@ -280,6 +281,7 @@ impl Session<'_, '_> {
             }
         }
         collect_flutter_output_damage(runtime, frame_scheduler);
+        runtime.take_scene_changes(|output, at| frame_scheduler.record_shell_motion(output, at));
 
         let transaction_waiting = output_transaction_waiting(
             ready_output_apply,
@@ -324,7 +326,14 @@ impl Session<'_, '_> {
                 .iter()
                 .any(|r| r.tick.output == tick.output)
             {
-                scheduler.cursor_tick(tick.output);
+                scheduler.cursor_tick(
+                    tick.output,
+                    swapchain
+                        .outputs()
+                        .ok_or("cursor tick has no physical output pools")?,
+                    scanouts,
+                    Instant::now(),
+                );
             }
             events.frontend_mut().frame_tick(tick)?;
             scheduler.process_screencopies_at_tick(

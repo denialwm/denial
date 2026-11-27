@@ -492,6 +492,10 @@ impl OpenGlHandler for FlutterGlHandler {
         self.scene_composer.is_some()
     }
 
+    fn scene_changed(&self, view_id: i64, changed: bool) {
+        self.record_scene_change(view_id, changed);
+    }
+
     fn scene_begin(&self, view_id: i64) -> u64 {
         self.composer_begin(view_id)
     }

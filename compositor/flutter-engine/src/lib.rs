@@ -329,11 +329,20 @@ pub struct EngineLibrary {
     ) -> sys::FlutterEngineResult,
     set_texture_presentation_callback: SetTexturePresentationCallback,
     set_scene_composer: Option<SetSceneComposer>,
+    set_scene_change_callback: Option<SetSceneChangeCallback>,
     _library: Library,
 }
 
 type SetSceneComposer =
     unsafe extern "C" fn(sys::FlutterEngine, *const scene::RawComposer) -> sys::FlutterEngineResult;
+
+pub(crate) type SceneChangeCallback = unsafe extern "C" fn(i64, bool, *mut c_void);
+
+type SetSceneChangeCallback = unsafe extern "C" fn(
+    sys::FlutterEngine,
+    SceneChangeCallback,
+    *mut c_void,
+) -> sys::FlutterEngineResult;
 
 /// # Safety
 ///
@@ -454,6 +463,14 @@ impl EngineLibrary {
                 .ok()
                 .map(|function| *function)
         };
+        // SAFETY: this additive extension has the signature above; engines
+        // without it report no per-output scene changes.
+        let set_scene_change_callback = unsafe {
+            library
+                .get::<SetSceneChangeCallback>(b"DenialFlutterEngineSetSceneChangeCallback\0")
+                .ok()
+                .map(|function| *function)
+        };
         // SAFETY: the C API explicitly requires a zero-initialized table with
         // only `struct_size` populated before the call.
         let mut table: sys::FlutterEngineProcTable = unsafe { mem::zeroed() };
@@ -501,6 +518,7 @@ impl EngineLibrary {
             set_external_texture_gl_state_callback,
             set_texture_presentation_callback,
             set_scene_composer,
+            set_scene_change_callback,
             _library: library,
         })
     }
@@ -753,6 +771,32 @@ impl RunningEngine {
             function(self.handle, composer)
         })?;
         Ok(true)
+    }
+
+    /// Installs the per-output scene-change report once. `Ok(false)` when the
+    /// engine library has none.
+    ///
+    /// # Safety
+    /// `data` must outlive the engine and the callback must not unwind.
+    pub(crate) unsafe fn set_scene_change_callback(
+        &self,
+        callback: SceneChangeCallback,
+        data: *mut c_void,
+    ) -> Result<bool, EngineError> {
+        let Some(function) = self.library.set_scene_change_callback else {
+            return Ok(false);
+        };
+        // SAFETY: upheld by the caller; the engine retains the callback.
+        check_result("DenialFlutterEngineSetSceneChangeCallback", unsafe {
+            function(self.handle, callback, data)
+        })?;
+        Ok(true)
+    }
+
+    /// Whether the engine reports, per output draw, whether the scene itself
+    /// changed there.
+    pub fn reports_scene_changes(&self) -> bool {
+        self.library.set_scene_change_callback.is_some()
     }
 
     pub fn current_time_nanos(&self) -> u64 {

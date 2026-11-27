@@ -190,6 +190,10 @@ pub trait OpenGlHandler: Send + Sync + 'static {
         false
     }
 
+    /// Raster thread, after each draw of an output view: whether the scene
+    /// itself changed there, rather than only external texture content.
+    fn scene_changed(&self, _view_id: i64, _changed: bool) {}
+
     /// Raster thread, before an output view's frame: a ticket, or zero for
     /// engine composition.
     fn scene_begin(&self, _view_id: i64) -> u64 {
@@ -849,6 +853,14 @@ impl EngineHost {
                     "engine has no scene composer; engine composition stays",
                 );
             }
+        }
+        // SAFETY: `state` outlives the engine (see above) and the trampoline
+        // contains panics.
+        if !unsafe { engine.set_scene_change_callback(scene_changed, state)? } {
+            callback_state.handler.log(
+                "denial",
+                "engine reports no per-output scene changes; the fastest output clocks the shell",
+            );
         }
         publish_engine_handle(&callback_state, engine.raw_handle() as usize, state);
         Ok(Self {
@@ -1683,6 +1695,12 @@ unsafe extern "C" fn scene_lend_textures_vk(data: *mut c_void, ticket: u64) -> b
 unsafe extern "C" fn scene_return_textures_vk(data: *mut c_void, ticket: u64) {
     dispatch(data, (), |state| {
         state.handler.scene_return_textures_vk(ticket)
+    })
+}
+
+unsafe extern "C" fn scene_changed(view_id: i64, changed: bool, data: *mut c_void) {
+    dispatch(data, (), |state| {
+        state.handler.scene_changed(view_id, changed)
     })
 }
 

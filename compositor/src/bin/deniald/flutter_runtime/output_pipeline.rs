@@ -95,7 +95,9 @@ pub(super) struct AuthorizedOutputRequest {
 pub(super) struct OutputBufferBroker {
     pub(super) pools: Vec<OutputBufferPool>,
     pub(super) transaction: u64,
-    active_completion_id: Option<u64>,
+    /// Requests the raster thread has begun and not completed. A scene rebuild
+    /// begins the requests that joined it as well as its own.
+    active_completion_ids: Vec<u64>,
     pub(super) next_screenshot: Option<(OutputId, u64)>,
 }
 
@@ -185,7 +187,7 @@ impl OutputBufferBroker {
         Ok(Self {
             pools,
             transaction: 0,
-            active_completion_id: None,
+            active_completion_ids: Vec::new(),
             next_screenshot: None,
         })
     }
@@ -280,13 +282,13 @@ impl OutputBufferBroker {
     }
 
     pub(super) fn begin_authorization(&mut self, completion_id: u64) {
-        self.active_completion_id = Some(completion_id);
+        if !self.active_completion_ids.contains(&completion_id) {
+            self.active_completion_ids.push(completion_id);
+        }
     }
 
     pub(super) fn complete_authorization(&mut self, completion_id: u64) -> usize {
-        if self.active_completion_id == Some(completion_id) {
-            self.active_completion_id = None;
-        }
+        self.active_completion_ids.retain(|&active| active != completion_id);
         let mut released = 0;
         for pool in &mut self.pools {
             if pool
@@ -320,8 +322,9 @@ impl OutputBufferBroker {
         let Some(authorization) = pool.authorized_request else {
             return Err(RenderTargetBlocked::MissingAuthorization);
         };
-        if authorization.completion_id.is_some()
-            && authorization.completion_id != self.active_completion_id
+        if authorization
+            .completion_id
+            .is_some_and(|id| !self.active_completion_ids.contains(&id))
         {
             return Err(RenderTargetBlocked::MissingAuthorization);
         }
@@ -746,6 +749,45 @@ mod capture_tests {
         assert!(!broker.target_available(output));
         assert_eq!(broker.complete_authorization(42), 1);
         assert!(broker.target_available(output));
+    }
+
+    #[test]
+    fn a_rebuild_draws_the_requests_that_joined_it() {
+        let output = OutputId(7);
+        let view = RenderViewId::for_output(output).unwrap();
+        let size = PixelSize::new(64, 64);
+        let mut broker = OutputBufferBroker::new([OutputPoolDescriptor {
+            output_id: output,
+            render_view_id: view,
+            configuration_generation: 1,
+            size,
+            initial_scanout: 0,
+            framebuffers: &[11, 12, 13],
+        }])
+        .unwrap();
+        let now = Instant::now();
+        let request = OutputFrameRequest {
+            tick: FrameTick {
+                output,
+                sequence: 1,
+                nominal_interval: Duration::from_micros(4167),
+                interval: Duration::from_micros(4167),
+                render_deadline: now,
+                presentation_target: now + Duration::from_micros(4167),
+            },
+            dirty_serial: 1,
+            lock_frame_token: 0,
+            fingerprint_epoch: 0,
+            hardware_cursor: false,
+        };
+        // Request 41 joined rebuild 42, which begins it before itself.
+        assert_eq!(broker.authorize(request, now, Some(41)), Some(view.get()));
+        broker.begin_authorization(41);
+        broker.begin_authorization(42);
+        assert!(broker.acquire(view.get(), size).is_ok());
+        broker.complete_authorization(42);
+        broker.complete_authorization(41);
+        assert!(broker.active_completion_ids.is_empty());
     }
 
     #[test]

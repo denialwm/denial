@@ -158,6 +158,38 @@ impl PlaneCommit {
         request
     }
 
+    /// Shows `framebuffer` again outside the lookahead, with a cursor
+    /// update when given, nonblocking and without a page-flip event, so no
+    /// stream sees a completion. On a variable refresh panel this is a flip:
+    /// the panel refreshes now, where a cursor-only commit waits for the
+    /// panel's next refresh. The caller sends it only while its stream has
+    /// no commit in Volition; a later commit that finds it pending retries.
+    pub fn refresh(
+        &self,
+        drm: BorrowedFd<'_>,
+        framebuffer: framebuffer::Handle,
+        cursor: Option<CursorCommit>,
+    ) -> io::Result<()> {
+        let mut request = match cursor {
+            Some(cursor) => self.with_cursor(cursor),
+            None => self.clone(),
+        };
+        request.values[0] = u64::from(u32::from(framebuffer));
+        if let Some(index) = request.fence_index {
+            request.values[index] = u64::MAX;
+        }
+        let planes = if cursor.is_some() { 2 } else { 1 };
+        let count = request.property_count;
+        drm_mode::atomic_commit(
+            drm,
+            AtomicCommitFlags::NONBLOCK.bits(),
+            &mut request.objects[..planes],
+            &mut request.property_counts[..planes],
+            &mut request.properties[..count],
+            &mut request.values[..count],
+        )
+    }
+
     fn submit(&mut self, drm: BorrowedFd<'_>, framebuffer: framebuffer::Handle) -> io::Result<()> {
         self.values[0] = u64::from(u32::from(framebuffer));
         if let Some(index) = self.fence_index {

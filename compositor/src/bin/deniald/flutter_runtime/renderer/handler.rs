@@ -200,6 +200,10 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     /// the Vulkan shell GLES draws nothing in most frames: the wait is
     /// queued before its next command (`gles_catch_up`), not per frame.
     gles_owed: Mutex<Vec<OwnedFd>>,
+    /// Output views whose last draws changed the scene itself, not only client
+    /// buffers, with when. The frame scheduler reads them to clock the shell
+    /// from the outputs it moves on.
+    scene_changes: Mutex<Vec<(i64, Instant)>>,
 }
 
 impl FlutterGlHandler {
@@ -688,7 +692,19 @@ impl FlutterGlHandler {
             producer: ProducerArbiter::new(),
             shutdown_started: AtomicBool::new(false),
             scene_composer,
+            scene_changes: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// Raster thread, after an output view's draw.
+    pub(in crate::flutter_runtime) fn record_scene_change(&self, view_id: i64, changed: bool) {
+        if changed {
+            lock(&self.scene_changes).push((view_id, Instant::now()));
+        }
+    }
+
+    pub(in crate::flutter_runtime) fn take_scene_changes(&self, into: &mut Vec<(i64, Instant)>) {
+        into.append(&mut lock(&self.scene_changes));
     }
 
     pub(in crate::flutter_runtime) fn take_ready_frame(

@@ -51,7 +51,9 @@ pub(super) struct CursorScene {
     plane_image: Option<ShmTextureFrame>,
     client_image: Option<(i64, ShmTextureFrame)>,
     plain_client_texture: Option<i64>,
-    pub(super) plane_output: Option<OutputId>,
+    /// Outputs whose cursor plane shows the cursor: every output it touches,
+    /// or none, when the scene draws it.
+    pub(super) plane_outputs: Vec<OutputId>,
     moves: u64,
     renders: u64,
 }
@@ -77,7 +79,7 @@ impl CursorScene {
             plane_image: None,
             client_image: None,
             plain_client_texture: None,
-            plane_output: None,
+            plane_outputs: Vec::new(),
             moves: 0,
             renders: 0,
         }
@@ -280,7 +282,7 @@ impl CursorScene {
     pub(super) fn damage(&mut self, outputs: impl Iterator<Item = OutputId>) -> Vec<[f64; 4]> {
         let mut damage = Vec::new();
         for output in outputs {
-            let placement = self.placement.filter(|_| self.plane_output.is_none());
+            let placement = self.placement.filter(|_| self.plane_outputs.is_empty());
             let previous = self.submitted.insert(output, placement).flatten();
             for p in [previous, placement].into_iter().flatten() {
                 let [x, y, w, h] = p.destination;
@@ -328,46 +330,55 @@ fn native_cursor_rect(output: &RuntimeRenderOutput, rect: ClientRect) -> (i32, i
 }
 
 impl FlutterRuntime {
-    pub(crate) fn plane_cursor(&self) -> Option<crate::output_scheduler::CursorSprite> {
+    /// The cursor image placed on every output it touches, partly beyond the
+    /// edge of each where it crosses a seam. Empty when no plane may show it.
+    pub(crate) fn plane_cursors(&self) -> Vec<crate::output_scheduler::CursorSprite> {
         let cursor = &self.cursor_scene;
-        let image = cursor.plane_image.as_ref()?;
-        let (rect, _) = cursor.geometry?;
-        let (px, py) = cursor.position?;
-        let (x, y) = (px + rect.x, py + rect.y);
+        let (Some(image), Some((rect, _)), Some((px, py))) = (
+            cursor.plane_image.as_ref(),
+            cursor.geometry,
+            cursor.position,
+        ) else {
+            return Vec::new();
+        };
         if self.output_rotation_animation_active() || self.authentication.locked_epoch().is_some() {
-            return None;
+            return Vec::new();
         }
-        let mut outputs = self
-            .render_outputs
+        let (x, y) = (px + rect.x, py + rect.y);
+        self.render_outputs
             .iter()
-            .filter(|o| o.intersects(x, y, rect.width, rect.height));
-        let output = outputs.next()?;
-        if outputs.next().is_some() {
-            return None;
-        }
-        let (x, y, width, height) = native_cursor_rect(output, ClientRect { x, y, ..rect });
-        Some(crate::output_scheduler::CursorSprite {
-            output: output.output_id,
-            transform: output.transform,
-            image: image.clone(),
-            x,
-            y,
-            width,
-            height,
-        })
+            .filter(|o| o.intersects(x, y, rect.width, rect.height))
+            .map(|output| {
+                let (x, y, width, height) = native_cursor_rect(output, ClientRect { x, y, ..rect });
+                crate::output_scheduler::CursorSprite {
+                    output: output.output_id,
+                    transform: output.transform,
+                    image: image.clone(),
+                    x,
+                    y,
+                    width,
+                    height,
+                }
+            })
+            .collect()
     }
 
-    pub(crate) fn select_cursor_plane(&mut self, output: Option<OutputId>) {
-        let previous = self.cursor_scene.plane_output;
-        if previous == output {
+    pub(crate) fn select_cursor_planes(&mut self, outputs: Vec<OutputId>) {
+        if self.cursor_scene.plane_outputs == outputs {
             return;
         }
-        self.cursor_scene.plane_output = output;
-        for id in [previous, output].into_iter().flatten() {
+        let previous = std::mem::replace(&mut self.cursor_scene.plane_outputs, outputs);
+        let composed = self.cursor_scene.plane_outputs.is_empty();
+        let changed = previous
+            .iter()
+            .chain(&self.cursor_scene.plane_outputs)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        for id in changed {
             let updates = self.pending_output_updates.entry(id).or_default();
             updates.insert(TEXTURE);
             updates.insert(ARTWORK);
-            if output.is_none() {
+            if composed {
                 updates.extend(self.cursor_texture_ids.iter().copied());
             }
         }
@@ -470,7 +481,7 @@ impl FlutterRuntime {
                 self.handler.stage_texture_sources(
                     [ExternalTextureFrame::from_shm(ARTWORK, image, false)],
                     &mut self.changed_texture_scratch,
-                    cursor.plane_output.is_some(),
+                    !cursor.plane_outputs.is_empty(),
                 );
             }
             let bounds = layers.iter().filter(|l| l.texture_id > 0).fold(
@@ -501,7 +512,7 @@ impl FlutterRuntime {
         }
         cursor.placement = next;
         for output in &self.render_outputs {
-            if cursor.plane_output != Some(output.output_id)
+            if !cursor.plane_outputs.contains(&output.output_id)
                 && [previous, next].into_iter().flatten().any(|p| {
                     let [x, y, w, h] = p.destination;
                     output.intersects(x, y, w, h)

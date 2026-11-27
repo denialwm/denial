@@ -590,6 +590,7 @@ pub struct FlutterRuntime {
     changed_texture_scratch: Vec<i64>,
     render_view_scratch: Vec<i64>,
     render_texture_scratch: Vec<i64>,
+    scene_change_scratch: Vec<(i64, Instant)>,
     screenshot_texture_id: Option<i64>,
     pending_screenshot_frame: Option<(OutputId, u64)>,
     scene_texture_id_scratch: Vec<i64>,

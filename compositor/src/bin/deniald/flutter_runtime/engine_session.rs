@@ -335,6 +335,7 @@ impl FlutterRuntime {
             changed_texture_scratch: Vec::new(),
             render_view_scratch: Vec::with_capacity(render_output_count),
             render_texture_scratch: Vec::new(),
+            scene_change_scratch: Vec::new(),
             screenshot_texture_id: None,
             pending_screenshot_frame: None,
             scene_texture_id_scratch: Vec::new(),

@@ -2,9 +2,13 @@
 //!
 //! App buffers and Flutter only set pending state. They never create a frame.
 //! Every powered output owns one timeline for Wayland callbacks, raster
-//! deadlines, and presentation targets. The fastest powered output is also the
-//! sole clock for the one Dart scene; slower outputs directly replay its latest
-//! retained projection. Physical presentations never authorize rendering;
+//! deadlines, and presentation targets. The one Dart scene is clocked by the
+//! outputs the shell moves on: each of them starts Dart frames on its own
+//! edges, timed for its own presentation, so every output shows a scene built
+//! for it. An output that ticks while such a frame is being built waits for
+//! that scene in the engine. With nothing moving, or with an engine that does
+//! not report where the scene changed, the fastest powered output clocks Dart
+//! alone and slower outputs show its latest scene. Physical presentations never authorize rendering;
 //! monotonic KMS timestamps only apply a bounded phase correction to a future
 //! edge of the same output timeline. All due outputs are coalesced into one
 //! linear decision:
@@ -30,6 +34,9 @@ const FRAME_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const PHASE_LOCK_DEADBAND: Duration = Duration::from_micros(50);
 const PHASE_LOCK_MAX_ADJUSTMENT: Duration = Duration::from_micros(250);
 const PHASE_LOCK_GAIN_DIVISOR: i128 = 8;
+/// How long an output keeps clocking Dart after the shell last changed on it.
+const SHELL_MOTION_HOLD: Duration = Duration::from_millis(100);
+const SHELL_CLOCK_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FrameTick {
@@ -86,8 +93,148 @@ pub(super) struct FrameScheduler {
     flutter_outputs_dirty: bool,
     flutter_tick: Option<FrameTick>,
     last_flutter_target: Option<Instant>,
+    /// Dart frame times are render deadlines; they must only advance.
+    last_flutter_deadline: Option<Instant>,
+    /// The engine reports where the shell scene changed, so the outputs it
+    /// moves on can clock Dart.
+    clock_by_motion: bool,
+    /// When the shell scene last changed on each output.
+    shell_motion: BTreeMap<OutputId, Instant>,
+    clock_report: ShellClockReport,
+    onset: Option<ShellOnset>,
+    onsets_traced: u32,
     ticks_idle: bool,
     audit: Option<FrameSchedulerAudit>,
+}
+
+/// Dart resting this long before a frame request starts a traced animation.
+const SHELL_ONSET_REST: Duration = Duration::from_millis(150);
+/// How long, and how many Dart frames, one start is traced.
+const SHELL_ONSET_SPAN: Duration = Duration::from_millis(400);
+const SHELL_ONSET_DART_FRAMES: usize = 10;
+const SHELL_ONSET_PRESENTS: usize = 6;
+/// Traced starts per session.
+const SHELL_ONSET_LIMIT: u32 = 30;
+
+/// The first Dart frames of an animation after the shell rested: which output
+/// clocked each, when the shell first moved where, and when each output
+/// presented. Times are milliseconds after Dart asked for the first frame.
+#[derive(Debug)]
+struct ShellOnset {
+    requested: Instant,
+    rest: Option<Duration>,
+    dart: Vec<(OutputId, Instant, Instant)>,
+    moved: BTreeMap<OutputId, Instant>,
+    presented: BTreeMap<OutputId, Vec<(Instant, Instant)>>,
+    waits: u32,
+}
+
+impl ShellOnset {
+    fn ms(&self, at: Instant) -> String {
+        let delta = if at >= self.requested {
+            at.duration_since(self.requested).as_secs_f64()
+        } else {
+            -self.requested.duration_since(at).as_secs_f64()
+        };
+        format!("{:.1}", delta * 1000.)
+    }
+
+    fn report(&self, report: &ShellClockReport) {
+        let dart = self
+            .dart
+            .iter()
+            .map(|(output, deadline, target)| {
+                format!(
+                    "{}@{}>{}",
+                    report.name(*output),
+                    self.ms(*deadline),
+                    self.ms(*target)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let moved = self
+            .moved
+            .iter()
+            .map(|(output, at)| format!("{}@{}", report.name(*output), self.ms(*at)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let presented = self
+            .presented
+            .iter()
+            .map(|(output, presents)| {
+                let presents = presents
+                    .iter()
+                    .map(|(target, at)| format!("{}/{}", self.ms(*target), self.ms(*at)))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("{}[{presents}]", report.name(*output))
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        info!(
+            rest_ms = self.rest.map(|rest| rest.as_millis() as u64),
+            waits = self.waits,
+            %dart,
+            %moved,
+            %presented,
+            "shell animation start"
+        );
+    }
+}
+
+/// Which outputs clocked Dart and where the shell moved, logged once a minute.
+#[derive(Debug)]
+struct ShellClockReport {
+    started: Instant,
+    names: BTreeMap<OutputId, String>,
+    dart_frames: BTreeMap<OutputId, u64>,
+    motion_draws: BTreeMap<OutputId, u64>,
+}
+
+impl ShellClockReport {
+    fn new(now: Instant) -> Self {
+        Self {
+            started: now,
+            names: BTreeMap::new(),
+            dart_frames: BTreeMap::new(),
+            motion_draws: BTreeMap::new(),
+        }
+    }
+
+    fn name(&self, output: OutputId) -> String {
+        self.names
+            .get(&output)
+            .cloned()
+            .unwrap_or_else(|| format!("{}", output.0))
+    }
+
+    fn counts(&self, counts: &BTreeMap<OutputId, u64>) -> String {
+        counts
+            .iter()
+            .map(|(output, count)| format!("{}={count}", self.name(*output)))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn maybe_report(&mut self, now: Instant, clock_by_motion: bool) {
+        let elapsed = now.saturating_duration_since(self.started);
+        if elapsed < SHELL_CLOCK_REPORT_INTERVAL {
+            return;
+        }
+        if !self.dart_frames.is_empty() {
+            info!(
+                interval_s = elapsed.as_secs(),
+                clock_by_motion,
+                dart_frames = %self.counts(&self.dart_frames),
+                shell_moved_draws = %self.counts(&self.motion_draws),
+                "shell frame clock"
+            );
+        }
+        self.started = now;
+        self.dart_frames.clear();
+        self.motion_draws.clear();
+    }
 }
 
 #[derive(Debug)]
@@ -167,13 +314,77 @@ impl FrameScheduler {
             flutter_outputs_dirty: false,
             flutter_tick: None,
             last_flutter_target: None,
+            last_flutter_deadline: None,
+            clock_by_motion: false,
+            shell_motion: BTreeMap::new(),
+            clock_report: ShellClockReport {
+                names: output_names(scanouts),
+                ..ShellClockReport::new(now)
+            },
+            onset: None,
+            onsets_traced: 0,
             ticks_idle: false,
             audit: super::render_audit_enabled().then(FrameSchedulerAudit::new),
         }
     }
 
+    /// Lets the outputs the shell moves on clock Dart. Without it the fastest
+    /// output clocks Dart alone.
+    pub(super) fn set_clock_by_motion(&mut self, enabled: bool) {
+        self.clock_by_motion = enabled;
+    }
+
+    /// The shell scene changed on `output` in a draw at `at`.
+    pub(super) fn record_shell_motion(&mut self, output: OutputId, at: Instant) {
+        if !self.configured_outputs.contains(&output) {
+            return;
+        }
+        let last = self.shell_motion.entry(output).or_insert(at);
+        *last = (*last).max(at);
+        if let Some(onset) = self.onset.as_mut() {
+            onset.moved.entry(output).or_insert(at);
+        }
+        *self.clock_report.motion_draws.entry(output).or_default() += 1;
+    }
+
+    fn shell_moving(&self, output: OutputId, now: Instant) -> bool {
+        self.shell_motion
+            .get(&output)
+            .is_some_and(|at| now.saturating_duration_since(*at) <= SHELL_MOTION_HOLD)
+    }
+
+    /// The due tick that starts the next Dart frame: the most urgent one of an
+    /// output the shell moves on, else the fastest output's.
+    fn choose_flutter_tick(&self, now: Instant) -> Option<FrameTick> {
+        let advances = |tick: &FrameTick| {
+            self.available_outputs.contains(&tick.output)
+                && self
+                    .last_flutter_deadline
+                    .is_none_or(|deadline| tick.render_deadline > deadline)
+                && self
+                    .last_flutter_target
+                    .is_none_or(|target| tick.presentation_target > target)
+        };
+        let any_moving = self.clock_by_motion
+            && self
+                .outputs
+                .timelines
+                .iter()
+                .any(|timeline| self.shell_moving(timeline.source.output, now));
+        if !any_moving {
+            return self.outputs.flutter_tick().filter(advances);
+        }
+        self.outputs
+            .ticks()
+            .iter()
+            .copied()
+            .filter(|tick| self.shell_moving(tick.output, now) && advances(tick))
+            .min_by_key(|tick| tick.presentation_target)
+    }
+
     pub(super) fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
         let configured_outputs = scanouts.iter().map(|scanout| scanout.output.id).collect();
+        self.clock_report.names = output_names(scanouts);
         let powered_sources = scanouts
             .iter()
             .filter(|scanout| scanout.powered)
@@ -196,6 +407,8 @@ impl FrameScheduler {
         self.configured_outputs = configured_outputs;
         self.outputs.reconfigure(&powered_sources, now);
         self.dirty_outputs
+            .retain(|output, _| self.configured_outputs.contains(output));
+        self.shell_motion
             .retain(|output, _| self.configured_outputs.contains(output));
         for output in activated_outputs {
             // The stable framebuffer restored by DPMS may predate a source
@@ -265,6 +478,46 @@ impl FrameScheduler {
     ) {
         self.outputs
             .observe_presentation(output, presentation_target, presented_at);
+        if let Some(onset) = self.onset.as_mut()
+            && presented_at >= onset.requested
+        {
+            let presents = onset.presented.entry(output).or_default();
+            if presents.len() < SHELL_ONSET_PRESENTS {
+                presents.push((presentation_target, presented_at));
+            }
+        }
+    }
+
+    /// Starts tracing when Dart asks for a frame after resting.
+    fn begin_onset(&mut self, now: Instant) {
+        let rest = self
+            .last_flutter_deadline
+            .map(|deadline| now.saturating_duration_since(deadline));
+        if self.onset.is_some()
+            || self.onsets_traced >= SHELL_ONSET_LIMIT
+            || rest.is_some_and(|rest| rest < SHELL_ONSET_REST)
+        {
+            return;
+        }
+        self.onsets_traced += 1;
+        self.onset = Some(ShellOnset {
+            requested: now,
+            rest,
+            dart: Vec::with_capacity(SHELL_ONSET_DART_FRAMES),
+            moved: BTreeMap::new(),
+            presented: BTreeMap::new(),
+            waits: 0,
+        });
+    }
+
+    fn finish_onset(&mut self, now: Instant) {
+        if self.onset.as_ref().is_some_and(|onset| {
+            onset.dart.len() >= SHELL_ONSET_DART_FRAMES
+                || now.saturating_duration_since(onset.requested) >= SHELL_ONSET_SPAN
+        }) && let Some(onset) = self.onset.take()
+        {
+            onset.report(&self.clock_report);
+        }
     }
 
     pub(super) fn flutter_frame_dispatched(&mut self) {
@@ -273,12 +526,29 @@ impl FrameScheduler {
             .take()
             .expect("a dispatched Flutter frame must retain its clock tick");
         debug_assert!(
-            self.last_flutter_target
-                .is_none_or(|target| tick.presentation_target > target)
+            self.last_flutter_deadline
+                .is_none_or(|deadline| tick.render_deadline > deadline)
         );
+        // Dart's frame time is the tick's presentation target. Ticks of outputs
+        // with different intervals can reach a later deadline with an earlier
+        // target, which would run animation time backwards.
         self.last_flutter_target = Some(tick.presentation_target);
+        self.last_flutter_deadline = Some(tick.render_deadline);
         self.flutter_request_latched = false;
+        if let Some(onset) = self.onset.as_mut() {
+            onset
+                .dart
+                .push((tick.output, tick.render_deadline, tick.presentation_target));
+        }
+        self.finish_onset(tick.render_deadline);
         self.flutter_outputs_dirty = false;
+        *self
+            .clock_report
+            .dart_frames
+            .entry(tick.output)
+            .or_default() += 1;
+        self.clock_report
+            .maybe_report(tick.render_deadline, self.clock_by_motion);
     }
 
     fn allocate_dirty_serial(&mut self) -> u64 {
@@ -304,7 +574,9 @@ impl FrameScheduler {
     ) -> FrameAction {
         if pending.flutter_requested && !self.flutter_request_latched {
             self.flutter_request_latched = true;
+            self.begin_onset(now);
         }
+        self.finish_onset(now);
 
         self.outputs.advance(now);
         self.render_requests.clear();
@@ -326,13 +598,16 @@ impl FrameScheduler {
                     }),
             );
         self.flutter_tick = None;
-        let flutter_tick = self.outputs.flutter_tick().filter(|tick| {
-            self.flutter_request_latched
-                && self.available_outputs.contains(&tick.output)
-                && self
-                    .last_flutter_target
-                    .is_none_or(|target| tick.presentation_target > target)
-        });
+        let flutter_tick = self
+            .flutter_request_latched
+            .then(|| self.choose_flutter_tick(now))
+            .flatten();
+        if self.flutter_request_latched
+            && flutter_tick.is_none()
+            && let Some(onset) = self.onset.as_mut()
+        {
+            onset.waits += 1;
+        }
         if flutter_tick.is_some() && !self.flutter_outputs_dirty {
             self.mark_all_dirty();
             self.flutter_outputs_dirty = true;
@@ -676,6 +951,13 @@ fn advance_deadline(mut deadline: Instant, interval: Duration, mut periods: u128
     deadline
 }
 
+fn output_names(scanouts: &[Scanout]) -> BTreeMap<OutputId, String> {
+    scanouts
+        .iter()
+        .map(|scanout| (scanout.output.id, scanout.output.name.clone()))
+        .collect()
+}
+
 fn timeline_source(scanout: &Scanout) -> TimelineSource {
     TimelineSource {
         output: scanout.output.id,
@@ -839,6 +1121,120 @@ mod tests {
         assert_eq!(scheduler.render_requests().len(), 1);
         assert_eq!(scheduler.render_requests()[0].tick.output, output);
         assert_eq!(scheduler.render_texture_ids().collect::<Vec<_>>(), [42]);
+    }
+
+    const FAST: OutputId = OutputId(4);
+    const SLOW: OutputId = OutputId(5);
+
+    fn mixed_refresh_scheduler(now: Instant, clock_by_motion: bool) -> FrameScheduler {
+        let mut scheduler = FrameScheduler::new(&[], now);
+        scheduler.configured_outputs.extend([FAST, SLOW]);
+        scheduler.outputs.replace(
+            &[
+                TimelineSource {
+                    output: FAST,
+                    interval: Duration::from_nanos(4_166_667),
+                },
+                TimelineSource {
+                    output: SLOW,
+                    interval: Duration::from_nanos(6_058_528),
+                },
+            ],
+            now,
+        );
+        scheduler.set_clock_by_motion(clock_by_motion);
+        scheduler
+    }
+
+    /// Dart asks for a frame continuously for 100 ms while the shell moves on
+    /// `moving`; returns the ticks that started Dart frames.
+    fn run_shell_clock(
+        scheduler: &mut FrameScheduler,
+        start: Instant,
+        moving: &[OutputId],
+    ) -> Vec<FrameTick> {
+        let mut clock = Vec::new();
+        let mut now = start;
+        while now < start + Duration::from_millis(100) {
+            for output in moving {
+                scheduler.record_shell_motion(*output, now);
+            }
+            if scheduler.output_tick_due(now) {
+                let action = scheduler.step_with_output_readiness(
+                    now,
+                    PendingFrame {
+                        flutter_requested: true,
+                    },
+                    |_| (true, true),
+                );
+                if let FrameAction::Render {
+                    flutter_output: Some(_),
+                } = action
+                {
+                    clock.push(scheduler.flutter_tick.expect("a Dart frame keeps its tick"));
+                    scheduler.flutter_frame_dispatched();
+                }
+                for request in scheduler.render_requests().to_vec() {
+                    scheduler.complete_render(request.tick.output, request.dirty_serial);
+                }
+            }
+            now += Duration::from_micros(50);
+        }
+        clock
+    }
+
+    #[test]
+    fn without_motion_reports_the_fastest_output_clocks_dart() {
+        let now = Instant::now();
+        let mut scheduler = mixed_refresh_scheduler(now, false);
+        let clock = run_shell_clock(&mut scheduler, now, &[SLOW]);
+        assert!(clock.len() >= 23);
+        assert!(clock.iter().all(|tick| tick.output == FAST));
+    }
+
+    #[test]
+    fn the_output_the_shell_moves_on_clocks_dart_at_its_own_rate() {
+        let now = Instant::now();
+        let mut scheduler = mixed_refresh_scheduler(now, true);
+        let clock = run_shell_clock(&mut scheduler, now, &[SLOW]);
+        assert!(clock.len() >= 15);
+        assert!(clock.iter().all(|tick| tick.output == SLOW));
+        // Every Dart frame is timed for the slow output's own edges.
+        for pair in clock.windows(2) {
+            assert_eq!(
+                pair[1].render_deadline - pair[0].render_deadline,
+                Duration::from_nanos(6_058_528)
+            );
+        }
+    }
+
+    #[test]
+    fn motion_on_both_outputs_clocks_dart_on_both_with_advancing_frame_times() {
+        let now = Instant::now();
+        let mut scheduler = mixed_refresh_scheduler(now, true);
+        let clock = run_shell_clock(&mut scheduler, now, &[FAST, SLOW]);
+        let fast = clock.iter().filter(|tick| tick.output == FAST).count();
+        let slow = clock.iter().filter(|tick| tick.output == SLOW).count();
+        // A fast tick that would present before the last slow frame skips;
+        // the fast output shows that newer tree instead.
+        assert!(fast >= 16, "fast output clocked {fast} frames");
+        assert!(slow >= 13, "slow output clocked {slow} frames");
+        // Dart's frame time is the presentation target: it never runs back.
+        for pair in clock.windows(2) {
+            assert!(pair[1].render_deadline > pair[0].render_deadline);
+            assert!(pair[1].presentation_target > pair[0].presentation_target);
+        }
+    }
+
+    #[test]
+    fn an_output_stops_clocking_dart_once_the_shell_rests_there() {
+        let now = Instant::now();
+        let mut scheduler = mixed_refresh_scheduler(now, true);
+        scheduler.record_shell_motion(SLOW, now);
+        let later = now + SHELL_MOTION_HOLD + Duration::from_millis(1);
+        let clock = run_shell_clock(&mut scheduler, later, &[]);
+        assert!(!clock.is_empty());
+        assert!(clock.iter().all(|tick| tick.output == FAST));
     }
 
     fn idle_scheduler(now: Instant, output: OutputId, interval: Duration) -> FrameScheduler {
