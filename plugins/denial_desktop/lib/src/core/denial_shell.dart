@@ -41,6 +41,7 @@ import 'shell_runtime_bindings.dart';
 import 'shell_secure_stage.dart';
 import '../features/setup/first_user_setup_layer.dart';
 import '../widgets/lock/lock_screen_layer.dart';
+import '../widgets/session/session_ending_screen.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -195,7 +196,14 @@ class DenialShell extends ConsumerWidget {
           child: LowBatteryNotificationBinding(
             child: _ShellEnvironment(
               profile: effectivePresentation,
-              child: DesktopBenchmarkBinding(child: content),
+              child: DesktopBenchmarkBinding(
+                // Over everything, the lock screen and cursor included, while
+                // the session ends.
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [content, const SessionEndingScreen()],
+                ),
+              ),
             ),
           ),
         ),

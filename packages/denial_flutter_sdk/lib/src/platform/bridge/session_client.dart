@@ -19,6 +19,7 @@ final class BridgeSessionClient {
   static const String _idlePolicyChannel = 'denial/idle_policy';
   static const String displayPowerChannel = 'denial/display_power';
   static const int _powerMenuRequest = 3;
+  static const int _sessionEnding = 4;
   static const String _systemCommandChannel = 'denial/system_command';
   static const String ambientDisplayChannel = 'denial/ambient_display';
   static const int _ambientEnter = 1;
@@ -50,6 +51,8 @@ final class BridgeSessionClient {
   final StreamController<bool> _ambientDisplay =
       StreamController<bool>.broadcast(sync: true);
   final StreamController<void> _powerMenuRequests =
+      StreamController<void>.broadcast(sync: true);
+  final StreamController<void> _sessionEndings =
       StreamController<void>.broadcast(sync: true);
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -144,12 +147,24 @@ final class BridgeSessionClient {
   /// The power button was held: the shell opens its power menu.
   Stream<void> get powerMenuRequests => _powerMenuRequests.stream;
 
+  /// The session is ending (logout, poweroff or reboot): deniald waits for
+  /// the apps to quit, then exits.
+  Stream<void> get sessionEnding => _sessionEndings.stream;
+
+  /// Whether [sessionEnding] has fired, for a widget that starts after it.
+  bool get sessionEndingActive => _sessionEndingActive;
+  bool _sessionEndingActive = false;
+
   Future<ByteData?> handleDisplayPower(ByteData? data) async {
-    if (data != null &&
-        data.lengthInBytes == 1 &&
-        data.getUint8(0) == _powerMenuRequest &&
-        !_powerMenuRequests.isClosed) {
-      _powerMenuRequests.add(null);
+    if (data == null || data.lengthInBytes != 1) {
+      return null;
+    }
+    switch (data.getUint8(0)) {
+      case _powerMenuRequest when !_powerMenuRequests.isClosed:
+        _powerMenuRequests.add(null);
+      case _sessionEnding when !_sessionEndings.isClosed:
+        _sessionEndingActive = true;
+        _sessionEndings.add(null);
     }
     return null;
   }
@@ -456,5 +471,6 @@ final class BridgeSessionClient {
     unawaited(_uiDevelopmentStates.close());
     unawaited(_ambientDisplay.close());
     unawaited(_powerMenuRequests.close());
+    unawaited(_sessionEndings.close());
   }
 }

@@ -210,6 +210,16 @@ impl FlutterRuntime {
         Ok(())
     }
 
+    /// Tells the shell the session is ending: it covers every output with a
+    /// black screen and a spinner while the apps quit.
+    pub fn send_session_ending(&mut self) -> Result<(), Box<dyn Error>> {
+        self.host().engine().send_platform_message(
+            idle_policy::DISPLAY_POWER_CHANNEL,
+            &[idle_policy::DISPLAY_POWER_SESSION_ENDING],
+        )?;
+        Ok(())
+    }
+
     pub fn take_user_verification_records(&mut self) -> VecDeque<Vec<u8>> {
         std::mem::take(&mut self.pending_user_verification)
     }

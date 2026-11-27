@@ -47,6 +47,18 @@ pub(super) enum SessionEndGoal {
 #[derive(Debug, Default)]
 pub(super) struct SessionEnd {
     drain: Option<Drain>,
+    /// The shell has yet to hear that the session is ending.
+    announcement_pending: bool,
+    announced: bool,
+}
+
+impl SessionEnd {
+    /// True once, when the shell should cover the outputs: the session is
+    /// ending or the system is about to power off.
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub(super) fn take_announcement(&mut self) -> bool {
+        std::mem::take(&mut self.announcement_pending)
+    }
 }
 
 #[derive(Debug)]
@@ -82,6 +94,9 @@ pub(super) fn begin(state: &mut RuntimeState, goal: SessionEndGoal) {
         return;
     }
 
+    if !std::mem::replace(&mut state.session_end.announced, true) {
+        state.session_end.announcement_pending = true;
+    }
     let mut drain = Drain {
         apps: Vec::new(),
         started: Instant::now(),

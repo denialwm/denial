@@ -593,6 +593,13 @@ class DenialBridge {
   /// The power button was held: deniald asks the shell for its power menu.
   Stream<void> get powerMenuRequests => _session.powerMenuRequests;
 
+  /// The session is ending (logout, poweroff or reboot): deniald gives the
+  /// apps a few seconds to quit, then exits. The shell covers every output.
+  Stream<void> get sessionEnding => _session.sessionEnding;
+
+  /// Whether [sessionEnding] has fired.
+  bool get sessionEndingActive => _session.sessionEndingActive;
+
   void ambientDisplayReady() => _session.ambientDisplayReady();
 
   /// Sheets clients ask for to prove the user, and what became of them.

@@ -34,6 +34,9 @@ const DISPLAY_POWER_ON: u8 = 2;
 /// From deniald to the shell on the display power channel: the power button
 /// was held, so the shell opens its power menu.
 pub(super) const DISPLAY_POWER_MENU: u8 = 3;
+/// From deniald to the shell on the display power channel: the session is
+/// ending, so the shell covers every output while the apps quit.
+pub(super) const DISPLAY_POWER_SESSION_ENDING: u8 = 4;
 /// How long the power button is held before it counts as a long press.
 const LONG_PRESS: Duration = Duration::from_millis(500);
 const MAX_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 60 * 60);

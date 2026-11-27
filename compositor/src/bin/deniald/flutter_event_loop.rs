@@ -672,6 +672,11 @@ impl Session<'_, '_> {
             {
                 warn!(%error, "could not ask the shell for its power menu");
             }
+            if self.events.session_end.take_announcement()
+                && let Err(error) = self.flutter.send_session_ending()
+            {
+                warn!(%error, "could not tell the shell that the session is ending");
+            }
             if self.flutter.take_logout_requested() {
                 info!("Flutter requested session logout");
                 // The session ends at the shutdown check above, once the apps
