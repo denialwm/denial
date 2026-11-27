@@ -132,7 +132,7 @@ validate_engine_package() {
       return 1
     }
   bsdtar -xOf "$package" .PKGINFO \
-    | grep -Fqx 'provides = denial-flutter-engine-abi=3.47.5.denial2' \
+    | grep -Fqx 'provides = denial-flutter-engine-abi=3.47.5.denial3' \
     || {
       printf 'package-denial-arch: engine package has the wrong ABI capability\n' >&2
       return 1

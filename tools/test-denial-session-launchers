@@ -107,6 +107,7 @@ sys.exit(int(os.environ.get('TEST_STATUS', '0')))
             'DENIAL_PC_BUNDLE': str(bundle),
             'DENIAL_PC_BINARY': str(compositor),
             'DENIAL_SETTINGS_BINARY': str(stubs / 'Xwayland'),
+            'DENIAL_POLKIT_BINARY': str(stubs / 'Xwayland'),
             'DENIAL_PC_DRM_DEVICE': '/dev/null',
             'DENIAL_PC_OUTPUT_CONFIG': str(config),
             'DENIAL_PC_XWAYLAND': '0',

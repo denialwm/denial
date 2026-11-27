@@ -8,6 +8,10 @@ boundaries may change before 1.0.
 
 ### Changed
 
+- The `denial` package requires the engine with per-output frames and
+  scene-change reports: the engine compatibility capability is now
+  `denial-flutter-engine-abi=3.47.5.denial3`, and `pacman -Syu` updates
+  both together.
 - Settings and Welcome are a new program, the same one on the desktop and the
   phones, written with GPUI. It comes with the `denial` package as before and
   `denial-settings` still starts it; its windows are now named

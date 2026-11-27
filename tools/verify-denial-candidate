@@ -154,7 +154,7 @@ for package in "${packages[@]}"; do
       test "$package_filename" = \
         "denial-${package_version}-${architecture}.pkg.tar.zst"
       grep -Fxq \
-        'depend = denial-flutter-engine-abi=3.47.5.denial2' \
+        'depend = denial-flutter-engine-abi=3.47.5.denial3' \
         <<<"$package_info"
       bsdtar -tf "$package" \
         | grep -Fxq usr/bin/deniald
@@ -174,7 +174,7 @@ for package in "${packages[@]}"; do
       test "$package_filename" = \
         "denial-flutter-engine-${package_version}-${architecture}.pkg.tar.zst"
       grep -Fxq \
-        'provides = denial-flutter-engine-abi=3.47.5.denial2' \
+        'provides = denial-flutter-engine-abi=3.47.5.denial3' \
         <<<"$package_info"
       bsdtar -tf "$package" \
         | grep -Fxq \
@@ -246,7 +246,7 @@ test "$SOURCE_DATE_EPOCH" = "$(
     show -s --format=%ct "$GITHUB_SHA"
 )"
 grep -Fxq "build_identity=$BUILD_IDENTITY" "$provenance"
-test "$FLUTTER_ENGINE_ABI" = 3.47.5.denial2
+test "$FLUTTER_ENGINE_ABI" = 3.47.5.denial3
 test "$FLUTTER_ENGINE_SHA256" = "$(
   awk 'NR == 1 { print $1 }' \
     "prebuilt/flutter-engine/${engine_platform}-release/libflutter_engine.so.sha256"
@@ -386,7 +386,7 @@ for package in "${apk_packages[@]}"; do
       test "$(basename -- "$package")" = \
         "denial-flutter-engine-${apk_version}-r${PACKAGE_RELEASE}.apk"
       grep -Fxq \
-        'provides = denial-flutter-engine-abi-3.47.5.denial2' \
+        'provides = denial-flutter-engine-abi-3.47.5.denial3' \
         <<<"$package_info"
       ;;
     denial-plugin-manager)

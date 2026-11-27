@@ -257,7 +257,7 @@ Denial uses a named Flutter generation rather than treating
 compatibility capability is:
 
 ```text
-3.47.5.denial2
+3.47.5.denial3
 ```
 
 Its human-readable generation identifier is:
@@ -302,7 +302,7 @@ the versioned virtual capability separately:
 ```bash
 pkgver="${DENIAL_PACKAGE_VERSION}"
 epoch=1
-_flutter_generation=3.47.5.denial2
+_flutter_generation=3.47.5.denial3
 
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
 ```
@@ -316,7 +316,7 @@ provides=("denial-flutter-aot-generation=${_flutter_generation}")
 The Denial package declares:
 
 ```bash
-_flutter_generation=3.47.5.denial2
+_flutter_generation=3.47.5.denial3
 
 depends+=(
   denial-flutter-engine

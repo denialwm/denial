@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
-const FLUTTER_GENERATION: &str = "3.47.5.denial2";
+const FLUTTER_GENERATION: &str = "3.47.5.denial3";
 const SYSTEM_ROOT: &str = "/usr/lib/denial/ui-development";
 const PUB_CACHE_GENERATION_MARKER: &str = ".denial-generation";
 const MAX_VM_SERVICE_BYTES: u64 = 64 * 1024;

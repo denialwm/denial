@@ -10,7 +10,7 @@
     "denial_ui_development_api": 1,
     "denial_minimum_version": "0.2.1",
     "denial_version_before": "0.3.0",
-    "flutter_engine_abi": "3.47.5.denial2"
+    "flutter_engine_abi": "3.47.5.denial3"
   },
   "sources": {
     "flutter_version": "3.47.5",

@@ -11,13 +11,13 @@ _denial_version_before="${DENIAL_PACKAGE_DENIAL_VERSION_BEFORE:-0.3.0}"
 depends=(
   "denial>=$pkgver"
   "denial<$_denial_version_before"
-  'denial-flutter-engine-abi=3.47.5.denial2'
+  'denial-flutter-engine-abi=3.47.5.denial3'
   'fontconfig'
   'git'
   'glibc'
   'libgcc'
 )
-provides=('denial-ui-development-engine=3.47.5.denial2')
+provides=('denial-ui-development-engine=3.47.5.denial3')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')

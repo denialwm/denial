@@ -9,7 +9,7 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause')
 depends=('fontconfig' 'glibc')
-_flutter_generation='3.47.5.denial2'
+_flutter_generation='3.47.5.denial3'
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')

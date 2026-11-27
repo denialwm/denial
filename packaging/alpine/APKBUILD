@@ -162,7 +162,7 @@ _flutter_engine() {
 	depends="fontconfig gcompat"
 	# Alpine versions cannot encode Denial's dotted engine-generation token as
 	# a version relation, so preserve it losslessly in the capability name.
-	provides="denial-flutter-engine-abi-3.47.5.denial2"
+	provides="denial-flutter-engine-abi-3.47.5.denial3"
 	amove usr/lib/denial/flutter/data/icudtl.dat
 	amove usr/lib/denial/flutter/lib/libflutter_engine.so
 	amove usr/share/denial/flutter-engine

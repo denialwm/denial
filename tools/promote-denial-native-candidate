@@ -139,7 +139,7 @@ readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
   || fail 'native candidate timestamp does not match its main commit'
 [[ "$GLIBC_BASELINE" == 2.39 ]] \
   || fail 'native candidate has an unexpected glibc baseline'
-[[ "$FLUTTER_ENGINE_ABI" == 3.47.5.denial2 ]] \
+[[ "$FLUTTER_ENGINE_ABI" == 3.47.5.denial3 ]] \
   || fail 'native candidate has an unexpected Flutter Engine ABI'
 [[ "$FLUTTER_ENGINE_SHA256" == "$(
   awk 'NR == 1 { print $1 }' \

@@ -25,7 +25,7 @@ jq -n '
     build_identity: "main.g0123456789abcdef0123456789abcdef01234567",
     source_date_epoch: 1786478123,
     glibc_baseline: "2.39",
-    flutter_engine_abi: "3.47.5.denial2",
+    flutter_engine_abi: "3.47.5.denial3",
     flutter_engine_sha256: "8735bdabb624e5b12c9cfe3d7473c834c224fc707c88ed954bb13c255e82f8b1"
   }
 ' >"$fixture_root/valid.json"
