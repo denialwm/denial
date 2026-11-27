@@ -46,6 +46,8 @@ class MediaPlayerService {
 
   StreamSubscription<DBusNameOwnerChangedEvent>? _ownerSubscription;
   StreamSubscription<DBusPropertiesChangedSignal>? _propertiesSubscription;
+  StreamSubscription<DBusSignal>? _seekedSubscription;
+  StreamSubscription<DBusSignal>? _statusSubscription;
   Timer? _refreshTimer;
   Timer? _signalTimer;
   Timer? _unavailableTimer;
@@ -69,6 +71,15 @@ class MediaPlayerService {
     _ownerSubscription = _client.nameOwnerChanged
         .where((event) => event.name.startsWith(_servicePrefix))
         .listen((_) => _scheduleRefresh(immediate: true));
+    // Only the selected player has a properties subscription. Any player's
+    // PlaybackStatus change can decide which one is shown, so the others'
+    // changes rescan instead of waiting for the recovery scan.
+    _statusSubscription = DBusSignalStream(
+      _client,
+      interface: 'org.freedesktop.DBus.Properties',
+      name: 'PropertiesChanged',
+      path: DBusObjectPath(_objectPath),
+    ).listen(_handleStatusSignal, onError: (Object _) {});
     _refreshTimer = Timer.periodic(
       _recoveryInterval,
       (_) => _scheduleRefresh(immediate: true),
@@ -98,13 +109,14 @@ class MediaPlayerService {
           if (_disposed) break;
           // Only the winner is needed. Keep the existing status/name ordering
           // without allocating and sorting a second candidate list.
+          final shown = _activeObject?.name;
           _MprisCandidate? candidate;
           for (final read in reads) {
             if (read == null) continue;
             final state = read.resolve();
             if (state == null) continue;
             final next = _MprisCandidate(object: read.object, state: state);
-            if (candidate == null || _compareCandidates(next, candidate) < 0) {
+            if (candidate == null || _ranksBefore(next, candidate, shown)) {
               candidate = next;
             }
           }
@@ -202,16 +214,40 @@ class MediaPlayerService {
     if (_disposed || _activeObject?.name == object?.name) {
       return;
     }
-    final previous = _propertiesSubscription;
+    final previous = [?_propertiesSubscription, ?_seekedSubscription];
     _propertiesSubscription = null;
-    await previous?.cancel();
+    _seekedSubscription = null;
+    await Future.wait([
+      for (final subscription in previous) subscription.cancel(),
+    ]);
     if (_disposed) return;
     _activeObject = object;
     if (object != null) {
       _propertiesSubscription = object.propertiesChanged
           .where((signal) => signal.propertiesInterface == _playerInterface)
           .listen(_handlePropertiesChanged, onError: (_) => _scheduleRefresh());
+      // MPRIS reports a seek only with Seeked: players never send Position
+      // in PropertiesChanged, so without it the playhead stays put.
+      _seekedSubscription = DBusRemoteObjectSignalStream(
+        object: object,
+        interface: _playerInterface,
+        name: 'Seeked',
+      ).listen(_handleSeeked, onError: (Object _) {});
     }
+  }
+
+  void _handleStatusSignal(DBusSignal signal) {
+    if (_disposed || signal.signature.value != 'sa{sv}as') return;
+    final [interface, changed, _] = signal.values;
+    if (interface.asString() == _playerInterface &&
+        changed.asStringVariantDict().containsKey('PlaybackStatus')) {
+      _scheduleRefresh();
+    }
+  }
+
+  void _handleSeeked(DBusSignal signal) {
+    if (signal.signature.value != 'x') return;
+    _applyPlayerChanges({'Position': signal.values.single});
   }
 
   void _handlePropertiesChanged(DBusPropertiesChangedSignal signal) {
@@ -221,7 +257,13 @@ class MediaPlayerService {
     if (signal.values[2].asStringArray().any(mprisPlayerProperties.contains)) {
       _scheduleRefresh();
     }
-    final changed = signal.changedProperties;
+    _applyPlayerChanges(signal.changedProperties);
+  }
+
+  void _applyPlayerChanges(Map<String, DBusValue> changed) {
+    if (_disposed || _activeObject?.name != _current.serviceName) {
+      return;
+    }
     final activeRead = _activeRead;
     final changes = activeRead?.current.serviceName == _activeObject?.name
         ? activeRead
@@ -296,7 +338,9 @@ class MediaPlayerService {
     _signalTimer?.cancel();
     _unavailableTimer?.cancel();
     await _ownerSubscription?.cancel();
+    await _statusSubscription?.cancel();
     await _propertiesSubscription?.cancel();
+    await _seekedSubscription?.cancel();
     await _snapshots.close();
     await _client.close();
   }
@@ -333,10 +377,14 @@ int _statusPriority(MprisPlaybackStatus status) => switch (status) {
   MprisPlaybackStatus.stopped => 2,
 };
 
-int _compareCandidates(_MprisCandidate left, _MprisCandidate right) {
-  final byStatus = _statusPriority(left.state.status)
-      .compareTo(_statusPriority(right.state.status));
-  return byStatus != 0
-      ? byStatus
-      : left.state.identity.compareTo(right.state.identity);
+/// Playing before paused. On equal status the player already [shown] keeps
+/// its place, so rescans never swap two paused players; identity decides the
+/// rest.
+bool _ranksBefore(_MprisCandidate left, _MprisCandidate right, String? shown) {
+  final byStatus =
+      _statusPriority(left.state.status) - _statusPriority(right.state.status);
+  if (byStatus != 0) return byStatus < 0;
+  final leftShown = left.object.name == shown;
+  if (leftShown != (right.object.name == shown)) return leftShown;
+  return left.state.identity.compareTo(right.state.identity) < 0;
 }

@@ -192,8 +192,19 @@ String _string(DBusValue? value, {String fallback = ''}) =>
 
 bool _boolean(DBusValue? value) => value is DBusBoolean && value.value;
 
+/// MPRIS types length and position as int64, but some players send other
+/// numbers. Reading those as zero hid the progress.
 int _integer(DBusValue? value) => switch (value) {
-  DBusInt64(:final value) || DBusUint64(:final value) => value,
+  DBusInt64(:final value) ||
+  DBusUint64(:final value) ||
+  DBusInt32(:final value) ||
+  DBusUint32(:final value) ||
+  DBusInt16(:final value) ||
+  DBusUint16(:final value) ||
+  DBusByte(:final value) => value,
+  // Callers clamp to this range anyway; clamping first keeps round() finite.
+  DBusDouble(:final value) when !value.isNaN =>
+    value.clamp(0, _maximumLengthMicros).round(),
   _ => 0,
 };
 
