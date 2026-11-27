@@ -1390,7 +1390,7 @@ run_compositor() {
         export DENIAL_PLUGINS_BINARY="$BUILD_ROOT/plugin-manager/denial-plugins"
     fi
     export RUST_BACKTRACE=1
-    export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-deniald=info,smithay=warn}}"
+    export RUST_LOG="${DENIAL_RUST_LOG-${DENIA_RUST_LOG-denial=info,smithay=warn}}"
 
 
     # deniald exits with 75 to be started again in the same session.

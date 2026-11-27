@@ -477,7 +477,7 @@ fi
 unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
 unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-export RUST_LOG="${DENIAL_RUST_LOG:-deniald=info,smithay=warn}"
+export RUST_LOG="${DENIAL_RUST_LOG:-denial=info,smithay=warn}"
 
 denial_pid=''
 
