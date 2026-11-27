@@ -9,6 +9,7 @@ mod handler;
 mod mapped_shm;
 #[path = "native_window_pool.rs"]
 mod native_window_pool;
+use super::native_window::LayerPlacement;
 use mapped_shm::{MappedShmPool, MappedShmStorage, PendingMappedShm};
 use native_window_pool::NativeWindowStorage;
 
@@ -885,6 +886,14 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     desired_presentation: denial_flutter_engine::ExternalTexturePresentation,
     queued_presentation: denial_flutter_engine::ExternalTexturePresentation,
     lookahead_presentation: denial_flutter_engine::ExternalTexturePresentation,
+    /// How `current` shows in its native window, as committed with it; None
+    /// when its commit said nothing, and the window's plan places it.
+    pub(in crate::flutter_runtime) layer: Option<LayerPlacement>,
+    desired_layer: Option<LayerPlacement>,
+    queued_layer: Option<LayerPlacement>,
+    lookahead_layer: Option<LayerPlacement>,
+    /// `layer` changed since the window's damage was last taken.
+    layer_unreported: bool,
     pub(in crate::flutter_runtime) current_sampled: bool,
     pub(in crate::flutter_runtime) expects_sample: bool,
     /// When the two generations before the newest arrived.
@@ -910,6 +919,7 @@ impl ExternalTextureSlot {
     pub(in crate::flutter_runtime) fn reset_cursor_queue(&mut self) {
         *self = Self {
             desired_presentation: self.desired_presentation,
+            desired_layer: self.desired_layer,
             ..Self::default()
         };
     }
@@ -919,6 +929,7 @@ impl ExternalTextureSlot {
         source: ExternalTextureSource,
         expects_sample: bool,
         presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
+        layer: Option<LayerPlacement>,
         damage: Option<&BufferDamage>,
         now: Instant,
     ) -> bool {
@@ -940,9 +951,13 @@ impl ExternalTextureSlot {
                 PixelDamage::Whole
             }
         };
-        let changed = presentation.is_some_and(|next| next != self.desired_presentation);
+        // A full scene update places the buffer; a buffer-only one keeps
+        // the placement of the commit before it.
+        let changed = presentation
+            .is_some_and(|next| next != self.desired_presentation || layer != self.desired_layer);
         if let Some(next) = presentation {
             self.desired_presentation = next;
+            self.desired_layer = layer;
         }
         let unchanged = self
             .queued
@@ -966,6 +981,7 @@ impl ExternalTextureSlot {
                 .is_some_and(|candidate| candidate.same_generation(&source))
             {
                 self.queued_presentation = self.desired_presentation;
+                self.queued_layer = self.desired_layer;
                 return true;
             }
             if self
@@ -974,6 +990,7 @@ impl ExternalTextureSlot {
                 .is_some_and(|candidate| candidate.same_generation(&source))
             {
                 self.lookahead_presentation = self.desired_presentation;
+                self.lookahead_layer = self.desired_layer;
                 return true;
             }
         }
@@ -986,6 +1003,8 @@ impl ExternalTextureSlot {
                 .push(source.generation(), None, PixelDamage::Whole);
             self.current = Some(source);
             self.presentation = self.desired_presentation;
+            self.layer_unreported |= self.layer != self.desired_layer;
+            self.layer = self.desired_layer;
             self.unreported = PixelDamage::Whole;
             self.current_sampled = false;
             self.earlier_commits = [self.earlier_commits[1], Some(now)];
@@ -1007,11 +1026,13 @@ impl ExternalTextureSlot {
             joined.join(damage);
             self.queued = Some(source);
             self.queued_presentation = self.desired_presentation;
+            self.queued_layer = self.desired_layer;
             self.queued_damage = joined;
             self.lookahead = None;
         } else {
             self.lookahead = Some(source);
             self.lookahead_presentation = self.desired_presentation;
+            self.lookahead_layer = self.desired_layer;
             self.lookahead_damage.join(damage);
         }
         true
@@ -1038,8 +1059,11 @@ impl ExternalTextureSlot {
         self.unreported.join(damage);
         self.current = self.queued.take();
         self.presentation = self.queued_presentation;
+        self.layer_unreported |= self.layer != self.queued_layer;
+        self.layer = self.queued_layer;
         self.queued = self.lookahead.take();
         self.queued_presentation = self.lookahead_presentation;
+        self.queued_layer = self.lookahead_layer;
         self.queued_damage = std::mem::take(&mut self.lookahead_damage);
         self.current_sampled = false;
         true
@@ -1112,6 +1136,16 @@ impl ExternalTextureSlot {
     /// Whether `current` changed since its damage was last taken.
     pub(in crate::flutter_runtime) fn has_unreported_damage(&self) -> bool {
         self.unreported != PixelDamage::Nothing
+    }
+
+    /// Whether `current` shows elsewhere in its native window than when
+    /// this was last asked: the window then changed whole.
+    pub(in crate::flutter_runtime) fn take_layer_change(&mut self) -> bool {
+        std::mem::take(&mut self.layer_unreported)
+    }
+
+    pub(in crate::flutter_runtime) fn layer_changed(&self) -> bool {
+        self.layer_unreported
     }
 
     pub(in crate::flutter_runtime) fn has_queued(&self) -> bool {
@@ -1303,6 +1337,8 @@ pub(crate) struct ExternalTextureFrame {
     pub(crate) expects_sample: bool,
     /// What changed since the surface's previous frame; None: unknown.
     pub(crate) damage: Option<BufferDamage>,
+    /// How a native window shows this buffer, set with `presentation`.
+    pub(in crate::flutter_runtime) layer: Option<LayerPlacement>,
 }
 
 impl ExternalTextureFrame {
@@ -1397,6 +1433,7 @@ impl ExternalTextureFrame {
             },
             expects_sample,
             damage: None,
+            layer: None,
         }
     }
 
@@ -1414,6 +1451,7 @@ impl ExternalTextureFrame {
             },
             expects_sample: false,
             damage: None,
+            layer: None,
         }
     }
 
@@ -1436,6 +1474,7 @@ impl ExternalTextureFrame {
             source,
             expects_sample,
             damage: None,
+            layer: None,
         }
     }
 }
@@ -1499,11 +1538,11 @@ mod cache_retirement_tests {
             ..Default::default()
         };
         let now = Instant::now();
-        slot.queue(source(1), true, Some(presentation), None, now);
-        slot.queue(source(2), true, None, None, now);
+        slot.queue(source(1), true, Some(presentation), None, None, now);
+        slot.queue(source(2), true, None, None, None, now);
         assert!(!slot.advance(Duration::from_millis(7)));
         slot.reset_cursor_queue();
-        slot.queue(source(3), true, None, None, now);
+        slot.queue(source(3), true, None, None, None, now);
         assert_eq!(slot.current.as_ref().unwrap().generation(), 3);
         assert_eq!(slot.presentation, presentation);
         assert!(!slot.has_queued());
@@ -1539,7 +1578,14 @@ mod cache_retirement_tests {
         };
         let mut slot = ExternalTextureSlot::default();
         // The first buffer is new as a whole.
-        slot.queue(source(1), true, None, Some(&damage(None, 1, vec![])), at(0));
+        slot.queue(
+            source(1),
+            true,
+            None,
+            None,
+            Some(&damage(None, 1, vec![])),
+            at(0),
+        );
         assert_eq!(take(&mut slot), None);
         assert_eq!(take(&mut slot), Some(vec![]));
 
@@ -1548,6 +1594,7 @@ mod cache_retirement_tests {
         slot.queue(
             source(2),
             true,
+            None,
             None,
             Some(&damage(Some(1), 2, vec![[10, 10, 8, 8]])),
             at(8),
@@ -1560,6 +1607,7 @@ mod cache_retirement_tests {
             source(3),
             true,
             None,
+            None,
             Some(&damage(Some(2), 3, vec![[0, 0, 9, 4]])),
             at(16),
         );
@@ -1567,6 +1615,7 @@ mod cache_retirement_tests {
         slot.queue(
             source(4),
             true,
+            None,
             None,
             Some(&damage(Some(3), 4, vec![[90, 45, 10, 5]])),
             at(24),
@@ -1582,12 +1631,13 @@ mod cache_retirement_tests {
             source(5),
             true,
             None,
+            None,
             Some(&damage(Some(5), 6, vec![[0, 0, 1, 1]])),
             at(32),
         );
         tick(&mut slot);
         assert_eq!(take(&mut slot), None);
-        slot.queue(source(6), true, None, None, at(40));
+        slot.queue(source(6), true, None, None, None, at(40));
         tick(&mut slot);
         assert_eq!(take(&mut slot), None);
     }
@@ -1612,16 +1662,16 @@ mod cache_retirement_tests {
         };
         let mut slot = ExternalTextureSlot::default();
         // The first buffer shows at once; there is nothing to pace against.
-        slot.queue(source(1), true, None, None, at(0));
+        slot.queue(source(1), true, None, None, None, at(0));
         assert_eq!(generations(&slot), [Some(1), None, None]);
         assert!(!tick(&mut slot));
 
         // Commits at the output's rate keep the successor through a straddled
         // tick and through missed ones.
-        slot.queue(source(2), true, None, None, at(6_900));
-        slot.queue(source(3), true, None, None, at(7_100));
+        slot.queue(source(2), true, None, None, None, at(6_900));
+        slot.queue(source(3), true, None, None, None, at(7_100));
         assert_eq!(generations(&slot), [Some(1), Some(2), Some(3)]);
-        slot.queue(source(4), true, None, None, at(14_000));
+        slot.queue(source(4), true, None, None, None, at(14_000));
         assert!(!slot.latest_only);
         assert_eq!(generations(&slot), [Some(1), Some(2), Some(4)]);
         assert!(tick(&mut slot));
@@ -1631,15 +1681,15 @@ mod cache_retirement_tests {
         // Three commits within one interval: only the newest stays queued,
         // and later fast commits replace it.
         for (revision, micros) in [(5, 20_000), (6, 22_000), (7, 24_000), (8, 26_000)] {
-            slot.queue(source(revision), true, None, None, at(micros));
+            slot.queue(source(revision), true, None, None, None, at(micros));
         }
         assert!(slot.latest_only);
         assert_eq!(generations(&slot), [Some(4), Some(8), None]);
 
         // Back at the output's rate, the successor is kept again.
         assert!(tick(&mut slot));
-        slot.queue(source(9), true, None, None, at(33_000));
-        slot.queue(source(10), true, None, None, at(40_000));
+        slot.queue(source(9), true, None, None, None, at(33_000));
+        slot.queue(source(10), true, None, None, None, at(40_000));
         assert!(!slot.latest_only);
         assert_eq!(generations(&slot), [Some(8), Some(9), Some(10)]);
     }

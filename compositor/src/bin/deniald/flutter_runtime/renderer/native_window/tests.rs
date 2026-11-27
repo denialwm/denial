@@ -247,6 +247,105 @@ fn a_cover_without_a_current_buffer_shows_what_it_covers() {
     assert_eq!(plan.drawn(&[true, false, false]), [true, false, false]);
 }
 
+/// Droidloom between its merged and direct modes: the root under a child
+/// that is either a transparent pixel in the window's corner or an opaque
+/// full-window buffer, and under a spare child that stays such a pixel.
+fn droidloom_surfaces(canvas: ClientRect, direct: bool) -> Vec<SurfaceLayerDescription> {
+    let pixel = |id| {
+        surface(
+            id,
+            ClientRect::new(canvas.x, canvas.y, 1.0, 1.0).unwrap(),
+            [1, 1],
+        )
+    };
+    let mut child = match direct {
+        true => surface(2, canvas, [3356, 2260]),
+        false => pixel(2),
+    };
+    child.opaque = direct;
+    vec![surface(1, canvas, [3356, 2260]), child, pixel(3)]
+}
+
+#[test]
+fn a_buffer_older_than_the_plan_keeps_the_placement_of_its_own_commit() {
+    let canvas = firefox_plan().canvas;
+    let merged = NativeWindowPlan::new(1, canvas, 2.0, &droidloom_surfaces(canvas, false)).unwrap();
+    let direct = NativeWindowPlan::new(1, canvas, 2.0, &droidloom_surfaces(canvas, true)).unwrap();
+    // The newest plan alone hides the root under the child, whatever buffer
+    // the child still shows.
+    assert_eq!(direct.drawn(&[true, true, true]), [false, true, true]);
+
+    // The direct plan while the child still shows the pixel: the pixel stays
+    // a pixel in the corner and the root shows.
+    let mut shown = direct.clone();
+    assert!(shown.place(1, merged.layers[1].placement()));
+    assert_eq!(shown.drawn(&[true, true, true]), [true, true, true]);
+    let pixel = shown.vertices(&shown.layers[1], [1, 1]).unwrap();
+    assert_eq!(pixel[0].uv, [0.0, 0.0]);
+    assert_eq!(pixel[3].uv, [1.0, 1.0]);
+    assert_eq!(pixel[3].position, [2.0, 2.0]);
+
+    // The merged plan while the child still shows its full buffer: the
+    // buffer still covers the window.
+    let mut shown = merged.clone();
+    assert!(shown.place(1, direct.layers[1].placement()));
+    assert_eq!(shown.drawn(&[true, true, true]), [false, true, true]);
+    let full = shown.vertices(&shown.layers[1], [3356, 2260]).unwrap();
+    assert_eq!(full[3].uv, [1.0, 1.0]);
+    assert_eq!(full[3].position, [3356.0, 2260.0]);
+
+    // A buffer committed outside the window is not drawn.
+    let mut outside = direct.layers[1].placement();
+    outside.destination = ClientRect::new(-50.0, -50.0, 10.0, 10.0).unwrap();
+    assert!(!shown.place(1, outside));
+}
+
+#[test]
+fn a_placement_reaches_the_screen_with_its_buffer() {
+    use super::super::texture::{ExternalTextureSlot, ExternalTextureSource, ShmTextureFrame};
+    use std::time::{Duration, Instant};
+    let canvas = firefox_plan().canvas;
+    let merged = NativeWindowPlan::new(1, canvas, 2.0, &droidloom_surfaces(canvas, false)).unwrap();
+    let direct = NativeWindowPlan::new(1, canvas, 2.0, &droidloom_surfaces(canvas, true)).unwrap();
+    let (pixel, full) = (merged.layers[1].placement(), direct.layers[1].placement());
+    let source = |revision| {
+        ExternalTextureSource::Shm(
+            ShmTextureFrame::new_owned(1, 1, revision, vec![0, 0, 0, 0]).unwrap(),
+        )
+    };
+    let scene = Some(Default::default());
+    let interval = Duration::from_millis(7);
+    let now = Instant::now();
+    let mut slot = ExternalTextureSlot::default();
+    slot.queue(source(1), false, scene, Some(full), None, now);
+    assert_eq!(slot.layer, Some(full));
+    assert!(slot.take_layer_change());
+
+    // Two commits within one tick: merged, then direct again.
+    slot.queue(source(2), false, scene, Some(pixel), None, now);
+    slot.queue(source(3), false, scene, Some(full), None, now);
+    assert_eq!(slot.layer, Some(full));
+    assert!(slot.advance(interval));
+    assert_eq!(slot.current.as_ref().unwrap().generation(), 2);
+    assert_eq!(slot.layer, Some(pixel));
+    assert!(slot.take_layer_change());
+    assert!(slot.advance(interval));
+    assert_eq!(slot.current.as_ref().unwrap().generation(), 3);
+    assert_eq!(slot.layer, Some(full));
+    assert!(slot.take_layer_change());
+
+    // A buffer-only update keeps the placement; a scene update that only
+    // moves the buffer replaces it at the next tick.
+    slot.queue(source(4), false, None, None, None, now);
+    assert!(slot.advance(interval));
+    assert_eq!(slot.layer, Some(full));
+    assert!(!slot.take_layer_change());
+    slot.queue(source(4), false, scene, Some(pixel), None, now);
+    assert_eq!(slot.layer, Some(full));
+    assert!(slot.advance(interval));
+    assert_eq!(slot.layer, Some(pixel));
+}
+
 #[test]
 fn layer_damage_shows_where_the_layer_is_drawn_in_the_window() {
     let plan = firefox_plan();

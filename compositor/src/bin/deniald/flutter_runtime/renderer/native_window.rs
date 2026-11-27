@@ -119,6 +119,20 @@ pub(super) struct NativeWindowLayer {
     pub(super) visible: ClientRect,
 }
 
+/// How one buffer of a layer shows, as committed with that buffer. A plan
+/// follows the newest commit at once, while buffers reach the screen a frame
+/// tick or two later: a buffer drawn before its successor keeps its own
+/// placement, so a hidden layer's pixel is never stretched over the window
+/// and never covers what its successor will.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::flutter_runtime) struct LayerPlacement {
+    destination: ClientRect,
+    source: ClientRect,
+    transform: u32,
+    opacity: f32,
+    opaque: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ClientVertex {
     pub(super) position: [f32; 2],
@@ -126,6 +140,16 @@ pub(super) struct ClientVertex {
 }
 
 impl NativeWindowLayer {
+    pub(super) fn placement(&self) -> LayerPlacement {
+        LayerPlacement {
+            destination: self.destination,
+            source: self.source,
+            transform: self.transform,
+            opacity: self.opacity,
+            opaque: self.opaque,
+        }
+    }
+
     /// Inverse of RotatedBox followed by the optional horizontal reflection,
     /// matching the existing Wayland buffer-transform contract. Crops remain
     /// in buffer coordinates even when the destination axes are swapped.
@@ -288,6 +312,22 @@ impl NativeWindowPlan {
             height,
             layers,
         })
+    }
+
+    /// Places layer `index` as its current buffer was committed. False when
+    /// that leaves it outside the window: the buffer is not drawn.
+    pub(super) fn place(&mut self, index: usize, placement: LayerPlacement) -> bool {
+        let Some(visible) = placement.destination.intersection(self.canvas) else {
+            return false;
+        };
+        let layer = &mut self.layers[index];
+        layer.destination = placement.destination;
+        layer.source = placement.source;
+        layer.transform = placement.transform;
+        layer.opacity = placement.opacity;
+        layer.opaque = placement.opaque;
+        layer.visible = visible;
+        true
     }
 
     /// Per layer, whether this frame draws it: it has a current buffer and

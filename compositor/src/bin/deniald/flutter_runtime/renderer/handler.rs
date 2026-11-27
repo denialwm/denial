@@ -829,6 +829,7 @@ impl FlutterGlHandler {
             expects_sample,
             presentation,
             damage,
+            layer,
         } in frames
         {
             let slot = sources.entry(texture_id).or_default();
@@ -839,7 +840,14 @@ impl FlutterGlHandler {
                 slot.reset_cursor_queue();
             }
             let latest_only = slot.latest_only;
-            if slot.queue(source, expects_sample, presentation, damage.as_ref(), now) {
+            if slot.queue(
+                source,
+                expects_sample,
+                presentation,
+                layer,
+                damage.as_ref(),
+                now,
+            ) {
                 changed.push(texture_id);
             }
             if slot.latest_only != latest_only {
@@ -882,9 +890,14 @@ impl FlutterGlHandler {
         let mut sources = lock(&self.external_texture_sources);
         // Per input texture: its unit rects and canvas size, None if whole.
         let mut taken = HashMap::new();
+        let mut moved = Vec::new();
         for texture_id in texture_ids {
             if let Some(slot) = sources.get_mut(texture_id) {
                 let canvas = slot.canvas_size();
+                // A layer placed anew changed more than its new rect.
+                if slot.take_layer_change() {
+                    moved.push(*texture_id);
+                }
                 taken.insert(*texture_id, slot.take_unit_damage().zip(canvas));
             }
         }
@@ -896,7 +909,7 @@ impl FlutterGlHandler {
             let Some(plan) = plan else {
                 continue;
             };
-            if let Some(rects) = Self::native_window_damage(&plan, &taken, &sources) {
+            if let Some(rects) = Self::native_window_damage(&plan, &taken, &moved, &sources) {
                 damage.push((texture_id, rects));
             }
         }

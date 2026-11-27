@@ -62,7 +62,7 @@ impl FlutterRuntime {
         self.changed_texture_scratch.clear();
         self.handler.update_native_window_plans(
             &mut windows,
-            &frames,
+            &mut frames,
             self.device_pixel_ratio,
             &mut self.changed_texture_scratch,
         );

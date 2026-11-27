@@ -1,6 +1,6 @@
 //! Cached native client images on Flutter's existing raster GL context.
 use super::super::super::native_window::{
-    ClientRect, NativeWindowPlan, NativeWindowRegistry, VersionedWindowPlan,
+    ClientRect, NativeWindowLayer, NativeWindowPlan, NativeWindowRegistry, VersionedWindowPlan,
     reproduces_presentation,
 };
 use super::super::super::native_window_gl::{NativeWindowGl, NativeWindowInput};
@@ -31,6 +31,9 @@ impl PixelIdentity {
 }
 struct ClientImage {
     plan_revision: u64,
+    /// The layers as placed by older buffers, where the plan was not drawn
+    /// as it is.
+    placed: Option<Vec<NativeWindowLayer>>,
     inputs: Vec<PixelIdentity>,
     presentations: Vec<Option<denial_flutter_engine::ExternalTexturePresentation>>,
     binding: Arc<CachedTextureBinding>,
@@ -39,29 +42,37 @@ struct ClientImage {
     height: usize,
 }
 impl ClientImage {
-    fn matches(
-        &self,
-        plan_revision: u64,
-        inputs: &[PixelIdentity],
-        presentations: &[Option<denial_flutter_engine::ExternalTexturePresentation>],
-    ) -> bool {
-        self.plan_revision == plan_revision
+    fn matches(&self, snapshot: &NativeSnapshot, inputs: &[PixelIdentity]) -> bool {
+        self.plan_revision == snapshot.plan.revision
+            && self.placed.as_deref() == snapshot.placed.as_ref().map(|plan| &*plan.layers)
             && self.inputs.len() == inputs.len()
             && self.inputs.iter().zip(inputs).all(|(a, b)| a.same(b))
-            && self.presentations == presentations
+            && self.presentations == snapshot.presentations
     }
 }
 /// The latest plan with the buffers its layers currently show.
 #[derive(Clone)]
 pub(in crate::flutter_runtime) struct NativeSnapshot {
     plan: Arc<VersionedWindowPlan>,
-    /// Current buffers in layer order, for the layers that have one.
+    /// The plan with its layers placed as their current buffers were
+    /// committed, when a buffer is older than the plan and shows otherwise.
+    placed: Option<NativeWindowPlan>,
+    /// Current buffers in layer order, for the layers this frame draws.
     inputs: Vec<(i64, ExternalTextureSource)>,
+    /// Current buffers of the layers it does not draw: covered, or outside
+    /// the window. They are shown as far as they can be.
+    covered: Vec<(i64, ExternalTextureSource)>,
     /// Per plan layer: the presentation that advanced with its buffer, or
     /// `None` while the layer has no current buffer.
     presentations: Vec<Option<denial_flutter_engine::ExternalTexturePresentation>>,
     /// What changed between recent buffers, beside `inputs`.
     histories: Vec<DamageHistory>,
+}
+impl NativeSnapshot {
+    /// The plan this frame draws.
+    fn shown(&self) -> &NativeWindowPlan {
+        self.placed.as_ref().unwrap_or(&self.plan.plan)
+    }
 }
 #[derive(Default)]
 pub(super) struct NativeClientState {
@@ -209,7 +220,7 @@ impl FlutterGlHandler {
     pub(in crate::flutter_runtime) fn update_native_window_plans(
         &self,
         windows: &mut [wire::WindowDescription],
-        frames: &[ExternalTextureFrame],
+        frames: &mut [ExternalTextureFrame],
         scale: f64,
         changed: &mut Vec<i64>,
     ) {
@@ -239,23 +250,19 @@ impl FlutterGlHandler {
             if state.disabled.contains(&plan.texture_id) {
                 continue;
             }
-            // The pass maps crops only; other canvases need the engine.
+            // The pass maps crops only and copies pixels as they are: other
+            // canvases and converted pixels need the engine.
             if plan.layers.iter().any(|layer| {
                 frames
                     .iter()
                     .find(|frame| frame.texture_id == layer.texture_id)
-                    .and_then(|frame| frame.presentation.as_ref())
-                    .is_some_and(|presentation| !reproduces_presentation(presentation))
-            }) {
-                continue;
-            }
-            // The pass copies pixels as they are; converted ones need the engine.
-            if plan.layers.iter().any(|layer| {
-                frames
-                    .iter()
-                    .find(|frame| frame.texture_id == layer.texture_id)
-                    .and_then(ExternalTextureFrame::color)
-                    .is_some_and(|color| color.needs_pass(scene))
+                    .is_some_and(|frame| {
+                        frame
+                            .presentation
+                            .as_ref()
+                            .is_some_and(|presentation| !reproduces_presentation(presentation))
+                            || frame.color().is_some_and(|color| color.needs_pass(scene))
+                    })
             }) {
                 continue;
             }
@@ -264,6 +271,16 @@ impl FlutterGlHandler {
                 continue;
             };
             let plan = &versioned.plan;
+            // Each buffer keeps the placement of its own commit until the
+            // next one is drawn.
+            for layer in &plan.layers {
+                if let Some(frame) = frames
+                    .iter_mut()
+                    .find(|frame| frame.texture_id == layer.texture_id)
+                {
+                    frame.layer = Some(layer.placement());
+                }
+            }
             window.client_texture = Some(wire::ClientTextureDescription {
                 texture_id: plan.texture_id as u64,
                 width: plan.width,
@@ -440,11 +457,24 @@ impl FlutterGlHandler {
     pub(super) fn native_window_damage(
         plan: &VersionedWindowPlan,
         taken: &HashMap<i64, Option<(Vec<[f64; 4]>, [f64; 2])>>,
+        moved: &[i64],
         sources: &HashMap<i64, ExternalTextureSlot>,
     ) -> Option<Vec<[f64; 4]>> {
         let plan = &plan.plan;
         let mut rects = Vec::new();
         for layer in &plan.layers {
+            // A buffer the plan does not place, or one placed anew, shows
+            // elsewhere than the plan says.
+            if moved.contains(&layer.texture_id)
+                || sources.get(&layer.texture_id).is_some_and(|slot| {
+                    slot.layer_changed()
+                        || slot
+                            .layer
+                            .is_some_and(|placement| placement != layer.placement())
+                })
+            {
+                return None;
+            }
             match taken.get(&layer.texture_id) {
                 Some(Some((changed, [width, height]))) => {
                     rects.extend(changed.iter().filter_map(|[x, y, w, h]| {
@@ -472,10 +502,11 @@ impl FlutterGlHandler {
                     .registry
                     .handles_texture(texture_id)
     }
-    /// Plans follow each scene commit at once, while a newly mapped
-    /// subsurface's first buffer becomes current only at the next frame
-    /// tick. Until then that layer is not drawn, as in the surface tree, and
-    /// the layers it covers are drawn instead.
+    /// Plans follow each scene commit at once, while buffers become current
+    /// a frame tick or two later. A newly mapped subsurface has none until
+    /// then and is not drawn, as in the surface tree. A buffer older than
+    /// the plan is drawn as its own commit placed it. Either way the layers
+    /// it does not cover are drawn.
     fn native_snapshot(&self, texture_id: i64) -> Option<NativeSnapshot> {
         if texture_id == crate::flutter_runtime::cursor_scene::TEXTURE {
             return lock(&self.native_clients)
@@ -499,25 +530,45 @@ impl FlutterGlHandler {
                     .filter(|slot| slot.current.is_some())
             })
             .collect::<Vec<_>>();
-        let drawn = plan
-            .plan
-            .drawn(&slots.iter().map(Option::is_some).collect::<Vec<_>>());
+        let mut placed = None;
+        let mut current = Vec::with_capacity(slots.len());
+        for (index, (layer, slot)) in plan.plan.layers.iter().zip(&slots).enumerate() {
+            current.push(match slot {
+                None => false,
+                Some(slot) => match slot
+                    .layer
+                    .filter(|placement| *placement != layer.placement())
+                {
+                    None => true,
+                    Some(placement) => placed
+                        .get_or_insert_with(|| plan.plan.clone())
+                        .place(index, placement),
+                },
+            });
+        }
+        let drawn = placed.as_ref().unwrap_or(&plan.plan).drawn(&current);
         let mut inputs = Vec::with_capacity(plan.plan.layers.len());
+        let mut covered = Vec::new();
         let mut presentations = Vec::with_capacity(plan.plan.layers.len());
         let mut histories = Vec::with_capacity(plan.plan.layers.len());
         for ((layer, slot), drawn) in plan.plan.layers.iter().zip(slots).zip(drawn) {
+            let source = slot.and_then(|slot| slot.current.clone());
             let slot = slot.filter(|_| drawn);
             presentations.push(slot.map(|slot| slot.presentation));
-            if let Some(slot) = slot
-                && let Some(source) = slot.current.clone()
-            {
-                inputs.push((layer.texture_id, source));
-                histories.push(slot.history.clone());
+            match (slot, source) {
+                (Some(slot), Some(source)) => {
+                    inputs.push((layer.texture_id, source));
+                    histories.push(slot.history.clone());
+                }
+                (None, Some(source)) => covered.push((layer.texture_id, source)),
+                _ => {}
             }
         }
         Some(NativeSnapshot {
             plan,
+            placed,
             inputs,
+            covered,
             presentations,
             histories,
         })
@@ -587,26 +638,35 @@ impl FlutterGlHandler {
         if cursor && placement.is_none() {
             return Ok(Client::Missing);
         }
-        let NativeSnapshot {
-            plan,
-            inputs,
-            presentations,
-            histories,
-        } = self
+        let snapshot = self
             .native_snapshot(texture_id)
             .ok_or("native window plan")?;
-        // Layers without a current buffer are left out of both.
-        let presented = plan
-            .plan
-            .presented(&presentations)
+        // Layers that are not drawn are left out of both.
+        let presented = snapshot
+            .shown()
+            .presented(&snapshot.presentations)
             .ok_or("native window presentation")?;
+        let NativeSnapshot {
+            inputs,
+            covered,
+            histories,
+            ..
+        } = snapshot;
         if presented.layers.len() != inputs.len() {
             return Err("native window inputs");
         }
         let scene = crate::output_color::scene_encoding();
         let size = (presented.width, presented.height);
         let mut layers = Vec::with_capacity(inputs.len());
-        let mut unseen = Vec::new();
+        // A covered layer waits for no sample: its buffer counts as shown.
+        let mut unseen = covered
+            .into_iter()
+            .map(|(texture_id, source)| SampledClient {
+                texture_id,
+                generation: source.generation(),
+                source,
+            })
+            .collect::<Vec<_>>();
         for ((layer, (input_id, source)), history) in
             presented.layers.iter().zip(inputs).zip(histories)
         {
@@ -662,8 +722,11 @@ impl FlutterGlHandler {
             look: self.app_look(texture_id),
         })
     }
-    fn native_samples(inputs: &[(i64, ExternalTextureSource)]) -> Vec<NativeInputSample> {
-        inputs
+    /// What a merged image owes the buffers it shows: those drawn into it
+    /// and those its opaque layers cover, which wait for no sample of
+    /// their own.
+    fn native_samples(buffers: &[(i64, ExternalTextureSource)]) -> Vec<NativeInputSample> {
+        buffers
             .iter()
             .map(|(texture_id, source)| NativeInputSample {
                 texture_id: *texture_id,
@@ -681,7 +744,14 @@ impl FlutterGlHandler {
         {
             return None;
         }
-        let snapshot = self.native_snapshot(texture_id)?;
+        self.cached_native(texture_id, &self.native_snapshot(texture_id)?)
+    }
+    /// The merged image of `snapshot`, when the last merge drew exactly it.
+    fn cached_native(
+        &self,
+        texture_id: i64,
+        snapshot: &NativeSnapshot,
+    ) -> Option<PreparedExternalTexture> {
         let keys = snapshot
             .inputs
             .iter()
@@ -689,7 +759,7 @@ impl FlutterGlHandler {
             .collect::<Vec<_>>();
         let mut state = lock(&self.native_clients);
         let image = state.images.get(&texture_id)?;
-        if !image.matches(snapshot.plan.revision, &keys, &snapshot.presentations) {
+        if !image.matches(snapshot, &keys) {
             return None;
         }
         let permit = self.external_texture_resource_budget.try_acquire()?;
@@ -710,7 +780,10 @@ impl FlutterGlHandler {
                 _resource_permit: permit,
             },
             sampled_buffer: Some(buffer),
-            native_samples: Self::native_samples(&snapshot.inputs),
+            native_samples: Self::native_samples(&snapshot.inputs)
+                .into_iter()
+                .chain(Self::native_samples(&snapshot.covered))
+                .collect(),
         };
         state.hits = state.hits.saturating_add(1);
         if state.hits == 1 {
@@ -737,21 +810,23 @@ impl FlutterGlHandler {
             prepared.texture_id = texture_id;
             return Some(prepared);
         }
-        if let Some(prepared) = self.prepare_native_without_gl(texture_id) {
+        // None: the window left native composition after this frame was
+        // scheduled.
+        let snapshot = self.native_snapshot(texture_id)?;
+        if let Some(prepared) = self.cached_native(texture_id, &snapshot) {
             return Some(prepared);
         }
-        // The window left native composition after this frame was scheduled.
+        let covered = Self::native_samples(&snapshot.covered);
+        let presented = snapshot.shown().presented(&snapshot.presentations);
         let NativeSnapshot {
             plan,
+            placed,
             inputs,
             presentations,
             ..
-        } = self.native_snapshot(texture_id)?;
+        } = snapshot;
         let result = (|| -> Result<PreparedExternalTexture, String> {
-            let presented = plan
-                .plan
-                .presented(&presentations)
-                .ok_or("native client input presentation is not a crop")?;
+            let presented = presented.ok_or("native client input presentation is not a crop")?;
             let (pool, disabled) = {
                 let state = lock(&self.native_clients);
                 (
@@ -833,6 +908,7 @@ impl FlutterGlHandler {
                     generation: input.source_generation,
                     feedback: input.feedback.clone(),
                 })
+                .chain(covered)
                 .collect();
             let modifier = storage.dmabuf().format().modifier;
             let mut state = lock(&self.native_clients);
@@ -840,6 +916,7 @@ impl FlutterGlHandler {
                 texture_id,
                 ClientImage {
                     plan_revision: plan.revision,
+                    placed: placed.map(|plan| plan.layers),
                     inputs: keys,
                     presentations,
                     binding,
