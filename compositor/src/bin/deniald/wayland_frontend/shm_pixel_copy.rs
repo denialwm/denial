@@ -54,6 +54,74 @@ pub(super) unsafe fn copy_shm_8888(
         };
         remaining
     };
+    #[cfg(target_arch = "x86_64")]
+    let pixels = {
+        let mut remaining = pixels;
+        use std::arch::x86_64::{
+            __m128i, _mm_and_si128, _mm_cvtsi128_si32, _mm_loadu_si128, _mm_or_si128,
+            _mm_set1_epi32, _mm_setzero_si128, _mm_shuffle_epi32, _mm_slli_epi32, _mm_srli_epi32,
+            _mm_storeu_si128,
+        };
+        // SSE2 is part of the x86_64 baseline: no runtime detection. Each
+        // 32-bit lane is one native ARGB value; swap R and B, keep G and A.
+        // SAFETY: SSE2 is always available on x86_64.
+        let (green_alpha, low_byte, opaque) = unsafe {
+            (
+                _mm_set1_epi32(0xff00ff00_u32 as i32),
+                _mm_set1_epi32(0xff),
+                _mm_set1_epi32(if force_opaque {
+                    0xff000000_u32 as i32
+                } else {
+                    0
+                }),
+            )
+        };
+        let convert = |value: __m128i| unsafe {
+            // SAFETY: SSE2 is always available on x86_64.
+            let kept = _mm_and_si128(value, green_alpha);
+            let red = _mm_and_si128(_mm_srli_epi32::<16>(value), low_byte);
+            let blue = _mm_slli_epi32::<16>(_mm_and_si128(value, low_byte));
+            _mm_or_si128(_mm_or_si128(kept, opaque), _mm_or_si128(red, blue))
+        };
+        // SAFETY: SSE2 is always available on x86_64.
+        let mut all_channels = unsafe { _mm_setzero_si128() };
+        while remaining >= 8 {
+            // SAFETY: eight complete pixels remain inside the caller's row.
+            // Unaligned loads and stores; no padding is read.
+            unsafe {
+                let first = convert(_mm_loadu_si128(source.cast()));
+                let second = convert(_mm_loadu_si128(source.add(16).cast()));
+                _mm_storeu_si128(destination.cast(), first);
+                _mm_storeu_si128(destination.add(16).cast(), second);
+                all_channels = _mm_or_si128(all_channels, _mm_or_si128(first, second));
+                source = source.add(32);
+                destination = destination.add(32);
+            }
+            remaining -= 8;
+        }
+        while remaining >= 4 {
+            // SAFETY: four complete pixels remain inside the caller's row.
+            unsafe {
+                let converted = convert(_mm_loadu_si128(source.cast()));
+                _mm_storeu_si128(destination.cast(), converted);
+                all_channels = _mm_or_si128(all_channels, converted);
+                source = source.add(16);
+                destination = destination.add(16);
+            }
+            remaining -= 4;
+        }
+        // SAFETY: SSE2 is always available on x86_64.
+        let lanes = unsafe {
+            let folded = _mm_or_si128(
+                all_channels,
+                _mm_shuffle_epi32::<0b01_00_11_10>(all_channels),
+            );
+            let folded = _mm_or_si128(folded, _mm_shuffle_epi32::<0b10_11_00_01>(folded));
+            _mm_cvtsi128_si32(folded) as u32
+        };
+        alpha_or |= (lanes >> 24) as u8;
+        remaining
+    };
     for _ in 0..pixels {
         // SAFETY: one complete pixel remains. Native-endian loading matches
         // Wayland's numeric ARGB format on both little- and big-endian hosts.

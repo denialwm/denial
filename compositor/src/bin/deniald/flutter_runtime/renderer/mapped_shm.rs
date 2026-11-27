@@ -232,15 +232,17 @@ impl MappedShmPool {
                 }
                 return Ok(None);
             };
-            let raw = state.device.create_buffer_object::<()>(
+            // Ask for LINEAR by modifier, not by the LINEAR usage flag: with
+            // the flag, radeonsi reports DRM_FORMAT_MOD_INVALID although the
+            // layout is linear, and the check below would refuse it.
+            let raw = state.device.create_buffer_object_with_modifiers2::<()>(
                 width,
                 height,
                 Fourcc::Abgr8888,
-                GbmBufferFlags::LINEAR | GbmBufferFlags::RENDERING,
+                std::iter::once(Modifier::Linear),
+                GbmBufferFlags::RENDERING,
             )?;
             // Check the returned layout, then export that explicit modifier.
-            // The allocator wrapper marks its legacy flag-based fallback as
-            // implicit even when gbm_bo_get_modifier proves LINEAR.
             let bo = GbmBuffer::from_bo(raw, false);
             if bo.modifier() != Modifier::Linear || bo.plane_count() != 1 || bo.offset(0) != 0 {
                 return Err(io::Error::other(
