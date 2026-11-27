@@ -164,6 +164,7 @@ fn scene(rig: &Rig, bands: u32, bottom_up: bool) -> (Vec<record::Draw>, Vec<Step
                 first: index,
                 count: 1,
                 content: 0,
+                damage_tracked: false,
                 layers: None,
             })),
         }
@@ -485,6 +486,7 @@ fn shm_upload_draws_exactly_and_is_overwritten() {
         first: 0,
         count: 1,
         content: 0,
+        damage_tracked: false,
         layers: None,
     })];
     let mut frame = Frame::new(&rig.gpu).expect("frame");
@@ -1261,6 +1263,7 @@ fn window_client_is_graded_through_its_look() {
             first: index,
             count: 1,
             content: 0,
+            damage_tracked: false,
             layers: None,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
@@ -1426,6 +1429,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
         first,
         count: 1,
         content: 0,
+        damage_tracked: false,
         layers: None,
     };
     let merges = [Merge {
@@ -1708,6 +1712,7 @@ fn native_window_layers_draw_without_a_merge() {
         first,
         count: 1,
         content: 0,
+        damage_tracked: false,
         layers: Some(Arc::clone(&further)),
     };
 
@@ -2273,6 +2278,7 @@ fn what_an_opaque_draw_hides_is_left_out() {
             first: 1,
             count: 1,
             content: 0,
+            damage_tracked: false,
             layers: None,
         }));
         staged.draws = draws;
@@ -2337,6 +2343,7 @@ fn a_draw_split_around_a_cover_draws_the_same_pixels() {
                 first: index as u32,
                 count: 1,
                 content: 0,
+                damage_tracked: false,
                 layers: None,
             }));
         }
@@ -2430,6 +2437,7 @@ fn an_opaque_window_paints_every_pixel_it_covers() {
             first: index,
             count: 1,
             content: 0,
+            damage_tracked: false,
             layers: None,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
@@ -2733,4 +2741,27 @@ fn the_driver_reports_a_slice_allocation_to_the_ledger() {
     assert_eq!(allocated(&gpu), before + slice.allocated_bytes());
     drop(slice);
     assert_eq!(allocated(&gpu), before);
+}
+
+/// A tracked client changes what a frost reads only where its frame damage
+/// meets both the client's draw and the frost's region: a window repainting
+/// below a bar's glass, or damage beside the window, leaves the frost.
+#[test]
+fn damage_reaches_only_where_the_draw_meets_the_region() {
+    let window = [0, 30, 100, 200];
+    let region = [10, 0, 50, 40];
+    assert!(!super::damage_reaches(&[], window, region));
+    assert!(
+        !super::damage_reaches(&[[0, 100, 100, 200]], window, region),
+        "repaint far below the region"
+    );
+    assert!(
+        !super::damage_reaches(&[[10, 0, 50, 30]], window, region),
+        "damage in the region but beside the window"
+    );
+    assert!(super::damage_reaches(&[[20, 35, 30, 38]], window, region));
+    assert!(
+        !super::damage_reaches(&[[20, 35, 30, 38]], window, [200, 0, 300, 40]),
+        "a region away from the window"
+    );
 }

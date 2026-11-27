@@ -156,6 +156,16 @@ fn target_damage(
     })
 }
 
+/// Whether any of `damage` touches where `bounds` (a draw's) and `region`
+/// (what a frost reads) meet.
+fn damage_reaches(damage: &[[i32; 4]], bounds: [i32; 4], region: [i32; 4]) -> bool {
+    let read = record::pixels_intersect(bounds, region);
+    !record::pixels_empty(read)
+        && damage
+            .iter()
+            .any(|&rect| record::pixels_overlap(rect, read))
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
@@ -1316,7 +1326,8 @@ impl SceneComposer {
         let to_target = |rects| target_damage(rects, output_from_scene, size);
         let view_id = staged.view_id;
         let unaccounted = state.unaccounted.contains(&view_id);
-        Self::resolve_frosts(state, gpu, staged, size)?;
+        let frame_damage: Vec<[i32; 4]> = to_target(damage.frame).collect();
+        Self::resolve_frosts(state, gpu, staged, size, &frame_damage)?;
         // What the frame redraws: the buffer's damage, and every frost made
         // again with all it reads, so its copy sees this frame below it
         // (outside the damage the target holds the previous frame, the
@@ -1516,13 +1527,18 @@ impl SceneComposer {
     /// that changed. Else the frost keeps a fingerprint of those steps:
     /// each draw's record, clips and image content (a slice's version, a
     /// client's buffer revision), and each lower material's glass and the
-    /// submission its frost was made for. Changes above a material, which
-    /// the engine's damage also reports, leave its frost as it is.
+    /// submission its frost was made for. A client whose changes `damage`
+    /// (this frame's, in target pixels) reports leaves its buffer out of
+    /// the fingerprint: its new buffer changes the frost only where that
+    /// damage reaches into the region, so a window repainting far from a
+    /// material leaves its frost. Changes above a material, which the
+    /// engine's damage also reports, leave its frost as it is.
     fn resolve_frosts(
         state: &State,
         gpu: &Gpu,
         staged: &mut Staged,
         size: (u32, u32),
+        damage: &[[i32; 4]],
     ) -> Result<(), String> {
         // The submission this frame becomes.
         let serial = state.serial + 1;
@@ -1539,9 +1555,9 @@ impl SceneComposer {
             frosts_allocated,
             ..
         } = staged;
-        // What each step drew so far, in paint order: where, and a
-        // fingerprint of what.
-        let mut drawn: Vec<([i32; 4], u64)> = Vec::new();
+        // What each step drew so far, in paint order: where, a fingerprint
+        // of what, and whether its content changes are left to `damage`.
+        let mut drawn: Vec<([i32; 4], u64, bool)> = Vec::new();
         // What materials whose frosts are made this frame draw: a tracked
         // token does not see it change.
         let mut remade: Vec<[i32; 4]> = Vec::new();
@@ -1551,11 +1567,17 @@ impl SceneComposer {
                     let range = batch.first as usize..(batch.first + batch.count) as usize;
                     for draw in &draws[range] {
                         let mut fingerprint = DefaultHasher::new();
-                        fingerprint.write_u64(batch.content);
+                        if !batch.damage_tracked {
+                            fingerprint.write_u64(batch.content);
+                        }
                         fingerprint.write_usize(Arc::as_ptr(&batch.look) as usize);
                         fingerprint.write_u8(u8::from(batch.nearest));
                         draw.hash_into(clips, edges, &mut fingerprint);
-                        drawn.push((draw.bounds(size), fingerprint.finish()));
+                        drawn.push((
+                            draw.bounds(size),
+                            fingerprint.finish(),
+                            batch.damage_tracked,
+                        ));
                     }
                     continue;
                 }
@@ -1567,16 +1589,18 @@ impl SceneComposer {
                 let mut fingerprint = DefaultHasher::new();
                 fingerprint.write_u64(*content);
                 glasses[record].hash_into(clips, edges, &mut fingerprint);
-                drawn.push((outputs[record], fingerprint.finish()));
+                drawn.push((outputs[record], fingerprint.finish(), false));
                 continue;
             }
             let region = material.plan.region;
             let mut below = DefaultHasher::new();
-            for &(_, fingerprint) in drawn
+            let mut damaged = false;
+            for &(bounds, fingerprint, tracked) in drawn
                 .iter()
-                .filter(|(bounds, _)| record::pixels_overlap(*bounds, region))
+                .filter(|(bounds, ..)| record::pixels_overlap(*bounds, region))
             {
                 below.write_u64(fingerprint);
+                damaged = damaged || (tracked && damage_reaches(damage, bounds, region));
             }
             let below = below.finish();
             let token = backdrop_tokens[record];
@@ -1586,7 +1610,7 @@ impl SceneComposer {
                 .any(|&output| record::pixels_overlap(output, region));
             let unchanged = |cached: &CachedFrost| match token {
                 Some(_) => cached.backdrop_token == token,
-                None => cached.below == below,
+                None => cached.below == below && !damaged,
             };
             // Diagnostic: why a cached frost is made again.
             remade_why[match cached {
@@ -1631,7 +1655,7 @@ impl SceneComposer {
                 draw.hash_into(clips, edges, &mut fingerprint);
                 bounds = record::pixels_union(bounds, draw.bounds(size));
             }
-            drawn.push((bounds, fingerprint.finish()));
+            drawn.push((bounds, fingerprint.finish(), false));
         }
         Ok(())
     }
@@ -1724,6 +1748,12 @@ pub(super) enum Client {
 }
 
 impl Client {
+    /// One buffer sampled as it is: the engine's frame damage reports what
+    /// a new buffer changed (anything it cannot tell changes whole).
+    fn damage_tracked(&self) -> bool {
+        matches!(self, Self::Image { .. })
+    }
+
     /// What the client's image holds: equal values, equal pixels.
     fn content(&self) -> u64 {
         let mut content = DefaultHasher::new();
@@ -2431,6 +2461,7 @@ impl SceneComposer {
                     first: index,
                     count: 1,
                     content: 0,
+                    damage_tracked: false,
                     layers: None,
                 }),
             }
@@ -2549,6 +2580,7 @@ impl SceneComposer {
                         image: &Arc<Image>,
                         layers: Option<Layers>,
                         content: u64,
+                        damage_tracked: bool,
                         look: &Arc<Image>,
                         nearest: bool| {
                 let index = staged.draws.len() as u32;
@@ -2557,6 +2589,7 @@ impl SceneComposer {
                     && Arc::ptr_eq(&last.image, image)
                     && device::same_layers(&last.layers, &layers)
                     && last.content == content
+                    && last.damage_tracked == damage_tracked
                     && Arc::ptr_eq(&last.look, look)
                     && last.nearest == nearest
                     && last.first + last.count == index
@@ -2571,6 +2604,7 @@ impl SceneComposer {
                     first: index,
                     count: 1,
                     content,
+                    damage_tracked,
                     layers,
                 }));
             };
@@ -2625,6 +2659,7 @@ impl SceneComposer {
                                 &image,
                                 None,
                                 content,
+                                false,
                                 &self.no_look,
                                 !*linear,
                             );
@@ -2638,6 +2673,7 @@ impl SceneComposer {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *bounds)?;
                         let content = client.content();
+                        let tracked = client.damage_tracked();
                         let Some(mut client) =
                             self.resolved_image(&mut state, &mut staged, client, resolve)?
                         else {
@@ -2671,12 +2707,14 @@ impl SceneComposer {
                                 staged.covers.push((index, cover));
                             }
                         }
+                        let tracked = tracked && layers.is_none();
                         push(
                             &mut staged,
                             draw,
                             &image,
                             layers,
                             content,
+                            tracked,
                             &look_image,
                             local.sampling == Sampling::Nearest,
                         );
@@ -2693,6 +2731,7 @@ impl SceneComposer {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *texture_bounds)?;
                         let content = client.content();
+                        let tracked = client.damage_tracked();
                         let mut client =
                             self.resolved_image(&mut state, &mut staged, client, resolve)?;
                         let look = client.as_mut().and_then(|client| client.look.take());
@@ -2771,12 +2810,14 @@ impl SceneComposer {
                                     staged.covers.push((index, cover));
                                 }
                             }
+                            let tracked = tracked && layers.is_none();
                             push(
                                 &mut staged,
                                 draw,
                                 &bound,
                                 layers,
                                 content,
+                                tracked,
                                 &look_image,
                                 nearest,
                             );
@@ -3071,6 +3112,7 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                             first,
                             count,
                             content: batch.content,
+                            damage_tracked: batch.damage_tracked,
                             layers: batch.layers.clone(),
                         }));
                     }

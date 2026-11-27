@@ -200,6 +200,18 @@ cannot serve gets storage one step up a ladder about a fifth apart (…, 1408,
 for the next frames. The pool holds at most 96 MiB and destroys what has been
 idle for a second from its own thread, so a still screen gives it back too.
 
+### Frost reuse
+
+A frost is the blurred copy of what lies under a material. It is kept while
+what its region reads is unchanged: the engine's backdrop token says so when
+it tracks one, else a fingerprint of the draws below that reach the region.
+A client window sampled from one buffer stays out of that fingerprint with
+its buffer: its new buffer changes the frost only where the frame's damage
+meets both the window and the region. A window that repaints below a bar
+whose glass reads a few pixels of its top edge leaves the bar's frosts as
+they are, unless its damage reaches that edge. Moves, clips, looks and
+windows drawn from merged or several layers still count whole.
+
 ### Phases
 
 | Phase | Scope | Status |

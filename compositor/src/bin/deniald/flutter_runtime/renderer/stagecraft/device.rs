@@ -1791,6 +1791,10 @@ pub(super) struct Batch {
     pub(super) count: u32,
     /// What `image` holds for the frame: equal values, equal pixels.
     pub(super) content: u64,
+    /// A client buffer whose changes the engine's frame damage reports: a
+    /// new `content` changes what a frost reads only where that damage
+    /// reaches it (`SceneComposer::resolve_frosts`).
+    pub(super) damage_tracked: bool,
     /// A native window drawn from its layers: `image` is the lowest and
     /// these lie over it, each draw record naming their placement
     /// (`record::layered`). The layered programs draw the batch.
