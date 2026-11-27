@@ -8,8 +8,9 @@ trigger the owner-operated builder.
 independently verifies an installable development candidate, the Arch
 packages for x86-64 and aarch64, within about ten minutes. That candidate
 uses package release `0` and is explicitly ineligible for signing or
-publication. Its Rust is built for speed (`compile_mode=fast-release`: no LTO,
-sixteen codegen units), it skips the Debian, RPM and Alpine archives, and
+publication. Its Rust is built for speed (`compile_mode=fast-release`: the development
+profile of `tools/lib/denial-architecture.sh`, no LTO, incremental, eight
+codegen units), it skips the Debian, RPM and Alpine archives, and
 a push whose changes since the last built, green `dev` commit touch only
 files no build, test or audit step reads (most of `docs/`, the phone package
 workflow and tools) reuses that validation without building.

@@ -104,6 +104,30 @@ denial_flutter_host_engine_target() {
   fi
 }
 
+# Every build but a release candidate is a development build: it skips
+# whole-program optimization, keeps Cargo's incremental state, and splits
+# each crate in 8 codegen units. DENIAL_RUST_PROFILE=release, set by main's
+# branch validation, keeps the release profile Cargo.toml defines (thin LTO,
+# one unit) and builds from scratch.
+denial_rust_profile_configure() {
+  case "${DENIAL_RUST_PROFILE:-development}" in
+    development)
+      export CARGO_PROFILE_RELEASE_LTO=false
+      export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8
+      export CARGO_PROFILE_RELEASE_INCREMENTAL=true
+      ;;
+    release)
+      unset CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+      export CARGO_PROFILE_RELEASE_INCREMENTAL=false CARGO_INCREMENTAL=0
+      ;;
+    *)
+      printf 'DENIAL_RUST_PROFILE must be development or release, got: %s\n' \
+        "$DENIAL_RUST_PROFILE" >&2
+      return 1
+      ;;
+  esac
+}
+
 # Points Cargo, cc and pkg-config at the cross compiler and the target root
 # in DENIAL_ARM64_SYSROOT. A native build changes nothing.
 denial_cross_configure_rust() {
@@ -129,8 +153,10 @@ denial_cross_configure_rust() {
   export CXXFLAGS_aarch64_unknown_linux_gnu="--sysroot=$sysroot"
   export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
   # The root's own library directory goes first: the cross compiler's built-in
-  # one holds linker scripts that name the build machine's /lib.
-  export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=--sysroot=$sysroot -C link-arg=-L$sysroot/usr/lib -C link-arg=-Wl,-rpath-link,$sysroot/usr/lib"
+  # one holds linker scripts that name the build machine's /lib. The link
+  # uses LLVM's lld, as native x86_64 Rust links by default: GNU ld links
+  # deniald on one thread.
+  export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-fuse-ld=lld -C link-arg=--sysroot=$sysroot -C link-arg=-L$sysroot/usr/lib -C link-arg=-Wl,-rpath-link,$sysroot/usr/lib"
 }
 
 # Prints the canonical architecture of an ELF file, from its e_machine field.

@@ -112,11 +112,11 @@ jobs:
             printf 'DENIAL_BUILD_IDENTITY=%s.g%s\n' \
               "$validation_branch" "$GITHUB_SHA"
             printf 'RUST_TARGET_SUFFIX=%s\n' "$rust_target_suffix"
-            if [[ "$compile_mode" == fast-release ]]; then
-              # Dev trades the release profile's whole-crate optimization
-              # for build time; main's candidates keep it.
-              printf 'CARGO_PROFILE_RELEASE_LTO=%s\n' 'false'
-              printf 'CARGO_PROFILE_RELEASE_CODEGEN_UNITS=%s\n' '16'
+            # Dev builds as development (no LTO, incremental, 8 codegen
+            # units: tools/lib/denial-architecture.sh); main's candidates
+            # keep the release profile.
+            if [[ "$compile_mode" == release ]]; then
+              printf 'DENIAL_RUST_PROFILE=%s\n' 'release'
             fi
           } >>"$GITHUB_ENV"
 

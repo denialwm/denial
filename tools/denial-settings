@@ -12,6 +12,7 @@ ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/denial-architecture.sh
 source "$SCRIPT_DIR/lib/denial-architecture.sh"
 denial_arch_configure
+denial_rust_profile_configure || exit
 
 CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
