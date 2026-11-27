@@ -1,0 +1,1791 @@
+//! Process-lifetime secure session lock, PAM and fprintd authentication boundary.
+
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+
+mod haptics;
+
+#[path = "authentication/fingerprint.rs"]
+mod fingerprint;
+#[path = "authentication/fingerprint_settings.rs"]
+pub mod fingerprint_settings;
+#[path = "authentication/gatekeeper.rs"]
+mod gatekeeper;
+#[path = "authentication/lock_capability.rs"]
+mod lock_capability;
+#[path = "authentication/pin.rs"]
+pub mod pin;
+#[path = "authentication/session_lock.rs"]
+mod session_lock;
+
+use std::collections::VecDeque;
+use std::error::Error;
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::fmt;
+use std::io::{self, BufRead};
+use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+use libloading::Library;
+use tracing::{info, warn};
+
+pub const CHANNEL: &CStr = c"denial/authentication";
+pub const STATE_CHANNEL: &CStr = c"denial/authentication_state";
+
+const MAGIC: &[u8; 4] = b"DAUT";
+const VERSION: u16 = 1;
+const HEADER_SIZE: usize = 24;
+const MAX_PAYLOAD_BYTES: usize = 4096;
+const MAX_PACKET_BYTES: usize = HEADER_SIZE + MAX_PAYLOAD_BYTES;
+const MAX_STATUS_BYTES: usize = 1024;
+const MAX_PENDING_EVENTS: usize = 64;
+const PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
+const BASE_COOLDOWN: Duration = Duration::from_millis(750);
+const MAX_COOLDOWN: Duration = Duration::from_secs(30);
+
+const KIND_SYNC: u8 = 1;
+const KIND_LOCK: u8 = 2;
+const KIND_BEGIN: u8 = 3;
+const KIND_RESPOND: u8 = 4;
+const KIND_CANCEL: u8 = 5;
+/// Argument 1: the lock screen offers the fingerprint; 0: it asks for a typed
+/// credential (PIN, password or SIM PIN) and the reader must not answer.
+const KIND_FINGERPRINT: u8 = 6;
+const KIND_STATE: u8 = 0x81;
+const KIND_PROMPT: u8 = 0x82;
+const KIND_RESULT: u8 = 0x83;
+const KIND_FINGERPRINT_FEEDBACK: u8 = 0x84;
+/// Argument: the configured PIN length, 0 when the password is the only
+/// typed credential. Sent on synchronize and after every lock.
+const KIND_CREDENTIAL: u8 = 0x85;
+
+/// Begin argument: 0 asks for the preferred credential (the PIN when one is
+/// set), 1 for the account password.
+const BEGIN_PASSWORD: u32 = 1;
+
+const STATE_LOCKED: u8 = 1 << 0;
+const STATE_AVAILABLE: u8 = 1 << 1;
+const STATE_BUSY: u8 = 1 << 2;
+const STATE_RATE_LIMITED: u8 = 1 << 3;
+const RESULT_SUCCESS: u8 = 1 << 4;
+const RESULT_CANCELLED: u8 = 1 << 5;
+const PROMPT_STYLE_SHIFT: u8 = 4;
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum AuthenticationDecodeError {
+    InvalidSize(usize),
+    InvalidMagic,
+    UnsupportedVersion(u16),
+    UnsupportedKind(u8),
+    InvalidFlags(u8),
+    InvalidPayloadLength(u32),
+    EmbeddedNul,
+    UnexpectedMetadata,
+}
+
+impl fmt::Display for AuthenticationDecodeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidSize(size) => {
+                write!(formatter, "invalid authentication packet size {size}")
+            }
+            Self::InvalidMagic => formatter.write_str("invalid authentication packet magic"),
+            Self::UnsupportedVersion(version) => {
+                write!(
+                    formatter,
+                    "unsupported authentication protocol version {version}"
+                )
+            }
+            Self::UnsupportedKind(kind) => {
+                write!(formatter, "unsupported authentication command {kind}")
+            }
+            Self::InvalidFlags(flags) => {
+                write!(formatter, "authentication command has flags {flags:#x}")
+            }
+            Self::InvalidPayloadLength(length) => {
+                write!(formatter, "invalid authentication payload length {length}")
+            }
+            Self::EmbeddedNul => formatter.write_str("authentication payload contains NUL"),
+            Self::UnexpectedMetadata => {
+                formatter.write_str("authentication command carries unexpected metadata")
+            }
+        }
+    }
+}
+
+impl Error for AuthenticationDecodeError {}
+
+enum AuthenticationCommand {
+    Synchronize,
+    Lock,
+    Begin {
+        password_only: bool,
+    },
+    Respond {
+        attempt_id: u64,
+        prompt_sequence: u32,
+        response: SecureString,
+    },
+    Cancel {
+        attempt_id: u64,
+    },
+    OfferFingerprint {
+        offered: bool,
+    },
+}
+
+fn decode(packet: &[u8]) -> Result<AuthenticationCommand, AuthenticationDecodeError> {
+    if !(HEADER_SIZE..=MAX_PACKET_BYTES).contains(&packet.len()) {
+        return Err(AuthenticationDecodeError::InvalidSize(packet.len()));
+    }
+    if &packet[..MAGIC.len()] != MAGIC {
+        return Err(AuthenticationDecodeError::InvalidMagic);
+    }
+    let version = u16::from_le_bytes(packet[4..6].try_into().expect("fixed protocol header"));
+    if version != VERSION {
+        return Err(AuthenticationDecodeError::UnsupportedVersion(version));
+    }
+    let kind = packet[6];
+    let flags = packet[7];
+    if flags != 0 {
+        return Err(AuthenticationDecodeError::InvalidFlags(flags));
+    }
+    let attempt_id = u64::from_le_bytes(packet[8..16].try_into().expect("fixed protocol header"));
+    let argument = u32::from_le_bytes(packet[16..20].try_into().expect("fixed protocol header"));
+    let payload_length =
+        u32::from_le_bytes(packet[20..24].try_into().expect("fixed protocol header"));
+    if payload_length as usize > MAX_PAYLOAD_BYTES
+        || HEADER_SIZE + payload_length as usize != packet.len()
+    {
+        return Err(AuthenticationDecodeError::InvalidPayloadLength(
+            payload_length,
+        ));
+    }
+    let payload = &packet[HEADER_SIZE..];
+    if payload.contains(&0) {
+        return Err(AuthenticationDecodeError::EmbeddedNul);
+    }
+
+    match kind {
+        KIND_SYNC if attempt_id == 0 && argument == 0 && payload.is_empty() => {
+            Ok(AuthenticationCommand::Synchronize)
+        }
+        KIND_LOCK if attempt_id == 0 && argument == 0 && payload.is_empty() => {
+            Ok(AuthenticationCommand::Lock)
+        }
+        KIND_BEGIN if attempt_id == 0 && argument <= BEGIN_PASSWORD && payload.is_empty() => {
+            Ok(AuthenticationCommand::Begin {
+                password_only: argument == BEGIN_PASSWORD,
+            })
+        }
+        KIND_RESPOND if attempt_id != 0 && argument != 0 => Ok(AuthenticationCommand::Respond {
+            attempt_id,
+            prompt_sequence: argument,
+            response: SecureString::new(payload),
+        }),
+        KIND_CANCEL if argument == 0 && payload.is_empty() => {
+            Ok(AuthenticationCommand::Cancel { attempt_id })
+        }
+        KIND_FINGERPRINT if attempt_id == 0 && argument <= 1 && payload.is_empty() => {
+            Ok(AuthenticationCommand::OfferFingerprint {
+                offered: argument == 1,
+            })
+        }
+        KIND_SYNC | KIND_LOCK | KIND_BEGIN | KIND_RESPOND | KIND_CANCEL | KIND_FINGERPRINT => {
+            Err(AuthenticationDecodeError::UnexpectedMetadata)
+        }
+        _ => Err(AuthenticationDecodeError::UnsupportedKind(kind)),
+    }
+}
+
+struct SecureString {
+    bytes: Vec<u8>,
+}
+
+impl SecureString {
+    fn new(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.to_vec(),
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    fn clear(&mut self) {
+        erase_bytes(&mut self.bytes);
+        self.bytes.clear();
+    }
+}
+
+impl Drop for SecureString {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+pub fn erase_bytes(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: byte is a valid unique pointer into the owned secret buffer.
+        unsafe { ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
+/// Reads one stdin line of at most 4 KiB, erasing a rejected partial line.
+fn read_bounded_line(input: &mut impl BufRead) -> io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    loop {
+        let available = input.fill_buf()?;
+        if available.is_empty() {
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                Err(io::ErrorKind::UnexpectedEof.into())
+            };
+        }
+        let count = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |index| index + 1);
+        if line.len() + count > 4096 {
+            erase_bytes(&mut line);
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        line.extend_from_slice(&available[..count]);
+        input.consume(count);
+        if line.last() == Some(&b'\n') {
+            line.pop();
+            return Ok(Some(line));
+        }
+    }
+}
+
+/// Verifies the session user's password through a PAM stack that must ask
+/// for it. Shared by the privileged settings helpers.
+fn authenticate_password(
+    backend: &mut dyn AuthenticationBackend,
+    username: &str,
+    password: &SecureString,
+) -> BackendResult {
+    let mut prompted = false;
+    let result = backend.authenticate(
+        username,
+        &mut |style, _| match style {
+            PromptStyle::EchoOff => {
+                prompted = true;
+                Some(SecureString::new(password.as_bytes()))
+            }
+            PromptStyle::Info => Some(SecureString::new(&[])),
+            _ => None,
+        },
+        &|| false,
+    );
+    if prompted && !password.as_bytes().is_empty() {
+        result
+    } else {
+        BackendResult::Failure
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PromptStyle {
+    EchoOff = 1,
+    EchoOn = 2,
+    Info = 3,
+    Error = 4,
+    /// Denial's own numeric prompt; PAM never produces it.
+    Pin = 5,
+}
+
+impl PromptStyle {
+    fn requires_response(self) -> bool {
+        matches!(self, Self::EchoOff | Self::EchoOn | Self::Pin)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BackendResult {
+    Success,
+    Failure,
+    Cancelled,
+    Error,
+}
+
+trait AuthenticationBackend: Send {
+    fn available(&self) -> bool;
+    fn unavailable_reason(&self) -> String;
+    /// Account policy alone, for credentials checked outside PAM.
+    fn validate_account(&self) -> Result<(), String>;
+    fn authenticate(
+        &mut self,
+        username: &str,
+        conversation: &mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> BackendResult;
+}
+
+struct UnavailableBackend {
+    reason: String,
+}
+
+impl AuthenticationBackend for UnavailableBackend {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn unavailable_reason(&self) -> String {
+        self.reason.clone()
+    }
+
+    fn validate_account(&self) -> Result<(), String> {
+        Err(self.reason.clone())
+    }
+
+    fn authenticate(
+        &mut self,
+        _username: &str,
+        _conversation: &mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
+        _cancelled: &dyn Fn() -> bool,
+    ) -> BackendResult {
+        BackendResult::Error
+    }
+}
+
+#[repr(C)]
+struct PamHandle {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+struct PamMessage {
+    msg_style: c_int,
+    msg: *const c_char,
+}
+
+#[repr(C)]
+struct PamResponse {
+    resp: *mut c_char,
+    resp_retcode: c_int,
+}
+
+type PamConversationCallback = unsafe extern "C" fn(
+    c_int,
+    *mut *const PamMessage,
+    *mut *mut PamResponse,
+    *mut c_void,
+) -> c_int;
+
+#[repr(C)]
+struct PamConversation {
+    conv: Option<PamConversationCallback>,
+    appdata_ptr: *mut c_void,
+}
+
+struct PamApi {
+    _library: Library,
+    start: unsafe extern "C" fn(
+        *const c_char,
+        *const c_char,
+        *const PamConversation,
+        *mut *mut PamHandle,
+    ) -> c_int,
+    end: unsafe extern "C" fn(*mut PamHandle, c_int) -> c_int,
+    authenticate: unsafe extern "C" fn(*mut PamHandle, c_int) -> c_int,
+    account_management: unsafe extern "C" fn(*mut PamHandle, c_int) -> c_int,
+    set_item: unsafe extern "C" fn(*mut PamHandle, c_int, *const c_void) -> c_int,
+    fail_delay: unsafe extern "C" fn(*mut PamHandle, u32) -> c_int,
+}
+
+impl PamApi {
+    fn load() -> Result<Self, String> {
+        // SAFETY: every symbol is copied from a retained, fixed-SONAME library.
+        unsafe {
+            let library = Library::new("libpam.so.0")
+                .map_err(|error| format!("could not load libpam.so.0: {error}"))?;
+            macro_rules! symbol {
+                ($name:literal) => {
+                    *library
+                        .get(concat!($name, "\0").as_bytes())
+                        .map_err(|error| format!("missing libpam symbol {}: {error}", $name))?
+                };
+            }
+            Ok(Self {
+                start: symbol!("pam_start"),
+                end: symbol!("pam_end"),
+                authenticate: symbol!("pam_authenticate"),
+                account_management: symbol!("pam_acct_mgmt"),
+                set_item: symbol!("pam_set_item"),
+                fail_delay: symbol!("pam_fail_delay"),
+                _library: library,
+            })
+        }
+    }
+}
+
+struct PamBackend {
+    api: PamApi,
+    service: CString,
+}
+
+impl PamBackend {
+    fn load() -> Result<Self, String> {
+        let service = configured_pam_service();
+        Ok(Self {
+            api: PamApi::load()?,
+            service: CString::new(service).expect("validated PAM service contains no NUL"),
+        })
+    }
+}
+
+const PAM_SUCCESS: c_int = 0;
+const PAM_BUF_ERR: c_int = 5;
+const PAM_AUTH_ERR: c_int = 7;
+const PAM_CRED_INSUFFICIENT: c_int = 8;
+const PAM_AUTHINFO_UNAVAIL: c_int = 9;
+const PAM_USER_UNKNOWN: c_int = 10;
+const PAM_MAXTRIES: c_int = 11;
+const PAM_CONV_ERR: c_int = 19;
+const PAM_PROMPT_ECHO_OFF: c_int = 1;
+const PAM_PROMPT_ECHO_ON: c_int = 2;
+const PAM_ERROR_MSG: c_int = 3;
+const PAM_TEXT_INFO: c_int = 4;
+const PAM_TTY: c_int = 3;
+const PAM_SILENT: c_int = 0x8000;
+const PAM_DISALLOW_NULL_AUTHTOK: c_int = 0x0001;
+const PAM_MAX_NUM_MSG: c_int = 32;
+
+struct PamConversationContext<'a> {
+    conversation: &'a mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
+    cancelled: &'a dyn Fn() -> bool,
+}
+
+unsafe extern "C" fn pam_conversation(
+    count: c_int,
+    messages: *mut *const PamMessage,
+    output: *mut *mut PamResponse,
+    userdata: *mut c_void,
+) -> c_int {
+    if userdata.is_null()
+        || output.is_null()
+        || messages.is_null()
+        || count <= 0
+        || count > PAM_MAX_NUM_MSG
+    {
+        return PAM_CONV_ERR;
+    }
+    // SAFETY: PamBackend keeps the stack context alive for the full PAM call.
+    let context = unsafe { &mut *userdata.cast::<PamConversationContext<'_>>() };
+    if (context.cancelled)() {
+        return PAM_CONV_ERR;
+    }
+    let count = count as usize;
+    // SAFETY: calloc receives a checked small count and the complete response size.
+    let responses = unsafe { libc::calloc(count, size_of::<PamResponse>()) }.cast::<PamResponse>();
+    if responses.is_null() {
+        return PAM_BUF_ERR;
+    }
+
+    for index in 0..count {
+        if (context.cancelled)() {
+            // SAFETY: responses contains exactly count initialized zeroed entries.
+            unsafe { clear_pam_responses(responses, count) };
+            return PAM_CONV_ERR;
+        }
+        // SAFETY: PAM supplied count message pointers for callback life.
+        let message = unsafe { *messages.add(index) };
+        if message.is_null() {
+            // SAFETY: responses contains exactly count initialized zeroed entries.
+            unsafe { clear_pam_responses(responses, count) };
+            return PAM_CONV_ERR;
+        }
+        // SAFETY: message is non-null and points to the active PAM record.
+        let message = unsafe { &*message };
+        let style = match message.msg_style {
+            PAM_PROMPT_ECHO_OFF => PromptStyle::EchoOff,
+            PAM_PROMPT_ECHO_ON => PromptStyle::EchoOn,
+            PAM_TEXT_INFO => PromptStyle::Info,
+            PAM_ERROR_MSG => PromptStyle::Error,
+            _ => {
+                // SAFETY: responses contains exactly count initialized entries.
+                unsafe { clear_pam_responses(responses, count) };
+                return PAM_CONV_ERR;
+            }
+        };
+        let text = if message.msg.is_null() {
+            String::new()
+        } else {
+            // SAFETY: PAM messages are NUL-terminated for callback life.
+            unsafe { CStr::from_ptr(message.msg) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        let Some(mut response) = (context.conversation)(style, &text) else {
+            // SAFETY: responses contains exactly count initialized entries.
+            unsafe { clear_pam_responses(responses, count) };
+            return PAM_CONV_ERR;
+        };
+        if !style.requires_response() {
+            continue;
+        }
+        let length = response.as_bytes().len();
+        // SAFETY: the extra terminator byte is checked by the protocol's 4 KiB bound.
+        let destination = unsafe { libc::calloc(length + 1, 1) }.cast::<u8>();
+        if destination.is_null() {
+            response.clear();
+            // SAFETY: responses contains exactly count initialized entries.
+            unsafe { clear_pam_responses(responses, count) };
+            return PAM_BUF_ERR;
+        }
+        // SAFETY: destination has length + 1 bytes and response has length bytes.
+        unsafe {
+            ptr::copy_nonoverlapping(response.as_bytes().as_ptr(), destination, length);
+            (*responses.add(index)).resp = destination.cast();
+        }
+        response.clear();
+    }
+
+    // SAFETY: output is a valid PAM-owned out pointer for this callback.
+    unsafe { *output = responses };
+    PAM_SUCCESS
+}
+
+unsafe fn clear_pam_responses(responses: *mut PamResponse, count: usize) {
+    if responses.is_null() {
+        return;
+    }
+    for index in 0..count {
+        // SAFETY: caller guarantees a count-entry response allocation.
+        let response = unsafe { &mut *responses.add(index) };
+        if !response.resp.is_null() {
+            // SAFETY: response strings were allocated by this callback and are terminated.
+            let length = unsafe { CStr::from_ptr(response.resp) }.to_bytes().len();
+            // SAFETY: the allocation has at least length bytes before its terminator.
+            let bytes =
+                unsafe { std::slice::from_raw_parts_mut(response.resp.cast::<u8>(), length) };
+            erase_bytes(bytes);
+            // SAFETY: response was allocated by calloc and has not been freed.
+            unsafe { libc::free(response.resp.cast()) };
+            response.resp = ptr::null_mut();
+        }
+    }
+    // SAFETY: scrub the complete response array before returning it to libc.
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            responses.cast::<u8>(),
+            count.saturating_mul(size_of::<PamResponse>()),
+        )
+    };
+    erase_bytes(bytes);
+    // SAFETY: responses was allocated by calloc and has not been freed.
+    unsafe { libc::free(responses.cast()) };
+}
+
+impl AuthenticationBackend for PamBackend {
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn unavailable_reason(&self) -> String {
+        String::new()
+    }
+
+    /// Fingerprints and PINs replace the credential check, never PAM account
+    /// policy.
+    fn validate_account(&self) -> Result<(), String> {
+        let username = CString::new(current_username()).map_err(|error| error.to_string())?;
+        let mut conversation = |_style: PromptStyle, _message: &str| None;
+        let cancelled = || false;
+        let mut context = PamConversationContext {
+            conversation: &mut conversation,
+            cancelled: &cancelled,
+        };
+        let adapter = PamConversation {
+            conv: Some(pam_conversation),
+            appdata_ptr: (&mut context as *mut PamConversationContext<'_>).cast(),
+        };
+        let mut handle = ptr::null_mut();
+        // SAFETY: all pointers remain live until the balanced pam_end below.
+        let mut result = unsafe {
+            (self.api.start)(
+                self.service.as_ptr(),
+                username.as_ptr(),
+                &adapter,
+                &mut handle,
+            )
+        };
+        if result != PAM_SUCCESS || handle.is_null() {
+            return Err(format!("PAM account initialization failed: {result}"));
+        }
+        // SAFETY: handle is owned by this call and ended exactly once.
+        unsafe {
+            (self.api.set_item)(handle, PAM_TTY, c"denial".as_ptr().cast());
+            result = (self.api.account_management)(handle, PAM_SILENT);
+            (self.api.end)(handle, result);
+        }
+        if result == PAM_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("PAM account denied fingerprint unlock: {result}"))
+        }
+    }
+
+    fn authenticate(
+        &mut self,
+        username: &str,
+        conversation: &mut dyn FnMut(PromptStyle, &str) -> Option<SecureString>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> BackendResult {
+        let Ok(username) = CString::new(username) else {
+            return BackendResult::Error;
+        };
+        let mut context = PamConversationContext {
+            conversation,
+            cancelled,
+        };
+        let adapter = PamConversation {
+            conv: Some(pam_conversation),
+            appdata_ptr: (&mut context as *mut PamConversationContext<'_>).cast(),
+        };
+        let mut handle = ptr::null_mut();
+        // SAFETY: service, username, adapter and handle out-pointer remain live for pam_start.
+        let mut result = unsafe {
+            (self.api.start)(
+                self.service.as_ptr(),
+                username.as_ptr(),
+                &adapter,
+                &mut handle,
+            )
+        };
+        if result != PAM_SUCCESS || handle.is_null() {
+            return if cancelled() {
+                BackendResult::Cancelled
+            } else {
+                BackendResult::Error
+            };
+        }
+
+        // SAFETY: handle is live until the balanced pam_end below.
+        unsafe {
+            (self.api.fail_delay)(handle, 0);
+            (self.api.set_item)(handle, PAM_TTY, c"denial".as_ptr().cast());
+            result = (self.api.authenticate)(handle, PAM_DISALLOW_NULL_AUTHTOK);
+            if result == PAM_SUCCESS {
+                result = (self.api.account_management)(handle, PAM_SILENT);
+            }
+        }
+        let was_cancelled = cancelled();
+        // SAFETY: balances the successful pam_start exactly once.
+        unsafe { (self.api.end)(handle, result) };
+
+        if was_cancelled {
+            BackendResult::Cancelled
+        } else if result == PAM_SUCCESS {
+            BackendResult::Success
+        } else if matches!(
+            result,
+            PAM_AUTH_ERR
+                | PAM_USER_UNKNOWN
+                | PAM_MAXTRIES
+                | PAM_CRED_INSUFFICIENT
+                | PAM_AUTHINFO_UNAVAIL
+        ) {
+            BackendResult::Failure
+        } else {
+            BackendResult::Error
+        }
+    }
+}
+
+fn configured_pam_service() -> String {
+    let Some(candidate) = std::env::var_os("DENIAL_PAM_SERVICE") else {
+        return "login".into();
+    };
+    let candidate = candidate.to_string_lossy();
+    if !candidate.is_empty()
+        && candidate.len() <= 64
+        && candidate
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        candidate.into_owned()
+    } else {
+        warn!("ignored invalid DENIAL_PAM_SERVICE value");
+        "login".into()
+    }
+}
+
+fn default_backend() -> Box<dyn AuthenticationBackend> {
+    // The device's first start runs as its setup account, before any person
+    // has one: nothing to lock, so the screen just turns off, without the
+    // lock screen's always-on picture.
+    if std::env::var_os("DENIAL_FIRST_USER_HELPER").is_some() {
+        info!("first-start setup session: it never locks");
+        return Box::new(UnavailableBackend {
+            reason: "The device is being set up.".into(),
+        });
+    }
+    match PamBackend::load() {
+        Ok(backend) => {
+            info!("Denial native authentication connected through PAM");
+            Box::new(backend)
+        }
+        Err(error) => {
+            warn!(%error, "native PAM authentication is unavailable");
+            Box::new(UnavailableBackend {
+                reason: "System authentication is unavailable on this build.".into(),
+            })
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AuthenticationSnapshot {
+    locked: bool,
+    available: bool,
+    busy: bool,
+    attempt_id: u64,
+    cooldown_ms: u32,
+    status_message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum AuthenticationEventKind {
+    State,
+    Prompt { style: PromptStyle, sequence: u32 },
+    Result { success: bool, cancelled: bool },
+    FingerprintFeedback,
+    Credential { pin_length: u32 },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticationEvent {
+    kind: AuthenticationEventKind,
+    state: AuthenticationSnapshot,
+    message: String,
+}
+
+impl AuthenticationEvent {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut flags = 0u8;
+        if self.state.locked {
+            flags |= STATE_LOCKED;
+        }
+        if self.state.available {
+            flags |= STATE_AVAILABLE;
+        }
+        if self.state.busy {
+            flags |= STATE_BUSY;
+        }
+        if self.state.cooldown_ms > 0 {
+            flags |= STATE_RATE_LIMITED;
+        }
+        let (kind, argument, payload) = match self.kind {
+            AuthenticationEventKind::FingerprintFeedback => {
+                (KIND_FINGERPRINT_FEEDBACK, 0, self.message.as_str())
+            }
+            AuthenticationEventKind::Credential { pin_length } => {
+                (KIND_CREDENTIAL, pin_length, self.message.as_str())
+            }
+            AuthenticationEventKind::State => (
+                KIND_STATE,
+                self.state.cooldown_ms,
+                self.state.status_message.as_str(),
+            ),
+            AuthenticationEventKind::Prompt { style, sequence } => {
+                flags |= (style as u8) << PROMPT_STYLE_SHIFT;
+                (KIND_PROMPT, sequence, self.message.as_str())
+            }
+            AuthenticationEventKind::Result { success, cancelled } => {
+                if success {
+                    flags |= RESULT_SUCCESS;
+                }
+                if cancelled {
+                    flags |= RESULT_CANCELLED;
+                }
+                (KIND_RESULT, self.state.cooldown_ms, self.message.as_str())
+            }
+        };
+        let payload = payload.as_bytes();
+        debug_assert!(payload.len() <= MAX_PAYLOAD_BYTES && !payload.contains(&0));
+        let mut packet = vec![0u8; HEADER_SIZE + payload.len()];
+        packet[..4].copy_from_slice(MAGIC);
+        packet[4..6].copy_from_slice(&VERSION.to_le_bytes());
+        packet[6] = kind;
+        packet[7] = flags;
+        packet[8..16].copy_from_slice(&self.state.attempt_id.to_le_bytes());
+        packet[16..20].copy_from_slice(&argument.to_le_bytes());
+        packet[20..24].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        packet[HEADER_SIZE..].copy_from_slice(payload);
+        packet
+    }
+}
+
+struct PromptState {
+    style: PromptStyle,
+    sequence: u32,
+    message: String,
+    requires_response: bool,
+}
+
+#[derive(Clone, Copy)]
+struct WorkItem {
+    attempt_id: u64,
+    generation: u64,
+    password_only: bool,
+}
+
+struct AuthenticationState {
+    stopping: bool,
+    busy: bool,
+    cancel_requested: bool,
+    generation: u64,
+    lock_epoch: u64,
+    fingerprint_unlock: Option<fingerprint::PendingUnlock>,
+    next_attempt_id: u64,
+    active_attempt_id: u64,
+    next_prompt_sequence: u32,
+    failure_count: u32,
+    cooldown_until: Option<Instant>,
+    pending_work: Option<WorkItem>,
+    prompt: Option<PromptState>,
+    response: Option<SecureString>,
+    /// Last PIN length read by the worker; the record itself stays on disk.
+    pin_length: u32,
+    /// A fingerprint reader with enrolled prints is armed for unlock.
+    fingerprint_ready: bool,
+    /// A finger is on the sensor and a verification is in progress.
+    fingerprint_scanning: bool,
+    /// The reader has armed since deniald started, so the lock screen keeps
+    /// marking the sensor while it re-arms between scans.
+    fingerprint_known: bool,
+    /// The lock screen shows its fingerprint face rather than a typed
+    /// credential; the reader is armed only then.
+    fingerprint_offered: bool,
+    /// The user's switch in Settings; off keeps the reader unarmed.
+    fingerprint_enabled: bool,
+    /// Under-display sensor as panel fractions: x, y, width, height.
+    fingerprint_sensor: Option<[f64; 4]>,
+    /// The reader serves the lock screen or an application, so the shell
+    /// marks the sensor.
+    fingerprint_wanted: bool,
+    /// The application verification the reader serves while unlocked; a
+    /// newer request replaces it.
+    app_request: Option<u64>,
+    next_app_request: u64,
+    /// Asks the worker to re-read the PIN record, which Settings may have
+    /// changed while the session was unlocked.
+    credential_refresh: bool,
+    available: bool,
+    unavailable_reason: String,
+    /// Whether the account has a password or fingerprint; with neither and no
+    /// PIN record, a swipe unlocks.
+    account_credential: lock_capability::Capability,
+    automatic_lock_warning_shown: bool,
+}
+
+impl AuthenticationState {
+    /// Fingerprints unlock only behind a PIN: the switch alone is not enough.
+    fn fingerprint_allowed(&self) -> bool {
+        self.fingerprint_enabled && self.pin_length > 0
+    }
+}
+
+struct SharedAuthentication {
+    haptics: std::sync::OnceLock<crate::haptics::HapticsClient>,
+    locked: AtomicBool,
+    security_gate_locked: AtomicBool,
+    events_pending: AtomicBool,
+    fingerprint_unlock_pending: AtomicBool,
+    state: Mutex<AuthenticationState>,
+    condition: Condvar,
+    /// Wakes the logind worker when the lock state changes or it must stop.
+    changed: denial_platform::wakeup::Wakeup,
+    /// Wakes the lock-capability worker to stop.
+    capability_stop: denial_platform::wakeup::Wakeup,
+    /// Wakes a listening fingerprint scan to recheck its cancellation.
+    fingerprint_changed: denial_platform::wakeup::Wakeup,
+    events: Mutex<VecDeque<AuthenticationEvent>>,
+    app_events: Mutex<VecDeque<(u64, AppFingerprintEvent)>>,
+}
+
+/// What an application's fingerprint verification hears.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppFingerprintEvent {
+    /// The reader listens for a finger.
+    Ready,
+    /// A finger did not match; the reader listens again.
+    Rejected,
+    Done(AppFingerprintResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppFingerprintResult {
+    Match,
+    Unavailable,
+    Cancelled,
+}
+
+impl SharedAuthentication {
+    fn notify(&self) {
+        self.condition.notify_all();
+        self.changed.wake();
+        self.fingerprint_changed.wake();
+    }
+
+    fn push_event(&self, event: AuthenticationEvent) {
+        let mut events = lock_unpoisoned(&self.events);
+        if events.len() == MAX_PENDING_EVENTS {
+            events.pop_front();
+        }
+        events.push_back(event);
+        self.events_pending.store(true, Ordering::Release);
+        drop(events);
+        denial_platform::loop_wake::wake();
+    }
+
+    fn push_app_event(&self, request: u64, event: AppFingerprintEvent) {
+        let mut events = lock_unpoisoned(&self.app_events);
+        if events.len() == MAX_PENDING_EVENTS {
+            events.pop_front();
+        }
+        events.push_back((request, event));
+        drop(events);
+        denial_platform::loop_wake::wake();
+    }
+}
+
+pub struct AuthenticationController {
+    shared: Arc<SharedAuthentication>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+    fingerprint_worker: Mutex<Option<JoinHandle<()>>>,
+    session_worker: Mutex<Option<JoinHandle<()>>>,
+    capability_worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl AuthenticationController {
+    pub fn new(start_locked: bool) -> io::Result<Self> {
+        let controller = Self::with_backend(
+            default_backend(),
+            pin::PinStore::for_current_user(),
+            start_locked,
+        )?;
+        match crate::haptics::HapticsClient::new() {
+            Ok(client) => {
+                let _ = controller.shared.haptics.set(client);
+            }
+            Err(error) => warn!(%error, "could not start optional haptics worker"),
+        }
+        let shared = Arc::clone(&controller.shared);
+        let worker = thread::Builder::new()
+            .name("denial-fingerprint".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("fingerprint");
+                fingerprint::run_worker(&shared, &mut fingerprint::FprintBackend::default());
+            })?;
+        *lock_unpoisoned(&controller.fingerprint_worker) = Some(worker);
+        lock_unpoisoned(&controller.shared.state).account_credential =
+            lock_capability::Capability::Pending;
+        let shared = Arc::clone(&controller.shared);
+        let worker = thread::Builder::new()
+            .name("denial-lock-capability".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("lock capability");
+                lock_capability::run_worker(&shared);
+            })?;
+        *lock_unpoisoned(&controller.capability_worker) = Some(worker);
+        let shared = Arc::clone(&controller.shared);
+        let worker = thread::Builder::new()
+            .name("denial-logind-lock".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("logind lock");
+                session_lock::run_worker(&shared);
+            })?;
+        *lock_unpoisoned(&controller.session_worker) = Some(worker);
+        Ok(controller)
+    }
+
+    fn with_backend(
+        mut backend: Box<dyn AuthenticationBackend>,
+        pin_store: Option<pin::PinStore>,
+        start_locked: bool,
+    ) -> io::Result<Self> {
+        let available = backend.available();
+        let unavailable_reason = backend.unavailable_reason();
+        let shared = Arc::new(SharedAuthentication {
+            haptics: std::sync::OnceLock::new(),
+            locked: AtomicBool::new(start_locked),
+            security_gate_locked: AtomicBool::new(start_locked),
+            events_pending: AtomicBool::new(false),
+            fingerprint_unlock_pending: AtomicBool::new(false),
+            changed: denial_platform::wakeup::Wakeup::new()?,
+            capability_stop: denial_platform::wakeup::Wakeup::new()?,
+            fingerprint_changed: denial_platform::wakeup::Wakeup::new()?,
+            state: Mutex::new(AuthenticationState {
+                stopping: false,
+                busy: false,
+                cancel_requested: false,
+                generation: 0,
+                lock_epoch: 0,
+                fingerprint_unlock: None,
+                next_attempt_id: 1,
+                active_attempt_id: 0,
+                next_prompt_sequence: 1,
+                failure_count: 0,
+                cooldown_until: None,
+                pending_work: None,
+                prompt: None,
+                response: None,
+                pin_length: 0,
+                fingerprint_ready: false,
+                fingerprint_scanning: false,
+                fingerprint_known: false,
+                fingerprint_offered: true,
+                fingerprint_enabled: true,
+                fingerprint_sensor: None,
+                fingerprint_wanted: false,
+                app_request: None,
+                next_app_request: 1,
+                credential_refresh: true,
+                available,
+                unavailable_reason,
+                account_credential: lock_capability::Capability::Unknown,
+                automatic_lock_warning_shown: false,
+            }),
+            condition: Condvar::new(),
+            events: Mutex::new(VecDeque::with_capacity(16)),
+            app_events: Mutex::new(VecDeque::new()),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let username = current_username();
+        let worker = thread::Builder::new()
+            .name("denial-authentication".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("authentication");
+                run_authentication_worker(
+                    &worker_shared,
+                    &mut *backend,
+                    pin_store.as_ref(),
+                    &username,
+                );
+            })?;
+        Ok(Self {
+            shared,
+            worker: Mutex::new(Some(worker)),
+            fingerprint_worker: Mutex::new(None),
+            session_worker: Mutex::new(None),
+            capability_worker: Mutex::new(None),
+        })
+    }
+
+    pub fn handle_haptics_packet(&self, packet: &[u8]) -> Result<(), &'static str> {
+        if let Some(client) = self.shared.haptics.get() {
+            client.handle_packet(packet)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn locked(&self) -> bool {
+        self.shared.locked.load(Ordering::Acquire)
+    }
+
+    pub fn locked_epoch(&self) -> Option<u64> {
+        if !self.locked() {
+            return None;
+        }
+        let state = lock_unpoisoned(&self.shared.state);
+        self.locked().then_some(state.lock_epoch)
+    }
+
+    /// Returns true when a validated fingerprint needs the displays woken.
+    /// Only the native output loop may advance this; Flutter cannot bypass it.
+    pub fn advance_fingerprint_unlock(&self, now: Instant, outputs_ready: bool) -> bool {
+        fingerprint::advance_pending_unlock(&self.shared, now, outputs_ready)
+    }
+
+    pub fn fingerprint_unlock_pending(&self) -> bool {
+        self.shared
+            .fingerprint_unlock_pending
+            .load(Ordering::Acquire)
+    }
+
+    pub fn security_gate_locked(&self) -> bool {
+        self.locked() || self.shared.security_gate_locked.load(Ordering::Acquire)
+    }
+
+    pub fn acknowledge_unlocked_boundary(&self) {
+        // Authentication success is produced by the worker, but the main
+        // compositor loop must first balance client input and cancel grabs.
+        // Keep privileged platform commands closed until that boundary has
+        // been applied. A concurrent lock stores `locked` before setting this
+        // gate, so the recheck cannot leave an actively locked session open.
+        self.shared
+            .security_gate_locked
+            .store(false, Ordering::Release);
+        if self.locked() {
+            self.shared
+                .security_gate_locked
+                .store(true, Ordering::Release);
+        }
+        self.shared.changed.wake();
+    }
+
+    pub fn handle_packet(&self, packet: &[u8]) -> Result<(), AuthenticationDecodeError> {
+        match decode(packet)? {
+            AuthenticationCommand::Synchronize => self.synchronize(),
+            AuthenticationCommand::Lock => self.lock(),
+            AuthenticationCommand::Begin { password_only } => self.begin(password_only),
+            AuthenticationCommand::Respond {
+                attempt_id,
+                prompt_sequence,
+                response,
+            } => {
+                self.respond(attempt_id, prompt_sequence, response);
+            }
+            AuthenticationCommand::Cancel { attempt_id } => self.cancel(attempt_id),
+            AuthenticationCommand::OfferFingerprint { offered } => {
+                self.offer_fingerprint(offered);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn lock(&self) {
+        lock_session(&self.shared);
+    }
+
+    /// The reader arms only while the lock screen offers the fingerprint. A
+    /// session that is not locked keeps the default every lock starts from.
+    fn offer_fingerprint(&self, offered: bool) {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        if !self.locked() || state.fingerprint_offered == offered {
+            return;
+        }
+        state.fingerprint_offered = offered;
+        drop(state);
+        self.shared.notify();
+    }
+
+    /// Turns fingerprint unlock on or off; the lock screen learns at once
+    /// whether to show the sensor.
+    pub fn enable_fingerprint(&self, enabled: bool) {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        if state.fingerprint_enabled == enabled {
+            return;
+        }
+        state.fingerprint_enabled = enabled;
+        if self.locked() {
+            self.shared
+                .push_event(credential_event(&self.shared, &state));
+        }
+        drop(state);
+        self.shared.notify();
+    }
+
+    /// Explicit locks remain unconditional. An account without any credential
+    /// still locks; its lock screen opens with a swipe.
+    pub fn lock_automatically(&self) -> bool {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        if self.locked() {
+            return true;
+        }
+        if !state.available {
+            if !state.automatic_lock_warning_shown {
+                warn!("skipped automatic session lock: authentication is unavailable");
+                state.automatic_lock_warning_shown = true;
+            }
+            return false;
+        }
+        apply_lock(&self.shared, &mut state);
+        drop(state);
+        self.shared.notify();
+        self.publish_state();
+        true
+    }
+
+    /// An application asks for a fingerprint. The reader serves it while the
+    /// session is unlocked; an older request ends as cancelled.
+    pub fn request_fingerprint(&self) -> u64 {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        let request = state.next_app_request;
+        state.next_app_request = request.wrapping_add(1);
+        if let Some(older) = state.app_request.replace(request) {
+            self.shared.push_app_event(
+                older,
+                AppFingerprintEvent::Done(AppFingerprintResult::Cancelled),
+            );
+        }
+        drop(state);
+        self.shared.notify();
+        request
+    }
+
+    /// The application no longer waits for this request.
+    pub fn end_fingerprint_request(&self, request: u64) {
+        let mut state = lock_unpoisoned(&self.shared.state);
+        if state.app_request == Some(request) {
+            state.app_request = None;
+            drop(state);
+            self.shared.notify();
+        }
+    }
+
+    pub fn take_fingerprint_events(&self) -> Vec<(u64, AppFingerprintEvent)> {
+        lock_unpoisoned(&self.shared.app_events).drain(..).collect()
+    }
+
+    pub fn try_event(&self) -> Option<AuthenticationEvent> {
+        let mut events = lock_unpoisoned(&self.shared.events);
+        let event = events.pop_front();
+        if events.is_empty() {
+            self.shared.events_pending.store(false, Ordering::Release);
+        }
+        event
+    }
+
+    pub fn has_pending_events(&self) -> bool {
+        self.shared.events_pending.load(Ordering::Acquire)
+    }
+
+    fn synchronize(&self) {
+        let state = lock_unpoisoned(&self.shared.state);
+        let snapshot = snapshot_locked(&self.shared, &state, Instant::now());
+        self.shared.push_event(AuthenticationEvent {
+            kind: AuthenticationEventKind::State,
+            state: snapshot.clone(),
+            message: String::new(),
+        });
+        self.shared
+            .push_event(credential_event(&self.shared, &state));
+        if let Some(prompt) = state.prompt.as_ref() {
+            self.shared.push_event(AuthenticationEvent {
+                kind: AuthenticationEventKind::Prompt {
+                    style: prompt.style,
+                    sequence: prompt.sequence,
+                },
+                state: snapshot,
+                message: prompt.message.clone(),
+            });
+        }
+    }
+
+    fn begin(&self, password_only: bool) {
+        let immediate = {
+            let mut state = lock_unpoisoned(&self.shared.state);
+            let now = Instant::now();
+            if !self.locked() || state.busy || state.fingerprint_unlock.is_some() {
+                return;
+            }
+            if !state.available {
+                Some(AuthenticationEvent {
+                    kind: AuthenticationEventKind::Result {
+                        success: false,
+                        cancelled: false,
+                    },
+                    state: snapshot_locked(&self.shared, &state, now),
+                    message: state.unavailable_reason.clone(),
+                })
+            } else if state.cooldown_until.is_some_and(|until| until > now) {
+                Some(AuthenticationEvent {
+                    kind: AuthenticationEventKind::Result {
+                        success: false,
+                        cancelled: false,
+                    },
+                    state: snapshot_locked(&self.shared, &state, now),
+                    message: "Please wait before trying again.".into(),
+                })
+            } else {
+                state.generation = state.generation.wrapping_add(1);
+                state.active_attempt_id = state.next_attempt_id;
+                state.next_attempt_id = state.next_attempt_id.wrapping_add(1).max(1);
+                state.busy = true;
+                state.cancel_requested = false;
+                state.prompt = None;
+                state.response = None;
+                state.pending_work = Some(WorkItem {
+                    attempt_id: state.active_attempt_id,
+                    generation: state.generation,
+                    password_only,
+                });
+                None
+            }
+        };
+        if let Some(event) = immediate {
+            self.shared.push_event(event);
+            self.publish_state();
+            return;
+        }
+        self.shared.notify();
+        self.publish_state();
+    }
+
+    fn respond(&self, attempt_id: u64, prompt_sequence: u32, response: SecureString) -> bool {
+        {
+            let mut state = lock_unpoisoned(&self.shared.state);
+            let valid = state.busy
+                && !state.cancel_requested
+                && attempt_id != 0
+                && attempt_id == state.active_attempt_id
+                && prompt_sequence != 0
+                && state.prompt.as_ref().is_some_and(|prompt| {
+                    prompt.requires_response && prompt.sequence == prompt_sequence
+                })
+                && state.response.is_none();
+            if !valid {
+                return false;
+            }
+            state.response = Some(response);
+        }
+        self.shared.notify();
+        true
+    }
+
+    fn cancel(&self, attempt_id: u64) {
+        {
+            let mut state = lock_unpoisoned(&self.shared.state);
+            if !state.busy || (attempt_id != 0 && attempt_id != state.active_attempt_id) {
+                return;
+            }
+            state.generation = state.generation.wrapping_add(1);
+            state.cancel_requested = true;
+            state.response = None;
+            state.prompt = None;
+        }
+        self.shared.notify();
+        self.publish_state();
+    }
+
+    fn publish_state(&self) {
+        let state = lock_unpoisoned(&self.shared.state);
+        self.shared.push_event(AuthenticationEvent {
+            kind: AuthenticationEventKind::State,
+            state: snapshot_locked(&self.shared, &state, Instant::now()),
+            message: String::new(),
+        });
+    }
+}
+
+impl Drop for AuthenticationController {
+    fn drop(&mut self) {
+        {
+            let mut state = lock_unpoisoned(&self.shared.state);
+            state.stopping = true;
+            state.generation = state.generation.wrapping_add(1);
+            state.cancel_requested = true;
+            state.response = None;
+            state.prompt = None;
+        }
+        self.shared.notify();
+        self.shared.capability_stop.wake();
+        for worker in [&self.session_worker, &self.capability_worker] {
+            if lock_unpoisoned(worker)
+                .take()
+                .is_some_and(|worker| worker.join().is_err())
+            {
+                warn!("session lock worker panicked during shutdown");
+            }
+        }
+        if lock_unpoisoned(&self.fingerprint_worker)
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            warn!("fingerprint worker panicked during shutdown");
+        }
+        if lock_unpoisoned(&self.worker)
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            warn!("native authentication worker panicked during shutdown");
+        }
+    }
+}
+
+fn apply_lock(shared: &SharedAuthentication, state: &mut AuthenticationState) {
+    // Every lock screen opens on its fingerprint face, also with the display
+    // off, where the shell may not draw a frame before the finger arrives.
+    if !shared.locked.load(Ordering::Acquire) {
+        state.fingerprint_offered = true;
+    }
+    state.lock_epoch = state.lock_epoch.wrapping_add(1);
+    state.credential_refresh = true;
+    state.fingerprint_unlock = None;
+    shared
+        .fingerprint_unlock_pending
+        .store(false, Ordering::Release);
+    shared.locked.store(true, Ordering::Release);
+    shared.security_gate_locked.store(true, Ordering::Release);
+    if state.busy {
+        state.generation = state.generation.wrapping_add(1);
+        state.cancel_requested = true;
+        state.response = None;
+        state.prompt = None;
+    }
+}
+
+fn lock_session(shared: &SharedAuthentication) {
+    let mut state = lock_unpoisoned(&shared.state);
+    apply_lock(shared, &mut state);
+    shared.notify();
+    shared.push_event(AuthenticationEvent {
+        kind: AuthenticationEventKind::State,
+        state: snapshot_locked(shared, &state, Instant::now()),
+        message: String::new(),
+    });
+}
+
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn snapshot_locked(
+    shared: &SharedAuthentication,
+    state: &AuthenticationState,
+    now: Instant,
+) -> AuthenticationSnapshot {
+    let cooldown_ms = state
+        .cooldown_until
+        .and_then(|until| until.checked_duration_since(now))
+        .map(|remaining| {
+            u32::try_from(remaining.as_millis())
+                .unwrap_or(u32::MAX)
+                .max(1)
+        })
+        .unwrap_or(0);
+    let status_message = if !state.available {
+        state.unavailable_reason.clone()
+    } else if state.cancel_requested && state.busy {
+        "Cancelling authentication…".into()
+    } else {
+        String::new()
+    };
+    AuthenticationSnapshot {
+        locked: shared.locked.load(Ordering::Acquire),
+        available: state.available,
+        busy: state.busy,
+        attempt_id: state.active_attempt_id,
+        cooldown_ms,
+        status_message,
+    }
+}
+
+fn run_authentication_worker(
+    shared: &Arc<SharedAuthentication>,
+    backend: &mut dyn AuthenticationBackend,
+    pin_store: Option<&pin::PinStore>,
+    username: &str,
+) {
+    loop {
+        let (work, refresh) = {
+            let mut state = lock_unpoisoned(&shared.state);
+            while !state.stopping && state.pending_work.is_none() && !state.credential_refresh {
+                state = match shared.condition.wait(state) {
+                    Ok(state) => state,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+            }
+            if state.stopping {
+                return;
+            }
+            let refresh = std::mem::take(&mut state.credential_refresh);
+            (state.pending_work.take(), refresh)
+        };
+        // The record is read on this worker, never on the compositor thread,
+        // and again for every PIN attempt so Settings changes apply at once.
+        let pin = if refresh || work.is_some_and(|work| !work.password_only) {
+            load_pin(shared, pin_store)
+        } else {
+            None
+        };
+        let Some(work) = work else {
+            continue;
+        };
+
+        let conversation_shared = Arc::clone(shared);
+        let mut conversation = move |style: PromptStyle, message: &str| {
+            converse(&conversation_shared, work, style, message)
+        };
+        let cancellation_shared = Arc::clone(shared);
+        let cancelled = move || authentication_cancelled(&cancellation_shared, work.generation);
+        let result = match pin.as_ref().filter(|_| !work.password_only) {
+            Some(pin) => pin::authenticate(pin, pin_store, backend, &mut conversation, &cancelled),
+            None if !work.password_only && credential_free(shared, pin_store) => {
+                BackendResult::Success
+            }
+            None => backend.authenticate(username, &mut conversation, &cancelled),
+        };
+
+        {
+            let mut state = lock_unpoisoned(&shared.state);
+            let current = !state.stopping
+                && work.attempt_id == state.active_attempt_id
+                && work.generation == state.generation
+                && !state.cancel_requested;
+            let success = current && result == BackendResult::Success;
+            let was_cancelled = !current || result == BackendResult::Cancelled;
+            state.busy = false;
+            state.cancel_requested = false;
+            state.prompt = None;
+            state.response = None;
+
+            let message = if success {
+                shared.locked.store(false, Ordering::Release);
+                state.lock_epoch = state.lock_epoch.wrapping_add(1);
+                shared.notify();
+                state.failure_count = 0;
+                state.cooldown_until = None;
+                "Authentication successful".into()
+            } else if was_cancelled {
+                "Authentication cancelled".into()
+            } else {
+                state.failure_count = state.failure_count.saturating_add(1);
+                state.cooldown_until = Some(Instant::now() + cooldown_for(state.failure_count));
+                if result == BackendResult::Failure {
+                    "Authentication failed. Try again.".into()
+                } else {
+                    "System authentication could not complete.".into()
+                }
+            };
+            shared.push_event(AuthenticationEvent {
+                kind: AuthenticationEventKind::Result {
+                    success,
+                    cancelled: was_cancelled,
+                },
+                state: snapshot_locked(shared, &state, Instant::now()),
+                message,
+            });
+            shared.push_event(AuthenticationEvent {
+                kind: AuthenticationEventKind::State,
+                state: snapshot_locked(shared, &state, Instant::now()),
+                message: String::new(),
+            });
+        }
+    }
+}
+
+/// No password, fingerprint or PIN record: the lock screen opens with a
+/// swipe. An unreadable PIN record is not an absent one.
+fn credential_free(shared: &SharedAuthentication, store: Option<&pin::PinStore>) -> bool {
+    lock_unpoisoned(&shared.state).account_credential == lock_capability::Capability::Unavailable
+        && store.is_none_or(|store| matches!(store.load(), Ok(None)))
+}
+
+/// The length of the session user's lock PIN, 0 without one, for a sheet
+/// that asks for it outside the lock screen.
+pub fn configured_pin_length() -> u32 {
+    pin::PinStore::for_current_user()
+        .and_then(|store| store.load().ok().flatten())
+        .map_or(0, |record| record.length())
+}
+
+/// An unreadable record falls back to the password and never blocks unlock.
+fn load_pin(
+    shared: &SharedAuthentication,
+    store: Option<&pin::PinStore>,
+) -> Option<pin::PinRecord> {
+    let record = store.and_then(|store| match store.load() {
+        Ok(record) => record,
+        Err(error) => {
+            warn!(%error, "ignored the lock PIN record; the password still unlocks");
+            None
+        }
+    });
+    let pin_length = record.as_ref().map_or(0, pin::PinRecord::length);
+    let mut state = lock_unpoisoned(&shared.state);
+    // Synchronize replays the current value, so only changes are pushed.
+    if state.pin_length != pin_length {
+        state.pin_length = pin_length;
+        shared.push_event(credential_event(shared, &state));
+        drop(state);
+        // The fingerprint worker follows whether a PIN exists.
+        shared.notify();
+    }
+    record
+}
+
+/// What can unlock besides the password: the PIN length as the argument, and
+/// fingerprint readiness with the sensor location as a JSON payload.
+fn credential_event(
+    shared: &SharedAuthentication,
+    state: &AuthenticationState,
+) -> AuthenticationEvent {
+    let message = if state.fingerprint_known && state.fingerprint_allowed() {
+        let sensor = state.fingerprint_sensor.map_or_else(
+            || serde_json::json!({}),
+            |[x, y, width, height]| {
+                serde_json::json!({"x": x, "y": y, "width": width, "height": height})
+            },
+        );
+        serde_json::json!({
+            "fingerprint": {
+                "sensor": sensor,
+                "ready": state.fingerprint_ready,
+                "scanning": state.fingerprint_scanning,
+                "wanted": state.fingerprint_wanted,
+            }
+        })
+        .to_string()
+    } else {
+        String::new()
+    };
+    AuthenticationEvent {
+        kind: AuthenticationEventKind::Credential {
+            pin_length: state.pin_length,
+        },
+        state: snapshot_locked(shared, state, Instant::now()),
+        message,
+    }
+}
+
+fn authentication_cancelled(shared: &SharedAuthentication, generation: u64) -> bool {
+    let state = lock_unpoisoned(&shared.state);
+    state.stopping || generation != state.generation || state.cancel_requested
+}
+
+fn converse(
+    shared: &SharedAuthentication,
+    work: WorkItem,
+    style: PromptStyle,
+    message: &str,
+) -> Option<SecureString> {
+    let requires_response = style.requires_response();
+    let sequence = {
+        let mut state = lock_unpoisoned(&shared.state);
+        if state.stopping
+            || work.generation != state.generation
+            || state.cancel_requested
+            || work.attempt_id != state.active_attempt_id
+        {
+            return None;
+        }
+        let sequence = state.next_prompt_sequence;
+        state.next_prompt_sequence = state.next_prompt_sequence.wrapping_add(1).max(1);
+        let message = sanitize_message(message);
+        state.prompt = Some(PromptState {
+            style,
+            sequence,
+            message: message.clone(),
+            requires_response,
+        });
+        state.response = None;
+        let event = AuthenticationEvent {
+            kind: AuthenticationEventKind::Prompt { style, sequence },
+            state: snapshot_locked(shared, &state, Instant::now()),
+            message,
+        };
+        shared.push_event(event);
+        sequence
+    };
+    if !requires_response {
+        return Some(SecureString::new(&[]));
+    }
+
+    let state = lock_unpoisoned(&shared.state);
+    let (mut state, timeout) =
+        match shared
+            .condition
+            .wait_timeout_while(state, PROMPT_TIMEOUT, |state| {
+                !state.stopping
+                    && work.generation == state.generation
+                    && !state.cancel_requested
+                    && state.response.is_none()
+            }) {
+            Ok(result) => result,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+    if timeout.timed_out() && state.response.is_none() {
+        state.generation = state.generation.wrapping_add(1);
+        state.cancel_requested = true;
+        state.prompt = None;
+        return None;
+    }
+    if state.stopping
+        || work.generation != state.generation
+        || state.cancel_requested
+        || state.response.is_none()
+    {
+        return None;
+    }
+    let response = state.response.take();
+    if state
+        .prompt
+        .as_ref()
+        .is_some_and(|prompt| prompt.sequence == sequence)
+    {
+        state.prompt = None;
+    }
+    response
+}
+
+fn sanitize_message(message: &str) -> String {
+    let mut sanitized = String::with_capacity(message.len().min(MAX_STATUS_BYTES));
+    for character in message.chars() {
+        if sanitized.len() + character.len_utf8() > MAX_STATUS_BYTES {
+            break;
+        }
+        if matches!(character, '\n' | '\t') || !character.is_control() {
+            sanitized.push(character);
+        }
+    }
+    while sanitized.ends_with(['\n', '\r', ' ']) {
+        sanitized.pop();
+    }
+    if sanitized.is_empty() {
+        "Authenticate to unlock".into()
+    } else {
+        sanitized
+    }
+}
+
+fn cooldown_for(failures: u32) -> Duration {
+    let exponent = failures.saturating_sub(1).min(6);
+    BASE_COOLDOWN
+        .checked_mul(1 << exponent)
+        .unwrap_or(MAX_COOLDOWN)
+        .min(MAX_COOLDOWN)
+}
+
+fn current_username() -> String {
+    // SAFETY: all libc pointers target live stack/Vec allocations and the
+    // returned passwd fields are copied before the backing buffer is dropped.
+    unsafe {
+        let user_id = libc::getuid();
+        let suggested = libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX);
+        let size = if suggested > 0 {
+            suggested as usize
+        } else {
+            4096
+        }
+        .clamp(1024, 64 * 1024);
+        let mut buffer = vec![0u8; size];
+        let mut record = std::mem::zeroed::<libc::passwd>();
+        let mut result = ptr::null_mut();
+        if libc::getpwuid_r(
+            user_id,
+            &mut record,
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        ) == 0
+            && !result.is_null()
+            && !record.pw_name.is_null()
+        {
+            let username = CStr::from_ptr(record.pw_name).to_string_lossy();
+            if !username.is_empty() {
+                return username.chars().take(256).collect();
+            }
+        }
+        user_id.to_string()
+    }
+}
+
+#[cfg(test)]
+#[path = "authentication/tests.rs"]
+mod tests;

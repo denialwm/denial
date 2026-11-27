@@ -115,7 +115,7 @@ let
       "plugins/denial_pets"
       "plugins/builtins.yaml"
       "protocol/generated/dart"
-      "compositor/src/lib.rs"
+      "compositor/core/src/lib.rs"
       "prebuilt/flutter-engine"
       "LICENSE"
       "tools/prepare-denial-plugin-kit"

@@ -37,9 +37,7 @@ use smithay::backend::egl::{ffi as egl_ffi, get_proc_address};
 use smithay::backend::renderer::gles::ffi as gl;
 use smithay::reexports::rustix::time::{ClockId, clock_gettime};
 use tracing::error;
-#[allow(dead_code)]
-#[path = "deniald/egl_context.rs"]
-mod desktop_egl;
+use denial_kms::egl_context as desktop_egl;
 use desktop_egl as egl_context;
 #[allow(dead_code)]
 #[path = "deniald/flutter_runtime/damage.rs"]

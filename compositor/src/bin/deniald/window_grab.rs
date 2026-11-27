@@ -28,25 +28,7 @@ use super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
 
 type PointerFocus = <RuntimeState as smithay::input::SeatHandler>::PointerFocus;
 
-const MAX_WINDOW_DIMENSION: i32 = 16_384;
-
-/// Applies the client-provided XDG size hints without ever constructing the
-/// inverted range that [`Ord::clamp`] rejects. Zero means "unbounded" for the
-/// maximum size; negative hints and a maximum smaller than the minimum are
-/// treated conservatively instead of allowing a client request to panic the
-/// compositor. Client hints can never raise the result above the compositor's
-/// texture and atlas dimension limit.
-pub(super) fn constrain_dimension(requested: i32, minimum: i32, maximum: i32) -> i32 {
-    let lower = minimum.clamp(1, MAX_WINDOW_DIMENSION);
-    let upper = if maximum == 0 {
-        MAX_WINDOW_DIMENSION
-    } else if maximum < lower {
-        lower
-    } else {
-        maximum.min(MAX_WINDOW_DIMENSION)
-    };
-    requested.max(lower).min(upper)
-}
+pub(super) use super::window_layout::{MAX_WINDOW_DIMENSION, constrain_dimension};
 
 fn requested_resize_dimension(initial: i32, delta: f64, grows_with_pointer: bool) -> i32 {
     if !delta.is_finite() {

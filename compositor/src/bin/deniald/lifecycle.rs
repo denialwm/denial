@@ -68,17 +68,7 @@ pub(super) struct LifecycleState {
     shutdown: Option<ShutdownReason>,
 }
 
-#[derive(Debug, Default)]
-pub(super) struct TeardownGate {
-    started: bool,
-}
-
-impl TeardownGate {
-    /// Returns true exactly once, for the caller responsible for teardown.
-    pub(super) fn begin(&mut self) -> bool {
-        !std::mem::replace(&mut self.started, true)
-    }
-}
+pub(super) use crate::kms_state::TeardownGate;
 
 impl Default for LifecycleState {
     fn default() -> Self {

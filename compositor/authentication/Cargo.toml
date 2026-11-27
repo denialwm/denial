@@ -1,0 +1,19 @@
+[package]
+name = "denial-authentication"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's session lock and authentication: PIN, password through PAM, and fingerprint through fprintd"
+
+[dependencies]
+argon2 = { version = "=0.5.3", default-features = false, features = ["alloc", "password-hash"] }
+async-io = "=2.6.0"
+denial-platform = { path = "../platform", features = ["flutter"] }
+futures-lite = "=2.6.1"
+libc = "0.2"
+libloading = "0.9"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["raw_value"] }
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"] }
+zbus = "=5.18.0"

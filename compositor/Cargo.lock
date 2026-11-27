@@ -448,8 +448,16 @@ dependencies = [
  "ash",
  "async-io",
  "calloop",
+ "denial-authentication",
+ "denial-clipboard",
+ "denial-color",
+ "denial-core",
  "denial-flutter-engine",
+ "denial-kms",
+ "denial-platform",
+ "denial-system-controls",
  "denial-text-prediction",
+ "denial-window-layout",
  "drm-ffi",
  "flatbuffers",
  "futures-lite",
@@ -473,6 +481,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "denial-authentication"
+version = "0.0.0"
+dependencies = [
+ "argon2",
+ "async-io",
+ "denial-platform",
+ "futures-lite",
+ "libc",
+ "libloading 0.9.0",
+ "serde",
+ "serde_json",
+ "tracing",
+ "zbus",
+]
+
+[[package]]
+name = "denial-clipboard"
+version = "0.0.0"
+
+[[package]]
+name = "denial-color"
+version = "0.0.0"
+dependencies = [
+ "denial-core",
+ "drm-ffi",
+ "serde",
+ "serde_json",
+ "smithay",
+ "tracing",
+]
+
+[[package]]
+name = "denial-core"
+version = "0.0.0"
+dependencies = [
+ "drm-ffi",
+ "libc",
+ "rustix 1.1.4",
+ "smithay",
+]
+
+[[package]]
 name = "denial-flutter-engine"
 version = "0.1.0"
 dependencies = [
@@ -480,11 +530,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "denial-kms"
+version = "0.0.0"
+dependencies = [
+ "ash",
+ "denial-color",
+ "denial-core",
+ "denial-flutter-engine",
+ "denial-platform",
+ "libc",
+ "libloading 0.9.0",
+ "rustix 1.1.4",
+ "serde_json",
+ "smithay",
+ "tracing",
+]
+
+[[package]]
+name = "denial-platform"
+version = "0.0.0"
+dependencies = [
+ "async-io",
+ "calloop",
+ "denial-core",
+ "denial-flutter-engine",
+ "libc",
+ "tracing",
+ "zbus",
+]
+
+[[package]]
 name = "denial-portal"
 version = "0.0.0"
 dependencies = [
  "async-channel",
- "denial",
+ "denial-core",
  "libc",
  "serde_json",
  "tempfile",
@@ -494,10 +574,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "denial-system-controls"
+version = "0.0.0"
+dependencies = [
+ "async-io",
+ "denial-core",
+ "denial-platform",
+ "futures-lite",
+ "libloading 0.9.0",
+ "tracing",
+ "zbus",
+]
+
+[[package]]
 name = "denial-text-prediction"
 version = "0.0.0"
 dependencies = [
  "flate2",
+]
+
+[[package]]
+name = "denial-window-layout"
+version = "0.0.0"
+dependencies = [
+ "denial-core",
+ "smithay",
 ]
 
 [[package]]

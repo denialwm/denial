@@ -1,0 +1,10 @@
+[package]
+name = "denial-clipboard"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's clipboard history, retention and its binary control API"
+
+[features]
+xwayland = []

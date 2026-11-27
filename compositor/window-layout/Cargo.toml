@@ -1,0 +1,14 @@
+[package]
+name = "denial-window-layout"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's window layout algorithms and keyboard resizing, independent of Wayland"
+
+[features]
+flutter = []
+
+[dependencies]
+denial-core = { path = "../core" }
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "24647fc8d00131eb7f388efed26e35ea316b0018", default-features = false }

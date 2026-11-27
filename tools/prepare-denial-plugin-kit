@@ -300,7 +300,7 @@ def main():
             runtime / f'prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so.sha256')
     copy(engine / 'libflutter_engine.so', runtime / f'prebuilt/flutter-engine/{args.platform}-release/libflutter_engine.so')
     generation = re.search(r'FLUTTER_ENGINE_ABI: &str = "([^"]+)"',
-                           (root / 'compositor/src/lib.rs').read_text()).group(1)
+                           (root / 'compositor/core/src/lib.rs').read_text()).group(1)
     identity = {
         'schema': 1, 'flutter_generation': generation,
         'required_native_capabilities': ['pluginActionsV1'],

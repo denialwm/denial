@@ -1,0 +1,25 @@
+[package]
+name = "denial-core"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's shared types: topology, environment, portal protocol, touch grabs, volition"
+
+[lib]
+name = "denial_core"
+
+[features]
+kms = [
+    "dep:drm-ffi",
+    "dep:libc",
+    "dep:rustix",
+    "dep:smithay",
+]
+control = ["dep:rustix"]
+
+[dependencies]
+drm-ffi = { version = "=0.9.1", optional = true }
+libc = { version = "0.2", optional = true }
+rustix = { version = "=1.1.4", features = ["thread"], optional = true }
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "24647fc8d00131eb7f388efed26e35ea316b0018", default-features = false, features = ["backend_drm", "wayland_frontend"], optional = true }

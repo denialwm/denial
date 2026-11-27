@@ -1,0 +1,28 @@
+[package]
+name = "denial-kms"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's display hardware: KMS state and scanout, EGL contexts, DRM Vulkan and GPU transfers"
+
+[features]
+flutter = [
+    "dep:ash",
+    "dep:denial-flutter-engine",
+    "denial-color/flutter",
+    "denial-platform/flutter",
+]
+
+[dependencies]
+ash = { version = "=0.38.0", default-features = false, features = ["loaded", "std", "debug"], optional = true }
+denial-color = { path = "../color" }
+denial-core = { path = "../core", features = ["kms"] }
+denial-flutter-engine = { path = "../flutter-engine", optional = true }
+denial-platform = { path = "../platform" }
+libc = "0.2"
+libloading = "0.9"
+rustix = { version = "=1.1.4", features = ["thread"] }
+serde_json = { version = "=1.0.151", features = ["raw_value"] }
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "24647fc8d00131eb7f388efed26e35ea316b0018", default-features = false, features = ["backend_drm", "backend_gbm", "renderer_gl"] }
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"] }

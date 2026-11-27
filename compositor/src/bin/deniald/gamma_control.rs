@@ -571,6 +571,8 @@ fn restore_output(drm: &DrmDevice, state: &mut OutputGamma) -> Result<(), String
 
 #[cfg(test)]
 mod tests {
+    use smithay::reexports::drm::control::from_u32;
+
     use super::*;
 
     #[test]

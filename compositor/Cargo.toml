@@ -8,13 +8,32 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [workspace]
-members = ["denial-portal", "flutter-engine", "polling", "text-prediction"]
+members = [
+    "authentication",
+    "clipboard",
+    "color",
+    "core",
+    "denial-portal",
+    "flutter-engine",
+    "kms",
+    "platform",
+    "polling",
+    "system-controls",
+    "text-prediction",
+    "window-layout",
+]
 resolver = "3"
 
 [features]
 default = ["xwayland"]
 flutter = [
     "kms",
+    "dep:denial-authentication",
+    "denial-color/flutter",
+    "denial-kms/flutter",
+    "denial-platform/flutter",
+    "denial-system-controls/flutter",
+    "denial-window-layout/flutter",
     "control",
     "dep:argon2",
     "dep:ash",
@@ -26,10 +45,13 @@ flutter = [
     "wire",
 ]
 xwayland = [
+    "denial-clipboard?/xwayland",
+    "denial-platform?/xwayland",
     "dep:x11rb",
     "smithay/xwayland",
 ]
 control = [
+    "denial-core/control",
     "dep:rustix",
     "dep:serde",
     "dep:serde_json",
@@ -49,6 +71,13 @@ nested = [
     "smithay/renderer_gl",
 ]
 kms = [
+    "denial-core/kms",
+    "dep:denial-clipboard",
+    "dep:denial-color",
+    "dep:denial-kms",
+    "dep:denial-platform",
+    "dep:denial-system-controls",
+    "dep:denial-window-layout",
     "dep:async-io",
     "dep:futures-lite",
     "dep:rustix",
@@ -73,10 +102,6 @@ kms = [
     "smithay/wayland_frontend",
 ]
 
-[lib]
-name = "denial_core"
-path = "src/lib.rs"
-
 [dependencies]
 argon2 = { version = "=0.5.3", default-features = false, features = ["alloc", "password-hash"], optional = true }
 ash = { version = "=0.38.0", default-features = false, features = ["loaded", "std", "debug"], optional = true }
@@ -84,6 +109,14 @@ gpu-allocator = { version = "=0.28.0", default-features = false, features = ["st
 async-io = { version = "=2.6.0", optional = true }
 futures-lite = { version = "=2.6.1", optional = true }
 calloop = { version = "0.14", features = ["signals"], optional = true }
+denial-core = { path = "core" }
+denial-authentication = { path = "authentication", optional = true }
+denial-clipboard = { path = "clipboard", optional = true }
+denial-color = { path = "color", optional = true }
+denial-kms = { path = "kms", optional = true }
+denial-platform = { path = "platform", optional = true }
+denial-system-controls = { path = "system-controls", optional = true }
+denial-window-layout = { path = "window-layout", optional = true }
 denial-flutter-engine = { path = "flutter-engine", optional = true }
 denial-text-prediction = { path = "text-prediction", optional = true }
 drm-ffi = { version = "=0.9.1", optional = true }

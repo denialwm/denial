@@ -1227,13 +1227,20 @@ test_compositor() {
         DENIAL_FPRINT_TEST_BUS=1 \
         DENIAL_SESSION_LOCK_TEST_BUS=1 \
         CARGO_TARGET_DIR="$RUST_TARGET" \
+        # deniald and its crates; the portal and the engine bindings run
+        # below, the vendored polling and the text predictor have their own.
         dbus-run-session -- cargo test \
             --locked \
             --jobs "$BUILD_JOBS" \
+            --workspace \
+            --exclude denial-portal \
+            --exclude denial-flutter-engine \
+            --exclude polling \
+            --exclude denial-text-prediction \
             --lib \
             --bins \
             --tests \
-            --features flutter \
+            --features denial/flutter \
             -- "${kernel_test_filters[@]}"
     )
     run_pinned_cargo test \

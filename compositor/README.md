@@ -18,13 +18,36 @@ are rejected before GBM allocation if a scanout axis exceeds 16384 pixels or
 the pools exceed 1 GiB in total. The pre-Denial atomic state and framebuffer objects are pinned
 before the first modeset and restored on normal exit.
 
+## Crates
+
+`deniald` and its tools live in the `denial` package (`src/bin/`). The parts
+that stand on their own are crates beside it:
+
+| Crate | Folder | Holds |
+|---|---|---|
+| `denial-core` | `core/` | Shared types: topology, environment, portal protocol, touch grabs, volition |
+| `denial-platform` | `platform/` | D-Bus connections, CPU scheduling, event-loop wakes |
+| `denial-window-layout` | `window-layout/` | Layout algorithms and keyboard resizing, independent of Wayland |
+| `denial-clipboard` | `clipboard/` | Clipboard history, retention, its control API |
+| `denial-system-controls` | `system-controls/` | Audio, brightness, session power, idle policy |
+| `denial-color` | `color/` | Colour spaces, HDR, lookup tables, gamma, plane colour |
+| `denial-kms` | `kms/` | KMS state and scanout, EGL contexts, DRM Vulkan, GPU transfers |
+| `denial-authentication` | `authentication/` | Session lock, PIN, PAM password, fprintd fingerprint |
+| `denial-portal` | `denial-portal/` | The XDG desktop portal backend |
+| `denial-flutter-engine` | `flutter-engine/` | Bindings to the Flutter embedder ABI |
+
+Crates that differ with Flutter take a `flutter` feature; the `denial`
+package's `flutter` feature turns it on in each of them.
+
 ## Fast checks
 
 ```sh
-cargo test --manifest-path compositor/Cargo.toml --lib --bins --tests \
-  --features flutter
-cargo clippy --manifest-path compositor/Cargo.toml --all-targets \
-  --features flutter -- -D warnings
+cargo test --manifest-path compositor/Cargo.toml --workspace \
+  --exclude denial-portal --exclude denial-flutter-engine \
+  --exclude polling --exclude denial-text-prediction \
+  --lib --bins --tests --features denial/flutter
+cargo clippy --manifest-path compositor/Cargo.toml --workspace --all-targets \
+  --features denial/flutter -- -D warnings
 ```
 
 The optional Rust Flutter host compiles the committed, revision-stamped
@@ -125,7 +148,7 @@ another tile to swap their leaves without rebuilding the tree. Switching back
 to stacking restores the windows' pre-tiling rectangles.
 
 Layout algorithms are protocol-independent implementations of `WindowLayout`
-in `src/bin/deniald/window_layout.rs`. To add one, implement that trait and add
+in the `denial-window-layout` crate (`window-layout/src/lib.rs`). To add one, implement that trait and add
 it to `WindowLayoutKind` and `create_window_layout`; the Smithay adapter owns
 window eligibility, output work areas, saved stacking geometry, and protocol
 configures, so a layout implementation only manages IDs and returns logical

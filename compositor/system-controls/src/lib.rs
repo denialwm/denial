@@ -1,0 +1,856 @@
+//! Persistent native audio and monitor-brightness controls.
+//!
+//! Input callbacks only enqueue bounded, coalescible commands. PulseAudio and
+//! DDC/CI traffic stays on dedicated workers because either native library can
+//! block while reconnecting or waiting for hardware.
+
+#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+
+#[cfg(feature = "flutter")]
+pub mod idle_policy;
+
+use std::collections::{HashMap, VecDeque};
+use std::error::Error;
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::fmt;
+use std::fs;
+use std::io;
+#[cfg(feature = "flutter")]
+use std::os::fd::OwnedFd;
+use std::path::{Path, PathBuf};
+use std::ptr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::{Mutex, MutexGuard};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+use libloading::Library;
+use tracing::{info, warn};
+
+const CONTROL_STEP: f64 = 0.05;
+const MAX_AUDIO_LEVEL: f64 = 1.4;
+const DDC_COALESCE_WINDOW: Duration = Duration::from_millis(24);
+const COMMAND_QUEUE_CAPACITY: usize = 128;
+const EVENT_QUEUE_CAPACITY: usize = 64;
+const MAX_AUDIO_STREAMS: usize = 256;
+const MAX_AUDIO_STREAM_NAME_BYTES: usize = 1024;
+const MAX_AUDIO_DEVICES: usize = 128;
+const MAX_AUDIO_DEVICE_NAME_BYTES: usize = 1024;
+const MAX_AUDIO_DEVICE_DESCRIPTION_BYTES: usize = 1024;
+const MAX_BRIGHTNESS_CONNECTOR_BYTES: usize = 128;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AudioStreamState {
+    pub id: u32,
+    pub name: String,
+    pub level_percent: u8,
+    pub muted: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AudioDeviceState {
+    pub name: String,
+    pub description: String,
+    pub active: bool,
+    pub available: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SystemControlEvent {
+    AudioLevel {
+        level: f64,
+        muted: bool,
+        limit_reached: bool,
+        from_key: bool,
+        request_serial: u32,
+    },
+    CallVolume {
+        previous: u32,
+        step: u32,
+        maximum: u32,
+    },
+    AudioStreams(Vec<AudioStreamState>),
+    AudioDevices(Vec<AudioDeviceState>),
+    BrightnessLevel {
+        monitor_id: i64,
+        level: f64,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AudioRequest {
+    ReadLevel,
+    SetLevel { level: f64, request_serial: u32 },
+    SetCallVolume(u32),
+    RequestStreams,
+    SetStreamLevel { stream_id: u32, level: f64 },
+    RequestDevices,
+    SetDevice { name: String },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AudioRequestDecodeError {
+    InvalidSize(usize),
+    UnsupportedCommand(u8),
+}
+
+impl fmt::Display for AudioRequestDecodeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidSize(size) => write!(formatter, "invalid audio packet size {size}"),
+            Self::UnsupportedCommand(command) => {
+                write!(formatter, "unsupported audio command {command}")
+            }
+        }
+    }
+}
+
+impl Error for AudioRequestDecodeError {}
+
+pub fn decode_audio_request(packet: &[u8]) -> Result<AudioRequest, AudioRequestDecodeError> {
+    match packet {
+        [0] => Ok(AudioRequest::ReadLevel),
+        [1, percent, serial @ ..] if serial.len() == size_of::<u32>() => {
+            let request_serial = u32::from_le_bytes(
+                serial
+                    .try_into()
+                    .expect("audio request serial length was checked"),
+            );
+            Ok(AudioRequest::SetLevel {
+                level: f64::from((*percent).min(100)) / 100.0,
+                request_serial,
+            })
+        }
+        [2] => Ok(AudioRequest::RequestStreams),
+        [3, id @ ..] if id.len() == size_of::<u32>() + 1 => {
+            let stream_id = u32::from_le_bytes(
+                id[..size_of::<u32>()]
+                    .try_into()
+                    .expect("audio stream identity length was checked"),
+            );
+            Ok(AudioRequest::SetStreamLevel {
+                stream_id,
+                level: f64::from(id[size_of::<u32>()].min(100)) / 100.0,
+            })
+        }
+        [4] => Ok(AudioRequest::RequestDevices),
+        [5, name_length @ ..] if name_length.len() >= size_of::<u16>() => {
+            let name_length = usize::from(u16::from_le_bytes(
+                name_length[..size_of::<u16>()]
+                    .try_into()
+                    .expect("audio device name length has a fixed width"),
+            ));
+            let name = name_length
+                .checked_add(3)
+                .filter(|packet_length| {
+                    name_length > 0
+                        && name_length <= MAX_AUDIO_DEVICE_NAME_BYTES
+                        && *packet_length == packet.len()
+                })
+                .and_then(|_| std::str::from_utf8(&packet[3..]).ok())
+                .filter(|name| !name.contains('\0'))
+                .ok_or(AudioRequestDecodeError::InvalidSize(packet.len()))?;
+            Ok(AudioRequest::SetDevice {
+                name: name.to_owned(),
+            })
+        }
+        [6, a, b, c, d] => Ok(AudioRequest::SetCallVolume(u32::from_le_bytes([
+            *a, *b, *c, *d,
+        ]))),
+        [command, ..] if matches!(*command, 0..=6) || packet.is_empty() => {
+            Err(AudioRequestDecodeError::InvalidSize(packet.len()))
+        }
+        [command, ..] => Err(AudioRequestDecodeError::UnsupportedCommand(*command)),
+        [] => Err(AudioRequestDecodeError::InvalidSize(0)),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BrightnessRequest {
+    Read {
+        connector: String,
+        monitor_id: i64,
+    },
+    Set {
+        connector: String,
+        monitor_id: i64,
+        level: f64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BrightnessRequestDecodeError {
+    InvalidSize(usize),
+    UnsupportedCommand(u8),
+    InvalidMonitorId(i64),
+    InvalidConnector,
+}
+
+impl fmt::Display for BrightnessRequestDecodeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidSize(size) => write!(formatter, "invalid brightness packet size {size}"),
+            Self::UnsupportedCommand(command) => {
+                write!(formatter, "unsupported brightness command {command}")
+            }
+            Self::InvalidMonitorId(monitor_id) => {
+                write!(formatter, "invalid brightness monitor id {monitor_id}")
+            }
+            Self::InvalidConnector => write!(formatter, "invalid brightness connector"),
+        }
+    }
+}
+
+impl Error for BrightnessRequestDecodeError {}
+
+pub fn decode_brightness_request(
+    packet: &[u8],
+) -> Result<BrightnessRequest, BrightnessRequestDecodeError> {
+    const HEADER_BYTES: usize = 12;
+    if packet.len() < HEADER_BYTES {
+        return Err(BrightnessRequestDecodeError::InvalidSize(packet.len()));
+    }
+    let command = packet[0];
+    if command > 1 {
+        return Err(BrightnessRequestDecodeError::UnsupportedCommand(command));
+    }
+    let monitor_id = i64::from_le_bytes(
+        packet[1..9]
+            .try_into()
+            .expect("brightness monitor id has a fixed packet width"),
+    );
+    if monitor_id < 0 {
+        return Err(BrightnessRequestDecodeError::InvalidMonitorId(monitor_id));
+    }
+    let connector_length = usize::from(u16::from_le_bytes(
+        packet[10..12]
+            .try_into()
+            .expect("brightness connector length has a fixed packet width"),
+    ));
+    if connector_length == 0
+        || connector_length > MAX_BRIGHTNESS_CONNECTOR_BYTES
+        || packet.len() != HEADER_BYTES + connector_length
+    {
+        return Err(BrightnessRequestDecodeError::InvalidSize(packet.len()));
+    }
+    let connector = std::str::from_utf8(&packet[HEADER_BYTES..])
+        .ok()
+        .filter(|value| !value.contains('\0'))
+        .ok_or(BrightnessRequestDecodeError::InvalidConnector)?
+        .to_owned();
+    match command {
+        0 => Ok(BrightnessRequest::Read {
+            connector,
+            monitor_id,
+        }),
+        1 => Ok(BrightnessRequest::Set {
+            connector,
+            monitor_id,
+            level: f64::from(packet[9].min(100)) / 100.0,
+        }),
+        _ => unreachable!("brightness command was range checked"),
+    }
+}
+
+enum AudioCommand {
+    ReadLevel,
+    SetLevel {
+        level: f64,
+        request_serial: u32,
+    },
+    Adjust(f64),
+    #[cfg(feature = "flutter")]
+    AdjustCallOnly(bool),
+    ToggleMute,
+    SetCallVolume(u32),
+    RequestStreams,
+    SetStreamLevel {
+        stream_id: u32,
+        level: f64,
+    },
+    RequestDevices,
+    SetDevice {
+        name: String,
+    },
+    Stop,
+}
+
+enum BrightnessCommand {
+    Read {
+        connector: String,
+        monitor_id: i64,
+    },
+    Set {
+        connector: String,
+        monitor_id: i64,
+        level: f64,
+    },
+    Adjust {
+        connector: String,
+        monitor_id: i64,
+        delta: f64,
+    },
+    Fade {
+        connector: String,
+        toward: BrightnessFade,
+    },
+    Stop,
+}
+
+/// A backlight fade that runs beside a shell fade: the shell's level never
+/// changes, and the slider hears nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BrightnessFade {
+    /// Down to a raw backlight code, keeping the level it left.
+    Dim { raw: u32, duration: Duration },
+    /// Back to the kept level.
+    Restore { duration: Duration },
+}
+
+#[cfg(feature = "flutter")]
+enum SessionCommand {
+    SetSuspendMode(crate::idle_policy::SuspendMode),
+    Power {
+        action: crate::idle_policy::PowerButtonAction,
+        interactive: bool,
+    },
+    Stop,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SleepTransition {
+    Preparing,
+    Resumed,
+    /// logind is about to power off or reboot.
+    ShuttingDown,
+}
+
+#[cfg(feature = "flutter")]
+struct SleepMonitorShared {
+    transitions: Mutex<VecDeque<SleepTransition>>,
+    transitions_pending: AtomicBool,
+    delay_inhibitor: Mutex<Option<OwnedFd>>,
+    shutdown_delay_inhibitor: Mutex<Option<OwnedFd>>,
+    power_key_inhibitor: Mutex<Option<OwnedFd>>,
+    stop: AtomicBool,
+    stop_wake: denial_platform::wakeup::Wakeup,
+}
+
+#[cfg(feature = "flutter")]
+impl SleepMonitorShared {
+    fn new() -> io::Result<Self> {
+        Ok(Self {
+            transitions: Mutex::default(),
+            transitions_pending: AtomicBool::new(false),
+            delay_inhibitor: Mutex::default(),
+            shutdown_delay_inhibitor: Mutex::default(),
+            power_key_inhibitor: Mutex::default(),
+            stop: AtomicBool::new(false),
+            stop_wake: denial_platform::wakeup::Wakeup::new()?,
+        })
+    }
+
+    fn publish(&self, transition: SleepTransition) {
+        let mut transitions = self
+            .transitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        const MAX_PENDING_TRANSITIONS: usize = 8;
+        if transitions.len() == MAX_PENDING_TRANSITIONS {
+            transitions.pop_front();
+        }
+        transitions.push_back(transition);
+        self.transitions_pending.store(true, Ordering::Release);
+        drop(transitions);
+        denial_platform::loop_wake::wake();
+    }
+
+    fn take_transition(&self) -> Option<SleepTransition> {
+        if !self.transitions_pending.load(Ordering::Acquire) {
+            return None;
+        }
+        let mut transitions = self
+            .transitions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let transition = transitions.pop_front();
+        // Serialize clearing with producers so no queued transition loses its
+        // readiness flag.
+        self.transitions_pending
+            .store(!transitions.is_empty(), Ordering::Release);
+        transition
+    }
+
+    fn install_delay_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_delay_inhibitor(&self) -> bool {
+        self.delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
+    fn install_shutdown_delay_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .shutdown_delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_shutdown_delay_inhibitor(&self) -> bool {
+        self.shutdown_delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
+    fn install_power_key_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .power_key_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_power_key_inhibitor(&self) {
+        self.power_key_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Release);
+        self.stop_wake.wake();
+        self.release_delay_inhibitor();
+        self.release_shutdown_delay_inhibitor();
+        self.release_power_key_inhibitor();
+    }
+
+    fn stopping(&self) -> bool {
+        self.stop.load(Ordering::Acquire)
+    }
+
+    /// Returns once a stop is requested.
+    async fn stopped(&self) {
+        while !self.stopping() {
+            self.stop_wake.wait().await;
+        }
+    }
+}
+
+#[derive(Clone)]
+struct SystemControlEventSender {
+    sender: SyncSender<SystemControlEvent>,
+    pending: Arc<AtomicBool>,
+}
+
+impl SystemControlEventSender {
+    fn new(sender: SyncSender<SystemControlEvent>, pending: Arc<AtomicBool>) -> Self {
+        Self { sender, pending }
+    }
+
+    fn try_send(&self, event: SystemControlEvent) {
+        // Publish before the bounded send so a concurrent main-thread swap
+        // cannot miss an event which is already visible in the channel. Set
+        // it again after success to close the inverse swap-before-send race.
+        self.pending.store(true, Ordering::Release);
+        if self.sender.try_send(event).is_ok() {
+            self.pending.store(true, Ordering::Release);
+        }
+        denial_platform::loop_wake::wake();
+    }
+}
+
+/// Process-lifetime handles used by the compositor input path.
+pub struct SystemControls {
+    audio_commands: SyncSender<AudioCommand>,
+    brightness_commands: SyncSender<BrightnessCommand>,
+    #[cfg(feature = "flutter")]
+    session_commands: SyncSender<SessionCommand>,
+    #[cfg(feature = "flutter")]
+    suspend_mode: Mutex<Option<crate::idle_policy::SuspendMode>>,
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    events: Receiver<SystemControlEvent>,
+    events_pending: Arc<AtomicBool>,
+    audio_worker: Option<JoinHandle<()>>,
+    brightness_worker: Option<JoinHandle<()>>,
+    #[cfg(feature = "flutter")]
+    session_worker: Option<JoinHandle<()>>,
+    #[cfg(feature = "flutter")]
+    sleep_monitor: Arc<SleepMonitorShared>,
+    #[cfg(feature = "flutter")]
+    sleep_monitor_worker: Option<JoinHandle<()>>,
+}
+
+impl SystemControls {
+    pub fn new() -> io::Result<Self> {
+        #[cfg(feature = "flutter")]
+        let sleep_monitor = Arc::new(SleepMonitorShared::new()?);
+        let (events_tx, events) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let events_pending = Arc::new(AtomicBool::new(false));
+        let events_tx = SystemControlEventSender::new(events_tx, Arc::clone(&events_pending));
+        let (audio_commands, audio_rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
+        let audio_events = events_tx.clone();
+        let subscription_commands = audio_commands.clone();
+        let audio_worker = thread::Builder::new()
+            .name("denial-audio".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("audio");
+                run_audio_worker(audio_rx, audio_events, subscription_commands);
+            })?;
+
+        let (brightness_commands, brightness_rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
+        let brightness_worker = match thread::Builder::new()
+            .name("denial-brightness".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("brightness");
+                run_brightness_worker(brightness_rx, events_tx);
+            }) {
+            Ok(worker) => worker,
+            Err(error) => {
+                let _ = audio_commands.send(AudioCommand::Stop);
+                let _ = audio_worker.join();
+                return Err(error);
+            }
+        };
+
+        #[cfg(feature = "flutter")]
+        let (session_commands, session_rx) = mpsc::sync_channel(4);
+        #[cfg(feature = "flutter")]
+        let session_worker = match thread::Builder::new()
+            .name("denial-session-power".into())
+            .spawn(move || {
+                denial_platform::cpu_scheduling::normalize_current_worker("session power");
+                run_session_worker(session_rx);
+            }) {
+            Ok(worker) => worker,
+            Err(error) => {
+                let _ = audio_commands.send(AudioCommand::Stop);
+                let _ = brightness_commands.send(BrightnessCommand::Stop);
+                let _ = audio_worker.join();
+                let _ = brightness_worker.join();
+                return Err(error);
+            }
+        };
+
+        #[cfg(feature = "flutter")]
+        let sleep_monitor_worker = {
+            let monitor = Arc::clone(&sleep_monitor);
+            match thread::Builder::new()
+                .name("denial-sleep-monitor".into())
+                .spawn(move || {
+                    denial_platform::cpu_scheduling::normalize_current_worker("sleep monitor");
+                    run_sleep_monitor(monitor);
+                }) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    let _ = audio_commands.send(AudioCommand::Stop);
+                    let _ = brightness_commands.send(BrightnessCommand::Stop);
+                    let _ = session_commands.send(SessionCommand::Stop);
+                    let _ = audio_worker.join();
+                    let _ = brightness_worker.join();
+                    let _ = session_worker.join();
+                    return Err(error);
+                }
+            }
+        };
+
+        Ok(Self {
+            audio_commands,
+            brightness_commands,
+            #[cfg(feature = "flutter")]
+            session_commands,
+            #[cfg(feature = "flutter")]
+            suspend_mode: Mutex::new(None),
+            events,
+            events_pending,
+            audio_worker: Some(audio_worker),
+            brightness_worker: Some(brightness_worker),
+            #[cfg(feature = "flutter")]
+            session_worker: Some(session_worker),
+            #[cfg(feature = "flutter")]
+            sleep_monitor,
+            #[cfg(feature = "flutter")]
+            sleep_monitor_worker: Some(sleep_monitor_worker),
+        })
+    }
+
+    pub fn volume_up(&self) {
+        self.adjust_audio(CONTROL_STEP);
+    }
+
+    pub fn volume_down(&self) {
+        self.adjust_audio(-CONTROL_STEP);
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn adjust_locked_call(&self, up: bool) {
+        let _ = self
+            .audio_commands
+            .try_send(AudioCommand::AdjustCallOnly(up));
+    }
+
+    pub fn toggle_mute(&self) {
+        let _ = self.audio_commands.try_send(AudioCommand::ToggleMute);
+    }
+
+    pub fn handle_audio_request(&self, request: AudioRequest) -> bool {
+        let command = match request {
+            AudioRequest::ReadLevel => AudioCommand::ReadLevel,
+            AudioRequest::SetLevel {
+                level,
+                request_serial,
+            } => AudioCommand::SetLevel {
+                level,
+                request_serial,
+            },
+            AudioRequest::SetCallVolume(step) => AudioCommand::SetCallVolume(step),
+            AudioRequest::RequestStreams => AudioCommand::RequestStreams,
+            AudioRequest::SetStreamLevel { stream_id, level } => {
+                AudioCommand::SetStreamLevel { stream_id, level }
+            }
+            AudioRequest::RequestDevices => AudioCommand::RequestDevices,
+            AudioRequest::SetDevice { name } => AudioCommand::SetDevice { name },
+        };
+        self.audio_commands.try_send(command).is_ok()
+    }
+
+    pub fn handle_brightness_request(&self, request: BrightnessRequest) -> bool {
+        let command = match request {
+            BrightnessRequest::Read {
+                connector,
+                monitor_id,
+            } => BrightnessCommand::Read {
+                connector,
+                monitor_id,
+            },
+            BrightnessRequest::Set {
+                connector,
+                monitor_id,
+                level,
+            } => BrightnessCommand::Set {
+                connector,
+                monitor_id,
+                level,
+            },
+        };
+        self.brightness_commands.try_send(command).is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn suspend(&self) -> bool {
+        self.session_commands
+            .try_send(SessionCommand::Power {
+                action: crate::idle_policy::PowerButtonAction::Suspend,
+                interactive: false,
+            })
+            .is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn power_button_action(
+        &self,
+        action: crate::idle_policy::PowerButtonAction,
+    ) -> bool {
+        action != crate::idle_policy::PowerButtonAction::Dpms
+            && self
+                .session_commands
+                .try_send(SessionCommand::Power {
+                    action,
+                    interactive: true,
+                })
+                .is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn set_suspend_mode(&self, mode: crate::idle_policy::SuspendMode) -> bool {
+        let Ok(mut current) = self.suspend_mode.lock() else {
+            return false;
+        };
+        if *current == Some(mode) {
+            return true;
+        }
+        if self
+            .session_commands
+            .try_send(SessionCommand::SetSuspendMode(mode))
+            .is_err()
+        {
+            return false;
+        }
+        *current = Some(mode);
+        true
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn take_sleep_transition(&self) -> Option<SleepTransition> {
+        self.sleep_monitor.take_transition()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub fn release_sleep_delay(&self) -> bool {
+        self.sleep_monitor.release_delay_inhibitor()
+    }
+
+    /// Lets a poweroff or reboot go on once the session's apps have quit.
+    #[cfg(feature = "flutter")]
+    pub fn release_shutdown_delay(&self) -> bool {
+        self.sleep_monitor.release_shutdown_delay_inhibitor()
+    }
+
+    fn adjust_audio(&self, delta: f64) {
+        let _ = self.audio_commands.try_send(AudioCommand::Adjust(delta));
+    }
+
+    pub fn brightness_up(&self, connector: String, monitor_id: i64) {
+        self.adjust_brightness(connector, monitor_id, CONTROL_STEP);
+    }
+
+    pub fn brightness_down(&self, connector: String, monitor_id: i64) {
+        self.adjust_brightness(connector, monitor_id, -CONTROL_STEP);
+    }
+
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub fn fade_brightness(&self, connector: String, toward: BrightnessFade) {
+        let _ = self
+            .brightness_commands
+            .try_send(BrightnessCommand::Fade { connector, toward });
+    }
+
+    fn adjust_brightness(&self, connector: String, monitor_id: i64, delta: f64) {
+        let _ = self
+            .brightness_commands
+            .try_send(BrightnessCommand::Adjust {
+                connector,
+                monitor_id,
+                delta,
+            });
+    }
+
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub fn take_event_signal(&self) -> bool {
+        self.events_pending.swap(false, Ordering::AcqRel)
+    }
+
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub fn try_event(&self) -> Option<SystemControlEvent> {
+        self.events.try_recv().ok()
+    }
+}
+
+impl Drop for SystemControls {
+    fn drop(&mut self) {
+        #[cfg(feature = "flutter")]
+        self.sleep_monitor.request_stop();
+        let _ = self.audio_commands.send(AudioCommand::Stop);
+        let _ = self.brightness_commands.send(BrightnessCommand::Stop);
+        #[cfg(feature = "flutter")]
+        let _ = self.session_commands.send(SessionCommand::Stop);
+        if self
+            .audio_worker
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            warn!("native audio worker panicked during shutdown");
+        }
+        if self
+            .brightness_worker
+            .take()
+            .is_some_and(|worker| worker.join().is_err())
+        {
+            warn!("native brightness worker panicked during shutdown");
+        }
+        #[cfg(feature = "flutter")]
+        {
+            if self
+                .session_worker
+                .take()
+                .is_some_and(|worker| worker.join().is_err())
+            {
+                warn!("native session power worker panicked during shutdown");
+            }
+            if self
+                .sleep_monitor_worker
+                .take()
+                .is_some_and(|worker| worker.join().is_err())
+            {
+                warn!("native sleep monitor worker panicked during shutdown");
+            }
+        }
+    }
+}
+
+#[path = "system_controls/audio.rs"]
+mod audio;
+#[path = "system_controls/brightness.rs"]
+mod brightness;
+#[path = "system_controls/call_volume.rs"]
+mod call_volume;
+#[cfg(feature = "flutter")]
+#[path = "system_controls/session.rs"]
+mod session;
+
+use audio::run_audio_worker;
+use brightness::run_brightness_worker;
+#[cfg(feature = "flutter")]
+use session::{run_session_worker, run_sleep_monitor};
+
+#[cfg(all(test, feature = "flutter"))]
+mod sleep_readiness_tests {
+    use super::*;
+
+    #[test]
+    fn idle_sleep_check_does_not_lock_the_queue() {
+        let monitor = SleepMonitorShared::new().unwrap();
+        let queue = monitor.transitions.lock().unwrap();
+        assert_eq!(monitor.take_transition(), None);
+        drop(queue);
+    }
+
+    #[test]
+    fn readiness_stays_set_until_all_transitions_are_consumed() {
+        let monitor = SleepMonitorShared::new().unwrap();
+        monitor.publish(SleepTransition::Preparing);
+        monitor.publish(SleepTransition::Resumed);
+        assert_eq!(monitor.take_transition(), Some(SleepTransition::Preparing));
+        assert!(monitor.transitions_pending.load(Ordering::Acquire));
+        assert_eq!(monitor.take_transition(), Some(SleepTransition::Resumed));
+        assert!(!monitor.transitions_pending.load(Ordering::Acquire));
+        monitor.publish(SleepTransition::Preparing);
+        assert_eq!(monitor.take_transition(), Some(SleepTransition::Preparing));
+        assert_eq!(monitor.take_transition(), None);
+    }
+
+    #[test]
+    fn producer_and_consumer_do_not_lose_readiness() {
+        let monitor = SleepMonitorShared::new().unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for _ in 0..1000 {
+                    barrier.wait();
+                    monitor.publish(SleepTransition::Resumed);
+                    barrier.wait();
+                }
+            });
+            for _ in 0..1000 {
+                monitor.publish(SleepTransition::Preparing);
+                barrier.wait();
+                assert_eq!(monitor.take_transition(), Some(SleepTransition::Preparing));
+                barrier.wait();
+                assert_eq!(monitor.take_transition(), Some(SleepTransition::Resumed));
+                assert_eq!(monitor.take_transition(), None);
+            }
+        });
+    }
+}

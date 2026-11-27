@@ -77,7 +77,7 @@ compositor-owned FBOs, preserves each buffer's damage, and keeps external
 client textures alive through native GPU fences.
 
 Atomic presentation synchronization lives in the in-tree
-`denial_core::volition` library module at `compositor/src/volition/`. Volition
+`denial_core::volition` library module at `compositor/core/src/volition/`. Volition
 owns the DRM file descriptor, reusable plane commits, and alternating KMS
 lookahead lanes. Denial's output scheduler remains the caller: it chooses the
 frame, retains buffer ownership through page-flip completion, and handles

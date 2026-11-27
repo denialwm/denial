@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use denial_core::topology::{OutputId, OutputTransform, PixelRect, PixelSize, RenderViewId};
@@ -488,27 +488,7 @@ impl OutputPipeline {
     }
 }
 
-/// An output renders its next frame while the previous one is still on the
-/// GPU, once frames take longer than a refresh allows. Frames that fit a
-/// refresh and VRR outputs are unaffected. DENIAL_RENDER_AHEAD=0 turns it
-/// off: a frame then starts only after the previous one has left for KMS.
-pub(super) fn render_ahead() -> bool {
-    static RENDER_AHEAD: OnceLock<bool> = OnceLock::new();
-    *RENDER_AHEAD
-        .get_or_init(|| render_ahead_enabled(std::env::var("DENIAL_RENDER_AHEAD").as_deref()))
-}
-
-fn render_ahead_enabled(value: Result<&str, &std::env::VarError>) -> bool {
-    match value {
-        Err(std::env::VarError::NotPresent) => true,
-        Ok("0") => false,
-        Ok("1") => true,
-        _ => {
-            warn!("DENIAL_RENDER_AHEAD must be 0 or 1; rendering ahead disabled");
-            false
-        }
-    }
-}
+use super::kms_state::render_ahead;
 
 #[derive(Debug)]
 struct WakeModeset {
@@ -2437,15 +2417,6 @@ mod feedback_audit_tests {
 #[cfg(test)]
 mod submit_lead_tests {
     use super::*;
-
-    #[test]
-    fn render_ahead_is_on_unless_turned_off() {
-        use std::env::VarError;
-        assert!(render_ahead_enabled(Err(&VarError::NotPresent)));
-        assert!(!render_ahead_enabled(Ok("0")));
-        assert!(render_ahead_enabled(Ok("1")));
-        assert!(!render_ahead_enabled(Ok("yes")));
-    }
 
     #[test]
     fn late_successor_is_kept_while_fresh_frames_cannot_reach_the_next_edge() {

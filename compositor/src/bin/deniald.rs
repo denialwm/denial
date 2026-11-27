@@ -7,33 +7,25 @@ mod ambient_display;
 #[path = "deniald/application_theming.rs"]
 mod application_theming;
 #[cfg(feature = "flutter")]
-#[path = "deniald/authentication.rs"]
-mod authentication;
-#[path = "deniald/bus.rs"]
-mod bus;
+use denial_authentication as authentication;
+use denial_platform::bus;
 #[path = "deniald/client_release.rs"]
 mod client_release;
 #[cfg(feature = "flutter")]
 #[path = "deniald/client_visibility.rs"]
 mod client_visibility;
-#[path = "deniald/clipboard.rs"]
-mod clipboard;
-#[path = "deniald/color_grade.rs"]
-mod color_grade;
-#[path = "deniald/color_space.rs"]
-mod color_space;
-#[path = "deniald/cpu_scheduling.rs"]
-mod cpu_scheduling;
+use denial_clipboard as clipboard;
+use denial_color::color_grade;
+use denial_color::color_space;
+use denial_platform::cpu_scheduling;
 #[path = "deniald/open_file_limit.rs"]
 mod open_file_limit;
 #[cfg(feature = "flutter")]
 #[path = "deniald/dpms.rs"]
 mod dpms;
 #[cfg(feature = "flutter")]
-#[path = "deniald/drm_vulkan.rs"]
-mod drm_vulkan;
-#[path = "deniald/egl_context.rs"]
-mod egl_context;
+use denial_kms::drm_vulkan;
+use denial_kms::egl_context;
 #[cfg(feature = "flutter")]
 #[path = "deniald/fingerprint_presentation.rs"]
 mod fingerprint_presentation;
@@ -46,6 +38,9 @@ mod user_verify;
 #[cfg(feature = "flutter")]
 #[path = "deniald/flutter_event_loop.rs"]
 mod flutter_event_loop;
+#[cfg(feature = "flutter")]
+#[path = "deniald/flutter_launcher.rs"]
+mod flutter_launcher;
 #[cfg(feature = "flutter")]
 #[path = "deniald/flutter_runtime.rs"]
 mod flutter_runtime;
@@ -69,29 +64,20 @@ mod frame_scheduler;
 #[path = "deniald/gamma_control.rs"]
 mod gamma_control;
 #[cfg(feature = "flutter")]
-#[path = "deniald/gpu_transfer/mod.rs"]
-mod gpu_transfer;
+use denial_kms::gpu_transfer;
+use denial_kms::hotplug_transaction;
 #[cfg(feature = "flutter")]
-#[path = "deniald/haptics.rs"]
-mod haptics;
-#[path = "deniald/hotplug_transaction.rs"]
-mod hotplug_transaction;
-#[cfg(feature = "flutter")]
-#[path = "deniald/idle_policy.rs"]
-mod idle_policy;
+use denial_system_controls::idle_policy;
 #[cfg(feature = "flutter")]
 #[path = "deniald/input_deck.rs"]
 mod input_deck;
-#[path = "deniald/keyboard_resize.rs"]
-mod keyboard_resize;
+use denial_window_layout::keyboard_resize;
 #[path = "deniald/kms_pipeline.rs"]
 mod kms_pipeline;
-#[path = "deniald/kms_render.rs"]
-mod kms_render;
+use denial_kms::kms_render;
 #[path = "deniald/kms_session.rs"]
 mod kms_session;
-#[path = "deniald/kms_state.rs"]
-mod kms_state;
+use denial_kms::kms_state;
 #[path = "deniald/lid_switch.rs"]
 mod lid_switch;
 #[path = "deniald/lifecycle.rs"]
@@ -99,8 +85,8 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
-#[path = "deniald/loop_wake.rs"]
-mod loop_wake;
+#[cfg(feature = "flutter")]
+use denial_platform::loop_wake;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -111,11 +97,9 @@ mod options;
 #[cfg(feature = "flutter")]
 #[path = "deniald/orientation_sensor.rs"]
 mod orientation_sensor;
-#[path = "deniald/output_color.rs"]
-mod output_color;
+use denial_color::output_color;
 #[cfg(feature = "flutter")]
-#[path = "deniald/plane_color.rs"]
-mod plane_color;
+use denial_color::plane_color;
 #[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
@@ -162,8 +146,7 @@ mod startup;
 #[cfg(feature = "flutter")]
 #[path = "deniald/surface_feedback.rs"]
 mod surface_feedback;
-#[path = "deniald/system_controls.rs"]
-mod system_controls;
+use denial_system_controls as system_controls;
 #[cfg(feature = "flutter")]
 #[path = "deniald/text_prediction.rs"]
 mod text_prediction;
@@ -174,8 +157,7 @@ mod touchpad_gestures;
 #[path = "deniald/ui_development.rs"]
 mod ui_development;
 #[cfg(feature = "flutter")]
-#[path = "deniald/wakeup.rs"]
-mod wakeup;
+use denial_platform::wakeup;
 #[path = "deniald/wayland_frontend.rs"]
 mod wayland_frontend;
 #[path = "deniald/welcome.rs"]
@@ -191,8 +173,7 @@ mod lights;
 mod window_events;
 #[path = "deniald/window_grab.rs"]
 mod window_grab;
-#[path = "deniald/window_layout.rs"]
-mod window_layout;
+use denial_window_layout as window_layout;
 #[path = "deniald/window_placement_store.rs"]
 mod window_placement_store;
 #[cfg(feature = "flutter")]
@@ -227,10 +208,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::Path;
 #[cfg(feature = "flutter")]
 use std::path::PathBuf;
-#[cfg(feature = "flutter")]
-use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+#[cfg(feature = "flutter")]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
 #[cfg(feature = "flutter")]
@@ -239,17 +220,15 @@ use denial_core::topology::{
     AtlasPlan, LogicalPoint, OutputId, OutputSpec, OutputTransform, PixelRect, PixelSize,
     SCALE_BASE, TopologyChange, TopologyManager, TopologySnapshot,
 };
-use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
-use smithay::backend::allocator::format::FormatSet;
-use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, GbmDevice};
-use smithay::backend::allocator::{Allocator, Buffer as AllocatorBuffer, Format, Fourcc, Modifier};
+use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
+#[cfg(feature = "flutter")]
+use smithay::backend::allocator::{Fourcc, Modifier};
 use smithay::backend::drm::{
-    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
+    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
 use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -259,16 +238,12 @@ use smithay::reexports::calloop::channel::Sender;
 use smithay::reexports::calloop::{Dispatcher, EventLoop, RegistrationToken};
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::{Interest, Mode as PollMode, PostAction, generic::Generic};
-use smithay::reexports::drm::buffer::{
-    DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
-};
 use smithay::reexports::drm::control::{
-    AtomicCommitFlags, Device as ControlDevice, FbCmd2Flags, Mode, ModeTypeFlags, PlaneType,
-    RawResourceHandle, ResourceHandle, atomic::AtomicModeReq, connector, crtc, framebuffer,
-    from_u32, plane, property,
+    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, RawResourceHandle,
+    atomic::AtomicModeReq, connector, crtc, framebuffer, property,
 };
 use smithay::reexports::rustix::fs::OFlags;
-use smithay::utils::{Buffer, DeviceFd, Physical, Rectangle, Transform};
+use smithay::utils::DeviceFd;
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner, SimpleCrtcMapper};
 use tracing::{debug, error, info, warn};
 
@@ -308,8 +283,7 @@ use flutter_settings_sync::{
 };
 use frame_loop::{FrameLoopContext, run_frame_loop};
 use hotplug_transaction::{
-    HotplugProgress, ScanoutKey, ScanoutOrigin, append_quarantined, install_candidate,
-    plan_reconcile,
+    HotplugProgress, ScanoutKey, ScanoutOrigin, plan_reconcile,
 };
 use kms_render::{current_scanout_state, plane_state, render_diagnostic_atlas};
 use kms_session::hold_static_scanout;
@@ -320,10 +294,10 @@ use kms_state::{
     shared_atlas_format,
 };
 #[cfg(feature = "flutter")]
-use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, OutputSwapchains};
-use lifecycle::{
-    InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
-};
+use flutter_launcher::{FlutterLaunchConfiguration, FlutterLauncher};
+#[cfg(feature = "flutter")]
+use kms_state::OutputSwapchains;
+use lifecycle::{InactiveDispatch, LifecycleState, ShutdownReason, inactive_dispatch};
 use native_shortcut::{NativeEscapeShortcut, ShortcutManager};
 #[cfg(feature = "flutter")]
 use notification_server::NotificationServer;
@@ -364,13 +338,6 @@ use system_controls::SystemControls;
 #[cfg(feature = "flutter")]
 use window_events::{PendingWindowEvent, PendingWindowEventQueue};
 
-const COLORS: [Color32F; 4] = [
-    Color32F::new(0.16, 0.48, 0.98, 1.0),
-    Color32F::new(0.95, 0.24, 0.31, 1.0),
-    Color32F::new(0.20, 0.80, 0.48, 1.0),
-    Color32F::new(0.72, 0.35, 0.96, 1.0),
-];
-
 const WHEEL_ANGLE_PER_STEP: f64 = 15.0;
 const V120_UNITS_PER_WHEEL_STEP: f64 = 120.0;
 
@@ -407,10 +374,7 @@ const COMPOSITOR_BACKGROUND_SLICE: Duration = Duration::from_millis(2);
 const MAX_FLUTTER_EVENTS_PER_ITERATION: usize = 128;
 
 #[cfg(feature = "flutter")]
-fn render_audit_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| denial_core::environment::flag("DENIAL_RENDER_AUDIT"))
-}
+use denial_core::environment::render_audit_enabled;
 
 fn main() {
     #[cfg(feature = "xwayland")]

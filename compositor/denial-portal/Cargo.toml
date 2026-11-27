@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 async-channel = "=2.5.0"
-denial-core = { package = "denial", path = ".." }
+denial-core = { path = "../core" }
 libc = "0.2"
 serde_json = "=1.0.151"
 tempfile = "=3.27.0"

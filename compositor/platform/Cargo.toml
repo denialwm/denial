@@ -1,0 +1,20 @@
+[package]
+name = "denial-platform"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's process plumbing: D-Bus connections, CPU scheduling and event-loop wakes"
+
+[features]
+flutter = ["dep:denial-flutter-engine"]
+xwayland = []
+
+[dependencies]
+async-io = "=2.6.0"
+calloop = "0.14"
+denial-core = { path = "../core", features = ["control"] }
+denial-flutter-engine = { path = "../flutter-engine", optional = true }
+libc = "0.2"
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"] }
+zbus = "=5.18.0"
