@@ -236,6 +236,7 @@ impl FlutterGlHandler {
         let mut broker_descriptors = Vec::new();
         let mut transfers = HashMap::new();
         let scene_composer = scene_composer::create_scene_composer(&render_context);
+        let needs_gles_stencil = scene_composer.is_none();
 
         for pool in output_pools {
             let width =
@@ -243,21 +244,32 @@ impl FlutterGlHandler {
             let height = i32::try_from(pool.size.height)
                 .map_err(|_| "Flutter output height exceeds GLES")?;
             let mut depth_stencil = 0;
-            // Impeller wraps Denial's supplied FBO. One packed attachment can
-            // be shared by one output's rotating FBOs because the raster
-            // runner is serial and clears it for each render pass.
-            // SAFETY: this new GLES context is current and the arguments and
-            // output pointer are valid.
-            unsafe {
-                let _ = (gl.get_error)();
-                (gl.gen_renderbuffers)(1, &mut depth_stencil);
-                (gl.bind_renderbuffer)(gl::RENDERBUFFER, depth_stencil);
-                (gl.renderbuffer_storage)(gl::RENDERBUFFER, gl::DEPTH24_STENCIL8, width, height);
-            }
-            // SAFETY: the same GLES context remains current.
-            let allocation_error = unsafe { (gl.get_error)() };
-            depth_stencils.push(depth_stencil);
-            if depth_stencil == 0 || allocation_error != gl::NO_ERROR {
+            // Impeller GLES wraps Denial's supplied FBO. One packed attachment
+            // can be shared by one output's rotating FBOs because the raster
+            // runner is serial and clears it for each render pass. With the
+            // composer the engine renders with Vulkan and never draws into
+            // these FBOs: they get none.
+            let allocation_error = if !needs_gles_stencil {
+                gl::NO_ERROR
+            } else {
+                // SAFETY: this new GLES context is current and the arguments
+                // and output pointer are valid.
+                unsafe {
+                    let _ = (gl.get_error)();
+                    (gl.gen_renderbuffers)(1, &mut depth_stencil);
+                    (gl.bind_renderbuffer)(gl::RENDERBUFFER, depth_stencil);
+                    (gl.renderbuffer_storage)(
+                        gl::RENDERBUFFER,
+                        gl::DEPTH24_STENCIL8,
+                        width,
+                        height,
+                    );
+                }
+                depth_stencils.push(depth_stencil);
+                // SAFETY: the same GLES context remains current.
+                unsafe { (gl.get_error)() }
+            };
+            if needs_gles_stencil && (depth_stencil == 0 || allocation_error != gl::NO_ERROR) {
                 warn!(
                     renderbuffer = depth_stencil,
                     error = format_args!("{allocation_error:#x}"),
@@ -381,7 +393,7 @@ impl FlutterGlHandler {
                     || attachment_error != gl::NO_ERROR
                     || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
                     || (!offscreen && actual_samples > 1)
-                    || (!offscreen && actual_stencil_bits < 8)
+                    || (needs_gles_stencil && !offscreen && actual_stencil_bits < 8)
                 {
                     warn!(
                         output = ?pool.output_id,
@@ -516,7 +528,7 @@ impl FlutterGlHandler {
                         || render_status != gl::FRAMEBUFFER_COMPLETE
                         || render_error != gl::NO_ERROR
                         || actual_samples > 1
-                        || actual_stencil_bits < 8
+                        || (needs_gles_stencil && actual_stencil_bits < 8)
                     {
                         warn!(
                             texture = target.render_texture,
