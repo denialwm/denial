@@ -87,6 +87,7 @@ pub(super) struct RuntimeState {
     pub(super) scanout_rebased: bool,
     pub(super) error: Option<String>,
     pub(super) lifecycle: LifecycleState,
+    pub(super) session_end: session_end::SessionEnd,
     pub(super) native_escape_shortcut: NativeEscapeShortcut,
     pub(super) topology_dirty: bool,
     pub(super) output_power_requests: BTreeMap<OutputId, bool>,

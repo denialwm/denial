@@ -12,6 +12,7 @@ use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{EventLoop, LoopHandle, RegistrationToken};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::backend::ClientId;
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
 use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size};
 use smithay::wayland::compositor::{CompositorClientState, add_pre_commit_hook, with_states};
@@ -159,6 +160,11 @@ impl XWaylandState {
         self.active
             .as_ref()
             .map(|active| OsString::from(format!(":{}", active.display)))
+    }
+
+    /// Xwayland's own Wayland connection.
+    pub(super) fn client_id(&self) -> Option<ClientId> {
+        self.active.as_ref().map(|active| active.client.id())
     }
 
     pub(super) fn raise_windows(&mut self, windows: &[Window]) {

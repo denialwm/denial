@@ -118,6 +118,12 @@ pub(super) fn synchronize_sleep_transition(scanouts: &[Scanout], events: &mut Ru
             events.queue_idle_power_requests(requests);
             info!("queued display restoration after system sleep");
         }
+        system_controls::SleepTransition::ShuttingDown => {
+            crate::session_end::begin(
+                events,
+                crate::session_end::SessionEndGoal::ReleaseShutdownDelay,
+            );
+        }
     }
 }
 

@@ -240,6 +240,8 @@ mod touch_gestures;
 mod window_layout_adapter;
 #[cfg(feature = "flutter")]
 pub(crate) use window_layout_adapter::LayoutDropTarget;
+#[path = "wayland_frontend/session_apps.rs"]
+mod session_apps;
 #[path = "wayland_frontend/shortcuts_inhibit.rs"]
 mod shortcuts_inhibit;
 #[path = "wayland_frontend/window_management.rs"]

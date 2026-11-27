@@ -674,7 +674,14 @@ impl Session<'_, '_> {
             }
             if self.flutter.take_logout_requested() {
                 info!("Flutter requested session logout");
-                return Ok(());
+                // The session ends at the shutdown check above, once the apps
+                // have quit while their display was still there.
+                crate::session_end::begin(
+                    &mut self.events,
+                    crate::session_end::SessionEndGoal::Exit(
+                        crate::lifecycle::ShutdownReason::Logout,
+                    ),
+                );
             }
             if self.flutter.take_restart_requested() {
                 info!("Flutter requested a Denial restart");

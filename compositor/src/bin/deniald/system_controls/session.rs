@@ -44,6 +44,7 @@ pub(super) fn run_sleep_monitor(shared: Arc<SleepMonitorShared>) {
                 warn!(%error, "logind sleep monitoring is unavailable; retrying");
             }
             shared.release_delay_inhibitor();
+            shared.release_shutdown_delay_inhibitor();
             shared.release_power_key_inhibitor();
             future::race(shared.stopped(), async {
                 async_io::Timer::after(SLEEP_MONITOR_RECONNECT_DELAY).await;
@@ -75,18 +76,48 @@ async fn monitor_sleep_transitions(shared: &Arc<SleepMonitorShared>) -> Result<(
     if let Err(error) = acquire_sleep_delay(&manager, shared).await {
         warn!(%error, "could not acquire the logind sleep delay inhibitor");
     }
+    let mut shutdown_signals = manager
+        .receive_signal("PrepareForShutdown")
+        .await
+        .map_err(|error| format!("could not subscribe to PrepareForShutdown: {error}"))?;
+    if let Err(error) = acquire_shutdown_delay(&manager, shared).await {
+        warn!(%error, "could not acquire the logind shutdown delay inhibitor");
+    }
 
     loop {
         if shared.stopping() {
             return Ok(());
         }
-        let signal = future::race(async { Some(signals.next().await) }, async {
-            shared.stopped().await;
-            None
-        })
+        let signal = future::race(
+            async { Some(LogindSignal::Sleep(signals.next().await)) },
+            future::race(
+                async { Some(LogindSignal::Shutdown(shutdown_signals.next().await)) },
+                async {
+                    shared.stopped().await;
+                    None
+                },
+            ),
+        )
         .await;
-        let Some(message) = signal else {
-            return Ok(());
+        let message = match signal {
+            None => return Ok(()),
+            Some(LogindSignal::Sleep(message)) => message,
+            Some(LogindSignal::Shutdown(message)) => {
+                let message =
+                    message.ok_or_else(|| "PrepareForShutdown stream ended".to_owned())?;
+                let preparing = message
+                    .body()
+                    .deserialize::<bool>()
+                    .map_err(|error| format!("could not decode PrepareForShutdown: {error}"))?;
+                if preparing {
+                    info!("logind is about to power off or reboot");
+                    shared.publish(SleepTransition::ShuttingDown);
+                } else if let Err(error) = acquire_shutdown_delay(&manager, shared).await {
+                    // A cancelled shutdown: be ready for the next one.
+                    warn!(%error, "could not reacquire the logind shutdown delay inhibitor");
+                }
+                continue;
+            }
         };
         let message = message.ok_or_else(|| "PrepareForSleep stream ended".to_owned())?;
         let preparing = message
@@ -126,6 +157,31 @@ async fn acquire_sleep_delay(
         .await
         .map_err(|error| format!("logind Inhibit failed: {error}"))?;
     shared.install_delay_inhibitor(inhibitor.into());
+    Ok(())
+}
+
+enum LogindSignal {
+    Sleep(Option<zbus::Message>),
+    Shutdown(Option<zbus::Message>),
+}
+
+async fn acquire_shutdown_delay(
+    manager: &zbus::Proxy<'_>,
+    shared: &SleepMonitorShared,
+) -> Result<(), String> {
+    let inhibitor: zbus::zvariant::OwnedFd = manager
+        .call(
+            "Inhibit",
+            &(
+                "shutdown",
+                "Denial",
+                "Let apps quit while their display is still there",
+                "delay",
+            ),
+        )
+        .await
+        .map_err(|error| format!("logind Inhibit failed: {error}"))?;
+    shared.install_shutdown_delay_inhibitor(inhibitor.into());
     Ok(())
 }
 

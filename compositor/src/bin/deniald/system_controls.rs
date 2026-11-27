@@ -319,6 +319,8 @@ enum SessionCommand {
 pub(super) enum SleepTransition {
     Preparing,
     Resumed,
+    /// logind is about to power off or reboot.
+    ShuttingDown,
 }
 
 #[cfg(feature = "flutter")]
@@ -326,6 +328,7 @@ struct SleepMonitorShared {
     transitions: Mutex<VecDeque<SleepTransition>>,
     transitions_pending: AtomicBool,
     delay_inhibitor: Mutex<Option<OwnedFd>>,
+    shutdown_delay_inhibitor: Mutex<Option<OwnedFd>>,
     power_key_inhibitor: Mutex<Option<OwnedFd>>,
     stop: AtomicBool,
     stop_wake: crate::wakeup::Wakeup,
@@ -338,6 +341,7 @@ impl SleepMonitorShared {
             transitions: Mutex::default(),
             transitions_pending: AtomicBool::new(false),
             delay_inhibitor: Mutex::default(),
+            shutdown_delay_inhibitor: Mutex::default(),
             power_key_inhibitor: Mutex::default(),
             stop: AtomicBool::new(false),
             stop_wake: crate::wakeup::Wakeup::new()?,
@@ -390,6 +394,21 @@ impl SleepMonitorShared {
             .is_some()
     }
 
+    fn install_shutdown_delay_inhibitor(&self, inhibitor: OwnedFd) {
+        *self
+            .shutdown_delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(inhibitor);
+    }
+
+    fn release_shutdown_delay_inhibitor(&self) -> bool {
+        self.shutdown_delay_inhibitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
     fn install_power_key_inhibitor(&self, inhibitor: OwnedFd) {
         *self
             .power_key_inhibitor
@@ -408,6 +427,7 @@ impl SleepMonitorShared {
         self.stop.store(true, Ordering::Release);
         self.stop_wake.wake();
         self.release_delay_inhibitor();
+        self.release_shutdown_delay_inhibitor();
         self.release_power_key_inhibitor();
     }
 
@@ -674,6 +694,12 @@ impl SystemControls {
     #[cfg(feature = "flutter")]
     pub(super) fn release_sleep_delay(&self) -> bool {
         self.sleep_monitor.release_delay_inhibitor()
+    }
+
+    /// Lets a poweroff or reboot go on once the session's apps have quit.
+    #[cfg(feature = "flutter")]
+    pub(super) fn release_shutdown_delay(&self) -> bool {
+        self.sleep_monitor.release_shutdown_delay_inhibitor()
     }
 
     fn adjust_audio(&self, delta: f64) {

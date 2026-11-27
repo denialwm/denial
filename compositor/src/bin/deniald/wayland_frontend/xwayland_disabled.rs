@@ -9,6 +9,7 @@ use std::os::fd::OwnedFd;
 use smithay::desktop::Window;
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::wayland_server::backend::ClientId;
 use smithay::reexports::wayland_server::{Client, DisplayHandle};
 use smithay::wayland::compositor::CompositorClientState;
 use smithay::wayland::selection::SelectionTarget;
@@ -30,6 +31,10 @@ impl XWaylandState {
     }
 
     pub(super) fn display_name(&self) -> Option<OsString> {
+        None
+    }
+
+    pub(super) fn client_id(&self) -> Option<ClientId> {
         None
     }
 

@@ -353,7 +353,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                     _ => return,
                 };
-                state.lifecycle.request_shutdown(reason);
+                session_end::begin(state, session_end::SessionEndGoal::Exit(reason));
             },
         )?;
         event_loop.handle().insert_source(

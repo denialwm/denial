@@ -27,6 +27,8 @@ pub(super) enum ShutdownReason {
     Interrupt,
     Terminate,
     NativeEscapeShortcut,
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    Logout,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +56,7 @@ impl ShutdownReason {
             Self::Interrupt => "SIGINT",
             Self::Terminate => "SIGTERM",
             Self::NativeEscapeShortcut => "Ctrl+Alt+Backspace",
+            Self::Logout => "shell logout",
         }
     }
 }

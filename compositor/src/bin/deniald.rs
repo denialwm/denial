@@ -147,6 +147,8 @@ mod screen_off_touch;
 mod screenshot;
 #[path = "deniald/session_activation.rs"]
 mod session_activation;
+#[path = "deniald/session_end.rs"]
+mod session_end;
 #[path = "deniald/settings.rs"]
 mod settings;
 #[cfg(feature = "flutter")]
