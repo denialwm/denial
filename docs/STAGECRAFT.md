@@ -10,7 +10,7 @@ It has two halves:
 | Half | What it does | Where |
 |---|---|---|
 | Layered mode (engine) | Cuts each frame into slices at windows, glass, textures and repaint boundaries, renders the slices that changed into images Stagecraft owns, and stages the frame as an ordered list | Flutter fork: `flow/embedded_views.h` (`DenialCutEntry`), `shell/platform/embedder/embedder_external_view_embedder.cc` (`SubmitDenialLayered`, `DenialStageScene`), `embedder.h` |
-| Composer (deniald) | Draws the staged list into the output buffer with Vulkan: slices, client windows, frosts and glass | `compositor/src/bin/deniald/flutter_runtime/renderer/stagecraft/`, `renderer/handler/scene_composer.rs`; the C interface in `compositor/flutter-engine/src/scene.rs` |
+| Composer (`denial-stagecraft`) | Draws the staged list into the output buffer with Vulkan: slices, client windows, frosts and glass | `compositor/stagecraft/`, and deniald's `renderer/handler/scene_composer.rs` that feeds it; the C interface in `compositor/flutter-engine/src/scene.rs` |
 
 Where Vulkan cannot open the GPU, the engine composes the slices itself with
 GLES; the rest of this document describes the layered mode both use. Inside

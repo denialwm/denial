@@ -33,7 +33,7 @@ use smithay::backend::egl::context::{GlAttributes, PixelFormatRequirements};
 use smithay::backend::egl::display::EGLDisplayHandle;
 use smithay::backend::egl::fence::EGLFence;
 use smithay::backend::egl::{self, EGLContext, EGLDisplay};
-use smithay::backend::egl::{ffi as egl_ffi, get_proc_address};
+use smithay::backend::egl::ffi as egl_ffi;
 use smithay::backend::renderer::gles::ffi as gl;
 use smithay::reexports::rustix::time::{ClockId, clock_gettime};
 use tracing::error;

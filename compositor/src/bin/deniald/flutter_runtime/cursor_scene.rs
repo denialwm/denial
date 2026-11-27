@@ -5,8 +5,7 @@ use denial_flutter_engine::ExternalTexturePresentation;
 use renderer::native_window::{ClientRect, NativeWindowPlan};
 use serde::Deserialize;
 
-pub(super) const WINDOW: u64 = 1 << 61;
-pub(super) const TEXTURE: i64 = (1 << 62) | WINDOW as i64;
+pub(super) use denial_stagecraft::cursor::{TEXTURE, WINDOW};
 pub(super) const ARTWORK: i64 = 1 << 60;
 
 #[derive(Deserialize)]

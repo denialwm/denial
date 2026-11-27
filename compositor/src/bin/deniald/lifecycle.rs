@@ -68,7 +68,6 @@ pub(super) struct LifecycleState {
     shutdown: Option<ShutdownReason>,
 }
 
-pub(super) use crate::kms_state::TeardownGate;
 
 impl Default for LifecycleState {
     fn default() -> Self {

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use tracing::warn;
 
 #[derive(Debug)]
-pub(crate) struct ClientRelease {
+pub struct ClientRelease {
     point: DrmSyncPoint,
     /// The newest Flutter submission that sampled the buffer.
     sampled: Mutex<Option<Arc<OwnedFd>>>,
@@ -39,12 +39,12 @@ impl ClientRelease {
     /// sample. The Vulkan composer adds a second queue: a sample on the other
     /// one that may still run is merged in.
     #[cfg(feature = "flutter")]
-    pub(crate) fn sampled_by(&self, fence: &Arc<OwnedFd>) {
+    pub fn sampled_by(&self, fence: &Arc<OwnedFd>) {
         let mut sampled = self
             .sampled
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if crate::options::VULKAN_COMPOSER.load(std::sync::atomic::Ordering::Relaxed)
+        if denial_core::composer::VULKAN_COMPOSER.load(std::sync::atomic::Ordering::Relaxed)
             && let Some(previous) = sampled.as_ref()
             && !Arc::ptr_eq(previous, fence)
             && !signalled(previous)
@@ -149,7 +149,7 @@ struct CurrentRelease(Mutex<Option<Arc<ClientRelease>>>);
 
 /// Take the release point of a buffer this commit attaches, before Smithay's
 /// renderer state claims it.
-pub(crate) fn take_attached(surface: &WlSurface) -> Option<DrmSyncPoint> {
+pub fn take_attached(surface: &WlSurface) -> Option<DrmSyncPoint> {
     with_states(surface, |states| {
         let attaches = matches!(
             states
@@ -174,7 +174,7 @@ pub(crate) fn take_attached(surface: &WlSurface) -> Option<DrmSyncPoint> {
 /// Make `point` the release of the buffer the surface now shows, after a
 /// commit attached or removed one. Without a sampleable buffer the point is
 /// signalled at once.
-pub(crate) fn replace(surface: &WlSurface, point: Option<DrmSyncPoint>) {
+pub fn replace(surface: &WlSurface, point: Option<DrmSyncPoint>) {
     let point = point.map(ClientRelease::new);
     let (previous, unused) = with_states(surface, |states| {
         let has_buffer = states
@@ -207,7 +207,7 @@ pub(crate) fn replace(surface: &WlSurface, point: Option<DrmSyncPoint>) {
 
 #[cfg(feature = "flutter")]
 /// The release a new guard of the surface's current buffer must carry.
-pub(crate) fn current(states: &SurfaceData) -> Option<Arc<ClientRelease>> {
+pub fn current(states: &SurfaceData) -> Option<Arc<ClientRelease>> {
     states.data_map.get::<CurrentRelease>().and_then(|slot| {
         slot.0
             .lock()

@@ -18,6 +18,7 @@ members = [
     "kms",
     "platform",
     "polling",
+    "stagecraft",
     "system-controls",
     "text-prediction",
     "window-layout",
@@ -29,6 +30,7 @@ default = ["xwayland"]
 flutter = [
     "kms",
     "dep:denial-authentication",
+    "dep:denial-stagecraft",
     "denial-color/flutter",
     "denial-kms/flutter",
     "denial-platform/flutter",
@@ -116,6 +118,7 @@ denial-color = { path = "color", optional = true }
 denial-kms = { path = "kms", optional = true }
 denial-platform = { path = "platform", optional = true }
 denial-system-controls = { path = "system-controls", optional = true }
+denial-stagecraft = { path = "stagecraft", optional = true }
 denial-window-layout = { path = "window-layout", optional = true }
 denial-flutter-engine = { path = "flutter-engine", optional = true }
 denial-text-prediction = { path = "text-prediction", optional = true }

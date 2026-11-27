@@ -38,6 +38,51 @@
 //! takes), grown by the region of every frost made again; the rest of the
 //! buffer keeps its pixels.
 
+pub mod client_buffer;
+pub mod client_visibility;
+mod gl_api;
+pub mod mapped_shm;
+pub mod native_window;
+pub mod native_window_pool;
+pub mod surface_feedback;
+
+pub use client_buffer::{DamageHistory, ExternalTextureSource, ShmPixelsId, ShmTextureFrame};
+pub use gl_api::GlApi;
+use smithay::backend::egl::display::EGLDisplayHandle;
+use smithay::backend::renderer::gles::ffi as gl;
+
+/// Scene ids of the cursor: its window and its texture.
+pub mod cursor {
+    pub const WINDOW: u64 = 1 << 61;
+    pub const TEXTURE: i64 = (1 << 62) | WINDOW as i64;
+}
+
+/// What a window texture's copy does: the surface's own conversion into the
+/// scene and its alpha mode, then its app's look.
+#[derive(Clone)]
+pub struct Grade {
+    pub transform: Option<denial_color::color_space::SurfaceTransform>,
+    pub alpha: denial_color::color_space::AlphaMode,
+    pub look: Option<Arc<denial_color::output_color::Lut>>,
+}
+
+impl Grade {
+    pub fn same(&self, other: &Self) -> bool {
+        self.transform == other.transform
+            && self.alpha == other.alpha
+            && match (&self.look, &other.look) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+
+    /// Converted HDR or extended content keeps more than 8 bits.
+    pub fn float(&self) -> bool {
+        self.transform.is_some_and(|transform| transform.float)
+    }
+}
+
 #[path = "convert.rs"]
 mod convert;
 #[path = "device.rs"]
@@ -70,29 +115,29 @@ use smithay::backend::allocator::{Fourcc, Modifier};
 use smithay::backend::drm::DrmDeviceFd;
 use tracing::{info, warn};
 
-pub(super) use convert::ConvertKey;
-pub(super) use device::Image;
-pub(in crate::flutter_runtime) use device::ShellDevice;
+pub use convert::ConvertKey;
+pub use device::Image;
+pub use device::ShellDevice;
 use device::{
     Batch, Frame, Gpu, Layers, MAX_FRAMES, MaterialStep, Merge, Step, Upload, Usage, WindowDraw,
 };
 use material::Frost;
-pub(super) use record::Placement;
+pub use record::Placement;
 use record::{ClipRecord, ClipSpan, Draw, FrostPlan, Glass};
-pub(in crate::flutter_runtime) use shell_queue::instance_proc as shell_instance_proc;
+pub use shell_queue::instance_proc as shell_instance_proc;
 use slice_pool::SlicePool;
 
-use crate::output_color::Lut;
+use denial_color::output_color::Lut;
 
 /// Whether this session renders in hardware and so tries the composer.
-pub(super) fn requested() -> bool {
-    crate::options::VULKAN_COMPOSER.load(Ordering::Relaxed)
+pub fn requested() -> bool {
+    denial_core::composer::VULKAN_COMPOSER.load(Ordering::Relaxed)
 }
 
 /// The client buffer formats to advertise on the GPU behind the DRM node
 /// `device_number`, out of what GLES imports (`formats`): with the composer,
 /// only layouts it can sample (`device::sampled_client_formats`).
-pub(crate) fn client_formats(
+pub fn client_formats(
     device_number: libc::dev_t,
     formats: smithay::backend::allocator::format::FormatSet,
 ) -> smithay::backend::allocator::format::FormatSet {
@@ -116,12 +161,12 @@ pub(crate) fn client_formats(
 }
 
 /// Blocks until a completion fence signals. Failure paths only.
-pub(super) fn wait_completion(fence: &OwnedFd) {
+pub fn wait_completion(fence: &OwnedFd) {
     device::wait_fd(fence.as_fd(), -1);
 }
 
 /// Whether `fence` has signalled. Does not wait.
-pub(super) fn signalled(fence: &OwnedFd) -> bool {
+pub fn signalled(fence: &OwnedFd) -> bool {
     device::wait_fd(fence.as_fd(), 0)
 }
 
@@ -206,15 +251,15 @@ struct ClientImport {
 struct ShmImport {
     image: Arc<Image>,
     /// What a submitted upload left in it; None before the first.
-    pixels: Option<super::ShmPixelsId>,
+    pixels: Option<crate::ShmPixelsId>,
     last_serial: u64,
 }
 
 /// What the frame must do on the handler's side once it is submitted.
-pub(super) struct SampledClient {
-    pub(super) texture_id: i64,
-    pub(super) generation: u64,
-    pub(super) source: super::ExternalTextureSource,
+pub struct SampledClient {
+    pub texture_id: i64,
+    pub generation: u64,
+    pub source: crate::ExternalTextureSource,
 }
 
 impl SampledClient {
@@ -224,8 +269,8 @@ impl SampledClient {
         state.write_i64(self.texture_id);
         state.write_u64(self.generation);
         match &self.source {
-            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf.weak().hash(state),
-            super::ExternalTextureSource::Shm(_) => state.write_u8(0),
+            crate::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf.weak().hash(state),
+            crate::ExternalTextureSource::Shm(_) => state.write_u8(0),
         }
     }
 }
@@ -239,12 +284,12 @@ fn slice_content(key: &SliceKey) -> u64 {
 }
 
 /// A submitted frame.
-pub(super) struct Submitted {
+pub struct Submitted {
     /// Its completion; None when it already completed.
-    pub(super) completion: Option<OwnedFd>,
+    pub completion: Option<OwnedFd>,
     /// Scene pixels it changed beyond the engine's damage, which the frame's
     /// damage must take for the scanout copy and the other buffers.
-    pub(super) added: Option<sys::FlutterRect>,
+    pub added: Option<sys::FlutterRect>,
 }
 
 /// The scene rectangle holding target pixels `rect`.
@@ -261,15 +306,15 @@ fn scene_rect(output_from_scene: &Matrix3, rect: [i32; 4]) -> Option<sys::Flutte
 
 /// What the engine reports changed in an output frame, in scene pixels.
 #[derive(Clone, Copy)]
-pub(super) struct FrameDamage<'a> {
+pub struct FrameDamage<'a> {
     /// Since the view's previous frame.
-    pub(super) frame: &'a [sys::FlutterRect],
+    pub frame: &'a [sys::FlutterRect],
     /// Since the output buffer was last presented: what the frame redraws.
-    pub(super) buffer: &'a [sys::FlutterRect],
+    pub buffer: &'a [sys::FlutterRect],
 }
 
 /// A frame accepted by `stage`, presented with its view's root frame.
-pub(super) struct Staged {
+pub struct Staged {
     view_id: i64,
     /// Maps the engine's damage to target pixels.
     output_from_scene: Matrix3,
@@ -299,12 +344,12 @@ pub(super) struct Staged {
     slices: Vec<SliceKey>,
     /// Shell slices the engine rendered again for this frame.
     slices_rewritten: u32,
-    pub(super) clients: Vec<SampledClient>,
+    pub clients: Vec<SampledClient>,
     /// Inputs of merged windows reused as they are: shown again, not read.
-    pub(super) credits: Vec<SampledClient>,
+    pub credits: Vec<SampledClient>,
     /// Buffers nothing can read: not shown, only let go so the texture
     /// moves on (no presentation feedback).
-    pub(super) omitted: Vec<SampledClient>,
+    pub omitted: Vec<SampledClient>,
     /// SHM pixels the frame copies before it draws.
     uploads: Vec<Upload>,
     /// Native windows merged before the frame draws, and what each image
@@ -339,9 +384,9 @@ pub(super) struct Staged {
 }
 
 impl Staged {
-    pub(super) fn shows_cursor(&self) -> bool {
+    pub fn shows_cursor(&self) -> bool {
         self.shown_textures
-            .contains(&(crate::flutter_runtime::cursor_scene::WINDOW as i64))
+            .contains(&(crate::cursor::WINDOW as i64))
     }
 
     /// Diagnostic: notes whether `draw`, when it reaches over the whole
@@ -705,7 +750,7 @@ struct CachedFrost {
     made: u64,
 }
 
-pub(super) struct SceneComposer {
+pub struct SceneComposer {
     gpu: Gpu,
     placeholder: Arc<Image>,
     /// Bound as the look of clients without one; never read.
@@ -730,7 +775,7 @@ impl SceneComposer {
     /// `render_node` is the DRM node the raster context renders with;
     /// `render_modifiers` what EGL renders ABGR8888 with, `float_render`
     /// what it renders ABGR16161616F with.
-    pub(super) fn new(
+    pub fn new(
         render_node: DrmDeviceFd,
         render_modifiers: &[Modifier],
         float_render: &[Modifier],
@@ -801,7 +846,7 @@ impl SceneComposer {
 
     /// Imports the output buffer the engine renders into as `framebuffer`.
     /// A buffer that cannot be imported keeps its frames on GLES.
-    pub(super) fn add_target(&self, framebuffer: u32, dmabuf: &Dmabuf) {
+    pub fn add_target(&self, framebuffer: u32, dmabuf: &Dmabuf) {
         match self.gpu.import(dmabuf, Usage::Target) {
             Ok(image) => {
                 lock(&self.state).targets.insert(framebuffer, image);
@@ -812,7 +857,7 @@ impl SceneComposer {
 
     /// Releases what finished submissions held and destroys slice versions
     /// nothing uses any more. Raster thread, raster context current.
-    pub(super) fn reap(&self, gl: &super::GlApi, display: &super::EGLDisplayHandle) {
+    pub fn reap(&self, gl: &crate::GlApi, display: &crate::EGLDisplayHandle) {
         self.reap_conversions(gl, display);
         let dropped = std::mem::take(&mut *lock(&self.dropped));
         let mut state = lock(&self.state);
@@ -873,7 +918,7 @@ impl SceneComposer {
 
     /// Drops a texture's SHM image once its source is gone; frames that
     /// still sample it hold it until they complete.
-    pub(super) fn forget_texture(&self, texture_id: i64) {
+    pub fn forget_texture(&self, texture_id: i64) {
         self.forget_conversions(texture_id);
         let mut state = lock(&self.state);
         let retired = (
@@ -886,7 +931,7 @@ impl SceneComposer {
 
     /// None unless every buffer in `framebuffers` (at least one) was
     /// imported; then whether materials can copy from all of them.
-    pub(super) fn targets_copyable(
+    pub fn targets_copyable(
         &self,
         framebuffers: impl IntoIterator<Item = u32>,
     ) -> Option<bool> {
@@ -902,23 +947,23 @@ impl SceneComposer {
     /// An output frame of `view_id` GLES presented while the composer is
     /// on. Its damage never reached the composer: the view's frosts can no
     /// longer tell what changed below them.
-    pub(super) fn gles_presented(&self, view_id: i64) {
+    pub fn gles_presented(&self, view_id: i64) {
         let mut state = lock(&self.state);
         state.unaccount(view_id);
         state.tally.gles(&self.gpu, &self.slice_pool);
     }
 
     /// The view's last frame never reached the screen.
-    pub(super) fn frame_lost(&self, view_id: i64) {
+    pub fn frame_lost(&self, view_id: i64) {
         lock(&self.state).unaccount(view_id);
     }
 
     /// Why the composer did not draw a staged frame.
-    pub(super) fn declined(&self, reason: &'static str) {
+    pub fn declined(&self, reason: &'static str) {
         lock(&self.state).tally.decline(reason);
     }
 
-    pub(super) fn begin(&self, view_id: i64) -> u64 {
+    pub fn begin(&self, view_id: i64) -> u64 {
         let mut state = lock(&self.state);
         if state.broken || state.targets.is_empty() {
             return 0;
@@ -935,7 +980,7 @@ impl SceneComposer {
     /// backdrop `token`. The engine then leaves that backdrop's readback out
     /// of the frame's damage; should the frame make the frost again after
     /// all, it redraws the frost's region and reports it (`submit_locked`).
-    pub(super) fn pin_backdrop(&self, ticket: u64, token: i64) -> bool {
+    pub fn pin_backdrop(&self, ticket: u64, token: i64) -> bool {
         // Diagnostic: DENIAL_COMPOSER_NO_PIN=1 measures without pins.
         static NO_PIN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *NO_PIN.get_or_init(|| std::env::var_os("DENIAL_COMPOSER_NO_PIN").is_some()) {
@@ -956,14 +1001,14 @@ impl SceneComposer {
     /// The raster task ended: a staged frame its view's root present did
     /// not take is dropped with the client buffers it holds, and the view
     /// redraws whole.
-    pub(super) fn abandon_staged(&self) {
+    pub fn abandon_staged(&self) {
         let mut state = lock(&self.state);
         if let Some((_, staged)) = state.staged.take() {
             state.unaccount(staged.view_id);
         }
     }
 
-    pub(super) fn cancel(&self, ticket: u64) {
+    pub fn cancel(&self, ticket: u64) {
         let mut state = lock(&self.state);
         if state
             .staged
@@ -978,7 +1023,7 @@ impl SceneComposer {
         }
     }
 
-    pub(super) fn drop_engine_ref(&self, key: SliceKey) {
+    pub fn drop_engine_ref(&self, key: SliceKey) {
         lock(&self.dropped).push(key);
     }
 
@@ -991,7 +1036,7 @@ impl SceneComposer {
         height: u32,
         fourcc: Fourcc,
         modifiers: &[Modifier],
-        gl: &super::GlApi,
+        gl: &crate::GlApi,
         display: &smithay::backend::egl::EGLDisplay,
     ) -> Option<(GbmBuffer, Arc<Image>, usize, u32)> {
         if width == 0 || height == 0 || width > 16384 || height > 16384 {
@@ -1059,14 +1104,14 @@ impl SceneComposer {
         // The engine's texture binding is put back.
         let error = unsafe {
             let _ = (gl.get_error)();
-            (gl.get_integer_v)(super::gl::TEXTURE_BINDING_2D, &mut previous_texture);
+            (gl.get_integer_v)(crate::gl::TEXTURE_BINDING_2D, &mut previous_texture);
             (gl.gen_textures)(1, &mut gl_texture);
-            (gl.bind_texture)(super::gl::TEXTURE_2D, gl_texture);
-            (gl.image_target_texture)(super::gl::TEXTURE_2D, egl_image.cast());
-            (gl.bind_texture)(super::gl::TEXTURE_2D, previous_texture as u32);
+            (gl.bind_texture)(crate::gl::TEXTURE_2D, gl_texture);
+            (gl.image_target_texture)(crate::gl::TEXTURE_2D, egl_image.cast());
+            (gl.bind_texture)(crate::gl::TEXTURE_2D, previous_texture as u32);
             (gl.get_error)()
         };
-        if gl_texture == 0 || error != super::gl::NO_ERROR {
+        if gl_texture == 0 || error != crate::gl::NO_ERROR {
             warn!(
                 error = format_args!("{error:#x}"),
                 "Stagecraft storage GL binding failed"
@@ -1087,18 +1132,18 @@ impl SceneComposer {
     }
 
     /// The device was lost: every later frame declines.
-    pub(super) fn broken(&self) -> bool {
+    pub fn broken(&self) -> bool {
         lock(&self.state).broken
     }
 
     /// The device the engine renders on.
-    pub(super) fn shell_device(&self) -> ShellDevice {
+    pub fn shell_device(&self) -> ShellDevice {
         self.gpu.shell_device()
     }
 
     /// Fresh private storage for one slice version the engine renders with
     /// Impeller Vulkan on the shared queue. Raster thread.
-    pub(super) fn acquire_writer_vk(&self, width: u32, height: u32) -> Option<SliceWriterVk> {
+    pub fn acquire_writer_vk(&self, width: u32, height: u32) -> Option<SliceWriterVk> {
         if width == 0 || height == 0 || width > 16384 || height > 16384 {
             return None;
         }
@@ -1161,18 +1206,18 @@ impl SceneComposer {
     /// The engine composes a frame itself from composer storage. GLES is
     /// already ordered after every submission; the next submission must
     /// wait for this read.
-    pub(super) fn prepare_gles_read(&self) {
+    pub fn prepare_gles_read(&self) {
         lock(&self.state).gles_read = true;
     }
 
     /// GLES presented an output frame fenced by `fence`.
-    pub(super) fn gles_fenced(&self, fence: &OwnedFd) {
+    pub fn gles_fenced(&self, fence: &OwnedFd) {
         let shared = share(fence);
         lock(&self.state).last_gles_fence = shared;
     }
 
     /// Blocks until every submission completed. Failure paths only.
-    pub(super) fn wait_idle(&self) {
+    pub fn wait_idle(&self) {
         let state = lock(&self.state);
         if let Some(fence) = &state.last_completion
             && !device::wait_fd(fence.as_fd(), -1)
@@ -1181,7 +1226,7 @@ impl SceneComposer {
         }
     }
 
-    pub(super) fn take_staged(&self, view_id: i64) -> Option<Staged> {
+    pub fn take_staged(&self, view_id: i64) -> Option<Staged> {
         let mut state = lock(&self.state);
         if state
             .staged
@@ -1197,7 +1242,7 @@ impl SceneComposer {
     /// What the next submission waits for on the GLES side: a fresh fence
     /// for GLES reads of composer storage or unwaited conversions, else the
     /// last output present's fence while it may still run.
-    pub(super) fn producer_wait(&self) -> ProducerWait {
+    pub fn producer_wait(&self) -> ProducerWait {
         let mut state = lock(&self.state);
         // Slices precede the submission on the same queue.
         if state.gles_read || lock(&self.converts).unwaited {
@@ -1218,7 +1263,7 @@ impl SceneComposer {
     /// A failed submission draws nothing and leaves the composer usable:
     /// the view's next frame redraws and reports everything, and waits for
     /// all GLES work. Only a lost device disables the composer.
-    pub(super) fn submit(
+    pub fn submit(
         &self,
         staged: &mut Staged,
         framebuffer: u32,
@@ -1661,7 +1706,7 @@ impl SceneComposer {
     }
 
     /// Destroys every GL object. Render-thread shutdown, context current.
-    pub(super) fn shutdown(&self, gl: &super::GlApi, display: &super::EGLDisplayHandle) {
+    pub fn shutdown(&self, gl: &crate::GlApi, display: &crate::EGLDisplayHandle) {
         let mut state = lock(&self.state);
         state.staged = None;
         // Frames wait for their submissions as they drop.
@@ -1690,7 +1735,7 @@ fn slice_step(extent: u32) -> u32 {
     step.min(16384)
 }
 
-fn destroy_gl(gl: &super::GlApi, display: &super::EGLDisplayHandle, slice: &Slice) {
+fn destroy_gl(gl: &crate::GlApi, display: &crate::EGLDisplayHandle, slice: &Slice) {
     if slice.egl_image == 0 {
         return;
     }
@@ -1709,7 +1754,7 @@ fn destroy_gl(gl: &super::GlApi, display: &super::EGLDisplayHandle, slice: &Slic
 }
 
 /// What a submission waits for on the GLES side.
-pub(super) enum ProducerWait {
+pub enum ProducerWait {
     None,
     /// Create, flush and export a fence now.
     Fresh,
@@ -1718,7 +1763,7 @@ pub(super) enum ProducerWait {
 }
 
 /// What a client texture resolves to for one frame.
-pub(super) enum Client {
+pub enum Client {
     /// The texture has no image: nothing is drawn (a window keeps its frame).
     Missing,
     /// A native window's surfaces, merged into an image of its own.
@@ -1790,7 +1835,7 @@ impl Client {
 
 /// What the handler resolves while the composer stages a scene. Neither
 /// call may take the composer's state, which `stage` holds.
-pub(super) trait Resolve {
+pub trait Resolve {
     /// What texture `texture_id` shows within `bounds`.
     fn client(&mut self, texture_id: i64, bounds: Rect) -> Result<Client, Decline>;
     /// `sampled` copied by GLES into an image the composer samples, for a
@@ -1867,28 +1912,28 @@ impl MergedClient {
 
 /// A native window whose layers the composer merges, as the GLES pass
 /// does: each layer's client drawn into the window's `size` image.
-pub(super) struct MergedClient {
-    pub(super) texture_id: i64,
+pub struct MergedClient {
+    pub texture_id: i64,
     /// The window's app, for the copy warning.
-    pub(super) app: Option<Arc<str>>,
-    pub(super) size: (u32, u32),
-    pub(super) layers: Vec<MergedLayer>,
+    pub app: Option<Arc<str>>,
+    pub size: (u32, u32),
+    pub layers: Vec<MergedLayer>,
     /// Current buffers of layers outside the image: not drawn, still shown.
-    pub(super) unseen: Vec<SampledClient>,
+    pub unseen: Vec<SampledClient>,
 }
 
 /// One merged layer: its client, the image pixels it covers (`quad`), its
 /// normalized texture coordinates at the quad's upper left, upper right
 /// and lower left corners, the texel limits it samples within and its
 /// opacity.
-pub(super) struct MergedLayer {
-    pub(super) sampled: SampledClient,
-    pub(super) quad: [f32; 4],
-    pub(super) uv: [[f32; 2]; 3],
-    pub(super) limits: [f32; 4],
-    pub(super) opacity: f32,
+pub struct MergedLayer {
+    pub sampled: SampledClient,
+    pub quad: [f32; 4],
+    pub uv: [[f32; 2]; 3],
+    pub limits: [f32; 4],
+    pub opacity: f32,
     /// What changed between the client's recent buffers.
-    pub(super) history: super::DamageHistory,
+    pub history: crate::DamageHistory,
 }
 
 impl MergedLayer {
@@ -1955,7 +2000,7 @@ impl MergedLayer {
 #[derive(Clone, PartialEq)]
 enum Backing {
     Dmabuf(smithay::backend::allocator::dmabuf::WeakDmabuf),
-    Shm(super::ShmPixelsId),
+    Shm(crate::ShmPixelsId),
 }
 
 /// What a merged image shows of one layer: its client's storage and
@@ -1972,10 +2017,10 @@ struct MergeKey {
 }
 
 impl Backing {
-    fn of(source: &super::ExternalTextureSource) -> Self {
+    fn of(source: &crate::ExternalTextureSource) -> Self {
         match source {
-            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => Self::Dmabuf(dmabuf.weak()),
-            super::ExternalTextureSource::Shm(frame) => Self::Shm(frame.pixels_id()),
+            crate::ExternalTextureSource::Dmabuf { dmabuf, .. } => Self::Dmabuf(dmabuf.weak()),
+            crate::ExternalTextureSource::Shm(frame) => Self::Shm(frame.pixels_id()),
         }
     }
 }
@@ -1995,7 +2040,7 @@ impl MergeKey {
 }
 
 /// Why a frame stays with the engine.
-pub(super) type Decline = &'static str;
+pub type Decline = &'static str;
 
 /// A client buffer as the composer reads it.
 enum Resolved {
@@ -2127,8 +2172,8 @@ impl SceneComposer {
         resolve: &mut dyn Resolve,
     ) -> Result<Resolved, Decline> {
         let dmabuf = match &sampled.source {
-            super::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf,
-            super::ExternalTextureSource::Shm(frame) => {
+            crate::ExternalTextureSource::Dmabuf { dmabuf, .. } => dmabuf,
+            crate::ExternalTextureSource::Shm(frame) => {
                 return match self.shm_image(state, uploads, sampled.texture_id, frame) {
                     Ok(image) => Ok(Resolved::Read(image)),
                     Err(_) => Self::copied(resolve, sampled),
@@ -2168,7 +2213,7 @@ impl SceneComposer {
         state: &mut State,
         uploads: &mut Vec<Upload>,
         texture_id: i64,
-        frame: &super::ShmTextureFrame,
+        frame: &crate::ShmTextureFrame,
     ) -> Result<Arc<Image>, Decline> {
         let size = (frame.width(), frame.height());
         if state
@@ -2449,7 +2494,7 @@ impl SceneComposer {
                 })?
             }
         };
-        crate::flutter_runtime::renderer::native_window::warn_window_copied(
+        crate::native_window::warn_window_copied(
             merged.texture_id,
             merged.app.as_deref(),
             merged.layers.len(),
@@ -2547,7 +2592,7 @@ impl SceneComposer {
     /// texture's image as the engine would paint it; `copyable` says whether
     /// materials can copy from the view's output buffers. On success the
     /// frame waits for its view's root present.
-    pub(super) fn stage(
+    pub fn stage(
         &self,
         source: SceneSource<'_>,
         (width, height): (u32, u32),
@@ -2727,7 +2772,7 @@ impl SceneComposer {
                         });
                         let index = staged.draws.len() as u32;
                         staged.client_draws.push((
-                            crate::flutter_runtime::renderer::native_window::surface_texture(
+                            crate::native_window::surface_texture(
                                 *texture_id,
                             ),
                             index,
@@ -2825,7 +2870,7 @@ impl SceneComposer {
                         });
                         if image.is_some() {
                             staged.client_draws.push((
-                                crate::flutter_runtime::renderer::native_window::surface_texture(
+                                crate::native_window::surface_texture(
                                     *texture_id,
                                 ),
                                 staged.draws.len() as u32,

@@ -27,22 +27,22 @@ const IDLE: Duration = Duration::from_secs(2);
 /// What a converted image shows: the client's storage, generation and size,
 /// and the pass that drew it.
 #[derive(Clone)]
-pub(in crate::flutter_runtime) struct ConvertKey {
+pub struct ConvertKey {
     backing: Backing,
     generation: u64,
-    pub(in crate::flutter_runtime) size: (u32, u32),
+    pub size: (u32, u32),
     /// Half floats: a converted HDR grade, or a deeper source copied.
-    pub(in crate::flutter_runtime) float: bool,
+    pub float: bool,
     /// The grade, or None for a plain copy of the pixels.
-    grade: Option<super::super::Grade>,
+    grade: Option<crate::Grade>,
 }
 
 impl ConvertKey {
-    pub(in crate::flutter_runtime) fn new(
+    pub fn new(
         sampled: &SampledClient,
         size: (u32, u32),
         float: bool,
-        grade: Option<super::super::Grade>,
+        grade: Option<crate::Grade>,
     ) -> Self {
         Self {
             backing: Backing::of(&sampled.source),
@@ -159,11 +159,11 @@ impl SceneComposer {
     /// it shows it already, else `draw` writes the GL texture it is given
     /// (the raster context is current) into a free or new image. The read
     /// client stays held until a present follows it.
-    pub(in crate::flutter_runtime) fn converted(
+    pub fn converted(
         &self,
         sampled: &SampledClient,
         key: ConvertKey,
-        gl: &super::super::GlApi,
+        gl: &crate::GlApi,
         display: &smithay::backend::egl::EGLDisplay,
         draw: impl FnOnce(u32) -> Result<(), u32>,
     ) -> Result<Arc<Image>, Decline> {
@@ -230,7 +230,7 @@ impl SceneComposer {
         &self,
         (width, height): (u32, u32),
         float: bool,
-        gl: &super::super::GlApi,
+        gl: &crate::GlApi,
         display: &smithay::backend::egl::EGLDisplay,
     ) -> Result<Target, Decline> {
         let (fourcc, modifiers) = if float {
@@ -257,12 +257,12 @@ impl SceneComposer {
     /// An image for the engine's fallback composition of `ticket` that
     /// `draw` writes through the GL texture it is given (raster context
     /// current): a free earlier copy of that size and format, or a new one.
-    pub(in crate::flutter_runtime) fn fallback_image(
+    pub fn fallback_image(
         &self,
         ticket: u64,
         size: (u32, u32),
         float: bool,
-        gl: &super::super::GlApi,
+        gl: &crate::GlApi,
         display: &smithay::backend::egl::EGLDisplay,
         draw: impl FnOnce(u32) -> Result<(), u32>,
     ) -> Result<Arc<Image>, Decline> {
@@ -296,7 +296,7 @@ impl SceneComposer {
 
     /// Lends the fallback copies of `ticket` to the engine's renderer, after
     /// `wait` (a GLES fence following the copies). False skips the frame.
-    pub(in crate::flutter_runtime) fn lend_fallback(
+    pub fn lend_fallback(
         &self,
         ticket: u64,
         wait: Option<std::os::fd::OwnedFd>,
@@ -328,7 +328,7 @@ impl SceneComposer {
 
     /// The engine submitted its fallback composition of `ticket`, or gave
     /// it up: its copies come back.
-    pub(in crate::flutter_runtime) fn return_fallback(&self, ticket: u64) {
+    pub fn return_fallback(&self, ticket: u64) {
         let mut pool = lock(&self.converts);
         if pool.lending.ticket != ticket {
             return;
@@ -363,13 +363,13 @@ impl SceneComposer {
     }
 
     /// Whether GLES read clients whose buffers are still held.
-    pub(in crate::flutter_runtime) fn has_converted_reads(&self) -> bool {
+    pub fn has_converted_reads(&self) -> bool {
         !lock(&self.converts).reads.is_empty()
     }
 
     /// Clients GLES read for conversions so far; their buffers go back once
     /// a GLES fence placed after the reads signals.
-    pub(in crate::flutter_runtime) fn take_converted_reads(&self) -> Vec<SampledClient> {
+    pub fn take_converted_reads(&self) -> Vec<SampledClient> {
         std::mem::take(&mut lock(&self.converts).reads)
     }
 
@@ -396,8 +396,8 @@ impl SceneComposer {
     /// current.
     pub(super) fn reap_conversions(
         &self,
-        gl: &super::super::GlApi,
-        display: &super::super::EGLDisplayHandle,
+        gl: &crate::GlApi,
+        display: &crate::EGLDisplayHandle,
     ) {
         let mut pool = lock(&self.converts);
         let pool = &mut *pool;
@@ -430,8 +430,8 @@ impl SceneComposer {
     /// Destroys every image; the GPU is idle. Raster context current.
     pub(super) fn shutdown_conversions(
         &self,
-        gl: &super::super::GlApi,
-        display: &super::super::EGLDisplayHandle,
+        gl: &crate::GlApi,
+        display: &crate::EGLDisplayHandle,
     ) {
         let mut pool = lock(&self.converts);
         let entries = std::mem::take(&mut pool.entries);
@@ -464,8 +464,8 @@ impl SceneComposer {
 }
 
 fn destroy_target(
-    gl: &super::super::GlApi,
-    display: &super::super::EGLDisplayHandle,
+    gl: &crate::GlApi,
+    display: &crate::EGLDisplayHandle,
     target: &Target,
 ) {
     // SAFETY: the raster context is current; no frame holds the image and

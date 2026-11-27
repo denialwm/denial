@@ -5,7 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
@@ -127,11 +127,7 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     Ok(padding)
 }
 
-/// Output frames the Flutter engine can describe are composed with Vulkan
-/// instead of the engine's GLES pass, on every GPU rendered in hardware, and
-/// the shell renders with Vulkan with them. Where Vulkan cannot open that GPU,
-/// or `DENIAL_NO_VULKAN` asks, both stay on GLES.
-pub(crate) static VULKAN_COMPOSER: AtomicBool = AtomicBool::new(false);
+pub(crate) use denial_core::composer::VULKAN_COMPOSER;
 
 #[derive(Debug)]
 pub(super) struct Options {

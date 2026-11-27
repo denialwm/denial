@@ -9,11 +9,9 @@ mod application_theming;
 #[cfg(feature = "flutter")]
 use denial_authentication as authentication;
 use denial_platform::bus;
-#[path = "deniald/client_release.rs"]
-mod client_release;
+use denial_kms::client_release;
 #[cfg(feature = "flutter")]
-#[path = "deniald/client_visibility.rs"]
-mod client_visibility;
+use denial_stagecraft::client_visibility;
 use denial_clipboard as clipboard;
 use denial_color::color_grade;
 use denial_color::color_space;
@@ -23,8 +21,6 @@ mod open_file_limit;
 #[cfg(feature = "flutter")]
 #[path = "deniald/dpms.rs"]
 mod dpms;
-#[cfg(feature = "flutter")]
-use denial_kms::drm_vulkan;
 use denial_kms::egl_context;
 #[cfg(feature = "flutter")]
 #[path = "deniald/fingerprint_presentation.rs"]
@@ -144,8 +140,7 @@ mod sleep_transition;
 #[path = "deniald/startup.rs"]
 mod startup;
 #[cfg(feature = "flutter")]
-#[path = "deniald/surface_feedback.rs"]
-mod surface_feedback;
+use denial_stagecraft::surface_feedback;
 use denial_system_controls as system_controls;
 #[cfg(feature = "flutter")]
 #[path = "deniald/text_prediction.rs"]

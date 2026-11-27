@@ -8,7 +8,7 @@
 //! scene below it changed), one submit, one semaphore export. Imports,
 //! pipelines and descriptor sets are made once and reused.
 
-use crate::drm_vulkan::DrmInstance;
+use denial_kms::drm_vulkan::DrmInstance;
 use ash::{Entry, vk};
 use gpu_allocator::{
     AllocationSizes, MemoryLocation,
@@ -876,15 +876,15 @@ impl Gpu {
 /// device and queue. The engine resolves procedures through
 /// `shell_queue::instance_proc`.
 #[derive(Clone)]
-pub(in crate::flutter_runtime) struct ShellDevice {
-    pub(in crate::flutter_runtime) version: u32,
-    pub(in crate::flutter_runtime) instance: vk::Instance,
-    pub(in crate::flutter_runtime) physical: vk::PhysicalDevice,
-    pub(in crate::flutter_runtime) device: vk::Device,
-    pub(in crate::flutter_runtime) family: u32,
-    pub(in crate::flutter_runtime) queue: vk::Queue,
-    pub(in crate::flutter_runtime) instance_extensions: Vec<&'static CStr>,
-    pub(in crate::flutter_runtime) device_extensions: Vec<&'static CStr>,
+pub struct ShellDevice {
+    pub version: u32,
+    pub instance: vk::Instance,
+    pub physical: vk::PhysicalDevice,
+    pub device: vk::Device,
+    pub family: u32,
+    pub queue: vk::Queue,
+    pub instance_extensions: Vec<&'static CStr>,
+    pub device_extensions: Vec<&'static CStr>,
 }
 
 impl GpuInner {
@@ -1286,7 +1286,7 @@ impl GpuInner {
 
 /// An imported DMA-BUF. Destroyed when the last holder drops it; frames
 /// hold the images they sampled until their submission completed.
-pub(in crate::flutter_runtime) struct Image {
+pub struct Image {
     gpu: Arc<GpuInner>,
     pub(super) image: vk::Image,
     memory: vk::DeviceMemory,
@@ -1317,7 +1317,7 @@ impl Image {
 
     /// What the engine samples of a lent image: its handles, VkFormat and
     /// size.
-    pub(in crate::flutter_runtime) fn lent(&self) -> (u64, u64, u32, (u32, u32)) {
+    pub fn lent(&self) -> (u64, u64, u32, (u32, u32)) {
         use ash::vk::Handle;
         (
             self.image.as_raw(),
@@ -2237,7 +2237,7 @@ pub(super) enum Step {
 /// before the frame draws.
 pub(super) struct Upload {
     pub(super) image: Arc<Image>,
-    pub(super) frame: super::super::ShmTextureFrame,
+    pub(super) frame: crate::ShmTextureFrame,
     /// No submission wrote the image yet: its contents are undefined.
     pub(super) fresh: bool,
 }

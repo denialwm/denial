@@ -4,7 +4,7 @@ use super::super::super::native_window::{
     reproduces_presentation,
 };
 use super::super::super::native_window_gl::{NativeWindowGl, NativeWindowInput};
-use super::super::native_window_pool::{NativeWindowPool, NativeWindowStorage};
+use denial_stagecraft::native_window_pool::{NativeWindowPool, NativeWindowStorage};
 use super::*;
 
 #[derive(Clone)]

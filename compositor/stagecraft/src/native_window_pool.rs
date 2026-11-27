@@ -75,18 +75,18 @@ struct State {
     free: Vec<Buffer>,
     free_bytes: usize,
 }
-pub(super) struct NativeWindowPool {
+pub struct NativeWindowPool {
     state: Mutex<State>,
     budget: Arc<Budget>,
     next_id: AtomicU64,
 }
-pub(super) struct NativeWindowStorage {
+pub struct NativeWindowStorage {
     buffer: Option<Buffer>,
     pool: Weak<NativeWindowPool>,
-    pub(super) allocation_id: u64,
+    pub allocation_id: u64,
 }
 impl NativeWindowPool {
-    pub(super) fn new(device: DrmDeviceFd, modifiers: Vec<Modifier>) -> io::Result<Arc<Self>> {
+    pub fn new(device: DrmDeviceFd, modifiers: Vec<Modifier>) -> io::Result<Arc<Self>> {
         Ok(Arc::new(Self {
             state: Mutex::new(State {
                 device: GbmDevice::new(device)?,
@@ -100,7 +100,7 @@ impl NativeWindowPool {
             next_id: AtomicU64::new(0),
         }))
     }
-    pub(super) fn acquire(
+    pub fn acquire(
         self: &Arc<Self>,
         size: [u32; 2],
     ) -> io::Result<Option<Arc<NativeWindowStorage>>> {
@@ -215,17 +215,17 @@ impl NativeWindowPool {
             allocation_id,
         })))
     }
-    pub(super) fn live_bytes(&self) -> usize {
+    pub fn live_bytes(&self) -> usize {
         self.budget.live.load(Ordering::Relaxed)
     }
-    pub(super) fn clear_free(&self) {
+    pub fn clear_free(&self) {
         let mut state = lock(&self.state);
         state.free.clear();
         state.free_bytes = 0;
     }
 }
 impl NativeWindowStorage {
-    pub(super) fn dmabuf(&self) -> &Dmabuf {
+    pub fn dmabuf(&self) -> &Dmabuf {
         &self.buffer.as_ref().expect("native storage owns BO").dmabuf
     }
 }

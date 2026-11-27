@@ -110,7 +110,7 @@ struct State {
     free_bytes: usize,
 }
 
-pub(crate) struct MappedShmPool {
+pub struct MappedShmPool {
     state: Mutex<State>,
     budget: Arc<ByteBudget>,
     enabled: AtomicBool,
@@ -119,18 +119,18 @@ pub(crate) struct MappedShmPool {
     budget_warning: AtomicBool,
 }
 
-pub(crate) struct PendingMappedShm {
+pub struct PendingMappedShm {
     buffer: Option<Buffer>,
     pool: Weak<MappedShmPool>,
 }
 
-pub(crate) struct MappedShmStorage {
+pub struct MappedShmStorage {
     buffer: Option<Buffer>,
     pool: Weak<MappedShmPool>,
 }
 
 impl MappedShmPool {
-    pub(crate) fn new(device: DrmDeviceFd) -> io::Result<Self> {
+    pub fn new(device: DrmDeviceFd) -> io::Result<Self> {
         let gbm = GbmDevice::new(device)?;
         Ok(Self {
             state: Mutex::new(State {
@@ -149,7 +149,7 @@ impl MappedShmPool {
         })
     }
 
-    pub(crate) fn enable(self: &Arc<Self>, renderer: &mut GlesRenderer) {
+    pub fn enable(self: &Arc<Self>, renderer: &mut GlesRenderer) {
         let result = (|| -> io::Result<()> {
             let mut pending = self
                 .allocate(64, 64)?
@@ -180,7 +180,7 @@ impl MappedShmPool {
         }
     }
 
-    pub(crate) fn acquire(self: &Arc<Self>, width: u32, height: u32) -> Option<PendingMappedShm> {
+    pub fn acquire(self: &Arc<Self>, width: u32, height: u32) -> Option<PendingMappedShm> {
         let bytes = (width as usize)
             .checked_mul(height as usize)?
             .checked_mul(4)?;
@@ -196,7 +196,7 @@ impl MappedShmPool {
         }
     }
 
-    pub(crate) fn disable(&self, error: &io::Error) {
+    pub fn disable(&self, error: &io::Error) {
         if self.enabled.swap(false, Ordering::AcqRel) {
             warn!(%error, "mapped SHM snapshot preparation failed; future snapshots use CPU storage");
         }
@@ -305,7 +305,7 @@ impl MappedShmPool {
 
 impl PendingMappedShm {
     /// The caller owns an unpublished allocation; no GPU image can read it.
-    pub(crate) fn write<T>(&mut self, copy: impl FnOnce(*mut u8, usize) -> T) -> io::Result<T> {
+    pub fn write<T>(&mut self, copy: impl FnOnce(*mut u8, usize) -> T) -> io::Result<T> {
         let buffer = self.buffer.as_mut().expect("unpublished mapped SHM buffer");
         let mut stride = 0;
         let mut data = std::ptr::null_mut();
@@ -360,7 +360,7 @@ impl PendingMappedShm {
         Ok(copy(address.cast(), stride))
     }
 
-    pub(crate) fn publish(mut self) -> Arc<MappedShmStorage> {
+    pub fn publish(mut self) -> Arc<MappedShmStorage> {
         if let Some(pool) = self.pool.upgrade() {
             if pool.enabled.load(Ordering::Acquire)
                 && !pool.first_publication.swap(true, Ordering::Relaxed)
@@ -383,7 +383,7 @@ impl PendingMappedShm {
 }
 
 impl MappedShmStorage {
-    pub(crate) fn dmabuf(&self) -> &Dmabuf {
+    pub fn dmabuf(&self) -> &Dmabuf {
         &self.buffer.as_ref().expect("published storage").dmabuf
     }
 }

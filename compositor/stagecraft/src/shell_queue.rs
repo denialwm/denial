@@ -84,7 +84,7 @@ pub(super) fn install(entry: &ash::Entry, instance: vk::Instance) -> Result<(), 
 ///
 /// # Safety
 /// As `vkGetInstanceProcAddr`.
-pub(in crate::flutter_runtime) unsafe extern "system" fn instance_proc(
+pub unsafe extern "system" fn instance_proc(
     instance: vk::Instance,
     name: *const c_char,
 ) -> vk::PFN_vkVoidFunction {

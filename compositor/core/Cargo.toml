@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
-description = "Denial's shared types: topology, environment, portal protocol, touch grabs, volition"
+description = "Denial's shared types: topology, environment, portal protocol, touch grabs, volition, which composer draws"
 
 [lib]
 name = "denial_core"

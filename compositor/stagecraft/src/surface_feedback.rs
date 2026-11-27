@@ -3,27 +3,27 @@ use smithay::desktop::utils::SurfacePresentationFeedback;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
-pub(crate) struct FeedbackLatch<T>(Arc<Mutex<Option<T>>>);
+pub struct FeedbackLatch<T>(Arc<Mutex<Option<T>>>);
 impl<T> Clone for FeedbackLatch<T> {
     fn clone(&self) -> Self {
         Self(Arc::clone(&self.0))
     }
 }
 impl<T> FeedbackLatch<T> {
-    pub(crate) fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self(Arc::new(Mutex::new(Some(value))))
     }
-    pub(crate) fn take(&self) -> Option<T> {
+    pub fn take(&self) -> Option<T> {
         self.0.lock().unwrap().take()
     }
-    pub(crate) fn pending(&self) -> bool {
+    pub fn pending(&self) -> bool {
         self.0.lock().unwrap().is_some()
     }
-    pub(crate) fn same(&self, other: &Self) -> bool {
+    pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
-pub(crate) type SurfaceFeedback = FeedbackLatch<SurfacePresentationFeedback>;
+pub type SurfaceFeedback = FeedbackLatch<SurfacePresentationFeedback>;
 
 #[cfg(test)]
 mod tests {

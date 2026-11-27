@@ -455,6 +455,7 @@ dependencies = [
  "denial-flutter-engine",
  "denial-kms",
  "denial-platform",
+ "denial-stagecraft",
  "denial-system-controls",
  "denial-text-prediction",
  "denial-window-layout",
@@ -571,6 +572,22 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+]
+
+[[package]]
+name = "denial-stagecraft"
+version = "0.0.0"
+dependencies = [
+ "ash",
+ "denial-color",
+ "denial-core",
+ "denial-flutter-engine",
+ "denial-kms",
+ "gpu-allocator",
+ "libc",
+ "rustix 1.1.4",
+ "smithay",
+ "tracing",
 ]
 
 [[package]]

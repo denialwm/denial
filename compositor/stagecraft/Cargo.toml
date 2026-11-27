@@ -1,0 +1,22 @@
+[package]
+name = "denial-stagecraft"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Denial's Vulkan scene composer, and the client buffers it and the GLES renderer sample"
+
+[lib]
+name = "denial_stagecraft"
+
+[dependencies]
+ash = { version = "=0.38.0", default-features = false, features = ["loaded", "std", "debug"] }
+denial-color = { path = "../color", features = ["flutter"] }
+denial-core = { path = "../core" }
+denial-flutter-engine = { path = "../flutter-engine" }
+denial-kms = { path = "../kms", features = ["flutter"] }
+gpu-allocator = { version = "=0.28.0", default-features = false, features = ["std", "vulkan"] }
+libc = "0.2"
+rustix = { version = "=1.1.4", features = ["fs"] }
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "24647fc8d00131eb7f388efed26e35ea316b0018", default-features = false, features = ["backend_drm", "backend_egl", "backend_gbm", "desktop", "renderer_gl", "wayland_frontend"] }
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"] }

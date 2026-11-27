@@ -453,14 +453,14 @@ fn top_down_slice_copies_exactly() {
 }
 
 /// SHM pixels as the snapshot packs them: RGBA rows, top-down.
-fn shm_frame(revision: u64, color: impl Fn(u32, u32) -> [u8; 4]) -> super::super::ShmTextureFrame {
+fn shm_frame(revision: u64, color: impl Fn(u32, u32) -> [u8; 4]) -> crate::ShmTextureFrame {
     let mut rgba = Vec::with_capacity((W * H * 4) as usize);
     for y in 0..H {
         for x in 0..W {
             rgba.extend_from_slice(&color(x, y));
         }
     }
-    super::super::ShmTextureFrame::new_owned(W, H, revision, rgba).expect("SHM frame")
+    crate::ShmTextureFrame::new_owned(W, H, revision, rgba).expect("SHM frame")
 }
 
 #[test]
@@ -1372,7 +1372,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
             }
         }
         let frame =
-            super::super::ShmTextureFrame::new_owned(size.0, size.1, 1, rgba).expect("SHM frame");
+            crate::ShmTextureFrame::new_owned(size.0, size.1, 1, rgba).expect("SHM frame");
         let image = rig.gpu.upload_image(size).expect("layer image");
         (image, frame)
     };
@@ -1573,7 +1573,7 @@ fn native_window_layers_draw_without_a_merge() {
             }
         }
         let frame =
-            super::super::ShmTextureFrame::new_owned(size.0, size.1, 1, rgba).expect("SHM frame");
+            crate::ShmTextureFrame::new_owned(size.0, size.1, 1, rgba).expect("SHM frame");
         let image = rig.gpu.upload_image(size).expect("layer image");
         (image, frame)
     };
@@ -2051,7 +2051,7 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
     let sampled = super::SampledClient {
         texture_id: 7,
         generation: 1,
-        source: super::super::ExternalTextureSource::Dmabuf {
+        source: crate::ExternalTextureSource::Dmabuf {
             dmabuf: GbmBuffer::from_bo(bo, false).export().unwrap(),
             buffer_guard: None,
             revision: 1,
@@ -2097,12 +2097,12 @@ fn a_native_window_is_staged_from_its_layers() {
     );
     let layer = |texture_id: i64| {
         let pixels = vec![128; (W * H * 4) as usize];
-        let frame = super::super::ShmTextureFrame::new_owned(W, H, 1, pixels).expect("SHM frame");
+        let frame = crate::ShmTextureFrame::new_owned(W, H, 1, pixels).expect("SHM frame");
         super::MergedLayer {
             sampled: super::SampledClient {
                 texture_id,
                 generation: 1,
-                source: super::super::ExternalTextureSource::Shm(frame),
+                source: crate::ExternalTextureSource::Shm(frame),
             },
             quad: [0.0, 0.0, W as f32, H as f32],
             uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],

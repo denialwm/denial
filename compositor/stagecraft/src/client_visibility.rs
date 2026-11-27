@@ -27,7 +27,7 @@ fn views() -> std::sync::MutexGuard<'static, Vec<View>> {
 
 /// The composer drew a frame of `view_id`: `shown` textures have a draw that
 /// changes pixels, `hidden` ones were in the scene and changed none.
-pub(crate) fn composed(view_id: i64, shown: &[i64], hidden: &[i64]) {
+pub fn composed(view_id: i64, shown: &[i64], hidden: &[i64]) {
     let mut views = views();
     let index = match views.iter().position(|view| view.view_id == view_id) {
         Some(index) => index,
@@ -50,7 +50,7 @@ pub(crate) fn composed(view_id: i64, shown: &[i64], hidden: &[i64]) {
 /// `view_id` showed a frame the composer did not draw: what it hides is
 /// unknown. What it showed last stays shown, so a client on that output
 /// keeps its frames until the composer draws the output again.
-pub(crate) fn forget(view_id: i64) {
+pub fn forget(view_id: i64) {
     if let Some(view) = views().iter_mut().find(|view| view.view_id == view_id) {
         view.hidden.clear();
     }
@@ -60,7 +60,7 @@ pub(crate) fn forget(view_id: i64) {
 /// hidden: one is left out somewhere and none is shown anywhere. Surfaces the
 /// scene does not hold, such as a root that only carries its subsurfaces,
 /// count for neither.
-pub(crate) fn all_hidden(texture_ids: &[i64]) -> bool {
+pub fn all_hidden(texture_ids: &[i64]) -> bool {
     let views = views();
     views.iter().any(|view| {
         texture_ids
@@ -77,7 +77,7 @@ pub(crate) fn all_hidden(texture_ids: &[i64]) -> bool {
 /// `texture_ids`, whether the scene held them or not. False while the
 /// composer accounts for no output, as when GLES draws every frame: then
 /// nothing is known.
-pub(crate) fn unseen(texture_ids: &[i64]) -> bool {
+pub fn unseen(texture_ids: &[i64]) -> bool {
     let views = views();
     !views.is_empty()
         && !texture_ids.is_empty()

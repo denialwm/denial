@@ -25,16 +25,20 @@ that stand on their own are crates beside it:
 
 | Crate | Folder | Holds |
 |---|---|---|
-| `denial-core` | `core/` | Shared types: topology, environment, portal protocol, touch grabs, volition |
+| `denial-core` | `core/` | Shared types: topology, environment, portal protocol, touch grabs, volition, which composer draws |
 | `denial-platform` | `platform/` | D-Bus connections, CPU scheduling, event-loop wakes |
 | `denial-window-layout` | `window-layout/` | Layout algorithms and keyboard resizing, independent of Wayland |
 | `denial-clipboard` | `clipboard/` | Clipboard history, retention, its control API |
 | `denial-system-controls` | `system-controls/` | Audio, brightness, session power, idle policy |
 | `denial-color` | `color/` | Colour spaces, HDR, lookup tables, gamma, plane colour |
-| `denial-kms` | `kms/` | KMS state and scanout, EGL contexts, DRM Vulkan, GPU transfers |
+| `denial-kms` | `kms/` | KMS state and scanout, EGL contexts, DRM Vulkan, GPU transfers, client buffer release |
+| `denial-stagecraft` | `stagecraft/` | The Vulkan scene composer, and the client buffers it and the GLES path sample |
 | `denial-authentication` | `authentication/` | Session lock, PIN, PAM password, fprintd fingerprint |
 | `denial-portal` | `denial-portal/` | The XDG desktop portal backend |
 | `denial-flutter-engine` | `flutter-engine/` | Bindings to the Flutter embedder ABI |
+
+The Wayland frontend and the Flutter embedder callbacks stay in deniald: Smithay's
+handlers and the engine's renderer callbacks work on deniald's runtime state.
 
 Crates that differ with Flutter take a `flutter` feature; the `denial`
 package's `flutter` feature turns it on in each of them.

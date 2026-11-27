@@ -10,8 +10,7 @@ pub(super) mod native_client;
 mod open_gl;
 #[path = "handler/scene_composer.rs"]
 mod scene_composer;
-#[path = "stagecraft/mod.rs"]
-mod stagecraft;
+use denial_stagecraft as stagecraft;
 use native_client::NativeClientState;
 pub(crate) use stagecraft::client_formats;
 
@@ -28,31 +27,15 @@ struct WindowGrades {
     graded: HashMap<i64, GradedTexture>,
 }
 
-/// What a window texture's copy does: the surface's own conversion into the
-/// scene and its alpha mode, then its app's look.
-#[derive(Clone)]
-pub(in crate::flutter_runtime) struct Grade {
-    transform: Option<crate::color_space::SurfaceTransform>,
-    alpha: crate::color_space::AlphaMode,
-    look: Option<Arc<crate::output_color::Lut>>,
+pub(in crate::flutter_runtime) use denial_stagecraft::Grade;
+
+/// The GLES copy pass for a window's grade.
+trait GradeCopy {
+    fn copy_color(&self, look: u32) -> CopyColor;
+    fn conversion(&self) -> Option<Conversion>;
 }
 
-impl Grade {
-    fn same(&self, other: &Self) -> bool {
-        self.transform == other.transform
-            && self.alpha == other.alpha
-            && match (&self.look, &other.look) {
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                (None, None) => true,
-                _ => false,
-            }
-    }
-
-    /// Converted HDR or extended content keeps more than 8 bits.
-    fn float(&self) -> bool {
-        self.transform.is_some_and(|transform| transform.float)
-    }
-
+impl GradeCopy for Grade {
     /// The copy pass that grades with look texture `look` (0 for none).
     fn copy_color(&self, look: u32) -> CopyColor {
         CopyColor {

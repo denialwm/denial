@@ -2,6 +2,7 @@
 
 use std::{fs, path::PathBuf, sync::OnceLock};
 
+pub mod composer;
 #[cfg(any(feature = "kms", feature = "control"))]
 pub mod cpu_affinity;
 pub mod environment;

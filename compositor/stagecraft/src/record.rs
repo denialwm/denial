@@ -454,7 +454,7 @@ pub(super) fn inside_material(
 /// whether sampling is strict (a crop-only presentation), and the backing
 /// strip of a content-inset presentation.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(in crate::flutter_runtime) struct Placement {
+pub struct Placement {
     pub(super) source: [f32; 4],
     pub(super) destination: Rect,
     pub(super) strict: bool,
@@ -465,7 +465,7 @@ pub(in crate::flutter_runtime) struct Placement {
 /// `destination` (local, beside the image) filled with the image's `texel`
 /// (its left and top, in pixels), sampled at the texel's centre.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(in crate::flutter_runtime) struct Strip {
+pub struct Strip {
     pub(super) destination: Rect,
     pub(super) texel: [f32; 2],
 }
@@ -476,7 +476,7 @@ impl Placement {
     /// backing strip. None for a presentation the composer cannot draw
     /// exactly: a strip without a texel of the image to fill it, or
     /// rectangles outside the image or the canvas.
-    pub(in crate::flutter_runtime) fn new(
+    pub fn new(
         bounds: Rect,
         image: (u32, u32),
         presentation: Option<&denial_flutter_engine::ExternalTexturePresentation>,
@@ -2306,7 +2306,7 @@ pub(super) mod tests {
         assert_eq!(hash(&draw), plain);
     }
 
-    pub(in crate::flutter_runtime) fn glass_material(
+    pub fn glass_material(
         shape: [f32; 4],
         radii: [[f32; 2]; 4],
     ) -> Material {
@@ -2346,7 +2346,7 @@ pub(super) mod tests {
         }
     }
 
-    pub(in crate::flutter_runtime) fn plain_local() -> EntryLocal {
+    pub fn plain_local() -> EntryLocal {
         EntryLocal {
             scene_from_local: Matrix3::IDENTITY,
             opacity: 1.0,
@@ -2357,7 +2357,7 @@ pub(super) mod tests {
     }
 
     /// The output buffer's root flip: target y = height - scene y.
-    pub(in crate::flutter_runtime) fn flip(height: u32) -> Matrix3 {
+    pub fn flip(height: u32) -> Matrix3 {
         Matrix3([1.0, 0.0, 0.0, 0.0, -1.0, height as f32, 0.0, 0.0, 1.0])
     }
 
