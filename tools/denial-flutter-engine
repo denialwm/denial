@@ -1289,6 +1289,7 @@ prepare_app_build() {
   local checkout_depot
   local host_output
   local -a host_targets target_targets host_libraries target_libraries
+  local host_ninja=''
   local library
   local tool
   local llvm_objcopy
@@ -1358,7 +1359,13 @@ prepare_app_build() {
       target_targets=()
       ;;
   esac
-  app_ninja "$host_output" "${host_targets[@]}" "${host_libraries[@]}"
+  if [[ "$part" == engine ]] && ((DENIAL_CROSS)); then
+    # The two outputs link independently, each library about two minutes.
+    app_ninja "$host_output" "${host_libraries[@]}" &
+    host_ninja=$!
+  else
+    app_ninja "$host_output" "${host_targets[@]}" "${host_libraries[@]}"
+  fi
   [[ -f "$host_output/flutter_patched_sdk/platform_strong.dill" ]] \
     || fail "lock-matched platform dill is missing: $host_output"
   [[ -x "$host_output/dart-sdk/bin/dart" ]] \
@@ -1374,7 +1381,18 @@ prepare_app_build() {
   [[ -x "$host_output/font-subset" ]] \
     || fail "lock-matched font-subset is missing: $host_output"
   if ((DENIAL_CROSS)); then
-    app_ninja "$output" "${target_targets[@]}" "${target_libraries[@]}"
+    if ! app_ninja "$output" "${target_targets[@]}" "${target_libraries[@]}"; then
+      if [[ -n "$host_ninja" ]]; then
+        # Ninja stops its compilers and linkers when it is stopped.
+        pkill -TERM -P "$host_ninja" 2>/dev/null || true
+        wait "$host_ninja" || true
+      fi
+      fail "the $DENIAL_FLUTTER_PLATFORM engine build failed: $output"
+    fi
+    if [[ -n "$host_ninja" ]]; then
+      wait "$host_ninja" \
+        || fail "the build machine's engine libraries failed to link: $host_output"
+    fi
     [[ -f "$output/flutter_patched_sdk/platform_strong.dill" ]] \
       || fail "lock-matched target platform dill is missing: $output"
     [[ -x "$output/clang_$DENIAL_HOST_FLUTTER_ARCH/gen_snapshot" ]] \
