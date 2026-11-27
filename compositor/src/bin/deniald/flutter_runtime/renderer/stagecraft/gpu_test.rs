@@ -2626,3 +2626,46 @@ fn a_slice_takes_memory_of_its_own_and_returns_it_when_dropped() {
     drop(slice);
     assert_eq!(gpu.memory_report().own, before.own);
 }
+
+#[test]
+fn slice_steps_are_multiples_of_64_about_a_fifth_apart() {
+    assert_eq!(super::slice_step(1), 64);
+    assert_eq!(super::slice_step(64), 64);
+    assert_eq!(super::slice_step(65), 128);
+    assert_eq!(super::slice_step(1440), 1728);
+    assert_eq!(super::slice_step(2560), 2560);
+    assert_eq!(super::slice_step(16384), 16384);
+    let mut step = 64;
+    while step < 16384 {
+        let next = super::slice_step(step + 1);
+        assert_eq!(next % 64, 0);
+        assert!(next > step && next <= (step + step / 5).div_ceil(64) * 64);
+        step = next;
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn the_slice_pool_serves_a_larger_image_and_gives_idle_ones_back() {
+    let fd = node();
+    let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
+    let pool = super::slice_pool::SlicePool::new();
+    let usage = ash::vk::ImageUsageFlags::SAMPLED;
+    pool.put(gpu.slice_image((256, 128), usage).unwrap());
+    // Too small, then too large for the request.
+    assert!(pool.take(320, 128).is_none());
+    assert!(pool.take(64, 64).is_none());
+    let reused = pool.take(240, 120).expect("a little larger serves");
+    assert_eq!(reused.size, (256, 128));
+    pool.put(reused);
+    pool.expire_all();
+    assert_eq!(pool.len(), 0);
+    assert_eq!(gpu.memory_report().own, (0, 0));
+
+    // On a still screen nothing reaps: the pool's thread gives it back.
+    pool.put(gpu.slice_image((256, 128), usage).unwrap());
+    assert_eq!(pool.len(), 1);
+    std::thread::sleep(std::time::Duration::from_millis(1300));
+    assert_eq!(pool.len(), 0);
+    assert_eq!(gpu.memory_report().own, (0, 0));
+}

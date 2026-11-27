@@ -48,6 +48,7 @@ mod material;
 mod record;
 #[path = "shell_queue.rs"]
 mod shell_queue;
+mod slice_pool;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -76,6 +77,7 @@ use material::Frost;
 pub(super) use record::Placement;
 use record::{ClipRecord, ClipSpan, Draw, FrostPlan, Glass};
 pub(in crate::flutter_runtime) use shell_queue::instance_proc as shell_instance_proc;
+use slice_pool::SlicePool;
 
 use crate::output_color::Lut;
 
@@ -167,14 +169,6 @@ const FRAME_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// destroyed goes at the next reap, submissions or not: the image holds only
 /// Vulkan's own reference, never the client's `Dmabuf`.
 const CLIENT_IMPORT_IDLE_SUBMITS: u64 = 64;
-
-/// Retired Vulkan slice images kept for later versions of the same size,
-/// at most this many bytes: every slice version the engine renders is a
-/// fresh image, and the engine buckets slice sizes, so most reuse one.
-const SLICE_POOL_BYTES: u64 = 96 << 20;
-
-/// A pooled slice image unused for this many submissions is destroyed.
-const SLICE_POOL_IDLE_SUBMITS: u64 = 240;
 
 /// One version of a slice's storage.
 struct Slice {
@@ -362,9 +356,6 @@ struct MergedWindow {
 struct State {
     targets: HashMap<u32, Arc<Image>>,
     slices: HashMap<u64, Slice>,
-    /// Retired Vulkan-written slice images and the submission count when
-    /// they retired, oldest first; the GPU no longer uses any of them.
-    slice_pool: Vec<(u64, Image)>,
     clients: HashMap<WeakDmabuf, ClientImport>,
     /// By texture ID.
     uploads: HashMap<i64, ShmImport>,
@@ -499,15 +490,13 @@ struct Tally {
     /// freshly allocated.
     slices_pooled: u64,
     slices_allocated: u64,
-    /// Allocator bytes of the images in `State::slice_pool`: slices kept
-    /// for reuse that nothing draws.
-    pooled_slice_bytes: u64,
 }
 
 impl Tally {
     fn vulkan(
         &mut self,
         gpu: &Gpu,
+        pool: &SlicePool,
         staged: &Staged,
         area: [i32; 4],
         size: (u32, u32),
@@ -548,12 +537,12 @@ impl Tally {
         self.slices_rewritten += u64::from(staged.slices_rewritten);
         self.engine_frames += u64::from(staged.scene_revision & ENGINE_COMPOSED != 0);
         self.vulkan_frames += 1;
-        self.log(gpu);
+        self.log(gpu, pool);
     }
 
-    fn gles(&mut self, gpu: &Gpu) {
+    fn gles(&mut self, gpu: &Gpu, pool: &SlicePool) {
         self.gles_frames += 1;
-        self.log(gpu);
+        self.log(gpu, pool);
     }
 
     fn decline(&mut self, reason: &'static str) {
@@ -563,7 +552,7 @@ impl Tally {
         }
     }
 
-    fn log(&self, gpu: &Gpu) {
+    fn log(&self, gpu: &Gpu, pool: &SlicePool) {
         let frames = self.vulkan_frames + self.gles_frames;
         let mut mark = 1;
         while mark < frames {
@@ -580,7 +569,7 @@ impl Tally {
             .join(", ");
         let memory = gpu.memory_report();
         let (memory_used_mib, memory_blocks_mib) = memory_fill(&memory.blocks);
-        let memory_kinds_mib = kinds_fill(&memory.kinds, self.pooled_slice_bytes);
+        let memory_kinds_mib = kinds_fill(&memory.kinds, pool.bytes());
         let memory_own_mib = format_args!(
             "{:.1} in {}",
             memory.own.1 as f64 / f64::from(1 << 20),
@@ -704,6 +693,9 @@ pub(super) struct SceneComposer {
     converts: Mutex<convert::Pool>,
     next_allocation: AtomicU64,
     dropped: Mutex<Vec<SliceKey>>,
+    /// Retired slice images for later versions; taken before `state`'s
+    /// allocator work, never while holding it the other way round.
+    slice_pool: SlicePool,
     state: Mutex<State>,
 }
 
@@ -751,10 +743,10 @@ impl SceneComposer {
             converts: convert::pool(),
             next_allocation: AtomicU64::new(1),
             dropped: Mutex::new(Vec::new()),
+            slice_pool: SlicePool::new(),
             state: Mutex::new(State {
                 targets: HashMap::new(),
                 slices: HashMap::new(),
-                slice_pool: Vec::new(),
                 clients: HashMap::new(),
                 uploads: HashMap::new(),
                 merged: HashMap::new(),
@@ -841,26 +833,9 @@ impl SceneComposer {
             if slice.egl_image == 0
                 && let Ok(image) = Arc::try_unwrap(slice.image)
             {
-                state.slice_pool.push((serial, image));
+                self.slice_pool.put(image);
             }
         }
-        state
-            .slice_pool
-            .retain(|(retired, _)| serial - retired < SLICE_POOL_IDLE_SUBMITS);
-        let mut bytes: u64 = state
-            .slice_pool
-            .iter()
-            .map(|(_, image)| slice_bytes(image))
-            .sum();
-        while bytes > SLICE_POOL_BYTES {
-            let (_, oldest) = state.slice_pool.remove(0);
-            bytes -= slice_bytes(&oldest);
-        }
-        state.tally.pooled_slice_bytes = state
-            .slice_pool
-            .iter()
-            .map(|(_, image)| image.allocated_bytes())
-            .sum();
         state.clients.retain(|weak, import| {
             !weak.is_gone() && serial - import.last_serial < CLIENT_IMPORT_IDLE_SUBMITS
         });
@@ -903,7 +878,7 @@ impl SceneComposer {
     pub(super) fn gles_presented(&self, view_id: i64) {
         let mut state = lock(&self.state);
         state.unaccount(view_id);
-        state.tally.gles(&self.gpu);
+        state.tally.gles(&self.gpu, &self.slice_pool);
     }
 
     /// The view's last frame never reached the screen.
@@ -1100,39 +1075,25 @@ impl SceneComposer {
         if width == 0 || height == 0 || width > 16384 || height > 16384 {
             return None;
         }
-        let pooled = {
+        // The engine renders into storage at least its size. A pooled image
+        // a little larger serves: slices change size as the shell moves
+        // (recents cards, the overview).
+        let pooled = self.slice_pool.take(width, height);
+        {
             let mut state = lock(&self.state);
-            // The engine renders into storage at least its size. A pooled
-            // image a little larger serves: slices change size as the shell
-            // moves (recents cards), and each miss allocates.
-            let needed = u64::from(width) * u64::from(height);
-            let found = state
-                .slice_pool
-                .iter()
-                .enumerate()
-                .filter(|(_, (_, image))| {
-                    let (w, h) = image.size;
-                    let area = u64::from(w) * u64::from(h);
-                    w >= width && h >= height && area * 2 <= needed * 3
-                })
-                .min_by_key(|(_, (_, image))| u64::from(image.size.0) * u64::from(image.size.1))
-                .map(|(index, _)| index);
-            let pooled = found.map(|index| state.slice_pool.remove(index).1);
-            if let Some(image) = &pooled {
-                state.tally.pooled_slice_bytes -= image.allocated_bytes();
-            }
             state.tally.slices_pooled += u64::from(pooled.is_some());
             state.tally.slices_allocated += u64::from(pooled.is_none());
-            pooled
-        };
+        }
         // A pooled image's contents are discarded: the engine clears every
         // slice it renders, from UNDEFINED.
         let image = if let Some(image) = pooled {
             image
         } else {
+            // A miss gets storage a step larger, so a growing slice reuses
+            // it for the next frames instead of allocating each one.
             self.gpu
                 .slice_image(
-                    (width, height),
+                    (slice_step(width), slice_step(height)),
                     ash::vk::ImageUsageFlags::COLOR_ATTACHMENT
                         | ash::vk::ImageUsageFlags::INPUT_ATTACHMENT
                         | ash::vk::ImageUsageFlags::SAMPLED
@@ -1239,8 +1200,15 @@ impl SceneComposer {
     ) -> Result<Submitted, String> {
         let (mut state, result) = match self.lock_free_frame() {
             Ok(mut state) => {
-                let result =
-                    Self::submit_locked(&mut state, &self.gpu, staged, framebuffer, damage, wait);
+                let result = Self::submit_locked(
+                    &mut state,
+                    &self.gpu,
+                    &self.slice_pool,
+                    staged,
+                    framebuffer,
+                    damage,
+                    wait,
+                );
                 (state, result)
             }
             Err(error) => (lock(&self.state), Err(error)),
@@ -1307,6 +1275,7 @@ impl SceneComposer {
     fn submit_locked(
         state: &mut State,
         gpu: &Gpu,
+        pool: &SlicePool,
         staged: &mut Staged,
         framebuffer: u32,
         damage: FrameDamage<'_>,
@@ -1415,6 +1384,7 @@ impl SceneComposer {
         let engine_damage = to_target(damage.frame).map(coverage).sum::<f64>().min(1.0);
         state.tally.vulkan(
             gpu,
+            pool,
             staged,
             area,
             target.size,
@@ -1668,9 +1638,15 @@ impl SceneComposer {
     }
 }
 
-/// What a pooled slice image holds, RGBA8.
-fn slice_bytes(image: &Image) -> u64 {
-    u64::from(image.size.0) * u64::from(image.size.1) * 4
+/// Storage for a slice extent the pool cannot serve: the next step of a
+/// ladder of multiples of 64 about a fifth apart (…, 1408, 1728, 2112, 2560,
+/// 3072, …), at most 16384.
+fn slice_step(extent: u32) -> u32 {
+    let mut step: u32 = 64;
+    while step < extent {
+        step = (step + step / 5).div_ceil(64) * 64;
+    }
+    step.min(16384)
 }
 
 fn destroy_gl(gl: &super::GlApi, display: &super::EGLDisplayHandle, slice: &Slice) {

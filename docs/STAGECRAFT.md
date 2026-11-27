@@ -171,6 +171,31 @@ same build instead of allocating. Times are
 raster-thread CPU before the present callback, not GPU time. `tools/denial-benchmark --capture-audit` summarizes
 these lines per phase.
 
+Without the audit, deniald's "output frames" line (at 1, 100, 1 000, 10 000…
+frames) ends with Stagecraft's memory:
+
+```text
+memory_used_mib=6.0/32 memory_blocks_mib=6.0/32 memory_own_mib=186.8 in 28
+  memory_kinds_mib=slice 186.8 (pooled 94.2), frost 4.2, frost scratch 1.8, …
+```
+
+`memory_used_mib` is in use over reserved across the allocator's shared
+blocks, `memory_blocks_mib` each block as in use/size. Slices live in memory
+of their own (`memory_own_mib`: MiB and count), returned to the driver when a
+slice is dropped. `memory_kinds_mib` is the use per kind; `pooled` is slice
+storage kept for reuse that nothing draws. Read it with
+`journalctl _PID=$(pgrep -x deniald) -g 'output frames' -o cat`.
+
+### Slice storage
+
+Every slice version the engine renders gets storage at least its size
+(the engine rounds extents up to 64 px). Retired versions go to a pool and
+serve later versions up to half as large again in area. A request the pool
+cannot serve gets storage one step up a ladder about a fifth apart (…, 1408,
+1728, 2112, 2560, …), so a growing slice, such as an overview card, reuses it
+for the next frames. The pool holds at most 96 MiB and destroys what has been
+idle for a second from its own thread, so a still screen gives it back too.
+
 ### Phases
 
 | Phase | Scope | Status |
