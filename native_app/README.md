@@ -1,9 +1,8 @@
 # Minimal native Flutter app runner
 
 `denial-app` runs an existing release AOT bundle in its own Wayland process.
-It reuses Denial's raw engine host, text editor and cursor decoder. Settings,
-Welcome, Plugin Manager and the Polkit dialog use this runner for their windows
-and input; none links a GTK runner. Flutter assets are assembled directly.
+It reuses Denial's raw engine host, text editor and cursor decoder. Plugin
+Manager uses this runner for its windows and input; it links no GTK runner. Flutter assets are assembled directly.
 
 The rendering path is Flutter → reusable RGBA8 framebuffer → GPU blit →
 alpha-capable EGL/Wayland window. Denial still supplies the desktop glass.
@@ -36,8 +35,7 @@ native_app/target/release/denial-app \
 `--overlay` presents a centered, undecorated wlr-layer-shell surface on the
 overlay layer instead of a window. It takes exclusive keyboard focus, uses the
 app ID as its namespace, and has the fixed `--width` and `--height`; the
-application paints any transparency around its content. The Polkit dialog uses
-it.
+application paints any transparency around its content.
 
 `--check` validates bundle components, AOT loading and the raw engine ABI
 without starting Flutter or opening a window. Impeller is the default.

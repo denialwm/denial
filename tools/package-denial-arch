@@ -166,7 +166,8 @@ validate_denial_package() (
   # the evidence being checked.
   bsdtar -xpf "$package" -C "$validation_root"
   for executable in \
-    deniald denialctl denial-portal denial-session denial-settings; do
+    deniald denialctl denial-portal denial-session denial-settings \
+    denial-polkit-agent; do
     [[ -x "$validation_root/usr/bin/$executable" ]] \
       || {
         printf 'package-denial-arch: packaged executable is missing: usr/bin/%s\n' \

@@ -2,9 +2,10 @@
 //!
 //! The xdg-desktop-portal frontend asks through it for camera, microphone and
 //! location access, and deniald for apps that want all keyboard shortcuts.
-//! Callers keep the answer; this backend only asks. Each request runs the
-//! native dialog of `polkit_app` in its access mode, as a centered overlay,
-//! and talks to it over a private socket.
+//! Callers keep the answer; this backend only asks. Each request starts
+//! Denial's Polkit agent program (denial-apps `apps/polkit`) as its Access
+//! dialog, `PROGRAM --access`, a centered overlay, and talks to it over a
+//! private socket.
 //!
 //! Dialog IPC, schema 1: UTF-8 JSON lines, at most 16 KiB each.
 //!
@@ -42,23 +43,9 @@ const RESPONSE_GRANTED: u32 = 0;
 const RESPONSE_DENIED: u32 = 1;
 const RESPONSE_ENDED: u32 = 2;
 
-/// Where the dialog bundle lives. Its runner and engine sit at fixed places
-/// inside it.
-#[derive(Clone)]
-pub(crate) struct DialogBundle(pub(crate) PathBuf);
-
-impl DialogBundle {
-    fn runner(&self) -> PathBuf {
-        self.0.join("denial-app")
-    }
-
-    fn engine(&self) -> PathBuf {
-        self.0.join("lib/libflutter_engine.so")
-    }
-}
-
 pub(crate) struct AccessInterface {
-    pub(crate) bundle: DialogBundle,
+    /// The program that draws the dialog when started with `--access`.
+    pub(crate) dialog: PathBuf,
 }
 
 type Choice = (String, String, Vec<(String, String)>, String);
@@ -114,11 +101,11 @@ impl AccessInterface {
             warn!(%error, handle = %handle, "could not export the access request");
             return (RESPONSE_ENDED, HashMap::new());
         }
-        let bundle = self.bundle.clone();
+        let dialog = self.dialog.clone();
         let worker = std::thread::Builder::new()
             .name("access-dialog".to_owned())
             .spawn(move || {
-                let outcome = ask(&bundle, &request, &close_requested).unwrap_or_else(|error| {
+                let outcome = ask(&dialog, &request, &close_requested).unwrap_or_else(|error| {
                     warn!(%error, "access dialog failed");
                     Outcome::Ended
                 });
@@ -192,7 +179,7 @@ enum Outcome {
 
 /// Runs one dialog to its answer. Blocks; called on a worker thread.
 fn ask(
-    bundle: &DialogBundle,
+    program: &std::path::Path,
     request: &Json,
     close_requested: &async_channel::Receiver<()>,
 ) -> io::Result<Outcome> {
@@ -209,24 +196,10 @@ fn ask(
     let mut random = [0u8; 32];
     File::open("/dev/urandom")?.read_exact(&mut random)?;
     let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-    let child = Command::new(bundle.runner())
-        .arg("--bundle")
-        .arg(&bundle.0)
-        .arg("--engine")
-        .arg(bundle.engine())
-        .args([
-            "--app-id",
-            "dev.denial.Access",
-            "--title",
-            "Permission",
-            // A centered, undecorated overlay with exclusive keyboard focus.
-            // The dialog draws its card inside this transparent canvas.
-            "--overlay",
-            "--width",
-            "600",
-            "--height",
-            "500",
-        ])
+    // A centered, undecorated overlay with exclusive keyboard focus, named
+    // dev.denial.Access.
+    let child = Command::new(program)
+        .arg("--access")
         .env("DENIAL_ACCESS_SOCKET", &path)
         .env("DENIAL_ACCESS_TOKEN", &token)
         .stdin(Stdio::null())
@@ -403,7 +376,7 @@ mod tests {
     const TEST_APP: &str = "org.example.App";
 
     /// Stands in for the dialog: the Access test starts this test binary as
-    /// the bundle's runner. It answers "Always allow", or "Never allow" when
+    /// the dialog program. It answers "Always allow", or "Never allow" when
     /// `DENIAL_TEST_GRANT` is `false`.
     #[test]
     fn stand_in_dialog() {
@@ -441,15 +414,15 @@ mod tests {
         if std::env::var_os("DENIAL_PORTAL_TEST_BUS").is_none() {
             return;
         }
-        let bundle = tempfile::tempdir().unwrap();
-        let runner = bundle.path().join("denial-app");
+        let folder = tempfile::tempdir().unwrap();
+        let runner = folder.path().join("polkit");
         let _server = zbus::blocking::connection::Builder::session()
             .and_then(|builder| builder.name(TEST_SERVICE))
             .and_then(|builder| {
                 builder.serve_at(
                     "/org/freedesktop/portal/desktop",
                     AccessInterface {
-                        bundle: DialogBundle(bundle.path().to_owned()),
+                        dialog: runner.clone(),
                     },
                 )
             })

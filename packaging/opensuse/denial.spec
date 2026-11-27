@@ -98,6 +98,7 @@ test -f %{buildroot}/usr/lib/denial/plugin-build-kit/kit.json
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
 test -x %{buildroot}/usr/lib/denial-apps/settings
+test -x %{buildroot}/usr/lib/denial-apps/polkit
 
 %post
 if [ $1 -eq 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
@@ -132,7 +133,6 @@ fi
 /usr/lib/denial-apps
 /usr/share/denial/settings
 /usr/bin/denial-polkit-agent
-/usr/lib/denial/polkit
 /usr/lib/systemd/user/denial-polkit-agent.service
 /usr/lib/denial/flutter/.denial-ui-source.json
 /usr/lib/elogind/system-sleep/denial-suspend-mode

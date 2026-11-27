@@ -112,6 +112,9 @@ BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
 # builds from the denial-apps and gpui-touch commits settings/SOURCE_LOCK.json
 # names.
 SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$("$ROOT/tools/denial-settings" path)}"
+# The Polkit agent, built with Settings. It also draws the portal's Access
+# requests, started with --access.
+POLKIT_BINARY="${DENIAL_POLKIT_BINARY:-$("$ROOT/tools/denial-settings" polkit-path)}"
 SETTINGS_DESKTOP_SOURCE="$ROOT/settings/org.denialwm.Settings.desktop"
 USER_DATA_HOME="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
 SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/org.denialwm.Settings.desktop}"
@@ -149,8 +152,6 @@ NATIVE_APP_RELEASE="$BUILD_ROOT/native-app${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TA
 BINARY="${DENIAL_PC_BINARY:-$RUST_RELEASE/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
 PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
-# The Polkit dialog bundle also draws the portal's Access requests.
-DIALOG_BUNDLE="$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
@@ -231,8 +232,6 @@ Commands:
   native-packages   Build Debian-family and Fedora packages from one payload
   flutter-test      Run lock-matched Flutter shell tests; forwards remaining arguments
   plugin-manager    Build the separate Plugin Manager app and backend
-  polkit-agent      Build the Rust Polkit agent and native Flutter test dialog
-  polkit-agent-run  Run the development agent; its dialog opens on authentication requests
   compositor-test   Run compositor and Rust embedder tests without a debug engine
   sdk-test          Analyze and test the Dart-only plugin SDK; forwards test arguments
   plugin-check      Analyze the Flutter SDK and first-party plugins without a development engine
@@ -1004,31 +1003,6 @@ publish_native_application() (
     fi
 )
 
-build_polkit_backend() {
-    run_pinned_cargo build --locked --release --jobs "$BUILD_JOBS" "${CARGO_TARGET_ARGS[@]}" -p denial-polkit-agent
-}
-
-build_polkit_dialog() (
-    prepare_flutter_toolchain
-    prepare_sdk_package
-    prepare_app_compilers
-    build_native_application polkit_app denial-app "$DIALOG_BUNDLE"
-)
-
-build_polkit_agent() {
-    build_polkit_backend
-    build_polkit_dialog
-}
-
-run_polkit_agent() {
-    local bundle="$DIALOG_BUNDLE"
-    require_file "$RUST_TARGET/release/denial-polkit-agent"
-    require_file "$bundle/denial-app"
-    exec "$RUST_TARGET/release/denial-polkit-agent" \
-        --runner "$bundle/denial-app" --bundle "$bundle" \
-        --engine "$bundle/lib/libflutter_engine.so"
-}
-
 build_settings() {
     DENIAL_BUILD_JOBS="$BUILD_JOBS" "$ROOT/tools/denial-settings" build
 }
@@ -1347,10 +1321,7 @@ build_all() (
     if ((DEDICATED_BUILDER)); then
         build_settings >"$logs/settings.log" 2>&1 &
         settings_pid=$!
-        {
-            build_compositor
-            build_polkit_backend
-        } >"$logs/rust.log" 2>&1 &
+        build_compositor >"$logs/rust.log" 2>&1 &
         rust_pid=$!
     else
         # One Rust group after another, two CPUs below the build share: the
@@ -1359,15 +1330,13 @@ build_all() (
             ((BUILD_JOBS <= 3)) || BUILD_JOBS=$((BUILD_JOBS - 2))
             build_settings
             build_compositor
-            build_polkit_backend
         ) >"$logs/rust.log" 2>&1 &
         rust_pid=$!
     fi
-    printf 'Building Settings and the compositor in the background\n'
+    printf 'Building Settings, the Polkit agent and the compositor in the background\n'
 
     build_bundle
     build_plugin_manager
-    build_polkit_dialog
 
     finish 'Flutter engine' "$engine_pid" "$logs/engine.log"
     engine_pid=''
@@ -1384,10 +1353,10 @@ build_all() (
     finish_plugin_manager
 
     if [[ -n "$settings_pid" ]]; then
-        finish Settings "$settings_pid" "$logs/settings.log"
+        finish 'Settings and the Polkit agent' "$settings_pid" "$logs/settings.log"
         settings_pid=''
     fi
-    finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
+    finish 'compositor and portal' "$rust_pid" "$logs/rust.log"
     rust_pid=''
     exit "$status"
 )
@@ -1895,6 +1864,7 @@ doctor() {
     show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
     show_path_state "Settings application" "$SETTINGS_BINARY"
+    show_path_state "Polkit agent" "$POLKIT_BINARY"
     show_engine_state
     show_path_state "deniald" "$BINARY"
     show_path_state "denialctl" "$CONTROL_BINARY"
@@ -1970,15 +1940,16 @@ install_session() {
     dbus_rendered="$(mktemp)"
     unit_rendered="$(mktemp)"
     polkit_rendered="$(mktemp)"
-    sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" "$POLKIT_UNIT_TEMPLATE" > "$polkit_rendered"
+    sed -e "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" -e "s|@POLKIT_BINARY@|$POLKIT_BINARY|g" \
+        "$POLKIT_UNIT_TEMPLATE" > "$polkit_rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" "$SESSION_TEMPLATE" > "$rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
         "$PORTAL_TEMPLATE" > "$portal_rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
         "$WLR_PORTAL_CONFIG_TEMPLATE" > "$wlr_portal_rendered"
-    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_BUNDLE@|$DIALOG_BUNDLE|g" \
+    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_PROGRAM@|$POLKIT_BINARY|g" \
         "$DENIAL_PORTAL_DBUS_TEMPLATE" > "$dbus_rendered"
-    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_BUNDLE@|$DIALOG_BUNDLE|g" \
+    sed -e "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" -e "s|@DIALOG_PROGRAM@|$POLKIT_BINARY|g" \
         "$DENIAL_PORTAL_UNIT_TEMPLATE" > "$unit_rendered"
     sh -n "$SUSPEND_MODE_HOOK_SOURCE"
     if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
@@ -2087,7 +2058,7 @@ remove_denial_portal_metadata() {
     if [[ -e "$DENIAL_PORTAL_DBUS_SERVICE" ]] \
         && { ! grep -Fqx "Name=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_DBUS_SERVICE" \
             || ! grep -Fqx -e "Exec=$PORTAL_BINARY" \
-                -e "Exec=$PORTAL_BINARY --dialog-bundle $DIALOG_BUNDLE" \
+                -e "Exec=$PORTAL_BINARY --dialog $POLKIT_BINARY" \
                 "$DENIAL_PORTAL_DBUS_SERVICE"; }; then
         printf 'warning  refusing to remove unrecognized Denial portal D-Bus service %s\n' \
             "$DENIAL_PORTAL_DBUS_SERVICE" >&2
@@ -2097,7 +2068,7 @@ remove_denial_portal_metadata() {
     if [[ -e "$DENIAL_PORTAL_UNIT" ]] \
         && { ! grep -Fqx "BusName=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_UNIT" \
             || ! grep -Fqx -e "ExecStart=$PORTAL_BINARY" \
-                -e "ExecStart=$PORTAL_BINARY --dialog-bundle $DIALOG_BUNDLE" \
+                -e "ExecStart=$PORTAL_BINARY --dialog $POLKIT_BINARY" \
                 "$DENIAL_PORTAL_UNIT"; }; then
         printf 'warning  refusing to remove unrecognized Denial portal unit %s\n' \
             "$DENIAL_PORTAL_UNIT" >&2
@@ -2174,8 +2145,6 @@ case "${1:-}" in
         test_flutter "$@"
         ;;
     plugin-manager) build_plugin_manager ;;
-    polkit-agent) build_polkit_agent ;;
-    polkit-agent-run) run_polkit_agent ;;
     compositor-test) require_native compositor-test; test_compositor ;;
     plugin-check) check_plugins ;;
     sdk-test)

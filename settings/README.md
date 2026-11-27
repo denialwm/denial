@@ -7,6 +7,11 @@ builds it and installs it with the `denial` package, on the desktop and the
 phones alike. Its source and its own README are in denial-apps; this folder
 holds what Denial adds.
 
+Denial's Polkit agent (`apps/polkit` in denial-apps) is the second member of
+Settings' Cargo workspace: it comes from the same locked commits, in the same
+Cargo run, into the same package. It also draws denial-portal's Access
+requests.
+
 | File | What it is |
 |---|---|
 | `SOURCE_LOCK.json` | The denial-apps and gpui-touch commits every format builds |
@@ -19,6 +24,9 @@ holds what Denial adds.
 |---|---|
 | `/usr/lib/denial-apps/settings` | The program |
 | `/usr/bin/denial-settings` | A link to it; the shell and the compositor start this name. The entries name the program itself: a phone image that predates this keeps pacman from unpacking the link |
+| `/usr/lib/denial-apps/polkit` | The Polkit agent and its dialogs |
+| `/usr/bin/denial-polkit-agent` | A link to it, which the unit and the compositor start |
+| `/usr/lib/systemd/user/denial-polkit-agent.service` | The agent's unit, part of `denial-session.target` |
 | `/usr/share/applications/org.denialwm.{Settings,Welcome}.desktop` | The two entries |
 | `/usr/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png` | The icon |
 | `/usr/share/licenses/denial/settings/` | denial-apps' license notice and texts |
@@ -36,6 +44,7 @@ country cannot be set.
 ```sh
 tools/denial-settings build     # fetch the locked commits and build
 tools/denial-settings path      # where the program is
+tools/denial-settings polkit-path  # where the Polkit agent is
 tools/denial-settings lock      # the locked commits
 ```
 
@@ -69,7 +78,7 @@ this user's launcher entries at that build.
 3. `tools/denial-settings build`, then commit the three files together.
 
 Nix builds the same commits with denial-apps' own `apps/settings/Cargo.lock`
-(`nix/settings.nix`).
+(`nix/settings.nix`), both programs.
 
 ## Welcome
 

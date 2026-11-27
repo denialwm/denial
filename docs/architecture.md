@@ -323,8 +323,9 @@ return the standard portal `NotFound` error. Portal routing selects
 does not own.
 
 Access asks the user whether an app may have something and returns the
-answer; callers keep it. Each request starts the Polkit dialog bundle in its
-access mode as a centered overlay, over a private socket described in
+answer; callers keep it. Each request starts the Polkit agent's program
+(denial-apps `apps/polkit`) with `--access` as a centered overlay, over a
+private socket described in
 `compositor/denial-portal/src/access.rs`. A boolean choice named `remember`
 becomes once-or-always buttons for both answers: "Always allow", "Allow once",
 "Never allow" and "Decline once". Its value is reported with a denial too,

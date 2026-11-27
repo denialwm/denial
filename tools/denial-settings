@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Settings and Welcome: one GPUI application from denial-apps, built against
-# gpui-touch. settings/SOURCE_LOCK.json names the commit of each; this tool
-# fetches them, builds the application and its Wi-Fi country helper, and
-# installs both into a package root.
+# Settings and Welcome, one GPUI application from denial-apps built against
+# gpui-touch, and the Polkit agent, which shares its Cargo workspace.
+# settings/SOURCE_LOCK.json names the commit of each repository; this tool
+# fetches them, builds both programs in one Cargo run, and installs them into
+# a package root.
 set -euo pipefail
 export LC_ALL=C
 
@@ -27,6 +28,7 @@ LOCAL_SOURCE_ROOT="${DENIAL_SETTINGS_SOURCE_ROOT:-}"
 TARGET_DIR="${DENIAL_SETTINGS_TARGET:-$RUST_TARGET-settings}"
 RELEASE_DIR="$TARGET_DIR${DENIAL_RUST_TARGET:+/$DENIAL_RUST_TARGET}/release"
 BINARY="$RELEASE_DIR/settings"
+POLKIT_BINARY="$RELEASE_DIR/polkit"
 
 usage() {
   cat <<'EOF'
@@ -35,8 +37,9 @@ Usage: tools/denial-settings COMMAND
 Commands:
   source      Fetch the locked denial-apps and gpui-touch commits; print the
               folder that holds both
-  build       Build Settings and its Wi-Fi country helper
+  build       Build Settings and the Polkit agent
   path        Print where build leaves the Settings executable
+  polkit-path Print where build leaves the Polkit agent
   stage ROOT  Install what build left into the package root ROOT
   lock        Print the locked commits
 
@@ -134,24 +137,28 @@ build() (
   # standard library; denial-apps names none.
   toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$ROOT/rust-toolchain.toml")"
   [[ -n "$toolchain" ]] || die 'rust-toolchain.toml names no channel'
-  # Settings is a workspace of its own there, with its own lock: the other
-  # apps' workspace also needs Phonewave beside it.
+  # Settings is a workspace of its own there, with its own lock, and the
+  # Polkit agent its second member: the other apps' workspace also needs
+  # Phonewave beside it. One run compiles GPUI once for both.
   cd -- "$sources/denial-apps/apps/settings"
   RUSTUP_TOOLCHAIN="$toolchain" CARGO_TARGET_DIR="$TARGET_DIR" cargo build \
-    --release --locked --jobs "$(build_jobs)" "${target_args[@]}"
+    --release --locked --jobs "$(build_jobs)" "${target_args[@]}" \
+    -p settings -p polkit
   [[ -x "$BINARY" ]] || die "the build left no $BINARY"
+  [[ -x "$POLKIT_BINARY" ]] || die "the build left no $POLKIT_BINARY"
   # Staging reads the icon, the polkit action and the license texts from the
   # sources this build used.
   printf '%s\n' "$sources" >"$RELEASE_DIR/settings.source-root"
-  printf '\nBuilt %s\n' "$BINARY"
+  printf '\nBuilt %s\nBuilt %s\n' "$BINARY" "$POLKIT_BINARY"
 )
 
 stage() {
   local root="$1"
   local sources apps
   [[ -d "$root" ]] || die "package root does not exist: $root"
-  [[ -x "$BINARY" && -f "$RELEASE_DIR/settings.source-root" ]] \
-    || die "missing $BINARY; run '$0 build' first"
+  [[ -x "$BINARY" && -x "$POLKIT_BINARY" \
+    && -f "$RELEASE_DIR/settings.source-root" ]] \
+    || die "missing $BINARY or $POLKIT_BINARY; run '$0 build' first"
   sources="$(< "$RELEASE_DIR/settings.source-root")"
   apps="$sources/denial-apps"
   install -Dm755 "$BINARY" "$root/usr/lib/denial-apps/settings"
@@ -174,12 +181,19 @@ stage() {
   install -Dm644 "$apps/LICENSES/GPL-3.0-only.txt" \
     "$root/usr/share/licenses/denial/settings/LICENSES/GPL-3.0-only.txt"
   install -Dm644 "$LOCK" "$root/usr/share/denial/settings/SOURCE_LOCK.json"
+  # The Polkit agent, its command and its user unit. The same program draws
+  # denial-portal's Access requests.
+  install -Dm755 "$POLKIT_BINARY" "$root/usr/lib/denial-apps/polkit"
+  ln -s ../lib/denial-apps/polkit "$root/usr/bin/denial-polkit-agent"
+  install -Dm644 "$ROOT/packaging/denial-polkit-agent.service" \
+    "$root/usr/lib/systemd/user/denial-polkit-agent.service"
 }
 
 case "${1:-}" in
   source) source_root ;;
   build) build ;;
   path) printf '%s\n' "$BINARY" ;;
+  polkit-path) printf '%s\n' "$POLKIT_BINARY" ;;
   stage)
     (($# == 2)) || die 'usage: denial-settings stage ROOT'
     stage "$2"

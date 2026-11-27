@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [workspace]
-members = ["denial-portal", "flutter-engine", "polkit-agent", "polling", "text-prediction"]
+members = ["denial-portal", "flutter-engine", "polling", "text-prediction"]
 resolver = "3"
 
 [features]

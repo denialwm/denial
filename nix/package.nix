@@ -99,18 +99,7 @@ let
   nativeApp = callPackage ./native-app.nix {
     src = sourceFor [ "native_app" "compositor" ];
   };
-  polkitApp = callPackage ./polkit-app.nix {
-    inherit nativeApp;
-    src = sourceFor [
-      "polkit_app"
-      "packages/denial_sdk"
-      "packages/denial_flutter_sdk"
-      "protocol/generated/dart"
-    ];
-    sourceLockHash = builtins.hashFile "sha256" (src.origSrc + "/polkit_app/pubspec.lock");
-    version = "0.0.0";
-  };
-  # Settings and Welcome: the GPUI application from denial-apps, at the commits
+  # Settings, Welcome and the Polkit agent: GPUI programs from denial-apps, at the commits
   # settings/SOURCE_LOCK.json names.
   settingsApp = callPackage ./settings.nix {
     inherit denialAppsSrc gpuiTouchSrc;
@@ -210,7 +199,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     install -Dm755 ${compositor}/bin/deniald $out/bin/deniald
     install -Dm755 ${compositor}/bin/denialctl $out/bin/denialctl
     makeWrapper ${compositor}/bin/denial-portal $out/bin/denial-portal \
-      --add-flags "--dialog-bundle $out/lib/denial/polkit"
+      --add-flags "--dialog $out/lib/denial-apps/polkit"
     install -Dm755 ${packageSrc}/packaging/arch/denial-session $out/bin/denial-session
     patchShebangs $out/bin/denial-session
 
@@ -230,11 +219,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     install -Dm644 ${packageSrc}/settings/SOURCE_LOCK.json \
       $out/share/denial/settings/SOURCE_LOCK.json
 
-    install -d $out/lib/denial/polkit
-    cp -R ${polkitApp}/app/denial-polkit-dialog/. $out/lib/denial/polkit/
-    mv $out/lib/denial/polkit/denial-polkit-dialog $out/lib/denial/polkit/denial-app
-    makeWrapper ${compositor}/bin/denial-polkit-agent $out/bin/denial-polkit-agent \
-      --add-flags "--runner $out/lib/denial/polkit/denial-app --bundle $out/lib/denial/polkit --engine $out/lib/denial/polkit/lib/libflutter_engine.so"
+    ln --symbolic ../lib/denial-apps/polkit $out/bin/denial-polkit-agent
     install -Dm644 ${packageSrc}/packaging/denial-polkit-agent.service \
       $out/lib/systemd/user/denial-polkit-agent.service
     substituteInPlace $out/lib/systemd/user/denial-polkit-agent.service \
@@ -344,7 +329,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     test -x $out/bin/denial-portal
     test -x $out/bin/denial-settings
     test -x $out/bin/denial-polkit-agent
-    test -x $out/lib/denial/polkit/denial-app
+    test "$(readlink $out/bin/denial-polkit-agent)" = ../lib/denial-apps/polkit
     test "$(readlink $out/bin/denial-settings)" = ../lib/denial-apps/settings
     test -x $out/bin/denial-session
     test -f $out/lib/denial/flutter/data/icudtl.dat
@@ -379,7 +364,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       dartShell
       settingsApp
       nativeApp
-      polkitApp
       pluginManagerApp
       pluginManagerBackend
       pluginBuildKit

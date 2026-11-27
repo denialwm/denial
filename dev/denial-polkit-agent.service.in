@@ -6,7 +6,7 @@ After=graphical-session-pre.target
 
 [Service]
 Type=simple
-ExecStart=@LAUNCHER@ polkit-agent-run
+ExecStart=@POLKIT_BINARY@
 Restart=on-failure
 RestartSec=1s
 UMask=0077

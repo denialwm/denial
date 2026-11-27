@@ -1,4 +1,4 @@
 [D-BUS Service]
 Name=org.freedesktop.impl.portal.desktop.denial
-Exec=@PORTAL_BINARY@ --dialog-bundle @DIALOG_BUNDLE@
+Exec=@PORTAL_BINARY@ --dialog @DIALOG_PROGRAM@
 SystemdService=denial-portal-development.service

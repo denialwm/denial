@@ -3,8 +3,8 @@
 denial-portal \- serve Denial's desktop portal backend
 .SH SYNOPSIS
 .B denial-portal
-.RB [ \-\-dialog\-bundle
-.IR DIR ]
+.RB [ \-\-dialog
+.IR PROGRAM ]
 .SH DESCRIPTION
 .B denial-portal
 is the D-Bus-activated backend for
@@ -34,9 +34,11 @@ D-Bus activation or
 interactive invocation is not required.
 .SH OPTIONS
 .TP
-.BI \-\-dialog\-bundle " DIR"
-The native dialog bundle that Access requests start. The default is
-.IR /usr/lib/denial/polkit .
+.BI \-\-dialog " PROGRAM"
+The program Access requests start, with
+.BR \-\-access ,
+to show their dialog: Denial's Polkit agent. The default is
+.IR /usr/lib/denial-apps/polkit .
 .SH FILES
 .TP
 .I $XDG_RUNTIME_DIR/denial/portal.sock

@@ -19,13 +19,12 @@ CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_RELEASE/denialctl}"
 PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_RELEASE/denial-portal}"
 BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
-# Settings.
+# Settings, and the Polkit agent built with it.
 SETTINGS_BINARY="$("$ROOT/tools/denial-settings" path)"
+POLKIT_BINARY="$("$ROOT/tools/denial-settings" polkit-path)"
 PLUGIN_MANAGER_BUNDLE="${DENIAL_PC_PLUGIN_MANAGER_BUNDLE:-$ROOT/plugin_manager_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 PLUGIN_MANAGER_BACKEND="${DENIAL_PC_PLUGIN_MANAGER_BACKEND:-$BUILD_ROOT/plugin-manager/denial-plugins}"
 PLUGIN_BUILD_KIT="${DENIAL_PC_PLUGIN_BUILD_KIT:-$BUILD_ROOT/plugin-manager/build-kit}"
-POLKIT_BACKEND="${DENIAL_PC_POLKIT_BACKEND:-$RUST_RELEASE/denial-polkit-agent}"
-POLKIT_BUNDLE="${DENIAL_PC_POLKIT_BUNDLE:-$ROOT/polkit_app/build/linux/$DENIAL_FLUTTER_ARCH/release/bundle}"
 PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 REQUESTED_PACKAGE_VERSION="${DENIAL_PACKAGE_VERSION:-}"
@@ -132,6 +131,7 @@ for required in \
   [[ -f "$required" ]] || die "incomplete Flutter bundle: $required"
 done
 [[ -x "$SETTINGS_BINARY" ]] || die "missing Settings: $SETTINGS_BINARY"
+[[ -x "$POLKIT_BINARY" ]] || die "missing Polkit agent: $POLKIT_BINARY"
 
 glibc_requirement() {
   local file="$1"
@@ -156,13 +156,10 @@ for elf in \
   "$BINARY" \
   "$CONTROL_BINARY" \
   "$PORTAL_BINARY" \
-  "$POLKIT_BACKEND" \
-  "$POLKIT_BUNDLE/denial-app" \
-  "$POLKIT_BUNDLE/lib/libapp.so" \
-  "$POLKIT_BUNDLE/lib/libflutter_engine.so" \
   "$BUNDLE/lib/libapp.so" \
   "$BUNDLE/lib/libflutter_engine.so" \
   "$SETTINGS_BINARY" \
+  "$POLKIT_BINARY" \
   "$PLUGIN_MANAGER_BACKEND" \
   "$PLUGIN_MANAGER_BUNDLE/denial-plugin-manager" \
   "$PLUGIN_MANAGER_BUNDLE/lib/libapp.so" \
@@ -232,7 +229,6 @@ install -Dm644 "$engine_source_root/LICENSE.third_party" \
 install -Dm755 "$BINARY" "$denial_root/usr/bin/deniald"
 install -Dm755 "$CONTROL_BINARY" "$denial_root/usr/bin/denialctl"
 install -Dm755 "$PORTAL_BINARY" "$denial_root/usr/bin/denial-portal"
-"$ROOT/tools/stage-denial-polkit-agent" "$denial_root" "$POLKIT_BACKEND" "$POLKIT_BUNDLE"
 install -Dm755 "$ROOT/packaging/arch/denial-session" \
   "$denial_root/usr/bin/denial-session"
 install -Dm644 "$ROOT/packaging/denial-session.target" \

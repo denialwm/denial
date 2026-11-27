@@ -185,10 +185,8 @@ package() {
   install -m755 "$bundle/lib/libapp.so" \
     "$pkgdir/usr/lib/denial/flutter/lib/libapp.so"
 
+  # Settings and the Polkit agent.
   "$repository_root/tools/denial-settings" stage "$pkgdir"
-  "$repository_root/tools/stage-denial-polkit-agent" "$pkgdir" \
-    "${DENIAL_PACKAGE_POLKIT_BINARY:-$cache_root/denial/pc-build/rust/release/denial-polkit-agent}" \
-    "${DENIAL_PACKAGE_POLKIT_BUNDLE:-$repository_root/polkit_app/build/linux/x64/release/bundle}"
   install -Dm644 \
     "${DENIAL_PACKAGE_PLUGIN_BUILD_KIT:-$cache_root/denial/pc-build/plugin-manager/build-kit}/runtime/.denial-ui-source.json" \
     "$pkgdir/usr/lib/denial/flutter/.denial-ui-source.json"

@@ -3,7 +3,7 @@
   "denial_apps": {
     "repository": "https://github.com/denialwm/denial-apps.git",
     "branch": "main",
-    "revision": "d25c5e9e433498c9c49374471f5def46e40d04e7"
+    "revision": "979bf91f68fb38ffdcd0887722e2d80694e1189c"
   },
   "gpui_touch": {
     "repository": "https://github.com/denialwm/gpui-touch.git",

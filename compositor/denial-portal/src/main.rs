@@ -18,7 +18,7 @@ use denial_core::portal_protocol::{
     ClientMessage, DesktopThemeSnapshot, MAX_MESSAGE_BYTES, PORTAL_SOCKET_FILE, ServerMessage,
     decode_server_message, encode_client_message,
 };
-use tracing::info;
+use tracing::{info, warn};
 use zbus::blocking::Connection;
 use zbus::blocking::connection::Builder as ConnectionBuilder;
 use zbus::zvariant::{OwnedValue, Structure};
@@ -31,8 +31,8 @@ const INTERFACE_NAME: &str = "org.freedesktop.impl.portal.Settings";
 const APPEARANCE_NAMESPACE: &str = "org.freedesktop.appearance";
 const COLOR_SCHEME_KEY: &str = "color-scheme";
 const ACCENT_COLOR_KEY: &str = "accent-color";
-/// The Polkit dialog bundle, which also draws Access requests.
-const DEFAULT_DIALOG_BUNDLE: &str = "/usr/lib/denial/polkit";
+/// Denial's Polkit agent, which also draws Access requests.
+const DEFAULT_DIALOG_PROGRAM: &str = "/usr/lib/denial-apps/polkit";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const RETRY_INTERVAL: Duration = Duration::from_millis(40);
 
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_target(false)
         .init();
 
-    let bundle = dialog_bundle_argument()?;
+    let dialog = dialog_argument()?;
     let (socket, initial) = connect_to_compositor(CONNECT_TIMEOUT)?;
     let cache = Arc::new(RwLock::new(Cache { snapshot: initial }));
     let connection = ConnectionBuilder::session()?
@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 cache: Arc::clone(&cache),
             },
         )?
-        .serve_at(OBJECT_PATH, access::AccessInterface { bundle })?
+        .serve_at(OBJECT_PATH, access::AccessInterface { dialog })?
         .build()?;
     info!(
         service = SERVICE_NAME,
@@ -157,26 +157,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     receive_updates(socket, &connection, &cache)
 }
 
-/// `--dialog-bundle DIR`: the native dialog bundle Access requests open.
-fn dialog_bundle_argument() -> Result<access::DialogBundle, Box<dyn Error>> {
-    let mut bundle = PathBuf::from(DEFAULT_DIALOG_BUNDLE);
+/// `--dialog PROGRAM`: the program Access requests start as
+/// `PROGRAM --access`.
+fn dialog_argument() -> Result<PathBuf, Box<dyn Error>> {
+    let mut dialog = PathBuf::from(DEFAULT_DIALOG_PROGRAM);
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
+            Some("--dialog") => {
+                dialog = arguments.next().ok_or("--dialog needs a program")?.into();
+            }
+            // The Flutter dialog's bundle, named by units written before the
+            // dialog became the Polkit agent's own program.
             Some("--dialog-bundle") => {
-                bundle = arguments
+                let bundle = arguments
                     .next()
-                    .ok_or("--dialog-bundle needs a directory")?
-                    .into();
+                    .ok_or("--dialog-bundle needs a directory")?;
+                warn!(
+                    bundle = %bundle.to_string_lossy(),
+                    "--dialog-bundle is gone; using {DEFAULT_DIALOG_PROGRAM}"
+                );
             }
             Some("--help") => {
-                println!("denial-portal [--dialog-bundle DIR]");
+                println!("denial-portal [--dialog PROGRAM]");
                 std::process::exit(0);
             }
             _ => return Err(format!("unknown argument {}", argument.to_string_lossy()).into()),
         }
     }
-    Ok(access::DialogBundle(bundle))
+    Ok(dialog)
 }
 
 fn receive_updates(

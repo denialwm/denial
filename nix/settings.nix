@@ -4,7 +4,9 @@
   runCommand,
   pkg-config,
   fontconfig,
+  glib,
   libxkbcommon,
+  polkit,
   vulkan-loader,
   wayland,
   denialAppsSrc ? null,
@@ -13,8 +15,8 @@
 }:
 
 assert lib.assertMsg (denialAppsSrc != null && gpuiTouchSrc != null) ''
-  Settings is built from the denial-apps and gpui-touch commits that
-  settings/SOURCE_LOCK.json names. Supply denialAppsSrc and gpuiTouchSrc when
+  Settings and the Polkit agent are built from the denial-apps and gpui-touch
+  commits that settings/SOURCE_LOCK.json names. Supply denialAppsSrc and gpuiTouchSrc when
   using this expression directly.
 '';
 let
@@ -36,8 +38,21 @@ rustPlatform.buildRustPackage {
   pname = "denial-settings";
   inherit version;
   src = source;
-  # Settings is a Cargo workspace of its own in denial-apps, with its own lock.
+  # Settings is a Cargo workspace of its own in denial-apps, with its own lock;
+  # the Polkit agent is its second member.
   sourceRoot = "source/denial-apps/apps/settings";
+  cargoBuildFlags = [
+    "-p"
+    "settings"
+    "-p"
+    "polkit"
+  ];
+  cargoTestFlags = [
+    "-p"
+    "settings"
+    "-p"
+    "polkit"
+  ];
   # The workspace's own Cargo configuration builds into the denial-apps
   # checkout's shared target, outside the part of the source made writable.
   CARGO_TARGET_DIR = "target";
@@ -51,14 +66,18 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [
     fontconfig
+    glib
     libxkbcommon
+    polkit
     wayland
   ];
 
   postInstall = ''
     install -d $out/lib/denial-apps
     mv $out/bin/settings $out/lib/denial-apps/
+    mv $out/bin/polkit $out/lib/denial-apps/
     ln --symbolic ../lib/denial-apps/settings $out/bin/denial-settings
+    ln --symbolic ../lib/denial-apps/polkit $out/bin/denial-polkit-agent
     install -Dm644 org.denialwm.Settings.png \
       $out/share/icons/hicolor/512x512/apps/org.denialwm.Settings.png
     install -Dm644 ../../LICENSE.md ../../README.md \
@@ -67,14 +86,16 @@ rustPlatform.buildRustPackage {
       ../../LICENSES/GPL-3.0-only.txt \
       --target-directory=$out/share/licenses/denial/settings/LICENSES
     test -x $out/lib/denial-apps/settings
+    test -x $out/lib/denial-apps/polkit
   '';
 
   postFixup = ''
     patchelf --add-rpath ${runtimeLibraryPath} $out/lib/denial-apps/settings
+    patchelf --add-rpath ${runtimeLibraryPath} $out/lib/denial-apps/polkit
   '';
 
   meta = {
-    description = "Settings and Welcome for Denial";
+    description = "Settings, Welcome and the Polkit agent for Denial";
     homepage = "https://github.com/denialwm/denial-apps";
     license = with lib.licenses; [
       gpl3Plus
