@@ -305,43 +305,82 @@ validate_plugin_manager_package() (
   }
 )
 
-if [[ ! -f "$engine_package" || "$REBUILD_ENGINE_PACKAGE" == 1 ]]; then
-  DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial-flutter-engine" makepkg \
-    --dir "$ENGINE_PACKAGE_DIR" \
+package_engine() {
+  if [[ ! -f "$engine_package" || "$REBUILD_ENGINE_PACKAGE" == 1 ]]; then
+    DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial-flutter-engine" makepkg \
+      --dir "$ENGINE_PACKAGE_DIR" \
+      --force \
+      --cleanbuild \
+      --clean \
+      --noconfirm
+    validate_engine_package "$engine_package"
+  else
+    validate_engine_package "$engine_package"
+    printf 'Reusing validated Flutter generation package: %s\n' "$engine_package"
+  fi
+}
+
+# The exact engine dependency is the package built beside it, not a package
+# installed into the developer's live Pacman root, so Denial skips the
+# dependency check. Both metadata records are validated after the build and
+# installed together in Stage 1.
+package_denial() {
+  DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial" makepkg \
+    --dir "$DENIAL_PACKAGE_DIR" \
     --force \
     --cleanbuild \
     --clean \
+    --nodeps \
     --noconfirm
-  validate_engine_package "$engine_package"
-else
-  validate_engine_package "$engine_package"
-  printf 'Reusing validated Flutter generation package: %s\n' "$engine_package"
-fi
+  validate_denial_package "$(makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist)"
+}
 
-# The exact engine dependency is the package built immediately above, not a
-# package installed into the developer's live Pacman root. Validate both
-# package metadata records after the build and install them together in Stage 1.
-DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial" makepkg \
-  --dir "$DENIAL_PACKAGE_DIR" \
-  --force \
-  --cleanbuild \
-  --clean \
-  --nodeps \
-  --noconfirm
+package_plugin_manager() {
+  DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial-plugin-manager" makepkg \
+    --dir "$PLUGIN_MANAGER_PACKAGE_DIR" \
+    --force \
+    --cleanbuild \
+    --clean \
+    --nodeps \
+    --noconfirm
+  validate_plugin_manager_package \
+    "$(makepkg --dir "$PLUGIN_MANAGER_PACKAGE_DIR" --packagelist)"
+}
 
+# The three packages share no sources and build in their own folders below
+# BUILDDIR, so they build and validate side by side, each into its own log.
+package_logs="$(mktemp -d "$MAKEPKG_ROOT/logs.XXXXXX")"
+package_pids=()
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+stop_packaging() {
+  local pid
+  for pid in "${package_pids[@]}"; do
+    kill -- "$pid" 2>/dev/null || true
+  done
+  rm -rf --one-file-system -- "$package_logs"
+}
+trap stop_packaging EXIT
+package_steps=(engine denial plugin_manager)
+for package_step in "${package_steps[@]}"; do
+  "package_$package_step" >"$package_logs/$package_step.log" 2>&1 &
+  package_pids+=("$!")
+done
+package_status=0
+for index in "${!package_pids[@]}"; do
+  package_result=0
+  wait "${package_pids[$index]}" || package_result=$?
+  package_step="${package_steps[$index]}"
+  printf '\n--- %s package (exit %s) ---\n' "${package_step//_/ }" "$package_result"
+  cat -- "$package_logs/$package_step.log"
+  ((package_result == 0)) || package_status=$package_result
+done
+package_pids=()
+((package_status == 0)) || exit "$package_status"
 denial_package="$(makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist)"
-DENIAL_PACKAGE_PAYLOAD_ROOT="$STAGE_ROOT/denial-plugin-manager" makepkg \
-  --dir "$PLUGIN_MANAGER_PACKAGE_DIR" \
-  --force \
-  --cleanbuild \
-  --clean \
-  --nodeps \
-  --noconfirm
 plugin_manager_package="$(
   makepkg --dir "$PLUGIN_MANAGER_PACKAGE_DIR" --packagelist
 )"
-validate_denial_package "$denial_package"
-validate_plugin_manager_package "$plugin_manager_package"
 
 printf '\nArch packages ready:\n'
 printf '%s\n' "$engine_package"
