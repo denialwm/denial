@@ -209,6 +209,11 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Logging out and straight back in no longer leaves the authentication
+  agent serving the session that ended, where `pkexec` and other PolicyKit
+  prompts found no agent. When the user manager lingers, Denial now waits
+  for the previous session's services to stop before starting its session
+  target again.
 - The `denial` package requires the engine it was built for. 0.6.9 talks to
   the engine through the scene composer, but still accepted the 0.6.8
   engine, which leaves the shell blank; the engine compatibility capability

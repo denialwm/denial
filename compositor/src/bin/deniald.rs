@@ -354,8 +354,8 @@ use scene_sync::SceneSyncState;
 #[cfg(feature = "flutter")]
 use scene_sync::{WindowEventDisposition, window_event_disposition};
 use session_activation::{
-    preserves_predecessor_kms_state, publish_session_activation_environment,
-    stop_systemd_graphical_session,
+    finish_previous_graphical_session, preserves_predecessor_kms_state,
+    publish_session_activation_environment, stop_systemd_graphical_session,
 };
 #[cfg(feature = "flutter")]
 use sleep_transition::{release_sleep_delay_if_ready, synchronize_sleep_transition};

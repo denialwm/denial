@@ -32,6 +32,15 @@ that preceded Denial, so its display, desktop, cursor and Qt platform-theme
 values do not reach a later graphical session while the same user manager
 remains alive.
 
+That user manager outlives the login when the user lingers, and stopping the
+target only queues the stop: a slow unit can hold it for its whole stop
+timeout while the user is already logging in again. A start request would
+replace the stop jobs still waiting, and units ordered to stop after the
+target, such as `denial-polkit-agent.service`, would keep serving the login
+that ended. So before a new login takes the display, Denial stops a
+`denial-session.target` that is still up and waits up to 20 seconds for the
+user manager's stop jobs to finish, then starts the target afresh.
+
 The D-Bus-activated `denial-portal.service` is part of that target. It connects
 to deniald's private appearance-state socket before owning the Settings portal
 bus name, then stops when the compositor disconnects. XDG desktop portal

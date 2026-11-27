@@ -224,6 +224,97 @@ pub(super) fn stop_systemd_graphical_session(
     }
 }
 
+/// How long a new login waits for the previous session's units to stop.
+const PREVIOUS_SESSION_STOP_LIMIT: Duration = Duration::from_secs(20);
+const PREVIOUS_SESSION_STOP_POLL: Duration = Duration::from_millis(100);
+
+/// One entry of the systemd manager's `ListJobs`: id, unit, type, state,
+/// job path, unit path.
+type SystemdJob = (
+    u32,
+    String,
+    String,
+    String,
+    zbus::zvariant::OwnedObjectPath,
+    zbus::zvariant::OwnedObjectPath,
+);
+
+fn stop_job_ids(jobs: &[SystemdJob]) -> BTreeSet<u32> {
+    jobs.iter()
+        .filter(|(_, _, job_type, ..)| job_type == "stop")
+        .map(|(id, ..)| *id)
+        .collect()
+}
+
+/// A lingering user manager outlives a login. Stopping the graphical session
+/// at logout only queues jobs, and the slowest unit can keep them waiting for
+/// its stop timeout. A start request from the next login replaces whatever
+/// is still queued, so units that stop after the target, such as the
+/// authentication agent, would keep serving the session that ended. The new
+/// session therefore starts only once the previous one has stopped: stop the
+/// Denial session target if it is still up, then wait, bounded, for the
+/// manager's stop jobs to finish.
+pub(super) fn finish_previous_graphical_session() -> Result<(), Box<dyn Error>> {
+    if !systemd_user_manager_runtime_available(std::env::var_os("XDG_RUNTIME_DIR").as_deref()) {
+        return Ok(());
+    }
+    let connection = zbus::blocking::Connection::session()?;
+    let manager = zbus::blocking::Proxy::new(
+        &connection,
+        SYSTEMD_DBUS_NAME,
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+    )?;
+    let target: zbus::zvariant::OwnedObjectPath =
+        manager.call("LoadUnit", &(DENIAL_SESSION_TARGET,))?;
+    let target = zbus::blocking::Proxy::new(
+        &connection,
+        SYSTEMD_DBUS_NAME,
+        target,
+        "org.freedesktop.systemd1.Unit",
+    )?;
+    let target_state: String = target.get_property("ActiveState")?;
+    if !matches!(target_state.as_str(), "inactive" | "failed") {
+        let _: zbus::zvariant::OwnedObjectPath =
+            manager.call("StopUnit", &(GRAPHICAL_SESSION_TARGET, "replace"))?;
+    }
+    let jobs: Vec<SystemdJob> = manager.call("ListJobs", &())?;
+    let stopping = stop_job_ids(&jobs);
+    if stopping.is_empty() {
+        return Ok(());
+    }
+    info!(
+        target_state,
+        jobs = stopping.len(),
+        "waiting for the previous graphical session to stop"
+    );
+    let started = Instant::now();
+    loop {
+        let jobs: Vec<SystemdJob> = manager.call("ListJobs", &())?;
+        let pending: Vec<&str> = jobs
+            .iter()
+            .filter(|(id, ..)| stopping.contains(id))
+            .map(|(_, unit, ..)| unit.as_str())
+            .collect();
+        if pending.is_empty() {
+            info!(
+                waited_ms = started.elapsed().as_millis(),
+                "the previous graphical session has stopped"
+            );
+            return Ok(());
+        }
+        if started.elapsed() >= PREVIOUS_SESSION_STOP_LIMIT {
+            return Err(format!(
+                "the previous graphical session was still stopping after {} s: {}",
+                PREVIOUS_SESSION_STOP_LIMIT.as_secs(),
+                pending.join(", ")
+            )
+            .into());
+        }
+        std::thread::sleep(PREVIOUS_SESSION_STOP_POLL);
+    }
+}
+
 pub(super) fn publish_session_activation_environment(
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
@@ -354,6 +445,32 @@ mod tests {
                 ],
             }
         );
+    }
+
+    #[test]
+    fn only_stop_jobs_hold_back_the_next_session() {
+        let job = |id: u32, unit: &str, job_type: &str| -> SystemdJob {
+            (
+                id,
+                unit.to_owned(),
+                job_type.to_owned(),
+                String::from("waiting"),
+                zbus::zvariant::OwnedObjectPath::try_from(format!(
+                    "/org/freedesktop/systemd1/job/{id}"
+                ))
+                .unwrap(),
+                zbus::zvariant::OwnedObjectPath::try_from("/org/freedesktop/systemd1/unit/x")
+                    .unwrap(),
+            )
+        };
+        let jobs = [
+            job(7, "denial-polkit-agent.service", "stop"),
+            job(8, "graphical-session.target", "stop"),
+            job(9, "app-foot.scope", "start"),
+        ];
+
+        assert_eq!(stop_job_ids(&jobs), BTreeSet::from([7, 8]));
+        assert!(stop_job_ids(&[]).is_empty());
     }
 
     #[test]

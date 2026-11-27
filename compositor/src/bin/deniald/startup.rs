@@ -144,6 +144,15 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         None
     };
 
+    // Before this login takes the display, let the previous login's session
+    // services finish stopping, so the session target starts them afresh.
+    if runtime_limit == RuntimeLimit::UntilLogout
+        && options.wayland
+        && let Err(error) = finish_previous_graphical_session()
+    {
+        warn!(%error, "starting the graphical session while the previous one may still be stopping");
+    }
+
     let preserve_predecessor = preserves_predecessor_kms_state(
         runtime_limit,
         denial_core::environment::flag("DENIAL_NO_PREDECESSOR"),
