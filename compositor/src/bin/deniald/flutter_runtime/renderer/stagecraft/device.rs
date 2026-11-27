@@ -444,6 +444,29 @@ impl Gpu {
         self.0.layered
     }
 
+    /// Each memory block of the allocator as (bytes in use, block size).
+    /// Builds a report of every allocation: for the composer's log marks,
+    /// never per frame.
+    pub(super) fn memory_blocks(&self) -> Vec<(u64, u64)> {
+        let Some(report) = lock(&self.0.allocator)
+            .as_ref()
+            .map(Allocator::generate_report)
+        else {
+            return Vec::new();
+        };
+        report
+            .blocks
+            .iter()
+            .map(|block| {
+                let used = report.allocations[block.allocations.clone()]
+                    .iter()
+                    .map(|allocation| allocation.size)
+                    .sum();
+                (used, block.size)
+            })
+            .collect()
+    }
+
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
     /// context renders with. The engine renders on it too: the instance and
     /// device add what Impeller requires, and the queue entry points the

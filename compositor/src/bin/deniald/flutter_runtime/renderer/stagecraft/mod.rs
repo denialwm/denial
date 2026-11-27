@@ -448,7 +448,8 @@ const ENGINE_COMPOSED: u64 = 1 << 63;
 
 /// What composed the output frames while the composer is on, logged at 1,
 /// 100, 1 000, 10 000… frames: how many Vulkan drew, how many GLES drew and
-/// why, and how often frosts are remade.
+/// why, how often frosts are remade, and how full the allocator's memory
+/// blocks are.
 #[derive(Default)]
 struct Tally {
     vulkan_frames: u64,
@@ -503,6 +504,7 @@ struct Tally {
 impl Tally {
     fn vulkan(
         &mut self,
+        gpu: &Gpu,
         staged: &Staged,
         area: [i32; 4],
         size: (u32, u32),
@@ -543,12 +545,12 @@ impl Tally {
         self.slices_rewritten += u64::from(staged.slices_rewritten);
         self.engine_frames += u64::from(staged.scene_revision & ENGINE_COMPOSED != 0);
         self.vulkan_frames += 1;
-        self.log();
+        self.log(gpu);
     }
 
-    fn gles(&mut self) {
+    fn gles(&mut self, gpu: &Gpu) {
         self.gles_frames += 1;
-        self.log();
+        self.log(gpu);
     }
 
     fn decline(&mut self, reason: &'static str) {
@@ -558,7 +560,7 @@ impl Tally {
         }
     }
 
-    fn log(&self) {
+    fn log(&self, gpu: &Gpu) {
         let frames = self.vulkan_frames + self.gles_frames;
         let mut mark = 1;
         while mark < frames {
@@ -573,6 +575,7 @@ impl Tally {
             .map(|(reason, count)| format!("{reason}: {count}"))
             .collect::<Vec<_>>()
             .join(", ");
+        let (memory_used_mib, memory_blocks_mib) = memory_fill(&gpu.memory_blocks());
         info!(
             vulkan_frames = self.vulkan_frames,
             gles_frames = self.gles_frames,
@@ -614,9 +617,27 @@ impl Tally {
                 "{:.1}",
                 self.redrawn * 100.0 / self.vulkan_frames.max(1) as f64
             ),
+            %memory_used_mib,
+            %memory_blocks_mib,
             "output frames"
         );
     }
+}
+
+/// The allocator's blocks for the log, in MiB: in use over reserved in all,
+/// and each block as in use/size, largest first.
+fn memory_fill(blocks: &[(u64, u64)]) -> (String, String) {
+    let mib = |bytes: u64| bytes as f64 / f64::from(1 << 20);
+    let used = blocks.iter().map(|(used, _)| used).sum::<u64>();
+    let size = blocks.iter().map(|(_, size)| size).sum::<u64>();
+    let mut sorted = blocks.to_vec();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
+    let each = sorted
+        .iter()
+        .map(|&(used, size)| format!("{:.1}/{:.0}", mib(used), mib(size)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    (format!("{:.1}/{:.0}", mib(used), mib(size)), each)
 }
 
 struct CachedFrost {
@@ -842,7 +863,7 @@ impl SceneComposer {
     pub(super) fn gles_presented(&self, view_id: i64) {
         let mut state = lock(&self.state);
         state.unaccount(view_id);
-        state.tally.gles();
+        state.tally.gles(&self.gpu);
     }
 
     /// The view's last frame never reached the screen.
@@ -1350,9 +1371,14 @@ impl SceneComposer {
             }
         };
         let engine_damage = to_target(damage.frame).map(coverage).sum::<f64>().min(1.0);
-        state
-            .tally
-            .vulkan(staged, area, target.size, engine_damage, coverage(added));
+        state.tally.vulkan(
+            gpu,
+            staged,
+            area,
+            target.size,
+            engine_damage,
+            coverage(added),
+        );
         crate::client_visibility::composed(
             staged.view_id,
             &staged.shown_textures,

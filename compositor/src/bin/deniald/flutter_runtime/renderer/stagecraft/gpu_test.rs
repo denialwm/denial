@@ -2551,3 +2551,38 @@ fn a_frame_copies_earlier_changes_from_the_shown_buffer() {
         "first pixel that differs from the shown buffer"
     );
 }
+
+#[test]
+fn memory_fill_lists_blocks_largest_first_in_mib() {
+    let mib = 1 << 20;
+    let (all, each) = super::memory_fill(&[
+        (3 * mib / 2, 32 * mib),
+        (0, 128 * mib),
+        (40 * mib, 128 * mib),
+    ]);
+    assert_eq!(all, "41.5/288");
+    assert_eq!(each, "40.0/128 0.0/128 1.5/32");
+    assert_eq!(super::memory_fill(&[]), ("0.0/0".to_owned(), String::new()));
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn memory_blocks_count_a_private_image_until_it_is_dropped() {
+    let fd = node();
+    let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
+    let used = |gpu: &Gpu| {
+        gpu.memory_blocks()
+            .iter()
+            .map(|(used, _)| used)
+            .sum::<u64>()
+    };
+    let before = used(&gpu);
+    let image = gpu
+        .private_image((W, H), 1, ash::vk::ImageUsageFlags::SAMPLED)
+        .expect("private image");
+    let blocks = gpu.memory_blocks();
+    assert!(used(&gpu) >= before + u64::from(W * H * 4));
+    assert!(blocks.iter().all(|(used, size)| used <= size));
+    drop(image);
+    assert_eq!(used(&gpu), before);
+}
