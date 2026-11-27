@@ -48,6 +48,7 @@ impl Frost {
         let levels = plan.levels();
         let last = level(storage, levels - 1);
         let tile = gpu.private_image(
+            "frost",
             storage,
             levels,
             vk::ImageUsageFlags::TRANSFER_DST
@@ -56,6 +57,7 @@ impl Frost {
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
         )?;
         let scratch = gpu.private_image(
+            "frost scratch",
             last,
             1,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::COLOR_ATTACHMENT,

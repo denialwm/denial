@@ -499,6 +499,9 @@ struct Tally {
     /// freshly allocated.
     slices_pooled: u64,
     slices_allocated: u64,
+    /// Allocator bytes of the images in `State::slice_pool`: slices kept
+    /// for reuse that nothing draws.
+    pooled_slice_bytes: u64,
 }
 
 impl Tally {
@@ -575,7 +578,9 @@ impl Tally {
             .map(|(reason, count)| format!("{reason}: {count}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let (memory_used_mib, memory_blocks_mib) = memory_fill(&gpu.memory_blocks());
+        let memory = gpu.memory_report();
+        let (memory_used_mib, memory_blocks_mib) = memory_fill(&memory.blocks);
+        let memory_kinds_mib = kinds_fill(&memory.kinds, self.pooled_slice_bytes);
         info!(
             vulkan_frames = self.vulkan_frames,
             gles_frames = self.gles_frames,
@@ -619,6 +624,7 @@ impl Tally {
             ),
             %memory_used_mib,
             %memory_blocks_mib,
+            %memory_kinds_mib,
             "output frames"
         );
     }
@@ -638,6 +644,29 @@ fn memory_fill(blocks: &[(u64, u64)]) -> (String, String) {
         .collect::<Vec<_>>()
         .join(" ");
     (format!("{:.1}/{:.0}", mib(used), mib(size)), each)
+}
+
+/// MiB in use per image kind for the log, largest first; slices name the
+/// part idle in the pool.
+fn kinds_fill(kinds: &[(String, u64)], pooled_slices: u64) -> String {
+    let mib = |bytes: u64| bytes as f64 / f64::from(1 << 20);
+    let mut sorted = kinds.to_vec();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    sorted
+        .iter()
+        .map(|(kind, bytes)| {
+            if kind == "slice" {
+                format!(
+                    "slice {:.1} (pooled {:.1})",
+                    mib(*bytes),
+                    mib(pooled_slices)
+                )
+            } else {
+                format!("{kind} {:.1}", mib(*bytes))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 struct CachedFrost {
@@ -821,6 +850,11 @@ impl SceneComposer {
             let (_, oldest) = state.slice_pool.remove(0);
             bytes -= slice_bytes(&oldest);
         }
+        state.tally.pooled_slice_bytes = state
+            .slice_pool
+            .iter()
+            .map(|(_, image)| image.allocated_bytes())
+            .sum();
         state.clients.retain(|weak, import| {
             !weak.is_gone() && serial - import.last_serial < CLIENT_IMPORT_IDLE_SUBMITS
         });
@@ -1078,6 +1112,9 @@ impl SceneComposer {
                 .min_by_key(|(_, (_, image))| u64::from(image.size.0) * u64::from(image.size.1))
                 .map(|(index, _)| index);
             let pooled = found.map(|index| state.slice_pool.remove(index).1);
+            if let Some(image) = &pooled {
+                state.tally.pooled_slice_bytes -= image.allocated_bytes();
+            }
             state.tally.slices_pooled += u64::from(pooled.is_some());
             state.tally.slices_allocated += u64::from(pooled.is_none());
             pooled
@@ -1089,6 +1126,7 @@ impl SceneComposer {
         } else {
             self.gpu
                 .private_image(
+                    "slice",
                     (width, height),
                     1,
                     ash::vk::ImageUsageFlags::COLOR_ATTACHMENT

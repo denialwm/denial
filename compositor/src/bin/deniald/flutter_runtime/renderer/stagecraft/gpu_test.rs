@@ -2566,23 +2566,45 @@ fn memory_fill_lists_blocks_largest_first_in_mib() {
 }
 
 #[test]
+fn kinds_fill_lists_kinds_largest_first_and_names_pooled_slices() {
+    let mib = 1 << 20;
+    let kinds = [
+        ("frost".to_owned(), 20 * mib),
+        ("slice".to_owned(), 80 * mib),
+        ("wl_shm copy".to_owned(), mib / 2),
+    ];
+    assert_eq!(
+        super::kinds_fill(&kinds, 30 * mib),
+        "slice 80.0 (pooled 30.0), frost 20.0, wl_shm copy 0.5"
+    );
+    assert_eq!(super::kinds_fill(&[], 0), "");
+}
+
+#[test]
 #[ignore = "needs a GPU"]
-fn memory_blocks_count_a_private_image_until_it_is_dropped() {
+fn memory_report_counts_a_private_image_by_kind_until_it_is_dropped() {
     let fd = node();
     let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
     let used = |gpu: &Gpu| {
-        gpu.memory_blocks()
+        gpu.memory_report()
+            .blocks
             .iter()
             .map(|(used, _)| used)
             .sum::<u64>()
     };
     let before = used(&gpu);
     let image = gpu
-        .private_image((W, H), 1, ash::vk::ImageUsageFlags::SAMPLED)
+        .private_image("test kind", (W, H), 1, ash::vk::ImageUsageFlags::SAMPLED)
         .expect("private image");
-    let blocks = gpu.memory_blocks();
+    let report = gpu.memory_report();
     assert!(used(&gpu) >= before + u64::from(W * H * 4));
-    assert!(blocks.iter().all(|(used, size)| used <= size));
+    assert!(report.blocks.iter().all(|(used, size)| used <= size));
+    let kind = report
+        .kinds
+        .iter()
+        .find(|(kind, _)| kind == "test kind")
+        .map(|(_, bytes)| *bytes);
+    assert_eq!(kind, Some(image.allocated_bytes()));
     drop(image);
     assert_eq!(used(&gpu), before);
 }

@@ -435,6 +435,15 @@ fn duplicate(fd: BorrowedFd<'_>) -> Result<OwnedFd> {
 
 /// The composer's GPU. Cloning shares it.
 #[derive(Clone)]
+/// What the allocator holds (`Gpu::memory_report`).
+#[derive(Default)]
+pub(super) struct MemoryReport {
+    /// Each block as (bytes in use, block size).
+    pub(super) blocks: Vec<(u64, u64)>,
+    /// Bytes in use per image kind.
+    pub(super) kinds: Vec<(String, u64)>,
+}
+
 pub(super) struct Gpu(pub(super) Arc<GpuInner>);
 
 impl Gpu {
@@ -444,17 +453,17 @@ impl Gpu {
         self.0.layered
     }
 
-    /// Each memory block of the allocator as (bytes in use, block size).
-    /// Builds a report of every allocation: for the composer's log marks,
-    /// never per frame.
-    pub(super) fn memory_blocks(&self) -> Vec<(u64, u64)> {
+    /// The allocator's memory blocks as (bytes in use, block size), and the
+    /// bytes in use per image kind (`private_image`). Builds a report of
+    /// every allocation: for the composer's log marks, never per frame.
+    pub(super) fn memory_report(&self) -> MemoryReport {
         let Some(report) = lock(&self.0.allocator)
             .as_ref()
             .map(Allocator::generate_report)
         else {
-            return Vec::new();
+            return MemoryReport::default();
         };
-        report
+        let blocks = report
             .blocks
             .iter()
             .map(|block| {
@@ -464,7 +473,15 @@ impl Gpu {
                     .sum();
                 (used, block.size)
             })
-            .collect()
+            .collect();
+        let mut kinds: Vec<(String, u64)> = Vec::new();
+        for allocation in &report.allocations {
+            match kinds.iter_mut().find(|(kind, _)| *kind == allocation.name) {
+                Some((_, bytes)) => *bytes += allocation.size,
+                None => kinds.push((allocation.name.clone(), allocation.size)),
+            }
+        }
+        MemoryReport { blocks, kinds }
     }
 
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
@@ -1031,6 +1048,12 @@ pub(in crate::flutter_runtime) struct Image {
 }
 
 impl Image {
+    /// The bytes its allocation takes in the allocator's blocks; zero for
+    /// an imported image.
+    pub(super) fn allocated_bytes(&self) -> u64 {
+        self.allocation.as_ref().map_or(0, Allocation::size)
+    }
+
     /// What the engine samples of a lent image: its handles, VkFormat and
     /// size.
     pub(in crate::flutter_runtime) fn lent(&self) -> (u64, u64, u32, (u32, u32)) {
@@ -1239,6 +1262,7 @@ impl Gpu {
     /// shows the last level, which is what frost passes render and sample.
     pub(super) fn private_image(
         &self,
+        kind: &'static str,
         size: (u32, u32),
         levels: u32,
         usage: vk::ImageUsageFlags,
@@ -1283,7 +1307,7 @@ impl Gpu {
                 .as_mut()
                 .ok_or("Stagecraft: allocator gone")?
                 .allocate(&AllocationCreateDesc {
-                    name: "private image",
+                    name: kind,
                     requirements,
                     location: MemoryLocation::GpuOnly,
                     linear: false,
@@ -1315,6 +1339,7 @@ impl Gpu {
     /// samples nothing.
     pub(super) fn placeholder(&self) -> Result<Arc<Image>> {
         let mut placeholder = self.private_image(
+            "placeholder",
             (1, 1),
             1,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
@@ -1378,6 +1403,7 @@ impl Gpu {
             return Err(format!("Stagecraft: SHM image above {largest} pixels").into());
         }
         let mut image = self.private_image(
+            "wl_shm copy",
             size,
             1,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
@@ -1408,6 +1434,7 @@ impl Gpu {
             return Err(format!("Stagecraft: merged window outside {width}x{height}").into());
         }
         Ok(Arc::new(self.private_image(
+            "merged window",
             size,
             1,
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::COLOR_ATTACHMENT,
