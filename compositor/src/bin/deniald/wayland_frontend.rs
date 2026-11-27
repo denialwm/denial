@@ -148,6 +148,8 @@ use super::wire::{
 mod app_scale;
 #[path = "wayland_frontend/app_specific.rs"]
 mod app_specific;
+#[path = "wayland_frontend/own_dialogs.rs"]
+mod own_dialogs;
 #[path = "wayland_frontend/clipboard.rs"]
 mod clipboard_io;
 #[path = "wayland_frontend/color_management.rs"]
@@ -1256,6 +1258,7 @@ fn init_listener(
             }
             client_state.chromium_browser =
                 app_specific::is_chromium_browser(client_state.peer_pid);
+            client_state.own_dialog = own_dialogs::is_dialog_program(client_state.peer_pid);
             client_state.set_apps_scale(app_scale::connection_scale(
                 client_state.peer_pid,
                 frontend.settings.apps_scale(),

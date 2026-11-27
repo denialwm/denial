@@ -191,6 +191,7 @@ impl WaylandClientBudget {
             peer_pid: None,
             peer_uid: None,
             chromium_browser: false,
+            own_dialog: false,
         })
     }
 }
@@ -269,6 +270,8 @@ pub(super) struct DenialClientState {
     pub(super) peer_uid: Option<u32>,
     /// A Chromium-based browser: see `app_specific`.
     pub(super) chromium_browser: bool,
+    /// One of Denial's own dialogs: see `own_dialogs`.
+    pub(super) own_dialog: bool,
     compositor_state: CompositorClientState,
     /// `f64` bits of the scale this client draws apps at; see `app_scale`.
     apps_scale: AtomicU64,
@@ -288,6 +291,7 @@ impl Default for DenialClientState {
             peer_pid: None,
             peer_uid: None,
             chromium_browser: false,
+            own_dialog: false,
         }
     }
 }
@@ -2019,6 +2023,8 @@ impl XdgShellHandler for RuntimeState {
             .seat
             .get_keyboard()
             .expect("seat has no keyboard");
+        // Denial's own dialogs open pinned and without the keyboard.
+        let own_dialog = super::own_dialogs::from_dialog(&focus);
         let initial_activation = {
             let frontend = self.frontend_mut();
             frontend.register_window(&focus);
@@ -2041,24 +2047,32 @@ impl XdgShellHandler for RuntimeState {
             frontend.space.map_element(window.clone(), location, true);
             frontend.update_window_output_membership(&window);
             frontend.remember_layout_insertion_anchor(&window);
-            for candidate in frontend.space.elements() {
-                let changed = candidate.set_activated(candidate == &window);
-                if changed && let Some(toplevel) = candidate.toplevel() {
-                    toplevel.send_pending_configure();
+            #[cfg(feature = "flutter")]
+            if own_dialog && let Some(window_id) = frontend.surface_id(&focus) {
+                frontend.set_window_pinned(window_id, None, true, false);
+            }
+            if !own_dialog {
+                for candidate in frontend.space.elements() {
+                    let changed = candidate.set_activated(candidate == &window);
+                    if changed && let Some(toplevel) = candidate.toplevel() {
+                        toplevel.send_pending_configure();
+                    }
                 }
             }
             #[cfg(feature = "flutter")]
-            let initial_activation = frontend.surface_id(&focus);
+            let initial_activation = frontend.surface_id(&focus).filter(|_| !own_dialog);
             #[cfg(not(feature = "flutter"))]
             let initial_activation = None::<u64>;
             initial_activation
         };
-        request_keyboard_focus(
-            self,
-            &keyboard,
-            Some(KeyboardFocusTarget::Wayland(focus)),
-            SERIAL_COUNTER.next_serial(),
-        );
+        if !own_dialog {
+            request_keyboard_focus(
+                self,
+                &keyboard,
+                Some(KeyboardFocusTarget::Wayland(focus)),
+                SERIAL_COUNTER.next_serial(),
+            );
+        }
         #[cfg(feature = "flutter")]
         if let Some(window_id) = initial_activation {
             self.window_events

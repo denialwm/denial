@@ -880,6 +880,8 @@ impl WaylandFrontend {
         });
         #[cfg(feature = "flutter")]
         let center_welcome = center_welcome && !self.window_on_phone(window);
+        // Denial's own dialogs float pinned in every layout.
+        let center_welcome = center_welcome || super::own_dialogs::from_dialog(&root);
         let should_place = center_welcome
             || should_place_auxiliary_toplevel_at_pointer(
                 self.window_has_transient_parent(window),
