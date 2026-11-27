@@ -448,8 +448,8 @@ const ENGINE_COMPOSED: u64 = 1 << 63;
 
 /// What composed the output frames while the composer is on, logged at 1,
 /// 100, 1 000, 10 000… frames: how many Vulkan drew, how many GLES drew and
-/// why, how often frosts are remade, and how full the allocator's memory
-/// blocks are.
+/// why, how often frosts are remade, how full the allocator's shared blocks
+/// are, what the images in memory of their own take, and use per kind.
 #[derive(Default)]
 struct Tally {
     vulkan_frames: u64,
@@ -581,6 +581,11 @@ impl Tally {
         let memory = gpu.memory_report();
         let (memory_used_mib, memory_blocks_mib) = memory_fill(&memory.blocks);
         let memory_kinds_mib = kinds_fill(&memory.kinds, self.pooled_slice_bytes);
+        let memory_own_mib = format_args!(
+            "{:.1} in {}",
+            memory.own.1 as f64 / f64::from(1 << 20),
+            memory.own.0
+        );
         info!(
             vulkan_frames = self.vulkan_frames,
             gles_frames = self.gles_frames,
@@ -624,6 +629,7 @@ impl Tally {
             ),
             %memory_used_mib,
             %memory_blocks_mib,
+            %memory_own_mib,
             %memory_kinds_mib,
             "output frames"
         );
@@ -1125,10 +1131,8 @@ impl SceneComposer {
             image
         } else {
             self.gpu
-                .private_image(
-                    "slice",
+                .slice_image(
                     (width, height),
-                    1,
                     ash::vk::ImageUsageFlags::COLOR_ATTACHMENT
                         | ash::vk::ImageUsageFlags::INPUT_ATTACHMENT
                         | ash::vk::ImageUsageFlags::SAMPLED

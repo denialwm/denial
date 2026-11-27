@@ -2608,3 +2608,21 @@ fn memory_report_counts_a_private_image_by_kind_until_it_is_dropped() {
     drop(image);
     assert_eq!(used(&gpu), before);
 }
+
+#[test]
+#[ignore = "needs a GPU"]
+fn a_slice_takes_memory_of_its_own_and_returns_it_when_dropped() {
+    let fd = node();
+    let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
+    let before = gpu.memory_report();
+    let slice = gpu
+        .slice_image((W, H), ash::vk::ImageUsageFlags::SAMPLED)
+        .expect("slice image");
+    let during = gpu.memory_report();
+    assert_eq!(during.own.0, before.own.0 + 1);
+    assert_eq!(during.own.1, before.own.1 + slice.allocated_bytes());
+    // No shared block grew or took the slice.
+    assert_eq!(during.blocks, before.blocks);
+    drop(slice);
+    assert_eq!(gpu.memory_report().own, before.own);
+}

@@ -438,8 +438,10 @@ fn duplicate(fd: BorrowedFd<'_>) -> Result<OwnedFd> {
 /// What the allocator holds (`Gpu::memory_report`).
 #[derive(Default)]
 pub(super) struct MemoryReport {
-    /// Each block as (bytes in use, block size).
+    /// Each shared block as (bytes in use, block size).
     pub(super) blocks: Vec<(u64, u64)>,
+    /// Images in memory of their own (`slice_image`): how many, and bytes.
+    pub(super) own: (u64, u64),
     /// Bytes in use per image kind.
     pub(super) kinds: Vec<(String, u64)>,
 }
@@ -453,8 +455,9 @@ impl Gpu {
         self.0.layered
     }
 
-    /// The allocator's memory blocks as (bytes in use, block size), and the
-    /// bytes in use per image kind (`private_image`). Builds a report of
+    /// The allocator's shared blocks as (bytes in use, block size), the
+    /// images in memory of their own, and the bytes in use per image kind
+    /// (`private_image`). Builds a report of
     /// every allocation: for the composer's log marks, never per frame.
     pub(super) fn memory_report(&self) -> MemoryReport {
         let Some(report) = lock(&self.0.allocator)
@@ -463,17 +466,21 @@ impl Gpu {
         else {
             return MemoryReport::default();
         };
-        let blocks = report
-            .blocks
-            .iter()
-            .map(|block| {
-                let used = report.allocations[block.allocations.clone()]
-                    .iter()
-                    .map(|allocation| allocation.size)
-                    .sum();
-                (used, block.size)
-            })
-            .collect();
+        let mut blocks = Vec::new();
+        let mut own = (0, 0);
+        for block in &report.blocks {
+            let allocations = &report.allocations[block.allocations.clone()];
+            // A dedicated block is exactly its one image.
+            if let [allocation] = allocations
+                && allocation.size == block.size
+            {
+                own.0 += 1;
+                own.1 += block.size;
+                continue;
+            }
+            let used = allocations.iter().map(|allocation| allocation.size).sum();
+            blocks.push((used, block.size));
+        }
         let mut kinds: Vec<(String, u64)> = Vec::new();
         for allocation in &report.allocations {
             match kinds.iter_mut().find(|(kind, _)| *kind == allocation.name) {
@@ -481,7 +488,7 @@ impl Gpu {
                 None => kinds.push((allocation.name.clone(), allocation.size)),
             }
         }
-        MemoryReport { blocks, kinds }
+        MemoryReport { blocks, own, kinds }
     }
 
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
@@ -1260,12 +1267,36 @@ impl Gpu {
 impl Gpu {
     /// A device-local `FROST_FORMAT` image with `levels` mip levels; its view
     /// shows the last level, which is what frost passes render and sample.
+    /// It lives in one of the allocator's shared blocks.
     pub(super) fn private_image(
         &self,
         kind: &'static str,
         size: (u32, u32),
         levels: u32,
         usage: vk::ImageUsageFlags,
+    ) -> Result<Image> {
+        self.allocate_private(kind, size, levels, usage, false)
+    }
+
+    /// A private image for one slice version, in memory of its own: the
+    /// driver gets it back when the slice is dropped, and a slice never
+    /// keeps a shared block alive. Slices are most of the composer's memory
+    /// and come and go in bursts (the pool absorbs most of them).
+    pub(super) fn slice_image(
+        &self,
+        size: (u32, u32),
+        usage: vk::ImageUsageFlags,
+    ) -> Result<Image> {
+        self.allocate_private("slice", size, 1, usage, true)
+    }
+
+    fn allocate_private(
+        &self,
+        kind: &'static str,
+        size: (u32, u32),
+        levels: u32,
+        usage: vk::ImageUsageFlags,
+        own_memory: bool,
     ) -> Result<Image> {
         let gpu = &self.0;
         let d = &gpu.device;
@@ -1311,7 +1342,11 @@ impl Gpu {
                     requirements,
                     location: MemoryLocation::GpuOnly,
                     linear: false,
-                    allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+                    allocation_scheme: if own_memory {
+                        AllocationScheme::DedicatedImage(image)
+                    } else {
+                        AllocationScheme::GpuAllocatorManaged
+                    },
                 })
                 .map_err(|e| format!("Stagecraft private image memory: {e}"))?;
             let (memory, at) = (allocation.memory(), allocation.offset());
