@@ -299,10 +299,10 @@ doctor() {
     available_gib=$((available_kib / 1024 / 1024))
     if ((available_gib >= 150)); then
       pass "builder filesystem has ${available_gib} GiB free"
-    elif ((available_gib >= 80)); then
+    elif ((available_gib >= 40)); then
       warn "builder filesystem has ${available_gib} GiB free; 150 GiB is preferred"
     else
-      fail "builder filesystem has ${available_gib} GiB free; at least 80 GiB is required"
+      fail "builder filesystem has ${available_gib} GiB free; at least 40 GiB is required"
     fi
     printf 'INFO  builder root: %s\n' "$builder_root"
   else
