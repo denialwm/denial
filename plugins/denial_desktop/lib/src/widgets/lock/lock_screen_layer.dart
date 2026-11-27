@@ -60,6 +60,7 @@ import 'package:denial_flutter_sdk/rendering.dart';
 import '../shade/status_glyphs.dart';
 
 import 'sim_pin_lock.dart';
+import '../../features/mobile/mobile_wallpaper_client.dart';
 import '../../state/phone_desk.dart';
 import '../../state/reference_shell_controller.dart';
 

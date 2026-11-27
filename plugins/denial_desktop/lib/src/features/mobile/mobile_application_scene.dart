@@ -24,6 +24,7 @@ import '../../widgets/edge_panel_layer.dart';
 import '../../widgets/shade/shade_progress.dart';
 import '../../widgets/shade/system_shade_layer.dart';
 import 'mobile_launcher_layer.dart';
+import 'mobile_wallpaper_client.dart';
 import 'mobile_window_layers.dart';
 
 /// Denial's built-in phone/tablet application scene.
@@ -149,7 +150,8 @@ class _MobileApplicationSceneState
 
 /// The wallpaper, kept mounted but unpainted while a settled opaque app
 /// covers the whole stage: every app frame would otherwise also composite
-/// the wallpaper's full-output fills and image underneath it.
+/// the wallpaper's full-output fills and image underneath it. A wallpaper
+/// client, such as a video, draws over it, and unpainted draws nothing.
 class _MobileSceneWallpaper extends ConsumerStatefulWidget {
   const _MobileSceneWallpaper({
     required this.overviewPresentationActive,
@@ -206,7 +208,13 @@ class _MobileSceneWallpaperState extends ConsumerState<_MobileSceneWallpaper> {
             !(frost && _shadeCovers.value),
         child: wallpaper,
       ),
-      child: ShellWallpaper(onPainted: widget.onPainted),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ShellWallpaper(onPainted: widget.onPainted),
+          const MobileWallpaperClient(),
+        ],
+      ),
     );
   }
 }

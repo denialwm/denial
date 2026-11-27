@@ -31,12 +31,16 @@ class _LockBackdropState extends ConsumerState<_LockBackdrop> {
     final output = widget.output;
     final onPainted = widget.onPainted;
     final custom = WallpaperResource.fromPersistenceValue(settings.wallpaper);
+    // A phone's wallpaper client, such as a video, shows unblurred over the
+    // captured picture, under the same dim.
+    final client =
+        output == null && ref.watch(mobileWallpaperClientProvider) != null;
     final desktopWallpaper = output == null
         ? ShellWallpaper(
             onPainted: onPainted == null ? null : _wallpaperPainted,
           )
         : ShellOutputWallpaper(output: output);
-    return _PaintedBoundary(
+    final backdrop = _PaintedBoundary(
       key: _boundary,
       onPainted: onPainted,
       child: Stack(
@@ -83,6 +87,23 @@ class _LockBackdropState extends ConsumerState<_LockBackdrop> {
           ),
         ],
       ),
+    );
+    if (!client) {
+      return backdrop;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        backdrop,
+        const MobileWallpaperClient(),
+        CustomPaint(
+          painter: _LockFillPainter(
+            color: ShellMediaColors.darkness.withValues(
+              alpha: settings.dimAmount,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -768,6 +789,10 @@ class _LockDepthForegroundState extends ConsumerState<_LockDepthForeground> {
     final settings = ref.watch(
       shellSettingsProvider.select((value) => value.lockScreen),
     );
+    // The cut belongs to the shell's picture, not to a wallpaper client's.
+    if (ref.watch(mobileWallpaperClientProvider) != null) {
+      return const SizedBox.shrink();
+    }
     final outputName = ref.watch(
       sceneDisplayLayoutProvider(ShellPart.of(context))
           .select((layout) => layout?.mainOutput?.name),
