@@ -2099,7 +2099,27 @@ impl SceneComposer {
     /// The image showing a client's pixels: its DMA-BUF imported, or its
     /// SHM pixels copied into an image of the texture's own (queued in
     /// `uploads` unless the image holds them already).
+    ///
+    /// A YCbCr buffer samples through its conversion only where `converts`:
+    /// a draw of its own. Layered and merged draws share one layout for
+    /// every layer, so there GLES copies it to RGB.
     fn client_image(
+        &self,
+        state: &mut State,
+        uploads: &mut Vec<Upload>,
+        sampled: &SampledClient,
+        resolve: &mut dyn Resolve,
+        converts: bool,
+    ) -> Result<Resolved, Decline> {
+        match self.client_image_any(state, uploads, sampled, resolve)? {
+            Resolved::Read(image) if image.ycbcr.is_some() && !converts => {
+                Self::copied(resolve, sampled)
+            }
+            resolved => Ok(resolved),
+        }
+    }
+
+    fn client_image_any(
         &self,
         state: &mut State,
         uploads: &mut Vec<Upload>,
@@ -2220,7 +2240,7 @@ impl SceneComposer {
                 look,
             } => {
                 resolved_once(staged, &sampled)?;
-                match self.client_image(state, &mut staged.uploads, &sampled, resolve)? {
+                match self.client_image(state, &mut staged.uploads, &sampled, resolve, true)? {
                     Resolved::Read(image) => {
                         staged.clients.push(sampled);
                         Ok(whole(image, placement, look))
@@ -2303,14 +2323,19 @@ impl SceneComposer {
         let mut opaque = false;
         for layer in merged.layers {
             resolved_once(staged, &layer.sampled)?;
-            let (image, copied) =
-                match self.client_image(state, &mut staged.uploads, &layer.sampled, resolve)? {
-                    Resolved::Read(image) => (image, false),
-                    Resolved::Copied(image) => (image, true),
-                    // As the merge: GLES cannot read it either and leaves
-                    // the window to its surfaces.
-                    Resolved::Unreadable => return Err("native window input GLES cannot read"),
-                };
+            let (image, copied) = match self.client_image(
+                state,
+                &mut staged.uploads,
+                &layer.sampled,
+                resolve,
+                false,
+            )? {
+                Resolved::Read(image) => (image, false),
+                Resolved::Copied(image) => (image, true),
+                // As the merge: GLES cannot read it either and leaves
+                // the window to its surfaces.
+                Resolved::Unreadable => return Err("native window input GLES cannot read"),
+            };
             let placed = record::Layer {
                 quad: layer.quad,
                 uv: layer.uv,
@@ -2434,14 +2459,19 @@ impl SceneComposer {
         let mut batches: Vec<Batch> = Vec::with_capacity(merged.layers.len());
         for layer in merged.layers {
             resolved_once(staged, &layer.sampled)?;
-            let (input, copied) =
-                match self.client_image(state, &mut staged.uploads, &layer.sampled, resolve)? {
-                    Resolved::Read(image) => (image, false),
-                    Resolved::Copied(image) => (image, true),
-                    // The GLES merge cannot read it either and leaves the
-                    // window to its surfaces.
-                    Resolved::Unreadable => return Err("native window input GLES cannot read"),
-                };
+            let (input, copied) = match self.client_image(
+                state,
+                &mut staged.uploads,
+                &layer.sampled,
+                resolve,
+                false,
+            )? {
+                Resolved::Read(image) => (image, false),
+                Resolved::Copied(image) => (image, true),
+                // The GLES merge cannot read it either and leaves the
+                // window to its surfaces.
+                Resolved::Unreadable => return Err("native window input GLES cannot read"),
+            };
             let draw = record::merged_layer(
                 merged.size,
                 layer.quad,

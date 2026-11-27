@@ -206,6 +206,105 @@ pub(super) fn vulkan_format(fourcc: Fourcc) -> Option<(vk::Format, bool)> {
     })
 }
 
+/// The Vulkan format of a two-plane YCbCr fourcc, which the composer
+/// samples through a conversion to RGB.
+pub(super) fn ycbcr_format(fourcc: Fourcc) -> Option<vk::Format> {
+    match fourcc {
+        Fourcc::Nv12 => Some(vk::Format::G8_B8R8_2PLANE_420_UNORM),
+        _ => None,
+    }
+}
+
+/// How a YCbCr image's samples become RGB.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct YcbcrKey {
+    format: vk::Format,
+    model: vk::SamplerYcbcrModelConversion,
+    x_offset: vk::ChromaLocation,
+    y_offset: vk::ChromaLocation,
+    filter: vk::Filter,
+}
+
+/// A conversion to RGB with the immutable sampler that applies it and the
+/// image set and pipeline layouts that carry that sampler at binding 0.
+/// Set 0 and the push constants are the shared layout's, so bound draw
+/// records stay valid across its pipelines.
+#[derive(Clone, Copy)]
+pub(super) struct Ycbcr {
+    conversion: vk::SamplerYcbcrConversion,
+    pub(super) sampler: vk::Sampler,
+    image_layout: vk::DescriptorSetLayout,
+    pub(super) layout: vk::PipelineLayout,
+}
+
+/// The image set's bindings: the sampled image, with `immutable` as its
+/// sampler when given; a window's frost; the client's look; a layered
+/// window's further layers.
+fn image_bindings(immutable: Option<&[vk::Sampler]>) -> [vk::DescriptorSetLayoutBinding<'_>; 4] {
+    let sampled = |binding: u32| {
+        vk::DescriptorSetLayoutBinding::default()
+            .binding(binding)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+    };
+    let first = match immutable {
+        Some(samplers) => sampled(0).immutable_samplers(samplers),
+        None => sampled(0),
+    };
+    [
+        first,
+        sampled(1),
+        sampled(2),
+        sampled(3).descriptor_count(LAYERS as u32),
+    ]
+}
+
+/// How a `size` image of the YCbCr `format`, whose modifier has `features`,
+/// converts to RGB. Video carries no colour description through
+/// `zwp_linux_dmabuf_v1`, so this guesses as players do: BT.709 from HD up,
+/// BT.601 below, narrow range; chroma sited left (MPEG-2 and later) where
+/// the device takes it, else between samples.
+fn ycbcr_key(
+    format: vk::Format,
+    features: vk::FormatFeatureFlags,
+    (width, height): (u32, u32),
+) -> YcbcrKey {
+    let hd = width.min(height) >= 720 || width.max(height) >= 1280;
+    let model = if hd {
+        vk::SamplerYcbcrModelConversion::YCBCR_709
+    } else {
+        vk::SamplerYcbcrModelConversion::YCBCR_601
+    };
+    let cosited = features.contains(vk::FormatFeatureFlags::COSITED_CHROMA_SAMPLES);
+    let midpoint = features.contains(vk::FormatFeatureFlags::MIDPOINT_CHROMA_SAMPLES);
+    let x_offset = if cosited || !midpoint {
+        vk::ChromaLocation::COSITED_EVEN
+    } else {
+        vk::ChromaLocation::MIDPOINT
+    };
+    let y_offset = if midpoint {
+        vk::ChromaLocation::MIDPOINT
+    } else {
+        vk::ChromaLocation::COSITED_EVEN
+    };
+    let linear = features.contains(
+        vk::FormatFeatureFlags::SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER
+            | vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR,
+    );
+    YcbcrKey {
+        format,
+        model,
+        x_offset,
+        y_offset,
+        filter: if linear {
+            vk::Filter::LINEAR
+        } else {
+            vk::Filter::NEAREST
+        },
+    }
+}
+
 /// The DRM format modifiers `physical` has for `format`.
 fn query_modifiers(
     instance: &ash::Instance,
@@ -357,7 +456,13 @@ pub(super) struct GpuInner {
     pub(super) samplers: [vk::Sampler; 2],
     command_pool: vk::CommandPool,
     descriptor_pool: vk::DescriptorPool,
-    pipelines: Mutex<HashMap<(Program, vk::Format), vk::Pipeline>>,
+    /// By program, target format and pipeline layout (the shared one, or a
+    /// YCbCr conversion's).
+    pipelines: Mutex<HashMap<(Program, vk::Format, vk::PipelineLayout), vk::Pipeline>>,
+    /// The device samples YCbCr images through conversions.
+    ycbcr_conversion: bool,
+    /// Conversions made so far, kept for the device's life.
+    ycbcr: Mutex<Vec<(YcbcrKey, Ycbcr)>>,
     modifiers: Mutex<HashMap<vk::Format, Vec<ModifierSupport>>>,
     /// Largest importable extent per format, modifier and usage; None when
     /// the combination cannot be imported.
@@ -387,6 +492,14 @@ impl Drop for GpuInner {
             drop(lock(&self.allocator).take());
             for (_, pipeline) in lock(&self.pipelines).drain() {
                 self.device.destroy_pipeline(pipeline, None);
+            }
+            for (_, ycbcr) in lock(&self.ycbcr).drain(..) {
+                self.device.destroy_pipeline_layout(ycbcr.layout, None);
+                self.device
+                    .destroy_descriptor_set_layout(ycbcr.image_layout, None);
+                self.device.destroy_sampler(ycbcr.sampler, None);
+                self.device
+                    .destroy_sampler_ycbcr_conversion(ycbcr.conversion, None);
             }
             self.device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
@@ -637,10 +750,12 @@ impl Gpu {
                 .fill_mode_non_solid(base.fill_mode_non_solid == vk::TRUE)
                 .sampler_anisotropy(base.sampler_anisotropy == vk::TRUE),
         );
+        let ycbcr_conversion = supported11.sampler_ycbcr_conversion == vk::TRUE;
         let mut features11 = vk::PhysicalDeviceVulkan11Features::default()
             .uniform_and_storage_buffer16_bit_access(
                 supported11.uniform_and_storage_buffer16_bit_access == vk::TRUE,
-            );
+            )
+            .sampler_ycbcr_conversion(ycbcr_conversion);
         let priorities = [1.0];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
@@ -701,6 +816,8 @@ impl Gpu {
             command_pool: vk::CommandPool::null(),
             descriptor_pool: vk::DescriptorPool::null(),
             pipelines: Mutex::new(HashMap::new()),
+            ycbcr_conversion,
+            ycbcr: Mutex::new(Vec::new()),
             modifiers: Mutex::new(HashMap::new()),
             extents: Mutex::new(HashMap::new()),
             allocator: Mutex::new(None),
@@ -787,19 +904,7 @@ impl GpuInner {
         // frost (binding 1, pushed only for that program); binding 2 is the
         // client's look; binding 3 holds a layered window's further layers
         // (pushed only for the layered programs).
-        let sampled = |binding: u32| {
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(binding)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-        };
-        let image = [
-            sampled(0),
-            sampled(1),
-            sampled(2),
-            sampled(3).descriptor_count(LAYERS as u32),
-        ];
+        let image = image_bindings(None);
         let code = |bytes: &[u8]| -> Vec<u32> {
             bytes
                 .chunks_exact(4)
@@ -889,8 +994,33 @@ impl GpuInner {
     }
 
     pub(super) fn pipeline(&self, program: Program, format: vk::Format) -> Result<vk::Pipeline> {
+        self.pipeline_in(program, format, self.layout)
+    }
+
+    /// The pipeline of `program` that samples `image` at binding 0: through
+    /// its YCbCr conversion when it has one.
+    pub(super) fn pipeline_for(
+        &self,
+        program: Program,
+        format: vk::Format,
+        image: &Image,
+    ) -> Result<vk::Pipeline> {
+        self.pipeline_in(program, format, self.layout_for(image))
+    }
+
+    /// The pipeline layout that samples `image` at binding 0.
+    pub(super) fn layout_for(&self, image: &Image) -> vk::PipelineLayout {
+        image.ycbcr.map_or(self.layout, |ycbcr| ycbcr.layout)
+    }
+
+    fn pipeline_in(
+        &self,
+        program: Program,
+        format: vk::Format,
+        layout: vk::PipelineLayout,
+    ) -> Result<vk::Pipeline> {
         let mut pipelines = lock(&self.pipelines);
-        if let Some(pipeline) = pipelines.get(&(program, format)) {
+        if let Some(pipeline) = pipelines.get(&(program, format, layout)) {
             return Ok(*pipeline);
         }
         let (vertex, fragment) = self.modules[Program::ALL
@@ -950,7 +1080,7 @@ impl GpuInner {
             .multisample_state(&multisample)
             .color_blend_state(&blend)
             .dynamic_state(&dynamic)
-            .layout(self.layout)
+            .layout(layout)
             .push_next(&mut rendering);
         // SAFETY: valid create info; the pipeline is stored and destroyed in Drop.
         let pipeline = unsafe {
@@ -958,8 +1088,88 @@ impl GpuInner {
                 .create_graphics_pipelines(vk::PipelineCache::null(), &[create], None)
         }
         .map_err(|(_, e)| vk_error("pipeline", e))?[0];
-        pipelines.insert((program, format), pipeline);
+        pipelines.insert((program, format, layout), pipeline);
         Ok(pipeline)
+    }
+
+    /// The conversion of `key`, made on first use.
+    fn ycbcr(&self, key: YcbcrKey) -> Result<Ycbcr> {
+        let mut made = lock(&self.ycbcr);
+        if let Some((_, ycbcr)) = made.iter().find(|(own, _)| *own == key) {
+            return Ok(*ycbcr);
+        }
+        let d = &self.device;
+        let create = vk::SamplerYcbcrConversionCreateInfo::default()
+            .format(key.format)
+            .ycbcr_model(key.model)
+            .ycbcr_range(vk::SamplerYcbcrRange::ITU_NARROW)
+            .components(vk::ComponentMapping::default())
+            .x_chroma_offset(key.x_offset)
+            .y_chroma_offset(key.y_offset)
+            .chroma_filter(key.filter)
+            .force_explicit_reconstruction(false);
+        let mut ycbcr = Ycbcr {
+            conversion: vk::SamplerYcbcrConversion::null(),
+            sampler: vk::Sampler::null(),
+            image_layout: vk::DescriptorSetLayout::null(),
+            layout: vk::PipelineLayout::null(),
+        };
+        // SAFETY: valid create infos on the live device; whatever was made
+        // is destroyed below on failure, else with the device.
+        let made_all = unsafe {
+            (|| -> std::result::Result<(), vk::Result> {
+                ycbcr.conversion = d.create_sampler_ycbcr_conversion(&create, None)?;
+                let mut info =
+                    vk::SamplerYcbcrConversionInfo::default().conversion(ycbcr.conversion);
+                ycbcr.sampler = d.create_sampler(
+                    &vk::SamplerCreateInfo::default()
+                        .mag_filter(key.filter)
+                        .min_filter(key.filter)
+                        .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+                        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                        .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+                        .max_lod(0.0)
+                        .push_next(&mut info),
+                    None,
+                )?;
+                let samplers = [ycbcr.sampler];
+                let bindings = image_bindings(Some(&samplers));
+                ycbcr.image_layout = d.create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::default()
+                        .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
+                        .bindings(&bindings),
+                    None,
+                )?;
+                let sets = [self.draws_layout, ycbcr.image_layout];
+                let constants = [vk::PushConstantRange::default()
+                    .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                    .size(std::mem::size_of::<BlurPass>() as u32)];
+                ycbcr.layout = d.create_pipeline_layout(
+                    &vk::PipelineLayoutCreateInfo::default()
+                        .set_layouts(&sets)
+                        .push_constant_ranges(&constants),
+                    None,
+                )?;
+                Ok(())
+            })()
+        };
+        if let Err(error) = made_all {
+            // SAFETY: null handles are ignored; nothing uses these yet.
+            unsafe {
+                d.destroy_pipeline_layout(ycbcr.layout, None);
+                d.destroy_descriptor_set_layout(ycbcr.image_layout, None);
+                d.destroy_sampler(ycbcr.sampler, None);
+                d.destroy_sampler_ycbcr_conversion(ycbcr.conversion, None);
+            }
+            return Err(vk_error("YCbCr conversion", error));
+        }
+        tracing::info!(
+            ?key,
+            "Stagecraft samples YCbCr clients through a conversion"
+        );
+        made.push((key, ycbcr));
+        Ok(ycbcr)
     }
 
     /// Plane count and features of `modifier` for `format`.
@@ -1094,6 +1304,8 @@ pub(in crate::flutter_runtime) struct Image {
     pub(super) copyable: bool,
     /// Sampled with alpha one: a format without alpha.
     pub(super) opaque: bool,
+    /// The conversion a YCbCr image is sampled through.
+    pub(super) ycbcr: Option<Ycbcr>,
 }
 
 impl Image {
@@ -1151,21 +1363,39 @@ impl Gpu {
             .all(|&(_, range)| range <= self.0.max_storage_range)
     }
 
-    /// Imports a single-plane RGB DMA-BUF whose memory planes share one
-    /// buffer.
+    /// Imports a DMA-BUF whose memory planes share one buffer: a single-plane
+    /// RGB image, or for sampling a two-plane YCbCr one, which draws through
+    /// a conversion to RGB.
     pub(super) fn import(&self, dmabuf: &Dmabuf, usage: Usage) -> Result<Arc<Image>> {
         let gpu = &self.0;
         let format = dmabuf.format();
-        let (vk_format, opaque) = vulkan_format(format.code)
-            .ok_or_else(|| format!("Stagecraft cannot import {:?}", format.code))?;
+        let yuv = match vulkan_format(format.code) {
+            Some(rgb) => Err(rgb),
+            None if usage == Usage::Sampled && gpu.ycbcr_conversion => {
+                Ok(ycbcr_format(format.code)
+                    .ok_or_else(|| format!("Stagecraft cannot import {:?}", format.code))?)
+            }
+            None => return Err(format!("Stagecraft cannot import {:?}", format.code)),
+        };
+        let (vk_format, opaque) = match yuv {
+            Ok(format) => (format, true),
+            Err(rgb) => rgb,
+        };
         let modifier = u64::from(format.modifier);
         if format.modifier == Modifier::Invalid {
             return Err("Stagecraft needs an explicit modifier".into());
         }
         let planes = dmabuf.num_planes();
+        // A conversion samples with its own filter, so YCbCr images need not
+        // filter linearly.
+        let needed = if yuv.is_ok() {
+            vk::FormatFeatureFlags::SAMPLED_IMAGE
+        } else {
+            usage.features()
+        };
         let features = match gpu.modifier_support(vk_format, modifier) {
             Some((supported, features))
-                if supported == planes as u32 && features.contains(usage.features()) =>
+                if supported == planes as u32 && features.contains(needed) =>
             {
                 features
             }
@@ -1251,6 +1481,7 @@ impl Gpu {
             external: true,
             copyable,
             opaque: opaque && usage == Usage::Sampled,
+            ycbcr: None,
         };
         // SAFETY: queries on live objects.
         let requirements = unsafe { d.get_image_memory_requirements(image) };
@@ -1283,6 +1514,23 @@ impl Gpu {
         // SAFETY: the memory was allocated for this image.
         unsafe { d.bind_image_memory(image, imported.memory, 0) }
             .map_err(|e| vk_error("bind memory", e))?;
+        if yuv.is_ok() {
+            let ycbcr = gpu.ycbcr(ycbcr_key(vk_format, features, (width, height)))?;
+            imported.ycbcr = Some(ycbcr);
+            // A converted view keeps identity components: the conversion
+            // gives alpha one.
+            let mut info = vk::SamplerYcbcrConversionInfo::default().conversion(ycbcr.conversion);
+            let view = vk::ImageViewCreateInfo::default()
+                .image(image)
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(vk_format)
+                .subresource_range(color_range())
+                .push_next(&mut info);
+            // SAFETY: a view of the bound image through its conversion.
+            imported.view = unsafe { d.create_image_view(&view, None) }
+                .map_err(|e| vk_error("image view", e))?;
+            return Ok(Arc::new(imported));
+        }
         let alpha = if opaque && usage == Usage::Sampled {
             vk::ComponentSwizzle::ONE
         } else {
@@ -1372,6 +1620,7 @@ impl Gpu {
             external: false,
             copyable: false,
             opaque: false,
+            ycbcr: None,
         };
         // SAFETY: queries and allocation on the live device.
         unsafe {
@@ -1599,6 +1848,7 @@ impl Gpu {
             external: false,
             copyable: false,
             opaque: false,
+            ycbcr: None,
         };
         let bytes = (texels.len() * 2) as vk::DeviceSize;
         // SAFETY: allocations on the live device; the staging buffer is
@@ -2971,7 +3221,8 @@ impl Frame {
         };
         // Binding 0, the client's look (binding 2) and, for a window over
         // its material, its frost (binding 1). The glass program reads
-        // binding 0 only.
+        // binding 0 only. A YCbCr image at binding 0 pushes into its
+        // conversion's layout, whose binding 0 holds the sampler.
         let push_images =
             |image: &Image, nearest: bool, look: Option<&Image>, frost: Option<&Image>| {
                 let info = |image: &Image, nearest: bool| {
@@ -3001,7 +3252,7 @@ impl Frame {
                     gpu.push.cmd_push_descriptor_set(
                         command,
                         vk::PipelineBindPoint::GRAPHICS,
-                        gpu.layout,
+                        gpu.layout_for(image),
                         1,
                         &writes[..count],
                     )
@@ -3192,7 +3443,8 @@ impl Frame {
                     .memory_barriers(memory)
                     .image_memory_barriers(&acquire),
             );
-            // One layout for every pipeline: set 0 stays bound throughout.
+            // Every pipeline layout shares set 0 and the push constants, so
+            // set 0 stays bound throughout.
             d.cmd_bind_descriptor_sets(
                 command,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -3244,7 +3496,12 @@ impl Frame {
                             push_layers(layers, batch.nearest);
                             bound = Some(key);
                         } else {
-                            use_pipeline(compose);
+                            use_pipeline(match batch.image.ycbcr {
+                                Some(_) => {
+                                    gpu.pipeline_for(Program::Compose, target.format, &batch.image)?
+                                }
+                                None => compose,
+                            });
                             if bound != Some(key) {
                                 push_images(&batch.image, batch.nearest, Some(&batch.look), None);
                                 bound = Some(key);
@@ -3289,6 +3546,13 @@ impl Frame {
                                 Some(layers) => {
                                     use_pipeline(window_glass_layered);
                                     push_layers(layers, window.nearest);
+                                }
+                                None if window.image.ycbcr.is_some() => {
+                                    use_pipeline(gpu.pipeline_for(
+                                        Program::WindowGlass,
+                                        target.format,
+                                        &window.image,
+                                    )?)
                                 }
                                 None => use_pipeline(window_glass),
                             }

@@ -2067,7 +2067,7 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
         calls: 0,
     };
     let resolved = composer
-        .client_image(&mut state, &mut uploads, &sampled, &mut copy)
+        .client_image(&mut state, &mut uploads, &sampled, &mut copy, true)
         .expect("not declined");
     assert!(
         matches!(&resolved, super::Resolved::Copied(image) if Arc::ptr_eq(image, &composer.placeholder))
@@ -2079,7 +2079,7 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
         calls: 0,
     };
     let resolved = composer
-        .client_image(&mut state, &mut uploads, &sampled, &mut unreadable)
+        .client_image(&mut state, &mut uploads, &sampled, &mut unreadable, true)
         .expect("not declined");
     assert!(matches!(resolved, super::Resolved::Unreadable));
 }
