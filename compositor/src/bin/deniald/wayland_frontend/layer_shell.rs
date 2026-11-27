@@ -42,6 +42,25 @@ impl WaylandFrontend {
         })
     }
 
+    /// Whether a client draws its own wallpaper on `output`: a background
+    /// layer surface with a buffer, such as a video wallpaper.
+    pub(crate) fn wallpaper_client_on(&self, output: OutputId) -> bool {
+        self.outputs
+            .iter()
+            .filter(|entry| entry.id == output)
+            .any(|entry| {
+                layer_map_for_output(&entry.output)
+                    .layers_on(WlrLayer::Background)
+                    .any(|layer| {
+                        smithay::backend::renderer::utils::with_renderer_surface_state(
+                            layer.wl_surface(),
+                            |state| state.buffer().is_some(),
+                        )
+                        .unwrap_or(false)
+                    })
+            })
+    }
+
     pub(super) fn layer_root_surface(&self, surface: &WlSurface) -> Option<(WlSurface, OutputId)> {
         let root = self.toplevel_candidate_surface(surface);
         self.outputs.iter().find_map(|entry| {
@@ -210,6 +229,9 @@ impl WlrLayerShellHandler for RuntimeState {
         {
             frontend
                 .pending_layer_frame_callback_roots
+                .remove(&surface.wl_surface().id());
+            frontend
+                .parked_wallpaper_frame_roots
                 .remove(&surface.wl_surface().id());
             frontend
                 .hidden_surface_frames

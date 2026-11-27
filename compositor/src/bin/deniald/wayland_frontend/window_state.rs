@@ -1727,6 +1727,7 @@ impl WaylandFrontend {
             self.hidden_surface_frames.remove(&object_id);
             self.forget_minimized_window(&object_id);
             self.pending_layer_frame_callback_roots.remove(&object_id);
+            self.parked_wallpaper_frame_roots.remove(&object_id);
             self.pending_input_method_frame_callbacks.remove(&object_id);
             self.pending_cursor_frame_callback_roots.remove(&object_id);
             self.pending_shm_snapshots.remove(&object_id);

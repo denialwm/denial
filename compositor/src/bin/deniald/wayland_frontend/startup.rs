@@ -378,6 +378,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             pending_layer_frame_callback_roots: HashSet::new(),
             #[cfg(feature = "flutter")]
+            parked_wallpaper_frame_roots: HashSet::new(),
+            #[cfg(feature = "flutter")]
             pending_input_method_frame_callbacks: HashSet::new(),
             #[cfg(feature = "flutter")]
             local_windows: LocalFlutterWindows::default(),

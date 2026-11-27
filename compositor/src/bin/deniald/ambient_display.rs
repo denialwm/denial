@@ -384,6 +384,11 @@ fn power_off_to_hold(
         .iter()
         .find(|scanout| scanout.output.name == name && scanout.powered)?;
     let output = scanout.output.id;
+    // The always-on picture is still: over a moving wallpaper, such as a
+    // video, the output turns off as usual for now.
+    if frontend.wallpaper_client_on(output) {
+        return None;
+    }
     (events.output_power_requests.get(&output) == Some(&false)).then_some((output, beside_desk))
 }
 

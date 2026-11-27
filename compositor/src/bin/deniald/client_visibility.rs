@@ -73,6 +73,21 @@ pub(crate) fn all_hidden(texture_ids: &[i64]) -> bool {
     })
 }
 
+/// Whether no output's last composed frame showed any texture of
+/// `texture_ids`, whether the scene held them or not. False while the
+/// composer accounts for no output, as when GLES draws every frame: then
+/// nothing is known.
+pub(crate) fn unseen(texture_ids: &[i64]) -> bool {
+    let views = views();
+    !views.is_empty()
+        && !texture_ids.is_empty()
+        && !views.iter().any(|view| {
+            texture_ids
+                .iter()
+                .any(|texture_id| view.shown.contains(texture_id))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +114,11 @@ mod tests {
         // frame the composer did not draw, showed it last.
         composed(2, &[], &[10]);
         assert!(!all_hidden(&[10]));
+        // Unseen: shown by no output, held in a scene or not.
+        assert!(!unseen(&[10]));
+        assert!(unseen(&[20]));
+        assert!(unseen(&[50]));
+        assert!(!unseen(&[]));
         composed(1, &[], &[]);
         composed(2, &[], &[]);
     }

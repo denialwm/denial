@@ -522,6 +522,11 @@ pub(super) struct WaylandFrontend {
     minimized_windows: minimized::MinimizedWindows,
     #[cfg(feature = "flutter")]
     pending_layer_frame_callback_roots: HashSet<ObjectId>,
+    /// Wallpapers (background layer surfaces) that asked for a frame while
+    /// no output showed them, by root surface. They get it once one does:
+    /// a wallpaper under an app or behind a dark screen draws nothing.
+    #[cfg(feature = "flutter")]
+    parked_wallpaper_frame_roots: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
     pending_input_method_frame_callbacks: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]

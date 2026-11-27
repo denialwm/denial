@@ -333,11 +333,46 @@ impl WaylandFrontend {
     pub fn wants_frame_ticks(&self) -> bool {
         !self.pending_frame_callback_windows.is_empty()
             || !self.pending_layer_frame_callback_roots.is_empty()
+            || self.parked_wallpaper_shown()
             || !self.pending_cursor_frame_callback_roots.is_empty()
             || !self.pending_drag_frame_callback_roots.is_empty()
             || !self.pending_input_method_frame_callbacks.is_empty()
             || self.frame_timeline.has_active_subscription()
             || self.has_pending_screencopies()
+    }
+
+    /// Whether no output's last composed frame showed a surface `surfaces`
+    /// visits. False while the composer accounts for no output.
+    #[cfg(feature = "flutter")]
+    fn surfaces_unseen(&self, surfaces: impl FnOnce(&mut dyn FnMut(&WlSurface))) -> bool {
+        let mut texture_ids = Vec::new();
+        surfaces(&mut |surface| {
+            if let Some(id) = self.surface_id(surface) {
+                texture_ids.push(id as i64);
+            }
+        });
+        crate::client_visibility::unseen(&texture_ids)
+    }
+
+    /// The surface tree of a parked wallpaper is shown again.
+    #[cfg(feature = "flutter")]
+    fn parked_wallpaper_shown(&self) -> bool {
+        self.parked_wallpaper_frame_roots.iter().any(|root_id| {
+            self.surface_ids
+                .get(root_id)
+                .and_then(|id| self.surfaces_by_id.get(id))
+                .is_some_and(|root| {
+                    !self.surfaces_unseen(|each| {
+                        with_surface_tree_downward(
+                            root,
+                            (),
+                            |_, _, _| TraversalAction::DoChildren(()),
+                            |surface, _, _| each(surface),
+                            |_, _, _| true,
+                        )
+                    })
+                })
+        })
     }
 
     /// Whether the composer's last frames hide every surface `surfaces`
@@ -384,6 +419,11 @@ impl WaylandFrontend {
             }
         }
         let callback_millis = callback_time.as_millis() as u32;
+        if self.parked_wallpaper_shown() {
+            // Checked again below, layer by layer.
+            let parked = std::mem::take(&mut self.parked_wallpaper_frame_roots);
+            self.pending_layer_frame_callback_roots.extend(parked);
+        }
         if !self.pending_layer_frame_callback_roots.is_empty()
             && let Some(output) = self.outputs.iter().find(|output| output.id == tick.output)
         {
@@ -391,6 +431,15 @@ impl WaylandFrontend {
             for layer in map.layers() {
                 let root = layer.wl_surface();
                 if !self.pending_layer_frame_callback_roots.contains(&root.id()) {
+                    continue;
+                }
+                // A wallpaper no output shows waits, without ticks, until
+                // one does: not even a frame a second.
+                if layer.layer() == WlrLayer::Background
+                    && self.surfaces_unseen(|each| layer.with_surfaces(|surface, _| each(surface)))
+                {
+                    self.pending_layer_frame_callback_roots.remove(&root.id());
+                    self.parked_wallpaper_frame_roots.insert(root.id());
                     continue;
                 }
                 // A wallpaper under a fullscreen window, say.
