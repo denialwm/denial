@@ -1184,40 +1184,6 @@ pub(super) fn begin_local_super_pointer_grab(
     true
 }
 
-/// Super and the left button on one of Denial's own overlays move it.
-#[cfg(feature = "flutter")]
-fn begin_overlay_move(
-    state: &mut RuntimeState,
-    route: &ClientInputRoute,
-    button: u32,
-    serial: Serial,
-) -> bool {
-    let Some(root) = route.layer_root.as_ref() else {
-        return false;
-    };
-    let Some((root, shift)) = state.frontend().lift_overlay(root) else {
-        return false;
-    };
-    let position = state.frontend().pointer_location;
-    let start_data = GrabStartData {
-        focus: Some(route.focus_at(position)),
-        button,
-        location: position,
-    };
-    let pointer = state
-        .frontend()
-        .seat
-        .get_pointer()
-        .expect("seat has no pointer");
-    pointer.set_grab(
-        state,
-        OverlayMoveGrab::new(start_data, root, shift),
-        serial,
-        Focus::Clear,
-    );
-    true
-}
-
 #[cfg(feature = "flutter")]
 pub(super) fn begin_super_pointer_grab(
     state: &mut RuntimeState,
@@ -1227,8 +1193,7 @@ pub(super) fn begin_super_pointer_grab(
     serial: Serial,
 ) -> bool {
     let Some(window) = route.window.clone() else {
-        return action == SuperPointerAction::Move
-            && begin_overlay_move(state, route, button, serial);
+        return false;
     };
     // The published fullscreen state suppresses SUPER+LMB/RMB. Every other
     // client or shell geometry constraint is released before selecting the
