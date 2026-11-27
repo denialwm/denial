@@ -380,6 +380,82 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
     }
 }
 
+/// The user moving one of Denial's own overlays, such as the Polkit dialog,
+/// with Super and the left button. The overlay gets no pointer events
+/// meanwhile and never hears where it went.
+#[cfg(feature = "flutter")]
+pub(super) struct OverlayMoveGrab {
+    start_data: GrabStartData<RuntimeState>,
+    root: WlSurface,
+    /// How far it was moved when the drag began.
+    shift: Point<f64, Logical>,
+}
+
+#[cfg(feature = "flutter")]
+impl OverlayMoveGrab {
+    pub(super) fn new(
+        start_data: GrabStartData<RuntimeState>,
+        root: WlSurface,
+        shift: Point<f64, Logical>,
+    ) -> Self {
+        Self {
+            start_data,
+            root,
+            shift,
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl PointerGrab<RuntimeState> for OverlayMoveGrab {
+    fn motion(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        _focus: Option<(PointerFocus, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        handle.motion(data, None, event);
+        if !event.location.x.is_finite() || !event.location.y.is_finite() {
+            return;
+        }
+        let shift = self.shift + (event.location - self.start_data.location);
+        let moved = data
+            .wayland
+            .as_mut()
+            .and_then(|frontend| frontend.drag_overlay(&self.root, shift));
+        match moved {
+            Some(id) => data.scene_sync.mark_window_dirty(id),
+            // Unmapped meanwhile.
+            None => handle.unset_grab(self, data, event.serial, event.time, true),
+        }
+    }
+
+    fn button(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        event: &ButtonEvent,
+    ) {
+        handle.button(data, event);
+        if event.state == ButtonState::Released
+            && !handle.current_pressed().contains(&self.start_data.button)
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    forward_pointer_events!();
+
+    fn start_data(&self) -> &GrabStartData<RuntimeState> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut RuntimeState) {
+        data.scene_sync.mark_dirty();
+    }
+}
+
 /// The user dragging a desktop pet (`denial-pet-v1`), from a press on it.
 /// Denial moves the layer itself while the shell names what would hold it;
 /// the pet gets no pointer events until it is let go, and then hears only

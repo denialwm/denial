@@ -1964,6 +1964,8 @@ impl WaylandFrontend {
                 );
                 // A pet may be dragged, dropped or held away from its margins.
                 let (global_location, pet) = self.pet_presentation(&layer, arranged);
+                // Denial's own overlays may be moved with Super and a drag.
+                let global_location = global_location + self.overlay_shift(&layer, arranged);
                 let description = WindowDescription {
                     object_id: stable_id,
                     surface_id: stable_id,

@@ -202,6 +202,9 @@ mod minimized;
 #[path = "wayland_frontend/output_power.rs"]
 mod output_power;
 #[cfg(feature = "flutter")]
+#[path = "wayland_frontend/overlay_move.rs"]
+mod overlay_move;
+#[cfg(feature = "flutter")]
 #[path = "wayland_frontend/pet.rs"]
 mod pet;
 #[cfg(feature = "flutter")]

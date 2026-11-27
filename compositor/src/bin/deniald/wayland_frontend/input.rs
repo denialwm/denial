@@ -50,8 +50,8 @@ use super::super::settings::KeyboardSettings;
 use super::super::settings::{MouseSettings, TouchpadSettings};
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
-    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, TileMoveGrab,
-    TileResizeGrab,
+    LocalFlutterWindowGrab, MoveSurfaceGrab, OverlayMoveGrab, ResizeEdges, ResizeSurfaceGrab,
+    TileMoveGrab, TileResizeGrab,
 };
 #[cfg(feature = "flutter")]
 use super::super::window_layout::{LayoutDirection, LayoutResizeEdges};
