@@ -15,8 +15,8 @@ conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source_x86_64=('manifest.json')
 source_aarch64=('manifest.aarch64.json')
-sha256sums_x86_64=('87373f6c2037bcd7709acfa1c2d2006cfc449f8ffc903d33a3081a3ff8c6d0f2')
-sha256sums_aarch64=('1fb18b7c8b43933e2c8f22f735cc428f1a59ec499b623c5f0b99ede07515f970')
+sha256sums_x86_64=('dd6c4def5878cd0f669e1fa2baeb8e33b4534ccc50906cad3c2d5e3658769357')
+sha256sums_aarch64=('45400adc9f79ab0dce78a2314c00dd3fcf064ed354df79919cc0928ea7a3bbb1')
 
 _engine_sha256_x86_64='a1196e9ffd365cf60236fd7ad91e9b30ab8e2ac4931159f73121ffab50e94972'
 _engine_sha256_aarch64='1ff62fd47b26a64096fea4a9f594407f1dd3e5d3b78ba5c1173e36735f57e167'
