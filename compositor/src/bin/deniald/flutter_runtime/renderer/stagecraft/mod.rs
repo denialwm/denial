@@ -44,10 +44,13 @@ mod convert;
 mod device;
 #[path = "material.rs"]
 mod material;
+#[path = "memory_ledger.rs"]
+mod memory_ledger;
 #[path = "record.rs"]
 mod record;
 #[path = "shell_queue.rs"]
 mod shell_queue;
+#[path = "slice_pool.rs"]
 mod slice_pool;
 
 use std::collections::HashMap;
@@ -570,6 +573,9 @@ impl Tally {
         let memory = gpu.memory_report();
         let (memory_used_mib, memory_blocks_mib) = memory_fill(&memory.blocks);
         let memory_kinds_mib = kinds_fill(&memory.kinds, pool.bytes());
+        let device_vram_mib = gpu
+            .device_local_memory()
+            .map_or_else(|| "unreported".to_owned(), |sources| sources_fill(&sources));
         let memory_own_mib = format_args!(
             "{:.1} in {}",
             memory.own.1 as f64 / f64::from(1 << 20),
@@ -620,6 +626,7 @@ impl Tally {
             %memory_blocks_mib,
             %memory_own_mib,
             %memory_kinds_mib,
+            %device_vram_mib,
             "output frames"
         );
     }
@@ -639,6 +646,16 @@ fn memory_fill(blocks: &[(u64, u64)]) -> (String, String) {
         .collect::<Vec<_>>()
         .join(" ");
     (format!("{:.1}/{:.0}", mib(used), mib(size)), each)
+}
+
+/// MiB per source of the device's video memory for the log, in the given
+/// order (`MemoryLedger::device_local`).
+fn sources_fill(sources: &[(String, u64)]) -> String {
+    sources
+        .iter()
+        .map(|(source, bytes)| format!("{source} {:.1}", *bytes as f64 / f64::from(1 << 20)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// MiB in use per image kind for the log, largest first; slices name the

@@ -23,6 +23,7 @@ use std::{
 };
 
 use super::material::{self, Frost};
+use super::memory_ledger::{self, MemoryLedger};
 use super::record::{ClipRecord, Draw, FrostPlan, Glass};
 use super::shell_queue;
 
@@ -366,6 +367,9 @@ pub(super) struct GpuInner {
     /// time (a quarter millisecond for a frost on a Moto), and frosts and
     /// slices come and go while the shell animates. None once dropped.
     allocator: Mutex<Option<Allocator>>,
+    /// The driver's memory reports, when it gives them; the device holds a
+    /// pointer to it until destroyed.
+    ledger: Option<Box<MemoryLedger>>,
 }
 
 impl Drop for GpuInner {
@@ -453,6 +457,13 @@ impl Gpu {
     /// programs); else the composer merges them into an image first.
     pub(super) fn layered(&self) -> bool {
         self.0.layered
+    }
+
+    /// Live device-local memory of the device by source
+    /// (`MemoryLedger::device_local`); None when the driver gives no
+    /// reports.
+    pub(super) fn device_local_memory(&self) -> Option<Vec<(String, u64)>> {
+        self.0.ledger.as_ref().map(|ledger| ledger.device_local())
     }
 
     /// The allocator's shared blocks as (bytes in use, block size), the
@@ -591,11 +602,36 @@ impl Gpu {
             return Err("Vulkan shell needs VK_KHR_swapchain".into());
         }
         device_extensions.push(ash::khr::swapchain::NAME);
+        let reports = extensions.iter().any(|ext| {
+            ext.extension_name_as_c_str()
+                .is_ok_and(|own| own == ash::ext::device_memory_report::NAME)
+        });
         let mut supported11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut supported_reports = vk::PhysicalDeviceDeviceMemoryReportFeaturesEXT::default();
         let mut supported = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported11);
+        if reports {
+            supported = supported.push_next(&mut supported_reports);
+        }
         // SAFETY: a query on a Vulkan 1.3 device of this instance.
         unsafe { instance.get_physical_device_features2(physical, &mut supported) };
         let base = supported.features;
+        // The driver reports every memory object to the ledger, for the
+        // log's memory breakdown (memory_ledger.rs).
+        let ledger = (reports && supported_reports.device_memory_report == vk::TRUE).then(|| {
+            // SAFETY: a query on a device of this instance.
+            let memory = unsafe { instance.get_physical_device_memory_properties(physical) };
+            Box::new(MemoryLedger::new(&memory))
+        });
+        if ledger.is_some() {
+            device_extensions.push(ash::ext::device_memory_report::NAME);
+        }
+        let mut reports_feature =
+            vk::PhysicalDeviceDeviceMemoryReportFeaturesEXT::default().device_memory_report(true);
+        let mut reports_create = vk::DeviceDeviceMemoryReportCreateInfoEXT::default()
+            .pfn_user_callback(Some(memory_ledger::report))
+            .user_data(ledger.as_deref().map_or(std::ptr::null_mut(), |ledger| {
+                std::ptr::from_ref(ledger).cast_mut().cast()
+            }));
         let mut features = vk::PhysicalDeviceFeatures2::default().features(
             vk::PhysicalDeviceFeatures::default()
                 .fill_mode_non_solid(base.fill_mode_non_solid == vk::TRUE)
@@ -610,12 +646,17 @@ impl Gpu {
             .queue_family_index(family)
             .queue_priorities(&priorities)];
         let names: Vec<_> = device_extensions.iter().map(|name| name.as_ptr()).collect();
-        let create = vk::DeviceCreateInfo::default()
+        let mut create = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queues)
             .enabled_extension_names(&names)
             .push_next(&mut features13)
             .push_next(&mut features11)
             .push_next(&mut features);
+        if ledger.is_some() {
+            create = create
+                .push_next(&mut reports_feature)
+                .push_next(&mut reports_create);
+        }
         // SAFETY: extensions and features were checked above.
         let device = unsafe { instance.create_device(physical, &create, None) }
             .map_err(|e| vk_error("create device", e))?;
@@ -633,6 +674,7 @@ impl Gpu {
             return Err(error);
         }
         let mut inner = GpuInner {
+            ledger,
             device_extensions,
             memory_fd: ash::khr::external_memory_fd::Device::new(instance, &device),
             semaphore_fd: ash::khr::external_semaphore_fd::Device::new(instance, &device),

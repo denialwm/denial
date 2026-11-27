@@ -183,7 +183,11 @@ memory_used_mib=6.0/32 memory_blocks_mib=6.0/32 memory_own_mib=186.8 in 28
 blocks, `memory_blocks_mib` each block as in use/size. Slices live in memory
 of their own (`memory_own_mib`: MiB and count), returned to the driver when a
 slice is dropped. `memory_kinds_mib` is the use per kind; `pooled` is slice
-storage kept for reuse that nothing draws. Read it with
+storage kept for reuse that nothing draws. `device_vram_mib` is the
+device-local memory of the whole Vulkan device, the engine's included, from
+the driver's own reports (VK_EXT_device_memory_report; `unreported` without
+it): `allocated` memory objects, `imported` client and output buffers, and
+the driver's own memory per object type. Read it with
 `journalctl _PID=$(pgrep -x deniald) -g 'output frames' -o cat`.
 
 ### Slice storage

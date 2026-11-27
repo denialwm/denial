@@ -2669,3 +2669,68 @@ fn the_slice_pool_serves_a_larger_image_and_gives_idle_ones_back() {
     assert_eq!(pool.len(), 0);
     assert_eq!(gpu.memory_report().own, (0, 0));
 }
+
+#[test]
+fn the_memory_ledger_sums_live_device_local_memory_by_source() {
+    use ash::vk;
+    let mut memory = vk::PhysicalDeviceMemoryProperties {
+        memory_heap_count: 2,
+        ..Default::default()
+    };
+    memory.memory_heaps[0].flags = vk::MemoryHeapFlags::DEVICE_LOCAL;
+    let ledger = super::memory_ledger::MemoryLedger::new(&memory);
+    let event = |ty, id, size, object_type, heap| vk::DeviceMemoryReportCallbackDataEXT {
+        ty,
+        memory_object_id: id,
+        size,
+        object_type,
+        heap_index: heap,
+        ..Default::default()
+    };
+    let mib = 1 << 20;
+    use vk::DeviceMemoryReportEventTypeEXT as Ty;
+    for data in [
+        event(Ty::ALLOCATE, 1, 4 * mib, vk::ObjectType::DEVICE_MEMORY, 0),
+        event(Ty::ALLOCATE, 2, 2 * mib, vk::ObjectType::DEVICE_MEMORY, 0),
+        event(Ty::IMPORT, 3, 15 * mib, vk::ObjectType::DEVICE_MEMORY, 0),
+        event(Ty::ALLOCATE, 4, mib, vk::ObjectType::PIPELINE, 0),
+        // Host memory is not counted.
+        event(Ty::ALLOCATE, 5, 64 * mib, vk::ObjectType::DEVICE_MEMORY, 1),
+        event(Ty::FREE, 2, 0, vk::ObjectType::UNKNOWN, 0),
+    ] {
+        ledger.record_for_test(&data);
+    }
+    assert_eq!(
+        ledger.device_local(),
+        vec![
+            ("imported".to_owned(), 15 * mib),
+            ("allocated".to_owned(), 4 * mib),
+            ("driver pipeline".to_owned(), mib),
+        ]
+    );
+    assert_eq!(
+        super::sources_fill(&ledger.device_local()),
+        "imported 15.0, allocated 4.0, driver pipeline 1.0"
+    );
+}
+
+#[test]
+#[ignore = "needs a GPU"]
+fn the_driver_reports_a_slice_allocation_to_the_ledger() {
+    let fd = node();
+    let gpu = Gpu::new(fd.as_fd()).expect("Stagecraft device");
+    let allocated = |gpu: &Gpu| {
+        gpu.device_local_memory()
+            .expect("the driver reports memory")
+            .iter()
+            .find(|(source, _)| source == "allocated")
+            .map_or(0, |(_, bytes)| *bytes)
+    };
+    let before = allocated(&gpu);
+    let slice = gpu
+        .slice_image((W, H), ash::vk::ImageUsageFlags::SAMPLED)
+        .expect("slice image");
+    assert_eq!(allocated(&gpu), before + slice.allocated_bytes());
+    drop(slice);
+    assert_eq!(allocated(&gpu), before);
+}
