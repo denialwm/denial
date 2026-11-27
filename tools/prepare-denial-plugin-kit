@@ -219,6 +219,8 @@ def main():
     parser.add_argument('--engine-target', default='denial_host_release')
     parser.add_argument('--platform', choices=['linux-x64', 'linux-arm64'], required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--tool-snapshot-cache', type=Path,
+                        help='Keeps the compiled Flutter tool and reuses it while its inputs match')
     parser.add_argument('--source-root', type=Path,
                         default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--source-revision', help='Packager-supplied source identity without a Git checkout')
@@ -352,13 +354,36 @@ def main():
     target_config = sdk / 'packages/flutter_tools/.dart_tool/package_config.json'
     target_config.parent.mkdir(parents=True)
     target_config.write_text(json.dumps(config, indent=2) + '\n')
-    subprocess.run([
-        str(flutter / 'bin/cache/dart-sdk/bin/dart'),
-        '--snapshot-kind=kernel',
-        f'--snapshot={sdk / "bin/cache/flutter_tools.snapshot"}',
-        f'--packages={target_config}',
-        str(sdk / 'packages/flutter_tools/bin/flutter_tools.dart'),
-    ], check=True)
+    snapshot = sdk / 'bin/cache/flutter_tools.snapshot'
+    cached = None
+    if args.tool_snapshot_cache:
+        # The tool is the same program while Dart, its sources and its
+        # packages are; compiling it is most of a kit's time.
+        key = hashlib.sha256()
+        for part in [digest(flutter / 'bin/cache/dart-sdk/bin/dart'),
+                     input_digest(sdk / 'packages/flutter_tools'),
+                     input_digest(output / 'tool-packages')]:
+            key.update(part.encode() + b'\0')
+        cached = args.tool_snapshot_cache.absolute() / f'{key.hexdigest()}.snapshot'
+        if cached.is_file():
+            shutil.copyfile(cached, snapshot)
+            print(f'Reused the compiled Flutter tool {cached.name[:12]}')
+    if not snapshot.is_file():
+        subprocess.run([
+            str(flutter / 'bin/cache/dart-sdk/bin/dart'),
+            '--snapshot-kind=kernel',
+            f'--snapshot={snapshot}',
+            f'--packages={target_config}',
+            str(sdk / 'packages/flutter_tools/bin/flutter_tools.dart'),
+        ], check=True)
+        if cached:
+            # One tool at a time: an older one is never used again.
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            for old in cached.parent.glob('*.snapshot'):
+                old.unlink()
+            staged = cached.with_suffix('.new')
+            shutil.copyfile(snapshot, staged)
+            staged.replace(cached)
     # The snapshot now contains dependency code. Flutter only needs each root's
     # pubspec for its cache self-check; retaining sources would add tens of MiB.
     for package in (output / 'tool-packages').iterdir():

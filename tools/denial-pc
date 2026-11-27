@@ -895,14 +895,23 @@ prepare_app_compilers() {
     ((APP_ENGINE_LINKING)) || "$ROOT/tools/denial-flutter-engine" prepare-app-build
 }
 
+# Flutter keeps its build cache under a hash of the output folder, so each
+# application assembles into the same folder every time: what did not change
+# is not compiled again. One build at a time uses a folder; the lock lasts
+# until the calling subshell exits.
+lock_assembly() {
+    local lock
+    exec {lock}>"$1.lock"
+    flock "$lock"
+}
+
 build_bundle() (
     prepare_flutter_toolchain
     prepare_sdk_package
     prepare_app_compilers
-    mkdir -p -- "$(dirname -- "$BUNDLE_ASSEMBLY")" "$BUNDLE/data" "$BUNDLE/lib"
-    local assembly
-    assembly="$(mktemp -d -- "${BUNDLE_ASSEMBLY}.XXXXXX")"
-    trap 'rm -rf -- "$assembly"' EXIT
+    mkdir -p -- "$BUNDLE_ASSEMBLY" "$BUNDLE/data" "$BUNDLE/lib"
+    local assembly="$BUNDLE_ASSEMBLY"
+    lock_assembly "$assembly"
     (
         cd "$ROOT/dart_shell"
         "$FLUTTER" pub get
@@ -945,10 +954,9 @@ build_native_runner() (
 build_native_application() (
     local app="$1" binary="$2" bundle="$3"
     build_native_runner
-    local assembly
-    mkdir -p -- "$BUILD_ROOT/app-assembly" "$(dirname -- "$bundle")"
-    assembly="$(mktemp -d "$BUILD_ROOT/app-assembly/$app.XXXXXX")"
-    trap 'rm -rf -- "$assembly"' EXIT
+    local assembly="$BUILD_ROOT/app-assembly/$app"
+    mkdir -p -- "$assembly" "$(dirname -- "$bundle")"
+    lock_assembly "$assembly"
     (
         cd -- "$ROOT/$app"
         "$FLUTTER" pub get --enforce-lockfile
@@ -1052,6 +1060,34 @@ verify_dart_cross_artifacts() {
     done
 }
 
+# DART PACKAGE [ARGS...]: a digest of everything a Dart program in PACKAGE
+# compiles from: the SDK version, ARGS, and every file of every package its
+# package configuration names, the package itself included.
+dart_inputs_digest() {
+    local dart="$1" package="$2"
+    shift 2
+    python3 - "$(dirname -- "$dart")/../version" "$package" "$@" <<'PYDIGEST'
+import hashlib, json, os, sys
+from pathlib import Path
+from urllib.parse import unquote, urljoin, urlparse
+version, package, *arguments = sys.argv[1:]
+config_path = Path(package).resolve() / '.dart_tool/package_config.json'
+config = json.loads(config_path.read_text())
+result = hashlib.sha256(Path(version).read_bytes())
+result.update('\0'.join(arguments).encode() + b'\0')
+roots = sorted({Path(unquote(urlparse(urljoin(config_path.as_uri(), entry['rootUri'])).path)).resolve()
+                for entry in config['packages']})
+for root in roots:
+    for directory, children, files in os.walk(root):
+        children[:] = sorted(c for c in children if c not in {'.dart_tool', 'build', '.git'})
+        for name in sorted(files):
+            path = Path(directory, name)
+            result.update(str(path).encode() + b'\0')
+            result.update(hashlib.sha256(path.read_bytes()).digest())
+print(result.hexdigest())
+PYDIGEST
+}
+
 build_plugin_manager() (
     prepare_flutter_toolchain
     prepare_sdk_package
@@ -1061,12 +1097,21 @@ build_plugin_manager() (
     (
         cd -- "$ROOT/packages/denial_plugin_manager"
         "$dart" pub get --enforce-lockfile
+        # dart compile exe keeps no cache: compile only when an input changed.
+        local backend="$BUILD_ROOT/plugin-manager/denial-plugins" inputs
+        inputs="$(dart_inputs_digest "$dart" . "${DART_CROSS_ARGS[@]}")"
+        if [[ -x "$backend" && "$(cat -- "$backend.inputs" 2>/dev/null)" == "$inputs" ]]; then
+            printf 'Plugin Manager backend is current (inputs %.12s)\n' "$inputs"
+            exit 0
+        fi
+        rm -f -- "$backend.inputs"
         "$dart" compile exe bin/denial_plugins.dart \
             "${DART_CROSS_ARGS[@]}" \
-            --output="$BUILD_ROOT/plugin-manager/denial-plugins.new"
+            --output="$backend.new"
         ((!DENIAL_CROSS)) || verify_dart_cross_artifacts "$dart" \
-            || { rm -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new"; exit 1; }
-        mv -f -- "$BUILD_ROOT/plugin-manager/denial-plugins.new" "$BUILD_ROOT/plugin-manager/denial-plugins"
+            || { rm -f -- "$backend.new"; exit 1; }
+        mv -f -- "$backend.new" "$backend"
+        printf '%s\n' "$inputs" >"$backend.inputs"
     )
     # A build kit runs the Dart it finds first on PATH: tools/denial-plugins
     # puts the SDK the manager was built with first.
@@ -1135,7 +1180,8 @@ build_plugin_kit() (
         --flutter-root "$FLUTTER_SDK_ROOT" \
         --engine-root "$KIT_ENGINE_SRC_PATH" \
         --engine-target "$LOCAL_ENGINE_TARGET" \
-        --platform "$DENIAL_FLUTTER_PLATFORM" --output "$staging/kit"
+        --platform "$DENIAL_FLUTTER_PLATFORM" --output "$staging/kit" \
+        --tool-snapshot-cache "$BUILD_ROOT/plugin-manager/tool-snapshot"
     kit_id="$(sha256sum "$staging/kit/kit.json" | cut -d' ' -f1)"
     mkdir -p -- "$BUILD_ROOT/plugin-manager/build-kits"
     if [[ ! -d "$BUILD_ROOT/plugin-manager/build-kits/$kit_id" ]]; then
@@ -1251,10 +1297,9 @@ build_compositor() {
 # The engine libraries link in the background, two whole-program links of
 # about two minutes; only installing the engine and what reads it wait for
 # them. Settings and the compositor's Rust programs read nothing the Flutter
-# and Dart steps write, so on a dedicated builder they build in the
-# background too, each Rust group in its own Cargo target. Flutter commands
-# stay one after another. Elsewhere the foreground steps take the CPUs left
-# to builds in turn.
+# and Dart steps write, so they build in the background too: on a dedicated
+# builder each Rust group at once in its own Cargo target, elsewhere one after
+# another. Flutter commands stay one after another.
 build_all() (
     local logs engine_pid='' settings_pid='' rust_pid='' status=0
     local candidate bundle binary
@@ -1307,17 +1352,22 @@ build_all() (
             build_polkit_backend
         } >"$logs/rust.log" 2>&1 &
         rust_pid=$!
-        printf 'Building Settings and the compositor in the background\n'
+    else
+        # One Rust group after another, two CPUs below the build share: the
+        # Dart compilers and the engine links take the rest.
+        (
+            ((BUILD_JOBS <= 3)) || BUILD_JOBS=$((BUILD_JOBS - 2))
+            build_settings
+            build_compositor
+            build_polkit_backend
+        ) >"$logs/rust.log" 2>&1 &
+        rust_pid=$!
     fi
+    printf 'Building Settings and the compositor in the background\n'
 
     build_bundle
     build_plugin_manager
     build_polkit_dialog
-    if ((!DEDICATED_BUILDER)); then
-        build_settings
-        build_polkit_backend
-        build_compositor
-    fi
 
     finish 'Flutter engine' "$engine_pid" "$logs/engine.log"
     engine_pid=''
@@ -1333,12 +1383,12 @@ build_all() (
     fi
     finish_plugin_manager
 
-    if ((DEDICATED_BUILDER)); then
+    if [[ -n "$settings_pid" ]]; then
         finish Settings "$settings_pid" "$logs/settings.log"
-        finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
         settings_pid=''
-        rust_pid=''
     fi
+    finish 'compositor, portal and Polkit agent' "$rust_pid" "$logs/rust.log"
+    rust_pid=''
     exit "$status"
 )
 
