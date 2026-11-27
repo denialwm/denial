@@ -24,6 +24,13 @@ void main() {
   // transparent premultiplied result leaves the target unchanged.
   const vec4 limits = v_limits;
   const vec2 uv = v_uv;
+#ifdef LAYERED
+  if (flags.x == kTexture) {
+    // A native window's layers drawn as one texture.
+    frag_color = graded(layeredClient()) * params.y * clip;
+    return;
+  }
+#endif
   if (flags.x == kSlice || flags.x == kTexture) {
     // A merged window's layer (flags.z) covers nothing where it reaches
     // past its buffer, as the GLES merge pass discards there.

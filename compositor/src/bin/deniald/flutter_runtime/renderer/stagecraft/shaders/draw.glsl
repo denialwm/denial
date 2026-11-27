@@ -40,7 +40,11 @@ struct Draw {
   // The texel centre that fills the strip, in texture coordinates.
   float strip_u;
   float strip_v;
-  uint pad0;
+  // A layered draw (the LAYERED programs): the first of the three records
+  // that hold its further layers. Each gives a layer's uv_x, uv_y, limits,
+  // coverage and, in params.z, opacity; the first one's params.w is the
+  // opacity of this draw's own layer, the lowest.
+  uint layers_first;
 };
 
 // Binding 1 holds glass records (glass.glsl), binding 2 clips

@@ -77,10 +77,21 @@ pub(super) enum Program {
     Blur,
     /// A window over its material: the client and the frost in one draw.
     WindowGlass,
+    /// `Compose` for a native window drawn from its layers (`Layers`).
+    ComposeLayered,
+    /// `WindowGlass` for a native window drawn from its layers.
+    WindowGlassLayered,
 }
 
 impl Program {
-    const ALL: [Self; 4] = [Self::Compose, Self::Glass, Self::Blur, Self::WindowGlass];
+    const ALL: [Self; 6] = [
+        Self::Compose,
+        Self::Glass,
+        Self::Blur,
+        Self::WindowGlass,
+        Self::ComposeLayered,
+        Self::WindowGlassLayered,
+    ];
 
     fn spirv(self) -> (&'static [u8], &'static [u8]) {
         match self {
@@ -100,9 +111,27 @@ impl Program {
                 include_bytes!("shaders/compose.vert.spv"),
                 include_bytes!("shaders/window_glass.frag.spv"),
             ),
+            Self::ComposeLayered => (
+                include_bytes!("shaders/compose_layered.vert.spv"),
+                include_bytes!("shaders/compose_layered.frag.spv"),
+            ),
+            Self::WindowGlassLayered => (
+                include_bytes!("shaders/compose_layered.vert.spv"),
+                include_bytes!("shaders/window_glass_layered.frag.spv"),
+            ),
         }
     }
 }
+
+/// Further layers a layered draw samples beside its own image.
+pub(super) const LAYERS: usize = 3;
+
+/// Components the layered programs pass between their stages
+/// (draw_varyings.glsl with LAYERED): 30 locations, the 20 every draw has
+/// and a coordinate pair, limits and coverage per further layer and the
+/// opacities, counted as four components each, as drivers that count
+/// locations do.
+const LAYERED_COMPONENTS: u32 = (20 + LAYERS as u32 * 3 + 1) * 4;
 
 /// Frost images are always this format; a blit converts from the target's.
 pub(super) const FROST_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
@@ -306,6 +335,9 @@ pub(super) struct GpuInner {
     memory: vk::PhysicalDeviceMemoryProperties,
     /// The largest storage buffer range a descriptor may name.
     max_storage_range: u64,
+    /// The layered programs fit the GPU: it passes their varyings from
+    /// the vertex to the fragment shader (`LAYERED_COMPONENTS`).
+    layered: bool,
     /// Nanoseconds per timestamp tick, when `DENIAL_COMPOSER_GPU_TIMING`
     /// asks for GPU timing (a diagnostic; `gpu_timing`).
     timing: Option<f32>,
@@ -319,7 +351,7 @@ pub(super) struct GpuInner {
     /// blur push constants.
     pub(super) layout: vk::PipelineLayout,
     /// Vertex and fragment module per program, in `Program::ALL` order.
-    modules: [(vk::ShaderModule, vk::ShaderModule); 4],
+    modules: [(vk::ShaderModule, vk::ShaderModule); 6],
     /// Nearest, linear.
     pub(super) samplers: [vk::Sampler; 2],
     command_pool: vk::CommandPool,
@@ -406,6 +438,12 @@ fn duplicate(fd: BorrowedFd<'_>) -> Result<OwnedFd> {
 pub(super) struct Gpu(pub(super) Arc<GpuInner>);
 
 impl Gpu {
+    /// Whether the GPU draws a native window from its layers (the layered
+    /// programs); else the composer merges them into an image first.
+    pub(super) fn layered(&self) -> bool {
+        self.0.layered
+    }
+
     /// Opens the Vulkan device behind `render_node`, the DRM node the raster
     /// context renders with. The engine renders on it too: the instance and
     /// device add what Impeller requires, and the queue entry points the
@@ -559,13 +597,17 @@ impl Gpu {
             family,
             memory,
             max_storage_range: u64::from(limits.max_storage_buffer_range),
+            layered: limits
+                .max_vertex_output_components
+                .min(limits.max_fragment_input_components)
+                >= LAYERED_COMPONENTS,
             timing: (std::env::var_os("DENIAL_COMPOSER_GPU_TIMING").is_some()
                 && limits.timestamp_compute_and_graphics == vk::TRUE)
                 .then_some(limits.timestamp_period),
             draws_layout: vk::DescriptorSetLayout::null(),
             image_layout: vk::DescriptorSetLayout::null(),
             layout: vk::PipelineLayout::null(),
-            modules: [(vk::ShaderModule::null(), vk::ShaderModule::null()); 4],
+            modules: [(vk::ShaderModule::null(), vk::ShaderModule::null()); 6],
             samplers: [vk::Sampler::null(); 2],
             command_pool: vk::CommandPool::null(),
             descriptor_pool: vk::DescriptorPool::null(),
@@ -654,7 +696,8 @@ impl GpuInner {
         let draws = [records(0), records(1), records(2), records(3)];
         // The sampled image; a window over its material also samples its
         // frost (binding 1, pushed only for that program); binding 2 is the
-        // client's look.
+        // client's look; binding 3 holds a layered window's further layers
+        // (pushed only for the layered programs).
         let sampled = |binding: u32| {
             vk::DescriptorSetLayoutBinding::default()
                 .binding(binding)
@@ -662,7 +705,12 @@ impl GpuInner {
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::FRAGMENT)
         };
-        let image = [sampled(0), sampled(1), sampled(2)];
+        let image = [
+            sampled(0),
+            sampled(1),
+            sampled(2),
+            sampled(3).descriptor_count(LAYERS as u32),
+        ];
         let code = |bytes: &[u8]| -> Vec<u32> {
             bytes
                 .chunks_exact(4)
@@ -1616,6 +1664,23 @@ pub(super) struct Batch {
     pub(super) count: u32,
     /// What `image` holds for the frame: equal values, equal pixels.
     pub(super) content: u64,
+    /// A native window drawn from its layers: `image` is the lowest and
+    /// these lie over it, each draw record naming their placement
+    /// (`record::layered`). The layered programs draw the batch.
+    pub(super) layers: Option<Layers>,
+}
+
+/// The images of a layered draw's further layers, lowest first; a layer
+/// the window does not have holds a stand-in its record never samples.
+pub(super) type Layers = Arc<[Arc<Image>; LAYERS]>;
+
+/// Whether two draws sample the same further layers.
+pub(super) fn same_layers(a: &Option<Layers>, b: &Option<Layers>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.iter().zip(b.iter()).all(|(a, b)| Arc::ptr_eq(a, b)),
+        _ => false,
+    }
 }
 
 /// A material: its frost (made first when `fresh`), then its glass record.
@@ -1650,6 +1715,8 @@ pub(super) struct WindowDraw {
     pub(super) nearest: bool,
     /// What `image` holds for the frame, as `Batch::content`.
     pub(super) content: u64,
+    /// As `Batch::layers` (`Program::WindowGlassLayered`).
+    pub(super) layers: Option<Layers>,
 }
 
 /// Pixels a frame takes from the output buffer shown before it rather than
@@ -2582,7 +2649,21 @@ impl Frame {
             Some(merge) => gpu.pipeline(Program::Compose, merge.image.format)?,
             None => vk::Pipeline::null(),
         };
+        let mut layered = false;
         for step in steps {
+            let layers = match step {
+                Step::Draws(batch) => batch.layers.as_ref(),
+                Step::Material(material) => material
+                    .window
+                    .as_ref()
+                    .and_then(|window| window.layers.as_ref()),
+            };
+            for image in layers.into_iter().flat_map(|layers| layers.iter()) {
+                layered = true;
+                if !self.keep.iter().any(|kept| Arc::ptr_eq(kept, image)) {
+                    self.keep.push(Arc::clone(image));
+                }
+            }
             let images: [Option<&Arc<Image>>; 2] = match step {
                 Step::Draws(batch) => [Some(&batch.image), Some(&batch.look)],
                 Step::Material(MaterialStep {
@@ -2610,6 +2691,15 @@ impl Frame {
                 }
             }
         }
+        // Made when a frame first draws a window from its layers.
+        let (compose_layered, window_glass_layered) = if layered {
+            (
+                gpu.pipeline(Program::ComposeLayered, target.format)?,
+                gpu.pipeline(Program::WindowGlassLayered, target.format)?,
+            )
+        } else {
+            (vk::Pipeline::null(), vk::Pipeline::null())
+        };
         let fresh_frost = steps
             .iter()
             .any(|step| matches!(step, Step::Material(material) if material.fresh));
@@ -2786,6 +2876,29 @@ impl Frame {
                     )
                 };
             };
+        // Binding 3: a layered draw's further layers.
+        let push_layers = |layers: &Layers, nearest: bool| {
+            let infos: [vk::DescriptorImageInfo; LAYERS] = std::array::from_fn(|layer| {
+                vk::DescriptorImageInfo::default()
+                    .sampler(gpu.samplers[usize::from(!nearest)])
+                    .image_view(layers[layer].view)
+                    .image_layout(layers[layer].sampled_layout)
+            });
+            let writes = [vk::WriteDescriptorSet::default()
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&infos)];
+            // SAFETY: recording; the images are retained by `keep`.
+            unsafe {
+                gpu.push.cmd_push_descriptor_set(
+                    command,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    gpu.layout,
+                    1,
+                    &writes,
+                )
+            };
+        };
         // SAFETY: the frame is idle, every handle is live and retained by
         // `keep` until the submission completes.
         unsafe {
@@ -2993,11 +3106,18 @@ impl Frame {
             for step in steps {
                 match step {
                     Step::Draws(batch) => {
-                        use_pipeline(compose);
                         let key = (batch.image.view, batch.nearest, batch.look.view);
-                        if bound != Some(key) {
+                        if let Some(layers) = &batch.layers {
+                            use_pipeline(compose_layered);
                             push_images(&batch.image, batch.nearest, Some(&batch.look), None);
+                            push_layers(layers, batch.nearest);
                             bound = Some(key);
+                        } else {
+                            use_pipeline(compose);
+                            if bound != Some(key) {
+                                push_images(&batch.image, batch.nearest, Some(&batch.look), None);
+                                bound = Some(key);
+                            }
                         }
                         d.cmd_draw(command, 4, batch.count, 0, batch.first);
                         instances += batch.count;
@@ -3034,7 +3154,13 @@ impl Frame {
                         }
                         bound = None;
                         if let Some(window) = &material.window {
-                            use_pipeline(window_glass);
+                            match &window.layers {
+                                Some(layers) => {
+                                    use_pipeline(window_glass_layered);
+                                    push_layers(layers, window.nearest);
+                                }
+                                None => use_pipeline(window_glass),
+                            }
                             push_images(
                                 &window.image,
                                 window.nearest,

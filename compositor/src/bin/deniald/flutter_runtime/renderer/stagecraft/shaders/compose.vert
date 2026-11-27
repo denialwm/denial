@@ -41,4 +41,15 @@ void main() {
   v_clip_radii_top = head.radii_top;
   v_clip_radii_bottom = head.radii_bottom;
   v_clip_path = head.path;
+#ifdef LAYERED
+  const uint first = draws[index].layers_first;
+  for (uint layer = 0u; layer < 3u; ++layer) {
+    v_layer_uv[layer] = vec2(dot(draws[first + layer].uv_x.xyz, p),
+                             dot(draws[first + layer].uv_y.xyz, p));
+    v_layer_limits[layer] = draws[first + layer].limits;
+    v_layer_coverage[layer] = draws[first + layer].coverage;
+  }
+  v_layer_opacity = vec4(draws[first].params.w, draws[first].params.z,
+                         draws[first + 1u].params.z, draws[first + 2u].params.z);
+#endif
 }

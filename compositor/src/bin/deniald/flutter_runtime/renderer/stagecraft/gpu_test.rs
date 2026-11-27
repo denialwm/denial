@@ -164,6 +164,7 @@ fn scene(rig: &Rig, bands: u32, bottom_up: bool) -> (Vec<record::Draw>, Vec<Step
                 first: index,
                 count: 1,
                 content: 0,
+                layers: None,
             })),
         }
     }
@@ -232,6 +233,7 @@ fn empty_staged(view_id: i64) -> super::Staged {
         merges: Vec::new(),
         merged_windows: Vec::new(),
         merges_reused: 0,
+        layered: 0,
         converted: 0,
         covers: Vec::new(),
         culled_draws: 0,
@@ -483,6 +485,7 @@ fn shm_upload_draws_exactly_and_is_overwritten() {
         first: 0,
         count: 1,
         content: 0,
+        layers: None,
     })];
     let mut frame = Frame::new(&rig.gpu).expect("frame");
     // The first upload goes into undefined contents, the second over what
@@ -1176,6 +1179,7 @@ fn window_shows_its_material_above_the_threshold() {
                 look: Arc::clone(&rig.no_look),
                 nearest: true,
                 content: 0,
+                layers: None,
             }),
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[behind.glass], &steps);
@@ -1257,6 +1261,7 @@ fn window_client_is_graded_through_its_look() {
             first: index,
             count: 1,
             content: 0,
+            layers: None,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
         pixel(&rig.target_buffer, 128, H - 1 - 64)
@@ -1421,6 +1426,7 @@ fn native_window_layers_merge_as_the_gles_pass() {
         first,
         count: 1,
         content: 0,
+        layers: None,
     };
     let merges = [Merge {
         image: Arc::clone(&merged),
@@ -1542,6 +1548,238 @@ fn native_window_layers_merge_as_the_gles_pass() {
         first_wrong(&expected_after),
         None,
         "first pixel off by more than one after a partial merge"
+    );
+}
+
+/// The layers of `native_window_layers_merge_as_the_gles_pass`, drawn from
+/// their own images by one draw each time: as a texture, as a window and
+/// as a window over its material. The target shows what the merged image
+/// would, and nothing is merged.
+#[test]
+#[ignore = "needs a GPU"]
+fn native_window_layers_draw_without_a_merge() {
+    use denial_flutter_engine::scene::WindowStyle;
+    let rig = rig(1, false);
+    assert!(rig.gpu.layered(), "the GPU passes the layered varyings");
+    let layer = |size: (u32, u32), color: &dyn Fn(u32, u32) -> [u8; 4]| {
+        let mut rgba = Vec::with_capacity((size.0 * size.1 * 4) as usize);
+        for y in 0..size.1 {
+            for x in 0..size.0 {
+                rgba.extend_from_slice(&color(x, y));
+            }
+        }
+        let frame =
+            super::super::ShmTextureFrame::new_owned(size.0, size.1, 1, rgba).expect("SHM frame");
+        let image = rig.gpu.upload_image(size).expect("layer image");
+        (image, frame)
+    };
+    // Premultiplied: color at most alpha.
+    let top = |x: u32, y: u32| [(x * 2) as u8, (y * 4) as u8, 0, 128];
+    let (below, below_pixels) = layer((W, H), &pattern);
+    let (above, above_pixels) = layer((64, 32), &top);
+    let limits = |(w, h): (u32, u32)| {
+        let (w, h) = (w as f32, h as f32);
+        [0.5 / w, 0.5 / h, 1.0 - 0.5 / w, 1.0 - 0.5 / h]
+    };
+    let layers = [
+        record::Layer {
+            quad: [0.0, 0.0, W as f32, H as f32],
+            uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            limits: limits((W, H)),
+            opacity: 1.0,
+        },
+        // Half a turn, at half opacity.
+        record::Layer {
+            quad: [32.0, 16.0, 96.0, 48.0],
+            uv: [[1.0, 1.0], [0.0, 1.0], [1.0, 0.0]],
+            limits: limits((64, 32)),
+            opacity: 0.5,
+        },
+        // Its right half reaches past its buffer.
+        record::Layer {
+            quad: [128.0, 80.0, 256.0, 112.0],
+            uv: [[0.0, 0.0], [2.0, 0.0], [0.0, 1.0]],
+            limits: limits((64, 32)),
+            opacity: 1.0,
+        },
+    ];
+    let further: device::Layers =
+        Arc::new([Arc::clone(&above), Arc::clone(&above), Arc::clone(&below)]);
+    let whole = Rect {
+        left: 0.0,
+        top: 0.0,
+        right: W as f32,
+        bottom: H as f32,
+    };
+    let ndc = record::ndc_from_target(W, H);
+    let local = record::tests::plain_local();
+    let placement = record::Placement::new(whole, (W, H), None).expect("placement");
+    // The records of the further layers first, then the draw that names
+    // them.
+    let records = |mut draw: record::Draw| {
+        let (further, kept) = record::layered(&mut draw, (W, H), &layers).expect("layered draw");
+        assert_eq!(kept, [true, true, true, false]);
+        draw.set_layers(0);
+        let mut draws = further.to_vec();
+        draws.push(draw);
+        draws
+    };
+    let style = WindowStyle {
+        bounds: whole,
+        content_bounds: whole,
+        material_bounds: None,
+        radius: 0.0,
+        frame_color: 0,
+        direct_texture: true,
+    };
+    let window = record::window(
+        &local,
+        ClipSpan::default(),
+        &ndc,
+        &style,
+        &Matrix3::IDENTITY,
+        1.0,
+        Some((&placement, (W, H))),
+    )
+    .expect("window draw");
+    let expected = |x: u32, y: u32| -> [f32; 4] {
+        let below = pattern(x, y).map(|c| f32::from(c) / 255.0);
+        if (128..192).contains(&x) && (80..112).contains(&y) {
+            let above = top(x - 128, y - 80).map(|c| f32::from(c) / 255.0);
+            return std::array::from_fn(|c| above[c] + below[c] * (1.0 - above[3]));
+        }
+        if !((32..96).contains(&x) && (16..48).contains(&y)) {
+            return below;
+        }
+        // Half a turn: the layer's last texel at the quad's first pixel.
+        let above = top(63 - (x - 32), 31 - (y - 16)).map(|c| f32::from(c) / 255.0 * 0.5);
+        std::array::from_fn(|c| above[c] + below[c] * (1.0 - above[3]))
+    };
+    let first_wrong = || {
+        let mut wrong = None;
+        rig.target_buffer
+            .map(0, 0, W, H, |mapping| {
+                for row in 0..H {
+                    for x in 0..W {
+                        let at = row as usize * mapping.stride() as usize + x as usize * 4;
+                        let got: [u8; 4] = mapping.buffer()[at..at + 4].try_into().unwrap();
+                        // Target row y is memory row H - 1 - y.
+                        let want = expected(x, H - 1 - row).map(|c| (c * 255.0).round() as i32);
+                        let off = (0..4).any(|c| (i32::from(got[c]) - want[c]).abs() > 1);
+                        if off && wrong.is_none() {
+                            wrong = Some((x, row, got, want));
+                        }
+                    }
+                }
+            })
+            .expect("map target");
+        wrong
+    };
+    let mut frame = Frame::new(&rig.gpu).expect("frame");
+    let mut serial = 0;
+    let mut submit =
+        |draws: &[record::Draw], glasses: &[record::Glass], steps: &[Step], uploads: &[Upload]| {
+            serial += 1;
+            assert!(frame.idle());
+            let done = frame
+                .submit(
+                    serial,
+                    &rig.target,
+                    draws,
+                    glasses,
+                    &[],
+                    &[],
+                    &[],
+                    steps,
+                    uploads,
+                    WHOLE,
+                    None,
+                    None,
+                )
+                .expect("submit");
+            if let Some(done) = done {
+                assert!(wait_fd(done.as_fd(), 5000), "submission did not complete");
+            }
+        };
+    let batch = |first: u32| Batch {
+        image: Arc::clone(&below),
+        look: Arc::clone(&rig.no_look),
+        nearest: false,
+        first,
+        count: 1,
+        content: 0,
+        layers: Some(Arc::clone(&further)),
+    };
+
+    // A texture.
+    let texture = record::texture(&local, ClipSpan::default(), &ndc, &placement, (W, H))
+        .expect("texture draw");
+    let uploads = [
+        Upload {
+            image: Arc::clone(&below),
+            frame: below_pixels,
+            fresh: true,
+        },
+        Upload {
+            image: Arc::clone(&above),
+            frame: above_pixels,
+            fresh: true,
+        },
+    ];
+    submit(&records(texture), &[], &[Step::Draws(batch(3))], &uploads);
+    assert_eq!(
+        first_wrong(),
+        None,
+        "texture: first pixel off by more than one"
+    );
+
+    // A window. Every frame clears the target first.
+    submit(&records(window), &[], &[Step::Draws(batch(3))], &[]);
+    assert_eq!(
+        first_wrong(),
+        None,
+        "window: first pixel off by more than one"
+    );
+
+    // A window over its material: opaque, so the material stays behind it.
+    let material = record::tests::glass_material([0.0, 0.0, W as f32, H as f32], [[0.0; 2]; 4]);
+    let behind = record::window_material(
+        &material,
+        None,
+        &local,
+        ClipSpan::default(),
+        &Matrix3::IDENTITY,
+        rig.target.size,
+    )
+    .expect("supported material")
+    .expect("visible material");
+    let frost = Arc::new(Frost::new(&rig.gpu, behind.plan).expect("frost"));
+    let (mut draws, mut steps) = scene(&rig, 1, false);
+    let first = draws.len() as u32;
+    draws.extend(records(window.with_glass(0)));
+    draws[first as usize + 3].set_layers(first);
+    steps.push(Step::Material(MaterialStep {
+        record: 0,
+        plan: behind.plan,
+        frost: Some(frost),
+        fresh: true,
+        below: 0,
+        made: 0,
+        frozen: None,
+        window: Some(WindowDraw {
+            draw: first + 3,
+            image: Arc::clone(&below),
+            look: Arc::clone(&rig.no_look),
+            nearest: false,
+            content: 0,
+            layers: Some(Arc::clone(&further)),
+        }),
+    }));
+    submit(&draws, &[behind.glass], &steps, &[]);
+    assert_eq!(
+        first_wrong(),
+        None,
+        "window over its material: first pixel off by more than one"
     );
 }
 
@@ -1841,6 +2079,95 @@ fn a_client_the_composer_cannot_import_is_copied_by_gles() {
     assert!(matches!(resolved, super::Resolved::Unreadable));
 }
 
+/// A native window of up to four layers is staged as one draw over its
+/// layers' own images, with nothing merged; a window of more is merged
+/// into an image first.
+#[test]
+#[ignore = "needs a GPU"]
+fn a_native_window_is_staged_from_its_layers() {
+    let (composer, _target) = composer_with_target();
+    assert!(
+        composer.gpu.layered(),
+        "the GPU passes the layered varyings"
+    );
+    let layer = |texture_id: i64| {
+        let pixels = vec![128; (W * H * 4) as usize];
+        let frame = super::super::ShmTextureFrame::new_owned(W, H, 1, pixels).expect("SHM frame");
+        super::MergedLayer {
+            sampled: super::SampledClient {
+                texture_id,
+                generation: 1,
+                source: super::super::ExternalTextureSource::Shm(frame),
+            },
+            quad: [0.0, 0.0, W as f32, H as f32],
+            uv: [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            limits: [0.0, 0.0, 1.0, 1.0],
+            opacity: 0.5,
+            history: Default::default(),
+        }
+    };
+    let whole = Rect {
+        left: 0.0,
+        top: 0.0,
+        right: W as f32,
+        bottom: H as f32,
+    };
+    let window = |layers: i64| super::Client::Merged {
+        placement: record::Placement::new(whole, (W, H), None).expect("placement"),
+        merged: super::MergedClient {
+            texture_id: 100,
+            app: None,
+            size: (W, H),
+            layers: (1..=layers).map(layer).collect(),
+            unseen: Vec::new(),
+        },
+        look: None,
+    };
+    let mut state = super::lock(&composer.state);
+    let mut copy = CopyAs {
+        image: None,
+        calls: 0,
+    };
+    let mut staged = empty_staged(1);
+    let mut client = composer
+        .resolved_image(&mut state, &mut staged, window(4), &mut copy)
+        .expect("not declined")
+        .expect("a client");
+    assert!(staged.merges.is_empty(), "nothing is merged");
+    assert_eq!(staged.layered, 1);
+    assert_eq!(staged.clients.len(), 4, "every layer's buffer is shown");
+    assert!(!client.opaque, "half-transparent layers hide nothing");
+    let mut draw = record::texture(
+        &record::tests::plain_local(),
+        ClipSpan::default(),
+        &record::ndc_from_target(W, H),
+        &client.placement,
+        client.size,
+    )
+    .expect("texture draw");
+    let layers = client
+        .layer(&mut draw, &mut staged.draws)
+        .expect("not declined")
+        .expect("a layered draw");
+    assert_eq!(staged.draws.len(), 3, "the records of the further layers");
+    // The draw samples the lowest layer's image, and the others in order.
+    let image = |texture_id: i64| &state.uploads[&texture_id].image;
+    assert!(Arc::ptr_eq(&client.image, image(1)));
+    for (index, layer) in layers.iter().enumerate() {
+        assert!(Arc::ptr_eq(layer, image(index as i64 + 2)));
+    }
+
+    let mut staged = empty_staged(1);
+    let client = composer
+        .resolved_image(&mut state, &mut staged, window(5), &mut copy)
+        .expect("not declined")
+        .expect("a client");
+    assert!(client.layers.is_none());
+    assert_eq!(staged.merges.len(), 1, "five layers are merged");
+    assert_eq!(staged.layered, 0);
+    assert_eq!(copy.calls, 0);
+}
+
 #[test]
 #[ignore = "needs a GPU"]
 fn conversions_are_waited_for_until_a_submission_succeeds() {
@@ -1946,6 +2273,7 @@ fn what_an_opaque_draw_hides_is_left_out() {
             first: 1,
             count: 1,
             content: 0,
+            layers: None,
         }));
         staged.draws = draws;
         staged.steps = steps;
@@ -2009,6 +2337,7 @@ fn a_draw_split_around_a_cover_draws_the_same_pixels() {
                 first: index as u32,
                 count: 1,
                 content: 0,
+                layers: None,
             }));
         }
         staged.covers.push((1, hole.map(|value| value as i32)));
@@ -2101,6 +2430,7 @@ fn an_opaque_window_paints_every_pixel_it_covers() {
             first: index,
             count: 1,
             content: 0,
+            layers: None,
         }));
         submit_and_wait(&rig, &mut frame, &draws, &[], &steps);
         let inside = pixel(&rig.target_buffer, 128, H - 1 - 50);

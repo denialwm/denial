@@ -137,6 +137,16 @@ orientation after buffer-coordinate cropping and swaps layout dimensions for
 quarter turns. Droidloom can therefore supply original Android layers as
 ordinary subsurfaces instead of flattening every supported task in Android.
 
+A window made of several surfaces is drawn from their buffers as they are.
+One surface that is the whole window is sampled like any other client.
+Stagecraft draws up to four surfaces in one window draw: the window shader
+samples each layer's own buffer at its place, turned and cropped as the
+surface asks, and blends them in order before the window's corners, opacity
+and backdrop apply, so the result is the one a single image of the window
+would give. A window of more surfaces, and the GLES composition, first draw
+the surfaces into one image; deniald then logs `window copied` for that
+window, at most once every ten seconds.
+
 ## Input
 
 Physical events enter through Smithay's libinput backend. Dart publishes one

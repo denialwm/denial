@@ -69,7 +69,9 @@ use tracing::{info, warn};
 pub(super) use convert::ConvertKey;
 pub(super) use device::Image;
 pub(in crate::flutter_runtime) use device::ShellDevice;
-use device::{Batch, Frame, Gpu, MAX_FRAMES, MaterialStep, Merge, Step, Upload, Usage, WindowDraw};
+use device::{
+    Batch, Frame, Gpu, Layers, MAX_FRAMES, MaterialStep, Merge, Step, Upload, Usage, WindowDraw,
+};
 use material::Frost;
 pub(super) use record::Placement;
 use record::{ClipRecord, ClipSpan, Draw, FrostPlan, Glass};
@@ -306,6 +308,8 @@ pub(super) struct Staged {
     merged_windows: Vec<MergedWindow>,
     /// Merged windows shown from the image a submission drew.
     merges_reused: u32,
+    /// Native windows drawn from their layers' own buffers, without a merge.
+    layered: u32,
     /// Clients shown from an image GLES converted or copied.
     converted: u32,
     /// Target pixels draws paint opaque, by draw record, in draw order.
@@ -460,6 +464,8 @@ struct Tally {
     /// Native windows merged with Vulkan, and shown again from their image.
     merges_made: u64,
     merges_reused: u64,
+    /// Native windows drawn from their layers' own buffers instead.
+    layered: u64,
     /// Clients shown from a GLES conversion or copy.
     converted: u64,
     /// Vulkan frames the engine composed itself after the composer declined
@@ -528,6 +534,7 @@ impl Tally {
         }
         self.merges_made += staged.merges.len() as u64;
         self.merges_reused += u64::from(staged.merges_reused);
+        self.layered += u64::from(staged.layered);
         self.converted += u64::from(staged.converted);
         self.culled_draws += u64::from(staged.culled_draws);
         self.culled_materials += u64::from(staged.culled_materials);
@@ -575,6 +582,7 @@ impl Tally {
             frosts_untracked = self.frosts_untracked,
             merges_made = self.merges_made,
             merges_reused = self.merges_reused,
+            layered_windows = self.layered,
             converted = self.converted,
             engine_frames = self.engine_frames,
             partial_frames = self.partial_frames,
@@ -1392,6 +1400,16 @@ impl SceneComposer {
             sampled(&batch.image);
         }
         for step in &staged.steps {
+            let layers = match step {
+                Step::Draws(batch) => batch.layers.as_ref(),
+                Step::Material(material) => material
+                    .window
+                    .as_ref()
+                    .and_then(|window| window.layers.as_ref()),
+            };
+            for image in layers.into_iter().flat_map(|layers| layers.iter()) {
+                sampled(image);
+            }
             match step {
                 Step::Draws(batch) => sampled(&batch.image),
                 Step::Material(material) => {
@@ -1688,6 +1706,72 @@ pub(super) trait Resolve {
     /// buffer the composer could not import or upload; None when GLES
     /// cannot read it either, so the GLES pass leaves it out too.
     fn copy(&mut self, sampled: &SampledClient) -> Result<Option<Arc<Image>>, Decline>;
+}
+
+/// What a texture or window entry samples.
+struct ResolvedClient {
+    /// The client's image; a layered window's lowest layer once `layer`
+    /// placed its draw.
+    image: Arc<Image>,
+    /// The pixels `placement` addresses: the image's, or those of the
+    /// window a layered client's layers make.
+    size: (u32, u32),
+    placement: Placement,
+    look: Option<Arc<Lut>>,
+    /// Its pixels hide what lies under them.
+    opaque: bool,
+    /// A native window drawn from its layers: their images and where each
+    /// lies in the window, lowest first.
+    layers: Option<(Vec<Arc<Image>>, Vec<record::Layer>)>,
+}
+
+impl ResolvedClient {
+    /// Makes `draw`, which samples the client whole, sample a layered
+    /// client's layers: stores the records of its further layers in `draws`
+    /// and returns their images. None for a client that is one image.
+    fn layer(&mut self, draw: &mut Draw, draws: &mut Vec<Draw>) -> Result<Option<Layers>, Decline> {
+        let Some((images, layers)) = self.layers.take() else {
+            return Ok(None);
+        };
+        let (further, kept) = record::layered(draw, self.size, &layers).ok_or("layered window")?;
+        let mut kept = images
+            .into_iter()
+            .zip(kept)
+            .filter_map(|(image, kept)| kept.then_some(image));
+        // A window none of whose layers shows samples a stand-in, with no
+        // opacity.
+        if let Some(lowest) = kept.next() {
+            self.image = lowest;
+        }
+        let stand_in = &self.image;
+        let images: [Arc<Image>; device::LAYERS] =
+            std::array::from_fn(|_| kept.next().unwrap_or_else(|| Arc::clone(stand_in)));
+        draw.set_layers(draws.len() as u32);
+        draws.extend(further);
+        Ok(Some(Arc::new(images)))
+    }
+}
+
+impl MergedClient {
+    /// One draw can sample the layers themselves: they are few enough,
+    /// each lies in the window as a rectangle of its buffer, and
+    /// `placement` shows the window's image whole, as every window's does
+    /// (a cursor's may crop it).
+    fn layerable(&self, placement: &Placement) -> bool {
+        let whole = [0.0, 0.0, self.size.0 as f32, self.size.1 as f32];
+        placement.strip.is_none()
+            && placement.source == whole
+            && self.layers.len() <= record::DRAW_LAYERS
+            && self.layers.iter().all(|layer| {
+                record::Layer {
+                    quad: layer.quad,
+                    uv: layer.uv,
+                    limits: layer.limits,
+                    opacity: layer.opacity,
+                }
+                .bounded()
+            })
+    }
 }
 
 /// A native window whose layers the composer merges, as the GLES pass
@@ -2016,16 +2100,27 @@ impl SceneComposer {
         Ok(image)
     }
 
-    /// The image a texture or window entry samples, with where it lands and
-    /// its look; None when the texture has no image. Credits what the
-    /// frame shows to `staged`.
+    /// What a texture or window entry samples, with where it lands and its
+    /// look; None when the texture has no image. Credits what the frame
+    /// shows to `staged`.
     fn resolved_image(
         &self,
         state: &mut State,
         staged: &mut Staged,
         client: Client,
         resolve: &mut dyn Resolve,
-    ) -> Result<Option<(Arc<Image>, Placement, Option<Arc<Lut>>)>, Decline> {
+    ) -> Result<Option<ResolvedClient>, Decline> {
+        let declared_opaque = client.declared_opaque();
+        let whole = |image: Arc<Image>, placement, look| {
+            Some(ResolvedClient {
+                size: image.size,
+                opaque: image.opaque || declared_opaque,
+                image,
+                placement,
+                look,
+                layers: None,
+            })
+        };
         match client {
             Client::Missing => Ok(None),
             Client::Image {
@@ -2037,14 +2132,14 @@ impl SceneComposer {
                 match self.client_image(state, &mut staged.uploads, &sampled, resolve)? {
                     Resolved::Read(image) => {
                         staged.clients.push(sampled);
-                        Ok(Some((image, placement, look)))
+                        Ok(whole(image, placement, look))
                     }
                     // GLES read it; the pool holds the buffer until a
                     // present follows that read.
                     Resolved::Copied(image) => {
                         staged.converted += 1;
                         staged.credits.push(sampled);
-                        Ok(Some((image, placement, look)))
+                        Ok(whole(image, placement, look))
                     }
                     Resolved::Unreadable => {
                         staged.omitted.push(sampled);
@@ -2065,18 +2160,93 @@ impl SceneComposer {
                 resolved_once(staged, &sampled)?;
                 staged.converted += 1;
                 staged.credits.push(sampled);
-                Ok(Some((image, placement, None)))
+                Ok(whole(image, placement, None))
             }
             Client::Merged {
                 placement,
                 merged,
                 look,
-            } => Ok(Some((
-                self.merged_image(state, staged, merged, resolve)?,
-                placement,
-                look,
-            ))),
+            } => {
+                if self.gpu.layered() && merged.layerable(&placement) {
+                    return self
+                        .layered_client(state, staged, merged, placement, look, resolve)
+                        .map(Some);
+                }
+                let image = self.merged_image(state, staged, merged, resolve)?;
+                Ok(whole(image, placement, look))
+            }
         }
+    }
+
+    /// A native window drawn from its layers: each layer's own image, which
+    /// one draw samples where a merged image would hold it. Nothing is
+    /// copied.
+    fn layered_client(
+        &self,
+        state: &mut State,
+        staged: &mut Staged,
+        merged: MergedClient,
+        placement: Placement,
+        look: Option<Arc<Lut>>,
+        resolve: &mut dyn Resolve,
+    ) -> Result<ResolvedClient, Decline> {
+        // A merged image of the window is not shown again.
+        if !staged
+            .merged_windows
+            .iter()
+            .any(|window| window.texture_id == merged.texture_id)
+        {
+            state.merged.remove(&merged.texture_id);
+        }
+        static NOTED: std::sync::Once = std::sync::Once::new();
+        NOTED.call_once(|| {
+            info!(
+                window = merged.texture_id,
+                app = merged.app.as_deref(),
+                layers = merged.layers.len(),
+                "native window drawn from its layers, without a merged image"
+            );
+        });
+        let mut images = Vec::with_capacity(merged.layers.len());
+        let mut layers = Vec::with_capacity(merged.layers.len());
+        let mut opaque = false;
+        for layer in merged.layers {
+            resolved_once(staged, &layer.sampled)?;
+            let (image, copied) =
+                match self.client_image(state, &mut staged.uploads, &layer.sampled, resolve)? {
+                    Resolved::Read(image) => (image, false),
+                    Resolved::Copied(image) => (image, true),
+                    // As the merge: GLES cannot read it either and leaves
+                    // the window to its surfaces.
+                    Resolved::Unreadable => return Err("native window input GLES cannot read"),
+                };
+            let placed = record::Layer {
+                quad: layer.quad,
+                uv: layer.uv,
+                limits: layer.limits,
+                opacity: layer.opacity,
+            };
+            opaque |= (image.opaque || layer.sampled.source.opaque()) && placed.fills(merged.size);
+            images.push(image);
+            layers.push(placed);
+            if copied {
+                staged.converted += 1;
+                staged.credits.push(layer.sampled);
+            } else {
+                staged.clients.push(layer.sampled);
+            }
+        }
+        staged.credits.extend(merged.unseen);
+        staged.layered += 1;
+        Ok(ResolvedClient {
+            // What its draw binds follows from the layers it keeps.
+            image: Arc::clone(&self.placeholder),
+            size: merged.size,
+            placement,
+            look,
+            opaque,
+            layers: Some((images, layers)),
+        })
     }
 
     /// A native window's merged image: the one a submission drew when its
@@ -2200,6 +2370,7 @@ impl SceneComposer {
                     first: index,
                     count: 1,
                     content: 0,
+                    layers: None,
                 }),
             }
             if copied {
@@ -2301,6 +2472,7 @@ impl SceneComposer {
                 merges: Vec::new(),
                 merged_windows: Vec::new(),
                 merges_reused: 0,
+                layered: 0,
                 converted: 0,
                 covers: Vec::new(),
                 culled_draws: 0,
@@ -2314,6 +2486,7 @@ impl SceneComposer {
             let push = |staged: &mut Staged,
                         draw: Draw,
                         image: &Arc<Image>,
+                        layers: Option<Layers>,
                         content: u64,
                         look: &Arc<Image>,
                         nearest: bool| {
@@ -2321,6 +2494,7 @@ impl SceneComposer {
                 staged.draws.push(draw);
                 if let Some(Step::Draws(last)) = staged.steps.last_mut()
                     && Arc::ptr_eq(&last.image, image)
+                    && device::same_layers(&last.layers, &layers)
                     && last.content == content
                     && Arc::ptr_eq(&last.look, look)
                     && last.nearest == nearest
@@ -2336,6 +2510,7 @@ impl SceneComposer {
                     first: index,
                     count: 1,
                     content,
+                    layers,
                 }));
             };
             // Each entry's clips, reduced to what the shaders evaluate and
@@ -2383,7 +2558,15 @@ impl SceneComposer {
                                     &scene_from_target,
                                 );
                             }
-                            push(&mut staged, draw, &image, content, &self.no_look, !*linear);
+                            push(
+                                &mut staged,
+                                draw,
+                                &image,
+                                None,
+                                content,
+                                &self.no_look,
+                                !*linear,
+                            );
                         }
                     }
                     SceneEntry::Texture {
@@ -2394,18 +2577,24 @@ impl SceneComposer {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *bounds)?;
                         let content = client.content();
-                        let declared_opaque = client.declared_opaque();
-                        let Some((image, placement, look)) =
+                        let Some(mut client) =
                             self.resolved_image(&mut state, &mut staged, client, resolve)?
                         else {
                             continue;
                         };
-                        let opaque = image.opaque || declared_opaque;
-                        let look_image = self.look_image(&mut state, look.as_ref())?;
-                        let draw =
-                            record::texture(local, clips, &ndc_from_scene, &placement, image.size)
-                                .ok_or("texture transform")?
-                                .with_look(look.is_some());
+                        let opaque = client.opaque;
+                        let look_image = self.look_image(&mut state, client.look.as_ref())?;
+                        let mut draw = record::texture(
+                            local,
+                            clips,
+                            &ndc_from_scene,
+                            &client.placement,
+                            client.size,
+                        )
+                        .ok_or("texture transform")?
+                        .with_look(client.look.is_some());
+                        let layers = client.layer(&mut draw, &mut staged.draws)?;
+                        let image = client.image;
                         staged.note_cover(&draw, (width, height), || {
                             draw.why_no_cover(opaque, None, (width, height))
                         });
@@ -2425,6 +2614,7 @@ impl SceneComposer {
                             &mut staged,
                             draw,
                             &image,
+                            layers,
                             content,
                             &look_image,
                             local.sampling == Sampling::Nearest,
@@ -2442,26 +2632,29 @@ impl SceneComposer {
                         let clips = reduce(local.clips.clone(), &mut staged.clips);
                         let client = resolve.client(*texture_id, *texture_bounds)?;
                         let content = client.content();
-                        let declared_opaque = client.declared_opaque();
-                        let (image, look) =
-                            match self.resolved_image(&mut state, &mut staged, client, resolve)? {
-                                Some((image, placement, look)) => (Some((image, placement)), look),
-                                None => (None, None),
-                            };
+                        let mut client =
+                            self.resolved_image(&mut state, &mut staged, client, resolve)?;
+                        let look = client.as_mut().and_then(|client| client.look.take());
                         let look_image = self.look_image(&mut state, look.as_ref())?;
-                        let draw = record::window(
+                        let mut draw = record::window(
                             local,
                             clips,
                             &ndc_from_scene,
                             style,
                             texture_transform,
                             *surface_opacity,
-                            image
+                            client
                                 .as_ref()
-                                .map(|(image, placement)| (placement, image.size)),
+                                .map(|client| (&client.placement, client.size)),
                         )
                         .ok_or("window transform")?
                         .with_look(look.is_some());
+                        let layers = match &mut client {
+                            Some(client) => client.layer(&mut draw, &mut staged.draws)?,
+                            None => None,
+                        };
+                        let opaque = client.as_ref().is_some_and(|client| client.opaque);
+                        let image = client.map(|client| (client.image, client.placement));
                         // A frame without a surface samples nothing; the
                         // previous image or the placeholder keeps the
                         // descriptor valid.
@@ -2490,9 +2683,6 @@ impl SceneComposer {
                             }
                             None => None,
                         };
-                        let opaque = image
-                            .as_ref()
-                            .is_some_and(|(image, _)| image.opaque || declared_opaque);
                         let surface = image.as_ref().and_then(|(_, placement)| {
                             opaque
                                 .then(|| record::window_surface(texture_transform, placement))
@@ -2520,7 +2710,15 @@ impl SceneComposer {
                                     staged.covers.push((index, cover));
                                 }
                             }
-                            push(&mut staged, draw, &bound, content, &look_image, nearest);
+                            push(
+                                &mut staged,
+                                draw,
+                                &bound,
+                                layers,
+                                content,
+                                &look_image,
+                                nearest,
+                            );
                             continue;
                         };
                         // The window draws itself over its material, in one
@@ -2548,6 +2746,7 @@ impl SceneComposer {
                                 look: look_image,
                                 nearest,
                                 content,
+                                layers,
                             }),
                         }));
                     }
@@ -2811,6 +3010,7 @@ fn cull(staged: &mut Staged, size: (u32, u32)) {
                             first,
                             count,
                             content: batch.content,
+                            layers: batch.layers.clone(),
                         }));
                     }
                 }

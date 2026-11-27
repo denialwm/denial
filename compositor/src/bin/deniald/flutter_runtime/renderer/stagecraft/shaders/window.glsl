@@ -74,6 +74,44 @@ bool inCoverage(vec2 uv) {
   return all(greaterThanEqual(uv, coverage.xy)) && all(lessThanEqual(uv, coverage.zw));
 }
 
+#ifdef LAYERED
+// A native window's further layers, lowest first. A layer the window does
+// not have has no opacity; its binding holds a stand-in.
+layout(set = 1, binding = 3) uniform sampler2D layer_textures[3];
+
+// One layer where it covers: its buffer within its limits, times its
+// opacity; transparent elsewhere, as a quad of its own would leave it.
+vec4 layerColor(sampler2D image, vec2 uv, vec4 limits, vec4 coverage, float opacity) {
+  if (opacity > 0.0 && all(greaterThanEqual(uv, coverage.xy)) &&
+      all(lessThanEqual(uv, coverage.zw))) {
+    return textureLod(image, clamp(uv, limits.xy, limits.zw), 0.0) * opacity;
+  }
+  return vec4(0.0);
+}
+
+// The window's layers over each other, premultiplied: what a merge of
+// them into one image would hold at this point.
+vec4 layeredClient() {
+  vec4 color = layerColor(surface_texture, v_uv, v_limits, v_coverage, v_layer_opacity.x);
+  vec4 above = layerColor(layer_textures[0], v_layer_uv[0], v_layer_limits[0],
+                          v_layer_coverage[0], v_layer_opacity.y);
+  color = above + color * (1.0 - above.a);
+  above = layerColor(layer_textures[1], v_layer_uv[1], v_layer_limits[1],
+                     v_layer_coverage[1], v_layer_opacity.z);
+  color = above + color * (1.0 - above.a);
+  above = layerColor(layer_textures[2], v_layer_uv[2], v_layer_limits[2],
+                     v_layer_coverage[2], v_layer_opacity.w);
+  return above + color * (1.0 - above.a);
+}
+
+// The layers under the window's look and surface opacity.
+vec4 windowSurface(vec2 uv, float inner) {
+  if (inner > 0.0 && v_flags.z != 0u) {
+    return graded(layeredClient()) * v_params.z;
+  }
+  return vec4(0.0);
+}
+#else
 // The client at `uv`, with its surface opacity; its strip's fill beside
 // it, and transparent elsewhere outside the texture's coverage.
 vec4 windowSurface(vec2 uv, float inner) {
@@ -88,3 +126,4 @@ vec4 windowSurface(vec2 uv, float inner) {
   }
   return vec4(0.0);
 }
+#endif

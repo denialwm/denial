@@ -59,7 +59,9 @@ pub(super) struct Draw {
     clip_first: u32,
     /// The texel centre that fills the strip, in texture coordinates.
     strip_texel: [f32; 2],
-    _pad: u32,
+    /// A layered draw: the first of the records of its further layers
+    /// (`layered`).
+    layers_first: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<Draw>() == 288);
@@ -945,6 +947,164 @@ pub(super) fn merged_layer(
     })
 }
 
+/// One layer of a native window drawn from its layers: where it lies in
+/// the window's image (`quad`, pixels), its normalized texture coordinates
+/// at the quad's upper left, upper right and lower left corners, the texel
+/// limits it samples within and its opacity. As `merged_layer` takes them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Layer {
+    pub(super) quad: [f32; 4],
+    pub(super) uv: [[f32; 2]; 3],
+    pub(super) limits: [f32; 4],
+    pub(super) opacity: f32,
+}
+
+impl Layer {
+    /// Image pixels to one of the layer's texture coordinates: its slopes
+    /// along x and y and its value at the origin, as `merged_layer`.
+    fn slopes(&self, axis: usize) -> (f32, f32, f32) {
+        let [left, top, right, bottom] = self.quad;
+        let along_x = (self.uv[1][axis] - self.uv[0][axis]) / (right - left);
+        let along_y = (self.uv[2][axis] - self.uv[0][axis]) / (bottom - top);
+        (
+            along_x,
+            along_y,
+            self.uv[0][axis] - along_x * left - along_y * top,
+        )
+    }
+
+    fn area(&self) -> bool {
+        let [left, top, right, bottom] = self.quad;
+        right - left > 0.0 && bottom - top > 0.0
+    }
+
+    /// A rectangle of texture coordinates bounds what the layer shows: its
+    /// buffer is upright or turned by quarter turns. Also so for a layer
+    /// without area, which shows nothing.
+    pub(super) fn bounded(&self) -> bool {
+        if !self.area() {
+            return true;
+        }
+        let (u, v) = (self.slopes(0), self.slopes(1));
+        (u.1 == 0.0 && v.0 == 0.0) || (u.0 == 0.0 && v.1 == 0.0)
+    }
+
+    /// The layer covers a whole image of `size` pixels with its buffer, at
+    /// full opacity.
+    pub(super) fn fills(&self, size: (u32, u32)) -> bool {
+        let [left, top, right, bottom] = self.quad;
+        let [a, b, c] = self.uv;
+        let d = [b[0] + c[0] - a[0], b[1] + c[1] - a[1]];
+        self.opacity == 1.0
+            && left <= 0.0
+            && top <= 0.0
+            && right >= size.0 as f32
+            && bottom >= size.1 as f32
+            && [a, b, c, d]
+                .iter()
+                .flatten()
+                .all(|value| (0.0..=1.0).contains(value))
+    }
+}
+
+/// The layers one draw samples: its own image and the further ones the
+/// layered programs bind beside it.
+pub(super) const DRAW_LAYERS: usize = 4;
+
+/// Turns `draw`, a texture or window record that samples a native window's
+/// image of `size` pixels whole, into one that samples the window's
+/// `layers` (lowest first) where that image would hold them: each layer's
+/// own buffer at the point the merged image's texel was drawn from, over
+/// the layers below it. The draw takes the lowest layer; the records
+/// returned hold the further ones, to be stored together and named with
+/// `set_layers`. `kept[i]` says whether layer `i` is drawn: one without
+/// area in the image is left out.
+///
+/// None when a layer's buffer is turned other than by quarter turns, which
+/// a rectangle of texture coordinates cannot bound, or `layers` are more
+/// than `DRAW_LAYERS`.
+pub(super) fn layered(
+    draw: &mut Draw,
+    size: (u32, u32),
+    layers: &[Layer],
+) -> Option<([Draw; DRAW_LAYERS - 1], [bool; DRAW_LAYERS])> {
+    if layers.len() > DRAW_LAYERS {
+        return None;
+    }
+    let (width, height) = (size.0 as f32, size.1 as f32);
+    // The draw's rows give a point's place in the image, normalized.
+    let (image_x, image_y) = (draw.uv_x, draw.uv_y);
+    let mut records = [Draw::default(); DRAW_LAYERS];
+    let mut opacities = [0.0f32; DRAW_LAYERS];
+    let mut kept = [false; DRAW_LAYERS];
+    let mut used = 0;
+    for (index, layer) in layers.iter().enumerate() {
+        if !layer.bounded() {
+            return None;
+        }
+        if !(layer.area() && layer.opacity > 0.0) {
+            continue;
+        }
+        let [left, top, right, bottom] = layer.quad;
+        let (u, v) = (layer.slopes(0), layer.slopes(1));
+        // What the image holds of the layer: its quad within the image,
+        // and nothing past its buffer's edge.
+        let (x0, y0) = (left.max(0.0), top.max(0.0));
+        let (x1, y1) = (right.min(width), bottom.min(height));
+        if !(x1 > x0 && y1 > y0) {
+            continue;
+        }
+        let at = |(along_x, along_y, offset): (f32, f32, f32), x: f32, y: f32| {
+            along_x * x + along_y * y + offset
+        };
+        let (ua, ub) = (at(u, x0, y0), at(u, x1, y1));
+        let (va, vb) = (at(v, x0, y0), at(v, x1, y1));
+        let coverage = [
+            ua.min(ub).max(0.0),
+            va.min(vb).max(0.0),
+            ua.max(ub).min(1.0),
+            va.max(vb).min(1.0),
+        ];
+        if !(coverage[2] > coverage[0] && coverage[3] > coverage[1]) {
+            continue;
+        }
+        // Local to image pixels to the layer.
+        let row = |(along_x, along_y, offset): (f32, f32, f32)| {
+            let term = |at: usize| along_x * width * image_x[at] + along_y * height * image_y[at];
+            [term(0), term(1), term(2) + offset, 0.0]
+        };
+        records[used] = Draw {
+            uv_x: row(u),
+            uv_y: row(v),
+            limits: layer.limits,
+            coverage,
+            ..Draw::default()
+        };
+        opacities[used] = layer.opacity;
+        kept[index] = true;
+        used += 1;
+    }
+    let [lowest, mut further @ ..] = records;
+    draw.uv_x = lowest.uv_x;
+    draw.uv_y = lowest.uv_y;
+    draw.limits = lowest.limits;
+    draw.coverage = lowest.coverage;
+    draw.strip = [0.0; 4];
+    draw.strip_texel = [0.0; 2];
+    for (record, opacity) in further.iter_mut().zip(&opacities[1..]) {
+        record.params[2] = *opacity;
+    }
+    further[0].params[3] = opacities[0];
+    Some((further, kept))
+}
+
+impl Draw {
+    /// Names where the records `layered` returned for this draw are stored.
+    pub(super) fn set_layers(&mut self, first: u32) {
+        self.layers_first = first;
+    }
+}
+
 /// Premultiplied components of a non-premultiplied 0xAARRGGBB color.
 fn premultiplied(argb: u32) -> [f32; 4] {
     let channel = |shift: u32| ((argb >> shift) & 0xff) as f32 / 255.0;
@@ -1108,9 +1268,12 @@ impl Draw {
         edges: &[[f32; 4]],
         state: &mut impl std::hash::Hasher,
     ) {
-        // Where its clips sit in the frame's buffer is not what they are.
+        // Where its clips sit in the frame's buffer is not what they are,
+        // nor where the records of its further layers do: what those hold
+        // follows from the draw and its client's content.
         let mut record = *self;
         record.clip_first = 0;
+        record.layers_first = 0;
         words(&record)
             .iter()
             .for_each(|&word| state.write_u32(word));
@@ -1990,6 +2153,157 @@ pub(super) mod tests {
         assert!((u - 0.5).abs() < 1e-6 && (v - 0.5).abs() < 1e-6);
         assert_eq!(draw.frame[3], 128.0 / 255.0);
         assert!((draw.frame[0] - 128.0 / 255.0).abs() < 1e-6);
+    }
+
+    fn layer(quad: [f32; 4], uv: [[f32; 2]; 3], opacity: f32) -> Layer {
+        Layer {
+            quad,
+            uv,
+            limits: [0.0, 0.0, 1.0, 1.0],
+            opacity,
+        }
+    }
+
+    /// A layer's texture coordinates at a local point of a layered draw.
+    fn layer_uv(record: &Draw, x: f32, y: f32) -> (f32, f32) {
+        (
+            record.uv_x[0] * x + record.uv_x[1] * y + record.uv_x[2],
+            record.uv_y[0] * x + record.uv_y[1] * y + record.uv_y[2],
+        )
+    }
+
+    /// A 200x100 window shown at twice its size from (10, 20): each layer
+    /// is sampled where the window's merged image would hold it.
+    #[test]
+    fn a_layered_draw_samples_each_layer_where_the_merge_holds_it() {
+        let bounds = rect(10.0, 20.0, 410.0, 220.0);
+        let size = (200, 100);
+        let placement = Placement::new(bounds, size, None).unwrap();
+        let mut draw = texture(
+            &whole(1.0),
+            ClipSpan::default(),
+            &Matrix3::IDENTITY,
+            &placement,
+            size,
+        )
+        .unwrap();
+        let layers = [
+            // The whole window.
+            layer(
+                [0.0, 0.0, 200.0, 100.0],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                1.0,
+            ),
+            // A quarter turn at image pixels (50, 10)..(90, 90): u follows y.
+            layer(
+                [50.0, 10.0, 90.0, 90.0],
+                [[0.0, 1.0], [0.0, 0.0], [1.0, 1.0]],
+                0.5,
+            ),
+            // Nothing of it lies in the image.
+            layer(
+                [200.0, 0.0, 300.0, 100.0],
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                1.0,
+            ),
+            // Half of it lies past the image's right edge, and its source
+            // is the middle of its buffer.
+            layer(
+                [150.0, 0.0, 250.0, 100.0],
+                [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75]],
+                0.25,
+            ),
+        ];
+        let (further, kept) = layered(&mut draw, size, &layers).unwrap();
+        assert_eq!(kept, [true, true, false, true]);
+        // Local (10 + 2x, 20 + 2y) shows image pixel (x, y).
+        let close = |got: (f32, f32), want: (f32, f32)| {
+            assert!(
+                (got.0 - want.0).abs() < 1e-5 && (got.1 - want.1).abs() < 1e-5,
+                "{got:?} is not {want:?}"
+            );
+        };
+        let covers = |record: &Draw, want: [f32; 4]| {
+            let got = record.coverage;
+            assert!(
+                got.iter().zip(&want).all(|(a, b)| (a - b).abs() < 1e-5),
+                "{got:?} is not {want:?}"
+            );
+            // Never past the buffer's edge.
+            assert!(got.iter().all(|value| (0.0..=1.0).contains(value)));
+        };
+        close(layer_uv(&draw, 10.0, 20.0), (0.0, 0.0));
+        close(layer_uv(&draw, 410.0, 220.0), (1.0, 1.0));
+        covers(&draw, [0.0, 0.0, 1.0, 1.0]);
+        // The turned layer: image (50, 10) is its lower left texel corner,
+        // image (90, 90) its upper right.
+        close(layer_uv(&further[0], 110.0, 40.0), (0.0, 1.0));
+        close(layer_uv(&further[0], 190.0, 200.0), (1.0, 0.0));
+        close(layer_uv(&further[0], 190.0, 40.0), (0.0, 0.0));
+        covers(&further[0], [0.0, 0.0, 1.0, 1.0]);
+        // The layer cut by the image's edge covers its left half only.
+        close(layer_uv(&further[1], 310.0, 20.0), (0.25, 0.25));
+        close(layer_uv(&further[1], 410.0, 220.0), (0.5, 0.75));
+        covers(&further[1], [0.25, 0.25, 0.5, 0.75]);
+        // Opacities: the lowest layer's beside the first further one's.
+        assert_eq!(further[0].params[3], 1.0);
+        assert_eq!(further[0].params[2], 0.5);
+        assert_eq!(further[1].params[2], 0.25);
+        // The slot no layer took shows nothing.
+        assert_eq!(further[2].params[2], 0.0);
+        assert!(further.iter().all(Draw::hidden));
+    }
+
+    #[test]
+    fn a_layered_draw_declines_what_it_cannot_bound() {
+        let size = (200, 100);
+        let placement = Placement::new(rect(0.0, 0.0, 200.0, 100.0), size, None).unwrap();
+        let fresh = || {
+            texture(
+                &whole(1.0),
+                ClipSpan::default(),
+                &Matrix3::IDENTITY,
+                &placement,
+                size,
+            )
+            .unwrap()
+        };
+        let full = layer(
+            [0.0, 0.0, 200.0, 100.0],
+            [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            1.0,
+        );
+        // A sheared buffer: u follows both axes.
+        let sheared = layer(
+            [0.0, 0.0, 200.0, 100.0],
+            [[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]],
+            1.0,
+        );
+        assert!(full.bounded() && !sheared.bounded());
+        assert!(layered(&mut fresh(), size, &[full, sheared]).is_none());
+        assert!(layered(&mut fresh(), size, &[full; DRAW_LAYERS + 1]).is_none());
+        assert!(layered(&mut fresh(), size, &[full; DRAW_LAYERS]).is_some());
+        // Whole and opaque only with its buffer over every pixel.
+        assert!(full.fills(size));
+        assert!(!layer(full.quad, full.uv, 0.5).fills(size));
+        assert!(!layer([0.0, 0.0, 199.0, 100.0], full.uv, 1.0).fills(size));
+        assert!(!layer(full.quad, [[0.0, 0.0], [2.0, 0.0], [0.0, 1.0]], 1.0).fills(size));
+    }
+
+    /// Where the records of its further layers sit in the frame is not
+    /// what a layered draw shows.
+    #[test]
+    fn a_layered_draws_fingerprint_ignores_where_its_layers_are_stored() {
+        use std::hash::Hasher;
+        let hash = |draw: &Draw| {
+            let mut state = std::collections::hash_map::DefaultHasher::new();
+            draw.hash_into(&[], &[], &mut state);
+            state.finish()
+        };
+        let mut draw = Draw::default();
+        let plain = hash(&draw);
+        draw.set_layers(7);
+        assert_eq!(hash(&draw), plain);
     }
 
     pub(in crate::flutter_runtime) fn glass_material(

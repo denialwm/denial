@@ -27,6 +27,15 @@ layout(location = 16) flat DRAW_VARYING vec4 v_clip_rect;
 layout(location = 17) flat DRAW_VARYING vec4 v_clip_radii_top;
 layout(location = 18) flat DRAW_VARYING vec4 v_clip_radii_bottom;
 layout(location = 19) flat DRAW_VARYING uvec4 v_clip_path;
+#ifdef LAYERED
+// A layered client's three further layers, lowest first: their texture
+// coordinates, limits and coverage, as v_uv, v_limits and v_coverage are
+// its lowest layer's. Opacities: x the lowest layer's, yzw the further ones'.
+layout(location = 20) DRAW_VARYING vec2 v_layer_uv[3];
+layout(location = 23) flat DRAW_VARYING vec4 v_layer_limits[3];
+layout(location = 26) flat DRAW_VARYING vec4 v_layer_coverage[3];
+layout(location = 29) flat DRAW_VARYING vec4 v_layer_opacity;
+#endif
 
 // The draw's clips at `scene`: its first from the varyings.
 #define DRAW_CLIP_HEAD                                                  \
