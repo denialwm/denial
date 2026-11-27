@@ -75,7 +75,28 @@ export BUILDDIR="$MAKEPKG_ROOT"
 export SRCDEST="$MAKEPKG_ROOT/sources"
 export PACKAGER="$PACKAGE_PACKAGER"
 
-engine_package="$(makepkg --dir "$ENGINE_PACKAGE_DIR" --packagelist)"
+# makepkg takes most of a second to start, so the three package paths are
+# asked for once, together.
+package_names="$(mktemp -d "$MAKEPKG_ROOT/names.XXXXXX")"
+makepkg --dir "$ENGINE_PACKAGE_DIR" --packagelist >"$package_names/engine" &
+engine_names=$!
+makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist >"$package_names/denial" &
+denial_names=$!
+makepkg --dir "$PLUGIN_MANAGER_PACKAGE_DIR" --packagelist >"$package_names/plugin-manager" &
+plugin_manager_names=$!
+wait "$engine_names"
+wait "$denial_names"
+wait "$plugin_manager_names"
+engine_package="$(<"$package_names/engine")"
+denial_package="$(<"$package_names/denial")"
+plugin_manager_package="$(<"$package_names/plugin-manager")"
+rm -rf --one-file-system -- "$package_names"
+for package in "$engine_package" "$denial_package" "$plugin_manager_package"; do
+  [[ "$package" == /*.pkg.tar.* && "$package" != *$'\n'* ]] || {
+    printf 'package-denial-arch: unexpected package path from makepkg: %s\n' "$package" >&2
+    exit 1
+  }
+done
 expected_engine_sha256="$(
   cut -d' ' -f1 \
     < "$ROOT/prebuilt/flutter-engine/$engine_platform-release/libflutter_engine.so.sha256"
@@ -332,7 +353,7 @@ package_denial() {
     --clean \
     --nodeps \
     --noconfirm
-  validate_denial_package "$(makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist)"
+  validate_denial_package "$denial_package"
 }
 
 package_plugin_manager() {
@@ -343,8 +364,7 @@ package_plugin_manager() {
     --clean \
     --nodeps \
     --noconfirm
-  validate_plugin_manager_package \
-    "$(makepkg --dir "$PLUGIN_MANAGER_PACKAGE_DIR" --packagelist)"
+  validate_plugin_manager_package "$plugin_manager_package"
 }
 
 # The three packages share no sources and build in their own folders below
@@ -377,10 +397,6 @@ for index in "${!package_pids[@]}"; do
 done
 package_pids=()
 ((package_status == 0)) || exit "$package_status"
-denial_package="$(makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist)"
-plugin_manager_package="$(
-  makepkg --dir "$PLUGIN_MANAGER_PACKAGE_DIR" --packagelist
-)"
 
 printf '\nArch packages ready:\n'
 printf '%s\n' "$engine_package"
